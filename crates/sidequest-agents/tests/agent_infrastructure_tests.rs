@@ -118,10 +118,7 @@ mod claude_client {
             stderr: "error message".to_string(),
         };
         match err {
-            ClaudeClientError::SubprocessFailed {
-                exit_code,
-                stderr,
-            } => {
+            ClaudeClientError::SubprocessFailed { exit_code, stderr } => {
                 assert_eq!(exit_code, Some(1));
                 assert_eq!(stderr, "error message");
             }
@@ -152,7 +149,7 @@ mod claude_client {
 // ═══════════════════════════════════════════════════════════
 
 mod json_extractor {
-    use sidequest_agents::extractor::{JsonExtractor, ExtractionError};
+    use sidequest_agents::extractor::{ExtractionError, JsonExtractor};
 
     // Tier 1: Direct JSON parse
     #[test]
@@ -455,8 +452,7 @@ mod format_helpers {
         let items: Vec<String> = vec![];
         let summary = format_helpers::inventory_summary(&items);
         assert!(
-            summary.to_lowercase().contains("no items")
-                || summary.to_lowercase().contains("empty"),
+            summary.to_lowercase().contains("no items") || summary.to_lowercase().contains("empty"),
             "empty inventory should indicate no items"
         );
     }

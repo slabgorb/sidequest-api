@@ -233,23 +233,13 @@ fn prompt_section_token_estimate_counts_words() {
 
 #[test]
 fn prompt_section_token_estimate_empty_content_is_zero() {
-    let section = PromptSection::new(
-        "empty",
-        SectionCategory::State,
-        AttentionZone::Late,
-        "",
-    );
+    let section = PromptSection::new("empty", SectionCategory::State, AttentionZone::Late, "");
     assert_eq!(section.token_estimate(), 0);
 }
 
 #[test]
 fn prompt_section_is_empty_true_for_empty_content() {
-    let section = PromptSection::new(
-        "empty",
-        SectionCategory::State,
-        AttentionZone::Late,
-        "",
-    );
+    let section = PromptSection::new("empty", SectionCategory::State, AttentionZone::Late, "");
     assert!(section.is_empty());
 }
 
@@ -305,7 +295,10 @@ fn prompt_section_rejects_unknown_fields() {
         "bogus_field": "should fail"
     }"#;
     let result = serde_json::from_str::<PromptSection>(json);
-    assert!(result.is_err(), "deny_unknown_fields should reject bogus_field");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject bogus_field"
+    );
 }
 
 // =========================================================================
@@ -443,15 +436,18 @@ fn parse_soul_md_handles_multiline_body() {
     let data = parse_soul_md(f.path());
 
     assert_eq!(data.principles[0].name, "Diamonds and Coal");
-    assert!(data.principles[0].text.contains("Detail signals importance"));
-    assert!(data.principles[0].text.contains("Coal can become a diamond"));
+    assert!(data.principles[0]
+        .text
+        .contains("Detail signals importance"));
+    assert!(data.principles[0]
+        .text
+        .contains("Coal can become a diamond"));
 }
 
 #[test]
 fn parse_soul_md_full_soul_file() {
     // Parse the actual SOUL.md from the repo.
-    let soul_path =
-        std::path::Path::new("/Users/keithavery/Projects/orc-quest/docs/SOUL.md");
+    let soul_path = std::path::Path::new("/Users/keithavery/Projects/orc-quest/docs/SOUL.md");
     if !soul_path.exists() {
         // Skip if running in CI without the file.
         return;
@@ -459,7 +455,11 @@ fn parse_soul_md_full_soul_file() {
     let data = parse_soul_md(soul_path);
 
     // The real SOUL.md has these principles (verified from file):
-    assert!(data.principles.len() >= 10, "Expected at least 10 principles, got {}", data.principles.len());
+    assert!(
+        data.principles.len() >= 10,
+        "Expected at least 10 principles, got {}",
+        data.principles.len()
+    );
     assert_eq!(data.principles[0].name, "Agency");
     assert_eq!(data.principles[1].name, "Living World");
     assert_eq!(data.principles[2].name, "Genre Truth");
@@ -625,15 +625,30 @@ fn composer_sections_are_ordered_by_zone() {
     // Register out of order.
     composer.register_section(
         "narrator",
-        PromptSection::new("checklist", SectionCategory::Guardrail, AttentionZone::Recency, "Check rules."),
+        PromptSection::new(
+            "checklist",
+            SectionCategory::Guardrail,
+            AttentionZone::Recency,
+            "Check rules.",
+        ),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("identity", SectionCategory::Identity, AttentionZone::Primacy, "You are a narrator."),
+        PromptSection::new(
+            "identity",
+            SectionCategory::Identity,
+            AttentionZone::Primacy,
+            "You are a narrator.",
+        ),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("lore", SectionCategory::Genre, AttentionZone::Valley, "World lore."),
+        PromptSection::new(
+            "lore",
+            SectionCategory::Genre,
+            AttentionZone::Valley,
+            "World lore.",
+        ),
     );
 
     let sections = composer.registry("narrator");
@@ -649,11 +664,21 @@ fn composer_preserves_insertion_order_within_zone() {
 
     composer.register_section(
         "narrator",
-        PromptSection::new("first_early", SectionCategory::Soul, AttentionZone::Early, "Soul."),
+        PromptSection::new(
+            "first_early",
+            SectionCategory::Soul,
+            AttentionZone::Early,
+            "Soul.",
+        ),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("second_early", SectionCategory::Genre, AttentionZone::Early, "Genre."),
+        PromptSection::new(
+            "second_early",
+            SectionCategory::Genre,
+            AttentionZone::Early,
+            "Genre.",
+        ),
     );
 
     let sections = composer.registry("narrator");
@@ -666,7 +691,12 @@ fn composer_get_sections_filters_by_category() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("identity", SectionCategory::Identity, AttentionZone::Primacy, "Id."),
+        PromptSection::new(
+            "identity",
+            SectionCategory::Identity,
+            AttentionZone::Primacy,
+            "Id.",
+        ),
     );
     composer.register_section(
         "narrator",
@@ -739,7 +769,12 @@ fn composer_compose_produces_xml_sections() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("identity", SectionCategory::Identity, AttentionZone::Primacy, "You are a narrator."),
+        PromptSection::new(
+            "identity",
+            SectionCategory::Identity,
+            AttentionZone::Primacy,
+            "You are a narrator.",
+        ),
     );
     let output = composer.compose("narrator");
     assert!(output.contains("<section"));
@@ -758,11 +793,21 @@ fn composer_multiple_agents_are_independent() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("n1", SectionCategory::Identity, AttentionZone::Primacy, "Narrator."),
+        PromptSection::new(
+            "n1",
+            SectionCategory::Identity,
+            AttentionZone::Primacy,
+            "Narrator.",
+        ),
     );
     composer.register_section(
         "combat",
-        PromptSection::new("c1", SectionCategory::Identity, AttentionZone::Primacy, "Combat."),
+        PromptSection::new(
+            "c1",
+            SectionCategory::Identity,
+            AttentionZone::Primacy,
+            "Combat.",
+        ),
     );
 
     assert_eq!(composer.registry("narrator").len(), 1);
@@ -778,16 +823,11 @@ fn composer_multiple_agents_are_independent() {
 #[test]
 fn prompt_section_whitespace_only_content_is_not_empty() {
     // Whitespace-only should count as having content (word split may differ).
-    let section = PromptSection::new(
-        "ws",
-        SectionCategory::State,
-        AttentionZone::Valley,
-        "   ",
-    );
+    let section = PromptSection::new("ws", SectionCategory::State, AttentionZone::Valley, "   ");
     // Whitespace-only content: is_empty should be true (no meaningful content).
     // This tests that we handle whitespace sensibly.
     assert!(section.is_empty() || !section.is_empty()); // Compiles; dev decides behavior.
-    // The real assertion: token_estimate for whitespace should be 0.
+                                                        // The real assertion: token_estimate for whitespace should be 0.
     assert_eq!(section.token_estimate(), 0);
 }
 

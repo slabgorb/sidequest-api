@@ -25,11 +25,11 @@ use sidequest_game::turn::{TurnManager, TurnPhase};
 use sidequest_protocol::NonBlankString;
 
 // === New types from story 1-8 ===
-use sidequest_game::state::GameSnapshot;
 use sidequest_game::delta::{compute_delta, snapshot};
 use sidequest_game::persistence::GameStore;
-use sidequest_game::session::{SessionManager, SaveInfo};
-use sidequest_game::state::{WorldStatePatch, CombatPatch, ChasePatch};
+use sidequest_game::session::{SaveInfo, SessionManager};
+use sidequest_game::state::GameSnapshot;
+use sidequest_game::state::{ChasePatch, CombatPatch, WorldStatePatch};
 
 // ============================================================================
 // Test fixtures
@@ -53,10 +53,7 @@ fn test_character() -> Character {
         hooks: vec!["nemesis: The Warden".to_string()],
         char_class: NonBlankString::new("Fighter").unwrap(),
         race: NonBlankString::new("Dwarf").unwrap(),
-        stats: HashMap::from([
-            ("STR".to_string(), 16),
-            ("DEX".to_string(), 10),
-        ]),
+        stats: HashMap::from([("STR".to_string(), 16), ("DEX".to_string(), 10)]),
     }
 }
 
@@ -98,9 +95,10 @@ fn test_snapshot() -> GameSnapshot {
         npcs: vec![test_npc()],
         location: "The Rusty Nail Inn".to_string(),
         time_of_day: "dusk".to_string(),
-        quest_log: HashMap::from([
-            ("main".to_string(), "Find the source of the flickering".to_string()),
-        ]),
+        quest_log: HashMap::from([(
+            "main".to_string(),
+            "Find the source of the flickering".to_string(),
+        )]),
         notes: vec!["The innkeeper seems nervous".to_string()],
         narrative_log: vec![test_narrative_entry(1, "You enter the inn.")],
         combat: CombatState::new(),
@@ -123,8 +121,7 @@ fn test_snapshot() -> GameSnapshot {
 fn game_snapshot_json_roundtrip_preserves_all_fields() {
     let original = test_snapshot();
     let json = serde_json::to_string(&original).expect("serialize GameSnapshot");
-    let restored: GameSnapshot =
-        serde_json::from_str(&json).expect("deserialize GameSnapshot");
+    let restored: GameSnapshot = serde_json::from_str(&json).expect("deserialize GameSnapshot");
 
     // Core identity
     assert_eq!(restored.genre_slug, "mutant_wasteland");
@@ -144,7 +141,10 @@ fn game_snapshot_json_roundtrip_preserves_all_fields() {
     assert_eq!(restored.time_of_day, "dusk");
 
     // Quest log
-    assert_eq!(restored.quest_log.get("main").unwrap(), "Find the source of the flickering");
+    assert_eq!(
+        restored.quest_log.get("main").unwrap(),
+        "Find the source of the flickering"
+    );
 
     // Notes
     assert_eq!(restored.notes, vec!["The innkeeper seems nervous"]);
@@ -216,7 +216,10 @@ fn state_delta_detects_location_change() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.location_changed(), "delta should detect location change");
+    assert!(
+        delta.location_changed(),
+        "delta should detect location change"
+    );
     assert_eq!(delta.new_location().unwrap(), "The Wasteland Highway");
 }
 
@@ -228,7 +231,10 @@ fn state_delta_detects_character_hp_change() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.characters_changed(), "delta should detect character HP change");
+    assert!(
+        delta.characters_changed(),
+        "delta should detect character HP change"
+    );
 }
 
 #[test]
@@ -239,7 +245,10 @@ fn state_delta_detects_npc_disposition_change() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.npcs_changed(), "delta should detect NPC disposition change");
+    assert!(
+        delta.npcs_changed(),
+        "delta should detect NPC disposition change"
+    );
 }
 
 #[test]
@@ -250,7 +259,10 @@ fn state_delta_detects_combat_state_change() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.combat_changed(), "delta should detect combat state change");
+    assert!(
+        delta.combat_changed(),
+        "delta should detect combat state change"
+    );
 }
 
 #[test]
@@ -261,7 +273,10 @@ fn state_delta_detects_chase_state_change() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.chase_changed(), "delta should detect chase state change");
+    assert!(
+        delta.chase_changed(),
+        "delta should detect chase state change"
+    );
 }
 
 #[test]
@@ -272,7 +287,10 @@ fn state_delta_detects_atmosphere_change() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.atmosphere_changed(), "delta should detect atmosphere change");
+    assert!(
+        delta.atmosphere_changed(),
+        "delta should detect atmosphere change"
+    );
 }
 
 #[test]
@@ -283,18 +301,25 @@ fn state_delta_detects_region_discovery() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.regions_changed(), "delta should detect region discovery");
+    assert!(
+        delta.regions_changed(),
+        "delta should detect region discovery"
+    );
 }
 
 #[test]
 fn state_delta_detects_quest_log_update() {
     let before = snapshot(&test_snapshot());
     let mut snap = test_snapshot();
-    snap.quest_log.insert("side".to_string(), "Help the innkeeper".to_string());
+    snap.quest_log
+        .insert("side".to_string(), "Help the innkeeper".to_string());
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.quest_log_changed(), "delta should detect quest log update");
+    assert!(
+        delta.quest_log_changed(),
+        "delta should detect quest log update"
+    );
 }
 
 #[test]
@@ -304,7 +329,10 @@ fn state_delta_empty_when_nothing_changed() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.is_empty(), "delta should be empty when state unchanged");
+    assert!(
+        delta.is_empty(),
+        "delta should be empty when state unchanged"
+    );
 }
 
 #[test]
@@ -315,7 +343,10 @@ fn state_delta_detects_trope_change() {
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);
-    assert!(delta.tropes_changed(), "delta should detect trope activation");
+    assert!(
+        delta.tropes_changed(),
+        "delta should detect trope activation"
+    );
 }
 
 // ============================================================================
@@ -329,8 +360,11 @@ fn turn_manager_single_player_advances_immediately() {
     tm.submit_input("player1");
 
     // Single player: should advance immediately after one input
-    assert_eq!(tm.phase(), TurnPhase::IntentRouting,
-        "single-player should advance past InputCollection after one submit");
+    assert_eq!(
+        tm.phase(),
+        TurnPhase::IntentRouting,
+        "single-player should advance past InputCollection after one submit"
+    );
 }
 
 #[test]
@@ -339,12 +373,18 @@ fn turn_manager_two_player_waits_for_both() {
     tm.set_player_count(2);
 
     tm.submit_input("player1");
-    assert_eq!(tm.phase(), TurnPhase::InputCollection,
-        "two-player should stay in InputCollection after one submit");
+    assert_eq!(
+        tm.phase(),
+        TurnPhase::InputCollection,
+        "two-player should stay in InputCollection after one submit"
+    );
 
     tm.submit_input("player2");
-    assert_eq!(tm.phase(), TurnPhase::IntentRouting,
-        "two-player should advance after both players submit");
+    assert_eq!(
+        tm.phase(),
+        TurnPhase::IntentRouting,
+        "two-player should advance after both players submit"
+    );
 }
 
 #[test]
@@ -355,8 +395,11 @@ fn turn_manager_rejects_duplicate_input_same_round() {
     tm.submit_input("player1");
     tm.submit_input("player1"); // duplicate — should be ignored
 
-    assert_eq!(tm.phase(), TurnPhase::InputCollection,
-        "duplicate input should not count toward barrier");
+    assert_eq!(
+        tm.phase(),
+        TurnPhase::InputCollection,
+        "duplicate input should not count toward barrier"
+    );
 }
 
 // ============================================================================
@@ -415,11 +458,14 @@ fn narrative_log_append_and_retrieve_in_order() {
     let save_id = store.save(&snap).expect("save snapshot");
 
     // Append entries
-    store.append_narrative(save_id, &test_narrative_entry(1, "You enter the inn."))
+    store
+        .append_narrative(save_id, &test_narrative_entry(1, "You enter the inn."))
         .expect("append entry 1");
-    store.append_narrative(save_id, &test_narrative_entry(2, "The innkeeper looks up."))
+    store
+        .append_narrative(save_id, &test_narrative_entry(2, "The innkeeper looks up."))
         .expect("append entry 2");
-    store.append_narrative(save_id, &test_narrative_entry(3, "Combat begins!"))
+    store
+        .append_narrative(save_id, &test_narrative_entry(3, "Combat begins!"))
         .expect("append entry 3");
 
     // Load back
@@ -440,7 +486,10 @@ fn narrative_log_empty_for_new_save() {
     let save_id = store.save(&snap).expect("save snapshot");
 
     let entries = store.load_narrative(save_id).expect("load narrative");
-    assert!(entries.is_empty(), "new save should have empty narrative log");
+    assert!(
+        entries.is_empty(),
+        "new save should have empty narrative log"
+    );
 }
 
 // ============================================================================
@@ -477,7 +526,9 @@ fn auto_save_is_atomic_via_transaction() {
     // Verify auto_save method exists and works
     let mut updated = test_snapshot();
     updated.atmosphere = "serene".to_string();
-    store.auto_save(save_id, &updated).expect("auto-save should use transaction");
+    store
+        .auto_save(save_id, &updated)
+        .expect("auto-save should use transaction");
 
     let loaded = store.load(save_id).expect("load after atomic auto-save");
     assert_eq!(loaded.atmosphere, "serene");
@@ -498,10 +549,18 @@ fn last_saved_at_set_on_save() {
     let after_save = Utc::now();
 
     let loaded = store.load(save_id).expect("load snapshot");
-    let saved_at = loaded.last_saved_at.expect("last_saved_at should be set after save");
+    let saved_at = loaded
+        .last_saved_at
+        .expect("last_saved_at should be set after save");
 
-    assert!(saved_at >= before_save, "saved_at should be >= time before save");
-    assert!(saved_at <= after_save, "saved_at should be <= time after save");
+    assert!(
+        saved_at >= before_save,
+        "saved_at should be >= time before save"
+    );
+    assert!(
+        saved_at <= after_save,
+        "saved_at should be <= time after save"
+    );
 }
 
 #[test]
@@ -511,7 +570,9 @@ fn last_saved_at_updated_on_auto_save() {
     let save_id = store.save(&snap).expect("save initial");
 
     let loaded1 = store.load(save_id).expect("load first save");
-    let first_saved_at = loaded1.last_saved_at.expect("first save should set timestamp");
+    let first_saved_at = loaded1
+        .last_saved_at
+        .expect("first save should set timestamp");
 
     // Small delay then auto-save
     let mut updated = test_snapshot();
@@ -519,10 +580,14 @@ fn last_saved_at_updated_on_auto_save() {
     store.auto_save(save_id, &updated).expect("auto-save");
 
     let loaded2 = store.load(save_id).expect("load after auto-save");
-    let second_saved_at = loaded2.last_saved_at.expect("auto-save should update timestamp");
+    let second_saved_at = loaded2
+        .last_saved_at
+        .expect("auto-save should update timestamp");
 
-    assert!(second_saved_at >= first_saved_at,
-        "auto-save timestamp should be >= first save timestamp");
+    assert!(
+        second_saved_at >= first_saved_at,
+        "auto-save timestamp should be >= first save timestamp"
+    );
 }
 
 // ============================================================================
@@ -553,9 +618,10 @@ fn world_state_patch_applies_multiple_fields() {
     let patch = WorldStatePatch {
         location: Some("Toxic Marshes".to_string()),
         atmosphere: Some("eerie".to_string()),
-        quest_log: Some(HashMap::from([
-            ("main".to_string(), "Escape the marshes".to_string()),
-        ])),
+        quest_log: Some(HashMap::from([(
+            "main".to_string(),
+            "Escape the marshes".to_string(),
+        )])),
         notes: None,
         current_region: Some("toxic_marshes".to_string()),
         discovered_regions: Some(vec![
@@ -610,7 +676,10 @@ fn chase_patch_initiates_chase() {
     };
     snap.apply_chase_patch(&patch);
     assert!(snap.chase.is_some());
-    assert_eq!(snap.chase.as_ref().unwrap().chase_type(), ChaseType::Footrace);
+    assert_eq!(
+        snap.chase.as_ref().unwrap().chase_type(),
+        ChaseType::Footrace
+    );
 }
 
 // ============================================================================
@@ -711,7 +780,10 @@ fn game_snapshot_rejects_empty_character_name_in_json() {
     json["characters"][0]["name"] = serde_json::Value::String("".to_string());
 
     let result = serde_json::from_value::<GameSnapshot>(json);
-    assert!(result.is_err(), "GameSnapshot should reject empty character name via nested NonBlankString validation");
+    assert!(
+        result.is_err(),
+        "GameSnapshot should reject empty character name via nested NonBlankString validation"
+    );
 }
 
 // ============================================================================
@@ -729,7 +801,10 @@ fn game_snapshot_deserialize_enforces_nested_validation() {
     json["npcs"][0]["name"] = serde_json::Value::String("   ".to_string());
 
     let result = serde_json::from_value::<GameSnapshot>(json);
-    assert!(result.is_err(), "blank NPC name should be rejected through nested Deserialize");
+    assert!(
+        result.is_err(),
+        "blank NPC name should be rejected through nested Deserialize"
+    );
 }
 
 // ============================================================================

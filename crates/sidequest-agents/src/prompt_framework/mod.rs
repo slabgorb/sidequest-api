@@ -10,7 +10,7 @@ mod types;
 #[cfg(test)]
 mod tests;
 
-pub use soul::{parse_soul_md, SoulPrinciple, SoulData};
+pub use soul::{parse_soul_md, SoulData, SoulPrinciple};
 pub use types::{AttentionZone, PromptSection, RuleTier, SectionCategory};
 
 /// Trait for assembling prompt sections into a final prompt string.

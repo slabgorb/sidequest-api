@@ -42,14 +42,11 @@ impl SessionManager {
 
     /// Save the current session to the store. Returns the save ID.
     pub fn save(&mut self) -> Result<i64, PersistenceError> {
-        let snapshot = self
-            .active_snapshot
-            .as_ref()
-            .ok_or_else(|| {
-                PersistenceError::Database(rusqlite::Error::InvalidParameterName(
-                    "no active session".to_string(),
-                ))
-            })?;
+        let snapshot = self.active_snapshot.as_ref().ok_or_else(|| {
+            PersistenceError::Database(rusqlite::Error::InvalidParameterName(
+                "no active session".to_string(),
+            ))
+        })?;
 
         let save_id = if let Some(existing_id) = self.active_save_id {
             self.store.auto_save(existing_id, snapshot)?;

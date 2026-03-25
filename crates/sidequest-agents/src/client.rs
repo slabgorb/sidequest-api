@@ -38,10 +38,7 @@ impl std::fmt::Display for ClaudeClientError {
                 write!(f, "Claude CLI timed out after {elapsed:?}")
             }
             ClaudeClientError::SubprocessFailed { exit_code, stderr } => {
-                write!(
-                    f,
-                    "Claude CLI failed (exit code: {exit_code:?}): {stderr}"
-                )
+                write!(f, "Claude CLI failed (exit code: {exit_code:?}): {stderr}")
             }
             ClaudeClientError::EmptyResponse => {
                 write!(f, "Claude CLI returned an empty response")

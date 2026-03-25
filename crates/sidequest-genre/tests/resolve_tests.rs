@@ -63,8 +63,14 @@ fn multi_level_inheritance_resolves_grandparent_fields() {
     assert_eq!(resolved.len(), 2, "both world tropes should appear");
 
     // Mid Trope inherits category from Root, overrides triggers
-    let mid = resolved.iter().find(|t| t.name.as_str() == "Mid Trope").unwrap();
-    assert_eq!(mid.category, "recurring", "mid should inherit category from root");
+    let mid = resolved
+        .iter()
+        .find(|t| t.name.as_str() == "Mid Trope")
+        .unwrap();
+    assert_eq!(
+        mid.category, "recurring",
+        "mid should inherit category from root"
+    );
     assert!(
         mid.triggers.iter().any(|t| t.contains("mid trigger")),
         "mid should have its own triggers"
@@ -75,7 +81,10 @@ fn multi_level_inheritance_resolves_grandparent_fields() {
     );
 
     // Leaf Trope extends Mid Trope — inherits mid's triggers (which overrode root's)
-    let leaf = resolved.iter().find(|t| t.name.as_str() == "Leaf Trope").unwrap();
+    let leaf = resolved
+        .iter()
+        .find(|t| t.name.as_str() == "Leaf Trope")
+        .unwrap();
     assert_eq!(
         leaf.description.as_deref(),
         Some("The final inheritor"),
@@ -103,7 +112,10 @@ fn self_cycle_detected() {
     );
 
     let result = sidequest_genre::resolve_trope_inheritance(&[], &world);
-    assert!(result.is_err(), "self-referencing extends should be detected as a cycle");
+    assert!(
+        result.is_err(),
+        "self-referencing extends should be detected as a cycle"
+    );
     match result.unwrap_err() {
         GenreError::CycleDetected { .. } => {}
         other => panic!("expected CycleDetected, got: {other:?}"),
@@ -373,7 +385,10 @@ fn merge_resolution_hints_inherited_when_child_absent() {
     );
 
     let resolved = sidequest_genre::resolve_trope_inheritance(&genre, &world).unwrap();
-    let hints = resolved[0].resolution_hints.as_ref().expect("should inherit resolution_hints");
+    let hints = resolved[0]
+        .resolution_hints
+        .as_ref()
+        .expect("should inherit resolution_hints");
     assert_eq!(hints.len(), 2);
 }
 
@@ -668,7 +683,11 @@ fn genre_abstract_tropes_not_in_output() {
     );
 
     let resolved = sidequest_genre::resolve_trope_inheritance(&genre, &world).unwrap();
-    assert_eq!(resolved.len(), 1, "only world tropes should appear in output");
+    assert_eq!(
+        resolved.len(),
+        1,
+        "only world tropes should appear in output"
+    );
     assert_eq!(resolved[0].name.as_str(), "Concrete");
 }
 
@@ -823,10 +842,7 @@ pacing:
 unknown_field: should fail
 "#;
     let result: Result<ScenarioPack, _> = serde_yaml::from_str(yaml);
-    assert!(
-        result.is_err(),
-        "ScenarioPack should reject unknown fields"
-    );
+    assert!(result.is_err(), "ScenarioPack should reject unknown fields");
 }
 
 // ═══════════════════════════════════════════════════════════
