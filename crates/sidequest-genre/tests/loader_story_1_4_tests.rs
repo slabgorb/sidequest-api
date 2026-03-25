@@ -9,9 +9,7 @@
 //!
 //! All tests are expected to FAIL (RED state) until Dev implements the features.
 
-use sidequest_genre::{
-    GenreCode, GenreCache, GenreError, GenreLoader, ValidationErrors,
-};
+use sidequest_genre::{GenreCache, GenreCode, GenreError, GenreLoader, ValidationErrors};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -226,7 +224,10 @@ fn genre_loader_finds_pack_in_first_search_path() {
     let code = GenreCode::new("mutant_wasteland").unwrap();
 
     let result = loader.find(&code);
-    assert!(result.is_ok(), "should find mutant_wasteland in genre_packs/");
+    assert!(
+        result.is_ok(),
+        "should find mutant_wasteland in genre_packs/"
+    );
 
     let found_path = result.unwrap();
     assert!(
@@ -238,10 +239,7 @@ fn genre_loader_finds_pack_in_first_search_path() {
 #[test]
 fn genre_loader_searches_paths_in_order() {
     // First path doesn't have the pack, second does
-    let search_paths = vec![
-        PathBuf::from("/nonexistent/first/path"),
-        genre_packs_path(),
-    ];
+    let search_paths = vec![PathBuf::from("/nonexistent/first/path"), genre_packs_path()];
     let loader = GenreLoader::new(search_paths);
     let code = GenreCode::new("mutant_wasteland").unwrap();
 
@@ -333,8 +331,12 @@ fn genre_cache_stores_different_packs_for_different_codes() {
     let mw_code = GenreCode::new("mutant_wasteland").unwrap();
     let lf_code = GenreCode::new("low_fantasy").unwrap();
 
-    let mw_pack = cache.get_or_load(&mw_code, &loader).expect("load mutant_wasteland");
-    let lf_pack = cache.get_or_load(&lf_code, &loader).expect("load low_fantasy");
+    let mw_pack = cache
+        .get_or_load(&mw_code, &loader)
+        .expect("load mutant_wasteland");
+    let lf_pack = cache
+        .get_or_load(&lf_code, &loader)
+        .expect("load low_fantasy");
 
     assert!(
         !Arc::ptr_eq(&mw_pack, &lf_pack),
