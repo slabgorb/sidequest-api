@@ -5,7 +5,10 @@
 
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
+
 /// Tracks the state of an active combat encounter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatState {
     round: u32,
     damage_log: Vec<DamageEvent>,
@@ -78,6 +81,7 @@ impl Default for CombatState {
 }
 
 /// A single damage event in combat.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DamageEvent {
     /// Who dealt the damage.
     pub attacker: String,
@@ -90,6 +94,7 @@ pub struct DamageEvent {
 }
 
 /// The result of resolving a combat round.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoundResult {
     /// Which round was resolved.
     pub round: u32,
@@ -102,6 +107,7 @@ pub struct RoundResult {
 }
 
 /// A status effect applied to a combatant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StatusEffect {
     kind: StatusEffectKind,
     remaining_rounds: u32,
@@ -138,7 +144,7 @@ impl StatusEffect {
 }
 
 /// The kinds of status effects that can be applied.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum StatusEffectKind {
     /// Damage over time.
