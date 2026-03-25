@@ -5,7 +5,10 @@
 //! verify the unified loader, trope inheritance resolution, and
 //! cross-reference validation.
 
-use sidequest_genre::{GenreError, GenrePack, TropeDefinition};
+use sidequest_genre::{
+    AssignmentMatrix, AtmosphereMatrix, ClueGraph, GenreError, GenrePack, ScenarioPack,
+    ScenarioNpc, TropeDefinition,
+};
 use std::path::PathBuf;
 
 /// Locate the genre_packs directory relative to this crate.
@@ -381,4 +384,187 @@ fn load_elemental_harmony_with_trope_inheritance() {
             );
         }
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+// AC: Scenario packs — ScenarioPack loads through unified loader
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn load_pulp_noir_with_scenario_packs() {
+    // pulp_noir has scenarios/ subdirectory with two scenarios
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).expect("should load pulp_noir");
+    assert!(
+        !pack.scenarios.is_empty(),
+        "pulp_noir should have scenario packs loaded"
+    );
+    assert!(
+        pack.scenarios.contains_key("midnight_express"),
+        "should contain midnight_express scenario"
+    );
+}
+
+#[test]
+fn scenario_pack_has_metadata_and_pacing() {
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let scenario = &pack.scenarios["midnight_express"];
+
+    assert_eq!(scenario.name.as_str(), "Murder on the Midnight Express");
+    assert_eq!(scenario.max_players, 5);
+    assert_eq!(scenario.duration_minutes, 210);
+
+    // Pacing has 3 acts
+    assert_eq!(scenario.pacing.acts.len(), 3);
+    assert_eq!(scenario.pacing.acts[0].id, "act_1");
+    assert_eq!(scenario.pacing.acts[0].name, "Discovery");
+}
+
+#[test]
+fn scenario_pack_has_player_roles() {
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let scenario = &pack.scenarios["midnight_express"];
+
+    // scenario.yaml has 5 player roles
+    assert_eq!(scenario.player_roles.len(), 5);
+    let investigator = scenario.player_roles.iter().find(|r| r.id == "lead_investigator");
+    assert!(investigator.is_some(), "should have lead_investigator role");
+}
+
+#[test]
+fn scenario_assignment_matrix_has_suspects() {
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let scenario = &pack.scenarios["midnight_express"];
+
+    // Assignment matrix has 6 suspects
+    assert!(
+        scenario.assignment_matrix.suspects.len() >= 6,
+        "expected at least 6 suspects, got {}",
+        scenario.assignment_matrix.suspects.len()
+    );
+    // Some suspects can be guilty, others cannot
+    let guilty_capable: Vec<_> = scenario
+        .assignment_matrix
+        .suspects
+        .iter()
+        .filter(|s| s.can_be_guilty)
+        .collect();
+    assert!(
+        guilty_capable.len() >= 3,
+        "at least 3 suspects should be capable of being guilty"
+    );
+}
+
+#[test]
+fn scenario_clue_graph_has_nodes() {
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let scenario = &pack.scenarios["midnight_express"];
+
+    assert!(
+        !scenario.clue_graph.nodes.is_empty(),
+        "clue graph should have clue nodes"
+    );
+    // Clue nodes should reference suspects
+    let clue = &scenario.clue_graph.nodes[0];
+    assert!(!clue.implicates.is_empty(), "clues should implicate suspects");
+}
+
+#[test]
+fn scenario_atmosphere_matrix_has_variants() {
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let scenario = &pack.scenarios["midnight_express"];
+
+    // atmosphere_matrix.yaml has 3 variants
+    assert_eq!(scenario.atmosphere_matrix.variants.len(), 3);
+    // Some variants have concurrent_event: null
+    let midnight = scenario
+        .atmosphere_matrix
+        .variants
+        .iter()
+        .find(|v| v.id == "midnight_passage")
+        .unwrap();
+    assert!(
+        midnight.concurrent_event.is_none(),
+        "midnight_passage should have null concurrent_event"
+    );
+}
+
+#[test]
+fn scenario_npcs_have_guilty_and_innocent_branches() {
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let scenario = &pack.scenarios["midnight_express"];
+
+    assert!(
+        !scenario.npcs.is_empty(),
+        "scenario should have NPC definitions"
+    );
+
+    // Each NPC has when_guilty and when_innocent branches
+    let varek = scenario.npcs.iter().find(|n| n.id == "suspect_varek").unwrap();
+    assert!(
+        !varek.when_guilty.truth.is_empty(),
+        "when_guilty.truth should be populated"
+    );
+    assert!(
+        !varek.when_innocent.actual_activity.is_empty(),
+        "when_innocent.actual_activity should be populated"
+    );
+}
+
+#[test]
+fn two_phase_validate_catches_bad_clue_suspect_ref() {
+    // Clue graph nodes reference suspect IDs — validate catches dangling refs
+    let path = genre_packs_path().join("pulp_noir");
+    if !path.exists() {
+        return;
+    }
+
+    let mut pack = sidequest_genre::load_genre_pack(&path).unwrap();
+
+    // Inject a clue that references a nonexistent suspect
+    if let Some(scenario) = pack.scenarios.get_mut("midnight_express") {
+        if let Some(node) = scenario.clue_graph.nodes.first_mut() {
+            node.implicates.push("nonexistent_suspect".to_string());
+        }
+    }
+
+    let result = pack.validate();
+    assert!(
+        result.is_err(),
+        "validation should catch clue referencing nonexistent suspect"
+    );
 }

@@ -10,9 +10,12 @@
 use sidequest_genre::{
     // Core models — one per YAML file type
     Achievement,
+    AssignmentMatrix,
+    AtmosphereMatrix,
     AudioConfig,
     AxesConfig,
     BeatVocabulary,
+    ClueGraph,
     CartographyConfig,
     CharCreationScene,
     Culture,
@@ -25,6 +28,7 @@ use sidequest_genre::{
     ProgressionConfig,
     Prompts,
     RulesConfig,
+    ScenarioPack,
     TropeDefinition,
     VisualStyle,
     WorldConfig,
@@ -847,4 +851,156 @@ label: connected
 "#;
     let tier: sidequest_genre::WealthTier = serde_yaml::from_str(yaml_with_value).unwrap();
     assert_eq!(tier.max_gold, Some(1000));
+}
+
+// ═══════════════════════════════════════════════════════════
+// AC: Scenario pack models (from pulp_noir prototype)
+// ═══════════════════════════════════════════════════════════
+
+// ── ScenarioPack (scenario.yaml) ─────────────────────────
+
+#[test]
+fn scenario_pack_deserializes_with_player_roles_and_pacing() {
+    let yaml = r#"
+name: Murder on the Midnight Express
+version: "1.0.0"
+description: A locked-room mystery aboard the Orient Express
+duration_minutes: 210
+max_players: 5
+player_roles:
+  - id: lead_investigator
+    archetype_hint: A retired detective
+    narrative_position: You were asked to investigate
+    required_hooks:
+      - type: MOTIVATION
+        prompt: What compels you to seek the truth?
+    constraints:
+      - Must have a plausible reason to investigate
+    suggested_flavors:
+      - Retired military intelligence
+pacing:
+  scene_budget: 16
+  acts:
+    - id: act_1
+      name: Discovery
+      scenes: 5
+      trope_range: [0.0, 0.35]
+      narrator_tone: Atmospheric dread
+  pressure_events:
+    - at_scene: 5
+      event: A scream echoes from the luggage van
+  escalation_beats:
+    - at: 0.50
+      inject: Alibis are crumbling
+"#;
+    let scenario: ScenarioPack = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(scenario.name.as_str(), "Murder on the Midnight Express");
+    assert_eq!(scenario.max_players, 5);
+    assert_eq!(scenario.duration_minutes, 210);
+    assert_eq!(scenario.player_roles.len(), 1);
+    assert_eq!(scenario.player_roles[0].id, "lead_investigator");
+    assert_eq!(scenario.pacing.scene_budget, 16);
+    assert_eq!(scenario.pacing.acts[0].name, "Discovery");
+}
+
+// ── AssignmentMatrix (assignment_matrix.yaml) ────────────
+
+#[test]
+fn assignment_matrix_deserializes_with_suspects() {
+    let yaml = r#"
+suspects:
+  - id: suspect_varek
+    archetype_ref: train_conductor
+    can_be_guilty: true
+    motives: [revenge, greed]
+    methods: [poison, staged_accident]
+    opportunities: [dining_hall, corridor]
+  - id: suspect_irina
+    archetype_ref: countess
+    can_be_guilty: false
+    motives: [jealousy]
+    methods: [poison]
+    opportunities: [dining_hall]
+motives:
+  - betrayal
+  - revenge
+  - greed
+methods:
+  - poison
+  - suffocation
+  - stabbing
+opportunities:
+  - locked_car
+  - dining_hall
+"#;
+    let matrix: AssignmentMatrix = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(matrix.suspects.len(), 2);
+    assert!(matrix.suspects[0].can_be_guilty);
+    assert!(!matrix.suspects[1].can_be_guilty);
+    assert_eq!(matrix.suspects[0].motives, vec!["revenge", "greed"]);
+    assert_eq!(matrix.motives.len(), 3);
+}
+
+// ── ClueGraph (clue_graph.yaml) ──────────────────────────
+
+#[test]
+fn clue_graph_deserializes_with_nodes() {
+    let yaml = r#"
+nodes:
+  - id: clue_poison_vial
+    type: physical
+    description: A small glass vial with traces of belladonna
+    discovery_method: forensic
+    visibility: hidden
+    locations: [dining_car, luggage_van]
+    implicates: [suspect_varek]
+    requires: []
+    red_herring: false
+  - id: clue_corridor_witness
+    type: testimonial
+    description: A sleepless passenger saw a figure
+    discovery_method: interrogate
+    visibility: obvious
+    locations: []
+    implicates: [suspect_lucienne]
+    requires: []
+    red_herring: false
+"#;
+    let graph: ClueGraph = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(graph.nodes.len(), 2);
+    assert_eq!(graph.nodes[0].id, "clue_poison_vial");
+    assert!(!graph.nodes[0].red_herring);
+    assert_eq!(graph.nodes[0].implicates, vec!["suspect_varek"]);
+    assert_eq!(graph.nodes[0].visibility, "hidden");
+}
+
+// ── AtmosphereMatrix (atmosphere_matrix.yaml) ────────────
+
+#[test]
+fn atmosphere_matrix_deserializes_with_null_concurrent_event() {
+    let yaml = r#"
+variants:
+  - id: stormy_crossing
+    weather: Driving rain, thunder
+    setting_status: doors_locked
+    mood_baseline: Claustrophobic dread
+    concurrent_event: Lightning strikes the rail bridge
+    npc_mood_overrides:
+      suspect_varek: visibly sweating
+  - id: midnight_passage
+    weather: Clear and bitterly cold
+    setting_status: lights_dimmed
+    mood_baseline: Paranoid stillness
+    concurrent_event: null
+    npc_mood_overrides:
+      suspect_rashid: unusually talkative
+"#;
+    let atmo: AtmosphereMatrix = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(atmo.variants.len(), 2);
+    assert!(atmo.variants[0].concurrent_event.is_some());
+    assert!(
+        atmo.variants[1].concurrent_event.is_none(),
+        "null concurrent_event should be None"
+    );
+    assert!(atmo.variants[0].npc_mood_overrides.contains_key("suspect_varek"));
 }
