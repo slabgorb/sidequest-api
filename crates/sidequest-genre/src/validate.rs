@@ -6,6 +6,7 @@
 
 use crate::error::GenreError;
 use crate::models::GenrePack;
+use crate::util::slugify;
 use std::collections::HashSet;
 
 impl GenrePack {
@@ -138,7 +139,3 @@ impl GenrePack {
     }
 }
 
-/// Convert a name to a slug for lookup.
-fn slugify(name: &str) -> String {
-    name.to_lowercase().replace(' ', "-")
-}

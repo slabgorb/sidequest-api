@@ -9,6 +9,7 @@
 
 use crate::error::GenreError;
 use crate::models::TropeDefinition;
+use crate::util::slugify;
 use std::collections::{HashMap, HashSet};
 
 /// Resolve trope inheritance by merging parent fields into child tropes.
@@ -144,7 +145,3 @@ fn merge_trope(parent: &TropeDefinition, child: &TropeDefinition) -> TropeDefini
     }
 }
 
-/// Convert a trope name to a slug for lookup (lowercase, spaces → hyphens).
-fn slugify(name: &str) -> String {
-    name.to_lowercase().replace(' ', "-")
-}

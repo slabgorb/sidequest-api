@@ -49,11 +49,11 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     let power_tiers: HashMap<String, Vec<PowerTier>> =
         load_yaml_optional(&path.join("power_tiers.yaml"))?.unwrap_or_default();
 
-    // Load worlds
-    let worlds = load_worlds(path, &genre_tropes)?;
-
-    // Load scenarios
-    let scenarios = load_scenarios(path)?;
+    // Load worlds and scenarios from subdirectories
+    let worlds = load_subdirectories(path, "worlds", |p| {
+        load_single_world(p, &genre_tropes)
+    })?;
+    let scenarios = load_subdirectories(path, "scenarios", load_single_scenario)?;
 
     Ok(GenrePack {
         meta,
@@ -78,16 +78,18 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     })
 }
 
+/// Create a LoadError from a path and a displayable error.
+fn load_error(path: &Path, e: impl std::fmt::Display) -> GenreError {
+    GenreError::LoadError {
+        path: path.display().to_string(),
+        source: e.to_string(),
+    }
+}
+
 /// Load and parse a required YAML file.
 fn load_yaml<T: DeserializeOwned>(path: &Path) -> Result<T, GenreError> {
-    let content = std::fs::read_to_string(path).map_err(|e| GenreError::LoadError {
-        path: path.display().to_string(),
-        source: e.to_string(),
-    })?;
-    serde_yaml::from_str(&content).map_err(|e| GenreError::LoadError {
-        path: path.display().to_string(),
-        source: e.to_string(),
-    })
+    let content = std::fs::read_to_string(path).map_err(|e| load_error(path, e))?;
+    serde_yaml::from_str(&content).map_err(|e| load_error(path, e))
 }
 
 /// Load and parse an optional YAML file (returns None if file doesn't exist).
@@ -98,39 +100,35 @@ fn load_yaml_optional<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, Gen
     load_yaml(path).map(Some)
 }
 
-/// Load all worlds from `worlds/*/`.
-fn load_worlds(
+/// Load all subdirectories of `{pack_path}/{subdir}/` into a HashMap,
+/// applying `loader` to each subdirectory.
+fn load_subdirectories<T, F>(
     pack_path: &Path,
-    genre_tropes: &[TropeDefinition],
-) -> Result<HashMap<String, World>, GenreError> {
-    let worlds_dir = pack_path.join("worlds");
-    if !worlds_dir.exists() {
+    subdir: &str,
+    loader: F,
+) -> Result<HashMap<String, T>, GenreError>
+where
+    F: Fn(&Path) -> Result<T, GenreError>,
+{
+    let dir = pack_path.join(subdir);
+    if !dir.exists() {
         return Ok(HashMap::new());
     }
 
-    let mut worlds = HashMap::new();
-    let entries = std::fs::read_dir(&worlds_dir).map_err(|e| GenreError::LoadError {
-        path: worlds_dir.display().to_string(),
-        source: e.to_string(),
-    })?;
+    let mut result = HashMap::new();
+    let entries = std::fs::read_dir(&dir).map_err(|e| load_error(&dir, e))?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| GenreError::LoadError {
-            path: worlds_dir.display().to_string(),
-            source: e.to_string(),
-        })?;
-        let world_path = entry.path();
-        if world_path.is_dir() {
-            let slug = entry
-                .file_name()
-                .to_string_lossy()
-                .to_string();
-            let world = load_single_world(&world_path, genre_tropes)?;
-            worlds.insert(slug, world);
+        let entry = entry.map_err(|e| load_error(&dir, e))?;
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+            let slug = entry.file_name().to_string_lossy().to_string();
+            let item = loader(&entry_path)?;
+            result.insert(slug, item);
         }
     }
 
-    Ok(worlds)
+    Ok(result)
 }
 
 /// Load a single world from its directory.
@@ -163,40 +161,6 @@ fn load_single_world(
         cultures,
         tropes,
     })
-}
-
-/// Load all scenarios from `scenarios/*/`.
-fn load_scenarios(
-    pack_path: &Path,
-) -> Result<HashMap<String, ScenarioPack>, GenreError> {
-    let scenarios_dir = pack_path.join("scenarios");
-    if !scenarios_dir.exists() {
-        return Ok(HashMap::new());
-    }
-
-    let mut scenarios = HashMap::new();
-    let entries = std::fs::read_dir(&scenarios_dir).map_err(|e| GenreError::LoadError {
-        path: scenarios_dir.display().to_string(),
-        source: e.to_string(),
-    })?;
-
-    for entry in entries {
-        let entry = entry.map_err(|e| GenreError::LoadError {
-            path: scenarios_dir.display().to_string(),
-            source: e.to_string(),
-        })?;
-        let scenario_path = entry.path();
-        if scenario_path.is_dir() {
-            let slug = entry
-                .file_name()
-                .to_string_lossy()
-                .to_string();
-            let scenario = load_single_scenario(&scenario_path)?;
-            scenarios.insert(slug, scenario);
-        }
-    }
-
-    Ok(scenarios)
 }
 
 /// Load a single scenario from its directory.

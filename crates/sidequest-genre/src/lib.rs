@@ -17,6 +17,7 @@ mod error;
 mod loader;
 mod models;
 mod resolve;
+mod util;
 mod validate;
 
 pub use sidequest_protocol;
