@@ -1,0 +1,16 @@
+[package]
+name = "sidequest-agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+
+[dependencies]
+sidequest-protocol = { path = "../sidequest-protocol" }
+sidequest-game = { path = "../sidequest-game" }
+tokio = { workspace = true, features = ["process"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
