@@ -160,7 +160,11 @@ mod tests {
             weight: 2.5,
             rarity: NonBlankString::new("legendary").unwrap(),
             narrative_weight: 0.85,
-            tags: vec!["melee".to_string(), "blade".to_string(), "radiant".to_string()],
+            tags: vec![
+                "melee".to_string(),
+                "blade".to_string(),
+                "radiant".to_string(),
+            ],
             equipped: false,
             quantity: 1,
         }

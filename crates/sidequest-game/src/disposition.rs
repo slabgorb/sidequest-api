@@ -188,7 +188,10 @@ mod tests {
     fn display_includes_attitude() {
         let d = Disposition::new(15);
         let s = format!("{d}");
-        assert!(s.contains("friendly"), "display should include attitude: {s}");
+        assert!(
+            s.contains("friendly"),
+            "display should include attitude: {s}"
+        );
     }
 
     #[test]
