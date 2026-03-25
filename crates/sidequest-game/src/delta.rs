@@ -28,6 +28,8 @@ pub struct StateSnapshot {
     chase_json: String,
     active_tropes_json: String,
     atmosphere: String,
+    #[allow(dead_code)]
+
     current_region: String,
     discovered_regions_json: String,
     discovered_routes_json: String,
