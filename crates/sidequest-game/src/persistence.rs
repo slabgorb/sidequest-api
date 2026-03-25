@@ -101,7 +101,13 @@ impl GameStore {
         self.conn.execute(
             "INSERT INTO game_saves (genre_slug, world_slug, state_json, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![snap.genre_slug, snap.world_slug, state_json, now_str, now_str],
+            params![
+                snap.genre_slug,
+                snap.world_slug,
+                state_json,
+                now_str,
+                now_str
+            ],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -149,11 +155,7 @@ impl GameStore {
 
     /// Auto-save: atomically update an existing save using a transaction.
     /// ADR-023: Atomic writes prevent corruption from interrupted saves.
-    pub fn auto_save(
-        &self,
-        save_id: i64,
-        snapshot: &GameSnapshot,
-    ) -> Result<(), PersistenceError> {
+    pub fn auto_save(&self, save_id: i64, snapshot: &GameSnapshot) -> Result<(), PersistenceError> {
         let (_snap, state_json, now_str) = prepare_for_save(snapshot);
 
         let tx = self.conn.unchecked_transaction()?;
@@ -201,8 +203,7 @@ impl GameStore {
                 let content: String = row.get(2)?;
                 let timestamp: u64 = row.get(3)?;
                 let tags_json: String = row.get(4)?;
-                let tags: Vec<String> =
-                    serde_json::from_str(&tags_json).unwrap_or_default();
+                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
                 Ok(NarrativeEntry {
                     timestamp,
                     round,
