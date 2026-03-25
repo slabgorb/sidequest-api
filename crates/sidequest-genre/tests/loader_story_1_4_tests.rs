@@ -10,7 +10,7 @@
 //! All tests are expected to FAIL (RED state) until Dev implements the features.
 
 use sidequest_genre::{
-    GenreCode, GenreCache, GenreError, GenreLoader, GenrePack, ValidationErrors,
+    GenreCode, GenreCache, GenreError, GenreLoader, ValidationErrors,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
