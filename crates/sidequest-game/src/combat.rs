@@ -50,7 +50,9 @@ impl CombatState {
             .push(effect);
     }
 
-    /// Get active (non-expired) effects on a combatant.
+    /// Get effects currently stored for a combatant.
+    ///
+    /// Call `tick_effects()` first to remove expired effects.
     pub fn effects_on(&self, target: &str) -> Vec<&StatusEffect> {
         self.effects
             .get(target)

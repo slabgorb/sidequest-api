@@ -2,16 +2,25 @@
 //! NarrativeEntry, progression, TurnManager, status effects.
 
 use sidequest_game::{
-    // Combat subsystem
-    CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind,
-    // Chase subsystem
-    ChaseState, ChaseType,
     // Progression
-    level_to_damage, level_to_defense, level_to_hp, xp_for_level,
+    level_to_damage,
+    level_to_defense,
+    level_to_hp,
+    xp_for_level,
+    // Chase subsystem
+    ChaseState,
+    ChaseType,
+    // Combat subsystem
+    CombatState,
+    DamageEvent,
     // Narrative
     NarrativeEntry,
+    RoundResult,
+    StatusEffect,
+    StatusEffectKind,
     // Turn management
-    TurnManager, TurnPhase,
+    TurnManager,
+    TurnPhase,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -189,7 +198,10 @@ fn chase_escape_succeeds_above_threshold() {
 fn chase_escape_fails_below_threshold() {
     let mut state = ChaseState::new(ChaseType::Footrace, 0.5);
     state.record_roll(0.3); // below 0.5 threshold
-    assert!(!state.rounds()[0].escaped, "roll below threshold = no escape");
+    assert!(
+        !state.rounds()[0].escaped,
+        "roll below threshold = no escape"
+    );
 }
 
 #[test]

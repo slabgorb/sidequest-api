@@ -70,7 +70,12 @@ impl ChaseState {
     }
 
     /// Record an escape roll. Roll must strictly exceed threshold to escape.
+    ///
+    /// No-op if the chase is already resolved (escape or capture).
     pub fn record_roll(&mut self, roll: f64) {
+        if self.resolved {
+            return;
+        }
         let escaped = roll > self.escape_threshold;
         self.rounds.push(ChaseRound { roll, escaped });
         self.round += 1;
