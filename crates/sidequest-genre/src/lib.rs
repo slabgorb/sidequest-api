@@ -13,7 +13,9 @@
 
 #![warn(missing_docs)]
 
+mod cache;
 mod error;
+mod genre_code;
 mod loader;
 mod models;
 mod resolve;
@@ -23,7 +25,9 @@ mod validate;
 pub use sidequest_protocol;
 
 // Re-export the public API
-pub use error::GenreError;
-pub use loader::load_genre_pack;
+pub use cache::GenreCache;
+pub use error::{GenreError, ValidationErrors};
+pub use genre_code::{GenreCode, GenreCodeError};
+pub use loader::{load_genre_pack, GenreLoader};
 pub use models::*;
 pub use resolve::resolve_trope_inheritance;

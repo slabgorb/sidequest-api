@@ -373,10 +373,10 @@ fn genre_loader_loads_three_different_packs() {
             !pack.meta.name.as_str().is_empty(),
             "{code_str} should have a non-empty name"
         );
-        // Verify rules are populated
+        // Verify rules are populated (ability_score_names is always present)
         assert!(
-            !pack.rules.tone.is_empty(),
-            "{code_str} should have a tone set"
+            !pack.rules.ability_score_names.is_empty(),
+            "{code_str} should have ability score names"
         );
     }
 }
