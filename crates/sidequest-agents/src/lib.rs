@@ -6,10 +6,13 @@
 #![warn(missing_docs)]
 
 pub mod agent;
+pub mod agents;
 pub mod client;
 pub mod context_builder;
 pub mod extractor;
 pub mod format_helpers;
+pub mod orchestrator;
+pub mod patches;
 pub mod prompt_framework;
 
 pub use sidequest_game;
