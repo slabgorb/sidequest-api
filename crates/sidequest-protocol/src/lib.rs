@@ -8,12 +8,8 @@
 /// Protocol version for compatibility checking.
 pub const PROTOCOL_VERSION: &str = "0.1.0";
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// These modules will be created by Dev (Mal) during the green phase.
+// For now, tests reference types that don't exist yet — that's the point of RED.
 
-    #[test]
-    fn it_works() {
-        assert_eq!(PROTOCOL_VERSION, "0.1.0");
-    }
-}
+#[cfg(test)]
+mod tests;
