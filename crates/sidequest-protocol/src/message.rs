@@ -290,6 +290,7 @@ pub struct SessionEventPayload {
 
 /// Character creation flow payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CharacterCreationPayload {
     /// Creation phase: "scene", "confirmation", "complete".
     pub phase: String,
