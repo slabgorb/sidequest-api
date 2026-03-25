@@ -6,11 +6,3 @@
 #![warn(missing_docs)]
 
 pub use sidequest_protocol;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert!(true);
-    }
-}
