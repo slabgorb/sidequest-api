@@ -1,0 +1,7 @@
+[package]
+name = "sidequest-api"
+version = "0.1.0"
+edition = "2024"
+description = "SideQuest game engine — AI Narrator powered by coordinated Claude agents"
+
+[dependencies]
