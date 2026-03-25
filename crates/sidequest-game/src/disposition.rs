@@ -51,13 +51,16 @@ impl Disposition {
 
     /// Derive the qualitative attitude from the numeric disposition.
     pub fn attitude(&self) -> Attitude {
-        // TODO: implement thresholds
-        Attitude::Neutral
+        match self.0 {
+            d if d > 10 => Attitude::Friendly,
+            d if d < -10 => Attitude::Hostile,
+            _ => Attitude::Neutral,
+        }
     }
 
     /// Apply a delta to the disposition value.
     pub fn apply_delta(&mut self, delta: i32) {
-        // TODO: implement
+        self.0 = self.0.saturating_add(delta);
     }
 }
 

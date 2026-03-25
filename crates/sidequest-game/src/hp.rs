@@ -12,8 +12,7 @@
 /// Panics if `max_hp` is negative (invalid game state).
 pub fn clamp_hp(current: i32, delta: i32, max_hp: i32) -> i32 {
     assert!(max_hp >= 0, "max_hp must not be negative");
-    // TODO: implement proper clamping
-    current + delta
+    (current as i64 + delta as i64).clamp(0, max_hp as i64) as i32
 }
 
 #[cfg(test)]
