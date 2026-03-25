@@ -5,13 +5,7 @@
 
 #![warn(missing_docs)]
 
+pub mod prompt_framework;
+
 pub use sidequest_game;
 pub use sidequest_protocol;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert!(true);
-    }
-}
