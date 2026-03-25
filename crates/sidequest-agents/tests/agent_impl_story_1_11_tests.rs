@@ -10,16 +10,16 @@ use sidequest_agents::context_builder::ContextBuilder;
 use sidequest_agents::extractor::JsonExtractor;
 
 // New modules that story 1-11 must create:
-use sidequest_agents::agents::narrator::NarratorAgent;
-use sidequest_agents::agents::world_builder::WorldBuilderAgent;
-use sidequest_agents::agents::ensemble::EnsembleAgent;
 use sidequest_agents::agents::creature_smith::CreatureSmithAgent;
-use sidequest_agents::agents::troper::TroperAgent;
 use sidequest_agents::agents::dialectician::DialecticianAgent;
-use sidequest_agents::agents::resonator::ResonatorAgent;
+use sidequest_agents::agents::ensemble::EnsembleAgent;
 use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::narrator::NarratorAgent;
+use sidequest_agents::agents::resonator::ResonatorAgent;
+use sidequest_agents::agents::troper::TroperAgent;
+use sidequest_agents::agents::world_builder::WorldBuilderAgent;
 use sidequest_agents::orchestrator::{ActionResult, GameService, Orchestrator};
-use sidequest_agents::patches::{WorldStatePatch, CombatPatch, ChasePatch};
+use sidequest_agents::patches::{ChasePatch, CombatPatch, WorldStatePatch};
 
 // ============================================================
 // AC 1: All 8 agents implement Agent trait fully
