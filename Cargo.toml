@@ -11,7 +11,7 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.80"
 description = "SideQuest game engine — AI Narrator powered by coordinated Claude agents"
 repository = "https://github.com/slabgorb/sidequest-api"
 
@@ -50,6 +50,9 @@ rusqlite = { version = "0.31", features = ["bundled", "chrono", "uuid"] }
 
 # Futures
 futures = "0.3"
+
+# Regex (for input sanitization)
+regex = "1.10"
 
 [package]
 name = "sidequest-api"

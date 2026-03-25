@@ -1,15 +1,21 @@
 //! SideQuest Protocol — GameMessage enum and typed payloads.
 //!
 //! This crate defines the communication protocol between the UI and the game server,
-//! including all game messages and their JSON serialization.
+//! including all game messages, validated newtypes, and input sanitization.
 
 #![warn(missing_docs)]
 
+pub mod message;
+pub mod sanitize;
+pub mod types;
+
+// Re-export core types at crate root for convenience.
+pub use message::*;
+pub use sanitize::sanitize_player_text;
+pub use types::*;
+
 /// Protocol version for compatibility checking.
 pub const PROTOCOL_VERSION: &str = "0.1.0";
-
-// These modules will be created by Dev (Mal) during the green phase.
-// For now, tests reference types that don't exist yet — that's the point of RED.
 
 #[cfg(test)]
 mod tests;
