@@ -79,11 +79,11 @@ impl GameSnapshot {
         if let Some(ref cr) = patch.current_region {
             self.current_region = cr.clone();
         }
-        if let Some(ref dr) = patch.discovered_regions {
-            self.discovered_regions = dr.clone();
+        if let Some(ref regions) = patch.discovered_regions {
+            self.discovered_regions = regions.clone();
         }
-        if let Some(ref dr) = patch.discovered_routes {
-            self.discovered_routes = dr.clone();
+        if let Some(ref routes) = patch.discovered_routes {
+            self.discovered_routes = routes.clone();
         }
     }
 

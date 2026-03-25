@@ -26,7 +26,7 @@ use sidequest_protocol::NonBlankString;
 
 // === New types from story 1-8 ===
 use sidequest_game::state::GameSnapshot;
-use sidequest_game::delta::{StateSnapshot, StateDelta, compute_delta, snapshot};
+use sidequest_game::delta::{compute_delta, snapshot};
 use sidequest_game::persistence::GameStore;
 use sidequest_game::session::{SessionManager, SaveInfo};
 use sidequest_game::state::{WorldStatePatch, CombatPatch, ChasePatch};
