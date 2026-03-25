@@ -144,4 +144,3 @@ fn merge_trope(parent: &TropeDefinition, child: &TropeDefinition) -> TropeDefini
         extends: None,
     }
 }
-

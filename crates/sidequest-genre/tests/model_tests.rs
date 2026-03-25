@@ -15,9 +15,9 @@ use sidequest_genre::{
     AudioConfig,
     AxesConfig,
     BeatVocabulary,
-    ClueGraph,
     CartographyConfig,
     CharCreationScene,
+    ClueGraph,
     Culture,
     GenreError,
     GenreTheme,
@@ -358,7 +358,10 @@ wealth_tiers:
     assert_eq!(prog.milestones_per_level, 3);
     // wealth_tiers: last tier has max_gold: null (no cap)
     let last_tier = prog.wealth_tiers.last().unwrap();
-    assert!(last_tier.max_gold.is_none(), "null max_gold should deserialize as None");
+    assert!(
+        last_tier.max_gold.is_none(),
+        "null max_gold should deserialize as None"
+    );
     assert_eq!(last_tier.label, "pre-war rich");
     // First tier has max_gold: 0
     assert_eq!(prog.wealth_tiers[0].max_gold, Some(0));
@@ -499,7 +502,10 @@ routes:
 "#;
     let carto: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(carto.starting_region, "toods_dome");
-    assert!(carto.map_resolution.is_none(), "null map_resolution should be None");
+    assert!(
+        carto.map_resolution.is_none(),
+        "null map_resolution should be None"
+    );
     let dome = carto.regions.get("toods_dome").unwrap();
     assert_eq!(dome.name, "Tood's Dome");
     assert!(dome.adjacent.contains(&"glass_flat".to_string()));
@@ -738,7 +744,10 @@ min_sidequest_version: "0.1.0"
 bogus_field: oops
 "#;
     let result: Result<PackMeta, _> = serde_yaml::from_str(yaml);
-    assert!(result.is_err(), "deny_unknown_fields should reject bogus_field");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject bogus_field"
+    );
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("bogus_field") || err_msg.contains("unknown field"),
@@ -761,7 +770,10 @@ class_hp_bases: {}
 letality: this-is-a-typo
 "#;
     let result: Result<RulesConfig, _> = serde_yaml::from_str(yaml);
-    assert!(result.is_err(), "deny_unknown_fields should reject 'letality' typo");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject 'letality' typo"
+    );
 }
 
 #[test]
@@ -779,7 +791,10 @@ disposition_default: 0
 secret_power: should_not_exist
 "#;
     let result: Result<NpcArchetype, _> = serde_yaml::from_str(yaml);
-    assert!(result.is_err(), "deny_unknown_fields should reject secret_power");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject secret_power"
+    );
 }
 
 #[test]
@@ -793,7 +808,10 @@ visual_tag_overrides: {}
 unknown_setting: bad
 "#;
     let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml);
-    assert!(result.is_err(), "deny_unknown_fields should reject unknown_setting");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject unknown_setting"
+    );
 }
 
 #[test]
@@ -807,7 +825,10 @@ tension_level: 0.5
 secret_mechanic: should_fail
 "#;
     let result: Result<TropeDefinition, _> = serde_yaml::from_str(yaml);
-    assert!(result.is_err(), "deny_unknown_fields should reject secret_mechanic");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject secret_mechanic"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1002,5 +1023,7 @@ variants:
         atmo.variants[1].concurrent_event.is_none(),
         "null concurrent_event should be None"
     );
-    assert!(atmo.variants[0].npc_mood_overrides.contains_key("suspect_varek"));
+    assert!(atmo.variants[0]
+        .npc_mood_overrides
+        .contains_key("suspect_varek"));
 }

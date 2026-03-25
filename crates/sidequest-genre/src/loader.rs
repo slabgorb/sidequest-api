@@ -44,15 +44,12 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         load_yaml_optional(&path.join("beat_vocabulary.yaml"))?;
     let achievements: Vec<Achievement> =
         load_yaml_optional(&path.join("achievements.yaml"))?.unwrap_or_default();
-    let voice_presets: Option<VoicePresets> =
-        load_yaml_optional(&path.join("voice_presets.yaml"))?;
+    let voice_presets: Option<VoicePresets> = load_yaml_optional(&path.join("voice_presets.yaml"))?;
     let power_tiers: HashMap<String, Vec<PowerTier>> =
         load_yaml_optional(&path.join("power_tiers.yaml"))?.unwrap_or_default();
 
     // Load worlds and scenarios from subdirectories
-    let worlds = load_subdirectories(path, "worlds", |p| {
-        load_single_world(p, &genre_tropes)
-    })?;
+    let worlds = load_subdirectories(path, "worlds", |p| load_single_world(p, &genre_tropes))?;
     let scenarios = load_subdirectories(path, "scenarios", load_single_scenario)?;
 
     Ok(GenrePack {

@@ -6,8 +6,8 @@
 //! cross-reference validation.
 
 use sidequest_genre::{
-    AssignmentMatrix, AtmosphereMatrix, ClueGraph, GenreError, GenrePack, ScenarioPack,
-    ScenarioNpc, TropeDefinition,
+    AssignmentMatrix, AtmosphereMatrix, ClueGraph, GenreError, GenrePack, ScenarioNpc,
+    ScenarioPack, TropeDefinition,
 };
 use std::path::PathBuf;
 
@@ -34,7 +34,11 @@ fn genre_packs_path() -> PathBuf {
 #[test]
 fn load_mutant_wasteland_genre_pack() {
     let path = genre_packs_path().join("mutant_wasteland");
-    assert!(path.exists(), "mutant_wasteland genre pack not found at {}", path.display());
+    assert!(
+        path.exists(),
+        "mutant_wasteland genre pack not found at {}",
+        path.display()
+    );
 
     let pack = sidequest_genre::load_genre_pack(&path).expect("should load mutant_wasteland");
     assert_eq!(pack.meta.name.as_str(), "Mutant Wasteland");
@@ -67,8 +71,14 @@ fn loaded_pack_has_archetypes_and_char_creation() {
         "expected at least 6 archetypes, got {}",
         pack.archetypes.len()
     );
-    let trader = pack.archetypes.iter().find(|a| a.name.as_str() == "Wasteland Trader");
-    assert!(trader.is_some(), "should contain Wasteland Trader archetype");
+    let trader = pack
+        .archetypes
+        .iter()
+        .find(|a| a.name.as_str() == "Wasteland Trader");
+    assert!(
+        trader.is_some(),
+        "should contain Wasteland Trader archetype"
+    );
 
     // Char creation (char_creation.yaml has 4 scenes)
     assert!(
@@ -126,8 +136,15 @@ fn loaded_world_has_lore_with_factions() {
         "expected at least 4 factions, got {}",
         world.lore.factions.len()
     );
-    let dome_syndicate = world.lore.factions.iter().find(|f| f.name.contains("Dome Syndicate"));
-    assert!(dome_syndicate.is_some(), "should contain Dome Syndicate faction");
+    let dome_syndicate = world
+        .lore
+        .factions
+        .iter()
+        .find(|f| f.name.contains("Dome Syndicate"));
+    assert!(
+        dome_syndicate.is_some(),
+        "should contain Dome Syndicate faction"
+    );
 }
 
 #[test]
@@ -136,7 +153,14 @@ fn loaded_pack_has_power_tiers_for_all_classes() {
     let pack = sidequest_genre::load_genre_pack(&path).unwrap();
 
     // power_tiers.yaml has entries for 6 classes
-    let expected_classes = ["Scavenger", "Mutant", "Pureblood", "Synth", "Beastkin", "Tinker"];
+    let expected_classes = [
+        "Scavenger",
+        "Mutant",
+        "Pureblood",
+        "Synth",
+        "Beastkin",
+        "Tinker",
+    ];
     for class in &expected_classes {
         assert!(
             pack.power_tiers.contains_key(*class),
@@ -155,7 +179,10 @@ fn load_genre_pack_returns_typed_error_for_missing_dir() {
     assert!(result.is_err());
     match result.unwrap_err() {
         GenreError::LoadError { path, .. } => {
-            assert!(path.contains("nonexistent"), "error should mention the path");
+            assert!(
+                path.contains("nonexistent"),
+                "error should mention the path"
+            );
         }
         other => panic!("expected LoadError, got: {other:?}"),
     }
@@ -168,7 +195,8 @@ fn load_genre_pack_returns_typed_error_for_missing_dir() {
 #[test]
 fn trope_inheritance_resolves_extends() {
     // Genre-level abstract trope
-    let genre_tropes: Vec<TropeDefinition> = serde_yaml::from_str(r#"
+    let genre_tropes: Vec<TropeDefinition> = serde_yaml::from_str(
+        r#"
 - name: The Mentor
   abstract: true
   category: recurring
@@ -180,10 +208,13 @@ fn trope_inheritance_resolves_extends() {
   resolution_patterns:
     - the student surpasses the mentor
   tension_level: 0.5
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     // World-level trope extending the abstract
-    let world_tropes: Vec<TropeDefinition> = serde_yaml::from_str(r#"
+    let world_tropes: Vec<TropeDefinition> = serde_yaml::from_str(
+        r#"
 - name: The Wandering Blade
   extends: the-mentor
   description: A legendary swordsman
@@ -200,14 +231,22 @@ fn trope_inheritance_resolves_extends() {
       event: rumors of the Wandering Blade
       npcs_involved: [teahouse keeper]
       stakes: reputation
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let resolved = sidequest_genre::resolve_trope_inheritance(&genre_tropes, &world_tropes)
         .expect("should resolve trope inheritance");
 
     // The Wandering Blade should inherit base category from The Mentor
-    let blade = resolved.iter().find(|t| t.name.as_str() == "The Wandering Blade").unwrap();
-    assert_eq!(blade.category, "recurring", "should inherit category from parent");
+    let blade = resolved
+        .iter()
+        .find(|t| t.name.as_str() == "The Wandering Blade")
+        .unwrap();
+    assert_eq!(
+        blade.category, "recurring",
+        "should inherit category from parent"
+    );
     // But override tension_level
     assert!((blade.tension_level - 0.6).abs() < f64::EPSILON);
     // Should NOT be abstract after resolution
@@ -219,7 +258,8 @@ fn trope_inheritance_resolves_extends() {
 #[test]
 fn trope_inheritance_detects_cycles() {
     // Trope A extends B, B extends A — should error
-    let tropes: Vec<TropeDefinition> = serde_yaml::from_str(r#"
+    let tropes: Vec<TropeDefinition> = serde_yaml::from_str(
+        r#"
 - name: Trope A
   extends: trope-b
   category: conflict
@@ -232,7 +272,9 @@ fn trope_inheritance_detects_cycles() {
   triggers: []
   narrative_hints: []
   tension_level: 0.5
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let result = sidequest_genre::resolve_trope_inheritance(&[], &tropes);
     assert!(result.is_err(), "should detect cycle in extends chain");
@@ -244,17 +286,23 @@ fn trope_inheritance_detects_cycles() {
 
 #[test]
 fn trope_inheritance_rejects_missing_parent() {
-    let tropes: Vec<TropeDefinition> = serde_yaml::from_str(r#"
+    let tropes: Vec<TropeDefinition> = serde_yaml::from_str(
+        r#"
 - name: Orphan Trope
   extends: nonexistent-parent
   category: conflict
   triggers: []
   narrative_hints: []
   tension_level: 0.5
-"#).unwrap();
+"#,
+    )
+    .unwrap();
 
     let result = sidequest_genre::resolve_trope_inheritance(&[], &tropes);
-    assert!(result.is_err(), "should reject reference to nonexistent parent");
+    assert!(
+        result.is_err(),
+        "should reject reference to nonexistent parent"
+    );
     match result.unwrap_err() {
         GenreError::MissingParent { .. } => {}
         other => panic!("expected MissingParent error, got: {other:?}"),
@@ -273,7 +321,11 @@ fn two_phase_validate_passes_valid_pack() {
     // Phase 1: load succeeded (above)
     // Phase 2: validate cross-references
     let result = pack.validate();
-    assert!(result.is_ok(), "valid pack should pass validation: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "valid pack should pass validation: {:?}",
+        result.err()
+    );
 }
 
 #[test]
@@ -330,8 +382,7 @@ fn two_phase_validate_catches_bad_cartography_adjacent_ref() {
 fn deny_unknown_fields_catches_typo_in_real_yaml() {
     // Read the real pack.yaml and inject a typo field
     let path = genre_packs_path().join("mutant_wasteland/pack.yaml");
-    let mut yaml_content = std::fs::read_to_string(&path)
-        .expect("should read pack.yaml");
+    let mut yaml_content = std::fs::read_to_string(&path).expect("should read pack.yaml");
     yaml_content.push_str("\ntypo_field: this should fail\n");
 
     let result: Result<sidequest_genre::PackMeta, _> = serde_yaml::from_str(&yaml_content);
@@ -441,7 +492,10 @@ fn scenario_pack_has_player_roles() {
 
     // scenario.yaml has 5 player roles
     assert_eq!(scenario.player_roles.len(), 5);
-    let investigator = scenario.player_roles.iter().find(|r| r.id == "lead_investigator");
+    let investigator = scenario
+        .player_roles
+        .iter()
+        .find(|r| r.id == "lead_investigator");
     assert!(investigator.is_some(), "should have lead_investigator role");
 }
 
@@ -490,7 +544,10 @@ fn scenario_clue_graph_has_nodes() {
     );
     // Clue nodes should reference suspects
     let clue = &scenario.clue_graph.nodes[0];
-    assert!(!clue.implicates.is_empty(), "clues should implicate suspects");
+    assert!(
+        !clue.implicates.is_empty(),
+        "clues should implicate suspects"
+    );
 }
 
 #[test]
@@ -534,7 +591,11 @@ fn scenario_npcs_have_guilty_and_innocent_branches() {
     );
 
     // Each NPC has when_guilty and when_innocent branches
-    let varek = scenario.npcs.iter().find(|n| n.id == "suspect_varek").unwrap();
+    let varek = scenario
+        .npcs
+        .iter()
+        .find(|n| n.id == "suspect_varek")
+        .unwrap();
     assert!(
         !varek.when_guilty.truth.is_empty(),
         "when_guilty.truth should be populated"
