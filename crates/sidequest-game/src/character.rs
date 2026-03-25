@@ -2,6 +2,7 @@
 //!
 //! ADR-007: Single struct, narrative-first field ordering.
 //! Implements Combatant trait (port-lessons.md #10).
+//! Story 1-13: Shared fields extracted to CreatureCore via composition.
 
 use std::collections::HashMap;
 
@@ -9,95 +10,84 @@ use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
 use crate::combatant::Combatant;
-use crate::disposition::Disposition;
-use crate::hp::clamp_hp;
-use crate::inventory::Inventory;
+use crate::creature_core::CreatureCore;
 
 /// A player character with unified narrative + mechanical identity.
 ///
-/// Narrative fields come first (ADR-007). All string fields that represent
-/// identity use `NonBlankString` for validation at construction.
+/// Narrative fields come first (ADR-007). Shared creature fields are
+/// embedded via `CreatureCore` with `#[serde(flatten)]` for unchanged JSON.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Character {
-    // Narrative identity (primary)
-    /// Character's display name.
-    pub name: NonBlankString,
-    /// Physical and personality description.
-    pub description: NonBlankString,
+    /// Shared creature fields (name, description, personality, level, hp, max_hp, ac, inventory, statuses).
+    #[serde(flatten)]
+    pub core: CreatureCore,
+
+    // Narrative identity (unique to Character)
     /// Character backstory.
     pub backstory: NonBlankString,
-    /// Personality traits and mannerisms.
-    pub personality: NonBlankString,
     /// Current narrative state summary.
     pub narrative_state: String,
     /// Active narrative hooks (nemesis, mystery, etc.).
     pub hooks: Vec<String>,
 
-    // Mechanical stats
+    // Mechanical stats (unique to Character)
     /// Character class (e.g., "Fighter", "Wizard").
     pub char_class: NonBlankString,
     /// Character race (e.g., "Human", "Dwarf").
     pub race: NonBlankString,
-    /// Character level (1+).
-    pub level: u32,
-    /// Current hit points (0..=max_hp).
-    pub hp: i32,
-    /// Maximum hit points (>= 1).
-    pub max_hp: i32,
-    /// Armor class.
-    pub ac: i32,
     /// Ability scores (STR, DEX, CON, INT, WIS, CHA).
     pub stats: HashMap<String, i32>,
-    /// Inventory of carried items.
-    pub inventory: Inventory,
-    /// Active status conditions.
-    pub statuses: Vec<String>,
 }
 
 impl Character {
     /// Apply HP damage or healing, clamped to [0, max_hp].
     pub fn apply_hp_delta(&mut self, delta: i32) {
-        self.hp = clamp_hp(self.hp, delta, self.max_hp);
+        self.core.apply_hp_delta(delta);
     }
 }
 
 impl Combatant for Character {
     fn name(&self) -> &str {
-        self.name.as_str()
+        self.core.name()
     }
     fn hp(&self) -> i32 {
-        self.hp
+        Combatant::hp(&self.core)
     }
     fn max_hp(&self) -> i32 {
-        self.max_hp
+        Combatant::max_hp(&self.core)
     }
     fn level(&self) -> u32 {
-        self.level
+        Combatant::level(&self.core)
     }
     fn ac(&self) -> i32 {
-        self.ac
+        Combatant::ac(&self.core)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::inventory::Inventory;
 
     /// Helper to build a valid Character for testing.
     fn test_character() -> Character {
         Character {
-            name: NonBlankString::new("Thorn Ironhide").unwrap(),
-            description: NonBlankString::new("A scarred dwarf warrior").unwrap(),
+            core: CreatureCore {
+                name: NonBlankString::new("Thorn Ironhide").unwrap(),
+                description: NonBlankString::new("A scarred dwarf warrior").unwrap(),
+                personality: NonBlankString::new("Gruff but loyal").unwrap(),
+                level: 3,
+                hp: 25,
+                max_hp: 30,
+                ac: 16,
+                inventory: Inventory::default(),
+                statuses: vec![],
+            },
             backstory: NonBlankString::new("Raised in the iron mines").unwrap(),
-            personality: NonBlankString::new("Gruff but loyal").unwrap(),
             narrative_state: "Exploring the wastes".to_string(),
             hooks: vec!["nemesis: The Warden".to_string()],
             char_class: NonBlankString::new("Fighter").unwrap(),
             race: NonBlankString::new("Dwarf").unwrap(),
-            level: 3,
-            hp: 25,
-            max_hp: 30,
-            ac: 16,
             stats: HashMap::from([
                 ("STR".to_string(), 16),
                 ("DEX".to_string(), 10),
@@ -106,8 +96,6 @@ mod tests {
                 ("WIS".to_string(), 12),
                 ("CHA".to_string(), 6),
             ]),
-            inventory: Inventory::default(),
-            statuses: vec![],
         }
     }
 
@@ -152,7 +140,7 @@ mod tests {
     #[test]
     fn combatant_is_dead_at_zero() {
         let mut c = test_character();
-        c.hp = 0;
+        c.core.hp = 0;
         assert!(!c.is_alive());
     }
 
@@ -162,29 +150,29 @@ mod tests {
     fn apply_damage() {
         let mut c = test_character();
         c.apply_hp_delta(-10);
-        assert_eq!(c.hp, 15);
+        assert_eq!(c.core.hp, 15);
     }
 
     #[test]
     fn apply_healing() {
         let mut c = test_character();
-        c.hp = 10;
+        c.core.hp = 10;
         c.apply_hp_delta(5);
-        assert_eq!(c.hp, 15);
+        assert_eq!(c.core.hp, 15);
     }
 
     #[test]
     fn heal_capped_at_max() {
         let mut c = test_character();
         c.apply_hp_delta(100);
-        assert_eq!(c.hp, 30); // max_hp
+        assert_eq!(c.core.hp, 30); // max_hp
     }
 
     #[test]
     fn damage_floored_at_zero() {
         let mut c = test_character();
         c.apply_hp_delta(-100);
-        assert_eq!(c.hp, 0);
+        assert_eq!(c.core.hp, 0);
     }
 
     // === Serde round-trip ===
@@ -194,9 +182,9 @@ mod tests {
         let c = test_character();
         let json = serde_json::to_string(&c).unwrap();
         let back: Character = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.name.as_str(), "Thorn Ironhide");
-        assert_eq!(back.hp, 25);
-        assert_eq!(back.level, 3);
+        assert_eq!(back.core.name.as_str(), "Thorn Ironhide");
+        assert_eq!(back.core.hp, 25);
+        assert_eq!(back.core.level, 3);
     }
 
     #[test]
