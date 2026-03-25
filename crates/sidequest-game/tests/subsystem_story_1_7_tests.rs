@@ -8,7 +8,7 @@ use sidequest_game::{
     // Combat subsystem
     CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind,
     // Chase subsystem
-    ChaseRound, ChaseState, ChaseType,
+    ChaseState, ChaseType,
     // Progression
     level_to_damage, level_to_defense, level_to_hp, xp_for_level,
     // Narrative

@@ -6,17 +6,27 @@
 #![warn(missing_docs)]
 
 pub mod character;
+pub mod chase;
+pub mod combat;
 pub mod combatant;
 pub mod creature_core;
 pub mod disposition;
 pub mod hp;
 pub mod inventory;
+pub mod narrative;
 pub mod npc;
+pub mod progression;
+pub mod turn;
 
 pub use character::Character;
+pub use chase::{ChaseRound, ChaseState, ChaseType};
+pub use combat::{CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
 pub use combatant::Combatant;
 pub use creature_core::CreatureCore;
 pub use disposition::{Attitude, Disposition};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
+pub use narrative::NarrativeEntry;
 pub use npc::Npc;
+pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
+pub use turn::{TurnManager, TurnPhase};
