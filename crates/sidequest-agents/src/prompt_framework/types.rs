@@ -26,12 +26,24 @@ pub enum AttentionZone {
 impl AttentionZone {
     /// Returns the sort order index (0 = first in prompt).
     pub fn order(&self) -> u8 {
-        todo!("AttentionZone::order")
+        match self {
+            AttentionZone::Primacy => 0,
+            AttentionZone::Early => 1,
+            AttentionZone::Valley => 2,
+            AttentionZone::Late => 3,
+            AttentionZone::Recency => 4,
+        }
     }
 
     /// Returns all zones in prompt assembly order.
     pub fn all_ordered() -> Vec<AttentionZone> {
-        todo!("AttentionZone::all_ordered")
+        vec![
+            AttentionZone::Primacy,
+            AttentionZone::Early,
+            AttentionZone::Valley,
+            AttentionZone::Late,
+            AttentionZone::Recency,
+        ]
     }
 }
 
@@ -111,7 +123,13 @@ impl PromptSection {
         zone: AttentionZone,
         content: impl Into<String>,
     ) -> Self {
-        todo!("PromptSection::new")
+        Self {
+            name: name.into(),
+            category,
+            zone,
+            content: content.into(),
+            source: None,
+        }
     }
 
     /// Create a new prompt section with a source tag.
@@ -122,16 +140,22 @@ impl PromptSection {
         content: impl Into<String>,
         source: impl Into<String>,
     ) -> Self {
-        todo!("PromptSection::with_source")
+        Self {
+            name: name.into(),
+            category,
+            zone,
+            content: content.into(),
+            source: Some(source.into()),
+        }
     }
 
     /// Approximate token count (word count as proxy).
     pub fn token_estimate(&self) -> usize {
-        todo!("PromptSection::token_estimate")
+        self.content.split_whitespace().count()
     }
 
     /// Returns true if the section has no content.
     pub fn is_empty(&self) -> bool {
-        todo!("PromptSection::is_empty")
+        self.content.trim().is_empty()
     }
 }
