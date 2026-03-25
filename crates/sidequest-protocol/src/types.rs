@@ -79,6 +79,7 @@ impl fmt::Display for NonBlankString {
 
 /// Error returned when attempting to create a `NonBlankString` from blank input.
 #[derive(Debug, Clone, thiserror::Error)]
+#[non_exhaustive]
 pub enum NonBlankStringError {
     /// The input was empty or contained only whitespace.
     #[error("string must not be blank")]
