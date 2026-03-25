@@ -842,7 +842,7 @@ fn genre_error_is_non_exhaustive() {
     // type exists and has expected variants.
     let err = GenreError::LoadError {
         path: "test.yaml".into(),
-        source: "test error".into(),
+        detail: "test error".into(),
     };
     // Must use wildcard because #[non_exhaustive]
     match err {

@@ -282,10 +282,14 @@ fn genre_loader_returns_error_with_all_searched_paths() {
     let err = result.unwrap_err();
     let err_msg = err.to_string();
 
-    // Error should mention which paths were searched
+    // Error should mention all searched paths
     assert!(
-        err_msg.contains("/path/a") || err_msg.contains("searched"),
-        "error should indicate which paths were searched: {err_msg}"
+        err_msg.contains("/path/a"),
+        "error should list searched path /path/a: {err_msg}"
+    );
+    assert!(
+        err_msg.contains("/path/b"),
+        "error should list searched path /path/b: {err_msg}"
     );
 }
 
@@ -422,28 +426,8 @@ fn validate_catches_multiple_cartography_errors_at_once() {
 // Rule coverage: Rust lang-review rules
 // ═══════════════════════════════════════════════════════════
 
-// Rule #2: #[non_exhaustive] on public enums that will grow
-#[test]
-fn genre_error_is_non_exhaustive() {
-    // This test verifies at the type level that GenreError has #[non_exhaustive].
-    // If the attribute is removed, downstream code using a wildcard match would
-    // stop needing it — but this test explicitly documents the requirement.
-    // The compile-time guarantee is in the attribute itself; this test verifies
-    // the error can be matched with a wildcard.
-    let err = GenreError::ValidationError {
-        message: "test".into(),
-    };
-    match err {
-        GenreError::LoadError { .. } => panic!("wrong variant"),
-        GenreError::CycleDetected { .. } => panic!("wrong variant"),
-        GenreError::MissingParent { .. } => panic!("wrong variant"),
-        GenreError::ValidationError { message } => {
-            assert_eq!(message, "test");
-        }
-        // Wildcard arm required by #[non_exhaustive]
-        _ => panic!("unexpected variant"),
-    }
-}
+// Rule #2: #[non_exhaustive] is a compile-time guarantee on GenreError.
+// It cannot be verified at runtime — the attribute is on the enum definition.
 
 // Rule #11: Workspace dependency compliance
 // (This is verified by reading Cargo.toml — all deps use { workspace = true })
