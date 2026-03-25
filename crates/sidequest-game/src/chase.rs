@@ -3,8 +3,10 @@
 //! Implements ADR-017: three chase types, escape threshold (default 50%),
 //! and cinematic narration per round.
 
+use serde::{Deserialize, Serialize};
+
 /// The type of chase encounter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ChaseType {
     /// Physical pursuit.
@@ -16,6 +18,7 @@ pub enum ChaseType {
 }
 
 /// The result of a single chase round.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaseRound {
     /// The player's escape roll (0.0 to 1.0).
     pub roll: f64,
@@ -24,6 +27,7 @@ pub struct ChaseRound {
 }
 
 /// Tracks the state of an active chase sequence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChaseState {
     chase_type: ChaseType,
     escape_threshold: f64,
