@@ -10,6 +10,23 @@ use thiserror::Error;
 use crate::narrative::NarrativeEntry;
 use crate::state::GameSnapshot;
 
+/// Prepare a snapshot for persistence: stamp last_saved_at and serialize.
+fn prepare_for_save(snapshot: &GameSnapshot) -> (GameSnapshot, String, String) {
+    let now = Utc::now();
+    let mut snap = snapshot.clone();
+    snap.last_saved_at = Some(now);
+    let state_json = serde_json::to_string(&snap).unwrap_or_default();
+    let now_str = now.to_rfc3339();
+    (snap, state_json, now_str)
+}
+
+/// Parse an RFC3339 timestamp, falling back to now on error.
+fn parse_rfc3339_or_now(s: &str) -> DateTime<Utc> {
+    DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now())
+}
+
 /// Errors from persistence operations.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -79,11 +96,7 @@ impl GameStore {
     /// Save a game snapshot. Sets `last_saved_at` on the snapshot before persisting.
     /// Returns the save ID.
     pub fn save(&self, snapshot: &GameSnapshot) -> Result<i64, PersistenceError> {
-        let now = Utc::now();
-        let mut snap = snapshot.clone();
-        snap.last_saved_at = Some(now);
-        let state_json = serde_json::to_string(&snap)?;
-        let now_str = now.to_rfc3339();
+        let (snap, state_json, now_str) = prepare_for_save(snapshot);
 
         self.conn.execute(
             "INSERT INTO game_saves (genre_slug, world_slug, state_json, created_at, updated_at)
@@ -126,12 +139,8 @@ impl GameStore {
                     save_id: id,
                     genre_slug,
                     world_slug,
-                    created_at: DateTime::parse_from_rfc3339(&created_at_str)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .unwrap_or_else(|_| Utc::now()),
-                    updated_at: DateTime::parse_from_rfc3339(&updated_at_str)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .unwrap_or_else(|_| Utc::now()),
+                    created_at: parse_rfc3339_or_now(&created_at_str),
+                    updated_at: parse_rfc3339_or_now(&updated_at_str),
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -145,11 +154,7 @@ impl GameStore {
         save_id: i64,
         snapshot: &GameSnapshot,
     ) -> Result<(), PersistenceError> {
-        let now = Utc::now();
-        let mut snap = snapshot.clone();
-        snap.last_saved_at = Some(now);
-        let state_json = serde_json::to_string(&snap)?;
-        let now_str = now.to_rfc3339();
+        let (_snap, state_json, now_str) = prepare_for_save(snapshot);
 
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(

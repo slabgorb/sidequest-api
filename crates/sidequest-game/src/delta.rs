@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::state::GameSnapshot;
 
+/// Serialize a value to JSON for snapshot comparison, defaulting to empty string on error.
+fn to_json<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value).unwrap_or_default()
+}
+
 /// A frozen JSON snapshot of game state for comparison.
 ///
 /// Uses serialized JSON strings for each field group so that
@@ -31,21 +36,19 @@ pub struct StateSnapshot {
 /// Take a snapshot of the game state for later delta comparison.
 pub fn snapshot(state: &GameSnapshot) -> StateSnapshot {
     StateSnapshot {
-        characters_json: serde_json::to_string(&state.characters).unwrap_or_default(),
-        npcs_json: serde_json::to_string(&state.npcs).unwrap_or_default(),
+        characters_json: to_json(&state.characters),
+        npcs_json: to_json(&state.npcs),
         location: state.location.clone(),
         time_of_day: state.time_of_day.clone(),
-        quest_log_json: serde_json::to_string(&state.quest_log).unwrap_or_default(),
-        notes_json: serde_json::to_string(&state.notes).unwrap_or_default(),
-        combat_json: serde_json::to_string(&state.combat).unwrap_or_default(),
-        chase_json: serde_json::to_string(&state.chase).unwrap_or_default(),
-        active_tropes_json: serde_json::to_string(&state.active_tropes).unwrap_or_default(),
+        quest_log_json: to_json(&state.quest_log),
+        notes_json: to_json(&state.notes),
+        combat_json: to_json(&state.combat),
+        chase_json: to_json(&state.chase),
+        active_tropes_json: to_json(&state.active_tropes),
         atmosphere: state.atmosphere.clone(),
         current_region: state.current_region.clone(),
-        discovered_regions_json: serde_json::to_string(&state.discovered_regions)
-            .unwrap_or_default(),
-        discovered_routes_json: serde_json::to_string(&state.discovered_routes)
-            .unwrap_or_default(),
+        discovered_regions_json: to_json(&state.discovered_regions),
+        discovered_routes_json: to_json(&state.discovered_routes),
     }
 }
 
