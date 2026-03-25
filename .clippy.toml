@@ -1,0 +1,3 @@
+# Clippy configuration aligned with Axiathon
+allow-expect-in-tests = true
+allow-unwrap-in-tests = true

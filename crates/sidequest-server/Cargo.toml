@@ -1,0 +1,30 @@
+[package]
+name = "sidequest-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "sidequest-server"
+path = "src/main.rs"
+
+[dependencies]
+sidequest-protocol = { path = "../sidequest-protocol" }
+sidequest-genre = { path = "../sidequest-genre" }
+sidequest-game = { path = "../sidequest-game" }
+sidequest-agents = { path = "../sidequest-agents" }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+clap = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
