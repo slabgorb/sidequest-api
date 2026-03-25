@@ -2,52 +2,33 @@
 //!
 //! ADR-020: Numeric disposition derives qualitative attitude.
 //! Implements Combatant trait (port-lessons.md #10).
+//! Story 1-13: Shared fields extracted to CreatureCore via composition.
 
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
 use crate::combatant::Combatant;
+use crate::creature_core::CreatureCore;
 use crate::disposition::{Attitude, Disposition};
-use crate::hp::clamp_hp;
-use crate::inventory::Inventory;
 
 /// A non-player character in the game world.
 ///
 /// NPCs have a numeric disposition that maps to an attitude (ADR-020).
 /// Agents see the attitude string; the world_state agent patches disposition numerically.
+/// Shared creature fields are embedded via `CreatureCore` with `#[serde(flatten)]`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Npc {
-    // Identity
-    /// NPC's display name.
-    pub name: NonBlankString,
-    /// Physical description.
-    pub description: NonBlankString,
-    /// Personality and behavior patterns.
-    pub personality: NonBlankString,
+    /// Shared creature fields (name, description, personality, level, hp, max_hp, ac, inventory, statuses).
+    #[serde(flatten)]
+    pub core: CreatureCore,
+
+    // NPC-specific fields
     /// Optional TTS voice mapping.
     pub voice_id: Option<i32>,
-
-    // Disposition (ADR-020)
     /// Numeric disposition value — derives attitude via thresholds.
     pub disposition: Disposition,
-
-    // Mechanical (Combatant)
-    /// NPC level.
-    pub level: u32,
-    /// Current hit points.
-    pub hp: i32,
-    /// Maximum hit points.
-    pub max_hp: i32,
-    /// Armor class.
-    pub ac: i32,
-
-    // State
     /// Current location (None = off-stage).
     pub location: Option<NonBlankString>,
-    /// Active status conditions.
-    pub statuses: Vec<String>,
-    /// NPC inventory.
-    pub inventory: Inventory,
 }
 
 impl Npc {
@@ -58,7 +39,7 @@ impl Npc {
 
     /// Apply HP damage or healing, clamped to [0, max_hp].
     pub fn apply_hp_delta(&mut self, delta: i32) {
-        self.hp = clamp_hp(self.hp, delta, self.max_hp);
+        self.core.apply_hp_delta(delta);
     }
 
     /// Apply a disposition delta and return the new attitude.
@@ -70,19 +51,19 @@ impl Npc {
 
 impl Combatant for Npc {
     fn name(&self) -> &str {
-        self.name.as_str()
+        self.core.name()
     }
     fn hp(&self) -> i32 {
-        self.hp
+        Combatant::hp(&self.core)
     }
     fn max_hp(&self) -> i32 {
-        self.max_hp
+        Combatant::max_hp(&self.core)
     }
     fn level(&self) -> u32 {
-        self.level
+        Combatant::level(&self.core)
     }
     fn ac(&self) -> i32 {
-        self.ac
+        Combatant::ac(&self.core)
     }
 }
 
@@ -92,35 +73,39 @@ mod tests {
 
     fn friendly_innkeeper() -> Npc {
         Npc {
-            name: NonBlankString::new("Marta the Innkeeper").unwrap(),
-            description: NonBlankString::new("A stout woman with flour-dusted hands").unwrap(),
-            personality: NonBlankString::new("Warm and gossipy").unwrap(),
+            core: CreatureCore {
+                name: NonBlankString::new("Marta the Innkeeper").unwrap(),
+                description: NonBlankString::new("A stout woman with flour-dusted hands").unwrap(),
+                personality: NonBlankString::new("Warm and gossipy").unwrap(),
+                level: 2,
+                hp: 12,
+                max_hp: 12,
+                ac: 10,
+                statuses: vec![],
+                inventory: Inventory::default(),
+            },
             voice_id: Some(3),
             disposition: Disposition::new(15),
-            level: 2,
-            hp: 12,
-            max_hp: 12,
-            ac: 10,
             location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
-            statuses: vec![],
-            inventory: Inventory::default(),
         }
     }
 
     fn hostile_bandit() -> Npc {
         Npc {
-            name: NonBlankString::new("Razortooth").unwrap(),
-            description: NonBlankString::new("A scarred raider with missing teeth").unwrap(),
-            personality: NonBlankString::new("Cruel and cunning").unwrap(),
+            core: CreatureCore {
+                name: NonBlankString::new("Razortooth").unwrap(),
+                description: NonBlankString::new("A scarred raider with missing teeth").unwrap(),
+                personality: NonBlankString::new("Cruel and cunning").unwrap(),
+                level: 4,
+                hp: 18,
+                max_hp: 22,
+                ac: 14,
+                statuses: vec!["enraged".to_string()],
+                inventory: Inventory::default(),
+            },
             voice_id: None,
             disposition: Disposition::new(-20),
-            level: 4,
-            hp: 18,
-            max_hp: 22,
-            ac: 14,
             location: None, // off-stage
-            statuses: vec!["enraged".to_string()],
-            inventory: Inventory::default(),
         }
     }
 
@@ -178,7 +163,7 @@ mod tests {
     #[test]
     fn combatant_dead_at_zero() {
         let mut npc = friendly_innkeeper();
-        npc.hp = 0;
+        npc.core.hp = 0;
         assert!(!npc.is_alive());
     }
 
@@ -188,22 +173,22 @@ mod tests {
     fn apply_damage() {
         let mut npc = friendly_innkeeper();
         npc.apply_hp_delta(-5);
-        assert_eq!(npc.hp, 7);
+        assert_eq!(npc.core.hp, 7);
     }
 
     #[test]
     fn damage_floored_at_zero() {
         let mut npc = friendly_innkeeper();
         npc.apply_hp_delta(-100);
-        assert_eq!(npc.hp, 0);
+        assert_eq!(npc.core.hp, 0);
     }
 
     #[test]
     fn heal_capped_at_max() {
         let mut npc = friendly_innkeeper();
-        npc.hp = 5;
+        npc.core.hp = 5;
         npc.apply_hp_delta(100);
-        assert_eq!(npc.hp, 12);
+        assert_eq!(npc.core.hp, 12);
     }
 
     // === Location ===
@@ -242,7 +227,7 @@ mod tests {
         let npc = friendly_innkeeper();
         let json = serde_json::to_string(&npc).unwrap();
         let back: Npc = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.name.as_str(), "Marta the Innkeeper");
+        assert_eq!(back.core.name.as_str(), "Marta the Innkeeper");
         assert_eq!(back.disposition.value(), 15);
         assert_eq!(back.attitude(), Attitude::Friendly);
     }

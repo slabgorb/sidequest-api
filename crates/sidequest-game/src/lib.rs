@@ -7,6 +7,7 @@
 
 pub mod character;
 pub mod combatant;
+pub mod creature_core;
 pub mod disposition;
 pub mod hp;
 pub mod inventory;
@@ -14,6 +15,7 @@ pub mod npc;
 
 pub use character::Character;
 pub use combatant::Combatant;
+pub use creature_core::CreatureCore;
 pub use disposition::{Attitude, Disposition};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
