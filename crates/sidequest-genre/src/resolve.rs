@@ -12,12 +12,17 @@ use crate::models::TropeDefinition;
 use crate::util::slugify;
 use std::collections::{HashMap, HashSet};
 
+/// Maximum depth for trope inheritance chains.
+/// Prevents stack overflow from deeply nested (non-cyclic) extends chains (CWE-674).
+const MAX_INHERITANCE_DEPTH: usize = 64;
+
 /// Resolve trope inheritance by merging parent fields into child tropes.
 ///
-/// - Genre-level tropes act as the parent pool.
+/// - Genre-level tropes act as the parent pool (looked up by slugified name).
 /// - World-level tropes with `extends` inherit missing fields from their parent.
 /// - Child fields override parent fields where both exist.
-/// - Abstract tropes are not included in the result.
+/// - Only world tropes appear in the output; genre-level abstract tropes serve
+///   as parents but are not emitted directly.
 /// - Cycles in extends chains are detected and rejected.
 pub fn resolve_trope_inheritance(
     genre_tropes: &[TropeDefinition],
@@ -38,22 +43,25 @@ pub fn resolve_trope_inheritance(
     let mut resolved = Vec::new();
 
     for trope in world_tropes {
-        if let Some(parent_slug) = &trope.extends {
+        if let Some(raw_parent_slug) = &trope.extends {
+            // Normalize extends value to match the slug-keyed parent_map
+            let parent_slug = slugify(raw_parent_slug);
+
             // Check for missing parent
-            if !parent_map.contains_key(parent_slug) {
+            if !parent_map.contains_key(&parent_slug) {
                 return Err(GenreError::MissingParent {
                     trope: trope.name.as_str().to_string(),
-                    parent: parent_slug.clone(),
+                    parent: raw_parent_slug.clone(),
                 });
             }
 
-            // Detect cycles
+            // Detect cycles (with depth limit)
             let mut visited = HashSet::new();
             visited.insert(slugify(trope.name.as_str()));
-            detect_cycle(parent_slug, &parent_map, &mut visited)?;
+            detect_cycle(&parent_slug, &parent_map, &mut visited, 0)?;
 
             // Merge: child overrides parent
-            let parent = parent_map[parent_slug];
+            let parent = parent_map[&parent_slug];
             let merged = merge_trope(parent, trope);
             resolved.push(merged);
         } else {
@@ -66,11 +74,21 @@ pub fn resolve_trope_inheritance(
 }
 
 /// Detect cycles in the extends chain starting from `current_slug`.
+/// Also enforces a maximum depth to prevent stack overflow on deep non-cyclic chains.
 fn detect_cycle(
     current_slug: &str,
     parent_map: &HashMap<String, &TropeDefinition>,
     visited: &mut HashSet<String>,
+    depth: usize,
 ) -> Result<(), GenreError> {
+    if depth > MAX_INHERITANCE_DEPTH {
+        return Err(GenreError::ValidationError {
+            message: format!(
+                "trope inheritance chain exceeds maximum depth of {MAX_INHERITANCE_DEPTH}"
+            ),
+        });
+    }
+
     if !visited.insert(current_slug.to_string()) {
         return Err(GenreError::CycleDetected {
             trope: current_slug.to_string(),
@@ -79,7 +97,8 @@ fn detect_cycle(
 
     if let Some(trope) = parent_map.get(current_slug) {
         if let Some(next_parent) = &trope.extends {
-            detect_cycle(next_parent, parent_map, visited)?;
+            let next_slug = slugify(next_parent);
+            detect_cycle(&next_slug, parent_map, visited, depth + 1)?;
         }
     }
 
@@ -111,11 +130,7 @@ fn merge_trope(parent: &TropeDefinition, child: &TropeDefinition) -> TropeDefini
         } else {
             child.narrative_hints.clone()
         },
-        tension_level: if child.tension_level == 0.0 {
-            parent.tension_level
-        } else {
-            child.tension_level
-        },
+        tension_level: child.tension_level.or(parent.tension_level),
         resolution_hints: child
             .resolution_hints
             .clone()

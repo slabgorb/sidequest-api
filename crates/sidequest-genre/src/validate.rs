@@ -69,6 +69,19 @@ impl GenrePack {
                 .map(|s| s.as_str())
                 .collect();
 
+            // Check starting_region references an existing region
+            if !world.cartography.starting_region.is_empty()
+                && !region_slugs.contains(world.cartography.starting_region.as_str())
+            {
+                return Err(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has starting_region '{}' \
+                         which does not exist",
+                        world.cartography.starting_region
+                    ),
+                });
+            }
+
             // Check adjacent references
             for (slug, region) in &world.cartography.regions {
                 for adj in &region.adjacent {

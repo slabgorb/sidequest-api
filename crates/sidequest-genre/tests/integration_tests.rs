@@ -248,7 +248,7 @@ fn trope_inheritance_resolves_extends() {
         "should inherit category from parent"
     );
     // But override tension_level
-    assert!((blade.tension_level - 0.6).abs() < f64::EPSILON);
+    assert_eq!(blade.tension_level, Some(0.6));
     // Should NOT be abstract after resolution
     assert!(!blade.is_abstract);
     // Should have its own triggers (overriding parent)

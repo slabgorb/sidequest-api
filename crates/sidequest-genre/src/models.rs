@@ -456,9 +456,9 @@ pub struct TropeDefinition {
     /// Narrator guidance when this trope is active.
     #[serde(default)]
     pub narrative_hints: Vec<String>,
-    /// Base tension level (0.0–1.0).
+    /// Base tension level (0.0–1.0). None means "inherit from parent" during merge.
     #[serde(default)]
-    pub tension_level: f64,
+    pub tension_level: Option<f64>,
     /// Suggested ways the trope can resolve.
     #[serde(default)]
     pub resolution_hints: Option<Vec<String>>,
@@ -1081,6 +1081,7 @@ pub struct Region {
 /// A landmark — either a simple name string or a detailed object.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum Landmark {
     /// Simple landmark name.
     Name(String),
