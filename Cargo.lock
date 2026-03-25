@@ -1017,6 +1017,7 @@ dependencies = [
  "chrono",
  "rusqlite",
  "serde",
+ "serde_json",
  "sidequest-genre",
  "sidequest-protocol",
  "thiserror",
