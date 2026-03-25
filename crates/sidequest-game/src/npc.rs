@@ -70,6 +70,7 @@ impl Combatant for Npc {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::inventory::Inventory;
 
     fn friendly_innkeeper() -> Npc {
         Npc {

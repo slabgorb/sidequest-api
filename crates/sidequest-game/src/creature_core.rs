@@ -115,4 +115,14 @@ mod tests {
         c.apply_hp_delta(-100);
         assert_eq!(c.hp, 0);
     }
+
+    #[test]
+    fn json_roundtrip() {
+        let c = test_core();
+        let json = serde_json::to_string(&c).unwrap();
+        let back: CreatureCore = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.name.as_str(), "Test Creature");
+        assert_eq!(back.hp, 20);
+        assert_eq!(back.level, 3);
+    }
 }
