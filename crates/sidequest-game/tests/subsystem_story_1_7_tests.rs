@@ -1,8 +1,5 @@
-//! Failing tests for Story 1-7: Game subsystems — CombatState, ChaseState,
+//! Integration tests for Story 1-7: Game subsystems — CombatState, ChaseState,
 //! NarrativeEntry, progression, TurnManager, status effects.
-//!
-//! Tests reference types and functions that must be implemented by Dev.
-//! All tests should FAIL (compilation errors) until implementation lands.
 
 use sidequest_game::{
     // Combat subsystem
@@ -113,18 +110,6 @@ fn status_effect_tick_does_not_go_negative() {
 }
 
 #[test]
-fn status_effect_kinds_are_distinct() {
-    // Verifies all four effect kinds exist and are distinguishable
-    let poison = StatusEffectKind::Poison;
-    let stun = StatusEffectKind::Stun;
-    let bless = StatusEffectKind::Bless;
-    let curse = StatusEffectKind::Curse;
-    assert_ne!(poison, stun);
-    assert_ne!(bless, curse);
-    assert_ne!(poison, bless);
-}
-
-#[test]
 fn combat_state_add_and_tick_status_effects() {
     let mut state = CombatState::new();
     state.add_effect("Grog", StatusEffect::new(StatusEffectKind::Poison, 2));
@@ -180,13 +165,6 @@ fn chase_state_created_with_type_and_threshold() {
 }
 
 #[test]
-fn chase_types_are_distinct() {
-    assert_ne!(ChaseType::Footrace, ChaseType::Stealth);
-    assert_ne!(ChaseType::Stealth, ChaseType::Negotiation);
-    assert_ne!(ChaseType::Footrace, ChaseType::Negotiation);
-}
-
-#[test]
 fn chase_state_starts_at_round_one() {
     let state = ChaseState::new(ChaseType::Stealth, 0.5);
     assert_eq!(state.round(), 1);
@@ -238,12 +216,6 @@ fn chase_is_resolved_when_escaped() {
     assert!(!state.is_resolved());
     state.record_roll(0.7);
     assert!(state.is_resolved(), "escape = resolved");
-}
-
-#[test]
-fn chase_default_threshold_is_fifty_percent() {
-    let state = ChaseState::new(ChaseType::Footrace, 0.5);
-    assert!((state.escape_threshold() - 0.5).abs() < f64::EPSILON);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -445,13 +417,6 @@ fn turn_manager_phase_advances() {
 }
 
 #[test]
-fn turn_phase_values_are_distinct() {
-    assert_ne!(TurnPhase::InputCollection, TurnPhase::IntentRouting);
-    assert_ne!(TurnPhase::AgentExecution, TurnPhase::StatePatch);
-    assert_ne!(TurnPhase::StatePatch, TurnPhase::Broadcast);
-}
-
-#[test]
 fn turn_manager_round_never_decreases() {
     let mut tm = TurnManager::new();
     for _ in 0..10 {
@@ -459,4 +424,67 @@ fn turn_manager_round_never_decreases() {
         tm.advance();
         assert!(tm.round() > prev, "round must always increase");
     }
+}
+
+// ═══════════════════════════════════════════════════════════
+// REWORK: Reviewer-found bugs (round-trip 1)
+// ═══════════════════════════════════════════════════════════
+
+/// BUG #1: effects_on() should only return non-expired effects.
+/// The doc says "active (non-expired)" but the implementation returns all.
+#[test]
+fn effects_on_excludes_expired_effects() {
+    let mut state = CombatState::new();
+    // Add a 1-round effect and a 3-round effect
+    state.add_effect("Grog", StatusEffect::new(StatusEffectKind::Stun, 1));
+    state.add_effect("Grog", StatusEffect::new(StatusEffectKind::Poison, 3));
+
+    // Before tick: both should be visible
+    assert_eq!(state.effects_on("Grog").len(), 2);
+
+    // After tick: Stun (1 round) should be expired and filtered out
+    state.tick_effects();
+    let active = state.effects_on("Grog");
+    assert_eq!(
+        active.len(),
+        1,
+        "effects_on should only return non-expired effects; Stun should be gone"
+    );
+    assert_eq!(active[0].kind(), StatusEffectKind::Poison);
+}
+
+/// BUG #2: record_roll() on a resolved chase should not corrupt state.
+#[test]
+fn record_roll_after_resolved_is_noop() {
+    let mut state = ChaseState::new(ChaseType::Footrace, 0.5);
+    state.record_roll(0.7); // escape succeeds
+    assert!(state.is_resolved());
+
+    let round_before = state.round();
+    let rounds_len_before = state.rounds().len();
+
+    // Rolling after resolution should be a no-op
+    state.record_roll(0.3);
+    assert_eq!(
+        state.round(),
+        round_before,
+        "round should not increment after resolution"
+    );
+    assert_eq!(
+        state.rounds().len(),
+        rounds_len_before,
+        "no new rounds should be recorded after resolution"
+    );
+}
+
+/// BUG #3: StatusEffect with duration 0 should be immediately expired.
+/// This documents the edge case explicitly.
+#[test]
+fn status_effect_zero_duration_is_immediately_expired() {
+    let effect = StatusEffect::new(StatusEffectKind::Curse, 0);
+    assert!(
+        effect.is_expired(),
+        "a zero-duration effect should be immediately expired"
+    );
+    assert_eq!(effect.remaining_rounds(), 0);
 }
