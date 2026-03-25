@@ -6,24 +6,27 @@ use std::fmt;
 ///
 /// This enum is `#[non_exhaustive]` so downstream crates must use a wildcard
 /// arm when matching, allowing new variants to be added without breaking changes.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum GenreError {
     /// A YAML file could not be read or parsed.
+    #[error("failed to load {path}: {detail}")]
     LoadError {
         /// Path to the file that failed to load.
         path: String,
         /// Description of what went wrong.
-        source: String,
+        detail: String,
     },
 
     /// A trope `extends` chain contains a cycle.
+    #[error("cycle detected in trope inheritance: {trope}")]
     CycleDetected {
         /// The trope name where the cycle was detected.
         trope: String,
     },
 
     /// A trope references a parent via `extends` that does not exist.
+    #[error("trope '{trope}' extends '{parent}' which does not exist")]
     MissingParent {
         /// The trope with the dangling reference.
         trope: String,
@@ -32,12 +35,14 @@ pub enum GenreError {
     },
 
     /// Cross-reference validation failed.
+    #[error("validation error: {message}")]
     ValidationError {
         /// Description of the validation failure.
         message: String,
     },
 
     /// Genre pack not found in any search path.
+    #[error("genre pack '{code}' not found; searched: {}", searched.join(", "))]
     NotFound {
         /// The genre code that was searched for.
         code: String,
@@ -45,34 +50,6 @@ pub enum GenreError {
         searched: Vec<String>,
     },
 }
-
-impl fmt::Display for GenreError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            GenreError::LoadError { path, source } => {
-                write!(f, "failed to load {path}: {source}")
-            }
-            GenreError::CycleDetected { trope } => {
-                write!(f, "cycle detected in trope inheritance: {trope}")
-            }
-            GenreError::MissingParent { trope, parent } => {
-                write!(f, "trope '{trope}' extends '{parent}' which does not exist")
-            }
-            GenreError::ValidationError { message } => {
-                write!(f, "validation error: {message}")
-            }
-            GenreError::NotFound { code, searched } => {
-                write!(
-                    f,
-                    "genre pack '{code}' not found; searched: {}",
-                    searched.join(", ")
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for GenreError {}
 
 /// A collection of validation errors, supporting error aggregation.
 ///

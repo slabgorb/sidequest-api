@@ -1,7 +1,7 @@
-//! Chase state — escape threshold, round tracking, capture logic.
+//! Chase state — escape threshold, round tracking, resolution.
 //!
 //! Implements ADR-017: three chase types, escape threshold (default 50%),
-//! and cinematic narration per round.
+//! and round-by-round escape roll tracking.
 
 /// The type of chase encounter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

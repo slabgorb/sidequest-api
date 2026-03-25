@@ -20,7 +20,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     if !path.exists() || !path.is_dir() {
         return Err(GenreError::LoadError {
             path: path.display().to_string(),
-            source: "directory does not exist".into(),
+            detail: "directory does not exist".into(),
         });
     }
 
@@ -80,7 +80,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
 fn load_error(path: &Path, e: impl std::fmt::Display) -> GenreError {
     GenreError::LoadError {
         path: path.display().to_string(),
-        source: e.to_string(),
+        detail: e.to_string(),
     }
 }
 
@@ -193,7 +193,9 @@ impl GenreLoader {
         })
     }
 
-    /// Find, load, and validate a genre pack by code.
+    /// Find and load a genre pack by code.
+    ///
+    /// Call `pack.validate()` separately for cross-reference validation (phase 2).
     pub fn load(&self, code: &GenreCode) -> Result<GenrePack, GenreError> {
         let path = self.find(code)?;
         load_genre_pack(&path)
