@@ -67,7 +67,7 @@ pub enum InventoryError {
 }
 
 /// A character's inventory — items and gold.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Inventory {
     /// Carried items.
     pub items: Vec<Item>,

@@ -34,7 +34,7 @@ impl fmt::Display for Attitude {
 /// - `> 10` → Friendly
 /// - `-10..=10` → Neutral
 /// - `< -10` → Hostile
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Disposition(i32);
 
