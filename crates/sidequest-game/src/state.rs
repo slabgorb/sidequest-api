@@ -63,47 +63,99 @@ pub struct GameSnapshot {
 impl GameSnapshot {
     /// Apply a world state patch (location, atmosphere, quest_log, etc.).
     /// Only fields that are `Some` in the patch are updated.
+    /// Emits a tracing span with patch_type and fields_changed (story 3-1).
     pub fn apply_world_patch(&mut self, patch: &WorldStatePatch) {
+        let span = tracing::info_span!(
+            "apply_world_patch",
+            patch_type = "world",
+            fields_changed = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let mut changed = Vec::new();
         if let Some(ref loc) = patch.location {
             self.location = loc.clone();
+            changed.push("location");
         }
         if let Some(ref atm) = patch.atmosphere {
             self.atmosphere = atm.clone();
+            changed.push("atmosphere");
         }
         if let Some(ref ql) = patch.quest_log {
             self.quest_log = ql.clone();
+            changed.push("quest_log");
         }
         if let Some(ref n) = patch.notes {
             self.notes = n.clone();
+            changed.push("notes");
         }
         if let Some(ref cr) = patch.current_region {
             self.current_region = cr.clone();
+            changed.push("current_region");
         }
         if let Some(ref regions) = patch.discovered_regions {
             self.discovered_regions = regions.clone();
+            changed.push("discovered_regions");
         }
         if let Some(ref routes) = patch.discovered_routes {
             self.discovered_routes = routes.clone();
+            changed.push("discovered_routes");
         }
+
+        span.record(
+            "fields_changed",
+            &tracing::field::display(&changed.join(",")),
+        );
     }
 
     /// Apply a combat patch.
+    /// Emits a tracing span with patch_type and fields_changed (story 3-1).
     pub fn apply_combat_patch(&mut self, patch: &CombatPatch) {
+        let span = tracing::info_span!(
+            "apply_combat_patch",
+            patch_type = "combat",
+            fields_changed = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let mut changed = Vec::new();
         if patch.advance_round {
             self.combat.advance_round();
+            changed.push("round");
         }
+
+        span.record(
+            "fields_changed",
+            &tracing::field::display(&changed.join(",")),
+        );
     }
 
     /// Apply a chase patch (start a chase or record a roll).
+    /// Emits a tracing span with patch_type and fields_changed (story 3-1).
     pub fn apply_chase_patch(&mut self, patch: &ChasePatch) {
+        let span = tracing::info_span!(
+            "apply_chase_patch",
+            patch_type = "chase",
+            fields_changed = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let mut changed = Vec::new();
         if let Some((chase_type, threshold)) = patch.start {
             self.chase = Some(ChaseState::new(chase_type, threshold));
+            changed.push("chase_started");
         }
         if let Some(roll) = patch.roll {
             if let Some(ref mut chase) = self.chase {
                 chase.record_roll(roll);
+                changed.push("escape_roll");
             }
         }
+
+        span.record(
+            "fields_changed",
+            &tracing::field::display(&changed.join(",")),
+        );
     }
 }
 

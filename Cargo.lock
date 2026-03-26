@@ -1181,6 +1181,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1197,8 +1198,10 @@ dependencies = [
  "serde_json",
  "sidequest-genre",
  "sidequest-protocol",
+ "tempfile",
  "thiserror",
  "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
