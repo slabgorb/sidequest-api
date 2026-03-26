@@ -322,16 +322,14 @@ async fn channel_accepts_exactly_capacity_records() {
 /// and store a mpsc::Sender<TurnRecord>.
 #[test]
 fn orchestrator_exposes_watcher_channel_integration() {
-    // When implemented, Orchestrator should accept a Sender<TurnRecord>
-    // in its constructor and expose it for testing.
-    //
-    // Current state: Orchestrator::new() takes no arguments.
-    // We verify the gap exists by asserting the integration is present.
-    let has_watcher_integration = false; // Will be true once Orchestrator holds Sender<TurnRecord>
+    // Verify Orchestrator accepts a Sender<TurnRecord> and holds it.
+    let (tx, _rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
+    let orch = sidequest_agents::orchestrator::Orchestrator::new(tx);
+    // Orchestrator should be able to try_send through its watcher_tx
+    let result = orch.watcher_tx.try_send(make_mock_record(1));
     assert!(
-        has_watcher_integration,
-        "Orchestrator must hold a mpsc::Sender<TurnRecord> (watcher_tx) — AC3. \
-         Update Orchestrator::new() to accept a Sender<TurnRecord>."
+        result.is_ok(),
+        "Orchestrator must hold a mpsc::Sender<TurnRecord> (watcher_tx) — AC3"
     );
 }
 
@@ -405,12 +403,7 @@ async fn backpressure_logs_warning_with_dropped_turn_id() {
     let _turn_id = record.turn_id;
 
     tracing::subscriber::with_default(subscriber, || {
-        if let Err(_e) = tx.try_send(record) {
-            // The orchestrator code should emit a warning here.
-            // Currently nothing logs — this is the RED state gap.
-            // Dev will add:
-            //   tracing::warn!(error = %e, "watcher channel full...");
-        }
+        sidequest_agents::turn_record::try_send_record(&tx, record);
     });
 
     let events = captured.lock().unwrap();
@@ -467,16 +460,14 @@ async fn validator_emits_structured_tracing_event_per_record() {
 
     let (tx, rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    // Run validator within the tracing subscriber scope
-    let handle = tokio::spawn({
-        let _guard = tracing::subscriber::set_default(subscriber);
-        async move { run_validator(rx).await }
-    });
-
+    // Pre-load messages and close channel so validator drains synchronously
     tx.send(make_mock_record(1)).await.unwrap();
     drop(tx);
 
-    let _ = handle.await.unwrap();
+    // Run validator with subscriber on the current task (no spawn boundary)
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let _processed = run_validator(rx).await;
+    drop(_guard);
 
     let events = captured.lock().unwrap();
 
@@ -507,14 +498,12 @@ async fn validator_logs_intent_field() {
 
     let (tx, rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let handle = tokio::spawn({
-        let _guard = tracing::subscriber::set_default(subscriber);
-        async move { run_validator(rx).await }
-    });
-
     tx.send(make_mock_record(1)).await.unwrap();
     drop(tx);
-    let _ = handle.await.unwrap();
+
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let _ = run_validator(rx).await;
+    drop(_guard);
 
     let events = captured.lock().unwrap();
     assert!(
@@ -533,14 +522,12 @@ async fn validator_logs_patches_and_delta_fields() {
 
     let (tx, rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let handle = tokio::spawn({
-        let _guard = tracing::subscriber::set_default(subscriber);
-        async move { run_validator(rx).await }
-    });
-
     tx.send(make_mock_record(1)).await.unwrap();
     drop(tx);
-    let _ = handle.await.unwrap();
+
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let _ = run_validator(rx).await;
+    drop(_guard);
 
     let events = captured.lock().unwrap();
     assert!(
@@ -839,13 +826,11 @@ async fn validator_emits_startup_tracing_event() {
 
     let (tx, rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let handle = tokio::spawn({
-        let _guard = tracing::subscriber::set_default(subscriber);
-        async move { run_validator(rx).await }
-    });
-
     drop(tx); // immediately close
-    let _ = handle.await.unwrap();
+
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let _ = run_validator(rx).await;
+    drop(_guard);
 
     let events = captured.lock().unwrap();
     // Validator should log startup message
@@ -865,13 +850,11 @@ async fn validator_emits_shutdown_tracing_event() {
 
     let (tx, rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let handle = tokio::spawn({
-        let _guard = tracing::subscriber::set_default(subscriber);
-        async move { run_validator(rx).await }
-    });
-
     drop(tx);
-    let _ = handle.await.unwrap();
+
+    let _guard = tracing::subscriber::set_default(subscriber);
+    let _ = run_validator(rx).await;
+    drop(_guard);
 
     let events = captured.lock().unwrap();
     // Should have at least 2 events: startup + shutdown

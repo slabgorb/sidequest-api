@@ -5,6 +5,10 @@
 
 use std::collections::HashMap;
 
+use tokio::sync::mpsc;
+
+use crate::turn_record::{TurnIdCounter, TurnRecord};
+
 /// Result of processing a player action through the orchestrator.
 #[derive(Debug, Clone)]
 pub struct ActionResult {
@@ -30,19 +34,19 @@ pub trait GameService: Send + Sync {
 ///
 /// Routes player input → intent classification → agent dispatch → patch application → delta.
 pub struct Orchestrator {
-    _placeholder: (),
+    /// Sender end of the watcher channel for TurnRecord delivery.
+    pub watcher_tx: mpsc::Sender<TurnRecord>,
+    /// Monotonically increasing turn ID counter.
+    pub turn_id_counter: TurnIdCounter,
 }
 
 impl Orchestrator {
-    /// Create a new orchestrator.
-    pub fn new() -> Self {
-        Self { _placeholder: () }
-    }
-}
-
-impl Default for Orchestrator {
-    fn default() -> Self {
-        Self::new()
+    /// Create a new orchestrator with a watcher channel sender.
+    pub fn new(watcher_tx: mpsc::Sender<TurnRecord>) -> Self {
+        Self {
+            watcher_tx,
+            turn_id_counter: TurnIdCounter::new(),
+        }
     }
 }
 

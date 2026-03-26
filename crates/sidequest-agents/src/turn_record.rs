@@ -75,28 +75,44 @@ pub struct TurnRecord {
 /// Counter for assigning monotonically increasing turn IDs.
 ///
 /// Lives on the Orchestrator. Each call to `next_turn_id()` returns
-/// a unique, strictly increasing u64.
+/// a unique, strictly increasing u64 starting at 1.
 pub struct TurnIdCounter {
-    _next: u64,
+    next: u64,
 }
 
 impl TurnIdCounter {
     /// Create a new counter starting at turn 1.
     pub fn new() -> Self {
-        Self { _next: 0 }
+        Self { next: 1 }
     }
 
     /// Return the next turn ID and advance the counter.
     pub fn next_turn_id(&mut self) -> u64 {
-        // Stub: not yet implemented. Always returns 0.
-        // Dev must implement: increment and return.
-        0
+        let id = self.next;
+        self.next += 1;
+        id
     }
 }
 
 impl Default for TurnIdCounter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Send a TurnRecord through the watcher channel without blocking.
+///
+/// Uses `try_send` (non-blocking). If the channel is full or closed,
+/// logs a warning with the dropped turn_id and continues. The hot path
+/// (orchestrator) must never block on the cold path (validator).
+pub fn try_send_record(tx: &mpsc::Sender<TurnRecord>, record: TurnRecord) {
+    let turn_id = record.turn_id;
+    if let Err(e) = tx.try_send(record) {
+        tracing::warn!(
+            error = %e,
+            turn_id = turn_id,
+            "watcher channel full or closed — dropping TurnRecord"
+        );
     }
 }
 
@@ -107,26 +123,28 @@ impl Default for TurnIdCounter {
 /// the sender drops, the channel closes, `rx.recv()` returns `None`, and
 /// the validator exits cleanly.
 ///
+/// Returns the list of processed turn IDs for testability.
 /// Stories 3-3 through 3-5 will add actual validation checks.
-/// For story 3-2, the validator logs receipt of each TurnRecord.
 pub async fn run_validator(mut rx: mpsc::Receiver<TurnRecord>) -> Vec<u64> {
-    let processed_turn_ids = Vec::new();
+    tracing::info!("watcher validator started, awaiting TurnRecords");
 
-    while let Some(_record) = rx.recv().await {
-        // Stub: receives records but does not process or log them.
-        // Dev must implement:
-        //   tracing::info!(
-        //       turn_id = record.turn_id,
-        //       intent = %record.classified_intent,
-        //       agent = %record.agent_name,
-        //       patches = record.patches_applied.len(),
-        //       delta_empty = record.delta.is_empty(),
-        //       extraction_tier = record.extraction_tier,
-        //       is_degraded = record.is_degraded,
-        //       "received TurnRecord"
-        //   );
-        //   processed_turn_ids.push(record.turn_id);
+    let mut processed_turn_ids = Vec::new();
+
+    while let Some(record) = rx.recv().await {
+        tracing::info!(
+            turn_id = record.turn_id,
+            intent = %record.classified_intent,
+            agent = %record.agent_name,
+            patches = record.patches_applied.len(),
+            delta_empty = record.delta.is_empty(),
+            extraction_tier = record.extraction_tier,
+            is_degraded = record.is_degraded,
+            "received TurnRecord"
+        );
+        processed_turn_ids.push(record.turn_id);
     }
+
+    tracing::info!("watcher validator shutting down (channel closed)");
 
     processed_turn_ids
 }

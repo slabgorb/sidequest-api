@@ -718,6 +718,7 @@ pub async fn serve_with_listener(
 /// Uses a default Orchestrator and a temp path for genre packs.
 pub fn test_app_state() -> AppState {
     use sidequest_agents::orchestrator::Orchestrator;
+    use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 
     // Use the real genre_packs path if available, otherwise a temp path
     let genre_packs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -727,5 +728,6 @@ pub fn test_app_state() -> AppState {
         .map(|p| p.join("genre_packs"))
         .unwrap_or_else(|| PathBuf::from("/tmp/test-genre-packs"));
 
-    AppState::new_with_game_service(Box::new(Orchestrator::new()), genre_packs_path)
+    let (watcher_tx, _watcher_rx) = tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
+    AppState::new_with_game_service(Box::new(Orchestrator::new(watcher_tx)), genre_packs_path)
 }
