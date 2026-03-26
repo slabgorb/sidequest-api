@@ -18,7 +18,9 @@ use std::collections::HashMap;
 
 // === New/extended types from story 2-5 ===
 use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
-use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
+use sidequest_agents::orchestrator::{
+    AgentKind, Orchestrator, TurnContext, TurnResult,
+};
 
 // ============================================================================
 // AC-2: Intent routing — combat
@@ -246,7 +248,10 @@ fn agent_kind_is_non_exhaustive() {
 #[test]
 fn turn_result_carries_state_delta() {
     let mut delta = HashMap::new();
-    delta.insert("location".to_string(), serde_json::json!("Dark Alley"));
+    delta.insert(
+        "location".to_string(),
+        serde_json::json!("Dark Alley"),
+    );
 
     let result = TurnResult {
         narration: "You move into the shadows.".to_string(),

@@ -81,7 +81,36 @@ impl IntentRouter {
     /// Classify player input using keyword matching only (no LLM call).
     ///
     /// This is the synchronous fast path. For ambiguous input, defaults to Exploration.
+    /// Emits a tracing span with semantic fields for agent telemetry (story 3-1).
     pub fn classify_keywords(input: &str) -> IntentRoute {
+        let route = Self::classify_keywords_inner(input);
+        let is_fallback = route.agent_name() == "narrator"
+            && route.intent() == Intent::Exploration
+            && !input.to_lowercase().contains("look")
+            && !input.to_lowercase().contains("go")
+            && !input.to_lowercase().contains("explore");
+
+        let intent_str = format!("{:?}", route.intent());
+        let span = tracing::info_span!(
+            "classify_keywords",
+            player_input = %input,
+            classified_intent = %intent_str,
+            agent_routed_to = %route.agent_name(),
+            confidence = 1.0_f64,
+            fallback_used = is_fallback,
+        );
+        let _guard = span.enter();
+
+        // Also record via deferred pattern for telemetry consumers that
+        // observe Span::record() events (story 3-1 AC: deferred fields).
+        span.record("classified_intent", &tracing::field::display(&intent_str));
+        span.record("agent_routed_to", &route.agent_name());
+
+        route
+    }
+
+    /// Inner keyword classification logic (no tracing).
+    fn classify_keywords_inner(input: &str) -> IntentRoute {
         let lower = input.to_lowercase();
 
         // Combat keywords
@@ -133,16 +162,27 @@ impl IntentRouter {
     }
 
     /// Classify with state override — active combat/chase forces intent regardless of input.
+    /// Emits a tracing span with semantic fields for agent telemetry (story 3-1).
     pub fn classify_with_state(input: &str, ctx: &crate::orchestrator::TurnContext) -> IntentRoute {
-        // State overrides take priority
-        if ctx.in_chase {
-            return IntentRoute::for_intent(Intent::Chase);
-        }
-        if ctx.in_combat {
-            return IntentRoute::for_intent(Intent::Combat);
-        }
+        // Compute route first
+        let route = if ctx.in_chase {
+            IntentRoute::for_intent(Intent::Chase)
+        } else if ctx.in_combat {
+            IntentRoute::for_intent(Intent::Combat)
+        } else {
+            Self::classify_keywords_inner(input)
+        };
 
-        // Fall through to keyword matching
-        Self::classify_keywords(input)
+        let intent_str = format!("{:?}", route.intent());
+        let span = tracing::info_span!(
+            "classify_with_state",
+            player_input = %input,
+            classified_intent = %intent_str,
+            agent_routed_to = %route.agent_name(),
+            state_override = ctx.in_combat || ctx.in_chase,
+        );
+        let _guard = span.enter();
+
+        route
     }
 }
