@@ -9,7 +9,7 @@
 //!   - Quoted speech preservation
 //!   - Edge cases (empty, whitespace, single sentence, no terminal punct)
 
-use sidequest_game::segmenter::{Segment, SentenceSegmenter};
+use sidequest_game::segmenter::{SentenceSegmenter, Segment};
 
 // ============================================================================
 // Test fixtures
@@ -71,8 +71,8 @@ fn dr_abbreviation_does_not_split() {
 
 #[test]
 fn multiple_abbreviations_in_sequence() {
-    let result =
-        segmenter().segment("Gen. Holt spoke with Lt. Col. Graves about the mission. They agreed.");
+    let result = segmenter()
+        .segment("Gen. Holt spoke with Lt. Col. Graves about the mission. They agreed.");
     assert_eq!(result.len(), 2);
     assert!(result[0].text.contains("Gen."));
     assert!(result[0].text.contains("Lt."));
@@ -88,7 +88,8 @@ fn mrs_abbreviation_does_not_split() {
 
 #[test]
 fn etc_abbreviation_does_not_split() {
-    let result = segmenter().segment("He carried swords, shields, etc. The load was heavy.");
+    let result =
+        segmenter().segment("He carried swords, shields, etc. The load was heavy.");
     assert_eq!(result.len(), 2);
     assert!(result[0].text.contains("etc."));
 }
@@ -115,7 +116,8 @@ fn question_mark_splits() {
 
 #[test]
 fn mixed_terminal_punctuation() {
-    let result = segmenter().segment("The beast roared! Did you hear that? We need to run.");
+    let result =
+        segmenter().segment("The beast roared! Did you hear that? We need to run.");
     assert_eq!(result.len(), 3);
     assert_eq!(result[0].text, "The beast roared!");
     assert_eq!(result[1].text, "Did you hear that?");
@@ -154,7 +156,8 @@ fn ellipsis_without_capital_does_not_split() {
 
 #[test]
 fn quoted_sentence_stays_together() {
-    let result = segmenter().segment(r#""You shall not pass!" The wizard slammed his staff down."#);
+    let result = segmenter()
+        .segment(r#""You shall not pass!" The wizard slammed his staff down."#);
     assert_eq!(result.len(), 2);
     assert!(result[0].text.contains("You shall not pass!"));
     assert!(result[1].text.contains("The wizard"));
@@ -162,14 +165,16 @@ fn quoted_sentence_stays_together() {
 
 #[test]
 fn smart_quotes_handled() {
-    let result = segmenter().segment("\u{201c}Run!\u{201d} The captain shouted the order.");
+    let result = segmenter()
+        .segment("\u{201c}Run!\u{201d} The captain shouted the order.");
     assert_eq!(result.len(), 2);
     assert!(result[0].text.contains("Run!"));
 }
 
 #[test]
 fn period_inside_closing_quote_splits() {
-    let result = segmenter().segment(r#""The bridge is gone." She turned away."#);
+    let result = segmenter()
+        .segment(r#""The bridge is gone." She turned away."#);
     assert_eq!(result.len(), 2);
     assert!(result[0].text.contains("The bridge is gone."));
     assert!(result[1].text.contains("She turned away."));
@@ -267,8 +272,8 @@ fn single_segment_is_last() {
 #[test]
 fn dialogue_attribution_stays_with_speech() {
     // "said X" after a quoted sentence should attach to the quote
-    let result =
-        segmenter().segment(r#""We must retreat," said the commander. The troops fell back."#);
+    let result = segmenter()
+        .segment(r#""We must retreat," said the commander. The troops fell back."#);
     assert_eq!(result.len(), 2);
     assert!(result[0].text.contains("said the commander"));
 }
@@ -309,13 +314,15 @@ fn parity_abbreviation_mr() {
 #[test]
 fn parity_exclamation_with_closing_quote() {
     // Python pattern 3: !?" followed by whitespace + opening quote
-    let result = segmenter().segment(r#""Attack!" "Defend the walls!""#);
+    let result = segmenter()
+        .segment(r#""Attack!" "Defend the walls!""#);
     assert_eq!(result.len(), 2);
 }
 
 #[test]
 fn parity_period_with_closing_quote() {
     // Python pattern 2: period + closing quote
-    let result = segmenter().segment(r#""The door is locked." He pulled out a key."#);
+    let result = segmenter()
+        .segment(r#""The door is locked." He pulled out a key."#);
     assert_eq!(result.len(), 2);
 }
