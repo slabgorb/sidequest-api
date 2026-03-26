@@ -15,13 +15,13 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::Request;
+use clap::Parser;
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tower::ServiceExt;
 
@@ -573,7 +573,6 @@ fn app_state_genre_packs_path_via_getter() {
 #[tokio::test]
 async fn websocket_full_lifecycle() {
     use futures::{SinkExt, StreamExt};
-    use sidequest_server::create_server;
     use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
     let state = test_app_state();
@@ -649,8 +648,7 @@ async fn create_server_with_listener(
 #[tokio::test]
 async fn websocket_broadcast_reaches_both_clients() {
     use futures::StreamExt;
-    use sidequest_server::create_server;
-    use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
+    use tokio_tungstenite::connect_async;
 
     let state = test_app_state();
     let broadcast_state = state.clone();
