@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::agents::narrator::NarratorAgent;
+use crate::agents::intent_router::IntentRouter;
 use crate::agent::Agent;
 use crate::client::ClaudeClient;
 use crate::turn_record::{TurnIdCounter, TurnRecord};
@@ -69,12 +70,21 @@ impl GameService for Orchestrator {
     }
 
     fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult {
+        // Classify intent for routing and telemetry
+        let route = IntentRouter::classify_with_state(action, context);
+        info!(
+            intent = %route.intent(),
+            agent = %route.agent_name(),
+            "Intent classified"
+        );
+
         let state_block = context
             .state_summary
             .as_deref()
             .map(|s| format!("\n<game_state>\n{}\n</game_state>\n", s))
             .unwrap_or_default();
 
+        // TODO: dispatch to route.agent_name() — for now all go through narrator
         let prompt = format!(
             "{}{}\nThe player says: {}",
             self.narrator.system_prompt(),

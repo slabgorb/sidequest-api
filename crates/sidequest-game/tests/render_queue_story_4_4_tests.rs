@@ -353,7 +353,7 @@ fn all_tiers_have_positive_dimensions() {
 
 #[tokio::test]
 async fn enqueue_returns_queued_with_job_id() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let subject = combat_subject();
 
     let result = queue.enqueue(subject, "oil_painting", "flux-schnell").await;
@@ -379,7 +379,7 @@ async fn enqueue_returns_queued_with_job_id() {
 
 #[tokio::test]
 async fn enqueue_is_non_blocking() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let subject = combat_subject();
 
     // Enqueue should return near-instantly (not wait for rendering)
@@ -402,7 +402,7 @@ async fn enqueue_is_non_blocking() {
 
 #[tokio::test]
 async fn duplicate_subject_returns_deduplicated() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let subject = combat_subject();
 
     // First enqueue — should be Queued
@@ -438,7 +438,7 @@ async fn duplicate_subject_returns_deduplicated() {
 
 #[tokio::test]
 async fn different_subjects_not_deduplicated() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let subject_a = combat_subject();
     let subject_b = landscape_subject();
 
@@ -471,7 +471,7 @@ async fn different_subjects_not_deduplicated() {
 async fn queue_rejects_when_full() {
     // Small queue that fills quickly
     let config = RenderQueueConfig::new(1, 4, Duration::from_secs(60)).unwrap();
-    let queue = RenderQueue::spawn(config);
+    let queue = RenderQueue::spawn(config, |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
 
     // Fill the queue with distinct subjects
     let subject_a = combat_subject();
@@ -516,7 +516,7 @@ async fn queue_rejects_when_full() {
 
 #[tokio::test]
 async fn job_status_returns_queued_after_enqueue() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let subject = combat_subject();
 
     let result = queue
@@ -544,7 +544,7 @@ async fn job_status_returns_queued_after_enqueue() {
 
 #[tokio::test]
 async fn job_status_returns_none_for_unknown_id() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let unknown_id = uuid::Uuid::new_v4();
 
     let status = queue.job_status(unknown_id).await;
@@ -624,7 +624,7 @@ fn render_job_result_success_carries_all_fields() {
 
 #[tokio::test]
 async fn cache_len_increases_after_enqueue() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let initial_len = queue.cache_len().await;
 
     let subject = combat_subject();
@@ -643,7 +643,7 @@ async fn cache_len_increases_after_enqueue() {
 
 #[tokio::test]
 async fn duplicate_enqueue_does_not_increase_cache_len() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let subject = combat_subject();
 
     let _ = queue.enqueue(subject.clone(), "oil_painting", "flux-schnell").await;
@@ -666,7 +666,7 @@ async fn duplicate_enqueue_does_not_increase_cache_len() {
 
 #[tokio::test]
 async fn multiple_enqueues_complete_without_blocking() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     let start = std::time::Instant::now();
 
     // Enqueue 10 different subjects rapidly
@@ -1012,7 +1012,7 @@ fn content_hash_is_order_independent_on_entities() {
 
 #[tokio::test]
 async fn shutdown_completes_without_panic() {
-    let queue = RenderQueue::spawn(default_config());
+    let queue = RenderQueue::spawn(default_config(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     // Enqueue some work then shut down
     let _ = queue
         .enqueue(combat_subject(), "oil_painting", "flux-schnell")
@@ -1023,7 +1023,7 @@ async fn shutdown_completes_without_panic() {
 
 #[tokio::test]
 async fn spawn_with_default_config_succeeds() {
-    let queue = RenderQueue::spawn(RenderQueueConfig::default());
+    let queue = RenderQueue::spawn(RenderQueueConfig::default(), |_prompt, _style| async { Ok(("test.png".to_string(), 100)) });
     // Queue should be usable immediately after spawn
     let len = queue.cache_len().await;
     assert_eq!(len, 0, "Fresh queue should have empty cache");

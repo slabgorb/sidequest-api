@@ -19,6 +19,7 @@ sidequest-protocol = { path = "../sidequest-protocol" }
 sidequest-genre = { path = "../sidequest-genre" }
 sidequest-game = { path = "../sidequest-game" }
 sidequest-agents = { path = "../sidequest-agents" }
+sidequest-daemon-client = { path = "../sidequest-daemon-client" }
 tokio = { workspace = true }
 axum = { workspace = true, features = ["ws"] }
 tower = { workspace = true }

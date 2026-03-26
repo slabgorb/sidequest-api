@@ -295,6 +295,10 @@ struct AppStateInner {
     broadcast_tx: broadcast::Sender<GameMessage>,
     saved_sessions: Mutex<HashMap<String, PlayerSession>>,
     watcher_tx: broadcast::Sender<WatcherEvent>,
+    game_store: Option<sidequest_game::persistence::GameStore>,
+    render_queue: Option<sidequest_game::RenderQueue>,
+    subject_extractor: sidequest_game::SubjectExtractor,
+    beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -314,6 +318,28 @@ impl AppState {
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
         let (watcher_tx, _) = broadcast::channel(256);
+
+        // Render pipeline — daemon client connects lazily on first render
+        let render_queue = sidequest_game::RenderQueue::spawn(
+            sidequest_game::RenderQueueConfig::default(),
+            |prompt, art_style| async move {
+                // Try to connect to daemon; if unavailable, return error gracefully
+                let config = sidequest_daemon_client::DaemonConfig::default();
+                match sidequest_daemon_client::DaemonClient::connect(config).await {
+                    Ok(mut client) => {
+                        match client.render(sidequest_daemon_client::RenderParams {
+                            prompt,
+                            art_style,
+                        }).await {
+                            Ok(result) => Ok((result.image_url, result.generation_ms)),
+                            Err(e) => Err(format!("render failed: {e}")),
+                        }
+                    }
+                    Err(e) => Err(format!("daemon unavailable: {e}")),
+                }
+            },
+        );
+
         Self {
             inner: Arc::new(AppStateInner {
                 game_service,
@@ -323,6 +349,12 @@ impl AppState {
                 broadcast_tx,
                 saved_sessions: Mutex::new(HashMap::new()),
                 watcher_tx,
+                game_store: sidequest_game::persistence::GameStore::open("sidequest_saves.db").ok(),
+                render_queue: Some(render_queue),
+                subject_extractor: sidequest_game::SubjectExtractor::new(),
+                beat_filter: tokio::sync::Mutex::new(
+                    sidequest_game::BeatFilter::new(sidequest_game::BeatFilterConfig::default()),
+                ),
             }),
         }
     }
@@ -633,6 +665,36 @@ pub fn error_response(player_id: &str, message: &str) -> GameMessage {
 /// Middleware:
 /// - CORS for React dev server at localhost:5173
 pub fn build_router(state: AppState) -> Router {
+    // Spawn image broadcaster — listens for render completions and broadcasts IMAGE messages
+    if let Some(ref queue) = state.inner.render_queue {
+        let mut render_rx = queue.subscribe();
+        let broadcast_tx = state.inner.broadcast_tx.clone();
+        tokio::spawn(async move {
+            while let Ok(result) = render_rx.recv().await {
+                if let sidequest_game::RenderJobResult::Success {
+                    job_id,
+                    image_url,
+                    generation_ms,
+                } = result
+                {
+                    let msg = GameMessage::Image {
+                        payload: sidequest_protocol::ImagePayload {
+                            url: image_url,
+                            description: String::new(),
+                            handout: false,
+                            render_id: Some(job_id.to_string()),
+                            tier: None,
+                            scene_type: None,
+                            generation_ms: Some(generation_ms),
+                        },
+                        player_id: String::new(),
+                    };
+                    let _ = broadcast_tx.send(msg);
+                }
+            }
+        });
+    }
+
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(["http://localhost:5173"
             .parse()
@@ -892,7 +954,7 @@ fn dispatch_message(
                 state,
                 player_id,
                 session.genre_slug().unwrap_or(""),
-            )
+            ).await
         }
         // All other valid message types in wrong state
         _ => {
@@ -1154,7 +1216,7 @@ fn dispatch_character_creation(
                         state,
                         player_id,
                         &genre,
-                    );
+                    ).await;
 
                     // Emit CHARACTER_SHEET for the UI overlay
                     let char_sheet = GameMessage::CharacterSheet {
@@ -1188,7 +1250,7 @@ fn dispatch_character_creation(
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
-fn dispatch_player_action(
+async fn dispatch_player_action(
     action: &str,
     char_name: &str,
     hp: i32,
@@ -1308,6 +1370,53 @@ fn dispatch_player_action(
         },
         player_id: player_id.to_string(),
     });
+
+    // Combat tick — advance round and tick status effects if in combat
+    // TODO: track CombatState per session, detect combat from narration/intent
+    {
+        let mut combat = sidequest_game::combat::CombatState::default();
+        if combat.in_combat() {
+            combat.tick_effects();
+        }
+    }
+
+    // Trope engine tick — advance narrative arcs and apply keyword modifiers
+    // TODO: load trope definitions from genre pack and track TropeState per session
+    // For now this is a no-op (empty slices), but the wiring is in place.
+    {
+        let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
+        let trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
+        let fired = sidequest_game::trope::TropeEngine::tick(&mut trope_states, &trope_defs);
+        sidequest_game::trope::TropeEngine::apply_keyword_modifiers(
+            &mut trope_states,
+            &trope_defs,
+            &clean_narration,
+        );
+        if !fired.is_empty() {
+            tracing::info!(count = fired.len(), "Trope beats fired");
+        }
+    }
+
+    // Render pipeline — extract subject from narration, filter, enqueue
+    let extraction_context = sidequest_game::ExtractionContext {
+        current_location: extract_location_header(narration_text)
+            .unwrap_or_default(),
+        in_combat: false,
+        ..Default::default()
+    };
+    if let Some(subject) = state.inner.subject_extractor.extract(&clean_narration, &extraction_context) {
+        let filter_ctx = sidequest_game::FilterContext {
+            in_combat: false,
+            scene_transition: extract_location_header(narration_text).is_some(),
+            player_requested: false,
+        };
+        let decision = state.inner.beat_filter.lock().await.evaluate(&subject, &filter_ctx);
+        if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
+            if let Some(ref queue) = state.inner.render_queue {
+                let _ = queue.enqueue(subject, "oil_painting", "flux-schnell").await;
+            }
+        }
+    }
 
     // Audio cue — trigger mood-based music from genre pack
     if !genre_slug.is_empty() {
