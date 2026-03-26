@@ -268,9 +268,9 @@ pub fn error_response(player_id: &str, message: &str) -> GameMessage {
 /// - CORS for React dev server at localhost:5173
 pub fn build_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list([
-            "http://localhost:5173".parse().unwrap()
-        ]))
+        .allow_origin(AllowOrigin::list(["http://localhost:5173"
+            .parse()
+            .unwrap()]))
         .allow_methods([axum::http::Method::GET])
         .allow_headers(tower_http::cors::Any);
 
@@ -289,9 +289,7 @@ pub fn build_router(state: AppState) -> Router {
 ///
 /// Returns: `{ "genre_slug": { "worlds": ["world1", "world2"] } }`
 #[tracing::instrument(skip(state))]
-async fn list_genres(
-    State(state): State<AppState>,
-) -> Json<HashMap<String, serde_json::Value>> {
+async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serde_json::Value>> {
     let mut genres: HashMap<String, serde_json::Value> = HashMap::new();
 
     let packs_path = state.genre_packs_path();
@@ -346,10 +344,7 @@ async fn list_genres(
 }
 
 /// GET /ws — WebSocket upgrade handler.
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     let player_id = PlayerId::new();
     tracing::info!(player_id = %player_id, "WebSocket connection upgrading");
     ws.on_upgrade(move |socket| handle_ws_connection(socket, state, player_id))
@@ -414,10 +409,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                     }
                     Err(e) => {
                         tracing::warn!(player_id = %player_id_str, error = %e, "Invalid message");
-                        let err_msg = error_response(
-                            &player_id_str,
-                            &format!("Invalid JSON: {}", e),
-                        );
+                        let err_msg =
+                            error_response(&player_id_str, &format!("Invalid JSON: {}", e));
                         let _ = tx.send(err_msg).await;
                     }
                 }

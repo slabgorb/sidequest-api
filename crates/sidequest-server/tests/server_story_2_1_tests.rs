@@ -72,10 +72,7 @@ fn cli_args_parse_save_dir() {
         "--save-dir",
         "/tmp/saves",
     ]);
-    assert_eq!(
-        args.save_dir(),
-        Some(PathBuf::from("/tmp/saves").as_path())
-    );
+    assert_eq!(args.save_dir(), Some(PathBuf::from("/tmp/saves").as_path()));
 }
 
 // =========================================================================
@@ -260,10 +257,7 @@ fn missing_payload_fails_deserialization() {
     }"#;
 
     let result = serde_json::from_str::<GameMessage>(json);
-    assert!(
-        result.is_err(),
-        "Missing payload must fail deserialization"
-    );
+    assert!(result.is_err(), "Missing payload must fail deserialization");
 }
 
 /// The server must have a function that converts deserialization errors
@@ -390,9 +384,7 @@ async fn cors_rejects_disallowed_origin() {
         .unwrap();
 
     // The response should NOT include the evil origin in Access-Control-Allow-Origin
-    let allow_origin = response
-        .headers()
-        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+    let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
     if let Some(value) = allow_origin {
         assert_ne!(
             value.to_str().unwrap(),
@@ -583,9 +575,10 @@ async fn websocket_full_lifecycle() {
     let addr = listener.local_addr().unwrap();
 
     // Start server
-    let server_handle = tokio::spawn(async move {
-        create_server_with_listener(state, listener, shutdown_rx).await
-    });
+    let server_handle =
+        tokio::spawn(
+            async move { create_server_with_listener(state, listener, shutdown_rx).await },
+        );
 
     // Connect as WebSocket client
     let url = format!("ws://127.0.0.1:{}/ws", addr.port());
@@ -657,9 +650,10 @@ async fn websocket_broadcast_reaches_both_clients() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let server_handle = tokio::spawn(async move {
-        create_server_with_listener(state, listener, shutdown_rx).await
-    });
+    let server_handle =
+        tokio::spawn(
+            async move { create_server_with_listener(state, listener, shutdown_rx).await },
+        );
 
     let url = format!("ws://127.0.0.1:{}/ws", addr.port());
 
