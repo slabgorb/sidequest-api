@@ -7,9 +7,7 @@
 use std::collections::HashMap;
 
 use sidequest_genre::{CharCreationScene, MechanicalEffects, RulesConfig};
-use sidequest_protocol::{
-    CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString,
-};
+use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString};
 
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
@@ -181,12 +179,18 @@ pub struct CharacterBuilder {
 impl CharacterBuilder {
     /// Create a new builder. Panics if `scenes` is empty.
     pub fn new(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Self {
-        assert!(!scenes.is_empty(), "CharacterBuilder requires at least one scene");
+        assert!(
+            !scenes.is_empty(),
+            "CharacterBuilder requires at least one scene"
+        );
         Self::build_inner(scenes, rules)
     }
 
     /// Create a new builder, returning an error if `scenes` is empty.
-    pub fn try_new(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Result<Self, BuilderError> {
+    pub fn try_new(
+        scenes: Vec<CharCreationScene>,
+        rules: &RulesConfig,
+    ) -> Result<Self, BuilderError> {
         if scenes.is_empty() {
             return Err(BuilderError::NoScenes);
         }
@@ -491,10 +495,7 @@ impl CharacterBuilder {
                     .any(|a| a.anchor_type == *anchor_type)
             });
             if !has_anchor {
-                hooks.push(format!(
-                    "{}: auto-filled from genre pack",
-                    anchor_type
-                ));
+                hooks.push(format!("{}: auto-filled from genre pack", anchor_type));
             }
         }
 
@@ -506,12 +507,10 @@ impl CharacterBuilder {
             .map(|(i, hint)| {
                 let id_str = hint.to_lowercase().replace(' ', "_");
                 Item {
-                    id: NonBlankString::new(&id_str).unwrap_or_else(|_| {
-                        NonBlankString::new(&format!("item_{}", i)).unwrap()
-                    }),
-                    name: NonBlankString::new(hint).unwrap_or_else(|_| {
-                        NonBlankString::new("Unknown Item").unwrap()
-                    }),
+                    id: NonBlankString::new(&id_str)
+                        .unwrap_or_else(|_| NonBlankString::new(&format!("item_{}", i)).unwrap()),
+                    name: NonBlankString::new(hint)
+                        .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
                     description: NonBlankString::new(&format!("Starting equipment: {}", hint))
                         .unwrap(),
                     category: NonBlankString::new("weapon").unwrap(),
@@ -537,8 +536,7 @@ impl CharacterBuilder {
                     expected: "valid name".to_string(),
                     actual: "blank name".to_string(),
                 })?,
-                description: NonBlankString::new(&format!("A {} {}", race_str, class_str))
-                    .unwrap(),
+                description: NonBlankString::new(&format!("A {} {}", race_str, class_str)).unwrap(),
                 personality: NonBlankString::new(
                     acc.personality_trait.as_deref().unwrap_or("Determined"),
                 )
@@ -547,10 +545,7 @@ impl CharacterBuilder {
                 hp: base_hp,
                 max_hp: base_hp,
                 ac,
-                inventory: Inventory {
-                    items,
-                    gold: 0,
-                },
+                inventory: Inventory { items, gold: 0 },
                 statuses: vec![],
             },
             backstory: NonBlankString::new(backstory_text).unwrap(),
@@ -596,25 +591,23 @@ impl CharacterBuilder {
                     player_id: player_id.to_string(),
                 }
             }
-            BuilderPhase::AwaitingFollowup { hook_prompt, .. } => {
-                GameMessage::CharacterCreation {
-                    payload: CharacterCreationPayload {
-                        phase: "scene".to_string(),
-                        scene_index: None,
-                        total_scenes: Some(self.scenes.len() as u32),
-                        prompt: Some(hook_prompt.clone()),
-                        summary: None,
-                        message: None,
-                        choices: None,
-                        allows_freeform: Some(true),
-                        input_type: Some("text".to_string()),
-                        character_preview: None,
-                        choice: None,
-                        character: None,
-                    },
-                    player_id: player_id.to_string(),
-                }
-            }
+            BuilderPhase::AwaitingFollowup { hook_prompt, .. } => GameMessage::CharacterCreation {
+                payload: CharacterCreationPayload {
+                    phase: "scene".to_string(),
+                    scene_index: None,
+                    total_scenes: Some(self.scenes.len() as u32),
+                    prompt: Some(hook_prompt.clone()),
+                    summary: None,
+                    message: None,
+                    choices: None,
+                    allows_freeform: Some(true),
+                    input_type: Some("text".to_string()),
+                    character_preview: None,
+                    choice: None,
+                    character: None,
+                },
+                player_id: player_id.to_string(),
+            },
             BuilderPhase::Confirmation => {
                 let acc = self.accumulated();
                 let summary = format!(
@@ -652,9 +645,7 @@ impl CharacterBuilder {
         if next >= self.scenes.len() {
             self.phase = BuilderPhase::Confirmation;
         } else {
-            self.phase = BuilderPhase::InProgress {
-                scene_index: next,
-            };
+            self.phase = BuilderPhase::InProgress { scene_index: next };
         }
     }
 

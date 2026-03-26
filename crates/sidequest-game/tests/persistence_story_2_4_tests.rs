@@ -122,7 +122,10 @@ fn open_in_memory_creates_schema() {
     // Saving should work — proves tables exist
     let snapshot = test_snapshot();
     let result = store.save(&snapshot);
-    assert!(result.is_ok(), "Save to fresh in-memory store should succeed");
+    assert!(
+        result.is_ok(),
+        "Save to fresh in-memory store should succeed"
+    );
 }
 
 // ============================================================================
@@ -204,7 +207,9 @@ fn load_returns_saved_session_with_meta() {
     let store = SqliteStore::open_in_memory().unwrap();
 
     // Initialize session metadata
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
     store.save(&test_snapshot()).unwrap();
 
     let session = store.load().unwrap().unwrap();
@@ -270,7 +275,10 @@ fn recent_narrative_returns_in_insertion_order() {
 
     let entries = store.recent_narrative(10).unwrap();
     assert_eq!(entries.len(), 5);
-    assert_eq!(entries[0].content, "Entry 1", "First entry should be oldest");
+    assert_eq!(
+        entries[0].content, "Entry 1",
+        "First entry should be oldest"
+    );
     assert_eq!(entries[4].content, "Entry 5", "Last entry should be newest");
 }
 
@@ -310,11 +318,18 @@ fn generate_recap_produces_text() {
         .append_narrative(&test_entry(1, "narrator", "The party entered the tavern."))
         .unwrap();
     store
-        .append_narrative(&test_entry(2, "narrator", "A stranger approached with a map."))
+        .append_narrative(&test_entry(
+            2,
+            "narrator",
+            "A stranger approached with a map.",
+        ))
         .unwrap();
 
     let recap = store.generate_recap().unwrap();
-    assert!(recap.is_some(), "Recap should exist when entries are present");
+    assert!(
+        recap.is_some(),
+        "Recap should exist when entries are present"
+    );
 
     let text = recap.unwrap();
     assert!(
@@ -329,7 +344,11 @@ fn generate_recap_includes_entry_content() {
     let store = SqliteStore::open_in_memory().unwrap();
 
     store
-        .append_narrative(&test_entry(1, "narrator", "The dragon attacked the village."))
+        .append_narrative(&test_entry(
+            1,
+            "narrator",
+            "The dragon attacked the village.",
+        ))
         .unwrap();
 
     let recap = store.generate_recap().unwrap().unwrap();
@@ -367,7 +386,9 @@ fn list_saves_finds_save_files() {
     // Create a save.db in the directory
     let db_path = save_dir.join("save.db");
     let store = SqliteStore::open(db_path.to_str().unwrap()).unwrap();
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
     store.save(&test_snapshot()).unwrap();
     drop(store);
 
@@ -389,7 +410,10 @@ fn list_saves_multiple_genres() {
     let tmp = tempfile::tempdir().unwrap();
 
     // Create two save directories
-    for (genre, world) in [("mutant_wasteland", "flickering_reach"), ("low_fantasy", "default")] {
+    for (genre, world) in [
+        ("mutant_wasteland", "flickering_reach"),
+        ("low_fantasy", "default"),
+    ] {
         let save_dir = tmp.path().join(genre).join(world);
         std::fs::create_dir_all(&save_dir).unwrap();
         let db_path = save_dir.join("save.db");
@@ -435,7 +459,9 @@ fn reopen_same_db_is_idempotent() {
     // Open, save, close
     {
         let store = SqliteStore::open(path_str).unwrap();
-        store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+        store
+            .init_session("mutant_wasteland", "flickering_reach")
+            .unwrap();
         store.save(&test_snapshot()).unwrap();
     }
 
@@ -459,7 +485,9 @@ fn reopen_same_db_is_idempotent() {
 #[test]
 fn saved_session_has_all_fields() {
     let store = SqliteStore::open_in_memory().unwrap();
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
     store.save(&test_snapshot()).unwrap();
 
     let session = store.load().unwrap().unwrap();
@@ -472,16 +500,15 @@ fn saved_session_has_all_fields() {
     assert!(!session.snapshot.characters.is_empty());
 
     // Recap (None for fresh game)
-    assert!(
-        session.recap.is_none(),
-        "Fresh game should have no recap"
-    );
+    assert!(session.recap.is_none(), "Fresh game should have no recap");
 }
 
 #[test]
 fn saved_session_includes_recap_when_entries_exist() {
     let store = SqliteStore::open_in_memory().unwrap();
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
     store.save(&test_snapshot()).unwrap();
 
     store
@@ -517,7 +544,9 @@ fn persist_error_serialization_variant_exists() {
 #[test]
 fn init_session_stores_metadata() {
     let store = SqliteStore::open_in_memory().unwrap();
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
 
     // Save and load to verify meta persists
     store.save(&test_snapshot()).unwrap();

@@ -51,7 +51,10 @@ fn session_transitions_to_playing() {
         .unwrap();
     // Complete character creation (stub — actual creation is story 2-3)
     let result = session.complete_character_creation();
-    assert!(result.is_ok(), "Character creation completion should succeed");
+    assert!(
+        result.is_ok(),
+        "Character creation completion should succeed"
+    );
     assert!(
         session.is_playing(),
         "After character creation, session should be in Playing state"

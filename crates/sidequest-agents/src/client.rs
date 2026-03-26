@@ -4,6 +4,7 @@
 //! consistent error types, and a standard fallback policy.
 
 use std::time::Duration;
+use tracing::{error, warn};
 
 /// Default timeout for Claude CLI invocations (120 seconds).
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -89,10 +90,102 @@ impl ClaudeClient {
     }
 }
 
+impl ClaudeClient {
+    /// Execute a synchronous subprocess call with the configured command and timeout.
+    ///
+    /// Passes the prompt as a single argument. Returns stdout on success.
+    pub fn send(&self, prompt: &str) -> Result<String, ClaudeClientError> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+        use std::time::Instant;
+
+        if prompt.trim().is_empty() {
+            return Err(ClaudeClientError::EmptyResponse);
+        }
+
+        let mut child = Command::new(&self.command_path)
+            .arg(prompt)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                error!(command = %self.command_path, error = %e, "Failed to spawn subprocess");
+                ClaudeClientError::SubprocessFailed {
+                    exit_code: None,
+                    stderr: e.to_string(),
+                }
+            })?;
+
+        let start = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let mut stdout = String::new();
+                    let mut stderr = String::new();
+                    if let Some(mut out) = child.stdout.take() {
+                        out.read_to_string(&mut stdout).map_err(|e| {
+                            ClaudeClientError::SubprocessFailed {
+                                exit_code: status.code(),
+                                stderr: format!("stdout read error: {e}"),
+                            }
+                        })?;
+                    }
+                    if let Some(mut err) = child.stderr.take() {
+                        err.read_to_string(&mut stderr).map_err(|e| {
+                            ClaudeClientError::SubprocessFailed {
+                                exit_code: status.code(),
+                                stderr: format!("stderr read error: {e}"),
+                            }
+                        })?;
+                    }
+
+                    if !status.success() {
+                        return Err(ClaudeClientError::SubprocessFailed {
+                            exit_code: status.code(),
+                            stderr,
+                        });
+                    }
+
+                    let trimmed = stdout.trim().to_string();
+                    if trimmed.is_empty() {
+                        return Err(ClaudeClientError::EmptyResponse);
+                    }
+                    return Ok(trimmed);
+                }
+                Ok(None) => {
+                    if start.elapsed() > self.timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        let elapsed = start.elapsed();
+                        warn!(timeout = ?self.timeout, ?elapsed, "Claude CLI subprocess timed out");
+                        return Err(ClaudeClientError::Timeout { elapsed });
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to check subprocess status");
+                    return Err(ClaudeClientError::SubprocessFailed {
+                        exit_code: None,
+                        stderr: e.to_string(),
+                    });
+                }
+            }
+        }
+    }
+}
+
 impl Default for ClaudeClient {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Parse a JSON envelope `{"result": "text"}` and extract the inner text.
+///
+/// Returns `None` if the input is not valid JSON or doesn't contain a "result" field.
+pub fn parse_json_envelope(input: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(input).ok()?;
+    value.get("result")?.as_str().map(|s| s.to_string())
 }
 
 /// Builder for ClaudeClient configuration.

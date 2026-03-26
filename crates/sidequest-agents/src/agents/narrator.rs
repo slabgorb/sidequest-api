@@ -42,9 +42,9 @@ impl NarratorAgent {
     pub fn build_context(&self, builder: &mut ContextBuilder) {
         builder.add_section(PromptSection::new(
             "narrator_identity",
-            SectionCategory::Identity,
-            AttentionZone::Primacy,
             &self.system_prompt,
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ));
     }
 }
