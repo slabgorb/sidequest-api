@@ -14,6 +14,7 @@ pub mod format_helpers;
 pub mod orchestrator;
 pub mod patches;
 pub mod prompt_framework;
+pub mod turn_record;
 
 pub use sidequest_game;
 pub use sidequest_protocol;
