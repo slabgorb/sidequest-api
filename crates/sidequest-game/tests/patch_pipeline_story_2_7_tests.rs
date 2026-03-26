@@ -120,6 +120,8 @@ fn test_snapshot() -> GameSnapshot {
         discovered_routes: vec![],
         turn_manager: TurnManager::new(),
         last_saved_at: None,
+        active_stakes: String::new(),
+        lore_established: vec![],
     }
 }
 
