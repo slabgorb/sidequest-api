@@ -51,3 +51,53 @@ impl GameService for Orchestrator {
         serde_json::Value::Object(serde_json::Map::new())
     }
 }
+
+// ============================================================================
+// Story 2-5: Turn loop types
+// ============================================================================
+
+/// State flags passed to intent classification for state-based overrides.
+#[derive(Debug, Clone, Default)]
+pub struct TurnContext {
+    /// Whether the game is currently in active combat.
+    pub in_combat: bool,
+    /// Whether the game is currently in an active chase.
+    pub in_chase: bool,
+}
+
+/// Result of processing a player action through the full turn loop.
+#[derive(Debug, Clone)]
+pub struct TurnResult {
+    /// The narrative text produced by the agent.
+    pub narration: String,
+    /// Optional state delta for the client.
+    pub state_delta: Option<HashMap<String, serde_json::Value>>,
+    /// Combat events that occurred during this action.
+    pub combat_events: Vec<String>,
+    /// Whether this is a degraded response (e.g., from agent timeout).
+    pub is_degraded: bool,
+    /// Which agent produced this result.
+    pub agent_used: AgentKind,
+}
+
+/// Typed agent selection — replaces string-based agent keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AgentKind {
+    /// Primary narrator for exploration and general narration.
+    Narrator,
+    /// Combat specialist — generates encounters, manages combat flow.
+    CreatureSmith,
+    /// NPC dialogue and ensemble scenes.
+    Ensemble,
+    /// Chase sequence orchestrator.
+    Dialectician,
+    /// Post-turn world state updates.
+    WorldBuilder,
+    /// Trope lifecycle management.
+    Troper,
+    /// Theme and atmosphere resonance.
+    Resonator,
+    /// Intent classification (LLM-based).
+    IntentRouter,
+}

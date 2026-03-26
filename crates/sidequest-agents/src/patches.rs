@@ -55,6 +55,9 @@ pub struct CombatPatch {
     pub available_actions: Option<Vec<String>>,
     /// Drama weight for pacing.
     pub drama_weight: Option<f64>,
+    /// Whether to advance the combat round.
+    #[serde(default)]
+    pub advance_round: bool,
 }
 
 /// Patch produced by the Dialectician agent for chase state mutations.
@@ -67,4 +70,6 @@ pub struct ChasePatch {
     pub phase: Option<String>,
     /// Chase event description.
     pub event: Option<String>,
+    /// Chase roll result (0.0 to 1.0).
+    pub roll: Option<f64>,
 }
