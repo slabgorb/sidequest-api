@@ -267,6 +267,7 @@ struct RenderJob {
     job_id: Uuid,
     prompt: String,
     art_style: String,
+    tier: String,
 }
 
 /// The async render queue.
@@ -290,7 +291,7 @@ impl RenderQueue {
     /// the daemon client. Returns `(image_url, generation_ms)` on success.
     pub fn spawn<F, Fut>(config: RenderQueueConfig, render_fn: F) -> Self
     where
-        F: Fn(String, String) -> Fut + Send + 'static,
+        F: Fn(String, String, String) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(String, u64), String>> + Send,
     {
         let state = Arc::new(Mutex::new(QueueState {
@@ -316,7 +317,7 @@ impl RenderQueue {
                 }
 
                 // Call the render function
-                let result = render_fn(job.prompt, job.art_style).await;
+                let result = render_fn(job.prompt, job.art_style, job.tier).await;
 
                 // Update state and broadcast
                 let broadcast_msg = match result {
@@ -403,6 +404,13 @@ impl RenderQueue {
 
         let job_id = Uuid::new_v4();
         let prompt = subject.prompt_fragment().to_string();
+        let tier = match subject.tier() {
+            SubjectTier::Portrait => "portrait",
+            SubjectTier::Scene => "scene_illustration",
+            SubjectTier::Landscape => "landscape",
+            SubjectTier::Abstract => "scene_illustration",
+            _ => "scene_illustration",
+        }.to_string();
         guard.jobs.insert(
             job_id,
             JobEntry {
@@ -419,6 +427,7 @@ impl RenderQueue {
             job_id,
             prompt,
             art_style: art_style.to_string(),
+            tier,
         };
         if self.job_tx.send(job).await.is_err() {
             let mut guard = self.state.lock().await;
