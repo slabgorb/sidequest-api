@@ -262,14 +262,23 @@ struct QueueState {
     queue_depth: usize,
 }
 
+/// A render job sent through the channel to the worker.
+struct RenderJob {
+    job_id: Uuid,
+    prompt: String,
+    art_style: String,
+}
+
 /// The async render queue.
 ///
 /// Spawns a background tokio task that processes render jobs sequentially.
 /// Uses hash-based dedup to avoid duplicate daemon calls.
 pub struct RenderQueue {
     state: Arc<Mutex<QueueState>>,
-    /// Shutdown signal sender — dropping it signals the worker to stop.
-    _shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    /// Channel sender for submitting jobs to the worker.
+    job_tx: tokio::sync::mpsc::Sender<RenderJob>,
+    /// Broadcast sender for notifying subscribers of job results.
+    result_tx: tokio::sync::broadcast::Sender<RenderJobResult>,
     /// Handle to the background worker task.
     worker_handle: Option<tokio::task::JoinHandle<()>>,
 }
@@ -277,9 +286,13 @@ pub struct RenderQueue {
 impl RenderQueue {
     /// Spawn the render queue with a background worker.
     ///
-    /// The worker processes jobs from the channel and calls the daemon
-    /// for each unique render request.
-    pub fn spawn(config: RenderQueueConfig) -> Self {
+    /// `render_fn` is called for each job — pass a closure that calls
+    /// the daemon client. Returns `(image_url, generation_ms)` on success.
+    pub fn spawn<F, Fut>(config: RenderQueueConfig, render_fn: F) -> Self
+    where
+        F: Fn(String, String) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<(String, u64), String>> + Send,
+    {
         let state = Arc::new(Mutex::new(QueueState {
             jobs: HashMap::new(),
             hash_to_job: HashMap::new(),
@@ -287,15 +300,60 @@ impl RenderQueue {
             queue_depth: config.queue_depth(),
         }));
 
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let (job_tx, mut job_rx) = tokio::sync::mpsc::channel::<RenderJob>(config.queue_depth());
+        let (result_tx, _) = tokio::sync::broadcast::channel::<RenderJobResult>(config.result_buffer());
 
         let worker_state = Arc::clone(&state);
+        let worker_result_tx = result_tx.clone();
         let worker_handle = tokio::spawn(async move {
-            // Background worker — waits for shutdown signal.
-            // In a full implementation this would pull jobs from a channel
-            // and call the daemon. For now it just idles until shutdown.
-            let _ = shutdown_rx.await;
-            // On shutdown, mark all pending jobs as failed.
+            while let Some(job) = job_rx.recv().await {
+                // Mark in-progress
+                {
+                    let mut guard = worker_state.lock().await;
+                    if let Some(entry) = guard.jobs.get_mut(&job.job_id) {
+                        entry.status = RenderStatus::InProgress;
+                    }
+                }
+
+                // Call the render function
+                let result = render_fn(job.prompt, job.art_style).await;
+
+                // Update state and broadcast
+                let broadcast_msg = match result {
+                    Ok((image_url, generation_ms)) => {
+                        let mut guard = worker_state.lock().await;
+                        if let Some(entry) = guard.jobs.get_mut(&job.job_id) {
+                            entry.status = RenderStatus::Complete {
+                                image_url: image_url.clone(),
+                                generation_ms,
+                            };
+                        }
+                        guard.pending_count = guard.pending_count.saturating_sub(1);
+                        RenderJobResult::Success {
+                            job_id: job.job_id,
+                            image_url,
+                            generation_ms,
+                        }
+                    }
+                    Err(error) => {
+                        let mut guard = worker_state.lock().await;
+                        if let Some(entry) = guard.jobs.get_mut(&job.job_id) {
+                            entry.status = RenderStatus::Failed {
+                                error: error.clone(),
+                            };
+                        }
+                        guard.pending_count = guard.pending_count.saturating_sub(1);
+                        RenderJobResult::Failed {
+                            job_id: job.job_id,
+                            error,
+                        }
+                    }
+                };
+
+                let _ = worker_result_tx.send(broadcast_msg);
+            }
+
+            // Channel closed — mark remaining jobs as failed
             let mut guard = worker_state.lock().await;
             for entry in guard.jobs.values_mut() {
                 if matches!(entry.status, RenderStatus::Queued | RenderStatus::InProgress) {
@@ -308,9 +366,15 @@ impl RenderQueue {
 
         Self {
             state,
-            _shutdown_tx: shutdown_tx,
+            job_tx,
+            result_tx,
             worker_handle: Some(worker_handle),
         }
+    }
+
+    /// Subscribe to render job results.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<RenderJobResult> {
+        self.result_tx.subscribe()
     }
 
     /// Enqueue a render subject for image generation.
@@ -321,7 +385,7 @@ impl RenderQueue {
     pub async fn enqueue(
         &self,
         subject: RenderSubject,
-        _art_style: &str,
+        art_style: &str,
         _image_model: &str,
     ) -> Result<EnqueueResult, QueueError> {
         let content_hash = compute_content_hash(&subject);
@@ -338,6 +402,7 @@ impl RenderQueue {
         }
 
         let job_id = Uuid::new_v4();
+        let prompt = subject.prompt_fragment().to_string();
         guard.jobs.insert(
             job_id,
             JobEntry {
@@ -347,6 +412,23 @@ impl RenderQueue {
         );
         guard.hash_to_job.insert(content_hash, job_id);
         guard.pending_count += 1;
+        drop(guard);
+
+        // Send to worker — if channel is full/closed, mark failed
+        let job = RenderJob {
+            job_id,
+            prompt,
+            art_style: art_style.to_string(),
+        };
+        if self.job_tx.send(job).await.is_err() {
+            let mut guard = self.state.lock().await;
+            if let Some(entry) = guard.jobs.get_mut(&job_id) {
+                entry.status = RenderStatus::Failed {
+                    error: "worker channel closed".to_string(),
+                };
+            }
+            return Err(QueueError::Closed);
+        }
 
         Ok(EnqueueResult::Queued { job_id })
     }
@@ -364,15 +446,10 @@ impl RenderQueue {
     }
 
     /// Shut down the queue gracefully, stopping the background worker.
-    pub async fn shutdown(self) {
-        let Self {
-            state: _,
-            _shutdown_tx,
-            worker_handle,
-        } = self;
-        // Drop the shutdown sender to signal the worker to stop.
-        drop(_shutdown_tx);
-        if let Some(handle) = worker_handle {
+    pub async fn shutdown(mut self) {
+        // Drop the job sender to close the channel, signaling the worker to stop.
+        drop(self.job_tx);
+        if let Some(handle) = self.worker_handle.take() {
             let _ = handle.await;
         }
     }
