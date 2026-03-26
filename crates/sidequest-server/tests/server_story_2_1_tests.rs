@@ -170,7 +170,7 @@ async fn app_state_tracks_connections() {
 
     // After registering a connection, count should increase
     let player_id = PlayerId::new();
-    let (_tx, _rx) = mpsc::channel::<GameMessage>(32);
+    let (_tx, _) = mpsc::channel::<GameMessage>(32);
     state.add_connection(player_id.clone(), _tx);
     assert_eq!(state.connection_count(), 1);
 
