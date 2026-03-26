@@ -63,6 +63,12 @@ fn client_send_nonexistent_command_fails() {
 
     let result = client.send("test");
     assert!(result.is_err(), "Non-existent command should fail");
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, ClaudeClientError::SubprocessFailed { .. }),
+        "Should be SubprocessFailed for missing binary, got: {:?}",
+        err
+    );
 }
 
 #[test]
@@ -122,10 +128,7 @@ fn parse_json_envelope_extracts_result() {
 fn parse_json_envelope_returns_none_for_non_envelope() {
     let plain = "Just some plain text narration";
     let result = parse_json_envelope(plain);
-    assert!(
-        result.is_none(),
-        "Non-JSON should return None"
-    );
+    assert!(result.is_none(), "Non-JSON should return None");
 }
 
 #[test]
@@ -173,18 +176,16 @@ fn prompt_registry_composes_in_zone_order() {
     );
 
     let composed = registry.compose("narrator");
-    let primacy_pos = composed.find("Primacy content").expect("Should contain primacy");
+    let primacy_pos = composed
+        .find("Primacy content")
+        .expect("Should contain primacy");
     let late_pos = composed.find("Late content").expect("Should contain late");
-    let recency_pos = composed.find("Recency content").expect("Should contain recency");
+    let recency_pos = composed
+        .find("Recency content")
+        .expect("Should contain recency");
 
-    assert!(
-        primacy_pos < late_pos,
-        "Primacy should come before Late"
-    );
-    assert!(
-        late_pos < recency_pos,
-        "Late should come before Recency"
-    );
+    assert!(primacy_pos < late_pos, "Primacy should come before Late");
+    assert!(late_pos < recency_pos, "Late should come before Recency");
 }
 
 // ============================================================================
@@ -196,11 +197,21 @@ fn prompt_registry_stores_genre_sections() {
     let mut registry = PromptRegistry::new();
     registry.register_section(
         "narrator",
-        PromptSection::new("genre_tone", "Tone: dark", AttentionZone::Primacy, SectionCategory::Genre),
+        PromptSection::new(
+            "genre_tone",
+            "Tone: dark",
+            AttentionZone::Primacy,
+            SectionCategory::Genre,
+        ),
     );
     registry.register_section(
         "narrator",
-        PromptSection::new("genre_rules", "Rules: no magic", AttentionZone::Early, SectionCategory::Genre),
+        PromptSection::new(
+            "genre_rules",
+            "Rules: no magic",
+            AttentionZone::Early,
+            SectionCategory::Genre,
+        ),
     );
 
     let sections = registry.get_sections("narrator", Some(SectionCategory::Genre), None);
@@ -246,7 +257,7 @@ fn soul_principles_in_early_zone() {
 
     let sections = registry.get_sections("narrator", Some(SectionCategory::Soul), None);
     assert_eq!(sections.len(), 1);
-    assert!(sections[0].content().contains("Agency"));
+    assert!(sections[0].content.contains("Agency"));
 }
 
 // ============================================================================
@@ -260,7 +271,12 @@ fn prompt_registry_caches_sections_across_composes() {
     // Register cached genre section
     registry.register_section(
         "narrator",
-        PromptSection::new("genre_tone", "Dark Fantasy", AttentionZone::Primacy, SectionCategory::Genre),
+        PromptSection::new(
+            "genre_tone",
+            "Dark Fantasy",
+            AttentionZone::Primacy,
+            SectionCategory::Genre,
+        ),
     );
 
     // Compose once
@@ -270,7 +286,12 @@ fn prompt_registry_caches_sections_across_composes() {
     // Add a state section (simulating next turn)
     registry.register_section(
         "narrator",
-        PromptSection::new("state", "New state", AttentionZone::Valley, SectionCategory::Context),
+        PromptSection::new(
+            "state",
+            "New state",
+            AttentionZone::Valley,
+            SectionCategory::Context,
+        ),
     );
 
     // Compose again — genre section should still be there
@@ -317,7 +338,8 @@ fn extract_json_from_fenced_block() {
 
 #[test]
 fn extract_json_from_raw_braces() {
-    let response = "The chase continues! {\"separation\": 5, \"phase\": \"pursuit\"} Better run faster!";
+    let response =
+        "The chase continues! {\"separation\": 5, \"phase\": \"pursuit\"} Better run faster!";
     let patch = JsonExtractor::extract::<ChasePatch>(response);
     assert!(patch.is_ok(), "Should extract from raw braces");
     assert_eq!(patch.unwrap().separation, Some(5));
@@ -341,7 +363,10 @@ fn malformed_json_returns_error() {
 fn no_json_in_pure_narration() {
     let response = "The sun sets over the mountains. A peaceful evening.";
     let result = JsonExtractor::extract::<WorldStatePatch>(response);
-    assert!(result.is_err(), "Pure narration should have no JSON to extract");
+    assert!(
+        result.is_err(),
+        "Pure narration should have no JSON to extract"
+    );
 }
 
 // ============================================================================
@@ -353,7 +378,12 @@ fn prompt_registry_clear_removes_sections() {
     let mut registry = PromptRegistry::new();
     registry.register_section(
         "narrator",
-        PromptSection::new("test", "content", AttentionZone::Valley, SectionCategory::Context),
+        PromptSection::new(
+            "test",
+            "content",
+            AttentionZone::Valley,
+            SectionCategory::Context,
+        ),
     );
     assert!(!registry.registry("narrator").is_empty());
 
@@ -369,11 +399,21 @@ fn prompt_registry_separate_agents() {
     let mut registry = PromptRegistry::new();
     registry.register_section(
         "narrator",
-        PromptSection::new("n1", "narrator content", AttentionZone::Valley, SectionCategory::Context),
+        PromptSection::new(
+            "n1",
+            "narrator content",
+            AttentionZone::Valley,
+            SectionCategory::Context,
+        ),
     );
     registry.register_section(
         "creature_smith",
-        PromptSection::new("c1", "combat content", AttentionZone::Valley, SectionCategory::Context),
+        PromptSection::new(
+            "c1",
+            "combat content",
+            AttentionZone::Valley,
+            SectionCategory::Context,
+        ),
     );
 
     assert_eq!(registry.registry("narrator").len(), 1);
@@ -392,7 +432,7 @@ fn prompt_section_content_accessor() {
         AttentionZone::Valley,
         SectionCategory::Context,
     );
-    assert_eq!(section.content(), "Test content here");
+    assert_eq!(section.content, "Test content here");
 }
 
 // ============================================================================

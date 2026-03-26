@@ -128,7 +128,7 @@ fn attention_zone_rejects_unknown_value() {
 
 #[test]
 fn section_category_has_nine_variants() {
-    // Verify all expected variants exist.
+    // Verify all expected variants exist and are distinct.
     let categories = vec![
         SectionCategory::Identity,
         SectionCategory::Guardrail,
@@ -141,6 +141,12 @@ fn section_category_has_nine_variants() {
         SectionCategory::Role,
     ];
     assert_eq!(categories.len(), 9);
+    // All distinct
+    for i in 0..categories.len() {
+        for j in (i + 1)..categories.len() {
+            assert_ne!(categories[i], categories[j]);
+        }
+    }
 }
 
 #[test]
@@ -192,11 +198,11 @@ fn rule_tier_roundtrips_through_json() {
 #[test]
 fn prompt_section_new_sets_fields() {
     let section = PromptSection::new(
-            "test_section",
-            "You are a narrator.",
-            AttentionZone::Primacy,
-            SectionCategory::Identity,
-        );
+        "test_section",
+        "You are a narrator.",
+        AttentionZone::Primacy,
+        SectionCategory::Identity,
+    );
     assert_eq!(section.name, "test_section");
     assert_eq!(section.category, SectionCategory::Identity);
     assert_eq!(section.zone, AttentionZone::Primacy);
@@ -219,11 +225,11 @@ fn prompt_section_with_source_sets_source() {
 #[test]
 fn prompt_section_token_estimate_counts_words() {
     let section = PromptSection::new(
-            "test",
-            "one two three four five",
-            AttentionZone::Valley,
-            SectionCategory::Genre,
-        );
+        "test",
+        "one two three four five",
+        AttentionZone::Valley,
+        SectionCategory::Genre,
+    );
     assert_eq!(section.token_estimate(), 5);
 }
 
@@ -242,11 +248,11 @@ fn prompt_section_is_empty_true_for_empty_content() {
 #[test]
 fn prompt_section_is_empty_false_for_nonempty_content() {
     let section = PromptSection::new(
-            "notempty",
-            "has content",
-            AttentionZone::Late,
-            SectionCategory::State,
-        );
+        "notempty",
+        "has content",
+        AttentionZone::Late,
+        SectionCategory::State,
+    );
     assert!(!section.is_empty());
 }
 
@@ -257,11 +263,11 @@ fn prompt_section_is_empty_false_for_nonempty_content() {
 #[test]
 fn prompt_section_json_roundtrip() {
     let section = PromptSection::new(
-            "genre_tone",
-            "Dark and gritty.",
-            AttentionZone::Early,
-            SectionCategory::Genre,
-        );
+        "genre_tone",
+        "Dark and gritty.",
+        AttentionZone::Early,
+        SectionCategory::Genre,
+    );
     let json = serde_json::to_string(&section).unwrap();
     let restored: PromptSection = serde_json::from_str(&json).unwrap();
     assert_eq!(section, restored);
@@ -822,24 +828,21 @@ fn composer_multiple_agents_are_independent() {
 // =========================================================================
 
 #[test]
-fn prompt_section_whitespace_only_content_is_not_empty() {
-    // Whitespace-only should count as having content (word split may differ).
+fn prompt_section_whitespace_only_content_is_empty() {
     let section = PromptSection::new("ws", "   ", AttentionZone::Valley, SectionCategory::State);
-    // Whitespace-only content: is_empty should be true (no meaningful content).
-    // This tests that we handle whitespace sensibly.
-    assert!(section.is_empty() || !section.is_empty()); // Compiles; dev decides behavior.
-                                                        // The real assertion: token_estimate for whitespace should be 0.
+    // Whitespace-only content is empty (trim removes it).
+    assert!(section.is_empty());
     assert_eq!(section.token_estimate(), 0);
 }
 
 #[test]
 fn prompt_section_multiline_content_token_estimate() {
     let section = PromptSection::new(
-            "multi",
-            "line one\nline two\nline three",
-            AttentionZone::Valley,
-            SectionCategory::Genre,
-        );
+        "multi",
+        "line one\nline two\nline three",
+        AttentionZone::Valley,
+        SectionCategory::Genre,
+    );
     // "line one line two line three" = 6 words
     assert_eq!(section.token_estimate(), 6);
 }

@@ -59,11 +59,12 @@ impl Ord for AttentionZone {
     }
 }
 
-/// Closed set of prompt section categories.
+/// Prompt section categories — extensible as new agent types are added.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SectionCategory {
-    /// Agent identity and role definition.
+    /// Agent identity (name, persona, core purpose).
     Identity,
     /// Safety guardrails (agency, format, no-metagame).
     Guardrail,
@@ -134,11 +135,6 @@ impl PromptSection {
             content: content.into(),
             source: None,
         }
-    }
-
-    /// Access the content text.
-    pub fn content(&self) -> &str {
-        &self.content
     }
 
     /// Create a new prompt section with a source tag.

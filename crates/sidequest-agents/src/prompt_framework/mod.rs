@@ -89,7 +89,7 @@ pub trait PromptComposer {
     /// Register a section for a given agent.
     fn register_section(&mut self, agent_name: &str, section: PromptSection);
 
-    /// Return the ordered section list for an agent.
+    /// Return sections for an agent in insertion order.
     fn registry(&self, agent_name: &str) -> Vec<&PromptSection>;
 
     /// Return sections filtered by optional category and/or zone.
