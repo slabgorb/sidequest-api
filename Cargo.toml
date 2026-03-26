@@ -54,6 +54,9 @@ futures = "0.3"
 # Regex (for input sanitization)
 regex = "1.10"
 
+# Ordered floats for hashing
+ordered-float = { version = "4", features = ["serde"] }
+
 [package]
 name = "sidequest-api"
 version.workspace = true
