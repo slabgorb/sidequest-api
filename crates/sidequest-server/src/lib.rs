@@ -840,6 +840,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut character_name: Option<String> = None;
     let mut character_hp: i32 = 10;
     let mut character_max_hp: i32 = 10;
+    let mut combat_state = sidequest_game::combat::CombatState::default();
+    let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
+    let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
 
     // Reader loop: read messages, deserialize, dispatch through session
     while let Some(msg) = ws_stream.next().await {
@@ -856,6 +859,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             &mut character_name,
                             &mut character_hp,
                             &mut character_max_hp,
+                            &mut combat_state,
+                            &mut trope_states,
+                            &mut trope_defs,
                             &state,
                             &player_id_str,
                         ).await;
@@ -902,6 +908,9 @@ async fn dispatch_message(
     character_name: &mut Option<String>,
     character_hp: &mut i32,
     character_max_hp: &mut i32,
+    combat_state: &mut sidequest_game::combat::CombatState,
+    trope_states: &mut Vec<sidequest_game::trope::TropeState>,
+    trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -916,6 +925,7 @@ async fn dispatch_message(
                 character_name,
                 character_hp,
                 character_max_hp,
+                trope_defs,
                 state,
                 player_id,
             )
@@ -933,6 +943,9 @@ async fn dispatch_message(
                 character_name,
                 character_hp,
                 character_max_hp,
+                combat_state,
+                trope_states,
+                trope_defs,
                 state,
                 player_id,
             ).await
@@ -952,6 +965,9 @@ async fn dispatch_message(
                 character_name.as_deref().unwrap_or("Unknown"),
                 *character_hp,
                 *character_max_hp,
+                combat_state,
+                trope_states,
+                trope_defs,
                 state,
                 player_id,
                 session.genre_slug().unwrap_or(""),
@@ -981,6 +997,7 @@ fn dispatch_connect(
     character_name_store: &mut Option<String>,
     character_hp: &mut i32,
     character_max_hp: &mut i32,
+    trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1044,7 +1061,7 @@ fn dispatch_connect(
 
                 // Load genre pack and create character builder
                 if let Some(scene_msg) = start_character_creation(
-                    builder, genre, state, player_id,
+                    builder, trope_defs, genre, state, player_id,
                 ) {
                     responses.push(scene_msg);
                 }
@@ -1058,9 +1075,10 @@ fn dispatch_connect(
     }
 }
 
-/// Load genre pack, create CharacterBuilder, return first scene message.
+/// Load genre pack, create CharacterBuilder, return first scene message + trope defs.
 fn start_character_creation(
     builder: &mut Option<CharacterBuilder>,
+    trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
     genre: &str,
     state: &AppState,
     player_id: &str,
@@ -1081,6 +1099,15 @@ fn start_character_creation(
             return None;
         }
     };
+
+    // Extract trope definitions from the genre pack for per-session use
+    // Collect from genre-level tropes and all world tropes
+    let mut all_tropes = pack.tropes.clone();
+    for world in pack.worlds.values() {
+        all_tropes.extend(world.tropes.clone());
+    }
+    *trope_defs_out = all_tropes;
+    tracing::info!(count = trope_defs_out.len(), genre = %genre, "Loaded trope definitions");
 
     // Filter scenes to those with non-empty choices
     let scenes: Vec<_> = pack
@@ -1118,6 +1145,9 @@ async fn dispatch_character_creation(
     character_name_store: &mut Option<String>,
     character_hp: &mut i32,
     character_max_hp: &mut i32,
+    combat_state: &mut sidequest_game::combat::CombatState,
+    trope_states: &mut Vec<sidequest_game::trope::TropeState>,
+    trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1214,6 +1244,9 @@ async fn dispatch_character_creation(
                         character.core.name.as_str(),
                         character.core.hp,
                         character.core.max_hp,
+                        combat_state,
+                        trope_states,
+                        trope_defs,
                         state,
                         player_id,
                         &genre,
@@ -1256,6 +1289,9 @@ async fn dispatch_player_action(
     char_name: &str,
     hp: i32,
     max_hp: i32,
+    combat_state: &mut sidequest_game::combat::CombatState,
+    trope_states: &mut Vec<sidequest_game::trope::TropeState>,
+    trope_defs: &[sidequest_genre::TropeDefinition],
     state: &AppState,
     player_id: &str,
     genre_slug: &str,
@@ -1372,30 +1408,45 @@ async fn dispatch_player_action(
         player_id: player_id.to_string(),
     });
 
-    // Combat tick — advance round and tick status effects if in combat
-    // TODO: track CombatState per session, detect combat from narration/intent
-    {
-        let mut combat = sidequest_game::combat::CombatState::default();
-        if combat.in_combat() {
-            combat.tick_effects();
-        }
+    // Combat tick — uses persistent per-session CombatState
+    if combat_state.in_combat() {
+        combat_state.tick_effects();
+        combat_state.advance_round();
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "combat".to_string(),
+            event_type: WatcherEventType::AgentSpanOpen,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("round".to_string(), serde_json::json!(combat_state.round()));
+                f.insert("drama_weight".to_string(), serde_json::json!(combat_state.drama_weight()));
+                f
+            },
+        });
     }
 
-    // Trope engine tick — advance narrative arcs and apply keyword modifiers
-    // TODO: load trope definitions from genre pack and track TropeState per session
-    // For now this is a no-op (empty slices), but the wiring is in place.
-    {
-        let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
-        let trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
-        let fired = sidequest_game::trope::TropeEngine::tick(&mut trope_states, &trope_defs);
-        sidequest_game::trope::TropeEngine::apply_keyword_modifiers(
-            &mut trope_states,
-            &trope_defs,
-            &clean_narration,
-        );
-        if !fired.is_empty() {
-            tracing::info!(count = fired.len(), "Trope beats fired");
-        }
+    // Trope engine tick — uses persistent per-session trope state and genre pack defs
+    let fired = sidequest_game::trope::TropeEngine::tick(trope_states, trope_defs);
+    sidequest_game::trope::TropeEngine::apply_keyword_modifiers(
+        trope_states,
+        trope_defs,
+        &clean_narration,
+    );
+    for beat in &fired {
+        tracing::info!(trope = %beat.trope_name, "Trope beat fired");
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "trope".to_string(),
+            event_type: WatcherEventType::AgentSpanOpen,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("trope".to_string(), serde_json::Value::String(beat.trope_name.clone()));
+                f.insert("trope_id".to_string(), serde_json::Value::String(beat.trope_id.clone()));
+                f
+            },
+        });
     }
 
     // Render pipeline — extract subject from narration, filter, enqueue
