@@ -21,6 +21,7 @@ pub mod persistence;
 pub mod progression;
 pub mod session;
 pub mod state;
+pub mod trope;
 pub mod turn;
 
 pub use character::Character;
