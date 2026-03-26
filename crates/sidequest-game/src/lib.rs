@@ -21,6 +21,7 @@ pub mod persistence;
 pub mod progression;
 pub mod session;
 pub mod state;
+pub mod subject;
 pub mod trope;
 pub mod turn;
 
@@ -40,4 +41,7 @@ pub use persistence::{PersistError, SavedSession, SessionMeta, SessionStore, Sql
 pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
 pub use session::SessionManager;
 pub use state::{broadcast_state_changes, ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch};
+pub use subject::{
+    ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
+};
 pub use turn::{TurnManager, TurnPhase};
