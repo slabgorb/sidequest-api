@@ -475,6 +475,9 @@ pub struct ChapterMarkerPayload {
     /// Chapter title.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Current location name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
 }
 
 /// Error payload.

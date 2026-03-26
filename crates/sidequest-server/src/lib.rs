@@ -1177,6 +1177,20 @@ fn dispatch_player_action(
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
+    // Watcher: action received
+    state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "game".to_string(),
+        event_type: WatcherEventType::AgentSpanOpen,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("action".to_string(), serde_json::Value::String(action.to_string()));
+            f.insert("player".to_string(), serde_json::Value::String(char_name.to_string()));
+            f
+        },
+    });
+
     // THINKING indicator
     let thinking = GameMessage::Thinking {
         payload: ThinkingPayload {},
@@ -1186,17 +1200,48 @@ fn dispatch_player_action(
     // Process the action through GameService
     let result = state.game_service().process_action(action, &TurnContext::default());
 
+    // Watcher: narration generated
+    state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "game".to_string(),
+        event_type: WatcherEventType::AgentSpanClose,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("narration_len".to_string(), serde_json::json!(result.narration.len()));
+            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
+            f
+        },
+    });
+
+    let mut messages = vec![thinking];
+
+    // Extract location header from narration (format: **Location Name**\n\n...)
+    let narration_text = &result.narration;
+    if let Some(location) = extract_location_header(narration_text) {
+        messages.push(GameMessage::ChapterMarker {
+            payload: ChapterMarkerPayload {
+                title: Some(location.clone()),
+                location: Some(location),
+            },
+            player_id: player_id.to_string(),
+        });
+    }
+
+    // Strip the location header from narration text if present
+    let clean_narration = strip_location_header(narration_text);
+
     // Narration
-    let narration = GameMessage::Narration {
+    messages.push(GameMessage::Narration {
         payload: NarrationPayload {
-            text: result.narration,
+            text: clean_narration,
             state_delta: None,
         },
         player_id: player_id.to_string(),
-    };
+    });
 
     // Narration end with state_delta field present (even if empty)
-    let narration_end = GameMessage::NarrationEnd {
+    messages.push(GameMessage::NarrationEnd {
         payload: NarrationEndPayload {
             state_delta: Some(sidequest_protocol::StateDelta {
                 location: None,
@@ -1205,10 +1250,10 @@ fn dispatch_player_action(
             }),
         },
         player_id: player_id.to_string(),
-    };
+    });
 
     // Party status
-    let party_status = GameMessage::PartyStatus {
+    messages.push(GameMessage::PartyStatus {
         payload: PartyStatusPayload {
             members: vec![PartyMember {
                 player_id: player_id.to_string(),
@@ -1222,9 +1267,29 @@ fn dispatch_player_action(
             }],
         },
         player_id: player_id.to_string(),
-    };
+    });
 
-    vec![thinking, narration, narration_end, party_status]
+    messages
+}
+
+/// Extract a location header from narration text (format: **Location Name**)
+fn extract_location_header(text: &str) -> Option<String> {
+    let first_line = text.lines().next()?.trim();
+    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
+        Some(first_line[2..first_line.len() - 2].to_string())
+    } else {
+        None
+    }
+}
+
+/// Strip the location header line from narration text
+fn strip_location_header(text: &str) -> String {
+    let first_line = text.lines().next().unwrap_or("").trim();
+    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
+        text.lines().skip(1).collect::<Vec<_>>().join("\n").trim().to_string()
+    } else {
+        text.to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------
