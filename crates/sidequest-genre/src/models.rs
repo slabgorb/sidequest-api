@@ -349,6 +349,10 @@ pub struct CharCreationScene {
     /// Whether this scene allows freeform text input.
     #[serde(default)]
     pub allows_freeform: Option<bool>,
+    /// Optional followup prompt — if present, the builder enters AwaitingFollowup
+    /// after a choice is made, waiting for the player's freeform elaboration.
+    #[serde(default)]
+    pub hook_prompt: Option<String>,
 }
 
 /// A choice within a character creation scene.

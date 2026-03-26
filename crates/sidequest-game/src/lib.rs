@@ -5,6 +5,7 @@
 
 #![warn(missing_docs)]
 
+pub mod builder;
 pub mod character;
 pub mod chase;
 pub mod combat;
