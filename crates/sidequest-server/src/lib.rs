@@ -663,6 +663,36 @@ pub fn error_response(player_id: &str, message: &str) -> GameMessage {
 /// Middleware:
 /// - CORS for React dev server at localhost:5173
 pub fn build_router(state: AppState) -> Router {
+    // Spawn image broadcaster — listens for render completions and broadcasts IMAGE messages
+    if let Some(ref queue) = state.inner.render_queue {
+        let mut render_rx = queue.subscribe();
+        let broadcast_tx = state.inner.broadcast_tx.clone();
+        tokio::spawn(async move {
+            while let Ok(result) = render_rx.recv().await {
+                if let sidequest_game::RenderJobResult::Success {
+                    job_id,
+                    image_url,
+                    generation_ms,
+                } = result
+                {
+                    let msg = GameMessage::Image {
+                        payload: sidequest_protocol::ImagePayload {
+                            url: image_url,
+                            description: String::new(),
+                            handout: false,
+                            render_id: Some(job_id.to_string()),
+                            tier: None,
+                            scene_type: None,
+                            generation_ms: Some(generation_ms),
+                        },
+                        player_id: String::new(),
+                    };
+                    let _ = broadcast_tx.send(msg);
+                }
+            }
+        });
+    }
+
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(["http://localhost:5173"
             .parse()
