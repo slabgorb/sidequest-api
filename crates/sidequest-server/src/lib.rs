@@ -325,19 +325,29 @@ impl AppState {
         let render_queue = sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
             |prompt, art_style| async move {
-                // Try to connect to daemon; if unavailable, return error gracefully
+                tracing::info!(prompt_len = prompt.len(), art_style = %art_style, "Render job starting — connecting to daemon");
                 let config = sidequest_daemon_client::DaemonConfig::default();
                 match sidequest_daemon_client::DaemonClient::connect(config).await {
                     Ok(mut client) => {
+                        tracing::info!("Daemon connected, sending render request");
                         match client.render(sidequest_daemon_client::RenderParams {
-                            prompt,
-                            art_style,
+                            prompt: prompt.clone(),
+                            art_style: art_style.clone(),
                         }).await {
-                            Ok(result) => Ok((result.image_url, result.generation_ms)),
-                            Err(e) => Err(format!("render failed: {e}")),
+                            Ok(result) => {
+                                tracing::info!(url = %result.image_url, ms = result.generation_ms, "Render complete");
+                                Ok((result.image_url, result.generation_ms))
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, prompt_preview = %&prompt[..prompt.len().min(80)], "Render request failed");
+                                Err(format!("render failed: {e}"))
+                            }
                         }
                     }
-                    Err(e) => Err(format!("daemon unavailable: {e}")),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Daemon connect failed");
+                        Err(format!("daemon unavailable: {e}"))
+                    }
                 }
             },
         );
@@ -1457,17 +1467,29 @@ async fn dispatch_player_action(
         ..Default::default()
     };
     if let Some(subject) = state.inner.subject_extractor.extract(&clean_narration, &extraction_context) {
+        tracing::info!(
+            prompt = %subject.prompt_fragment(),
+            tier = ?subject.tier(),
+            weight = subject.narrative_weight(),
+            "Subject extracted from narration"
+        );
         let filter_ctx = sidequest_game::FilterContext {
-            in_combat: false,
+            in_combat: combat_state.in_combat(),
             scene_transition: extract_location_header(narration_text).is_some(),
             player_requested: false,
         };
         let decision = state.inner.beat_filter.lock().await.evaluate(&subject, &filter_ctx);
+        tracing::info!(decision = ?decision, "BeatFilter decision");
         if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
             if let Some(ref queue) = state.inner.render_queue {
-                let _ = queue.enqueue(subject, "oil_painting", "flux-schnell").await;
+                match queue.enqueue(subject, "oil_painting", "flux-schnell").await {
+                    Ok(result) => tracing::info!(result = ?result, "Render job enqueued"),
+                    Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
+                }
             }
         }
+    } else {
+        tracing::debug!(narration_len = clean_narration.len(), "No render subject extracted");
     }
 
     // Audio cue — trigger mood-based music from genre pack
