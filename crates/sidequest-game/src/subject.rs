@@ -7,10 +7,6 @@
 //! Story 4-2: Subject extraction — parse narration for image render subjects,
 //! tier classification.
 
-use std::collections::HashMap;
-
-use regex::Regex;
-
 /// Maximum narration input length accepted by the extractor.
 /// Inputs longer than this are rejected to prevent unbounded processing (CWE-674).
 pub const MAX_NARRATION_LENGTH: usize = 10_000;
@@ -70,7 +66,7 @@ impl RenderSubject {
         prompt_fragment: String,
         narrative_weight: f32,
     ) -> Option<Self> {
-        if narrative_weight < 0.0 || narrative_weight > 1.0 {
+        if !(0.0..=1.0).contains(&narrative_weight) {
             return None;
         }
         Some(Self {
@@ -141,8 +137,6 @@ impl Default for TierRules {
 /// Runs a multi-pass pipeline: entity extraction → scene classification →
 /// tier assignment → prompt composition → weight scoring.
 pub struct SubjectExtractor {
-    _entity_patterns: Vec<Regex>,
-    _scene_keywords: HashMap<SceneType, Vec<String>>,
     tier_rules: TierRules,
 }
 
@@ -154,11 +148,7 @@ impl SubjectExtractor {
 
     /// Create an extractor with custom tier rules.
     pub fn with_tier_rules(tier_rules: TierRules) -> Self {
-        Self {
-            _entity_patterns: vec![],
-            _scene_keywords: HashMap::new(),
-            tier_rules,
-        }
+        Self { tier_rules }
     }
 
     /// Extract a render subject from narration text.
