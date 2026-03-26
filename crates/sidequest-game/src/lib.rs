@@ -29,6 +29,7 @@ pub mod state;
 pub mod subject;
 pub mod trope;
 pub mod turn;
+pub mod turn_mode;
 
 pub use character::Character;
 pub use chase::{ChaseRound, ChaseState, ChaseType};
