@@ -15,9 +15,9 @@
 // The server crate must expose the types and functions needed.
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode, Method, header};
-use tower::ServiceExt; // for oneshot()
+use axum::http::{header, Method, Request, StatusCode};
 use serde_json::Value;
+use tower::ServiceExt; // for oneshot()
 
 /// The server crate must expose a function to build the axum Router.
 /// This is the primary integration point — all tests use this.
@@ -80,7 +80,11 @@ async fn get_genres_returns_genre_map_with_worlds() {
 
     // The response should be an object where each key is a genre slug
     // and each value has a "worlds" array of world slugs.
-    assert!(json.is_object(), "Response should be a JSON object, got: {}", json);
+    assert!(
+        json.is_object(),
+        "Response should be a JSON object, got: {}",
+        json
+    );
 
     // With a test genre_packs_path, we expect at least one genre.
     // The exact genres depend on the test fixture, but the structure must be:
@@ -90,10 +94,7 @@ async fn get_genres_returns_genre_map_with_worlds() {
             genre_data.get("worlds").is_some(),
             "Each genre must have a 'worlds' field"
         );
-        assert!(
-            genre_data["worlds"].is_array(),
-            "'worlds' must be an array"
-        );
+        assert!(genre_data["worlds"].is_array(), "'worlds' must be an array");
     }
 }
 
@@ -172,9 +173,7 @@ async fn cors_allows_localhost_5173() {
         response.status()
     );
 
-    let allow_origin = response
-        .headers()
-        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+    let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
     assert!(
         allow_origin.is_some(),
         "Access-Control-Allow-Origin header must be present"
@@ -199,9 +198,7 @@ async fn cors_headers_on_regular_request() {
 
     assert_eq!(response.status(), StatusCode::OK);
 
-    let allow_origin = response
-        .headers()
-        .get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
+    let allow_origin = response.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN);
     assert!(
         allow_origin.is_some(),
         "Access-Control-Allow-Origin must be present on regular requests too"
@@ -219,12 +216,7 @@ async fn ws_endpoint_rejects_non_upgrade_request() {
 
     // A regular GET to /ws without WebSocket upgrade headers should fail
     let response = app
-        .oneshot(
-            Request::builder()
-                .uri("/ws")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/ws").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -312,7 +304,10 @@ async fn build_router_returns_valid_router() {
         )
         .await;
 
-    assert!(response.is_ok(), "Router should handle requests without error");
+    assert!(
+        response.is_ok(),
+        "Router should handle requests without error"
+    );
 }
 
 // =========================================================================
@@ -404,12 +399,7 @@ async fn multiple_routes_coexist() {
 
     // /ws exists (rejects non-upgrade, but doesn't 404)
     let r2 = app2
-        .oneshot(
-            Request::builder()
-                .uri("/ws")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/ws").body(Body::empty()).unwrap())
         .await
         .unwrap();
     assert_ne!(r2.status(), StatusCode::NOT_FOUND);
