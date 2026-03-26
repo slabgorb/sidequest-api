@@ -61,19 +61,15 @@ impl SentenceSegmenter {
         let mut last = 0;
 
         for end in split_points {
-            let candidate = text[last..end].trim();
-            if !candidate.is_empty() {
-                let trimmed_offset = last + text[last..end].find(candidate).unwrap_or(0);
-                segments.push((candidate.to_string(), trimmed_offset));
+            if let Some(seg) = trimmed_segment(text, last, end) {
+                segments.push(seg);
             }
             last = end;
         }
 
         // Remainder after the last split point.
-        let remainder = text[last..].trim();
-        if !remainder.is_empty() {
-            let trimmed_offset = last + text[last..].find(remainder).unwrap_or(0);
-            segments.push((remainder.to_string(), trimmed_offset));
+        if let Some(seg) = trimmed_segment(text, last, text.len()) {
+            segments.push(seg);
         }
 
         let total = segments.len();
@@ -94,6 +90,17 @@ impl Default for SentenceSegmenter {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Extract a trimmed segment from `text[start..end]`, returning the text and its byte offset.
+fn trimmed_segment(text: &str, start: usize, end: usize) -> Option<(String, usize)> {
+    let slice = &text[start..end];
+    let trimmed = slice.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let offset = start + slice.find(trimmed).unwrap_or(0);
+    Some((trimmed.to_string(), offset))
 }
 
 /// Find all sentence-boundary byte positions in `text`.
@@ -144,10 +151,9 @@ fn find_split_points(text: &str) -> Vec<usize> {
 
                 // Period + optional closing quote
                 let mut end = byte_pos + 1;
-                if end < text.len() {
-                    let next_ch = text[end..].chars().next();
-                    if matches!(next_ch, Some('"') | Some('\u{201d}')) {
-                        end += next_ch.unwrap().len_utf8();
+                if let Some(next_ch) = text[end..].chars().next() {
+                    if next_ch == '"' || next_ch == '\u{201d}' {
+                        end += next_ch.len_utf8();
                     }
                 }
 
@@ -167,16 +173,12 @@ fn find_split_points(text: &str) -> Vec<usize> {
                 let mut end = byte_pos + 1;
 
                 // Check for closing quote after ! or ?
-                let has_closing_quote = if end < text.len() {
-                    let next_ch = text[end..].chars().next();
-                    if matches!(next_ch, Some('"') | Some('\u{201d}')) {
-                        end += next_ch.unwrap().len_utf8();
+                let has_closing_quote = match text[end..].chars().next() {
+                    Some(c) if c == '"' || c == '\u{201d}' => {
+                        end += c.len_utf8();
                         true
-                    } else {
-                        false
                     }
-                } else {
-                    false
+                    _ => false,
                 };
 
                 if has_closing_quote {
@@ -210,33 +212,27 @@ fn find_split_points(text: &str) -> Vec<usize> {
     splits
 }
 
-/// Check if text at `pos` starts with whitespace followed by a capital letter or opening quote.
-fn is_followed_by_ws_and_capital(text: &str, pos: usize) -> bool {
+/// Check if text at `pos` starts with whitespace followed by a char matching `predicate`.
+fn is_followed_by_ws_and(text: &str, pos: usize, predicate: impl Fn(char) -> bool) -> bool {
     if pos >= text.len() {
         return false;
     }
     let rest = &text[pos..];
     let trimmed = rest.trim_start();
     if trimmed.is_empty() || trimmed.len() == rest.len() {
-        // No whitespace before the next non-whitespace char
         return false;
     }
-    let first = trimmed.chars().next().unwrap();
-    first.is_uppercase() || first == '"' || first == '\u{201c}'
+    trimmed.chars().next().map_or(false, &predicate)
+}
+
+/// Check if text at `pos` starts with whitespace followed by a capital letter or opening quote.
+fn is_followed_by_ws_and_capital(text: &str, pos: usize) -> bool {
+    is_followed_by_ws_and(text, pos, |c| c.is_uppercase() || c == '"' || c == '\u{201c}')
 }
 
 /// Check if text at `pos` starts with whitespace followed by an opening quote.
 fn is_followed_by_ws_and_opening_quote(text: &str, pos: usize) -> bool {
-    if pos >= text.len() {
-        return false;
-    }
-    let rest = &text[pos..];
-    let trimmed = rest.trim_start();
-    if trimmed.is_empty() || trimmed.len() == rest.len() {
-        return false;
-    }
-    let first = trimmed.chars().next().unwrap();
-    first == '"' || first == '\u{201c}'
+    is_followed_by_ws_and(text, pos, |c| c == '"' || c == '\u{201c}')
 }
 
 /// Return the word immediately before the dot at `dot_pos`.
