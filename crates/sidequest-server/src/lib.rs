@@ -3,6 +3,8 @@
 //! Exposes `build_router()`, `AppState`, and server lifecycle functions for the binary and tests.
 //! The server depends on the `GameService` trait facade — never on game internals.
 
+pub mod render_integration;
+
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};

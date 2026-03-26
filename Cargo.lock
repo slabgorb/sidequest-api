@@ -1203,11 +1203,23 @@ name = "sidequest-api"
 version = "0.1.0"
 
 [[package]]
+name = "sidequest-daemon-client"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "sidequest-game"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "ordered-float",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1215,6 +1227,7 @@ dependencies = [
  "sidequest-protocol",
  "tempfile",
  "thiserror",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "uuid",
