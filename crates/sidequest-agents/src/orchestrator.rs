@@ -68,10 +68,17 @@ impl GameService for Orchestrator {
         serde_json::Value::Object(serde_json::Map::new())
     }
 
-    fn process_action(&self, action: &str, _context: &TurnContext) -> ActionResult {
+    fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult {
+        let state_block = context
+            .state_summary
+            .as_deref()
+            .map(|s| format!("\n<game_state>\n{}\n</game_state>\n", s))
+            .unwrap_or_default();
+
         let prompt = format!(
-            "{}\n\nThe player says: {}\n\nRespond with 2-4 paragraphs of vivid narration.",
+            "{}{}\nThe player says: {}",
             self.narrator.system_prompt(),
+            state_block,
             action,
         );
 
@@ -114,6 +121,8 @@ pub struct TurnContext {
     pub in_combat: bool,
     /// Whether the game is currently in an active chase.
     pub in_chase: bool,
+    /// Serialized game state summary for grounding narration.
+    pub state_summary: Option<String>,
 }
 
 /// Result of processing a player action through the full turn loop.
