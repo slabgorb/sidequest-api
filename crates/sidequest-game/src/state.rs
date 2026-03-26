@@ -485,6 +485,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         messages.push(GameMessage::ChapterMarker {
             payload: ChapterMarkerPayload {
                 title: delta.new_location().map(|s| s.to_string()),
+                location: delta.new_location().map(|s| s.to_string()),
             },
             player_id: String::new(),
         });
