@@ -126,25 +126,24 @@ impl IntentRouter {
     fn classify_keywords_inner(input: &str) -> IntentRoute {
         let lower = input.to_lowercase();
 
-        // Combat keywords
+        // Combat keywords — physical violence, weapon use, ability activation
         let combat_words = [
             "attack", "slash", "strike", "cast", "shoot", "defend", "stab", "fight", "hit",
-            "swing", "parry", "block", "spell",
+            "swing", "parry", "block", "spell", "lunge", "grab", "throw", "punch", "kick",
+            "shove", "disarm", "dodge", "wrestle", "draw my sword", "draw my weapon",
+            "charge", "tackle", "bite", "claw", "smash", "bash", "cleave", "fire at",
+            "aim", "snipe", "ambush", "grapple", "choke", "headbutt",
         ];
         if combat_words.iter().any(|w| lower.contains(w)) {
             return IntentRoute::for_intent(Intent::Combat);
         }
 
-        // Dialogue keywords
+        // Dialogue keywords — conversation, persuasion, social manipulation
         let dialogue_words = [
-            "talk",
-            "tell",
-            "ask",
-            "say",
-            "speak",
-            "greet",
-            "persuade",
-            "negotiate",
+            "talk", "tell", "ask", "say", "speak", "greet", "persuade", "negotiate",
+            "threaten", "lie", "bluff", "convince", "bribe", "intimidate", "charm",
+            "flatter", "demand", "whisper", "shout", "call out", "haggle", "barter",
+            "confess", "accuse", "apologize", "plead", "taunt",
         ];
         if dialogue_words.iter().any(|w| lower.contains(w)) {
             return IntentRoute::for_intent(Intent::Dialogue);
