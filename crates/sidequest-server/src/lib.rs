@@ -1167,12 +1167,27 @@ async fn dispatch_character_creation(
     };
 
     let phase = payload.phase.as_str();
+    tracing::info!(phase = %phase, player_id = %player_id, "Character creation phase");
 
     match phase {
         "scene" => {
             // Parse choice (1-based string → 0-based index)
             let choice_str = payload.choice.as_deref().unwrap_or("1");
             let index = choice_str.parse::<usize>().unwrap_or(1).saturating_sub(1);
+
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "character_creation".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("phase".to_string(), serde_json::Value::String(phase.to_string()));
+                    f.insert("choice_index".to_string(), serde_json::json!(index));
+                    f.insert("player_id".to_string(), serde_json::Value::String(player_id.to_string()));
+                    f
+                },
+            });
 
             if let Err(e) = b.apply_choice(index) {
                 return vec![error_response(
@@ -1190,6 +1205,22 @@ async fn dispatch_character_creation(
             match b.build(pname) {
                 Ok(character) => {
                     let char_json = serde_json::to_value(&character).unwrap_or_default();
+
+                    state.send_watcher_event(WatcherEvent {
+                        timestamp: chrono::Utc::now(),
+                        component: "character_creation".to_string(),
+                        event_type: WatcherEventType::StateTransition,
+                        severity: Severity::Info,
+                        fields: {
+                            let mut f = HashMap::new();
+                            f.insert("event".to_string(), serde_json::Value::String("character_built".to_string()));
+                            f.insert("name".to_string(), serde_json::Value::String(character.core.name.as_str().to_string()));
+                            f.insert("class".to_string(), serde_json::Value::String(character.char_class.as_str().to_string()));
+                            f.insert("race".to_string(), serde_json::Value::String(character.race.as_str().to_string()));
+                            f.insert("hp".to_string(), serde_json::json!(character.core.hp));
+                            f
+                        },
+                    });
 
                     // Store character data
                     *character_name_store = Some(character.core.name.as_str().to_string());
@@ -1358,6 +1389,18 @@ async fn dispatch_player_action(
     // Extract location header from narration (format: **Location Name**\n\n...)
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "game".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("event".to_string(), serde_json::Value::String("location_changed".to_string()));
+                f.insert("location".to_string(), serde_json::Value::String(location.clone()));
+                f
+            },
+        });
         messages.push(GameMessage::ChapterMarker {
             payload: ChapterMarkerPayload {
                 title: Some(location.clone()),
@@ -1494,6 +1537,7 @@ async fn dispatch_player_action(
 
     // Audio cue — trigger mood-based music from genre pack
     if !genre_slug.is_empty() {
+        tracing::info!(genre = %genre_slug, mood = "exploration", "Emitting AUDIO_CUE");
         messages.push(GameMessage::AudioCue {
             payload: AudioCuePayload {
                 mood: Some("exploration".to_string()),
