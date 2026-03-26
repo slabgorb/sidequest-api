@@ -202,8 +202,8 @@ fn render_action_line_format_is_name_colon_input() {
         .collect();
 
     // Each line should be "- CharName: action text"
-    let has_thorn = action_lines.iter().any(|l| *l == "- Thorn: I attack");
-    let has_elara = action_lines.iter().any(|l| *l == "- Elara: I defend");
+    let has_thorn = action_lines.contains(&"- Thorn: I attack");
+    let has_elara = action_lines.contains(&"- Elara: I defend");
     assert!(has_thorn, "should contain '- Thorn: I attack' in {action_lines:?}");
     assert!(has_elara, "should contain '- Elara: I defend' in {action_lines:?}");
 }
@@ -458,14 +458,14 @@ fn character_action_exposes_getters() {
     let action = &party.actions()[0];
 
     // These must compile — they use getter methods
-    let _name: &str = action.character_name();
-    let _input: &str = action.input();
-    let _default: bool = action.is_default();
+    let name: &str = action.character_name();
+    let input: &str = action.input();
+    let default: bool = action.is_default();
 
-    // If fields were public, direct access would also work, but we verify
-    // the getter API exists and returns the correct types.
-    assert!(!_name.is_empty() || _name.is_empty()); // not vacuous — proves getter returns &str
-    assert!(_default || !_default); // proves is_default() returns bool
+    // Verify getters return meaningful values
+    assert!(!name.is_empty(), "character_name() should return a non-empty string");
+    assert!(!input.is_empty(), "input() should return a non-empty string");
+    assert!(!default, "submitted action should not be marked as default");
 }
 
 #[test]

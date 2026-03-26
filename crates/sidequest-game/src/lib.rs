@@ -19,6 +19,7 @@ pub mod hp;
 pub mod inventory;
 pub mod multiplayer;
 pub mod narrative;
+pub mod party_actions;
 pub mod npc;
 pub mod persistence;
 pub mod render_queue;
