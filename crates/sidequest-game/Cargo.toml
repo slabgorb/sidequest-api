@@ -21,6 +21,7 @@ regex = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
+serde_yaml = { workspace = true }
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread", "time"] }
 tracing-subscriber = { workspace = true }
