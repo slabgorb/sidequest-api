@@ -391,6 +391,9 @@ mod message_type_tests {
                 description: "A crumbling tower".into(),
                 handout: true,
                 render_id: Some("render-123".into()),
+                tier: Some("scene".into()),
+                scene_type: Some("exploration".into()),
+                generation_ms: Some(1500),
             },
             player_id: String::new(),
         };
@@ -463,6 +466,7 @@ mod message_type_tests {
         let msg = GameMessage::ChapterMarker {
             payload: ChapterMarkerPayload {
                 title: Some("Chapter 1".into()),
+                location: Some("The Dark Forest".into()),
             },
             player_id: String::new(),
         };

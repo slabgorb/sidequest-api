@@ -478,11 +478,18 @@ impl CharacterBuilder {
 
         let ac = self.default_ac.unwrap_or(10) as i32;
 
-        // Hooks: collect all narrative hooks as strings, then add auto-fill anchors
+        // Hooks: collect narrative hooks, excluding mechanical traits already on the sheet
+        let excluded_keys = ["race_hint", "class_hint", "personality_trait"];
         let mut hooks: Vec<String> = Vec::new();
         for result in &self.results {
             for hook in &result.hooks_added {
-                hooks.push(format!("{:?}: {}", hook.hook_type, hook.text));
+                let dominated = hook
+                    .mechanical_key
+                    .as_deref()
+                    .map_or(false, |k| excluded_keys.contains(&k));
+                if !dominated {
+                    hooks.push(hook.text.clone());
+                }
             }
         }
 
@@ -525,10 +532,21 @@ impl CharacterBuilder {
             })
             .collect();
 
-        let backstory_text = acc
-            .background
-            .as_deref()
-            .unwrap_or("A wanderer with a mysterious past");
+        // Compose backstory from accumulated choices
+        let backstory_text = {
+            let mut parts = Vec::new();
+            if let Some(ref bg) = acc.background {
+                parts.push(format!("Background: {}", bg));
+            }
+            if let Some(ref pt) = acc.personality_trait {
+                parts.push(format!("Personality: {}", pt));
+            }
+            if parts.is_empty() {
+                "A wanderer with a mysterious past".to_string()
+            } else {
+                parts.join(". ")
+            }
+        };
 
         let character = Character {
             core: CreatureCore {
@@ -548,7 +566,7 @@ impl CharacterBuilder {
                 inventory: Inventory { items, gold: 0 },
                 statuses: vec![],
             },
-            backstory: NonBlankString::new(backstory_text).unwrap(),
+            backstory: NonBlankString::new(&backstory_text).unwrap(),
             narrative_state: "Beginning their adventure".to_string(),
             hooks,
             char_class: NonBlankString::new(class_str).unwrap(),
