@@ -1,20 +1,112 @@
 //! SideQuest Server — axum HTTP/WebSocket server library.
 //!
-//! Exposes `build_router()` and `AppState` for the binary and tests.
+//! Exposes `build_router()`, `AppState`, and server lifecycle functions for the binary and tests.
 //! The server depends on the `GameService` trait facade — never on game internals.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use axum::extract::ws::{WebSocket, WebSocketUpgrade};
+use axum::extract::ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
+use clap::Parser;
+use futures::{SinkExt, StreamExt};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
 use sidequest_agents::orchestrator::GameService;
+use sidequest_protocol::{ErrorPayload, GameMessage};
+
+// ---------------------------------------------------------------------------
+// CLI Args
+// ---------------------------------------------------------------------------
+
+/// Command-line arguments for the SideQuest server.
+#[derive(Parser, Debug)]
+#[command(name = "sidequest-server")]
+pub struct Args {
+    /// Port to bind the server to.
+    #[arg(long, default_value = "8765")]
+    port: u16,
+
+    /// Path to the genre packs directory.
+    #[arg(long)]
+    genre_packs_path: PathBuf,
+
+    /// Directory for save files. Defaults to ~/.sidequest/saves.
+    #[arg(long)]
+    save_dir: Option<PathBuf>,
+}
+
+impl Args {
+    /// The port to bind to.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Path to genre packs directory.
+    pub fn genre_packs_path(&self) -> &Path {
+        &self.genre_packs_path
+    }
+
+    /// Optional save directory.
+    pub fn save_dir(&self) -> Option<&Path> {
+        self.save_dir.as_deref()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PlayerId
+// ---------------------------------------------------------------------------
+
+/// A player identifier backed by UUID v4.
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub struct PlayerId(uuid::Uuid);
+
+impl PlayerId {
+    /// Generate a new random PlayerId.
+    pub fn new() -> Self {
+        Self(uuid::Uuid::new_v4())
+    }
+}
+
+impl fmt::Display for PlayerId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ServerError
+// ---------------------------------------------------------------------------
+
+/// Server-specific errors.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ServerError {
+    /// The WebSocket connection was closed.
+    #[error("connection closed")]
+    ConnectionClosed,
+
+    /// Failed to deserialize a message.
+    #[error("deserialization error: {0}")]
+    Deserialization(String),
+
+    /// Broadcast send failed.
+    #[error("broadcast error: {0}")]
+    Broadcast(String),
+}
+
+impl ServerError {
+    /// Create a ConnectionClosed error.
+    pub fn connection_closed() -> Self {
+        Self::ConnectionClosed
+    }
+}
 
 // ---------------------------------------------------------------------------
 // AppState
@@ -31,10 +123,13 @@ pub struct AppState {
 struct AppStateInner {
     game_service: Box<dyn GameService>,
     genre_packs_path: PathBuf,
+    connections: Mutex<HashMap<PlayerId, mpsc::Sender<GameMessage>>>,
+    processing: Mutex<HashSet<PlayerId>>,
+    broadcast_tx: broadcast::Sender<GameMessage>,
 }
 
-impl std::fmt::Debug for AppStateInner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for AppStateInner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AppStateInner")
             .field("genre_packs_path", &self.genre_packs_path)
             .finish_non_exhaustive()
@@ -48,10 +143,14 @@ impl AppState {
         game_service: Box<dyn GameService>,
         genre_packs_path: PathBuf,
     ) -> Self {
+        let (broadcast_tx, _) = broadcast::channel(256);
         Self {
             inner: Arc::new(AppStateInner {
                 game_service,
                 genre_packs_path,
+                connections: Mutex::new(HashMap::new()),
+                processing: Mutex::new(HashSet::new()),
+                broadcast_tx,
             }),
         }
     }
@@ -59,6 +158,99 @@ impl AppState {
     /// Path to genre packs directory.
     pub fn genre_packs_path(&self) -> &Path {
         &self.inner.genre_packs_path
+    }
+
+    /// Number of active connections.
+    pub fn connection_count(&self) -> usize {
+        self.inner.connections.lock().unwrap().len()
+    }
+
+    /// Register a connection for a player.
+    pub fn add_connection(&self, player_id: PlayerId, tx: mpsc::Sender<GameMessage>) {
+        self.inner.connections.lock().unwrap().insert(player_id, tx);
+    }
+
+    /// Remove a connection by player id.
+    pub fn remove_connection(&self, player_id: &PlayerId) {
+        self.inner.connections.lock().unwrap().remove(player_id);
+    }
+
+    /// Subscribe to the broadcast channel.
+    pub fn subscribe_broadcast(&self) -> broadcast::Receiver<GameMessage> {
+        self.inner.broadcast_tx.subscribe()
+    }
+
+    /// Send a message to all broadcast subscribers.
+    pub fn broadcast(
+        &self,
+        msg: GameMessage,
+    ) -> Result<usize, broadcast::error::SendError<GameMessage>> {
+        self.inner.broadcast_tx.send(msg)
+    }
+
+    /// Check if a player is currently processing an action.
+    fn is_processing(&self, player_id: &PlayerId) -> bool {
+        self.inner.processing.lock().unwrap().contains(player_id)
+    }
+
+    /// Try to mark a player as processing. Returns false if already processing.
+    fn try_start_processing(&self, player_id: &PlayerId) -> bool {
+        self.inner
+            .processing
+            .lock()
+            .unwrap()
+            .insert(player_id.clone())
+    }
+
+    /// Remove a player from the processing set.
+    fn stop_processing(&self, player_id: &PlayerId) {
+        self.inner.processing.lock().unwrap().remove(player_id);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ProcessingGuard
+// ---------------------------------------------------------------------------
+
+/// RAII guard that prevents concurrent actions from the same player.
+/// When dropped, the player is removed from the processing set.
+pub struct ProcessingGuard {
+    state: AppState,
+    player_id: PlayerId,
+}
+
+impl ProcessingGuard {
+    /// Try to acquire a processing guard for a player.
+    /// Returns `None` if the player already has an action in progress.
+    pub fn acquire(state: &AppState, player_id: &PlayerId) -> Option<Self> {
+        if state.try_start_processing(player_id) {
+            Some(Self {
+                state: state.clone(),
+                player_id: player_id.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for ProcessingGuard {
+    fn drop(&mut self) {
+        self.state.stop_processing(&self.player_id);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
+/// Construct a GameMessage::Error from a player id and error description.
+pub fn error_response(player_id: &str, message: &str) -> GameMessage {
+    GameMessage::Error {
+        payload: ErrorPayload {
+            message: message.to_string(),
+        },
+        player_id: player_id.to_string(),
     }
 }
 
@@ -74,7 +266,6 @@ impl AppState {
 ///
 /// Middleware:
 /// - CORS for React dev server at localhost:5173
-/// - tower-http tracing
 pub fn build_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::list(["http://localhost:5173"
@@ -153,33 +344,122 @@ async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serd
 }
 
 /// GET /ws — WebSocket upgrade handler.
-///
-/// For now, accepts the upgrade and runs a minimal connection loop.
-/// Full session lifecycle is implemented in story 2-2.
-async fn ws_handler(ws: WebSocketUpgrade, State(_state): State<AppState>) -> impl IntoResponse {
-    let player_id = uuid::Uuid::new_v4().to_string();
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+    let player_id = PlayerId::new();
     tracing::info!(player_id = %player_id, "WebSocket connection upgrading");
-    ws.on_upgrade(move |socket| handle_ws_connection(socket, player_id))
+    ws.on_upgrade(move |socket| handle_ws_connection(socket, state, player_id))
 }
 
-async fn handle_ws_connection(mut socket: WebSocket, player_id: String) {
+async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: PlayerId) {
     tracing::info!(player_id = %player_id, "WebSocket connected");
 
-    // Minimal connection loop — read messages until client disconnects.
-    // Full session state machine is story 2-2.
-    while let Some(msg) = socket.recv().await {
-        match msg {
-            Ok(_msg) => {
-                tracing::debug!(player_id = %player_id, "Received WebSocket message");
+    let (mut ws_sink, mut ws_stream) = socket.split();
+
+    // Create an mpsc channel for sending messages to this client
+    let (tx, mut rx) = mpsc::channel::<GameMessage>(32);
+    state.add_connection(player_id.clone(), tx.clone());
+
+    // Subscribe to broadcast
+    let mut broadcast_rx = state.subscribe_broadcast();
+
+    let player_id_str = player_id.to_string();
+
+    // Writer task: reads from mpsc channel + broadcast, sends to WS
+    let writer_player_id = player_id_str.clone();
+    let writer_handle = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                Some(msg) = rx.recv() => {
+                    let json = match serde_json::to_string(&msg) {
+                        Ok(j) => j,
+                        Err(e) => {
+                            tracing::error!(player_id = %writer_player_id, error = %e, "Failed to serialize message");
+                            continue;
+                        }
+                    };
+                    if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(msg) = broadcast_rx.recv() => {
+                    let json = match serde_json::to_string(&msg) {
+                        Ok(j) => j,
+                        Err(e) => {
+                            tracing::error!(player_id = %writer_player_id, error = %e, "Failed to serialize broadcast message");
+                            continue;
+                        }
+                    };
+                    if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                        break;
+                    }
+                }
+                else => break,
             }
+        }
+    });
+
+    // Reader loop: read messages, deserialize, handle errors
+    while let Some(msg) = ws_stream.next().await {
+        match msg {
+            Ok(AxumWsMessage::Text(text)) => {
+                match serde_json::from_str::<GameMessage>(&text) {
+                    Ok(_game_msg) => {
+                        tracing::debug!(player_id = %player_id_str, "Received valid GameMessage");
+                        // Full dispatch is story 2-5. For now, just log.
+                    }
+                    Err(e) => {
+                        tracing::warn!(player_id = %player_id_str, error = %e, "Invalid message");
+                        let err_msg =
+                            error_response(&player_id_str, &format!("Invalid JSON: {}", e));
+                        let _ = tx.send(err_msg).await;
+                    }
+                }
+            }
+            Ok(AxumWsMessage::Close(_)) => break,
+            Ok(_) => {} // ping/pong/binary handled by axum
             Err(e) => {
-                tracing::warn!(player_id = %player_id, error = %e, "WebSocket error");
+                tracing::warn!(player_id = %player_id_str, error = %e, "WebSocket error");
                 break;
             }
         }
     }
 
-    tracing::info!(player_id = %player_id, "WebSocket disconnected");
+    // Cleanup
+    state.remove_connection(&player_id);
+    writer_handle.abort();
+    tracing::info!(player_id = %player_id_str, "WebSocket disconnected");
+}
+
+// ---------------------------------------------------------------------------
+// Server lifecycle
+// ---------------------------------------------------------------------------
+
+/// Create and run the server on a given port with a shutdown signal.
+pub async fn create_server(
+    state: AppState,
+    port: u16,
+    shutdown: oneshot::Receiver<()>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+    tracing::info!(port = %listener.local_addr()?, "SideQuest Server listening");
+    serve_with_listener(state, listener, shutdown).await
+}
+
+/// Run the server with a pre-bound listener and shutdown signal.
+pub async fn serve_with_listener(
+    state: AppState,
+    listener: tokio::net::TcpListener,
+    shutdown: oneshot::Receiver<()>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let app = build_router(state);
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async {
+            shutdown.await.ok();
+            tracing::info!("Shutdown signal received");
+        })
+        .await?;
+    tracing::info!("Server shut down cleanly");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
