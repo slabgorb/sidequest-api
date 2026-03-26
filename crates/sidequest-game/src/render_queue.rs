@@ -8,9 +8,12 @@
 //! cache dedup.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::subject::{RenderSubject, SceneType, SubjectTier};
@@ -183,7 +186,28 @@ pub struct ImageDimensions {
 /// - Landscape: wide aspect ratio (768x512)
 /// - Abstract: square (512x512)
 pub fn tier_to_dimensions(tier: &SubjectTier) -> ImageDimensions {
-    todo!("tier_to_dimensions")
+    match tier {
+        SubjectTier::Portrait => ImageDimensions {
+            width: 512,
+            height: 768,
+        },
+        SubjectTier::Scene => ImageDimensions {
+            width: 768,
+            height: 768,
+        },
+        SubjectTier::Landscape => ImageDimensions {
+            width: 768,
+            height: 512,
+        },
+        SubjectTier::Abstract => ImageDimensions {
+            width: 512,
+            height: 512,
+        },
+        _ => ImageDimensions {
+            width: 512,
+            height: 512,
+        },
+    }
 }
 
 /// Compute a content hash for dedup.
@@ -191,8 +215,48 @@ pub fn tier_to_dimensions(tier: &SubjectTier) -> ImageDimensions {
 /// Hash is based on entities + scene_type + tier, ignoring minor prompt
 /// wording differences. Two subjects with the same entities, scene type,
 /// and tier produce the same hash.
+///
+/// Entity order is ignored (sorted before hashing) and entity names are
+/// lowercased for case-insensitive dedup.
 pub fn compute_content_hash(subject: &RenderSubject) -> u64 {
-    todo!("compute_content_hash")
+    let mut hasher = DefaultHasher::new();
+
+    // Sort entities lowercase for order-independent, case-insensitive hashing
+    let mut entities: Vec<String> = subject
+        .entities()
+        .iter()
+        .map(|e| e.to_lowercase())
+        .collect();
+    entities.sort();
+    for entity in &entities {
+        entity.hash(&mut hasher);
+    }
+
+    // Hash scene type discriminant
+    std::mem::discriminant(subject.scene_type()).hash(&mut hasher);
+
+    // Hash tier discriminant
+    std::mem::discriminant(subject.tier()).hash(&mut hasher);
+
+    hasher.finish()
+}
+
+/// Internal job entry tracked by the queue.
+struct JobEntry {
+    status: RenderStatus,
+    content_hash: u64,
+}
+
+/// Shared state between the queue handle and background worker.
+struct QueueState {
+    /// Map from job_id to job entry.
+    jobs: HashMap<Uuid, JobEntry>,
+    /// Map from content_hash to the original job_id (for dedup).
+    hash_to_job: HashMap<u64, Uuid>,
+    /// Number of pending (not yet completed) jobs — for backpressure.
+    pending_count: usize,
+    /// Maximum pending jobs allowed.
+    queue_depth: usize,
 }
 
 /// The async render queue.
@@ -200,7 +264,11 @@ pub fn compute_content_hash(subject: &RenderSubject) -> u64 {
 /// Spawns a background tokio task that processes render jobs sequentially.
 /// Uses hash-based dedup to avoid duplicate daemon calls.
 pub struct RenderQueue {
-    _private: (),
+    state: Arc<Mutex<QueueState>>,
+    /// Shutdown signal sender — dropping it signals the worker to stop.
+    _shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    /// Handle to the background worker task.
+    worker_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl RenderQueue {
@@ -208,8 +276,38 @@ impl RenderQueue {
     ///
     /// The worker processes jobs from the channel and calls the daemon
     /// for each unique render request.
-    pub fn spawn(_config: RenderQueueConfig) -> Self {
-        todo!("RenderQueue::spawn")
+    pub fn spawn(config: RenderQueueConfig) -> Self {
+        let state = Arc::new(Mutex::new(QueueState {
+            jobs: HashMap::new(),
+            hash_to_job: HashMap::new(),
+            pending_count: 0,
+            queue_depth: config.queue_depth(),
+        }));
+
+        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+
+        let worker_state = Arc::clone(&state);
+        let worker_handle = tokio::spawn(async move {
+            // Background worker — waits for shutdown signal.
+            // In a full implementation this would pull jobs from a channel
+            // and call the daemon. For now it just idles until shutdown.
+            let _ = shutdown_rx.await;
+            // On shutdown, mark all pending jobs as failed.
+            let mut guard = worker_state.lock().await;
+            for entry in guard.jobs.values_mut() {
+                if matches!(entry.status, RenderStatus::Queued | RenderStatus::InProgress) {
+                    entry.status = RenderStatus::Failed {
+                        error: "queue shutdown".to_string(),
+                    };
+                }
+            }
+        });
+
+        Self {
+            state,
+            _shutdown_tx: shutdown_tx,
+            worker_handle: Some(worker_handle),
+        }
     }
 
     /// Enqueue a render subject for image generation.
@@ -219,25 +317,60 @@ impl RenderQueue {
     /// if the queue is at capacity.
     pub async fn enqueue(
         &self,
-        _subject: RenderSubject,
+        subject: RenderSubject,
         _art_style: &str,
         _image_model: &str,
     ) -> Result<EnqueueResult, QueueError> {
-        todo!("RenderQueue::enqueue")
+        let content_hash = compute_content_hash(&subject);
+        let mut guard = self.state.lock().await;
+
+        // Dedup check
+        if let Some(&original_id) = guard.hash_to_job.get(&content_hash) {
+            return Ok(EnqueueResult::Deduplicated { original_id });
+        }
+
+        // Backpressure check
+        if guard.pending_count >= guard.queue_depth {
+            return Err(QueueError::Full);
+        }
+
+        let job_id = Uuid::new_v4();
+        guard.jobs.insert(
+            job_id,
+            JobEntry {
+                status: RenderStatus::Queued,
+                content_hash,
+            },
+        );
+        guard.hash_to_job.insert(content_hash, job_id);
+        guard.pending_count += 1;
+
+        Ok(EnqueueResult::Queued { job_id })
     }
 
     /// Get the current status of a job by ID.
-    pub async fn job_status(&self, _job_id: Uuid) -> Option<RenderStatus> {
-        todo!("RenderQueue::job_status")
+    pub async fn job_status(&self, job_id: Uuid) -> Option<RenderStatus> {
+        let guard = self.state.lock().await;
+        guard.jobs.get(&job_id).map(|entry| entry.status.clone())
     }
 
     /// Number of jobs currently in the cache (including completed).
     pub async fn cache_len(&self) -> usize {
-        todo!("RenderQueue::cache_len")
+        let guard = self.state.lock().await;
+        guard.hash_to_job.len()
     }
 
     /// Shut down the queue gracefully, stopping the background worker.
     pub async fn shutdown(self) {
-        todo!("RenderQueue::shutdown")
+        let Self {
+            state: _,
+            _shutdown_tx,
+            worker_handle,
+        } = self;
+        // Drop the shutdown sender to signal the worker to stop.
+        drop(_shutdown_tx);
+        if let Some(handle) = worker_handle {
+            let _ = handle.await;
+        }
     }
 }
