@@ -15,6 +15,7 @@ pub mod delta;
 pub mod disposition;
 pub mod hp;
 pub mod inventory;
+pub mod multiplayer;
 pub mod narrative;
 pub mod npc;
 pub mod persistence;
