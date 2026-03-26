@@ -610,12 +610,15 @@ impl CharacterBuilder {
             },
             BuilderPhase::Confirmation => {
                 let acc = self.accumulated();
-                let summary = format!(
-                    "Race: {}, Class: {}, Personality: {}",
-                    acc.race_hint.as_deref().unwrap_or("Unknown"),
-                    acc.class_hint.as_deref().unwrap_or("Unknown"),
-                    acc.personality_trait.as_deref().unwrap_or("Unknown"),
-                );
+                let mut parts = vec![
+                    format!("Race: {}", acc.race_hint.as_deref().unwrap_or("Unknown")),
+                    format!("Class: {}", acc.class_hint.as_deref().unwrap_or("Unknown")),
+                    format!("Personality: {}", acc.personality_trait.as_deref().unwrap_or("Unknown")),
+                ];
+                if let Some(bg) = &acc.background {
+                    parts.push(format!("\nBackstory: {}", bg));
+                }
+                let summary = parts.join("\n");
 
                 GameMessage::CharacterCreation {
                     payload: CharacterCreationPayload {

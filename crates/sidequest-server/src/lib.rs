@@ -19,6 +19,7 @@ use clap::Parser;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::ServeDir;
 
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, Registry};
@@ -638,10 +639,14 @@ pub fn build_router(state: AppState) -> Router {
         .allow_methods([axum::http::Method::GET])
         .allow_headers(tower_http::cors::Any);
 
+    // Serve genre pack static assets (fonts, images) at /genre/assets/
+    let genre_assets = ServeDir::new(state.genre_packs_path());
+
     Router::new()
         .route("/api/genres", get(list_genres))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(ws_watcher_handler))
+        .nest_service("/genre", genre_assets)
         .layer(cors)
         .with_state(state)
 }
@@ -1138,7 +1143,33 @@ fn dispatch_character_creation(
                         player_id: player_id.to_string(),
                     };
 
-                    vec![complete, ready]
+                    // Auto-trigger an introductory narration so the game view isn't empty
+                    let intro_messages = dispatch_player_action(
+                        "I look around and take in my surroundings.",
+                        character.core.name.as_str(),
+                        character.core.hp,
+                        character.core.max_hp,
+                        state,
+                        player_id,
+                    );
+
+                    // Emit CHARACTER_SHEET for the UI overlay
+                    let char_sheet = GameMessage::CharacterSheet {
+                        payload: CharacterSheetPayload {
+                            name: character.core.name.as_str().to_string(),
+                            class: character.char_class.as_str().to_string(),
+                            level: character.core.level as u32,
+                            stats: character.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+                            abilities: character.hooks.clone(),
+                            backstory: character.backstory.as_str().to_string(),
+                            portrait_url: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+
+                    let mut msgs = vec![complete, char_sheet, ready];
+                    msgs.extend(intro_messages);
+                    msgs
                 }
                 Err(e) => vec![error_response(
                     player_id,
@@ -1162,6 +1193,20 @@ fn dispatch_player_action(
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
+    // Watcher: action received
+    state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "game".to_string(),
+        event_type: WatcherEventType::AgentSpanOpen,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("action".to_string(), serde_json::Value::String(action.to_string()));
+            f.insert("player".to_string(), serde_json::Value::String(char_name.to_string()));
+            f
+        },
+    });
+
     // THINKING indicator
     let thinking = GameMessage::Thinking {
         payload: ThinkingPayload {},
@@ -1171,17 +1216,58 @@ fn dispatch_player_action(
     // Process the action through GameService
     let result = state.game_service().process_action(action, &TurnContext::default());
 
-    // Narration
-    let narration = GameMessage::Narration {
+    // Watcher: narration generated
+    state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "game".to_string(),
+        event_type: WatcherEventType::AgentSpanClose,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("narration_len".to_string(), serde_json::json!(result.narration.len()));
+            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
+            f
+        },
+    });
+
+    let mut messages = vec![thinking];
+
+    // Extract location header from narration (format: **Location Name**\n\n...)
+    let narration_text = &result.narration;
+    if let Some(location) = extract_location_header(narration_text) {
+        messages.push(GameMessage::ChapterMarker {
+            payload: ChapterMarkerPayload {
+                title: Some(location.clone()),
+                location: Some(location),
+            },
+            player_id: player_id.to_string(),
+        });
+    }
+
+    // Strip the location header from narration text if present
+    let clean_narration = strip_location_header(narration_text);
+
+    // Narration — include character state so the UI state mirror picks it up
+    messages.push(GameMessage::Narration {
         payload: NarrationPayload {
-            text: result.narration,
-            state_delta: None,
+            text: clean_narration,
+            state_delta: Some(sidequest_protocol::StateDelta {
+                location: extract_location_header(narration_text),
+                characters: Some(vec![sidequest_protocol::CharacterState {
+                    name: char_name.to_string(),
+                    hp,
+                    max_hp,
+                    statuses: vec![],
+                    inventory: vec![],
+                }]),
+                quests: None,
+            }),
         },
         player_id: player_id.to_string(),
-    };
+    });
 
     // Narration end with state_delta field present (even if empty)
-    let narration_end = GameMessage::NarrationEnd {
+    messages.push(GameMessage::NarrationEnd {
         payload: NarrationEndPayload {
             state_delta: Some(sidequest_protocol::StateDelta {
                 location: None,
@@ -1190,10 +1276,10 @@ fn dispatch_player_action(
             }),
         },
         player_id: player_id.to_string(),
-    };
+    });
 
     // Party status
-    let party_status = GameMessage::PartyStatus {
+    messages.push(GameMessage::PartyStatus {
         payload: PartyStatusPayload {
             members: vec![PartyMember {
                 player_id: player_id.to_string(),
@@ -1207,9 +1293,29 @@ fn dispatch_player_action(
             }],
         },
         player_id: player_id.to_string(),
-    };
+    });
 
-    vec![thinking, narration, narration_end, party_status]
+    messages
+}
+
+/// Extract a location header from narration text (format: **Location Name**)
+fn extract_location_header(text: &str) -> Option<String> {
+    let first_line = text.lines().next()?.trim();
+    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
+        Some(first_line[2..first_line.len() - 2].to_string())
+    } else {
+        None
+    }
+}
+
+/// Strip the location header line from narration text
+fn strip_location_header(text: &str) -> String {
+    let first_line = text.lines().next().unwrap_or("").trim();
+    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
+        text.lines().skip(1).collect::<Vec<_>>().join("\n").trim().to_string()
+    } else {
+        text.to_string()
+    }
 }
 
 // ---------------------------------------------------------------------------

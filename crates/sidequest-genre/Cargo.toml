@@ -11,6 +11,7 @@ sidequest-protocol = { path = "../sidequest-protocol" }
 serde = { workspace = true }
 serde_yaml = { workspace = true }
 thiserror = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
