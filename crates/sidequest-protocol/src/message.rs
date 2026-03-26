@@ -419,6 +419,15 @@ pub struct ImagePayload {
     /// Unique render identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub render_id: Option<String>,
+    /// Subject tier (e.g. "portrait", "scene", "landscape", "abstract").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<String>,
+    /// Scene type (e.g. "combat", "dialogue", "exploration").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scene_type: Option<String>,
+    /// Image generation time in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_ms: Option<u64>,
 }
 
 /// Audio cue payload.
