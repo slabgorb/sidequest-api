@@ -77,6 +77,10 @@ pub enum SectionCategory {
     Action,
     /// Output format instructions.
     Format,
+    /// General context sections (location, NPCs, quests).
+    Context,
+    /// Agent role definition.
+    Role,
 }
 
 /// Three-tier rule taxonomy for agent system prompts.
@@ -119,9 +123,9 @@ impl PromptSection {
     /// Create a new prompt section.
     pub fn new(
         name: impl Into<String>,
-        category: SectionCategory,
-        zone: AttentionZone,
         content: impl Into<String>,
+        zone: AttentionZone,
+        category: SectionCategory,
     ) -> Self {
         Self {
             name: name.into(),
@@ -132,12 +136,17 @@ impl PromptSection {
         }
     }
 
+    /// Access the content text.
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+
     /// Create a new prompt section with a source tag.
     pub fn with_source(
         name: impl Into<String>,
-        category: SectionCategory,
-        zone: AttentionZone,
         content: impl Into<String>,
+        zone: AttentionZone,
+        category: SectionCategory,
         source: impl Into<String>,
     ) -> Self {
         Self {
