@@ -17,7 +17,11 @@ mod cache;
 mod error;
 mod genre_code;
 mod loader;
+/// Character-level Markov chain for fantasy word generation.
+pub mod markov;
 mod models;
+/// Template-based name generator with corpus blending.
+pub mod names;
 mod resolve;
 mod util;
 mod validate;
