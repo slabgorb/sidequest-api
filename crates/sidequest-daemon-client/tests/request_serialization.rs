@@ -23,11 +23,12 @@ fn render_request_has_method_field_set_to_render() {
 fn render_request_has_uuid_id() {
     let params = RenderParams::default();
     let json = build_request_json("render", &params);
-    let id_str = json["id"]
-        .as_str()
-        .expect("request id must be a string");
+    let id_str = json["id"].as_str().expect("request id must be a string");
     let parsed = uuid::Uuid::parse_str(id_str);
-    assert!(parsed.is_ok(), "request id must be a valid UUID, got: {id_str}");
+    assert!(
+        parsed.is_ok(),
+        "request id must be a valid UUID, got: {id_str}"
+    );
     assert_eq!(
         parsed.unwrap().get_version(),
         Some(uuid::Version::Random),

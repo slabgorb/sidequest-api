@@ -18,7 +18,7 @@ pub struct DaemonRequest<P: Serialize> {
 // ---------------------------------------------------------------------------
 
 /// Parameters for a `render` request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RenderParams {
     /// The image generation prompt.
     pub prompt: String,
@@ -26,28 +26,11 @@ pub struct RenderParams {
     pub art_style: String,
 }
 
-impl Default for RenderParams {
-    fn default() -> Self {
-        Self {
-            prompt: String::new(),
-            art_style: String::new(),
-        }
-    }
-}
-
 /// Parameters for a `warm_up` request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WarmUpParams {
     /// The worker/model to warm up (e.g. "flux", "kokoro").
     pub worker: String,
-}
-
-impl Default for WarmUpParams {
-    fn default() -> Self {
-        Self {
-            worker: String::new(),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
