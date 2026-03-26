@@ -49,12 +49,7 @@ mod test_subscriber {
     }
 
     impl<S: Subscriber> Layer<S> for SpanCaptureLayer {
-        fn on_new_span(
-            &self,
-            attrs: &span::Attributes<'_>,
-            _id: &span::Id,
-            _ctx: Context<'_, S>,
-        ) {
+        fn on_new_span(&self, attrs: &span::Attributes<'_>, _id: &span::Id, _ctx: Context<'_, S>) {
             let mut fields = Vec::new();
             let mut visitor = FieldNameVisitor(&mut fields);
             attrs.record(&mut visitor);
@@ -136,11 +131,7 @@ fn json_layer_produces_valid_json_output() {
     // Each line should be valid JSON
     for line in output.lines() {
         let parsed: Result<serde_json::Value, _> = serde_json::from_str(line);
-        assert!(
-            parsed.is_ok(),
-            "Expected valid JSON line, got: {}",
-            line
-        );
+        assert!(parsed.is_ok(), "Expected valid JSON line, got: {}", line);
     }
     assert!(!output.is_empty(), "JSON output should not be empty");
 }

@@ -102,7 +102,10 @@ impl GameSnapshot {
             changed.push("discovered_routes");
         }
 
-        span.record("fields_changed", &tracing::field::display(&changed.join(",")));
+        span.record(
+            "fields_changed",
+            &tracing::field::display(&changed.join(",")),
+        );
     }
 
     /// Apply a combat patch.
@@ -121,7 +124,10 @@ impl GameSnapshot {
             changed.push("round");
         }
 
-        span.record("fields_changed", &tracing::field::display(&changed.join(",")));
+        span.record(
+            "fields_changed",
+            &tracing::field::display(&changed.join(",")),
+        );
     }
 
     /// Apply a chase patch (start a chase or record a roll).
@@ -146,7 +152,10 @@ impl GameSnapshot {
             }
         }
 
-        span.record("fields_changed", &tracing::field::display(&changed.join(",")));
+        span.record(
+            "fields_changed",
+            &tracing::field::display(&changed.join(",")),
+        );
     }
 }
 

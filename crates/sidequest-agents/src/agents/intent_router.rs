@@ -115,21 +115,32 @@ impl IntentRouter {
 
         // Combat keywords
         let combat_words = [
-            "attack", "slash", "strike", "cast", "shoot", "defend", "stab",
-            "fight", "hit", "swing", "parry", "block", "spell",
+            "attack", "slash", "strike", "cast", "shoot", "defend", "stab", "fight", "hit",
+            "swing", "parry", "block", "spell",
         ];
         if combat_words.iter().any(|w| lower.contains(w)) {
             return IntentRoute::for_intent(Intent::Combat);
         }
 
         // Dialogue keywords
-        let dialogue_words = ["talk", "tell", "ask", "say", "speak", "greet", "persuade", "negotiate"];
+        let dialogue_words = [
+            "talk",
+            "tell",
+            "ask",
+            "say",
+            "speak",
+            "greet",
+            "persuade",
+            "negotiate",
+        ];
         if dialogue_words.iter().any(|w| lower.contains(w)) {
             return IntentRoute::for_intent(Intent::Dialogue);
         }
 
         // Exploration keywords
-        let explore_words = ["look", "go", "move", "walk", "enter", "explore", "search", "open", "travel"];
+        let explore_words = [
+            "look", "go", "move", "walk", "enter", "explore", "search", "open", "travel",
+        ];
         if explore_words.iter().any(|w| lower.contains(w)) {
             return IntentRoute::for_intent(Intent::Exploration);
         }

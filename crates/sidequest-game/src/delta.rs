@@ -107,20 +107,47 @@ pub fn compute_delta(before: &StateSnapshot, after: &StateSnapshot) -> StateDelt
 
     // Record which fields changed
     let mut changed = Vec::new();
-    if delta.characters { changed.push("characters"); }
-    if delta.npcs { changed.push("npcs"); }
-    if delta.location { changed.push("location"); }
-    if delta.time_of_day { changed.push("time_of_day"); }
-    if delta.quest_log { changed.push("quest_log"); }
-    if delta.notes { changed.push("notes"); }
-    if delta.combat { changed.push("combat"); }
-    if delta.chase { changed.push("chase"); }
-    if delta.tropes { changed.push("tropes"); }
-    if delta.atmosphere { changed.push("atmosphere"); }
-    if delta.regions { changed.push("regions"); }
-    if delta.routes { changed.push("routes"); }
+    if delta.characters {
+        changed.push("characters");
+    }
+    if delta.npcs {
+        changed.push("npcs");
+    }
+    if delta.location {
+        changed.push("location");
+    }
+    if delta.time_of_day {
+        changed.push("time_of_day");
+    }
+    if delta.quest_log {
+        changed.push("quest_log");
+    }
+    if delta.notes {
+        changed.push("notes");
+    }
+    if delta.combat {
+        changed.push("combat");
+    }
+    if delta.chase {
+        changed.push("chase");
+    }
+    if delta.tropes {
+        changed.push("tropes");
+    }
+    if delta.atmosphere {
+        changed.push("atmosphere");
+    }
+    if delta.regions {
+        changed.push("regions");
+    }
+    if delta.routes {
+        changed.push("routes");
+    }
 
-    span.record("fields_changed", &tracing::field::display(&changed.join(",")));
+    span.record(
+        "fields_changed",
+        &tracing::field::display(&changed.join(",")),
+    );
     span.record("is_empty", &delta.is_empty());
 
     delta

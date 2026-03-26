@@ -84,20 +84,16 @@ impl<'a> tracing::field::Visit for FieldCaptureVisitor<'a> {
             .push((field.name().to_string(), format!("{:?}", value)));
     }
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
 }
 
@@ -166,8 +162,8 @@ fn apply_world_patch_emits_span_with_fields() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "apply_world_patch")
-        .expect("Expected an 'apply_world_patch' span");
+    let span =
+        find_span(&spans, "apply_world_patch").expect("Expected an 'apply_world_patch' span");
 
     assert!(
         has_field(span, "patch_type"),
@@ -209,8 +205,8 @@ fn apply_combat_patch_emits_span_with_fields() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "apply_combat_patch")
-        .expect("Expected an 'apply_combat_patch' span");
+    let span =
+        find_span(&spans, "apply_combat_patch").expect("Expected an 'apply_combat_patch' span");
 
     assert!(
         has_field(span, "patch_type"),
@@ -252,8 +248,8 @@ fn apply_chase_patch_emits_span_with_fields() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "apply_chase_patch")
-        .expect("Expected an 'apply_chase_patch' span");
+    let span =
+        find_span(&spans, "apply_chase_patch").expect("Expected an 'apply_chase_patch' span");
 
     assert!(
         has_field(span, "patch_type"),
@@ -300,8 +296,7 @@ fn compute_delta_emits_span_with_change_summary() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "compute_delta")
-        .expect("Expected a 'compute_delta' span");
+    let span = find_span(&spans, "compute_delta").expect("Expected a 'compute_delta' span");
 
     assert!(
         has_field(span, "fields_changed"),
@@ -330,8 +325,7 @@ fn compute_delta_reports_is_empty_when_no_changes() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "compute_delta")
-        .expect("Expected a 'compute_delta' span");
+    let span = find_span(&spans, "compute_delta").expect("Expected a 'compute_delta' span");
 
     let is_empty_field = span
         .fields
@@ -367,8 +361,7 @@ fn compute_delta_reports_changed_fields() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "compute_delta")
-        .expect("Expected a 'compute_delta' span");
+    let span = find_span(&spans, "compute_delta").expect("Expected a 'compute_delta' span");
 
     let is_empty_field = span
         .fields

@@ -40,7 +40,8 @@ impl ContextBuilder {
 
         // Build zone distribution string
         let zone_dist = {
-            let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            let mut counts: std::collections::HashMap<&str, usize> =
+                std::collections::HashMap::new();
             for s in &self.sections {
                 let zone_name = match s.zone {
                     AttentionZone::Primacy => "primacy",
@@ -51,10 +52,8 @@ impl ContextBuilder {
                 };
                 *counts.entry(zone_name).or_insert(0) += 1;
             }
-            let mut parts: Vec<String> = counts
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, v))
-                .collect();
+            let mut parts: Vec<String> =
+                counts.iter().map(|(k, v)| format!("{}={}", k, v)).collect();
             parts.sort();
             parts.join(",")
         };

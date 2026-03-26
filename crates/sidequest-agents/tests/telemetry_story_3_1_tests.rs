@@ -68,23 +68,19 @@ impl<'a> tracing::field::Visit for FieldCaptureVisitor<'a> {
     }
 
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
 
     fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
 
     fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
 
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.0
-            .push((field.name().to_string(), value.to_string()));
+        self.0.push((field.name().to_string(), value.to_string()));
     }
 }
 
@@ -189,8 +185,7 @@ fn extractor_emits_span_with_tier_and_target_type() {
 
     with_default(subscriber, || {
         // Tier 1: direct parse should work
-        let _result: Result<serde_json::Value, _> =
-            JsonExtractor::extract(r#"{"key": "value"}"#);
+        let _result: Result<serde_json::Value, _> = JsonExtractor::extract(r#"{"key": "value"}"#);
     });
 
     let spans = captured.lock().unwrap();
@@ -226,8 +221,8 @@ fn extractor_tier2_reports_correct_tier() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "extract")
-        .expect("Expected an 'extract' span from tier 2 extraction");
+    let span =
+        find_span(&spans, "extract").expect("Expected an 'extract' span from tier 2 extraction");
 
     // The extraction_tier field should be present and indicate tier 2
     let tier_field = span
@@ -249,13 +244,12 @@ fn extractor_failed_extraction_emits_span_with_success_false() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        let _result: Result<serde_json::Value, _> =
-            JsonExtractor::extract("no json here at all");
+        let _result: Result<serde_json::Value, _> = JsonExtractor::extract("no json here at all");
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "extract")
-        .expect("Expected an 'extract' span even on failed extraction");
+    let span =
+        find_span(&spans, "extract").expect("Expected an 'extract' span even on failed extraction");
 
     assert!(
         has_field(span, "success"),
@@ -305,8 +299,7 @@ fn context_builder_compose_emits_span_with_metrics() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "compose")
-        .expect("Expected a 'compose' span from ContextBuilder");
+    let span = find_span(&spans, "compose").expect("Expected a 'compose' span from ContextBuilder");
 
     assert!(
         has_field(span, "sections_count"),
@@ -432,10 +425,11 @@ fn agent_invocation_span_has_required_fields() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "call_agent")
-        .expect("Expected a 'call_agent' span — ClaudeClient::call_agent must be \
+    let span = find_span(&spans, "call_agent").expect(
+        "Expected a 'call_agent' span — ClaudeClient::call_agent must be \
                  instrumented with #[instrument] and emit agent_name, token_count_in, \
-                 token_count_out, duration_ms, raw_response_len fields");
+                 token_count_out, duration_ms, raw_response_len fields",
+    );
 
     assert!(
         has_field(span, "agent_name"),

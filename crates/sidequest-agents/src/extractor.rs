@@ -52,28 +52,25 @@ impl JsonExtractor {
         let target_type = std::any::type_name::<T>();
 
         // Try all three tiers, tracking which succeeded
-        let (result, tier): (Result<T, ExtractionError>, u8) =
-            if let Ok(value) = serde_json::from_str::<T>(trimmed) {
-                (Ok(value), 1)
-            } else if let Some(fenced) = Self::extract_from_fence(trimmed) {
-                let r = serde_json::from_str::<T>(&fenced).map_err(|e| {
-                    ExtractionError::ParseFailed {
-                        raw: fenced,
-                        source: e.to_string(),
-                    }
-                });
-                (r, 2)
-            } else if let Some(found) = Self::find_json_in_text(trimmed) {
-                let r = serde_json::from_str::<T>(&found).map_err(|e| {
-                    ExtractionError::ParseFailed {
-                        raw: found,
-                        source: e.to_string(),
-                    }
-                });
-                (r, 3)
-            } else {
-                (Err(ExtractionError::NoJsonFound), 0)
-            };
+        let (result, tier): (Result<T, ExtractionError>, u8) = if let Ok(value) =
+            serde_json::from_str::<T>(trimmed)
+        {
+            (Ok(value), 1)
+        } else if let Some(fenced) = Self::extract_from_fence(trimmed) {
+            let r = serde_json::from_str::<T>(&fenced).map_err(|e| ExtractionError::ParseFailed {
+                raw: fenced,
+                source: e.to_string(),
+            });
+            (r, 2)
+        } else if let Some(found) = Self::find_json_in_text(trimmed) {
+            let r = serde_json::from_str::<T>(&found).map_err(|e| ExtractionError::ParseFailed {
+                raw: found,
+                source: e.to_string(),
+            });
+            (r, 3)
+        } else {
+            (Err(ExtractionError::NoJsonFound), 0)
+        };
 
         let success = result.is_ok();
         let span = tracing::info_span!(
