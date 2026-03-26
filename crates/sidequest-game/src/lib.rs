@@ -23,6 +23,7 @@ pub mod npc;
 pub mod persistence;
 pub mod render_queue;
 pub mod progression;
+pub mod segmenter;
 pub mod session;
 pub mod state;
 pub mod subject;
@@ -54,4 +55,5 @@ pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
+pub use segmenter::{Segment, SentenceSegmenter};
 pub use turn::{TurnManager, TurnPhase};
