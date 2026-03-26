@@ -56,7 +56,7 @@ impl PartyActions {
     pub fn compose(
         actions: &HashMap<String, String>,
         players: &HashMap<String, Character>,
-        missing: &[String],
+        _missing: &[String],
         turn_number: u64,
     ) -> Self {
         let mut result = Vec::new();
@@ -70,15 +70,9 @@ impl PartyActions {
                     input: action_text.clone(),
                     is_default: false,
                 });
-            } else if missing.contains(player_id) {
-                result.push(CharacterAction {
-                    character_name: name,
-                    input: "hesitates, waiting".to_string(),
-                    is_default: true,
-                });
             } else {
-                // Player not in actions and not explicitly missing —
-                // treat as implicitly missing.
+                // Player didn't submit — either explicitly timed out
+                // or implicitly missing. Either way, default action.
                 result.push(CharacterAction {
                     character_name: name,
                     input: "hesitates, waiting".to_string(),
