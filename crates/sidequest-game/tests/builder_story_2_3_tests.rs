@@ -143,17 +143,15 @@ fn test_scenes() -> Vec<CharCreationScene> {
             id: "backstory".to_string(),
             title: "Your Past".to_string(),
             narration: "What haunts you?".to_string(),
-            choices: vec![
-                CharCreationChoice {
-                    label: "A Lost Mentor".to_string(),
-                    description: "Someone who taught you everything, then vanished".to_string(),
-                    mechanical_effects: MechanicalEffects {
-                        relationship: Some("Lost mentor".to_string()),
-                        goals: Some("Find the mentor".to_string()),
-                        ..effects_empty()
-                    },
+            choices: vec![CharCreationChoice {
+                label: "A Lost Mentor".to_string(),
+                description: "Someone who taught you everything, then vanished".to_string(),
+                mechanical_effects: MechanicalEffects {
+                    relationship: Some("Lost mentor".to_string()),
+                    goals: Some("Find the mentor".to_string()),
+                    ..effects_empty()
                 },
-            ],
+            }],
             allows_freeform: Some(true),
             hook_prompt: Some("Tell me more about this person...".to_string()),
         },
@@ -197,10 +195,7 @@ fn test_rules() -> RulesConfig {
         ],
         allowed_classes: vec!["Fighter".to_string(), "Wizard".to_string()],
         allowed_races: vec!["Dwarf".to_string(), "Elf".to_string(), "Human".to_string()],
-        class_hp_bases: HashMap::from([
-            ("Fighter".to_string(), 10),
-            ("Wizard".to_string(), 6),
-        ]),
+        class_hp_bases: HashMap::from([("Fighter".to_string(), 10), ("Wizard".to_string(), 6)]),
         default_class: Some("Fighter".to_string()),
         default_race: Some("Human".to_string()),
         default_hp: Some(10),
@@ -240,11 +235,7 @@ fn builder_current_scene_returns_first_genre_scene() {
 
     let scene = builder.current_scene();
     assert_eq!(scene.id, "origin", "First scene should be 'origin'");
-    assert_eq!(
-        scene.choices.len(),
-        2,
-        "Origin scene should have 2 choices"
-    );
+    assert_eq!(scene.choices.len(), 2, "Origin scene should have 2 choices");
 }
 
 #[test]
@@ -328,8 +319,15 @@ fn apply_freeform_advances_scene() {
 
     // Scene 1 allows freeform
     let result = builder.apply_freeform("I was a wandering mercenary");
-    assert!(result.is_ok(), "Freeform input should succeed on scene that allows it");
-    assert_eq!(builder.current_scene_index(), 2, "Should advance to scene 2");
+    assert!(
+        result.is_ok(),
+        "Freeform input should succeed on scene that allows it"
+    );
+    assert_eq!(
+        builder.current_scene_index(),
+        2,
+        "Should advance to scene 2"
+    );
 }
 
 #[test]
@@ -339,7 +337,9 @@ fn apply_freeform_records_text_in_result() {
     let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
     builder.apply_choice(0).unwrap();
 
-    builder.apply_freeform("I was a wandering mercenary").unwrap();
+    builder
+        .apply_freeform("I was a wandering mercenary")
+        .unwrap();
     let results = builder.scene_results();
     assert_eq!(results.len(), 2);
     assert!(
@@ -423,7 +423,11 @@ fn answer_followup_advances_past_scene() {
         builder.is_in_progress(),
         "Should return to InProgress after answering"
     );
-    assert_eq!(builder.current_scene_index(), 1, "Should advance to next scene");
+    assert_eq!(
+        builder.current_scene_index(),
+        1,
+        "Should advance to next scene"
+    );
 }
 
 #[test]
@@ -573,9 +577,9 @@ fn completing_all_scenes_enters_confirmation() {
     // Complete all 3 scenes
     builder.apply_choice(0).unwrap(); // origin: Mountain Fortress (Dwarf)
     builder.apply_choice(0).unwrap(); // calling: Warrior's Path (Fighter)
-    // Scene 2 has hook_prompt, so after choice we enter AwaitingFollowup
+                                      // Scene 2 has hook_prompt, so after choice we enter AwaitingFollowup
     builder.apply_choice(0).unwrap(); // backstory: Lost Mentor
-    // Answer the followup
+                                      // Answer the followup
     builder
         .answer_followup("My mentor disappeared into the wastes")
         .unwrap();
@@ -595,9 +599,7 @@ fn confirmation_has_accumulated_choices_summary() {
     builder.apply_choice(0).unwrap(); // Dwarf
     builder.apply_choice(0).unwrap(); // Fighter
     builder.apply_choice(0).unwrap(); // Lost Mentor
-    builder
-        .answer_followup("My mentor disappeared")
-        .unwrap();
+    builder.answer_followup("My mentor disappeared").unwrap();
 
     let acc = builder.accumulated();
     assert_eq!(acc.race_hint.as_deref(), Some("Dwarf"));
@@ -621,13 +623,14 @@ fn build_produces_character() {
     builder.apply_choice(0).unwrap(); // Dwarf
     builder.apply_choice(0).unwrap(); // Fighter
     builder.apply_choice(0).unwrap(); // Lost Mentor
-    builder
-        .answer_followup("My mentor disappeared")
-        .unwrap();
+    builder.answer_followup("My mentor disappeared").unwrap();
 
     // build() consumes the builder (or transitions from Confirmation)
     let character = builder.build("Thorn Ironhide");
-    assert!(character.is_ok(), "Build should succeed from Confirmation state");
+    assert!(
+        character.is_ok(),
+        "Build should succeed from Confirmation state"
+    );
 
     let character = character.unwrap();
     assert_eq!(character.core.name.as_str(), "Thorn Ironhide");
@@ -642,7 +645,9 @@ fn build_includes_narrative_hooks() {
     builder.apply_choice(0).unwrap();
     builder.apply_choice(0).unwrap();
     builder.apply_choice(0).unwrap();
-    builder.answer_followup("My mentor vanished into the wastes").unwrap();
+    builder
+        .answer_followup("My mentor vanished into the wastes")
+        .unwrap();
 
     let character = builder.build("Thorn").unwrap();
     assert!(
@@ -759,7 +764,10 @@ fn invalid_choice_index_returns_error() {
 
     // Scene 0 has 2 choices (indices 0 and 1)
     let result = builder.apply_choice(5);
-    assert!(result.is_err(), "Out-of-range choice index must return error");
+    assert!(
+        result.is_err(),
+        "Out-of-range choice index must return error"
+    );
 }
 
 #[test]
@@ -830,9 +838,10 @@ fn build_auto_fills_missing_lore_anchors() {
 
     // The builder should auto-fill any missing anchors from the genre pack
     // At minimum, the character hooks should include faction, npc, and location anchors
-    let has_anchor_hooks = character.hooks.iter().any(|h| {
-        h.contains("faction") || h.contains("npc") || h.contains("location")
-    });
+    let has_anchor_hooks = character
+        .hooks
+        .iter()
+        .any(|h| h.contains("faction") || h.contains("npc") || h.contains("location"));
     assert!(
         has_anchor_hooks,
         "Builder should auto-fill missing lore anchors. Hooks: {:?}",
@@ -860,7 +869,10 @@ fn builder_produces_character_creation_scene_message() {
             assert_eq!(payload.phase.as_str(), "scene");
             assert_eq!(payload.scene_index, Some(0));
             assert_eq!(payload.total_scenes, Some(3));
-            assert!(payload.choices.is_some(), "Scene message must include choices");
+            assert!(
+                payload.choices.is_some(),
+                "Scene message must include choices"
+            );
             let choices = payload.choices.unwrap();
             assert_eq!(choices.len(), 2, "Origin scene has 2 choices");
         }
@@ -889,7 +901,10 @@ fn builder_produces_confirmation_message() {
                 "confirmation",
                 "In Confirmation state, message phase should be 'confirmation'"
             );
-            assert!(payload.summary.is_some(), "Confirmation message should include summary");
+            assert!(
+                payload.summary.is_some(),
+                "Confirmation message should include summary"
+            );
         }
         other => panic!("Expected CharacterCreation message, got {:?}", other),
     }
@@ -910,9 +925,7 @@ fn choice_with_class_hint_generates_trait_hook() {
 
     let results = builder.scene_results();
     let hooks = &results[1].hooks_added;
-    let has_trait_hook = hooks
-        .iter()
-        .any(|h| matches!(h.hook_type, HookType::Trait));
+    let has_trait_hook = hooks.iter().any(|h| matches!(h.hook_type, HookType::Trait));
     assert!(
         has_trait_hook,
         "personality_trait effect should generate a Trait hook. Hooks: {:?}",
@@ -1013,10 +1026,7 @@ fn narrative_hook_has_non_empty_text() {
 
     let results = builder.scene_results();
     for hook in &results[0].hooks_added {
-        assert!(
-            !hook.text.is_empty(),
-            "Hook text must not be empty"
-        );
+        assert!(!hook.text.is_empty(), "Hook text must not be empty");
     }
 }
 
@@ -1084,9 +1094,7 @@ fn builder_phase_is_non_exhaustive() {
     // The #[non_exhaustive] attribute prevents exhaustive matching in external crates.
 
     // For now, verify the enum variants exist:
-    let _in_progress = BuilderPhase::InProgress {
-        scene_index: 0,
-    };
+    let _in_progress = BuilderPhase::InProgress { scene_index: 0 };
     let _awaiting = BuilderPhase::AwaitingFollowup {
         scene_index: 0,
         hook_prompt: "test".to_string(),

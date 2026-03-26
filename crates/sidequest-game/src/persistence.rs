@@ -380,8 +380,8 @@ impl SqliteStore {
         }
 
         // Walk genre/world/save.db structure
-        let genre_dirs = std::fs::read_dir(root)
-            .map_err(|e| PersistError::Database(e.to_string()))?;
+        let genre_dirs =
+            std::fs::read_dir(root).map_err(|e| PersistError::Database(e.to_string()))?;
 
         for genre_entry in genre_dirs.flatten() {
             let genre_path = genre_entry.path();

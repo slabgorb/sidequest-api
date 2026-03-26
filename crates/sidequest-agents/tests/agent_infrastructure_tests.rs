@@ -271,9 +271,9 @@ mod context_builder {
         let mut builder = ContextBuilder::new();
         builder.add_section(PromptSection::new(
             "identity",
-            SectionCategory::Identity,
-            AttentionZone::Primacy,
             "You are the narrator.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ));
         let sections = builder.build();
         assert_eq!(sections.len(), 1);
@@ -286,21 +286,21 @@ mod context_builder {
         // Add in reverse order
         builder.add_section(PromptSection::new(
             "checklist",
-            SectionCategory::Format,
-            AttentionZone::Recency,
             "Before responding, check...",
+            AttentionZone::Recency,
+            SectionCategory::Format,
         ));
         builder.add_section(PromptSection::new(
             "identity",
-            SectionCategory::Identity,
-            AttentionZone::Primacy,
             "You are the narrator.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ));
         builder.add_section(PromptSection::new(
             "state",
-            SectionCategory::State,
-            AttentionZone::Valley,
             "Current HP: 42",
+            AttentionZone::Valley,
+            SectionCategory::State,
         ));
 
         let sections = builder.build();
@@ -316,15 +316,15 @@ mod context_builder {
         let mut builder = ContextBuilder::new();
         builder.add_section(PromptSection::new(
             "identity",
-            SectionCategory::Identity,
-            AttentionZone::Primacy,
             "You are the narrator.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ));
         builder.add_section(PromptSection::new(
             "rules",
-            SectionCategory::Guardrail,
-            AttentionZone::Early,
             "Never break character.",
+            AttentionZone::Early,
+            SectionCategory::Guardrail,
         ));
 
         let text = builder.compose();
@@ -341,15 +341,15 @@ mod context_builder {
         let mut builder = ContextBuilder::new();
         builder.add_section(PromptSection::new(
             "identity",
-            SectionCategory::Identity,
-            AttentionZone::Primacy,
             "narrator identity",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ));
         builder.add_section(PromptSection::new(
             "rules",
-            SectionCategory::Guardrail,
-            AttentionZone::Early,
             "guardrails",
+            AttentionZone::Early,
+            SectionCategory::Guardrail,
         ));
 
         let identity_sections = builder.sections_by_category(SectionCategory::Identity);
@@ -362,21 +362,21 @@ mod context_builder {
         let mut builder = ContextBuilder::new();
         builder.add_section(PromptSection::new(
             "a",
-            SectionCategory::Identity,
-            AttentionZone::Primacy,
             "primacy content",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ));
         builder.add_section(PromptSection::new(
             "b",
-            SectionCategory::State,
-            AttentionZone::Valley,
             "valley content",
+            AttentionZone::Valley,
+            SectionCategory::State,
         ));
         builder.add_section(PromptSection::new(
             "c",
-            SectionCategory::Guardrail,
-            AttentionZone::Primacy,
             "also primacy",
+            AttentionZone::Primacy,
+            SectionCategory::Guardrail,
         ));
 
         let primacy = builder.sections_by_zone(AttentionZone::Primacy);
@@ -388,15 +388,15 @@ mod context_builder {
         let mut builder = ContextBuilder::new();
         builder.add_section(PromptSection::new(
             "short",
-            SectionCategory::Identity,
-            AttentionZone::Primacy,
             "one two three",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ));
         builder.add_section(PromptSection::new(
             "long",
-            SectionCategory::State,
-            AttentionZone::Valley,
             "four five six seven eight",
+            AttentionZone::Valley,
+            SectionCategory::State,
         ));
 
         let estimate = builder.token_estimate();
