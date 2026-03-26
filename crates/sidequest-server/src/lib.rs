@@ -854,6 +854,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut combat_state = sidequest_game::combat::CombatState::default();
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
+    let mut world_context: String = String::new();
 
     // Reader loop: read messages, deserialize, dispatch through session
     while let Some(msg) = ws_stream.next().await {
@@ -873,6 +874,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             &mut combat_state,
                             &mut trope_states,
                             &mut trope_defs,
+                            &mut world_context,
                             &state,
                             &player_id_str,
                         ).await;
@@ -922,6 +924,7 @@ async fn dispatch_message(
     combat_state: &mut sidequest_game::combat::CombatState,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
+    world_context: &mut String,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -937,6 +940,7 @@ async fn dispatch_message(
                 character_hp,
                 character_max_hp,
                 trope_defs,
+                world_context,
                 state,
                 player_id,
             )
@@ -957,6 +961,7 @@ async fn dispatch_message(
                 combat_state,
                 trope_states,
                 trope_defs,
+                world_context,
                 state,
                 player_id,
             ).await
@@ -979,6 +984,7 @@ async fn dispatch_message(
                 combat_state,
                 trope_states,
                 trope_defs,
+                world_context,
                 state,
                 player_id,
                 session.genre_slug().unwrap_or(""),
@@ -1009,6 +1015,7 @@ fn dispatch_connect(
     character_hp: &mut i32,
     character_max_hp: &mut i32,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
+    world_context: &mut String,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1072,7 +1079,7 @@ fn dispatch_connect(
 
                 // Load genre pack and create character builder
                 if let Some(scene_msg) = start_character_creation(
-                    builder, trope_defs, genre, state, player_id,
+                    builder, trope_defs, world_context, genre, world, state, player_id,
                 ) {
                     responses.push(scene_msg);
                 }
@@ -1086,11 +1093,13 @@ fn dispatch_connect(
     }
 }
 
-/// Load genre pack, create CharacterBuilder, return first scene message + trope defs.
+/// Load genre pack, create CharacterBuilder, return first scene message + trope defs + world context.
 fn start_character_creation(
     builder: &mut Option<CharacterBuilder>,
     trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
+    world_context_out: &mut String,
     genre: &str,
+    world_slug: &str,
     state: &AppState,
     player_id: &str,
 ) -> Option<GameMessage> {
@@ -1119,6 +1128,20 @@ fn start_character_creation(
     }
     *trope_defs_out = all_tropes;
     tracing::info!(count = trope_defs_out.len(), genre = %genre, "Loaded trope definitions");
+
+    // Extract world description for narrator prompt context
+    if let Some(world) = pack.worlds.get(world_slug) {
+        let mut ctx = format!("World: {}", world.config.name);
+        ctx.push_str(&format!("\n{}", world.config.description));
+        if !world.lore.history.is_empty() {
+            ctx.push_str(&format!("\nHistory: {}", world.lore.history.chars().take(200).collect::<String>()));
+        }
+        if !world.lore.geography.is_empty() {
+            ctx.push_str(&format!("\nGeography: {}", world.lore.geography.chars().take(200).collect::<String>()));
+        }
+        *world_context_out = ctx;
+        tracing::info!(world = %world_slug, context_len = world_context_out.len(), "Loaded world context");
+    }
 
     // Filter scenes to those with non-empty choices
     let scenes: Vec<_> = pack
@@ -1159,6 +1182,7 @@ async fn dispatch_character_creation(
     combat_state: &mut sidequest_game::combat::CombatState,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
+    world_context: &str,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1289,6 +1313,7 @@ async fn dispatch_character_creation(
                         combat_state,
                         trope_states,
                         trope_defs,
+                        world_context,
                         state,
                         player_id,
                         &genre,
@@ -1334,6 +1359,7 @@ async fn dispatch_player_action(
     combat_state: &mut sidequest_game::combat::CombatState,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &[sidequest_genre::TropeDefinition],
+    world_context: &str,
     state: &AppState,
     player_id: &str,
     genre_slug: &str,
@@ -1409,9 +1435,13 @@ async fn dispatch_player_action(
 
     // Build state summary for grounding narration
     let mut state_summary = format!(
-        "Character: {} (HP {}/{})\nGenre: {}\nLocation: unknown",
+        "Character: {} (HP {}/{})\nGenre: {}",
         char_name, hp, max_hp, genre_slug,
     );
+    if !world_context.is_empty() {
+        state_summary.push('\n');
+        state_summary.push_str(world_context);
+    }
     if !trope_context.is_empty() {
         state_summary.push('\n');
         state_summary.push_str(&trope_context);
