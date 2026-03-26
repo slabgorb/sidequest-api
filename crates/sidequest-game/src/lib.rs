@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 
 pub mod barrier;
+pub mod beat_filter;
 pub mod builder;
 pub mod character;
 pub mod chase;
@@ -46,4 +47,5 @@ pub use state::{broadcast_state_changes, ChasePatch, CombatPatch, GameSnapshot, 
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
+pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use turn::{TurnManager, TurnPhase};

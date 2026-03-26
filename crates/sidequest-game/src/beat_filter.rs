@@ -1,0 +1,218 @@
+//! Beat filter — suppress image renders for low-narrative-weight actions.
+//!
+//! Evaluates narrative weight, render cooldown, burst rate limiting, and
+//! duplicate subject suppression to decide whether a narration moment
+//! deserves a rendered image. Configurable thresholds per genre pack.
+//!
+//! Story 4-3: Beat filter — suppress image renders for low-narrative-weight
+//! actions, configurable thresholds.
+
+use std::collections::VecDeque;
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
+
+use crate::subject::RenderSubject;
+
+/// Filter decision with auditable reasoning.
+///
+/// Returned by `BeatFilter::evaluate()` to indicate whether the render
+/// pipeline should proceed or suppress this narration moment.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum FilterDecision {
+    /// Render this moment — it passes all suppression checks.
+    Render {
+        /// Human-readable explanation of why this moment qualifies.
+        reason: String,
+    },
+    /// Suppress this moment — do not queue a render.
+    Suppress {
+        /// Human-readable explanation of which rule suppressed it.
+        reason: String,
+    },
+}
+
+impl FilterDecision {
+    /// Returns `true` if the decision is to render.
+    pub fn should_render(&self) -> bool {
+        matches!(self, FilterDecision::Render { .. })
+    }
+
+    /// Returns the reason string regardless of decision variant.
+    pub fn reason(&self) -> &str {
+        match self {
+            FilterDecision::Render { reason } | FilterDecision::Suppress { reason } => reason,
+        }
+    }
+}
+
+/// Configuration for the beat filter, loaded from genre pack YAML.
+///
+/// All fields are private with getters. Use `BeatFilterConfig::new()` for
+/// validated construction or `BeatFilterConfig::default()` for sane defaults.
+#[derive(Debug, Clone)]
+pub struct BeatFilterConfig {
+    weight_threshold: f32,
+    cooldown: Duration,
+    combat_threshold: f32,
+    max_history: usize,
+    burst_limit: u32,
+    burst_window: Duration,
+}
+
+impl BeatFilterConfig {
+    /// Create a new config with validated values.
+    ///
+    /// Returns `None` if:
+    /// - `weight_threshold` is outside \[0.0, 1.0\]
+    /// - `combat_threshold` is outside \[0.0, 1.0\]
+    /// - `combat_threshold` > `weight_threshold`
+    /// - `max_history` is 0
+    /// - `burst_limit` is 0
+    pub fn new(
+        weight_threshold: f32,
+        cooldown: Duration,
+        combat_threshold: f32,
+        max_history: usize,
+        burst_limit: u32,
+        burst_window: Duration,
+    ) -> Option<Self> {
+        // TODO: implement validation
+        let _ = (weight_threshold, cooldown, combat_threshold, max_history, burst_limit, burst_window);
+        None
+    }
+
+    /// Minimum narrative weight to trigger a render (normal mode).
+    pub fn weight_threshold(&self) -> f32 {
+        self.weight_threshold
+    }
+
+    /// Minimum time between consecutive renders.
+    pub fn cooldown(&self) -> Duration {
+        self.cooldown
+    }
+
+    /// Lower weight threshold used during combat encounters.
+    pub fn combat_threshold(&self) -> f32 {
+        self.combat_threshold
+    }
+
+    /// Maximum number of render records kept in the rolling history.
+    pub fn max_history(&self) -> usize {
+        self.max_history
+    }
+
+    /// Maximum number of renders allowed within the burst window.
+    pub fn burst_limit(&self) -> u32 {
+        self.burst_limit
+    }
+
+    /// Time window for burst rate limiting.
+    pub fn burst_window(&self) -> Duration {
+        self.burst_window
+    }
+}
+
+impl Default for BeatFilterConfig {
+    fn default() -> Self {
+        Self {
+            weight_threshold: 0.4,
+            cooldown: Duration::from_secs(15),
+            combat_threshold: 0.25,
+            max_history: 20,
+            burst_limit: 3,
+            burst_window: Duration::from_secs(60),
+        }
+    }
+}
+
+/// Record of a past render for cooldown and burst tracking.
+#[derive(Debug, Clone)]
+struct RenderRecord {
+    timestamp: Instant,
+    subject_hash: u64,
+    #[allow(dead_code)]
+    narrative_weight: f32,
+}
+
+/// Contextual state that influences filter decisions.
+///
+/// Provided alongside the `RenderSubject` to `BeatFilter::evaluate()`.
+#[derive(Debug, Clone)]
+pub struct FilterContext {
+    /// Whether the game is currently in an active combat encounter.
+    pub in_combat: bool,
+    /// Whether this narration represents a scene transition.
+    pub scene_transition: bool,
+    /// Whether the player explicitly requested visual rendering.
+    pub player_requested: bool,
+}
+
+impl Default for FilterContext {
+    fn default() -> Self {
+        Self {
+            in_combat: false,
+            scene_transition: false,
+            player_requested: false,
+        }
+    }
+}
+
+/// Stateful beat filter that gates the image render pipeline.
+///
+/// Tracks render history for cooldown, burst limiting, and duplicate
+/// subject suppression. Configurable per genre pack via `BeatFilterConfig`.
+pub struct BeatFilter {
+    config: BeatFilterConfig,
+    render_history: VecDeque<RenderRecord>,
+}
+
+impl BeatFilter {
+    /// Create a new beat filter with the given configuration.
+    pub fn new(config: BeatFilterConfig) -> Self {
+        Self {
+            config,
+            render_history: VecDeque::new(),
+        }
+    }
+
+    /// Create a beat filter with default configuration.
+    pub fn with_defaults() -> Self {
+        Self::new(BeatFilterConfig::default())
+    }
+
+    /// Evaluate whether a render subject should be rendered or suppressed.
+    ///
+    /// Checks (in order):
+    /// 1. Force-render bypass (scene transition, player request)
+    /// 2. Weight threshold (combat-aware)
+    /// 3. Cooldown timer
+    /// 4. Burst rate limit
+    /// 5. Duplicate subject suppression
+    pub fn evaluate(&mut self, _subject: &RenderSubject, _context: &FilterContext) -> FilterDecision {
+        // TODO: implement decision logic
+        FilterDecision::Suppress {
+            reason: "not implemented".into(),
+        }
+    }
+
+    /// Number of render records currently in history.
+    pub fn history_len(&self) -> usize {
+        self.render_history.len()
+    }
+
+    /// Clear all render history.
+    pub fn clear_history(&mut self) {
+        self.render_history.clear();
+    }
+}
+
+/// Compute a content hash for a render subject (for dedup).
+pub fn hash_subject(subject: &RenderSubject) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    subject.prompt_fragment().hash(&mut hasher);
+    for entity in subject.entities() {
+        entity.hash(&mut hasher);
+    }
+    hasher.finish()
+}
