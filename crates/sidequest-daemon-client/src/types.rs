@@ -18,12 +18,37 @@ pub struct DaemonRequest<P: Serialize> {
 // ---------------------------------------------------------------------------
 
 /// Parameters for a `render` request.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RenderParams {}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderParams {
+    /// The image generation prompt.
+    pub prompt: String,
+    /// Art style to apply (e.g. "oil_painting", "pixel_art").
+    pub art_style: String,
+}
+
+impl Default for RenderParams {
+    fn default() -> Self {
+        Self {
+            prompt: String::new(),
+            art_style: String::new(),
+        }
+    }
+}
 
 /// Parameters for a `warm_up` request.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct WarmUpParams {}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WarmUpParams {
+    /// The worker/model to warm up (e.g. "flux", "kokoro").
+    pub worker: String,
+}
+
+impl Default for WarmUpParams {
+    fn default() -> Self {
+        Self {
+            worker: String::new(),
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Response envelope
@@ -50,11 +75,21 @@ pub struct ErrorPayload {
 
 /// Result from a `render` request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct RenderResult {}
+pub struct RenderResult {
+    /// Path to the generated image.
+    pub image_url: String,
+    /// Time taken to generate the image in milliseconds.
+    pub generation_ms: u64,
+}
 
 /// Result from a `warm_up` / `status` request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct StatusResult {}
+pub struct StatusResult {
+    /// Current daemon status (e.g. "ready", "warming_up").
+    pub status: String,
+    /// Number of active workers.
+    pub workers: u32,
+}
 
 // ---------------------------------------------------------------------------
 // Request builder (stub — Dev implements)
@@ -63,6 +98,10 @@ pub struct StatusResult {}
 /// Build the JSON-RPC request envelope for a given method and params.
 ///
 /// Returns a `serde_json::Value` with `id` (UUID v4), `method`, and `params` fields.
-pub fn build_request_json(_method: &str, _params: &impl Serialize) -> serde_json::Value {
-    todo!("build_request_json: Dev implements request envelope construction")
+pub fn build_request_json(method: &str, params: &impl Serialize) -> serde_json::Value {
+    serde_json::json!({
+        "id": Uuid::new_v4().to_string(),
+        "method": method,
+        "params": serde_json::to_value(params).unwrap_or(serde_json::Value::Object(Default::default())),
+    })
 }

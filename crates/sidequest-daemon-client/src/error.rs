@@ -14,10 +14,20 @@ pub enum DaemonError {
     DaemonErrorResponse { code: i32, message: String },
 }
 
-// Placeholder Display — Dev replaces with thiserror derive or proper messages.
 impl std::fmt::Display for DaemonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "daemon error")
+        match self {
+            DaemonError::SocketError(err) => write!(f, "socket error: {err}"),
+            DaemonError::Timeout { duration } => {
+                write!(f, "request timeout after {}s", duration.as_secs())
+            }
+            DaemonError::InvalidResponse(detail) => {
+                write!(f, "invalid response: {detail}")
+            }
+            DaemonError::DaemonErrorResponse { code, message } => {
+                write!(f, "daemon error ({code}): {message}")
+            }
+        }
     }
 }
 
