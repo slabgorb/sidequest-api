@@ -59,6 +59,8 @@ pub struct MultiplayerSession {
     actions: HashMap<String, String>,
     /// Actions from the last resolved turn (kept for queries after resolution).
     last_resolved_actions: HashMap<String, String>,
+    /// Narration from the last resolved turn.
+    last_narration: Option<HashMap<String, String>>,
 }
 
 impl MultiplayerSession {
@@ -72,6 +74,7 @@ impl MultiplayerSession {
             turn: 1,
             actions: HashMap::new(),
             last_resolved_actions: HashMap::new(),
+            last_narration: None,
         }
     }
 
@@ -231,6 +234,56 @@ impl MultiplayerSession {
             .collect()
     }
 
+    /// Narration from the last resolved turn (if any).
+    pub fn last_narration(&self) -> Option<&HashMap<String, String>> {
+        self.last_narration.as_ref()
+    }
+
+    /// Record an action without triggering auto-resolution.
+    /// Returns true if the action was recorded (player exists and hasn't
+    /// already submitted). Used by `TurnBarrier` to decouple submission
+    /// from resolution.
+    pub fn record_action(&mut self, player_id: &str, action: &str) -> bool {
+        if !self.players.contains_key(player_id) {
+            return false;
+        }
+        if self.actions.contains_key(player_id) {
+            return false;
+        }
+        self.actions
+            .insert(player_id.to_string(), action.to_string());
+        true
+    }
+
+    /// Check whether all players have submitted actions (barrier met).
+    pub fn is_barrier_met(&self) -> bool {
+        !self.players.is_empty() && self.actions.len() >= self.players.len()
+    }
+
+    /// Remove a player without triggering auto-resolution.
+    /// Used by `TurnBarrier` which manages resolution itself.
+    pub fn remove_player_no_resolve(
+        &mut self,
+        player_id: &str,
+    ) -> Result<usize, MultiplayerError> {
+        if self.players.remove(player_id).is_none() {
+            return Err(MultiplayerError::PlayerNotFound(player_id.to_string()));
+        }
+        self.actions.remove(player_id);
+        Ok(self.players.len())
+    }
+
+    /// Force-resolve the current turn, filling in "hesitates" for missing
+    /// players. Used by the turn barrier on timeout.
+    pub fn force_resolve_turn(&mut self) -> HashMap<String, String> {
+        for pid in self.players.keys().cloned().collect::<Vec<_>>() {
+            self.actions
+                .entry(pid)
+                .or_insert_with(|| "hesitates".to_string());
+        }
+        self.resolve_turn()
+    }
+
     /// Resolve the current turn: generate narration stubs and advance.
     fn resolve_turn(&mut self) -> HashMap<String, String> {
         let narration: HashMap<String, String> = self
@@ -248,6 +301,7 @@ impl MultiplayerSession {
             .collect();
 
         self.last_resolved_actions = std::mem::take(&mut self.actions);
+        self.last_narration = Some(narration.clone());
         self.turn += 1;
         narration
     }
