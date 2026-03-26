@@ -24,6 +24,9 @@ pub struct RenderParams {
     pub prompt: String,
     /// Art style to apply (e.g. "oil_painting", "pixel_art").
     pub art_style: String,
+    /// Render tier — routes to the correct daemon worker.
+    /// One of: "scene_illustration", "portrait", "landscape", "cartography", "tts", "music".
+    pub tier: String,
 }
 
 /// Parameters for a `warm_up` request.

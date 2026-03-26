@@ -324,15 +324,16 @@ impl AppState {
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
-            |prompt, art_style| async move {
-                tracing::info!(prompt_len = prompt.len(), art_style = %art_style, "Render job starting — connecting to daemon");
+            |prompt, art_style, tier| async move {
+                tracing::info!(prompt_len = prompt.len(), art_style = %art_style, tier = %tier, "Render job starting — connecting to daemon");
                 let config = sidequest_daemon_client::DaemonConfig::default();
                 match sidequest_daemon_client::DaemonClient::connect(config).await {
                     Ok(mut client) => {
-                        tracing::info!("Daemon connected, sending render request");
+                        tracing::info!(tier = %tier, "Daemon connected, sending render request");
                         match client.render(sidequest_daemon_client::RenderParams {
                             prompt: prompt.clone(),
                             art_style: art_style.clone(),
+                            tier,
                         }).await {
                             Ok(result) => {
                                 tracing::info!(url = %result.image_url, ms = result.generation_ms, "Render complete");
@@ -1541,7 +1542,7 @@ async fn dispatch_player_action(
         messages.push(GameMessage::AudioCue {
             payload: AudioCuePayload {
                 mood: Some("exploration".to_string()),
-                music_track: Some(format!("/genre/{}/audio/music/exploration.ogg", genre_slug)),
+                music_track: Some(format!("/genre/{}/audio/music/exploration_full.ogg", genre_slug)),
                 sfx_triggers: vec![],
             },
             player_id: player_id.to_string(),
