@@ -56,10 +56,6 @@ impl AppState {
         }
     }
 
-    fn inner(&self) -> &AppStateInner {
-        &self.inner
-    }
-
     /// Path to genre packs directory.
     pub fn genre_packs_path(&self) -> &Path {
         &self.inner.genre_packs_path
