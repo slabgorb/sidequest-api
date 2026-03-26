@@ -10,6 +10,7 @@ use sidequest_protocol::NonBlankString;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 use crate::disposition::{Attitude, Disposition};
+use crate::state::NpcPatch;
 
 /// A non-player character in the game world.
 ///
@@ -29,6 +30,12 @@ pub struct Npc {
     pub disposition: Disposition,
     /// Current location (None = off-stage).
     pub location: Option<NonBlankString>,
+    /// Pronouns (identity-locked: set once, never overwritten).
+    #[serde(default)]
+    pub pronouns: Option<String>,
+    /// Physical appearance (identity-locked: set once, never overwritten).
+    #[serde(default)]
+    pub appearance: Option<String>,
 }
 
 impl Npc {
@@ -46,6 +53,29 @@ impl Npc {
     pub fn apply_disposition_delta(&mut self, delta: i32) -> Attitude {
         self.disposition.apply_delta(delta);
         self.attitude()
+    }
+
+    /// Merge mutable fields from a patch. Identity fields (pronouns, appearance)
+    /// are locked after first set — subsequent patches cannot overwrite them.
+    pub fn merge_patch(&mut self, patch: &NpcPatch) {
+        if let Some(ref desc) = patch.description {
+            self.core.description = NonBlankString::new(desc).unwrap_or_else(|_| self.core.description.clone());
+        }
+        if let Some(ref loc) = patch.location {
+            self.location = NonBlankString::new(loc).ok();
+        }
+
+        // Identity-locked: only write if currently empty
+        if self.pronouns.is_none() {
+            if let Some(ref p) = patch.pronouns {
+                self.pronouns = Some(p.clone());
+            }
+        }
+        if self.appearance.is_none() {
+            if let Some(ref a) = patch.appearance {
+                self.appearance = Some(a.clone());
+            }
+        }
     }
 }
 
@@ -88,6 +118,8 @@ mod tests {
             voice_id: Some(3),
             disposition: Disposition::new(15),
             location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
+            pronouns: Some("she/her".to_string()),
+            appearance: Some("Flour-dusted apron".to_string()),
         }
     }
 
@@ -107,6 +139,8 @@ mod tests {
             voice_id: None,
             disposition: Disposition::new(-20),
             location: None, // off-stage
+            pronouns: None,
+            appearance: None,
         }
     }
 
