@@ -572,7 +572,7 @@ place_patterns:
 // ── GenreTheme (theme.yaml) ──────────────────────────────
 
 #[test]
-fn genre_theme_deserializes_with_drop_caps_and_dinkus() {
+fn genre_theme_deserializes_with_dinkus() {
     let yaml = r#"
 primary: '#4a7c2e'
 secondary: '#8b4513'
@@ -582,12 +582,6 @@ surface: '#2a2a1a'
 text: '#c8d6a0'
 border_style: heavy
 web_font_family: Special Elite
-drop_caps:
-  enabled: true
-  cooldown: 7
-  triggers:
-    - session_open
-    - location_change
 dinkus:
   enabled: true
   cooldown: 2
@@ -602,8 +596,6 @@ session_opener:
     let theme: GenreTheme = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(theme.primary, "#4a7c2e");
     assert_eq!(theme.border_style, "heavy");
-    assert!(theme.drop_caps.enabled);
-    assert_eq!(theme.drop_caps.cooldown, 7);
     assert!(theme.dinkus.enabled);
     assert_eq!(theme.dinkus.glyph.get("heavy").unwrap(), "☢ ☣ ☢");
 }
