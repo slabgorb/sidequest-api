@@ -215,17 +215,25 @@ async fn double_connect_rejected() {
     let connect = session_connect_msg("Grok", "mutant_wasteland", "flickering_reach");
     send_game_message(&mut ws, &connect).await;
 
-    // Consume the connected response
-    let _ = recv_game_message(&mut ws).await;
+    // Consume the connected response and any queued creation scene
+    let _ = recv_game_message(&mut ws).await; // connected
+    // Drain the CHARACTER_CREATION scene that the server auto-sends after connect
+    let msg2 = recv_game_message(&mut ws).await;
+    if msg2["type"] != "ERROR" {
+        // Scene was queued — now send second connect
+        send_game_message(&mut ws, &connect).await;
+    }
 
-    // Send connect again — should get ERROR
-    send_game_message(&mut ws, &connect).await;
-    let response = recv_game_message(&mut ws).await;
-    assert_eq!(
-        response["type"], "ERROR",
-        "Double connect must produce ERROR, got: {}",
-        response["type"]
-    );
+    // Read until we find the ERROR (skip any remaining queued messages)
+    let mut got_error = false;
+    for _ in 0..5 {
+        let response = recv_game_message(&mut ws).await;
+        if response["type"] == "ERROR" {
+            got_error = true;
+            break;
+        }
+    }
+    assert!(got_error, "Double connect must produce ERROR");
 }
 
 // =========================================================================
@@ -627,10 +635,11 @@ async fn unknown_message_type_produces_error_not_crash() {
     let (addr, _shutdown) = start_test_server().await;
     let mut ws = ws_connect(addr).await;
 
-    // Connect first
+    // Connect first and drain queued messages (connected + creation scene)
     let connect = session_connect_msg("Grok", "mutant_wasteland", "flickering_reach");
     send_game_message(&mut ws, &connect).await;
-    let _ = recv_game_message(&mut ws).await;
+    let _ = recv_game_message(&mut ws).await; // connected
+    let _ = recv_game_message(&mut ws).await; // creation scene
 
     // Send unknown type
     let unknown = serde_json::json!({
@@ -909,9 +918,10 @@ async fn server_messages_use_screaming_snake_type_field() {
     let connect = session_connect_msg("Grok", "mutant_wasteland", "flickering_reach");
     send_game_message(&mut ws, &connect).await;
 
-    // Every message from server must have type in SCREAMING_SNAKE
-    for _ in 0..10 {
-        let msg = recv_json(&mut ws, Duration::from_secs(5)).await;
+    // Collect available messages (connected + creation scene) and verify format
+    // Server sends 2 messages after connect: SESSION_EVENT + CHARACTER_CREATION
+    for _ in 0..2 {
+        let msg = recv_game_message(&mut ws).await;
         let msg_type = msg["type"]
             .as_str()
             .expect("Server message must have string 'type' field");

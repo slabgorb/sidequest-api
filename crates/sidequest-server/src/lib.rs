@@ -21,8 +21,14 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, Registry};
 
-use sidequest_agents::orchestrator::GameService;
-use sidequest_protocol::{ErrorPayload, GameMessage};
+use sidequest_agents::orchestrator::{GameService, TurnContext};
+use sidequest_game::builder::CharacterBuilder;
+use sidequest_genre::{GenreCode, GenreLoader};
+use sidequest_protocol::{
+    CharacterCreationPayload, ErrorPayload, GameMessage, NarrationEndPayload, NarrationPayload,
+    PartyMember, PartyStatusPayload, SessionEventPayload, ThinkingPayload,
+    CharacterState, InitialState,
+};
 
 // ---------------------------------------------------------------------------
 // Tracing / Telemetry (Story 3-1)
@@ -188,6 +194,26 @@ impl ServerError {
 }
 
 // ---------------------------------------------------------------------------
+// PlayerSession — stored for reconnection
+// ---------------------------------------------------------------------------
+
+/// Saved player session state, keyed by "player_name:genre:world".
+/// Enables reconnection: a returning player skips character creation.
+struct PlayerSession {
+    character_json: serde_json::Value,
+    character_name: String,
+    hp: i32,
+    max_hp: i32,
+    genre_slug: String,
+    world_slug: String,
+    location: String,
+}
+
+fn session_key(player_name: &str, genre: &str, world: &str) -> String {
+    format!("{}:{}:{}", player_name, genre, world)
+}
+
+// ---------------------------------------------------------------------------
 // AppState
 // ---------------------------------------------------------------------------
 
@@ -205,6 +231,7 @@ struct AppStateInner {
     connections: Mutex<HashMap<PlayerId, mpsc::Sender<GameMessage>>>,
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
+    saved_sessions: Mutex<HashMap<String, PlayerSession>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -230,8 +257,24 @@ impl AppState {
                 connections: Mutex::new(HashMap::new()),
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
+                saved_sessions: Mutex::new(HashMap::new()),
             }),
         }
+    }
+
+    /// Store a player session for reconnection.
+    fn save_player_session(&self, key: String, session: PlayerSession) {
+        self.inner.saved_sessions.lock().unwrap().insert(key, session);
+    }
+
+    /// Check if a player has a saved session.
+    fn has_saved_session(&self, key: &str) -> bool {
+        self.inner.saved_sessions.lock().unwrap().contains_key(key)
+    }
+
+    /// Get the game service reference.
+    fn game_service(&self) -> &dyn GameService {
+        &*self.inner.game_service
     }
 
     /// Path to genre packs directory.
@@ -645,14 +688,36 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         }
     });
 
-    // Reader loop: read messages, deserialize, handle errors
+    // Per-connection state
+    let mut session = Session::new();
+    let mut builder: Option<CharacterBuilder> = None;
+    let mut player_name_for_session: Option<String> = None;
+    let mut character_json: Option<serde_json::Value> = None;
+    let mut character_name: Option<String> = None;
+    let mut character_hp: i32 = 10;
+    let mut character_max_hp: i32 = 10;
+
+    // Reader loop: read messages, deserialize, dispatch through session
     while let Some(msg) = ws_stream.next().await {
         match msg {
             Ok(AxumWsMessage::Text(text)) => {
                 match serde_json::from_str::<GameMessage>(&text) {
-                    Ok(_game_msg) => {
-                        tracing::debug!(player_id = %player_id_str, "Received valid GameMessage");
-                        // Full dispatch is story 2-5. For now, just log.
+                    Ok(game_msg) => {
+                        let responses = dispatch_message(
+                            game_msg,
+                            &mut session,
+                            &mut builder,
+                            &mut player_name_for_session,
+                            &mut character_json,
+                            &mut character_name,
+                            &mut character_hp,
+                            &mut character_max_hp,
+                            &state,
+                            &player_id_str,
+                        );
+                        for resp in responses {
+                            let _ = tx.send(resp).await;
+                        }
                     }
                     Err(e) => {
                         tracing::warn!(player_id = %player_id_str, error = %e, "Invalid message");
@@ -675,6 +740,401 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     state.remove_connection(&player_id);
     writer_handle.abort();
     tracing::info!(player_id = %player_id_str, "WebSocket disconnected");
+}
+
+// ---------------------------------------------------------------------------
+// Message dispatch
+// ---------------------------------------------------------------------------
+
+/// Dispatch a deserialized GameMessage through the session state machine.
+/// Returns a list of response messages to send back to the client.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_message(
+    msg: GameMessage,
+    session: &mut Session,
+    builder: &mut Option<CharacterBuilder>,
+    player_name_store: &mut Option<String>,
+    character_json: &mut Option<serde_json::Value>,
+    character_name: &mut Option<String>,
+    character_hp: &mut i32,
+    character_max_hp: &mut i32,
+    state: &AppState,
+    player_id: &str,
+) -> Vec<GameMessage> {
+    match &msg {
+        GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
+            dispatch_connect(
+                payload,
+                session,
+                builder,
+                player_name_store,
+                character_json,
+                character_name,
+                character_hp,
+                character_max_hp,
+                state,
+                player_id,
+            )
+        }
+        GameMessage::CharacterCreation { payload, .. } => {
+            if !session.is_creating() {
+                return vec![error_response(player_id, "Not in character creation state")];
+            }
+            dispatch_character_creation(
+                payload,
+                session,
+                builder,
+                player_name_store,
+                character_json,
+                character_name,
+                character_hp,
+                character_max_hp,
+                state,
+                player_id,
+            )
+        }
+        GameMessage::PlayerAction { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "Cannot process action in {} state",
+                        session.state_name()
+                    ),
+                )];
+            }
+            dispatch_player_action(
+                &payload.action,
+                character_name.as_deref().unwrap_or("Unknown"),
+                *character_hp,
+                *character_max_hp,
+                state,
+                player_id,
+            )
+        }
+        // All other valid message types in wrong state
+        _ => {
+            vec![error_response(
+                player_id,
+                &format!(
+                    "Unexpected message in {} state",
+                    session.state_name()
+                ),
+            )]
+        }
+    }
+}
+
+/// Handle SESSION_EVENT{connect}.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_connect(
+    payload: &SessionEventPayload,
+    session: &mut Session,
+    builder: &mut Option<CharacterBuilder>,
+    player_name_store: &mut Option<String>,
+    character_json_store: &mut Option<serde_json::Value>,
+    character_name_store: &mut Option<String>,
+    character_hp: &mut i32,
+    character_max_hp: &mut i32,
+    state: &AppState,
+    player_id: &str,
+) -> Vec<GameMessage> {
+    let genre = payload.genre.as_deref().unwrap_or("");
+    let world = payload.world.as_deref().unwrap_or("");
+    let pname = payload.player_name.as_deref().unwrap_or("Player");
+
+    // Check for returning player
+    let key = session_key(pname, genre, world);
+    let returning = state.has_saved_session(&key);
+
+    match session.handle_connect(genre, world, pname) {
+        Ok(mut connected_msg) => {
+            let mut responses = Vec::new();
+            *player_name_store = Some(pname.to_string());
+
+            if returning {
+                // Returning player — set has_character=true and send ready with initial_state
+                if let GameMessage::SessionEvent { ref mut payload, .. } = connected_msg {
+                    payload.has_character = Some(true);
+                }
+                responses.push(connected_msg);
+
+                // Build initial_state from saved session
+                let sessions = state.inner.saved_sessions.lock().unwrap();
+                if let Some(saved) = sessions.get(&key) {
+                    *character_json_store = Some(saved.character_json.clone());
+                    *character_name_store = Some(saved.character_name.clone());
+                    *character_hp = saved.hp;
+                    *character_max_hp = saved.max_hp;
+
+                    // Transition session to Playing
+                    let _ = session.complete_character_creation();
+
+                    let ready = GameMessage::SessionEvent {
+                        payload: SessionEventPayload {
+                            event: "ready".to_string(),
+                            player_name: None,
+                            genre: None,
+                            world: None,
+                            has_character: None,
+                            initial_state: Some(InitialState {
+                                characters: vec![CharacterState {
+                                    name: saved.character_name.clone(),
+                                    hp: saved.hp,
+                                    max_hp: saved.max_hp,
+                                    statuses: vec![],
+                                    inventory: vec![],
+                                }],
+                                location: saved.location.clone(),
+                                quests: std::collections::HashMap::new(),
+                            }),
+                        },
+                        player_id: player_id.to_string(),
+                    };
+                    responses.push(ready);
+                }
+            } else {
+                // New player — send connected, then start character creation
+                responses.push(connected_msg);
+
+                // Load genre pack and create character builder
+                if let Some(scene_msg) = start_character_creation(
+                    builder, genre, state, player_id,
+                ) {
+                    responses.push(scene_msg);
+                }
+            }
+
+            responses
+        }
+        Err(e) => {
+            vec![error_response(player_id, &e.to_string())]
+        }
+    }
+}
+
+/// Load genre pack, create CharacterBuilder, return first scene message.
+fn start_character_creation(
+    builder: &mut Option<CharacterBuilder>,
+    genre: &str,
+    state: &AppState,
+    player_id: &str,
+) -> Option<GameMessage> {
+    let genre_code = match GenreCode::new(genre) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(genre = %genre, error = %e, "Invalid genre code");
+            return None;
+        }
+    };
+
+    let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
+    let pack = match loader.load(&genre_code) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(genre = %genre, error = %e, "Failed to load genre pack");
+            return None;
+        }
+    };
+
+    // Filter scenes to those with non-empty choices
+    let scenes: Vec<_> = pack
+        .char_creation
+        .into_iter()
+        .filter(|s| !s.choices.is_empty())
+        .collect();
+
+    if scenes.is_empty() {
+        tracing::warn!(genre = %genre, "No character creation scenes with choices");
+        return None;
+    }
+
+    let b = match CharacterBuilder::try_new(scenes, &pack.rules) {
+        Ok(b) => b,
+        Err(e) => {
+            tracing::warn!(error = ?e, "Failed to create CharacterBuilder");
+            return None;
+        }
+    };
+
+    let scene_msg = b.to_scene_message(player_id);
+    *builder = Some(b);
+    Some(scene_msg)
+}
+
+/// Handle CHARACTER_CREATION messages (client choices).
+#[allow(clippy::too_many_arguments)]
+fn dispatch_character_creation(
+    payload: &CharacterCreationPayload,
+    session: &mut Session,
+    builder: &mut Option<CharacterBuilder>,
+    player_name_store: &mut Option<String>,
+    character_json_store: &mut Option<serde_json::Value>,
+    character_name_store: &mut Option<String>,
+    character_hp: &mut i32,
+    character_max_hp: &mut i32,
+    state: &AppState,
+    player_id: &str,
+) -> Vec<GameMessage> {
+    let b = match builder.as_mut() {
+        Some(b) => b,
+        None => return vec![error_response(player_id, "No character builder active")],
+    };
+
+    let phase = payload.phase.as_str();
+
+    match phase {
+        "scene" => {
+            // Parse choice (1-based string → 0-based index)
+            let choice_str = payload.choice.as_deref().unwrap_or("1");
+            let index = choice_str.parse::<usize>().unwrap_or(1).saturating_sub(1);
+
+            if let Err(e) = b.apply_choice(index) {
+                return vec![error_response(
+                    player_id,
+                    &format!("Invalid choice: {:?}", e),
+                )];
+            }
+
+            // Send the next scene or confirmation
+            vec![b.to_scene_message(player_id)]
+        }
+        "confirmation" => {
+            // Build the character
+            let pname = player_name_store.as_deref().unwrap_or("Player");
+            match b.build(pname) {
+                Ok(character) => {
+                    let char_json = serde_json::to_value(&character).unwrap_or_default();
+
+                    // Store character data
+                    *character_name_store = Some(character.core.name.as_str().to_string());
+                    *character_hp = character.core.hp;
+                    *character_max_hp = character.core.max_hp;
+                    *character_json_store = Some(char_json.clone());
+
+                    // Save for reconnection
+                    let genre = session.genre_slug().unwrap_or("").to_string();
+                    let world = session.world_slug().unwrap_or("").to_string();
+                    let key = session_key(pname, &genre, &world);
+                    state.save_player_session(
+                        key,
+                        PlayerSession {
+                            character_json: char_json.clone(),
+                            character_name: character.core.name.as_str().to_string(),
+                            hp: character.core.hp,
+                            max_hp: character.core.max_hp,
+                            genre_slug: genre,
+                            world_slug: world,
+                            location: "Starting area".to_string(),
+                        },
+                    );
+
+                    // Transition session to Playing
+                    let _ = session.complete_character_creation();
+                    *builder = None;
+
+                    let complete = GameMessage::CharacterCreation {
+                        payload: CharacterCreationPayload {
+                            phase: "complete".to_string(),
+                            scene_index: None,
+                            total_scenes: None,
+                            prompt: None,
+                            summary: None,
+                            message: None,
+                            choices: None,
+                            allows_freeform: None,
+                            input_type: None,
+                            character_preview: None,
+                            choice: None,
+                            character: Some(char_json),
+                        },
+                        player_id: player_id.to_string(),
+                    };
+
+                    let ready = GameMessage::SessionEvent {
+                        payload: SessionEventPayload {
+                            event: "ready".to_string(),
+                            player_name: None,
+                            genre: None,
+                            world: None,
+                            has_character: None,
+                            initial_state: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+
+                    vec![complete, ready]
+                }
+                Err(e) => vec![error_response(
+                    player_id,
+                    &format!("Failed to build character: {:?}", e),
+                )],
+            }
+        }
+        _ => vec![error_response(
+            player_id,
+            &format!("Unexpected creation phase: {}", phase),
+        )],
+    }
+}
+
+/// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
+fn dispatch_player_action(
+    action: &str,
+    char_name: &str,
+    hp: i32,
+    max_hp: i32,
+    state: &AppState,
+    player_id: &str,
+) -> Vec<GameMessage> {
+    // THINKING indicator
+    let thinking = GameMessage::Thinking {
+        payload: ThinkingPayload {},
+        player_id: player_id.to_string(),
+    };
+
+    // Process the action through GameService
+    let result = state.game_service().process_action(action, &TurnContext::default());
+
+    // Narration
+    let narration = GameMessage::Narration {
+        payload: NarrationPayload {
+            text: result.narration,
+            state_delta: None,
+        },
+        player_id: player_id.to_string(),
+    };
+
+    // Narration end with state_delta field present (even if empty)
+    let narration_end = GameMessage::NarrationEnd {
+        payload: NarrationEndPayload {
+            state_delta: Some(sidequest_protocol::StateDelta {
+                location: None,
+                characters: None,
+                quests: None,
+            }),
+        },
+        player_id: player_id.to_string(),
+    };
+
+    // Party status
+    let party_status = GameMessage::PartyStatus {
+        payload: PartyStatusPayload {
+            members: vec![PartyMember {
+                player_id: player_id.to_string(),
+                name: char_name.to_string(),
+                current_hp: hp,
+                max_hp,
+                statuses: vec![],
+                class: "Adventurer".to_string(),
+                level: 1,
+                portrait_url: None,
+            }],
+        },
+        player_id: player_id.to_string(),
+    };
+
+    vec![thinking, narration, narration_end, party_status]
 }
 
 // ---------------------------------------------------------------------------
