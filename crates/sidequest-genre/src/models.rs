@@ -203,24 +203,10 @@ pub struct GenreTheme {
     pub border_style: String,
     /// Web font family.
     pub web_font_family: String,
-    /// Drop caps configuration.
-    pub drop_caps: DropCaps,
     /// Section break (dinkus) configuration.
     pub dinkus: Dinkus,
     /// Session opener configuration.
     pub session_opener: SessionOpener,
-}
-
-/// Drop caps configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct DropCaps {
-    /// Whether drop caps are enabled.
-    pub enabled: bool,
-    /// Minimum paragraphs between drop caps.
-    pub cooldown: u32,
-    /// Events that trigger a drop cap.
-    pub triggers: Vec<String>,
 }
 
 /// Section break (dinkus) glyphs.
