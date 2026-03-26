@@ -99,8 +99,8 @@ fn trimmed_segment(text: &str, start: usize, end: usize) -> Option<(String, usiz
     if trimmed.is_empty() {
         return None;
     }
-    let offset = start + slice.find(trimmed).unwrap_or(0);
-    Some((trimmed.to_string(), offset))
+    let leading = slice.len() - slice.trim_start().len();
+    Some((trimmed.to_string(), start + leading))
 }
 
 /// Find all sentence-boundary byte positions in `text`.
@@ -207,8 +207,10 @@ fn find_split_points(text: &str) -> Vec<usize> {
         }
     }
 
-    splits.sort_unstable();
-    splits.dedup();
+    debug_assert!(
+        splits.windows(2).all(|w| w[0] < w[1]),
+        "split points must be strictly increasing"
+    );
     splits
 }
 
@@ -222,7 +224,7 @@ fn is_followed_by_ws_and(text: &str, pos: usize, predicate: impl Fn(char) -> boo
     if trimmed.is_empty() || trimmed.len() == rest.len() {
         return false;
     }
-    trimmed.chars().next().map_or(false, &predicate)
+    trimmed.chars().next().is_some_and(&predicate)
 }
 
 /// Check if text at `pos` starts with whitespace followed by a capital letter or opening quote.
