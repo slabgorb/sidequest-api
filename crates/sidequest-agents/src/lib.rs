@@ -12,6 +12,7 @@ pub mod context_builder;
 pub mod extractor;
 pub mod format_helpers;
 pub mod orchestrator;
+pub mod patch_legality;
 pub mod patches;
 pub mod prompt_framework;
 pub mod turn_record;
