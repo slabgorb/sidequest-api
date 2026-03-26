@@ -3,7 +3,6 @@
 //! This is the main entry point for the SideQuest game server, providing HTTP and WebSocket
 //! endpoints for the React frontend to interact with the game engine.
 
-
 #[tokio::main]
 async fn main() {
     // Initialize tracing

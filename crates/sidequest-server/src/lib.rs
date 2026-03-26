@@ -77,9 +77,9 @@ impl AppState {
 /// - tower-http tracing
 pub fn build_router(state: AppState) -> Router {
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list([
-            "http://localhost:5173".parse().unwrap(),
-        ]))
+        .allow_origin(AllowOrigin::list(["http://localhost:5173"
+            .parse()
+            .unwrap()]))
         .allow_methods([axum::http::Method::GET])
         .allow_headers(tower_http::cors::Any);
 
@@ -98,9 +98,7 @@ pub fn build_router(state: AppState) -> Router {
 ///
 /// Returns: `{ "genre_slug": { "worlds": ["world1", "world2"] } }`
 #[tracing::instrument(skip(state))]
-async fn list_genres(
-    State(state): State<AppState>,
-) -> Json<HashMap<String, serde_json::Value>> {
+async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serde_json::Value>> {
     let mut genres: HashMap<String, serde_json::Value> = HashMap::new();
 
     let packs_path = state.genre_packs_path();
@@ -148,10 +146,7 @@ async fn list_genres(
             }
         }
 
-        genres.insert(
-            genre_slug,
-            serde_json::json!({ "worlds": worlds }),
-        );
+        genres.insert(genre_slug, serde_json::json!({ "worlds": worlds }));
     }
 
     Json(genres)
@@ -161,10 +156,7 @@ async fn list_genres(
 ///
 /// For now, accepts the upgrade and runs a minimal connection loop.
 /// Full session lifecycle is implemented in story 2-2.
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(_state): State<AppState>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(_state): State<AppState>) -> impl IntoResponse {
     let player_id = uuid::Uuid::new_v4().to_string();
     tracing::info!(player_id = %player_id, "WebSocket connection upgrading");
     ws.on_upgrade(move |socket| handle_ws_connection(socket, player_id))
@@ -202,14 +194,11 @@ pub fn test_app_state() -> AppState {
 
     // Use the real genre_packs path if available, otherwise a temp path
     let genre_packs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()  // crates/
-        .and_then(|p| p.parent())  // sidequest-api/
-        .and_then(|p| p.parent())  // oq-1/ (orchestrator root)
+        .parent() // crates/
+        .and_then(|p| p.parent()) // sidequest-api/
+        .and_then(|p| p.parent()) // oq-1/ (orchestrator root)
         .map(|p| p.join("genre_packs"))
         .unwrap_or_else(|| PathBuf::from("/tmp/test-genre-packs"));
 
-    AppState::new_with_game_service(
-        Box::new(Orchestrator::new()),
-        genre_packs_path,
-    )
+    AppState::new_with_game_service(Box::new(Orchestrator::new()), genre_packs_path)
 }
