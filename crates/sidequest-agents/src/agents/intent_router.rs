@@ -23,6 +23,19 @@ pub enum Intent {
     Chase,
 }
 
+impl std::fmt::Display for Intent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Intent::Combat => write!(f, "Combat"),
+            Intent::Dialogue => write!(f, "Dialogue"),
+            Intent::Exploration => write!(f, "Exploration"),
+            Intent::Examine => write!(f, "Examine"),
+            Intent::Meta => write!(f, "Meta"),
+            Intent::Chase => write!(f, "Chase"),
+        }
+    }
+}
+
 /// A routing decision mapping an intent to an agent.
 #[derive(Debug, Clone)]
 pub struct IntentRoute {

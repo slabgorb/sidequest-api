@@ -31,6 +31,64 @@ use sidequest_protocol::{
 };
 
 // ---------------------------------------------------------------------------
+// Watcher Telemetry Types (Story 3-6)
+// ---------------------------------------------------------------------------
+
+/// A telemetry event streamed to `/ws/watcher` clients.
+///
+/// This is a diagnostic data bag — no invariants to enforce, so fields are public.
+/// Serializes to JSON for the WebSocket stream.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WatcherEvent {
+    /// When the event occurred.
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Which subsystem emitted this event (e.g. "agent", "validation", "game").
+    pub component: String,
+    /// The kind of telemetry event.
+    pub event_type: WatcherEventType,
+    /// Log severity.
+    pub severity: Severity,
+    /// Arbitrary key-value fields for event-specific data.
+    pub fields: HashMap<String, serde_json::Value>,
+}
+
+/// Kinds of telemetry events streamed to watchers.
+///
+/// Will grow as new observability features land — hence `#[non_exhaustive]`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum WatcherEventType {
+    /// An agent span has opened (work started).
+    AgentSpanOpen,
+    /// An agent span has closed (work finished).
+    AgentSpanClose,
+    /// A validation rule fired a warning.
+    ValidationWarning,
+    /// Summary of which subsystems were exercised in a turn.
+    SubsystemExerciseSummary,
+    /// A gap in expected coverage was detected.
+    CoverageGap,
+    /// Result of a JSON extraction from LLM output.
+    JsonExtractionResult,
+    /// A game state machine transition occurred.
+    StateTransition,
+}
+
+/// Severity levels for watcher telemetry events.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum Severity {
+    /// Informational.
+    Info,
+    /// Warning.
+    Warn,
+    /// Error.
+    Error,
+}
+
+// ---------------------------------------------------------------------------
 // Tracing / Telemetry (Story 3-1)
 // ---------------------------------------------------------------------------
 
@@ -232,6 +290,7 @@ struct AppStateInner {
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
     saved_sessions: Mutex<HashMap<String, PlayerSession>>,
+    watcher_tx: broadcast::Sender<WatcherEvent>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -250,6 +309,7 @@ impl AppState {
         genre_packs_path: PathBuf,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
+        let (watcher_tx, _) = broadcast::channel(256);
         Self {
             inner: Arc::new(AppStateInner {
                 game_service,
@@ -258,6 +318,7 @@ impl AppState {
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
                 saved_sessions: Mutex::new(HashMap::new()),
+                watcher_tx,
             }),
         }
     }
@@ -308,6 +369,17 @@ impl AppState {
         msg: GameMessage,
     ) -> Result<usize, broadcast::error::SendError<GameMessage>> {
         self.inner.broadcast_tx.send(msg)
+    }
+
+    /// Subscribe to the watcher telemetry broadcast channel.
+    pub fn subscribe_watcher(&self) -> broadcast::Receiver<WatcherEvent> {
+        self.inner.watcher_tx.subscribe()
+    }
+
+    /// Send a telemetry event to all connected watcher clients.
+    /// Silently ignores the error when no subscribers are connected (zero overhead).
+    pub fn send_watcher_event(&self, event: WatcherEvent) {
+        let _ = self.inner.watcher_tx.send(event);
     }
 
     /// Check if a player is currently processing an action.
@@ -567,6 +639,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/genres", get(list_genres))
         .route("/ws", get(ws_handler))
+        .route("/ws/watcher", get(ws_watcher_handler))
         .layer(cors)
         .with_state(state)
 }
@@ -1138,6 +1211,54 @@ fn dispatch_player_action(
 }
 
 // ---------------------------------------------------------------------------
+// Watcher WebSocket Handler (Story 3-6)
+// ---------------------------------------------------------------------------
+
+/// GET /ws/watcher — WebSocket upgrade for telemetry viewers.
+async fn ws_watcher_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    tracing::info!("Watcher WebSocket connection upgrading");
+    ws.on_upgrade(move |socket| handle_watcher_connection(socket, state))
+}
+
+async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
+    tracing::info!("Watcher WebSocket connected");
+
+    let (mut ws_sink, mut ws_stream) = socket.split();
+    let mut watcher_rx = state.subscribe_watcher();
+
+    // Writer task: forward watcher broadcast events to this WebSocket client
+    let writer_handle = tokio::spawn(async move {
+        while let Ok(event) = watcher_rx.recv().await {
+            let json = match serde_json::to_string(&event) {
+                Ok(j) => j,
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to serialize watcher event");
+                    continue;
+                }
+            };
+            if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Reader loop: watchers are read-only, but we need to detect disconnect
+    while let Some(msg) = ws_stream.next().await {
+        match msg {
+            Ok(AxumWsMessage::Close(_)) => break,
+            Err(_) => break,
+            _ => {} // ignore any messages from watcher clients
+        }
+    }
+
+    writer_handle.abort();
+    tracing::info!("Watcher WebSocket disconnected");
+}
+
+// ---------------------------------------------------------------------------
 // Server lifecycle
 // ---------------------------------------------------------------------------
 
@@ -1178,6 +1299,7 @@ pub async fn serve_with_listener(
 /// Uses a default Orchestrator and a temp path for genre packs.
 pub fn test_app_state() -> AppState {
     use sidequest_agents::orchestrator::Orchestrator;
+    use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 
     // Use the real genre_packs path if available, otherwise a temp path
     let genre_packs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1187,5 +1309,6 @@ pub fn test_app_state() -> AppState {
         .map(|p| p.join("genre_packs"))
         .unwrap_or_else(|| PathBuf::from("/tmp/test-genre-packs"));
 
-    AppState::new_with_game_service(Box::new(Orchestrator::new()), genre_packs_path)
+    let (watcher_tx, _watcher_rx) = tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
+    AppState::new_with_game_service(Box::new(Orchestrator::new(watcher_tx)), genre_packs_path)
 }
