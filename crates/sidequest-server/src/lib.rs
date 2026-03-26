@@ -28,7 +28,8 @@ use sidequest_agents::orchestrator::{GameService, TurnContext};
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    CharacterCreationPayload, ErrorPayload, GameMessage, NarrationEndPayload, NarrationPayload,
+    CharacterCreationPayload, CharacterSheetPayload, ChapterMarkerPayload,
+    ErrorPayload, GameMessage, NarrationEndPayload, NarrationPayload,
     PartyMember, PartyStatusPayload, SessionEventPayload, ThinkingPayload,
     CharacterState, InitialState,
 };
