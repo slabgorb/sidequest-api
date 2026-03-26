@@ -151,6 +151,7 @@ fn intent_router_classify_with_state_emits_span() {
     let ctx = TurnContext {
         in_combat: true,
         in_chase: false,
+        state_summary: None,
     };
 
     let (layer, captured) = SpanCaptureLayer::new();

@@ -28,7 +28,7 @@ use sidequest_agents::orchestrator::{GameService, TurnContext};
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    CharacterCreationPayload, CharacterSheetPayload, ChapterMarkerPayload,
+    AudioCuePayload, CharacterCreationPayload, CharacterSheetPayload, ChapterMarkerPayload,
     ErrorPayload, GameMessage, NarrationEndPayload, NarrationPayload,
     PartyMember, PartyStatusPayload, SessionEventPayload, ThinkingPayload,
     CharacterState, InitialState,
@@ -891,6 +891,7 @@ fn dispatch_message(
                 *character_max_hp,
                 state,
                 player_id,
+                session.genre_slug().unwrap_or(""),
             )
         }
         // All other valid message types in wrong state
@@ -1152,6 +1153,7 @@ fn dispatch_character_creation(
                         character.core.max_hp,
                         state,
                         player_id,
+                        &genre,
                     );
 
                     // Emit CHARACTER_SHEET for the UI overlay
@@ -1193,6 +1195,7 @@ fn dispatch_player_action(
     max_hp: i32,
     state: &AppState,
     player_id: &str,
+    genre_slug: &str,
 ) -> Vec<GameMessage> {
     // Watcher: action received
     state.send_watcher_event(WatcherEvent {
@@ -1214,8 +1217,18 @@ fn dispatch_player_action(
         player_id: player_id.to_string(),
     };
 
+    // Build state summary for grounding narration
+    let state_summary = format!(
+        "Character: {} (HP {}/{})\nGenre: {}\nLocation: unknown",
+        char_name, hp, max_hp, genre_slug,
+    );
+
     // Process the action through GameService
-    let result = state.game_service().process_action(action, &TurnContext::default());
+    let context = TurnContext {
+        state_summary: Some(state_summary),
+        ..TurnContext::default()
+    };
+    let result = state.game_service().process_action(action, &context);
 
     // Watcher: narration generated
     state.send_watcher_event(WatcherEvent {
@@ -1295,6 +1308,18 @@ fn dispatch_player_action(
         },
         player_id: player_id.to_string(),
     });
+
+    // Audio cue — trigger mood-based music from genre pack
+    if !genre_slug.is_empty() {
+        messages.push(GameMessage::AudioCue {
+            payload: AudioCuePayload {
+                mood: Some("exploration".to_string()),
+                music_track: Some(format!("/genre/{}/audio/music/exploration.ogg", genre_slug)),
+                sfx_triggers: vec![],
+            },
+            player_id: player_id.to_string(),
+        });
+    }
 
     messages
 }
