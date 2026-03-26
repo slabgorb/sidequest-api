@@ -16,7 +16,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::subject::{RenderSubject, SceneType, SubjectTier};
+use crate::subject::{RenderSubject, SubjectTier};
 
 /// Maximum queue depth to prevent unbounded memory growth (CWE-400).
 pub const MAX_QUEUE_DEPTH: usize = 1000;
@@ -203,6 +203,8 @@ pub fn tier_to_dimensions(tier: &SubjectTier) -> ImageDimensions {
             width: 512,
             height: 512,
         },
+        // Future-proof: any new tier variant defaults to square
+        #[allow(unreachable_patterns)]
         _ => ImageDimensions {
             width: 512,
             height: 512,
@@ -244,6 +246,7 @@ pub fn compute_content_hash(subject: &RenderSubject) -> u64 {
 /// Internal job entry tracked by the queue.
 struct JobEntry {
     status: RenderStatus,
+    #[allow(dead_code)]
     content_hash: u64,
 }
 
@@ -284,7 +287,7 @@ impl RenderQueue {
             queue_depth: config.queue_depth(),
         }));
 
-        let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
         let worker_state = Arc::clone(&state);
         let worker_handle = tokio::spawn(async move {
