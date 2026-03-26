@@ -5,6 +5,7 @@ members = [
     "crates/sidequest-game",
     "crates/sidequest-agents",
     "crates/sidequest-server",
+    "crates/sidequest-daemon-client",
 ]
 resolver = "2"
 
