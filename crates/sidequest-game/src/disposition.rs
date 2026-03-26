@@ -62,6 +62,25 @@ impl Disposition {
     pub fn apply_delta(&mut self, delta: i32) {
         self.0 = self.0.saturating_add(delta);
     }
+
+    /// Convert an attitude string to a numeric disposition.
+    ///
+    /// Returns `None` for "deceased"/"dead" — meaning don't update.
+    /// Known attitudes map to threshold values; unknown strings map to neutral.
+    pub fn from_attitude_str(s: &str) -> Option<Self> {
+        let lower = s.to_lowercase();
+        if lower.contains("deceased") || lower.contains("dead") {
+            return None;
+        }
+        if lower.contains("friendly") {
+            Some(Self::new(15))
+        } else if lower.contains("hostile") {
+            Some(Self::new(-15))
+        } else {
+            // neutral or unknown → neutral
+            Some(Self::new(0))
+        }
+    }
 }
 
 impl fmt::Display for Disposition {

@@ -131,6 +131,8 @@ fn test_snapshot() -> sidequest_game::GameSnapshot {
         discovered_routes: vec![],
         turn_manager: TurnManager::default(),
         last_saved_at: None,
+        active_stakes: String::new(),
+        lore_established: vec![],
     }
 }
 
@@ -147,11 +149,7 @@ fn apply_world_patch_emits_span_with_fields() {
     let patch = WorldStatePatch {
         location: Some("The Wastes".to_string()),
         atmosphere: Some("desolate".to_string()),
-        quest_log: None,
-        notes: None,
-        current_region: None,
-        discovered_regions: None,
-        discovered_routes: None,
+        ..Default::default()
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -195,6 +193,7 @@ fn apply_combat_patch_emits_span_with_fields() {
     let mut snapshot = test_snapshot();
     let patch = CombatPatch {
         advance_round: true,
+        ..Default::default()
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -237,7 +236,7 @@ fn apply_chase_patch_emits_span_with_fields() {
     let mut snapshot = test_snapshot();
     let patch = ChasePatch {
         start: Some((ChaseType::Footrace, 10.0)),
-        roll: None,
+        ..Default::default()
     };
 
     let (layer, captured) = SpanCaptureLayer::new();

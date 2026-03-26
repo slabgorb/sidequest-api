@@ -32,6 +32,8 @@ pub struct StateSnapshot {
     current_region: String,
     discovered_regions_json: String,
     discovered_routes_json: String,
+    active_stakes: String,
+    lore_established_json: String,
 }
 
 /// Take a snapshot of the game state for later delta comparison.
@@ -50,6 +52,8 @@ pub fn snapshot(state: &GameSnapshot) -> StateSnapshot {
         current_region: state.current_region.clone(),
         discovered_regions_json: to_json(&state.discovered_regions),
         discovered_routes_json: to_json(&state.discovered_routes),
+        active_stakes: state.active_stakes.clone(),
+        lore_established_json: to_json(&state.lore_established),
     }
 }
 
@@ -71,6 +75,8 @@ pub struct StateDelta {
     atmosphere: bool,
     regions: bool,
     routes: bool,
+    active_stakes: bool,
+    lore: bool,
     new_location: Option<String>,
 }
 
@@ -98,6 +104,8 @@ pub fn compute_delta(before: &StateSnapshot, after: &StateSnapshot) -> StateDelt
         atmosphere: before.atmosphere != after.atmosphere,
         regions: before.discovered_regions_json != after.discovered_regions_json,
         routes: before.discovered_routes_json != after.discovered_routes_json,
+        active_stakes: before.active_stakes != after.active_stakes,
+        lore: before.lore_established_json != after.lore_established_json,
         new_location: if location_changed {
             Some(after.location.clone())
         } else {
@@ -143,6 +151,12 @@ pub fn compute_delta(before: &StateSnapshot, after: &StateSnapshot) -> StateDelt
     if delta.routes {
         changed.push("routes");
     }
+    if delta.active_stakes {
+        changed.push("active_stakes");
+    }
+    if delta.lore {
+        changed.push("lore");
+    }
 
     span.record(
         "fields_changed",
@@ -168,6 +182,8 @@ impl StateDelta {
             && !self.atmosphere
             && !self.regions
             && !self.routes
+            && !self.active_stakes
+            && !self.lore
     }
 
     /// Whether characters changed.

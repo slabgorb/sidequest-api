@@ -34,6 +34,15 @@ pub struct ChaseState {
     round: u32,
     rounds: Vec<ChaseRound>,
     resolved: bool,
+    /// Distance between pursuer and quarry (story 2-7).
+    #[serde(default)]
+    separation_distance: i32,
+    /// Current chase phase description (story 2-7).
+    #[serde(default)]
+    chase_phase: Option<String>,
+    /// Most recent chase event (story 2-7).
+    #[serde(default)]
+    chase_event: Option<String>,
 }
 
 impl ChaseState {
@@ -45,6 +54,9 @@ impl ChaseState {
             round: 1,
             rounds: Vec::new(),
             resolved: false,
+            separation_distance: 0,
+            chase_phase: None,
+            chase_event: None,
         }
     }
 
@@ -71,6 +83,36 @@ impl ChaseState {
     /// Whether the chase has been resolved (escape or capture).
     pub fn is_resolved(&self) -> bool {
         self.resolved
+    }
+
+    /// Distance between pursuer and quarry.
+    pub fn separation(&self) -> i32 {
+        self.separation_distance
+    }
+
+    /// Set separation distance.
+    pub fn set_separation(&mut self, distance: i32) {
+        self.separation_distance = distance;
+    }
+
+    /// Current chase phase description.
+    pub fn phase(&self) -> Option<&str> {
+        self.chase_phase.as_deref()
+    }
+
+    /// Set chase phase.
+    pub fn set_phase(&mut self, phase: String) {
+        self.chase_phase = Some(phase);
+    }
+
+    /// Most recent chase event.
+    pub fn event(&self) -> Option<&str> {
+        self.chase_event.as_deref()
+    }
+
+    /// Set chase event.
+    pub fn set_event(&mut self, event: String) {
+        self.chase_event = Some(event);
     }
 
     /// Record an escape roll. Roll must strictly exceed threshold to escape.

@@ -13,6 +13,21 @@ pub struct CombatState {
     round: u32,
     damage_log: Vec<DamageEvent>,
     effects: HashMap<String, Vec<StatusEffect>>,
+    /// Whether combat is currently active.
+    #[serde(default)]
+    in_combat: bool,
+    /// Initiative order.
+    #[serde(default)]
+    turn_order: Vec<String>,
+    /// Who is currently acting.
+    #[serde(default)]
+    current_turn: Option<String>,
+    /// Actions available to the current player.
+    #[serde(default)]
+    available_actions: Vec<String>,
+    /// Drama weight for pacing (story 2-7).
+    #[serde(default)]
+    drama_weight: f64,
 }
 
 impl CombatState {
@@ -22,6 +37,11 @@ impl CombatState {
             round: 1,
             damage_log: Vec::new(),
             effects: HashMap::new(),
+            in_combat: false,
+            turn_order: Vec::new(),
+            current_turn: None,
+            available_actions: Vec::new(),
+            drama_weight: 0.0,
         }
     }
 
@@ -61,6 +81,56 @@ impl CombatState {
             .get(target)
             .map(|effs| effs.iter().collect())
             .unwrap_or_default()
+    }
+
+    /// Whether combat is currently active.
+    pub fn in_combat(&self) -> bool {
+        self.in_combat
+    }
+
+    /// Set whether combat is active.
+    pub fn set_in_combat(&mut self, active: bool) {
+        self.in_combat = active;
+    }
+
+    /// The initiative turn order.
+    pub fn turn_order(&self) -> &[String] {
+        &self.turn_order
+    }
+
+    /// Set the turn order.
+    pub fn set_turn_order(&mut self, order: Vec<String>) {
+        self.turn_order = order;
+    }
+
+    /// Who is currently acting.
+    pub fn current_turn(&self) -> Option<&str> {
+        self.current_turn.as_deref()
+    }
+
+    /// Set the current turn holder.
+    pub fn set_current_turn(&mut self, turn: String) {
+        self.current_turn = Some(turn);
+    }
+
+    /// Available player actions.
+    pub fn available_actions(&self) -> &[String] {
+        &self.available_actions
+    }
+
+    /// Set available actions.
+    pub fn set_available_actions(&mut self, actions: Vec<String>) {
+        self.available_actions = actions;
+    }
+
+    /// Drama weight for pacing.
+    pub fn drama_weight(&self) -> f64 {
+        self.drama_weight
+    }
+
+    /// Set drama weight.
+    pub fn set_drama_weight(&mut self, weight: f64) {
+        self.drama_weight = weight;
     }
 
     /// Tick all effects (decrement durations) and remove expired ones.

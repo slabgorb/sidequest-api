@@ -73,6 +73,8 @@ fn test_npc() -> Npc {
         voice_id: Some(3),
         disposition: Disposition::new(15),
         location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
+        pronouns: None,
+        appearance: None,
     }
 }
 
@@ -110,6 +112,8 @@ fn test_snapshot() -> GameSnapshot {
         discovered_routes: vec![],
         turn_manager: TurnManager::new(),
         last_saved_at: None,
+        active_stakes: String::new(),
+        lore_established: vec![],
     }
 }
 
@@ -599,12 +603,7 @@ fn world_state_patch_applies_location_change() {
     let mut snap = test_snapshot();
     let patch = WorldStatePatch {
         location: Some("The Wasteland Highway".to_string()),
-        atmosphere: None,
-        quest_log: None,
-        notes: None,
-        current_region: None,
-        discovered_regions: None,
-        discovered_routes: None,
+        ..Default::default()
     };
     snap.apply_world_patch(&patch);
     assert_eq!(snap.location, "The Wasteland Highway");
@@ -622,13 +621,12 @@ fn world_state_patch_applies_multiple_fields() {
             "main".to_string(),
             "Escape the marshes".to_string(),
         )])),
-        notes: None,
         current_region: Some("toxic_marshes".to_string()),
         discovered_regions: Some(vec![
             "flickering_reach".to_string(),
             "toxic_marshes".to_string(),
         ]),
-        discovered_routes: None,
+        ..Default::default()
     };
     snap.apply_world_patch(&patch);
     assert_eq!(snap.location, "Toxic Marshes");
@@ -642,13 +640,7 @@ fn world_state_patch_none_fields_leave_state_unchanged() {
     let snap_before = test_snapshot();
     let mut snap = test_snapshot();
     let empty_patch = WorldStatePatch {
-        location: None,
-        atmosphere: None,
-        quest_log: None,
-        notes: None,
-        current_region: None,
-        discovered_regions: None,
-        discovered_routes: None,
+        ..Default::default()
     };
     snap.apply_world_patch(&empty_patch);
     assert_eq!(snap.location, snap_before.location);
@@ -660,6 +652,7 @@ fn combat_patch_applies_to_combat_state() {
     let mut snap = test_snapshot();
     let patch = CombatPatch {
         advance_round: true,
+        ..Default::default()
     };
     let round_before = snap.combat.round();
     snap.apply_combat_patch(&patch);
@@ -672,7 +665,7 @@ fn chase_patch_initiates_chase() {
     assert!(snap.chase.is_none());
     let patch = ChasePatch {
         start: Some((ChaseType::Footrace, 0.5)),
-        roll: None,
+        ..Default::default()
     };
     snap.apply_chase_patch(&patch);
     assert!(snap.chase.is_some());

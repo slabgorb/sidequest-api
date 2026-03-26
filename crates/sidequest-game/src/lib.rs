@@ -38,5 +38,5 @@ pub use persistence::{GameStore, PersistenceError, SaveInfo};
 pub use persistence::{PersistError, SavedSession, SessionMeta, SessionStore, SqliteStore};
 pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
 pub use session::SessionManager;
-pub use state::{ChasePatch, CombatPatch, GameSnapshot, WorldStatePatch};
+pub use state::{broadcast_state_changes, ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch};
 pub use turn::{TurnManager, TurnPhase};
