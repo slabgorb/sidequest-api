@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
+use crate::ability::AbilityDefinition;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 
@@ -37,6 +38,11 @@ pub struct Character {
     pub race: NonBlankString,
     /// Ability scores (STR, DEX, CON, INT, WIS, CHA).
     pub stats: HashMap<String, i32>,
+
+    // Character abilities (Story 9-1)
+    /// Genre-voiced ability definitions with mechanical effects.
+    #[serde(default)]
+    pub abilities: Vec<AbilityDefinition>,
 }
 
 impl Character {
@@ -96,6 +102,7 @@ mod tests {
                 ("WIS".to_string(), 12),
                 ("CHA".to_string(), 6),
             ]),
+            abilities: vec![],
         }
     }
 

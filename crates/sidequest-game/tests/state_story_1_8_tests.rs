@@ -54,6 +54,7 @@ fn test_character() -> Character {
         char_class: NonBlankString::new("Fighter").unwrap(),
         race: NonBlankString::new("Dwarf").unwrap(),
         stats: HashMap::from([("STR".to_string(), 16), ("DEX".to_string(), 10)]),
+        abilities: vec![],
     }
 }
 

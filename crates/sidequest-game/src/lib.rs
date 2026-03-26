@@ -5,6 +5,7 @@
 
 #![warn(missing_docs)]
 
+pub mod ability;
 pub mod barrier;
 pub mod beat_filter;
 pub mod builder;

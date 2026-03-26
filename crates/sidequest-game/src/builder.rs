@@ -554,6 +554,7 @@ impl CharacterBuilder {
             char_class: NonBlankString::new(class_str).unwrap(),
             race: NonBlankString::new(race_str).unwrap(),
             stats,
+            abilities: vec![],
         };
 
         Ok(character)
