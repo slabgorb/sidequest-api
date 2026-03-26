@@ -24,6 +24,9 @@ pub struct ActionResult {
 pub trait GameService: Send + Sync {
     /// Get a snapshot of the current game state.
     fn get_snapshot(&self) -> serde_json::Value;
+
+    /// Process a player action and return narration + state changes.
+    fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult;
 }
 
 /// The orchestrator state machine. Implements GameService.
@@ -49,6 +52,17 @@ impl Default for Orchestrator {
 impl GameService for Orchestrator {
     fn get_snapshot(&self) -> serde_json::Value {
         serde_json::Value::Object(serde_json::Map::new())
+    }
+
+    fn process_action(&self, action: &str, _context: &TurnContext) -> ActionResult {
+        // Stub implementation: returns canned narration.
+        // Real agent dispatch (Claude CLI subprocess) is wired in a future story.
+        ActionResult {
+            narration: format!("The wasteland responds to your action: {}", action),
+            state_delta: Some(HashMap::new()),
+            combat_events: vec![],
+            is_degraded: false,
+        }
     }
 }
 

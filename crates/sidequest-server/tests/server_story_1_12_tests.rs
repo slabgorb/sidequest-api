@@ -249,6 +249,19 @@ async fn server_accepts_mock_game_service() {
                 "location": "Test Tavern"
             })
         }
+
+        fn process_action(
+            &self,
+            action: &str,
+            _context: &sidequest_agents::orchestrator::TurnContext,
+        ) -> sidequest_agents::orchestrator::ActionResult {
+            sidequest_agents::orchestrator::ActionResult {
+                narration: format!("Mock response to: {}", action),
+                state_delta: None,
+                combat_events: vec![],
+                is_degraded: false,
+            }
+        }
     }
 
     // The server must be constructable with a mock GameService.
