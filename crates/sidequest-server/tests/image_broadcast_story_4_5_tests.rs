@@ -114,10 +114,7 @@ async fn image_payload_json_matches_client_contract() {
     let json: serde_json::Value = serde_json::from_str(&json_str).expect("parse should succeed");
 
     // Must have "type": "IMAGE"
-    assert_eq!(
-        json["type"], "IMAGE",
-        "Message type must be IMAGE"
-    );
+    assert_eq!(json["type"], "IMAGE", "Message type must be IMAGE");
 
     // Payload must contain all client-contract fields
     let payload = &json["payload"];
@@ -129,10 +126,7 @@ async fn image_payload_json_matches_client_contract() {
         payload.get("description").is_some(),
         "Payload must contain description"
     );
-    assert!(
-        payload.get("tier").is_some(),
-        "Payload must contain tier"
-    );
+    assert!(payload.get("tier").is_some(), "Payload must contain tier");
     assert!(
         payload.get("scene_type").is_some(),
         "Payload must contain scene_type"
@@ -251,9 +245,7 @@ async fn image_payload_includes_scene_type_as_lowercase_string() {
 
     let handle = spawn_image_broadcaster(render_rx, ws_tx);
 
-    render_tx
-        .send(test_render_context_success())
-        .expect("send");
+    render_tx.send(test_render_context_success()).expect("send");
 
     let msg = tokio::time::timeout(Duration::from_secs(2), ws_rx.recv())
         .await
@@ -266,7 +258,10 @@ async fn image_payload_includes_scene_type_as_lowercase_string() {
     let scene_type = json["payload"]["scene_type"]
         .as_str()
         .expect("scene_type must be a string");
-    assert_eq!(scene_type, "exploration", "Scene type must be lowercase string");
+    assert_eq!(
+        scene_type, "exploration",
+        "Scene type must be lowercase string"
+    );
 
     handle.abort();
 }
@@ -297,7 +292,9 @@ async fn scene_type_combat_serializes_lowercase() {
     let json: serde_json::Value = serde_json::from_str(&json_str).expect("parse");
 
     assert_eq!(
-        json["payload"]["scene_type"].as_str().expect("scene_type string"),
+        json["payload"]["scene_type"]
+            .as_str()
+            .expect("scene_type string"),
         "combat"
     );
 
@@ -418,6 +415,9 @@ fn game_message_image_variant_exists() {
         description: "A test image".to_string(),
         handout: false,
         render_id: None,
+        tier: None,
+        scene_type: None,
+        generation_ms: None,
     };
 
     let msg = GameMessage::Image {
@@ -649,10 +649,18 @@ async fn interleaved_success_and_failure_only_broadcasts_success() {
     let handle = spawn_image_broadcaster(render_rx, ws_tx);
 
     // Send: success, fail, fail, success
-    render_tx.send(test_render_context_success()).expect("send 1");
-    render_tx.send(test_render_context_failed()).expect("send 2");
-    render_tx.send(test_render_context_failed()).expect("send 3");
-    render_tx.send(test_render_context_success()).expect("send 4");
+    render_tx
+        .send(test_render_context_success())
+        .expect("send 1");
+    render_tx
+        .send(test_render_context_failed())
+        .expect("send 2");
+    render_tx
+        .send(test_render_context_failed())
+        .expect("send 3");
+    render_tx
+        .send(test_render_context_success())
+        .expect("send 4");
 
     // Should receive exactly 2 IMAGE messages (from the 2 successes)
     for i in 0..2 {

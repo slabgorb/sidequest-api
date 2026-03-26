@@ -56,7 +56,7 @@ fn scene_type_to_string(scene_type: &SceneType) -> String {
 /// Returns a `JoinHandle` for lifecycle management.
 pub fn spawn_image_broadcaster(
     mut render_rx: broadcast::Receiver<RenderResultContext>,
-    _ws_tx: broadcast::Sender<GameMessage>,
+    ws_tx: broadcast::Sender<GameMessage>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         while let Ok(ctx) = render_rx.recv().await {
@@ -82,7 +82,7 @@ pub fn spawn_image_broadcaster(
                     };
 
                     // Ignore send errors — no subscribers is fine (Rule #1)
-                    let _ = _ws_tx.send(msg);
+                    let _ = ws_tx.send(msg);
                 }
                 RenderJobResult::Failed { job_id, error } => {
                     tracing::warn!(
