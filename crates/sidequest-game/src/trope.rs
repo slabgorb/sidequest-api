@@ -1,0 +1,212 @@
+//! Trope engine runtime — tick progression, escalation beats, lifecycle.
+//!
+//! Story 2-8: Adds the runtime loop that ticks trope progression,
+//! fires escalation beats at thresholds, and provides lifecycle management.
+
+use std::collections::{HashMap, HashSet};
+
+use ordered_float::OrderedFloat;
+use serde::{Deserialize, Serialize};
+use sidequest_genre::{TropeDefinition, TropeEscalation};
+
+/// Status of an active trope in the game.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum TropeStatus {
+    /// Trope is dormant — not ticking.
+    Dormant,
+    /// Trope is active but hasn't progressed yet.
+    Active,
+    /// Trope is actively progressing.
+    Progressing,
+    /// Trope has been resolved.
+    Resolved,
+}
+
+/// Runtime state for an active trope instance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TropeState {
+    trope_definition_id: String,
+    status: TropeStatus,
+    progression: f64,
+    fired_beats: HashSet<OrderedFloat<f64>>,
+    notes: Vec<String>,
+}
+
+impl TropeState {
+    /// Create a new trope state in Active status at 0.0 progression.
+    pub fn new(trope_definition_id: &str) -> Self {
+        Self {
+            trope_definition_id: trope_definition_id.to_string(),
+            status: TropeStatus::Active,
+            progression: 0.0,
+            fired_beats: HashSet::new(),
+            notes: Vec::new(),
+        }
+    }
+
+    /// The trope definition ID this state tracks.
+    pub fn trope_definition_id(&self) -> &str {
+        &self.trope_definition_id
+    }
+
+    /// Current status.
+    pub fn status(&self) -> TropeStatus {
+        self.status
+    }
+
+    /// Set the status.
+    pub fn set_status(&mut self, status: TropeStatus) {
+        self.status = status;
+    }
+
+    /// Current progression (0.0 to 1.0).
+    pub fn progression(&self) -> f64 {
+        self.progression
+    }
+
+    /// Set progression value (clamped to 0.0..=1.0).
+    pub fn set_progression(&mut self, value: f64) {
+        self.progression = value.clamp(0.0, 1.0);
+    }
+
+    /// The set of beat thresholds that have already fired.
+    pub fn fired_beats(&self) -> &HashSet<OrderedFloat<f64>> {
+        &self.fired_beats
+    }
+
+    /// Notes accumulated on this trope.
+    pub fn notes(&self) -> &[String] {
+        &self.notes
+    }
+}
+
+/// A beat that fired during a tick.
+pub struct FiredBeat {
+    /// The trope definition ID.
+    pub trope_id: String,
+    /// The trope display name.
+    pub trope_name: String,
+    /// The escalation beat that fired.
+    pub beat: TropeEscalation,
+}
+
+/// Trope engine — ticks progression, fires beats, manages lifecycle.
+pub struct TropeEngine;
+
+impl TropeEngine {
+    /// Advance all active tropes by their passive rate, then check for fired beats.
+    pub fn tick(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+    ) -> Vec<FiredBeat> {
+        let def_map: HashMap<&str, &TropeDefinition> = trope_defs
+            .iter()
+            .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
+            .collect();
+
+        let mut fired = Vec::new();
+
+        for ts in tropes.iter_mut() {
+            if matches!(ts.status, TropeStatus::Resolved | TropeStatus::Dormant) {
+                continue;
+            }
+
+            let Some(td) = def_map.get(ts.trope_definition_id.as_str()) else {
+                tracing::warn!(
+                    trope_id = %ts.trope_definition_id,
+                    "Trope definition not found"
+                );
+                continue;
+            };
+
+            // Passive progression
+            if let Some(pp) = &td.passive_progression {
+                ts.progression = (ts.progression + pp.rate_per_turn).min(1.0);
+            }
+
+            // Check escalation beats
+            for beat in &td.escalation {
+                let threshold = OrderedFloat(beat.at);
+                if beat.at <= ts.progression && !ts.fired_beats.contains(&threshold) {
+                    ts.fired_beats.insert(threshold);
+                    fired.push(FiredBeat {
+                        trope_id: ts.trope_definition_id.clone(),
+                        trope_name: td.name.as_str().to_string(),
+                        beat: beat.clone(),
+                    });
+                }
+            }
+
+            // Status transition: Active → Progressing
+            if ts.status == TropeStatus::Active && ts.progression > 0.0 {
+                ts.status = TropeStatus::Progressing;
+            }
+        }
+
+        fired
+    }
+
+    /// Apply keyword-based acceleration/deceleration from turn text.
+    pub fn apply_keyword_modifiers(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        turn_text: &str,
+    ) {
+        let lower = turn_text.to_lowercase();
+        let def_map: HashMap<&str, &TropeDefinition> = trope_defs
+            .iter()
+            .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
+            .collect();
+
+        for ts in tropes.iter_mut() {
+            if matches!(ts.status, TropeStatus::Resolved | TropeStatus::Dormant) {
+                continue;
+            }
+            let Some(td) = def_map.get(ts.trope_definition_id.as_str()) else {
+                continue;
+            };
+            let Some(pp) = &td.passive_progression else {
+                continue;
+            };
+
+            // Accelerators
+            for keyword in &pp.accelerators {
+                if lower.contains(&keyword.to_lowercase()) {
+                    ts.progression = (ts.progression + pp.accelerator_bonus).min(1.0);
+                    break;
+                }
+            }
+            // Decelerators
+            for keyword in &pp.decelerators {
+                if lower.contains(&keyword.to_lowercase()) {
+                    ts.progression = (ts.progression - pp.decelerator_penalty).max(0.0);
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Activate a trope. Idempotent — returns existing if already active.
+    pub fn activate<'a>(tropes: &'a mut Vec<TropeState>, def_id: &str) -> &'a TropeState {
+        if let Some(idx) = tropes.iter().position(|ts| ts.trope_definition_id == def_id) {
+            return &tropes[idx];
+        }
+        tropes.push(TropeState::new(def_id));
+        tropes.last().unwrap()
+    }
+
+    /// Resolve a trope — sets progression to 1.0 and status to Resolved.
+    pub fn resolve(tropes: &mut [TropeState], def_id: &str, note: Option<&str>) {
+        if let Some(ts) = tropes
+            .iter_mut()
+            .find(|ts| ts.trope_definition_id == def_id)
+        {
+            ts.status = TropeStatus::Resolved;
+            ts.progression = 1.0;
+            if let Some(n) = note {
+                ts.notes.push(n.to_string());
+            }
+        }
+    }
+}
