@@ -1105,7 +1105,7 @@ fn dispatch_character_creation(
                             character_name: character.core.name.as_str().to_string(),
                             hp: character.core.hp,
                             max_hp: character.core.max_hp,
-                            genre_slug: genre,
+                            genre_slug: genre.clone(),
                             world_slug: world,
                             location: "Starting area".to_string(),
                         },
