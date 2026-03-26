@@ -295,6 +295,7 @@ struct AppStateInner {
     broadcast_tx: broadcast::Sender<GameMessage>,
     saved_sessions: Mutex<HashMap<String, PlayerSession>>,
     watcher_tx: broadcast::Sender<WatcherEvent>,
+    game_store: Option<sidequest_game::persistence::GameStore>,
     render_queue: Option<sidequest_game::RenderQueue>,
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
@@ -348,6 +349,7 @@ impl AppState {
                 broadcast_tx,
                 saved_sessions: Mutex::new(HashMap::new()),
                 watcher_tx,
+                game_store: sidequest_game::persistence::GameStore::open("sidequest_saves.db").ok(),
                 render_queue: Some(render_queue),
                 subject_extractor: sidequest_game::SubjectExtractor::new(),
                 beat_filter: tokio::sync::Mutex::new(
@@ -1368,6 +1370,32 @@ async fn dispatch_player_action(
         },
         player_id: player_id.to_string(),
     });
+
+    // Combat tick — advance round and tick status effects if in combat
+    // TODO: track CombatState per session, detect combat from narration/intent
+    {
+        let mut combat = sidequest_game::combat::CombatState::default();
+        if combat.in_combat() {
+            combat.tick_effects();
+        }
+    }
+
+    // Trope engine tick — advance narrative arcs and apply keyword modifiers
+    // TODO: load trope definitions from genre pack and track TropeState per session
+    // For now this is a no-op (empty slices), but the wiring is in place.
+    {
+        let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
+        let trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
+        let fired = sidequest_game::trope::TropeEngine::tick(&mut trope_states, &trope_defs);
+        sidequest_game::trope::TropeEngine::apply_keyword_modifiers(
+            &mut trope_states,
+            &trope_defs,
+            &clean_narration,
+        );
+        if !fired.is_empty() {
+            tracing::info!(count = fired.len(), "Trope beats fired");
+        }
+    }
 
     // Render pipeline — extract subject from narration, filter, enqueue
     let extraction_context = sidequest_game::ExtractionContext {
