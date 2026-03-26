@@ -8,8 +8,11 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
-use crate::agents::narrator::NarratorAgent;
+use crate::agents::creature_smith::CreatureSmithAgent;
+use crate::agents::dialectician::DialecticianAgent;
+use crate::agents::ensemble::EnsembleAgent;
 use crate::agents::intent_router::IntentRouter;
+use crate::agents::narrator::NarratorAgent;
 use crate::agent::Agent;
 use crate::client::ClaudeClient;
 use crate::turn_record::{TurnIdCounter, TurnRecord};
@@ -48,8 +51,11 @@ pub struct Orchestrator {
     pub turn_id_counter: TurnIdCounter,
     /// Claude CLI client for LLM invocations.
     client: ClaudeClient,
-    /// Narrator agent for prompt generation.
+    /// Specialist agents — dispatched by intent classification.
     narrator: NarratorAgent,
+    creature_smith: CreatureSmithAgent,
+    ensemble: EnsembleAgent,
+    dialectician: DialecticianAgent,
 }
 
 impl Orchestrator {
@@ -60,6 +66,9 @@ impl Orchestrator {
             turn_id_counter: TurnIdCounter::new(),
             client: ClaudeClient::new(),
             narrator: NarratorAgent::new(),
+            creature_smith: CreatureSmithAgent::new(),
+            ensemble: EnsembleAgent::new(),
+            dialectician: DialecticianAgent::new(),
         }
     }
 }
@@ -84,10 +93,17 @@ impl GameService for Orchestrator {
             .map(|s| format!("\n<game_state>\n{}\n</game_state>\n", s))
             .unwrap_or_default();
 
-        // TODO: dispatch to route.agent_name() — for now all go through narrator
+        // Dispatch to the classified agent's system prompt
+        let agent_prompt = match route.agent_name() {
+            "creature_smith" => self.creature_smith.system_prompt(),
+            "ensemble" => self.ensemble.system_prompt(),
+            "dialectician" => self.dialectician.system_prompt(),
+            _ => self.narrator.system_prompt(),
+        };
+
         let prompt = format!(
             "{}{}\nThe player says: {}",
-            self.narrator.system_prompt(),
+            agent_prompt,
             state_block,
             action,
         );

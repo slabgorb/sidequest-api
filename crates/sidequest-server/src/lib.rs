@@ -295,7 +295,9 @@ struct AppStateInner {
     broadcast_tx: broadcast::Sender<GameMessage>,
     saved_sessions: Mutex<HashMap<String, PlayerSession>>,
     watcher_tx: broadcast::Sender<WatcherEvent>,
-    game_store: Option<sidequest_game::persistence::GameStore>,
+    // GameStore removed — rusqlite::Connection is not Send+Sync.
+    // Save/load will use a dedicated async task with its own connection.
+    // TODO: spawn persistence worker task with mpsc channel
     render_queue: Option<sidequest_game::RenderQueue>,
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
@@ -349,7 +351,6 @@ impl AppState {
                 broadcast_tx,
                 saved_sessions: Mutex::new(HashMap::new()),
                 watcher_tx,
-                game_store: sidequest_game::persistence::GameStore::open("sidequest_saves.db").ok(),
                 render_queue: Some(render_queue),
                 subject_extractor: sidequest_game::SubjectExtractor::new(),
                 beat_filter: tokio::sync::Mutex::new(
@@ -857,7 +858,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             &mut character_max_hp,
                             &state,
                             &player_id_str,
-                        );
+                        ).await;
                         for resp in responses {
                             let _ = tx.send(resp).await;
                         }
@@ -892,7 +893,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
 /// Dispatch a deserialized GameMessage through the session state machine.
 /// Returns a list of response messages to send back to the client.
 #[allow(clippy::too_many_arguments)]
-fn dispatch_message(
+async fn dispatch_message(
     msg: GameMessage,
     session: &mut Session,
     builder: &mut Option<CharacterBuilder>,
@@ -934,7 +935,7 @@ fn dispatch_message(
                 character_max_hp,
                 state,
                 player_id,
-            )
+            ).await
         }
         GameMessage::PlayerAction { payload, .. } => {
             if !session.is_playing() {
@@ -1108,7 +1109,7 @@ fn start_character_creation(
 
 /// Handle CHARACTER_CREATION messages (client choices).
 #[allow(clippy::too_many_arguments)]
-fn dispatch_character_creation(
+async fn dispatch_character_creation(
     payload: &CharacterCreationPayload,
     session: &mut Session,
     builder: &mut Option<CharacterBuilder>,
@@ -1326,7 +1327,7 @@ async fn dispatch_player_action(
     // Narration — include character state so the UI state mirror picks it up
     messages.push(GameMessage::Narration {
         payload: NarrationPayload {
-            text: clean_narration,
+            text: clean_narration.clone(),
             state_delta: Some(sidequest_protocol::StateDelta {
                 location: extract_location_header(narration_text),
                 characters: Some(vec![sidequest_protocol::CharacterState {
