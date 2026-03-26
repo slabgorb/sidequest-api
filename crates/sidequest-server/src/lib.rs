@@ -1358,11 +1358,64 @@ async fn dispatch_player_action(
         player_id: player_id.to_string(),
     };
 
+    // Seed starter tropes if none are active yet (first turn)
+    if trope_states.is_empty() && !trope_defs.is_empty() {
+        // Activate the first 2-3 tropes from the genre pack
+        let seed_count = trope_defs.len().min(3);
+        for def in &trope_defs[..seed_count] {
+            if let Some(id) = &def.id {
+                sidequest_game::trope::TropeEngine::activate(trope_states, id);
+                tracing::info!(trope_id = %id, "Seeded starter trope");
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "trope".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::Value::String("trope_activated".to_string()));
+                        f.insert("trope_id".to_string(), serde_json::Value::String(id.clone()));
+                        f
+                    },
+                });
+            }
+        }
+    }
+
+    // Build active trope context for the narrator prompt
+    let trope_context = if trope_states.is_empty() {
+        String::new()
+    } else {
+        let mut lines = vec!["Active narrative arcs:".to_string()];
+        for ts in trope_states.iter() {
+            if let Some(def) = trope_defs.iter().find(|d| d.id.as_deref() == Some(ts.trope_definition_id())) {
+                lines.push(format!(
+                    "- {} ({}% progressed): {}",
+                    def.name,
+                    (ts.progression() * 100.0) as u32,
+                    def.description.as_deref().unwrap_or("").chars().take(120).collect::<String>(),
+                ));
+                // Include the next unfired escalation beat as a hint
+                for beat in &def.escalation {
+                    if beat.at > ts.progression() {
+                        lines.push(format!("  → Next beat at {}%: {}", (beat.at * 100.0) as u32, beat.event.chars().take(80).collect::<String>()));
+                        break;
+                    }
+                }
+            }
+        }
+        lines.join("\n")
+    };
+
     // Build state summary for grounding narration
-    let state_summary = format!(
+    let mut state_summary = format!(
         "Character: {} (HP {}/{})\nGenre: {}\nLocation: unknown",
         char_name, hp, max_hp, genre_slug,
     );
+    if !trope_context.is_empty() {
+        state_summary.push('\n');
+        state_summary.push_str(&trope_context);
+    }
 
     // Process the action through GameService
     let context = TurnContext {
@@ -1478,6 +1531,38 @@ async fn dispatch_player_action(
                 f
             },
         });
+    }
+
+    // Scan narration for trope trigger keywords → activate matching tropes
+    let narration_lower = clean_narration.to_lowercase();
+    for def in trope_defs.iter() {
+        let id = match &def.id {
+            Some(id) => id,
+            None => continue,
+        };
+        // Skip already active tropes
+        if trope_states.iter().any(|ts| ts.trope_definition_id() == id) {
+            continue;
+        }
+        // Check if any trigger keyword appears in the narration
+        let triggered = def.triggers.iter().any(|t| narration_lower.contains(&t.to_lowercase()));
+        if triggered {
+            sidequest_game::trope::TropeEngine::activate(trope_states, id);
+            tracing::info!(trope_id = %id, "Trope activated by narration keyword");
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "trope".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("event".to_string(), serde_json::Value::String("trope_activated".to_string()));
+                    f.insert("trope_id".to_string(), serde_json::Value::String(id.clone()));
+                    f.insert("trigger".to_string(), serde_json::Value::String("narration_keyword".to_string()));
+                    f
+                },
+            });
+        }
     }
 
     // Trope engine tick — uses persistent per-session trope state and genre pack defs
