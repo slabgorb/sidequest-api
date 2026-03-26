@@ -17,6 +17,7 @@ use clap::Parser;
 use futures::{SinkExt, StreamExt};
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::ServeDir;
 
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::{EnvFilter, Registry};
@@ -636,10 +637,14 @@ pub fn build_router(state: AppState) -> Router {
         .allow_methods([axum::http::Method::GET])
         .allow_headers(tower_http::cors::Any);
 
+    // Serve genre pack static assets (fonts, images) at /genre/assets/
+    let genre_assets = ServeDir::new(state.genre_packs_path());
+
     Router::new()
         .route("/api/genres", get(list_genres))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(ws_watcher_handler))
+        .nest_service("/genre", genre_assets)
         .layer(cors)
         .with_state(state)
 }
@@ -1136,7 +1141,19 @@ fn dispatch_character_creation(
                         player_id: player_id.to_string(),
                     };
 
-                    vec![complete, ready]
+                    // Auto-trigger an introductory narration so the game view isn't empty
+                    let intro_messages = dispatch_player_action(
+                        "I look around and take in my surroundings.",
+                        character.core.name.as_str(),
+                        character.core.hp,
+                        character.core.max_hp,
+                        state,
+                        player_id,
+                    );
+
+                    let mut msgs = vec![complete, ready];
+                    msgs.extend(intro_messages);
+                    msgs
                 }
                 Err(e) => vec![error_response(
                     player_id,
