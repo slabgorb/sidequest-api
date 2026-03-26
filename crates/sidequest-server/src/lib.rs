@@ -1231,11 +1231,21 @@ fn dispatch_player_action(
     // Strip the location header from narration text if present
     let clean_narration = strip_location_header(narration_text);
 
-    // Narration
+    // Narration — include character state so the UI state mirror picks it up
     messages.push(GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration,
-            state_delta: None,
+            state_delta: Some(sidequest_protocol::StateDelta {
+                location: extract_location_header(narration_text),
+                characters: Some(vec![sidequest_protocol::CharacterState {
+                    name: char_name.to_string(),
+                    hp,
+                    max_hp,
+                    statuses: vec![],
+                    inventory: vec![],
+                }]),
+                quests: None,
+            }),
         },
         player_id: player_id.to_string(),
     });
