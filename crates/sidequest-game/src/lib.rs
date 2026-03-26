@@ -63,4 +63,6 @@ pub use state::{
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
+pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
+pub use segmenter::{Segment, SentenceSegmenter};
 pub use turn::{TurnManager, TurnPhase};
