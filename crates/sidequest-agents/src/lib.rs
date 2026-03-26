@@ -17,6 +17,7 @@ pub mod orchestrator;
 pub mod patch_legality;
 pub mod patches;
 pub mod prompt_framework;
+pub mod trope_alignment;
 pub mod turn_record;
 
 pub use sidequest_game;
