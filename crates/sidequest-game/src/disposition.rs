@@ -34,7 +34,7 @@ impl fmt::Display for Attitude {
 /// - `> 10` → Friendly
 /// - `-10..=10` → Neutral
 /// - `< -10` → Hostile
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Disposition(i32);
 
@@ -61,12 +61,6 @@ impl Disposition {
     /// Apply a delta to the disposition value.
     pub fn apply_delta(&mut self, delta: i32) {
         self.0 = self.0.saturating_add(delta);
-    }
-}
-
-impl Default for Disposition {
-    fn default() -> Self {
-        Self(0)
     }
 }
 
@@ -194,7 +188,10 @@ mod tests {
     fn display_includes_attitude() {
         let d = Disposition::new(15);
         let s = format!("{d}");
-        assert!(s.contains("friendly"), "display should include attitude: {s}");
+        assert!(
+            s.contains("friendly"),
+            "display should include attitude: {s}"
+        );
     }
 
     #[test]

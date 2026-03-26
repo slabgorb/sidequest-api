@@ -251,6 +251,7 @@ pub struct SessionOpener {
 
 /// Genre-level lore.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Lore {
     /// World name (may be empty at genre level).
     pub world_name: String,
@@ -335,6 +336,7 @@ pub struct NpcArchetype {
 
 /// A character creation scene with narrative choices.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CharCreationScene {
     /// Scene identifier.
     pub id: String,
@@ -347,10 +349,15 @@ pub struct CharCreationScene {
     /// Whether this scene allows freeform text input.
     #[serde(default)]
     pub allows_freeform: Option<bool>,
+    /// Optional followup prompt — if present, the builder enters AwaitingFollowup
+    /// after a choice is made, waiting for the player's freeform elaboration.
+    #[serde(default)]
+    pub hook_prompt: Option<String>,
 }
 
 /// A choice within a character creation scene.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CharCreationChoice {
     /// Display label.
     pub label: String,
@@ -362,6 +369,7 @@ pub struct CharCreationChoice {
 
 /// Mechanical effects of a character creation choice.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MechanicalEffects {
     /// Suggested class.
     #[serde(default)]

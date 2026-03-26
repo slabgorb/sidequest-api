@@ -51,11 +51,21 @@ mod tests {
     }
 
     impl Combatant for TestCombatant {
-        fn name(&self) -> &str { &self.name }
-        fn hp(&self) -> i32 { self.hp }
-        fn max_hp(&self) -> i32 { self.max_hp }
-        fn level(&self) -> u32 { self.level }
-        fn ac(&self) -> i32 { self.ac }
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn hp(&self) -> i32 {
+            self.hp
+        }
+        fn max_hp(&self) -> i32 {
+            self.max_hp
+        }
+        fn level(&self) -> u32 {
+            self.level
+        }
+        fn ac(&self) -> i32 {
+            self.ac
+        }
     }
 
     fn warrior() -> TestCombatant {
@@ -91,25 +101,41 @@ mod tests {
 
     #[test]
     fn full_hp_fraction() {
-        let c = TestCombatant { hp: 30, max_hp: 30, ..warrior() };
+        let c = TestCombatant {
+            hp: 30,
+            max_hp: 30,
+            ..warrior()
+        };
         assert!((c.hp_fraction() - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn half_hp_fraction() {
-        let c = TestCombatant { hp: 15, max_hp: 30, ..warrior() };
+        let c = TestCombatant {
+            hp: 15,
+            max_hp: 30,
+            ..warrior()
+        };
         assert!((c.hp_fraction() - 0.5).abs() < f64::EPSILON);
     }
 
     #[test]
     fn zero_hp_fraction() {
-        let c = TestCombatant { hp: 0, max_hp: 30, ..warrior() };
+        let c = TestCombatant {
+            hp: 0,
+            max_hp: 30,
+            ..warrior()
+        };
         assert!((c.hp_fraction() - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]
     fn zero_max_hp_returns_zero_fraction() {
-        let c = TestCombatant { hp: 0, max_hp: 0, ..warrior() };
+        let c = TestCombatant {
+            hp: 0,
+            max_hp: 0,
+            ..warrior()
+        };
         assert!((c.hp_fraction() - 0.0).abs() < f64::EPSILON);
     }
 

@@ -5,11 +5,12 @@
 //! 4 different loading patterns in the Python codebase.
 
 use crate::error::GenreError;
+use crate::genre_code::GenreCode;
 use crate::models::*;
 use crate::resolve::resolve_trope_inheritance;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Load a complete genre pack from a directory.
 ///
@@ -19,7 +20,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     if !path.exists() || !path.is_dir() {
         return Err(GenreError::LoadError {
             path: path.display().to_string(),
-            source: "directory does not exist".into(),
+            detail: "directory does not exist".into(),
         });
     }
 
@@ -79,7 +80,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
 fn load_error(path: &Path, e: impl std::fmt::Display) -> GenreError {
     GenreError::LoadError {
         path: path.display().to_string(),
-        source: e.to_string(),
+        detail: e.to_string(),
     }
 }
 
@@ -158,6 +159,47 @@ fn load_single_world(
         cultures,
         tropes,
     })
+}
+
+/// Multi-path genre pack loader.
+///
+/// Searches a list of directories in order for genre packs, loading the first
+/// match found. Supports the search order: local, home, install.
+pub struct GenreLoader {
+    search_paths: Vec<PathBuf>,
+}
+
+impl GenreLoader {
+    /// Create a loader with the given search paths (checked in order).
+    pub fn new(search_paths: Vec<PathBuf>) -> Self {
+        Self { search_paths }
+    }
+
+    /// Find the directory for a genre code by searching all paths.
+    ///
+    /// Returns the first path where `{search_path}/{genre_code}/` exists as a directory.
+    pub fn find(&self, code: &GenreCode) -> Result<PathBuf, GenreError> {
+        let mut searched = Vec::new();
+        for base in &self.search_paths {
+            let candidate = base.join(code.as_str());
+            if candidate.is_dir() {
+                return Ok(candidate);
+            }
+            searched.push(base.display().to_string());
+        }
+        Err(GenreError::NotFound {
+            code: code.as_str().to_string(),
+            searched,
+        })
+    }
+
+    /// Find and load a genre pack by code.
+    ///
+    /// Call `pack.validate()` separately for cross-reference validation (phase 2).
+    pub fn load(&self, code: &GenreCode) -> Result<GenrePack, GenreError> {
+        let path = self.find(code)?;
+        load_genre_pack(&path)
+    }
 }
 
 /// Load a single scenario from its directory.

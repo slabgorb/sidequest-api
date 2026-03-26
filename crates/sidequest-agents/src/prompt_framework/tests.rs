@@ -127,7 +127,7 @@ fn attention_zone_rejects_unknown_value() {
 // =========================================================================
 
 #[test]
-fn section_category_has_seven_variants() {
+fn section_category_has_nine_variants() {
     // Verify all expected variants exist and are distinct.
     let categories = vec![
         SectionCategory::Identity,
@@ -137,8 +137,10 @@ fn section_category_has_seven_variants() {
         SectionCategory::State,
         SectionCategory::Action,
         SectionCategory::Format,
+        SectionCategory::Context,
+        SectionCategory::Role,
     ];
-    assert_eq!(categories.len(), 7);
+    assert_eq!(categories.len(), 9);
     // All distinct
     for i in 0..categories.len() {
         for j in (i + 1)..categories.len() {
@@ -197,9 +199,9 @@ fn rule_tier_roundtrips_through_json() {
 fn prompt_section_new_sets_fields() {
     let section = PromptSection::new(
         "test_section",
-        SectionCategory::Identity,
-        AttentionZone::Primacy,
         "You are a narrator.",
+        AttentionZone::Primacy,
+        SectionCategory::Identity,
     );
     assert_eq!(section.name, "test_section");
     assert_eq!(section.category, SectionCategory::Identity);
@@ -212,9 +214,9 @@ fn prompt_section_new_sets_fields() {
 fn prompt_section_with_source_sets_source() {
     let section = PromptSection::with_source(
         "soul_principles",
-        SectionCategory::Soul,
-        AttentionZone::Early,
         "Agency: The player controls their character.",
+        AttentionZone::Early,
+        SectionCategory::Soul,
         "soul_md",
     );
     assert_eq!(section.source, Some("soul_md".to_string()));
@@ -224,32 +226,22 @@ fn prompt_section_with_source_sets_source() {
 fn prompt_section_token_estimate_counts_words() {
     let section = PromptSection::new(
         "test",
-        SectionCategory::Genre,
-        AttentionZone::Valley,
         "one two three four five",
+        AttentionZone::Valley,
+        SectionCategory::Genre,
     );
     assert_eq!(section.token_estimate(), 5);
 }
 
 #[test]
 fn prompt_section_token_estimate_empty_content_is_zero() {
-    let section = PromptSection::new(
-        "empty",
-        SectionCategory::State,
-        AttentionZone::Late,
-        "",
-    );
+    let section = PromptSection::new("empty", "", AttentionZone::Late, SectionCategory::State);
     assert_eq!(section.token_estimate(), 0);
 }
 
 #[test]
 fn prompt_section_is_empty_true_for_empty_content() {
-    let section = PromptSection::new(
-        "empty",
-        SectionCategory::State,
-        AttentionZone::Late,
-        "",
-    );
+    let section = PromptSection::new("empty", "", AttentionZone::Late, SectionCategory::State);
     assert!(section.is_empty());
 }
 
@@ -257,9 +249,9 @@ fn prompt_section_is_empty_true_for_empty_content() {
 fn prompt_section_is_empty_false_for_nonempty_content() {
     let section = PromptSection::new(
         "notempty",
-        SectionCategory::State,
-        AttentionZone::Late,
         "has content",
+        AttentionZone::Late,
+        SectionCategory::State,
     );
     assert!(!section.is_empty());
 }
@@ -272,9 +264,9 @@ fn prompt_section_is_empty_false_for_nonempty_content() {
 fn prompt_section_json_roundtrip() {
     let section = PromptSection::new(
         "genre_tone",
-        SectionCategory::Genre,
-        AttentionZone::Early,
         "Dark and gritty.",
+        AttentionZone::Early,
+        SectionCategory::Genre,
     );
     let json = serde_json::to_string(&section).unwrap();
     let restored: PromptSection = serde_json::from_str(&json).unwrap();
@@ -285,9 +277,9 @@ fn prompt_section_json_roundtrip() {
 fn prompt_section_json_roundtrip_with_source() {
     let section = PromptSection::with_source(
         "lore",
-        SectionCategory::Genre,
-        AttentionZone::Valley,
         "The Flickering Reach is a wasteland.",
+        AttentionZone::Valley,
+        SectionCategory::Genre,
         "genre_pack",
     );
     let json = serde_json::to_string(&section).unwrap();
@@ -305,7 +297,10 @@ fn prompt_section_rejects_unknown_fields() {
         "bogus_field": "should fail"
     }"#;
     let result = serde_json::from_str::<PromptSection>(json);
-    assert!(result.is_err(), "deny_unknown_fields should reject bogus_field");
+    assert!(
+        result.is_err(),
+        "deny_unknown_fields should reject bogus_field"
+    );
 }
 
 // =========================================================================
@@ -443,23 +438,35 @@ fn parse_soul_md_handles_multiline_body() {
     let data = parse_soul_md(f.path());
 
     assert_eq!(data.principles[0].name, "Diamonds and Coal");
-    assert!(data.principles[0].text.contains("Detail signals importance"));
-    assert!(data.principles[0].text.contains("Coal can become a diamond"));
+    assert!(data.principles[0]
+        .text
+        .contains("Detail signals importance"));
+    assert!(data.principles[0]
+        .text
+        .contains("Coal can become a diamond"));
 }
 
 #[test]
 fn parse_soul_md_full_soul_file() {
     // Parse the actual SOUL.md from the repo.
-    let soul_path =
-        std::path::Path::new("/Users/keithavery/Projects/orc-quest/docs/SOUL.md");
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let soul_path = workspace_root.join("../docs/SOUL.md");
     if !soul_path.exists() {
         // Skip if running in CI without the file.
         return;
     }
-    let data = parse_soul_md(soul_path);
+    let data = parse_soul_md(&soul_path);
 
     // The real SOUL.md has these principles (verified from file):
-    assert!(data.principles.len() >= 10, "Expected at least 10 principles, got {}", data.principles.len());
+    assert!(
+        data.principles.len() >= 10,
+        "Expected at least 10 principles, got {}",
+        data.principles.len()
+    );
     assert_eq!(data.principles[0].name, "Agency");
     assert_eq!(data.principles[1].name, "Living World");
     assert_eq!(data.principles[2].name, "Genre Truth");
@@ -625,15 +632,30 @@ fn composer_sections_are_ordered_by_zone() {
     // Register out of order.
     composer.register_section(
         "narrator",
-        PromptSection::new("checklist", SectionCategory::Guardrail, AttentionZone::Recency, "Check rules."),
+        PromptSection::new(
+            "checklist",
+            "Check rules.",
+            AttentionZone::Recency,
+            SectionCategory::Guardrail,
+        ),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("identity", SectionCategory::Identity, AttentionZone::Primacy, "You are a narrator."),
+        PromptSection::new(
+            "identity",
+            "You are a narrator.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
+        ),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("lore", SectionCategory::Genre, AttentionZone::Valley, "World lore."),
+        PromptSection::new(
+            "lore",
+            "World lore.",
+            AttentionZone::Valley,
+            SectionCategory::Genre,
+        ),
     );
 
     let sections = composer.registry("narrator");
@@ -649,11 +671,21 @@ fn composer_preserves_insertion_order_within_zone() {
 
     composer.register_section(
         "narrator",
-        PromptSection::new("first_early", SectionCategory::Soul, AttentionZone::Early, "Soul."),
+        PromptSection::new(
+            "first_early",
+            "Soul.",
+            AttentionZone::Early,
+            SectionCategory::Soul,
+        ),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("second_early", SectionCategory::Genre, AttentionZone::Early, "Genre."),
+        PromptSection::new(
+            "second_early",
+            "Genre.",
+            AttentionZone::Early,
+            SectionCategory::Genre,
+        ),
     );
 
     let sections = composer.registry("narrator");
@@ -666,11 +698,16 @@ fn composer_get_sections_filters_by_category() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("identity", SectionCategory::Identity, AttentionZone::Primacy, "Id."),
+        PromptSection::new(
+            "identity",
+            "Id.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
+        ),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("soul", SectionCategory::Soul, AttentionZone::Early, "Soul."),
+        PromptSection::new("soul", "Soul.", AttentionZone::Early, SectionCategory::Soul),
     );
 
     let soul_sections = composer.get_sections("narrator", Some(SectionCategory::Soul), None);
@@ -683,15 +720,15 @@ fn composer_get_sections_filters_by_zone() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("a", SectionCategory::Identity, AttentionZone::Primacy, "A."),
+        PromptSection::new("a", "A.", AttentionZone::Primacy, SectionCategory::Identity),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("b", SectionCategory::Genre, AttentionZone::Early, "B."),
+        PromptSection::new("b", "B.", AttentionZone::Early, SectionCategory::Genre),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("c", SectionCategory::State, AttentionZone::Early, "C."),
+        PromptSection::new("c", "C.", AttentionZone::Early, SectionCategory::State),
     );
 
     let early = composer.get_sections("narrator", None, Some(AttentionZone::Early));
@@ -703,15 +740,15 @@ fn composer_get_sections_filters_by_both() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("a", SectionCategory::Genre, AttentionZone::Early, "A."),
+        PromptSection::new("a", "A.", AttentionZone::Early, SectionCategory::Genre),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("b", SectionCategory::State, AttentionZone::Early, "B."),
+        PromptSection::new("b", "B.", AttentionZone::Early, SectionCategory::State),
     );
     composer.register_section(
         "narrator",
-        PromptSection::new("c", SectionCategory::Genre, AttentionZone::Valley, "C."),
+        PromptSection::new("c", "C.", AttentionZone::Valley, SectionCategory::Genre),
     );
 
     let result = composer.get_sections(
@@ -728,7 +765,7 @@ fn composer_clear_removes_all_sections() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("x", SectionCategory::Identity, AttentionZone::Primacy, "X."),
+        PromptSection::new("x", "X.", AttentionZone::Primacy, SectionCategory::Identity),
     );
     composer.clear("narrator");
     assert!(composer.registry("narrator").is_empty());
@@ -739,7 +776,12 @@ fn composer_compose_produces_xml_sections() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("identity", SectionCategory::Identity, AttentionZone::Primacy, "You are a narrator."),
+        PromptSection::new(
+            "identity",
+            "You are a narrator.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
+        ),
     );
     let output = composer.compose("narrator");
     assert!(output.contains("<section"));
@@ -758,11 +800,21 @@ fn composer_multiple_agents_are_independent() {
     let mut composer = TestComposer::new();
     composer.register_section(
         "narrator",
-        PromptSection::new("n1", SectionCategory::Identity, AttentionZone::Primacy, "Narrator."),
+        PromptSection::new(
+            "n1",
+            "Narrator.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
+        ),
     );
     composer.register_section(
         "combat",
-        PromptSection::new("c1", SectionCategory::Identity, AttentionZone::Primacy, "Combat."),
+        PromptSection::new(
+            "c1",
+            "Combat.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
+        ),
     );
 
     assert_eq!(composer.registry("narrator").len(), 1);
@@ -776,18 +828,10 @@ fn composer_multiple_agents_are_independent() {
 // =========================================================================
 
 #[test]
-fn prompt_section_whitespace_only_content_is_not_empty() {
-    // Whitespace-only should count as having content (word split may differ).
-    let section = PromptSection::new(
-        "ws",
-        SectionCategory::State,
-        AttentionZone::Valley,
-        "   ",
-    );
-    // Whitespace-only content: is_empty should be true (no meaningful content).
-    // This tests that we handle whitespace sensibly.
-    assert!(section.is_empty() || !section.is_empty()); // Compiles; dev decides behavior.
-    // The real assertion: token_estimate for whitespace should be 0.
+fn prompt_section_whitespace_only_content_is_empty() {
+    let section = PromptSection::new("ws", "   ", AttentionZone::Valley, SectionCategory::State);
+    // Whitespace-only content is empty (trim removes it).
+    assert!(section.is_empty());
     assert_eq!(section.token_estimate(), 0);
 }
 
@@ -795,9 +839,9 @@ fn prompt_section_whitespace_only_content_is_not_empty() {
 fn prompt_section_multiline_content_token_estimate() {
     let section = PromptSection::new(
         "multi",
-        SectionCategory::Genre,
-        AttentionZone::Valley,
         "line one\nline two\nline three",
+        AttentionZone::Valley,
+        SectionCategory::Genre,
     );
     // "line one line two line three" = 6 words
     assert_eq!(section.token_estimate(), 6);

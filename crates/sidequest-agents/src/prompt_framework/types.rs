@@ -59,11 +59,12 @@ impl Ord for AttentionZone {
     }
 }
 
-/// Closed set of prompt section categories.
+/// Prompt section categories — extensible as new agent types are added.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum SectionCategory {
-    /// Agent identity and role definition.
+    /// Agent identity (name, persona, core purpose).
     Identity,
     /// Safety guardrails (agency, format, no-metagame).
     Guardrail,
@@ -77,6 +78,10 @@ pub enum SectionCategory {
     Action,
     /// Output format instructions.
     Format,
+    /// General context sections (location, NPCs, quests).
+    Context,
+    /// Agent role definition.
+    Role,
 }
 
 /// Three-tier rule taxonomy for agent system prompts.
@@ -119,9 +124,9 @@ impl PromptSection {
     /// Create a new prompt section.
     pub fn new(
         name: impl Into<String>,
-        category: SectionCategory,
-        zone: AttentionZone,
         content: impl Into<String>,
+        zone: AttentionZone,
+        category: SectionCategory,
     ) -> Self {
         Self {
             name: name.into(),
@@ -135,9 +140,9 @@ impl PromptSection {
     /// Create a new prompt section with a source tag.
     pub fn with_source(
         name: impl Into<String>,
-        category: SectionCategory,
-        zone: AttentionZone,
         content: impl Into<String>,
+        zone: AttentionZone,
+        category: SectionCategory,
         source: impl Into<String>,
     ) -> Self {
         Self {

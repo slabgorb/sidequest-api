@@ -67,21 +67,12 @@ pub enum InventoryError {
 }
 
 /// A character's inventory — items and gold.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Inventory {
     /// Carried items.
     pub items: Vec<Item>,
     /// Gold currency.
     pub gold: i64,
-}
-
-impl Default for Inventory {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            gold: 0,
-        }
-    }
 }
 
 impl Inventory {
@@ -169,7 +160,11 @@ mod tests {
             weight: 2.5,
             rarity: NonBlankString::new("legendary").unwrap(),
             narrative_weight: 0.85,
-            tags: vec!["melee".to_string(), "blade".to_string(), "radiant".to_string()],
+            tags: vec![
+                "melee".to_string(),
+                "blade".to_string(),
+                "radiant".to_string(),
+            ],
             equipped: false,
             quantity: 1,
         }
