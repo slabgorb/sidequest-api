@@ -77,9 +77,29 @@ impl BeatFilterConfig {
         burst_limit: u32,
         burst_window: Duration,
     ) -> Option<Self> {
-        // TODO: implement validation
-        let _ = (weight_threshold, cooldown, combat_threshold, max_history, burst_limit, burst_window);
-        None
+        if weight_threshold < 0.0 || weight_threshold > 1.0 {
+            return None;
+        }
+        if combat_threshold < 0.0 || combat_threshold > 1.0 {
+            return None;
+        }
+        if combat_threshold > weight_threshold {
+            return None;
+        }
+        if max_history == 0 {
+            return None;
+        }
+        if burst_limit == 0 {
+            return None;
+        }
+        Some(Self {
+            weight_threshold,
+            cooldown,
+            combat_threshold,
+            max_history,
+            burst_limit,
+            burst_window,
+        })
     }
 
     /// Minimum narrative weight to trigger a render (normal mode).
@@ -189,10 +209,89 @@ impl BeatFilter {
     /// 3. Cooldown timer
     /// 4. Burst rate limit
     /// 5. Duplicate subject suppression
-    pub fn evaluate(&mut self, _subject: &RenderSubject, _context: &FilterContext) -> FilterDecision {
-        // TODO: implement decision logic
-        FilterDecision::Suppress {
-            reason: "not implemented".into(),
+    pub fn evaluate(&mut self, subject: &RenderSubject, context: &FilterContext) -> FilterDecision {
+        let now = Instant::now();
+
+        // 1. Force-render bypass (scene transition, player request)
+        if context.scene_transition {
+            self.record_render(now, subject);
+            return FilterDecision::Render {
+                reason: "forced: scene transition".into(),
+            };
+        }
+        if context.player_requested {
+            self.record_render(now, subject);
+            return FilterDecision::Render {
+                reason: "forced: player requested".into(),
+            };
+        }
+
+        // 2. Weight threshold (combat-aware)
+        let threshold = if context.in_combat {
+            self.config.combat_threshold
+        } else {
+            self.config.weight_threshold
+        };
+        if subject.narrative_weight() < threshold {
+            return FilterDecision::Suppress {
+                reason: format!(
+                    "weight {:.2} below threshold {:.2}",
+                    subject.narrative_weight(),
+                    threshold
+                ),
+            };
+        }
+
+        // 3. Cooldown timer
+        if self.config.cooldown > Duration::ZERO {
+            if let Some(last) = self.render_history.back() {
+                if now.duration_since(last.timestamp) < self.config.cooldown {
+                    return FilterDecision::Suppress {
+                        reason: "cooldown active".into(),
+                    };
+                }
+            }
+        }
+
+        // 4. Burst rate limit
+        let burst_count = self
+            .render_history
+            .iter()
+            .filter(|r| now.duration_since(r.timestamp) < self.config.burst_window)
+            .count() as u32;
+        if burst_count >= self.config.burst_limit {
+            return FilterDecision::Suppress {
+                reason: format!(
+                    "burst limit {} reached in window",
+                    self.config.burst_limit
+                ),
+            };
+        }
+
+        // 5. Duplicate subject suppression
+        let subject_hash = hash_subject(subject);
+        if self.render_history.iter().any(|r| r.subject_hash == subject_hash) {
+            return FilterDecision::Suppress {
+                reason: "duplicate subject in history".into(),
+            };
+        }
+
+        // All checks passed — render
+        self.record_render(now, subject);
+        FilterDecision::Render {
+            reason: format!("weight {:.2} passed threshold {:.2}", subject.narrative_weight(), threshold),
+        }
+    }
+
+    /// Record a render in history and prune if needed.
+    fn record_render(&mut self, timestamp: Instant, subject: &RenderSubject) {
+        self.render_history.push_back(RenderRecord {
+            timestamp,
+            subject_hash: hash_subject(subject),
+            narrative_weight: subject.narrative_weight(),
+        });
+        while self.render_history.len() > self.config.max_history {
+            self.render_history.pop_front();
         }
     }
 
