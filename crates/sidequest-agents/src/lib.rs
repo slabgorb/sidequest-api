@@ -9,6 +9,7 @@ pub mod agent;
 pub mod agents;
 pub mod client;
 pub mod context_builder;
+pub mod entity_reference;
 pub mod extractor;
 pub mod format_helpers;
 pub mod orchestrator;
