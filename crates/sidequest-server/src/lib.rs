@@ -1151,7 +1151,21 @@ fn dispatch_character_creation(
                         player_id,
                     );
 
-                    let mut msgs = vec![complete, ready];
+                    // Emit CHARACTER_SHEET for the UI overlay
+                    let char_sheet = GameMessage::CharacterSheet {
+                        payload: CharacterSheetPayload {
+                            name: character.core.name.as_str().to_string(),
+                            class: character.char_class.as_str().to_string(),
+                            level: character.core.level as u32,
+                            stats: character.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+                            abilities: character.hooks.clone(),
+                            backstory: character.backstory.as_str().to_string(),
+                            portrait_url: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+
+                    let mut msgs = vec![complete, char_sheet, ready];
                     msgs.extend(intro_messages);
                     msgs
                 }
