@@ -35,6 +35,7 @@ pub use inventory::{Inventory, InventoryError, Item};
 pub use narrative::NarrativeEntry;
 pub use npc::Npc;
 pub use persistence::{GameStore, PersistenceError, SaveInfo};
+pub use persistence::{PersistError, SavedSession, SessionMeta, SessionStore, SqliteStore};
 pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
 pub use session::SessionManager;
 pub use state::{ChasePatch, CombatPatch, GameSnapshot, WorldStatePatch};

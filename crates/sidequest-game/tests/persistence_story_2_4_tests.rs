@@ -91,7 +91,7 @@ fn test_snapshot() -> GameSnapshot {
         current_region: "flickering_reach".to_string(),
         discovered_regions: vec!["flickering_reach".to_string()],
         discovered_routes: vec![],
-        turn_manager: TurnManager::new(1),
+        turn_manager: TurnManager::new(),
         last_saved_at: None,
     }
 }
