@@ -6,7 +6,11 @@
 use std::collections::HashMap;
 
 use tokio::sync::mpsc;
+use tracing::{info, warn};
 
+use crate::agents::narrator::NarratorAgent;
+use crate::agent::Agent;
+use crate::client::ClaudeClient;
 use crate::turn_record::{TurnIdCounter, TurnRecord};
 
 /// Result of processing a player action through the orchestrator.
@@ -41,6 +45,10 @@ pub struct Orchestrator {
     pub watcher_tx: mpsc::Sender<TurnRecord>,
     /// Monotonically increasing turn ID counter.
     pub turn_id_counter: TurnIdCounter,
+    /// Claude CLI client for LLM invocations.
+    client: ClaudeClient,
+    /// Narrator agent for prompt generation.
+    narrator: NarratorAgent,
 }
 
 impl Orchestrator {
@@ -49,6 +57,8 @@ impl Orchestrator {
         Self {
             watcher_tx,
             turn_id_counter: TurnIdCounter::new(),
+            client: ClaudeClient::new(),
+            narrator: NarratorAgent::new(),
         }
     }
 }
@@ -59,13 +69,36 @@ impl GameService for Orchestrator {
     }
 
     fn process_action(&self, action: &str, _context: &TurnContext) -> ActionResult {
-        // Stub implementation: returns canned narration.
-        // Real agent dispatch (Claude CLI subprocess) is wired in a future story.
-        ActionResult {
-            narration: format!("The wasteland responds to your action: {}", action),
-            state_delta: Some(HashMap::new()),
-            combat_events: vec![],
-            is_degraded: false,
+        let prompt = format!(
+            "{}\n\nThe player says: {}\n\nRespond with 2-4 paragraphs of vivid narration.",
+            self.narrator.system_prompt(),
+            action,
+        );
+
+        info!(action = %action, "Invoking Claude CLI for narration");
+
+        match self.client.send(&prompt) {
+            Ok(narration) => {
+                info!(len = narration.len(), "Claude CLI returned narration");
+                ActionResult {
+                    narration,
+                    state_delta: Some(HashMap::new()),
+                    combat_events: vec![],
+                    is_degraded: false,
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, action = %action, "Claude CLI failed, returning degraded response");
+                ActionResult {
+                    narration: format!(
+                        "The world shimmers uncertainly... (narrator unavailable: {})",
+                        e
+                    ),
+                    state_delta: Some(HashMap::new()),
+                    combat_events: vec![],
+                    is_degraded: true,
+                }
+            }
         }
     }
 }

@@ -104,6 +104,7 @@ impl ClaudeClient {
         }
 
         let mut child = Command::new(&self.command_path)
+            .arg("-p")
             .arg(prompt)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
