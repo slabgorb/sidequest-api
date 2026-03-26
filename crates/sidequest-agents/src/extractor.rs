@@ -46,31 +46,45 @@ impl JsonExtractor {
     /// Extract and deserialize JSON from LLM output.
     ///
     /// Tries three tiers in order: direct parse, fence extraction, freeform search.
+    /// Emits a tracing span with extraction_tier, target_type, and success fields (story 3-1).
     pub fn extract<T: DeserializeOwned>(input: &str) -> Result<T, ExtractionError> {
         let trimmed = input.trim();
+        let target_type = std::any::type_name::<T>();
 
-        // Tier 1: Direct parse
-        if let Ok(value) = serde_json::from_str::<T>(trimmed) {
-            return Ok(value);
-        }
+        // Try all three tiers, tracking which succeeded
+        let (result, tier): (Result<T, ExtractionError>, u8) =
+            if let Ok(value) = serde_json::from_str::<T>(trimmed) {
+                (Ok(value), 1)
+            } else if let Some(fenced) = Self::extract_from_fence(trimmed) {
+                let r = serde_json::from_str::<T>(&fenced).map_err(|e| {
+                    ExtractionError::ParseFailed {
+                        raw: fenced,
+                        source: e.to_string(),
+                    }
+                });
+                (r, 2)
+            } else if let Some(found) = Self::find_json_in_text(trimmed) {
+                let r = serde_json::from_str::<T>(&found).map_err(|e| {
+                    ExtractionError::ParseFailed {
+                        raw: found,
+                        source: e.to_string(),
+                    }
+                });
+                (r, 3)
+            } else {
+                (Err(ExtractionError::NoJsonFound), 0)
+            };
 
-        // Tier 2: Markdown fence extraction
-        if let Some(fenced) = Self::extract_from_fence(trimmed) {
-            return serde_json::from_str::<T>(&fenced).map_err(|e| ExtractionError::ParseFailed {
-                raw: fenced,
-                source: e.to_string(),
-            });
-        }
+        let success = result.is_ok();
+        let span = tracing::info_span!(
+            "extract",
+            extraction_tier = tier,
+            target_type = target_type,
+            success = success,
+        );
+        let _guard = span.enter();
 
-        // Tier 3: Freeform search
-        if let Some(found) = Self::find_json_in_text(trimmed) {
-            return serde_json::from_str::<T>(&found).map_err(|e| ExtractionError::ParseFailed {
-                raw: found,
-                source: e.to_string(),
-            });
-        }
-
-        Err(ExtractionError::NoJsonFound)
+        result
     }
 
     /// Extract content from markdown code fences.
