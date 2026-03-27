@@ -121,6 +121,22 @@ pub struct AccumulatedChoices {
     pub affinity_hint: Option<String>,
     /// Accumulated background (last one wins).
     pub background: Option<String>,
+    /// Accumulated mutation hint (last one wins).
+    pub mutation_hint: Option<String>,
+    /// Accumulated training hint (last one wins).
+    pub training_hint: Option<String>,
+    /// Accumulated emotional state (last one wins).
+    pub emotional_state: Option<String>,
+    /// Accumulated relationship (last one wins).
+    pub relationship: Option<String>,
+    /// Accumulated goals (last one wins).
+    pub goals: Option<String>,
+    /// Accumulated rig type hint (vehicle genres, last one wins).
+    pub rig_type_hint: Option<String>,
+    /// Accumulated rig trait (vehicle genres, last one wins).
+    pub rig_trait: Option<String>,
+    /// Accumulated catch phrase (last one wins).
+    pub catch_phrase: Option<String>,
 }
 
 /// Errors from CharacterBuilder operations.
@@ -284,6 +300,30 @@ impl CharacterBuilder {
             }
             if let Some(ref v) = eff.item_hint {
                 acc.item_hints.push(v.clone());
+            }
+            if let Some(ref v) = eff.mutation_hint {
+                acc.mutation_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.training_hint {
+                acc.training_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.emotional_state {
+                acc.emotional_state = Some(v.clone());
+            }
+            if let Some(ref v) = eff.relationship {
+                acc.relationship = Some(v.clone());
+            }
+            if let Some(ref v) = eff.goals {
+                acc.goals = Some(v.clone());
+            }
+            if let Some(ref v) = eff.rig_type_hint {
+                acc.rig_type_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.rig_trait {
+                acc.rig_trait = Some(v.clone());
+            }
+            if let Some(ref v) = eff.catch_phrase {
+                acc.catch_phrase = Some(v.clone());
             }
         }
         acc
@@ -638,6 +678,21 @@ impl CharacterBuilder {
                         acc.personality_trait.as_deref().unwrap_or("Unknown")
                     ),
                 ];
+                if let Some(ref m) = acc.mutation_hint {
+                    parts.push(format!("Mutation: {}", m));
+                }
+                if let Some(ref a) = acc.affinity_hint {
+                    parts.push(format!("Affinity: {}", a));
+                }
+                if let Some(ref r) = acc.rig_type_hint {
+                    parts.push(format!("Rig: {}", r));
+                }
+                if let Some(ref rt) = acc.rig_trait {
+                    parts.push(format!("Rig Trait: {}", rt));
+                }
+                if !acc.item_hints.is_empty() {
+                    parts.push(format!("Equipment: {}", acc.item_hints.join(", ")));
+                }
                 if let Some(bg) = &acc.background {
                     parts.push(format!("\nBackstory: {}", bg));
                 }
