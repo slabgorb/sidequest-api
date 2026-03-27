@@ -23,10 +23,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         run_validator(watcher_rx).await;
     });
 
-    let state = AppState::new_with_game_service(
+    let save_dir = args
+        .save_dir()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".sidequest")
+                .join("saves")
+        });
+
+    let state = AppState::new_with_save_dir(
         Box::new(Orchestrator::new(watcher_tx)),
         args.genre_packs_path().to_path_buf(),
+        save_dir,
     );
+
+    // Load persisted player sessions from SQLite
+    state.load_persisted_sessions().await;
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 

@@ -300,6 +300,7 @@ struct AppStateInner {
     render_queue: Option<sidequest_game::RenderQueue>,
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
+    persistence_handle: Option<sidequest_game::PersistenceHandle>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -316,6 +317,23 @@ impl AppState {
     pub fn new_with_game_service(
         game_service: Box<dyn GameService>,
         genre_packs_path: PathBuf,
+    ) -> Self {
+        Self::new_with_options(game_service, genre_packs_path, None)
+    }
+
+    /// Create AppState with a save directory for session persistence.
+    pub fn new_with_save_dir(
+        game_service: Box<dyn GameService>,
+        genre_packs_path: PathBuf,
+        save_dir: PathBuf,
+    ) -> Self {
+        Self::new_with_options(game_service, genre_packs_path, Some(save_dir))
+    }
+
+    fn new_with_options(
+        game_service: Box<dyn GameService>,
+        genre_packs_path: PathBuf,
+        save_dir: Option<PathBuf>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
         let (watcher_tx, _) = broadcast::channel(256);
@@ -369,17 +387,67 @@ impl AppState {
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
                     sidequest_game::BeatFilterConfig::default(),
                 )),
+                persistence_handle: save_dir.map(|dir| {
+                    sidequest_game::PersistenceWorker::spawn(dir)
+                }),
             }),
         }
     }
 
-    /// Store a player session for reconnection.
+    /// Store a player session for reconnection (in-memory + SQLite).
     fn save_player_session(&self, key: String, session: PlayerSession) {
+        // Persist to SQLite if handle is available
+        if let Some(ref handle) = self.inner.persistence_handle {
+            let data = sidequest_game::PlayerSessionData {
+                key: key.clone(),
+                character_json: session.character_json.clone(),
+                character_name: session.character_name.clone(),
+                hp: session.hp,
+                max_hp: session.max_hp,
+                genre_slug: session.genre_slug.clone(),
+                world_slug: session.world_slug.clone(),
+                location: session.location.clone(),
+            };
+            let handle = handle.clone();
+            tokio::spawn(async move {
+                if let Err(e) = handle.save_player_session(&data).await {
+                    tracing::warn!(error = %e, key = %data.key, "Failed to persist player session");
+                }
+            });
+        }
         self.inner
             .saved_sessions
             .lock()
             .unwrap()
             .insert(key, session);
+    }
+
+    /// Load persisted player sessions from SQLite into the in-memory map.
+    /// Called once at server startup.
+    pub async fn load_persisted_sessions(&self) {
+        if let Some(ref handle) = self.inner.persistence_handle {
+            match handle.load_all_player_sessions().await {
+                Ok(sessions) => {
+                    let mut map = self.inner.saved_sessions.lock().unwrap();
+                    for s in sessions {
+                        tracing::info!(key = %s.key, name = %s.character_name, "Restored player session");
+                        map.insert(s.key.clone(), PlayerSession {
+                            character_json: s.character_json,
+                            character_name: s.character_name,
+                            hp: s.hp,
+                            max_hp: s.max_hp,
+                            genre_slug: s.genre_slug,
+                            world_slug: s.world_slug,
+                            location: s.location,
+                        });
+                    }
+                    tracing::info!(count = map.len(), "Player sessions loaded from SQLite");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to load persisted player sessions");
+                }
+            }
+        }
     }
 
     /// Check if a player has a saved session.
@@ -1759,15 +1827,25 @@ async fn dispatch_player_action(
         );
     }
 
-    // Audio cue — trigger mood-based music from genre pack
+    // Audio cue — derive mood from game state, trigger mood-based music from genre pack
     if !genre_slug.is_empty() {
-        tracing::info!(genre = %genre_slug, mood = "exploration", "Emitting AUDIO_CUE");
+        let location_changed = extract_location_header(narration_text).is_some();
+        let mood = if combat_state.in_combat() {
+            "combat"
+        } else if combat_state.drama_weight() > 0.7 {
+            "tension"
+        } else if location_changed {
+            "exploration"
+        } else {
+            "rest"
+        };
+        tracing::info!(genre = %genre_slug, mood = %mood, "Emitting AUDIO_CUE");
         messages.push(GameMessage::AudioCue {
             payload: AudioCuePayload {
-                mood: Some("exploration".to_string()),
+                mood: Some(mood.to_string()),
                 music_track: Some(format!(
-                    "/genre/{}/audio/music/exploration_full.ogg",
-                    genre_slug
+                    "/genre/{}/audio/music/{}_full.ogg",
+                    genre_slug, mood
                 )),
                 sfx_triggers: vec![],
             },
