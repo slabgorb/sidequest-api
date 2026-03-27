@@ -57,8 +57,11 @@ impl Default for TtsStreamConfig {
 /// A single TTS chunk ready for WebSocket delivery.
 #[derive(Debug, Clone, Serialize)]
 pub struct TtsChunkPayload {
-    /// Base64-encoded audio bytes.
+    /// Base64-encoded audio bytes (kept for backward compat).
     pub audio_base64: String,
+    /// Raw audio bytes for binary WebSocket frames.
+    #[serde(skip)]
+    pub audio_raw: Vec<u8>,
     /// Segment index in the narration.
     pub segment_index: usize,
     /// Whether this is the last chunk.
@@ -170,6 +173,7 @@ impl TtsStreamer {
                     let payload = TtsChunkPayload {
                         audio_base64: base64::engine::general_purpose::STANDARD
                             .encode(&audio_bytes),
+                        audio_raw: audio_bytes,
                         segment_index: segment.index,
                         is_last_chunk: segment.is_last,
                         speaker: segment.speaker.clone(),

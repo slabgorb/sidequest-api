@@ -286,6 +286,7 @@ struct AppStateInner {
     render_queue: Option<sidequest_game::RenderQueue>,
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
+    binary_broadcast_tx: broadcast::Sender<Vec<u8>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -305,6 +306,7 @@ impl AppState {
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
         let (watcher_tx, _) = broadcast::channel(256);
+        let (binary_broadcast_tx, _) = broadcast::channel(64);
 
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
@@ -357,6 +359,7 @@ impl AppState {
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
                     sidequest_game::BeatFilterConfig::default(),
                 )),
+                binary_broadcast_tx,
             }),
         }
     }
@@ -413,6 +416,16 @@ impl AppState {
     /// Silently ignores the error when no subscribers are connected (zero overhead).
     pub fn send_watcher_event(&self, event: WatcherEvent) {
         let _ = self.inner.watcher_tx.send(event);
+    }
+
+    /// Broadcast binary data to all connected WebSocket clients.
+    fn broadcast_binary(&self, data: Vec<u8>) {
+        let _ = self.inner.binary_broadcast_tx.send(data);
+    }
+
+    /// Subscribe to binary broadcast frames (e.g. TTS audio).
+    fn subscribe_binary(&self) -> broadcast::Receiver<Vec<u8>> {
+        self.inner.binary_broadcast_tx.subscribe()
     }
 
     /// Check if a player is currently processing an action.
@@ -791,10 +804,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
 
     // Subscribe to broadcast
     let mut broadcast_rx = state.subscribe_broadcast();
+    let mut binary_rx = state.subscribe_binary();
 
     let player_id_str = player_id.to_string();
 
-    // Writer task: reads from mpsc channel + broadcast, sends to WS
+    // Writer task: reads from mpsc channel + broadcast + binary, sends to WS
     let writer_player_id = player_id_str.clone();
     let writer_handle = tokio::spawn(async move {
         loop {
@@ -821,6 +835,19 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                     };
                     if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
                         break;
+                    }
+                }
+                result = binary_rx.recv() => {
+                    match result {
+                        Ok(bytes) => {
+                            if ws_sink.send(AxumWsMessage::Binary(bytes.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!(player_id = %writer_player_id, skipped = n, "Binary broadcast lagged");
+                        }
+                        Err(_) => break,
                     }
                 }
                 else => break,
@@ -1887,32 +1914,42 @@ async fn dispatch_player_action(
                     }
                 });
 
-                // Bridge TtsMessage → GameMessage → broadcast
+                // Bridge TtsMessage → binary frames (chunks) or GameMessage (start/end)
                 while let Some(tts_msg) = msg_rx.recv().await {
-                    let game_msg = match tts_msg {
+                    match tts_msg {
                         sidequest_game::tts_stream::TtsMessage::Start { total_segments } => {
-                            GameMessage::TtsStart {
+                            let game_msg = GameMessage::TtsStart {
                                 payload: sidequest_protocol::TtsStartPayload { total_segments },
                                 player_id: player_id_for_tts.clone(),
-                            }
+                            };
+                            let _ = state_for_tts.broadcast(game_msg);
                         }
                         sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
-                            GameMessage::TtsChunk {
-                                payload: sidequest_protocol::TtsChunkPayload {
-                                    audio_base64: chunk.audio_base64,
-                                    segment_index: chunk.segment_index,
-                                    is_last_chunk: chunk.is_last_chunk,
-                                    speaker: chunk.speaker,
-                                    format: format!("{:?}", chunk.format).to_lowercase(),
-                                },
-                                player_id: player_id_for_tts.clone(),
-                            }
+                            // Build binary voice frame: [4-byte header len][JSON header][audio bytes]
+                            let header = serde_json::json!({
+                                "type": "VOICE_AUDIO",
+                                "segment_id": format!("seg_{}", chunk.segment_index),
+                                "sample_rate": 24000,
+                                "format": format!("{:?}", chunk.format).to_lowercase()
+                            });
+                            let header_bytes = serde_json::to_vec(&header).unwrap_or_default();
+                            let audio_bytes = &chunk.audio_raw;
+                            let mut frame =
+                                Vec::with_capacity(4 + header_bytes.len() + audio_bytes.len());
+                            frame.extend_from_slice(
+                                &(header_bytes.len() as u32).to_be_bytes(),
+                            );
+                            frame.extend_from_slice(&header_bytes);
+                            frame.extend_from_slice(audio_bytes);
+                            state_for_tts.broadcast_binary(frame);
                         }
-                        sidequest_game::tts_stream::TtsMessage::End => GameMessage::TtsEnd {
-                            player_id: player_id_for_tts.clone(),
-                        },
-                    };
-                    let _ = state_for_tts.broadcast(game_msg);
+                        sidequest_game::tts_stream::TtsMessage::End => {
+                            let game_msg = GameMessage::TtsEnd {
+                                player_id: player_id_for_tts.clone(),
+                            };
+                            let _ = state_for_tts.broadcast(game_msg);
+                        }
+                    }
                 }
 
                 let _ = stream_handle.await;
