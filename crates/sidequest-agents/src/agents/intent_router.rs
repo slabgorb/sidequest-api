@@ -3,8 +3,9 @@
 //! ADR-010: Intent-based agent routing. An LLM classifier routes each player
 //! input to a specialist agent based on intent and current game state.
 //!
-//! ADR-032: Two-tier intent classification. Haiku classifier with narrator
-//! ambiguity resolution replaces keyword substring matching.
+//! ADR-032: Haiku classifier with narrator ambiguity resolution.
+//! When Haiku is unavailable, the narrator handles intent resolution
+//! directly — no keyword fallback.
 
 use crate::client::ClaudeClient;
 use crate::context_builder::ContextBuilder;
@@ -59,8 +60,8 @@ pub enum ClassificationSource {
     Haiku,
     /// State override — fast path (in_combat, in_chase).
     StateOverride,
-    /// Keyword fallback — degraded mode when Haiku is unavailable.
-    KeywordFallback,
+    /// Haiku was unavailable — narrator will resolve intent directly.
+    HaikuUnavailable,
 }
 
 impl std::fmt::Display for ClassificationSource {
@@ -68,7 +69,7 @@ impl std::fmt::Display for ClassificationSource {
         match self {
             ClassificationSource::Haiku => write!(f, "Haiku"),
             ClassificationSource::StateOverride => write!(f, "StateOverride"),
-            ClassificationSource::KeywordFallback => write!(f, "KeywordFallback"),
+            ClassificationSource::HaikuUnavailable => write!(f, "HaikuUnavailable"),
         }
     }
 }
@@ -96,26 +97,25 @@ impl IntentRoute {
         }
     }
 
-    /// Create a route for a given intent (keyword fallback path).
-    /// Confidence is 1.0 for direct matches, used by existing callers.
+    /// Create a route for a given intent with full confidence.
     pub fn for_intent(intent: Intent) -> Self {
         Self {
             agent_name: Self::agent_for(intent).to_string(),
             intent,
             confidence: 1.0,
             candidates: vec![],
-            source: ClassificationSource::KeywordFallback,
+            source: ClassificationSource::Haiku,
         }
     }
 
-    /// Fallback route — defaults to Narrator with lower confidence (ADR-010).
-    pub fn fallback() -> Self {
+    /// Narrator fallback — Haiku is down, let the narrator sort it out.
+    pub fn narrator_fallback() -> Self {
         Self {
             agent_name: "narrator".to_string(),
             intent: Intent::Exploration,
-            confidence: 0.5,
+            confidence: 0.0,
             candidates: vec![],
-            source: ClassificationSource::KeywordFallback,
+            source: ClassificationSource::HaikuUnavailable,
         }
     }
 
@@ -284,28 +284,18 @@ impl IntentClassifier for HaikuClassifier {
                     None => {
                         tracing::warn!(
                             raw_response = %raw,
-                            "Haiku classifier returned unparseable response, falling back to keywords"
+                            "Haiku returned unparseable response, routing to narrator"
                         );
-                        IntentRoute::with_classification(
-                            Intent::Exploration,
-                            0.0,
-                            vec![],
-                            ClassificationSource::KeywordFallback,
-                        )
+                        IntentRoute::narrator_fallback()
                     }
                 }
             }
             Err(e) => {
                 tracing::warn!(
                     error = %e,
-                    "Haiku classifier failed, falling back to keywords"
+                    "Haiku classifier unavailable, routing to narrator"
                 );
-                IntentRoute::with_classification(
-                    Intent::Exploration,
-                    0.0,
-                    vec![],
-                    ClassificationSource::KeywordFallback,
-                )
+                IntentRoute::narrator_fallback()
             }
         }
     }
@@ -323,215 +313,23 @@ impl IntentRouter {
         Self { classifier }
     }
 
-    /// Classify player input using keyword matching only (no LLM call).
-    ///
-    /// This is the synchronous fast path / degraded fallback (ADR-032).
-    /// Emits a tracing span with semantic fields for agent telemetry (story 3-1).
-    pub fn classify_keywords(input: &str) -> IntentRoute {
-        let route = Self::classify_keywords_inner(input);
-        let is_fallback = route.agent_name() == "narrator"
-            && route.intent() == Intent::Exploration
-            && !Self::has_word(&input.to_lowercase(), "look")
-            && !Self::has_word(&input.to_lowercase(), "go")
-            && !Self::has_word(&input.to_lowercase(), "explore");
-
-        let intent_str = format!("{:?}", route.intent());
-        let span = tracing::info_span!(
-            "classify_keywords",
-            player_input = %input,
-            classified_intent = %intent_str,
-            agent_routed_to = %route.agent_name(),
-            confidence = route.confidence(),
-            fallback_used = is_fallback,
-            source = %route.source(),
-        );
-        let _guard = span.enter();
-
-        // Also record via deferred pattern for telemetry consumers that
-        // observe Span::record() events (story 3-1 AC: deferred fields).
-        span.record("classified_intent", &tracing::field::display(&intent_str));
-        span.record("agent_routed_to", &route.agent_name());
-
-        route
-    }
-
-    /// Check if a word appears as a whole word in text (not as a substring).
-    fn has_word(text: &str, word: &str) -> bool {
-        // For multi-word phrases, use contains (they're specific enough)
-        if word.contains(' ') {
-            return text.contains(word);
-        }
-        // For single words, check word boundaries
-        for candidate in text.split(|c: char| !c.is_alphanumeric() && c != '\'') {
-            if candidate == word {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Inner keyword classification logic (no tracing).
-    fn classify_keywords_inner(input: &str) -> IntentRoute {
-        let lower = input.to_lowercase();
-
-        // Combat keywords — physical violence, weapon use, ability activation
-        let combat_words = [
-            "attack",
-            "slash",
-            "strike",
-            "cast",
-            "shoot",
-            "defend",
-            "stab",
-            "fight",
-            "hit",
-            "swing",
-            "parry",
-            "block",
-            "spell",
-            "lunge",
-            "grab",
-            "throw",
-            "punch",
-            "kick",
-            "shove",
-            "disarm",
-            "dodge",
-            "wrestle",
-            "draw my sword",
-            "draw my weapon",
-            "charge",
-            "tackle",
-            "bite",
-            "claw",
-            "smash",
-            "bash",
-            "cleave",
-            "fire at",
-            "aim",
-            "snipe",
-            "ambush",
-            "grapple",
-            "choke",
-            "headbutt",
-        ];
-        if combat_words.iter().any(|w| Self::has_word(&lower, w)) {
-            return IntentRoute::for_intent(Intent::Combat);
-        }
-
-        // Dialogue keywords — conversation, persuasion, social manipulation
-        let dialogue_words = [
-            "talk",
-            "tell",
-            "ask",
-            "say",
-            "speak",
-            "greet",
-            "persuade",
-            "negotiate",
-            "threaten",
-            "lie",
-            "bluff",
-            "convince",
-            "bribe",
-            "intimidate",
-            "charm",
-            "flatter",
-            "demand",
-            "whisper",
-            "shout",
-            "call out",
-            "haggle",
-            "barter",
-            "confess",
-            "accuse",
-            "apologize",
-            "plead",
-            "taunt",
-        ];
-        if dialogue_words.iter().any(|w| Self::has_word(&lower, w)) {
-            return IntentRoute::for_intent(Intent::Dialogue);
-        }
-
-        // Exploration keywords
-        let explore_words = [
-            "look", "go", "move", "walk", "enter", "explore", "search", "open", "travel",
-        ];
-        if explore_words.iter().any(|w| Self::has_word(&lower, w)) {
-            return IntentRoute::for_intent(Intent::Exploration);
-        }
-
-        // Examine keywords
-        let examine_words = ["examine", "inspect", "study", "read", "check"];
-        if examine_words.iter().any(|w| Self::has_word(&lower, w)) {
-            return IntentRoute::for_intent(Intent::Examine);
-        }
-
-        // Meta keywords
-        let meta_words = ["save", "help", "status", "inventory", "quit"];
-        if meta_words.iter().any(|w| Self::has_word(&lower, w)) {
-            return IntentRoute::for_intent(Intent::Meta);
-        }
-
-        // Default fallback: Exploration with lower confidence
-        IntentRoute::fallback()
-    }
-
-    /// Classify with state override — active combat/chase forces intent regardless of input.
-    /// Emits a tracing span with semantic fields for agent telemetry (story 3-1).
-    pub fn classify_with_state(input: &str, ctx: &crate::orchestrator::TurnContext) -> IntentRoute {
-        // Compute route first
-        let route = if ctx.in_chase {
-            IntentRoute::with_classification(
-                Intent::Chase,
-                1.0,
-                vec![],
-                ClassificationSource::StateOverride,
-            )
-        } else if ctx.in_combat {
-            IntentRoute::with_classification(
-                Intent::Combat,
-                1.0,
-                vec![],
-                ClassificationSource::StateOverride,
-            )
-        } else {
-            Self::classify_keywords_inner(input)
-        };
-
-        let intent_str = format!("{:?}", route.intent());
-        let span = tracing::info_span!(
-            "classify_with_state",
-            player_input = %input,
-            classified_intent = %intent_str,
-            agent_routed_to = %route.agent_name(),
-            state_override = ctx.in_combat || ctx.in_chase,
-            source = %route.source(),
-            confidence = route.confidence(),
-        );
-        let _guard = span.enter();
-
-        route
-    }
-
-    /// Classify using the real Haiku classifier wired into this router.
+    /// Classify using the Haiku classifier wired into this router.
     ///
     /// This is the production entry point — called from the orchestrator's turn loop.
     pub fn classify(&self, input: &str, ctx: &crate::orchestrator::TurnContext) -> IntentRoute {
-        Self::classify_two_tier(input, ctx, &self.classifier)
+        Self::classify_with_classifier(input, ctx, &self.classifier)
     }
 
-    /// Two-tier classification pipeline (ADR-032).
+    /// Classification pipeline (ADR-032).
     ///
     /// 1. State override (in_combat/in_chase) → immediate dispatch
-    /// 2. Haiku classifier → if high confidence, dispatch; if ambiguous, return for narrator folding
-    /// 3. Keyword fallback if classifier returns KeywordFallback source
-    pub fn classify_two_tier(
+    /// 2. Haiku classifier → dispatch on result; narrator handles failures
+    pub fn classify_with_classifier(
         input: &str,
         ctx: &crate::orchestrator::TurnContext,
         classifier: &dyn IntentClassifier,
     ) -> IntentRoute {
-        // Fast path: state overrides bypass everything
+        // Fast path: state overrides bypass classification
         if ctx.in_chase {
             let route = IntentRoute::with_classification(
                 Intent::Chase,
@@ -539,7 +337,7 @@ impl IntentRouter {
                 vec![],
                 ClassificationSource::StateOverride,
             );
-            Self::emit_two_tier_span(input, &route, false);
+            Self::emit_span(input, &route);
             return route;
         }
         if ctx.in_combat {
@@ -549,42 +347,27 @@ impl IntentRouter {
                 vec![],
                 ClassificationSource::StateOverride,
             );
-            Self::emit_two_tier_span(input, &route, false);
+            Self::emit_span(input, &route);
             return route;
         }
 
-        // Tier 1: Haiku classifier
+        // Haiku classifier — narrator handles failures
         let route = classifier.classify(input, ctx);
-
-        // If the classifier returned a KeywordFallback source, it failed —
-        // use our own keyword matching
-        if route.source() == ClassificationSource::KeywordFallback {
-            tracing::warn!(
-                player_input = %input,
-                "Haiku classifier degraded, falling back to keyword matching"
-            );
-            let fallback = Self::classify_keywords_inner(input);
-            Self::emit_two_tier_span(input, &fallback, true);
-            return fallback;
-        }
-
-        // Return the Haiku result (high confidence or ambiguous)
-        Self::emit_two_tier_span(input, &route, false);
+        Self::emit_span(input, &route);
         route
     }
 
-    /// Emit a tracing span for the two-tier classification pipeline.
-    fn emit_two_tier_span(input: &str, route: &IntentRoute, haiku_degraded: bool) {
+    /// Emit a tracing span for classification.
+    fn emit_span(input: &str, route: &IntentRoute) {
         let intent_str = format!("{:?}", route.intent());
         let _span = tracing::info_span!(
-            "classify_two_tier",
+            "classify_intent",
             player_input = %input,
             classified_intent = %intent_str,
             agent_routed_to = %route.agent_name(),
             source = %route.source(),
             confidence = route.confidence(),
             is_ambiguous = route.is_ambiguous(),
-            haiku_degraded = haiku_degraded,
         )
         .entered();
     }

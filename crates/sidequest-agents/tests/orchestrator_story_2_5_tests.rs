@@ -1,126 +1,80 @@
 //! Story 2-5: Orchestrator turn loop tests
 //!
-//! RED phase — these tests reference types and methods that don't exist yet.
-//! They will fail to compile until Dev implements:
-//!   - IntentRouter::classify() keyword-based routing
-//!   - Intent::Chase variant
-//!   - Orchestrator::process_turn() full turn loop
-//!   - TurnResult struct (narration + delta + combat + is_degraded)
+//! Tests verify:
+//!   - Intent routing table (Intent → agent name)
+//!   - State overrides (in_combat/in_chase force intent)
+//!   - TurnResult structure
+//!   - Patch extraction
+//!   - Graceful degradation
 //!   - AgentKind enum
-//!   - Streaming via mpsc channel
-//!   - Patch extraction and application
-//!   - Graceful degradation (timeout → fallback)
-//!   - Auto-save integration
-//!
-//! ACs tested: all 16
 
 use std::collections::HashMap;
 
-// === New/extended types from story 2-5 ===
-use sidequest_agents::agents::intent_router::{ClassificationSource, Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::intent_router::{ClassificationSource, Intent, IntentRoute, IntentRouter, IntentClassifier};
 use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
 use sidequest_game::tension_tracker::DeliveryMode;
 
 // ============================================================================
-// AC-2: Intent routing — combat
+// Mock classifier for testing state overrides
+// ============================================================================
+
+struct MockClassifier {
+    intent: Intent,
+    confidence: f64,
+}
+
+impl IntentClassifier for MockClassifier {
+    fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+        IntentRoute::with_classification(
+            self.intent,
+            self.confidence,
+            vec![],
+            ClassificationSource::Haiku,
+        )
+    }
+}
+
+// ============================================================================
+// AC-2/3/4: Intent routing table — Intent → agent name
 // ============================================================================
 
 #[test]
-fn classify_attack_as_combat() {
-    let route = IntentRouter::classify_keywords("I attack the goblin");
+fn combat_routes_to_creature_smith() {
+    let route = IntentRoute::for_intent(Intent::Combat);
     assert_eq!(route.intent(), Intent::Combat);
     assert_eq!(route.agent_name(), "creature_smith");
 }
 
 #[test]
-fn classify_slash_as_combat() {
-    let route = IntentRouter::classify_keywords("slash the orc with my sword");
-    assert_eq!(route.intent(), Intent::Combat);
-}
-
-#[test]
-fn classify_cast_spell_as_combat() {
-    let route = IntentRouter::classify_keywords("cast fireball at the dragon");
-    assert_eq!(route.intent(), Intent::Combat);
-}
-
-// ============================================================================
-// AC-3: Intent routing — dialogue
-// ============================================================================
-
-#[test]
-fn classify_talk_as_dialogue() {
-    let route = IntentRouter::classify_keywords("talk to the innkeeper");
+fn dialogue_routes_to_ensemble() {
+    let route = IntentRoute::for_intent(Intent::Dialogue);
     assert_eq!(route.intent(), Intent::Dialogue);
     assert_eq!(route.agent_name(), "ensemble");
 }
 
 #[test]
-fn classify_tell_with_target() {
-    let route = IntentRouter::classify_keywords("tell luna hello");
-    assert_eq!(route.intent(), Intent::Dialogue);
-}
-
-#[test]
-fn classify_ask_as_dialogue() {
-    let route = IntentRouter::classify_keywords("ask the merchant about the map");
-    assert_eq!(route.intent(), Intent::Dialogue);
-}
-
-// ============================================================================
-// AC-4: Intent routing — exploration
-// ============================================================================
-
-#[test]
-fn classify_look_around_as_exploration() {
-    let route = IntentRouter::classify_keywords("I look around the room");
+fn exploration_routes_to_narrator() {
+    let route = IntentRoute::for_intent(Intent::Exploration);
     assert_eq!(route.intent(), Intent::Exploration);
     assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
-fn classify_go_as_exploration() {
-    let route = IntentRouter::classify_keywords("go north through the door");
-    assert_eq!(route.intent(), Intent::Exploration);
+fn examine_routes_to_narrator() {
+    let route = IntentRoute::for_intent(Intent::Examine);
+    assert_eq!(route.agent_name(), "narrator");
 }
 
-// ============================================================================
-// AC-5: Intent fallback — unknown input defaults to Exploration
-// ============================================================================
-
 #[test]
-fn classify_unknown_input_falls_back_to_exploration() {
-    let route = IntentRouter::classify_keywords("hmm interesting");
-    assert_eq!(
-        route.intent(),
-        Intent::Exploration,
-        "Unknown input should default to Exploration"
-    );
+fn meta_routes_to_narrator() {
+    let route = IntentRoute::for_intent(Intent::Meta);
+    assert_eq!(route.agent_name(), "narrator");
 }
 
-// ============================================================================
-// AC-6: Keyword matching — combat keywords detected without LLM
-// ============================================================================
-
 #[test]
-fn keyword_matching_combat_words() {
-    let combat_inputs = [
-        "attack",
-        "slash",
-        "cast spell",
-        "shoot an arrow",
-        "defend myself",
-        "strike the beast",
-    ];
-    for input in &combat_inputs {
-        let route = IntentRouter::classify_keywords(input);
-        assert_eq!(
-            route.intent(),
-            Intent::Combat,
-            "\"{}\" should be classified as Combat",
-            input
-        );
-    }
+fn chase_routes_to_dialectician() {
+    let route = IntentRoute::for_intent(Intent::Chase);
+    assert_eq!(route.agent_name(), "dialectician");
 }
 
 // ============================================================================
@@ -128,16 +82,18 @@ fn keyword_matching_combat_words() {
 // ============================================================================
 
 #[test]
-fn chase_state_overrides_keywords() {
-    let mut state_flags = TurnContext::default();
-    state_flags.in_chase = true;
+fn chase_state_overrides_classification() {
+    let mock = MockClassifier { intent: Intent::Exploration, confidence: 0.9 };
+    let mut ctx = TurnContext::default();
+    ctx.in_chase = true;
 
-    let route = IntentRouter::classify_with_state("I look around", &state_flags);
+    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &mock);
     assert_eq!(
         route.intent(),
         Intent::Chase,
-        "Active chase should override keyword classification"
+        "Active chase should override classifier"
     );
+    assert_eq!(route.source(), ClassificationSource::StateOverride);
 }
 
 // ============================================================================
@@ -145,31 +101,44 @@ fn chase_state_overrides_keywords() {
 // ============================================================================
 
 #[test]
-fn combat_state_overrides_keywords() {
-    let mut state_flags = TurnContext::default();
-    state_flags.in_combat = true;
+fn combat_state_overrides_classification() {
+    let mock = MockClassifier { intent: Intent::Exploration, confidence: 0.9 };
+    let mut ctx = TurnContext::default();
+    ctx.in_combat = true;
 
-    let route = IntentRouter::classify_with_state("I look around", &state_flags);
+    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &mock);
     assert_eq!(
         route.intent(),
         Intent::Combat,
-        "Active combat should override keyword classification"
+        "Active combat should override classifier"
     );
+    assert_eq!(route.source(), ClassificationSource::StateOverride);
 }
 
 // ============================================================================
-// AC-16: No router side effects — classify is pure
+// AC-5: Narrator fallback when Haiku is unavailable
+// ============================================================================
+
+#[test]
+fn narrator_fallback_has_zero_confidence() {
+    let route = IntentRoute::narrator_fallback();
+    assert_eq!(route.agent_name(), "narrator");
+    assert_eq!(route.intent(), Intent::Exploration);
+    assert_eq!(route.confidence(), 0.0);
+    assert_eq!(route.source(), ClassificationSource::HaikuUnavailable);
+}
+
+// ============================================================================
+// AC-16: Classification does not mutate context
 // ============================================================================
 
 #[test]
 fn classify_does_not_mutate_context() {
-    let state_flags = TurnContext::default();
-    let _route1 = IntentRouter::classify_with_state("attack", &state_flags);
-    let _route2 = IntentRouter::classify_with_state("look around", &state_flags);
-    // If classify mutated state_flags, we'd see different results
-    // This test verifies the function takes &TurnContext (immutable reference)
-    assert!(!state_flags.in_combat, "classify must not mutate state");
-    assert!(!state_flags.in_chase, "classify must not mutate state");
+    let mock = MockClassifier { intent: Intent::Combat, confidence: 0.9 };
+    let ctx = TurnContext::default();
+    let _route = IntentRouter::classify_with_classifier("attack", &ctx, &mock);
+    assert!(!ctx.in_combat, "classify must not mutate state");
+    assert!(!ctx.in_chase, "classify must not mutate state");
 }
 
 // ============================================================================
@@ -185,7 +154,7 @@ fn turn_result_has_required_fields() {
         is_degraded: false,
         agent_used: AgentKind::CreatureSmith,
         delivery_mode: DeliveryMode::Instant,
-        classification_source: ClassificationSource::KeywordFallback,
+        classification_source: ClassificationSource::Haiku,
     };
 
     assert_eq!(result.narration, "The goblin falls.");
@@ -206,21 +175,15 @@ fn degraded_turn_result_marked() {
         is_degraded: true,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
-        classification_source: ClassificationSource::KeywordFallback,
+        classification_source: ClassificationSource::HaikuUnavailable,
     };
 
-    assert!(
-        result.is_degraded,
-        "Degraded result should have is_degraded=true"
-    );
-    assert!(
-        !result.narration.is_empty(),
-        "Degraded result should still have fallback narration"
-    );
+    assert!(result.is_degraded);
+    assert!(!result.narration.is_empty());
 }
 
 // ============================================================================
-// AgentKind enum — typed agent selection
+// AgentKind enum
 // ============================================================================
 
 #[test]
@@ -239,7 +202,6 @@ fn agent_kind_variants_exist() {
 
 #[test]
 fn agent_kind_is_non_exhaustive() {
-    // Verify the enum exists with expected variants
     let kind = AgentKind::Narrator;
     assert_eq!(format!("{:?}", kind), "Narrator");
 }
@@ -260,7 +222,7 @@ fn turn_result_carries_state_delta() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
-        classification_source: ClassificationSource::KeywordFallback,
+        classification_source: ClassificationSource::Haiku,
     };
 
     assert!(result.state_delta.is_some());
@@ -269,7 +231,7 @@ fn turn_result_carries_state_delta() {
 }
 
 // ============================================================================
-// AC-12: Combat patch extraction
+// Patch extraction
 // ============================================================================
 
 #[test]
@@ -289,10 +251,6 @@ fn extract_combat_patch_from_response() {
     assert!(patch.unwrap().advance_round);
 }
 
-// ============================================================================
-// AC-13: Chase patch extraction
-// ============================================================================
-
 #[test]
 fn extract_chase_patch_from_response() {
     use sidequest_agents::extractor::JsonExtractor;
@@ -310,33 +268,7 @@ fn extract_chase_patch_from_response() {
 }
 
 // ============================================================================
-// Intent::Chase variant exists
-// ============================================================================
-
-#[test]
-fn intent_chase_variant_exists() {
-    let _chase = Intent::Chase;
-    let route = IntentRoute::for_intent(Intent::Chase);
-    assert_eq!(
-        route.agent_name(),
-        "dialectician",
-        "Chase intent should route to dialectician"
-    );
-}
-
-// ============================================================================
-// TurnContext — state flags for routing
-// ============================================================================
-
-#[test]
-fn turn_context_default_is_peaceful() {
-    let ctx = TurnContext::default();
-    assert!(!ctx.in_combat, "Default context should not be in combat");
-    assert!(!ctx.in_chase, "Default context should not be in chase");
-}
-
-// ============================================================================
-// IntentRoute covers all intent variants
+// Routing table completeness
 // ============================================================================
 
 #[test]
@@ -360,19 +292,23 @@ fn all_intents_have_routes() {
     }
 }
 
+#[test]
+fn turn_context_default_is_peaceful() {
+    let ctx = TurnContext::default();
+    assert!(!ctx.in_combat);
+    assert!(!ctx.in_chase);
+}
+
 // ============================================================================
-// Rust lang-review rule enforcement
+// Rule #2: non_exhaustive
 // ============================================================================
 
-// Rule #2: #[non_exhaustive] on AgentKind
 #[test]
 fn agent_kind_enum_is_non_exhaustive() {
-    // If this compiles, the enum exists. non_exhaustive verified by gate.
     let _n = AgentKind::Narrator;
     let _c = AgentKind::CreatureSmith;
 }
 
-// Rule #2: Intent::Chase is part of non_exhaustive enum
 #[test]
 fn intent_enum_has_chase() {
     let _chase = Intent::Chase;
