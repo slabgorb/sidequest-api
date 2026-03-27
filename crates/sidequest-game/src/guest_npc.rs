@@ -2,8 +2,6 @@
 //!
 //! Story 8-7: Players can join a session as an existing NPC with restricted
 //! action set. The narrator treats guest-controlled NPCs as semi-autonomous.
-//!
-//! **Stub module** — types compile but methods are unimplemented (RED phase).
 
 use std::collections::HashSet;
 
@@ -27,20 +25,30 @@ pub enum PlayerRole {
 
 impl PlayerRole {
     /// Check if this role permits a given action category.
-    pub fn can_perform(&self, _action: &ActionCategory) -> bool {
-        todo!("8-7: implement action permission check")
+    pub fn can_perform(&self, action: &ActionCategory) -> bool {
+        match self {
+            PlayerRole::Full => true,
+            PlayerRole::GuestNpc { allowed_actions, .. } => allowed_actions.contains(action),
+            _ => false,
+        }
     }
 
     /// Default set of allowed actions for guest NPC players.
     ///
     /// Returns {Dialogue, Movement, Examine} per story context AC-3.
     pub fn default_guest_actions() -> HashSet<ActionCategory> {
-        todo!("8-7: implement default guest actions")
+        [
+            ActionCategory::Dialogue,
+            ActionCategory::Movement,
+            ActionCategory::Examine,
+        ]
+        .into_iter()
+        .collect()
     }
 
     /// Whether this role is a guest NPC (not a full player).
     pub fn is_guest(&self) -> bool {
-        todo!("8-7: implement is_guest check")
+        matches!(self, PlayerRole::GuestNpc { .. })
     }
 }
 
@@ -94,7 +102,13 @@ impl NarratorTag {
 
     /// Render the tag as a prompt string for the narrator.
     pub fn to_prompt_string(&self) -> String {
-        todo!("8-7: implement narrator prompt tag")
+        format!(
+            "[GUEST NPC: {} — controlled by a guest player.\n \
+             Treat their dialogue as in-character but maintain NPC behavioral consistency.\n \
+             You may adjust or redirect their actions if they conflict with NPC personality.\n \
+             This character is semi-autonomous.]",
+            self.npc_name
+        )
     }
 }
 
@@ -141,8 +155,14 @@ impl GuestNpcContext {
     }
 
     /// Validate that an action is permitted for this guest.
-    pub fn validate_action(&self, _action: &ActionCategory) -> Result<(), ActionError> {
-        todo!("8-7: implement action validation")
+    pub fn validate_action(&self, action: &ActionCategory) -> Result<(), ActionError> {
+        if self.role.can_perform(action) {
+            Ok(())
+        } else {
+            Err(ActionError::RestrictedAction {
+                category: *action,
+            })
+        }
     }
 
     /// Generate the narrator tag for this guest NPC.
@@ -155,17 +175,22 @@ impl GuestNpcContext {
     /// Guest NPCs see from the NPC's perspective (motives, secrets),
     /// while protagonist players see only visible NPC behavior.
     pub fn perception_mode_inverted(&self) -> bool {
-        todo!("8-7: implement inverted perception check")
+        true
     }
 
     /// Description of the guest NPC's perception mode for prompt composition.
     pub fn perception_description(&self) -> String {
-        todo!("8-7: implement perception description")
+        format!(
+            "Inverted NPC perception: {} sees from the NPC's perspective, \
+             including hidden motive and internal state. \
+             Protagonist players see only visible NPC behavior.",
+            self.npc_name
+        )
     }
 
     /// List available NPCs that a guest could control.
     pub fn available_npcs(npc_names: &[String]) -> Vec<String> {
-        todo!("8-7: implement available NPC listing")
+        npc_names.to_vec()
     }
 
     /// Merge guest input with AI disposition using weighted average.
@@ -173,6 +198,7 @@ impl GuestNpcContext {
     /// `guest_weight` is clamped to [0.0, 1.0]. The AI weight is `1.0 - guest_weight`.
     /// Returns the merged disposition value as an integer.
     pub fn merge_disposition(guest_input: i32, ai_disposition: i32, guest_weight: f64) -> i32 {
-        todo!("8-7: implement disposition merging")
+        let w = guest_weight.clamp(0.0, 1.0);
+        (w * guest_input as f64 + (1.0 - w) * ai_disposition as f64).round() as i32
     }
 }
