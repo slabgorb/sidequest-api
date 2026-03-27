@@ -600,9 +600,8 @@ fn empty_input_classifies_without_panic() {
     let classifier = MockClassifier::high_confidence(Intent::Exploration);
     let ctx = TurnContext::default();
     let route = IntentRouter::classify_two_tier("", &ctx, &classifier);
-    // Should not panic — graceful handling of empty input
-    let _ = route.intent();
-    let _ = route.confidence();
+    assert_eq!(route.intent(), Intent::Exploration);
+    assert!(route.confidence() >= 0.0);
 }
 
 #[test]
@@ -611,5 +610,5 @@ fn very_long_input_classifies_without_panic() {
     let classifier = MockClassifier::high_confidence(Intent::Combat);
     let ctx = TurnContext::default();
     let route = IntentRouter::classify_two_tier(&long_input, &ctx, &classifier);
-    let _ = route.intent();
+    assert_eq!(route.intent(), Intent::Combat);
 }

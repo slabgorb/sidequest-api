@@ -183,16 +183,129 @@ pub trait IntentClassifier {
     fn classify(&self, input: &str, context: &crate::orchestrator::TurnContext) -> IntentRoute;
 }
 
+/// Haiku LLM classifier — calls `claude -p --model haiku` to classify player actions (ADR-032).
+pub struct HaikuClassifier {
+    client: ClaudeClient,
+}
+
+impl HaikuClassifier {
+    /// Create a new Haiku classifier with the given Claude client.
+    pub fn new(client: ClaudeClient) -> Self {
+        Self { client }
+    }
+
+    /// Build the classification prompt per ADR-032.
+    fn build_prompt(input: &str, context: &crate::orchestrator::TurnContext) -> String {
+        let state_context = context
+            .state_summary
+            .as_deref()
+            .unwrap_or("No scene context available.");
+
+        format!(
+            "You classify player actions in a tabletop RPG.\n\
+             Given the player's action and current scene context, return a JSON object:\n\
+             {{ \"intent\": \"<Combat|Dialogue|Exploration|Examine|Meta|Chase>\",\n\
+               \"confidence\": <0.0-1.0>,\n\
+               \"candidates\": [\"<intent>\", ...] }}\n\n\
+             If the action clearly maps to one intent, return confidence >= 0.8.\n\
+             If the action is ambiguous (could be multiple intents), return\n\
+               intent set to your best guess, confidence < 0.5, and list the top candidates.\n\n\
+             Scene context: {state_context}\n\n\
+             Player action: {input}\n\n\
+             Return ONLY the JSON object, no other text."
+        )
+    }
+
+    /// Parse the JSON response from Haiku into an IntentRoute.
+    fn parse_response(raw: &str) -> Option<IntentRoute> {
+        let value: serde_json::Value = serde_json::from_str(raw.trim()).ok()?;
+
+        let intent_str = value.get("intent")?.as_str()?;
+        let intent = match intent_str {
+            "Combat" => Intent::Combat,
+            "Dialogue" => Intent::Dialogue,
+            "Exploration" => Intent::Exploration,
+            "Examine" => Intent::Examine,
+            "Meta" => Intent::Meta,
+            "Chase" => Intent::Chase,
+            _ => return None,
+        };
+
+        let confidence = value.get("confidence")?.as_f64()?;
+        let confidence = confidence.clamp(0.0, 1.0);
+
+        let candidates: Vec<Intent> = value
+            .get("candidates")
+            .and_then(|c| c.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str())
+                    .filter_map(|s| match s {
+                        "Combat" => Some(Intent::Combat),
+                        "Dialogue" => Some(Intent::Dialogue),
+                        "Exploration" => Some(Intent::Exploration),
+                        "Examine" => Some(Intent::Examine),
+                        "Meta" => Some(Intent::Meta),
+                        "Chase" => Some(Intent::Chase),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        IntentRoute::try_with_classification(intent, confidence, candidates, ClassificationSource::Haiku).ok()
+    }
+}
+
+impl IntentClassifier for HaikuClassifier {
+    fn classify(&self, input: &str, context: &crate::orchestrator::TurnContext) -> IntentRoute {
+        let prompt = Self::build_prompt(input, context);
+
+        match self.client.send_with_model(&prompt, "haiku") {
+            Ok(raw) => {
+                match Self::parse_response(&raw) {
+                    Some(route) => route,
+                    None => {
+                        tracing::warn!(
+                            raw_response = %raw,
+                            "Haiku classifier returned unparseable response, falling back to keywords"
+                        );
+                        IntentRoute::with_classification(
+                            Intent::Exploration,
+                            0.0,
+                            vec![],
+                            ClassificationSource::KeywordFallback,
+                        )
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Haiku classifier failed, falling back to keywords"
+                );
+                IntentRoute::with_classification(
+                    Intent::Exploration,
+                    0.0,
+                    vec![],
+                    ClassificationSource::KeywordFallback,
+                )
+            }
+        }
+    }
+}
+
 /// Routes player input to the appropriate agent via LLM classification.
 pub struct IntentRouter {
-    #[allow(dead_code)]
     client: ClaudeClient,
+    classifier: HaikuClassifier,
 }
 
 impl IntentRouter {
     /// Create a new intent router with a Claude client.
     pub fn new(client: ClaudeClient) -> Self {
-        Self { client }
+        let classifier = HaikuClassifier::new(client.clone());
+        Self { client, classifier }
     }
 
     /// Classify player input using keyword matching only (no LLM call).
@@ -386,6 +499,13 @@ impl IntentRouter {
         route
     }
 
+    /// Classify using the real Haiku classifier wired into this router.
+    ///
+    /// This is the production entry point — called from the orchestrator's turn loop.
+    pub fn classify(&self, input: &str, ctx: &crate::orchestrator::TurnContext) -> IntentRoute {
+        Self::classify_two_tier(input, ctx, &self.classifier)
+    }
+
     /// Two-tier classification pipeline (ADR-032).
     ///
     /// 1. State override (in_combat/in_chase) → immediate dispatch
@@ -398,20 +518,24 @@ impl IntentRouter {
     ) -> IntentRoute {
         // Fast path: state overrides bypass everything
         if ctx.in_chase {
-            return IntentRoute::with_classification(
+            let route = IntentRoute::with_classification(
                 Intent::Chase,
                 1.0,
                 vec![],
                 ClassificationSource::StateOverride,
             );
+            Self::emit_two_tier_span(input, &route, false);
+            return route;
         }
         if ctx.in_combat {
-            return IntentRoute::with_classification(
+            let route = IntentRoute::with_classification(
                 Intent::Combat,
                 1.0,
                 vec![],
                 ClassificationSource::StateOverride,
             );
+            Self::emit_two_tier_span(input, &route, false);
+            return route;
         }
 
         // Tier 1: Haiku classifier
@@ -420,11 +544,34 @@ impl IntentRouter {
         // If the classifier returned a KeywordFallback source, it failed —
         // use our own keyword matching
         if route.source() == ClassificationSource::KeywordFallback {
-            return Self::classify_keywords_inner(input);
+            tracing::warn!(
+                player_input = %input,
+                "Haiku classifier degraded, falling back to keyword matching"
+            );
+            let fallback = Self::classify_keywords_inner(input);
+            Self::emit_two_tier_span(input, &fallback, true);
+            return fallback;
         }
 
         // Return the Haiku result (high confidence or ambiguous)
+        Self::emit_two_tier_span(input, &route, false);
         route
+    }
+
+    /// Emit a tracing span for the two-tier classification pipeline.
+    fn emit_two_tier_span(input: &str, route: &IntentRoute, haiku_degraded: bool) {
+        let intent_str = format!("{:?}", route.intent());
+        let _span = tracing::info_span!(
+            "classify_two_tier",
+            player_input = %input,
+            classified_intent = %intent_str,
+            agent_routed_to = %route.agent_name(),
+            source = %route.source(),
+            confidence = route.confidence(),
+            is_ambiguous = route.is_ambiguous(),
+            haiku_degraded = haiku_degraded,
+        )
+        .entered();
     }
 
     /// Add ambiguity context to the narrator prompt when classification is ambiguous (ADR-032).
@@ -432,7 +579,7 @@ impl IntentRouter {
     /// When Haiku returns low confidence, the candidates are folded into the narrator's
     /// prompt so it can resolve the ambiguity with full scene context.
     pub fn add_ambiguity_context(builder: &mut ContextBuilder, route: &IntentRoute) {
-        if !route.is_ambiguous() {
+        if !route.is_ambiguous() || route.candidates().is_empty() {
             return;
         }
 

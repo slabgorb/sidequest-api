@@ -91,6 +91,95 @@ impl ClaudeClient {
 }
 
 impl ClaudeClient {
+    /// Execute a synchronous subprocess call with a specific model.
+    ///
+    /// Passes `--model <model>` before `-p <prompt>`. Returns stdout on success.
+    pub fn send_with_model(
+        &self,
+        prompt: &str,
+        model: &str,
+    ) -> Result<String, ClaudeClientError> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+        use std::time::Instant;
+
+        if prompt.trim().is_empty() {
+            return Err(ClaudeClientError::EmptyResponse);
+        }
+
+        let mut child = Command::new(&self.command_path)
+            .arg("--model")
+            .arg(model)
+            .arg("-p")
+            .arg(prompt)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| {
+                tracing::error!(command = %self.command_path, model = %model, error = %e, "Failed to spawn subprocess");
+                ClaudeClientError::SubprocessFailed {
+                    exit_code: None,
+                    stderr: e.to_string(),
+                }
+            })?;
+
+        let start = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let mut stdout = String::new();
+                    let mut stderr = String::new();
+                    if let Some(mut out) = child.stdout.take() {
+                        out.read_to_string(&mut stdout).map_err(|e| {
+                            ClaudeClientError::SubprocessFailed {
+                                exit_code: status.code(),
+                                stderr: format!("stdout read error: {e}"),
+                            }
+                        })?;
+                    }
+                    if let Some(mut err) = child.stderr.take() {
+                        err.read_to_string(&mut stderr).map_err(|e| {
+                            ClaudeClientError::SubprocessFailed {
+                                exit_code: status.code(),
+                                stderr: format!("stderr read error: {e}"),
+                            }
+                        })?;
+                    }
+
+                    if !status.success() {
+                        return Err(ClaudeClientError::SubprocessFailed {
+                            exit_code: status.code(),
+                            stderr,
+                        });
+                    }
+
+                    let trimmed = stdout.trim().to_string();
+                    if trimmed.is_empty() {
+                        return Err(ClaudeClientError::EmptyResponse);
+                    }
+                    return Ok(trimmed);
+                }
+                Ok(None) => {
+                    if start.elapsed() > self.timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        let elapsed = start.elapsed();
+                        tracing::warn!(timeout = ?self.timeout, ?elapsed, model = %model, "Claude CLI subprocess timed out");
+                        return Err(ClaudeClientError::Timeout { elapsed });
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Failed to check subprocess status");
+                    return Err(ClaudeClientError::SubprocessFailed {
+                        exit_code: None,
+                        stderr: e.to_string(),
+                    });
+                }
+            }
+        }
+    }
+
     /// Execute a synchronous subprocess call with the configured command and timeout.
     ///
     /// Passes the prompt as a single argument. Returns stdout on success.
