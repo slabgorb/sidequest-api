@@ -1124,6 +1124,7 @@ async fn dispatch_message(
                 player_id,
                 session.genre_slug().unwrap_or(""),
                 session.world_slug().unwrap_or(""),
+                player_name_store.as_deref().unwrap_or("Player"),
             )
             .await
         }
@@ -1161,8 +1162,8 @@ async fn dispatch_connect(
     let world = payload.world.as_deref().unwrap_or("");
     let pname = payload.player_name.as_deref().unwrap_or("Player");
 
-    // Check for returning player — load from SQLite
-    let returning = state.persistence().exists(genre, world).await;
+    // Check for returning player — load from SQLite (now keyed by player name)
+    let returning = state.persistence().exists(genre, world, pname).await;
 
     match session.handle_connect(genre, world, pname) {
         Ok(mut connected_msg) => {
@@ -1170,8 +1171,8 @@ async fn dispatch_connect(
             *player_name_store = Some(pname.to_string());
 
             if returning {
-                // Returning player — load snapshot from SQLite
-                match state.persistence().load(genre, world).await {
+                // Returning player — load snapshot from SQLite (keyed by player name)
+                match state.persistence().load(genre, world, pname).await {
                     Ok(Some(saved)) => {
                         if let GameMessage::SessionEvent {
                             ref mut payload, ..
@@ -1593,9 +1594,10 @@ async fn dispatch_character_creation(
                     *character_max_hp = character.core.max_hp;
                     *character_json_store = Some(char_json.clone());
 
-                    // Save to SQLite for reconnection across restarts
+                    // Save to SQLite for reconnection across restarts (keyed by player)
                     let genre = session.genre_slug().unwrap_or("").to_string();
                     let world = session.world_slug().unwrap_or("").to_string();
+                    let pname_for_save = player_name_store.as_deref().unwrap_or("Player").to_string();
                     let snapshot = sidequest_game::GameSnapshot {
                         genre_slug: genre.clone(),
                         world_slug: world.clone(),
@@ -1603,8 +1605,8 @@ async fn dispatch_character_creation(
                         location: "Starting area".to_string(),
                         ..Default::default()
                     };
-                    if let Err(e) = state.persistence().save(&genre, &world, &snapshot).await {
-                        tracing::warn!(error = %e, genre = %genre, world = %world, "Failed to persist initial session");
+                    if let Err(e) = state.persistence().save(&genre, &world, &pname_for_save, &snapshot).await {
+                        tracing::warn!(error = %e, genre = %genre, world = %world, player = %pname_for_save, "Failed to persist initial session");
                     }
 
                     // Transition session to Playing
@@ -1666,6 +1668,7 @@ async fn dispatch_character_creation(
                         player_id,
                         &genre,
                         &world,
+                        &pname_for_save,
                     )
                     .await;
 
@@ -1730,6 +1733,7 @@ async fn dispatch_player_action(
     player_id: &str,
     genre_slug: &str,
     world_slug: &str,
+    player_name_for_save: &str,
 ) -> Vec<GameMessage> {
     // Watcher: action received
     state.send_watcher_event(WatcherEvent {
@@ -2451,7 +2455,7 @@ async fn dispatch_player_action(
     if !genre_slug.is_empty() && !world_slug.is_empty() {
         let location = extract_location_header(narration_text)
             .unwrap_or_else(|| "Starting area".to_string());
-        match state.persistence().load(genre_slug, world_slug).await {
+        match state.persistence().load(genre_slug, world_slug, player_name_for_save).await {
             Ok(Some(saved)) => {
                 let mut snapshot = saved.snapshot;
                 snapshot.location = location;
@@ -2463,7 +2467,7 @@ async fn dispatch_player_action(
                     content: clean_narration.clone(),
                     tags: vec![],
                 });
-                if let Err(e) = state.persistence().save(genre_slug, world_slug, &snapshot).await {
+                if let Err(e) = state.persistence().save(genre_slug, world_slug, player_name_for_save, &snapshot).await {
                     tracing::warn!(error = %e, "Failed to persist updated game state");
                 }
             }

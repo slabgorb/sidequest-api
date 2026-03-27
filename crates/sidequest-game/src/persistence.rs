@@ -328,6 +328,8 @@ pub enum PersistenceCommand {
         genre_slug: String,
         /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
         /// The game state to persist.
         snapshot: GameSnapshot,
         /// Reply channel.
@@ -339,6 +341,8 @@ pub enum PersistenceCommand {
         genre_slug: String,
         /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
         /// Reply channel.
         reply: oneshot::Sender<Result<Option<SavedSession>, PersistError>>,
     },
@@ -348,6 +352,8 @@ pub enum PersistenceCommand {
         genre_slug: String,
         /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
         /// The narrative entry to append.
         entry: NarrativeEntry,
         /// Reply channel.
@@ -359,6 +365,8 @@ pub enum PersistenceCommand {
         genre_slug: String,
         /// World slug for the session.
         world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
         /// Reply channel.
         reply: oneshot::Sender<bool>,
     },
@@ -380,13 +388,14 @@ pub struct PersistenceHandle {
 }
 
 impl PersistenceHandle {
-    /// Save a game snapshot for a genre/world session.
-    #[tracing::instrument(skip(self, snapshot), fields(genre = %genre_slug, world = %world_slug))]
-    pub async fn save(&self, genre_slug: &str, world_slug: &str, snapshot: &GameSnapshot) -> Result<(), PersistError> {
+    /// Save a game snapshot for a genre/world/player session.
+    #[tracing::instrument(skip(self, snapshot), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn save(&self, genre_slug: &str, world_slug: &str, player_name: &str, snapshot: &GameSnapshot) -> Result<(), PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx.send(PersistenceCommand::Save {
             genre_slug: genre_slug.to_string(),
             world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
             snapshot: snapshot.clone(),
             reply: reply_tx,
         }).await.map_err(|_| PersistError::WorkerGone)?;
@@ -394,37 +403,40 @@ impl PersistenceHandle {
     }
 
     /// Load a saved session, or None if no save exists.
-    #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug))]
-    pub async fn load(&self, genre_slug: &str, world_slug: &str) -> Result<Option<SavedSession>, PersistError> {
+    #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn load(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<Option<SavedSession>, PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx.send(PersistenceCommand::Load {
             genre_slug: genre_slug.to_string(),
             world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
             reply: reply_tx,
         }).await.map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
     /// Append a narrative entry to a session's log.
-    #[tracing::instrument(skip(self, entry), fields(genre = %genre_slug, world = %world_slug))]
-    pub async fn append_narrative(&self, genre_slug: &str, world_slug: &str, entry: &NarrativeEntry) -> Result<(), PersistError> {
+    #[tracing::instrument(skip(self, entry), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn append_narrative(&self, genre_slug: &str, world_slug: &str, player_name: &str, entry: &NarrativeEntry) -> Result<(), PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx.send(PersistenceCommand::AppendNarrative {
             genre_slug: genre_slug.to_string(),
             world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
             entry: entry.clone(),
             reply: reply_tx,
         }).await.map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
-    /// Check if a save exists on disk for a genre/world pair.
-    #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug))]
-    pub async fn exists(&self, genre_slug: &str, world_slug: &str) -> bool {
+    /// Check if a save exists on disk for a genre/world/player triple.
+    #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn exists(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> bool {
         let (reply_tx, reply_rx) = oneshot::channel();
         let sent = self.tx.send(PersistenceCommand::Exists {
             genre_slug: genre_slug.to_string(),
             world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
             reply: reply_tx,
         }).await;
         if sent.is_err() { return false; }
@@ -498,18 +510,24 @@ impl PersistenceWorker {
         tracing::info!("Persistence worker stopped");
     }
 
-    fn store_key(genre_slug: &str, world_slug: &str) -> String {
-        format!("{}/{}", genre_slug, world_slug)
+    fn store_key(genre_slug: &str, world_slug: &str, player_name: &str) -> String {
+        format!("{}/{}/{}", genre_slug, world_slug, player_name)
     }
 
-    fn db_path(&self, genre_slug: &str, world_slug: &str) -> PathBuf {
-        self.save_dir.join(genre_slug).join(world_slug).join("save.db")
+    fn db_path(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> PathBuf {
+        // Sanitize player_name for filesystem safety
+        let safe_name: String = player_name
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect();
+        let safe_name = if safe_name.is_empty() { "default".to_string() } else { safe_name.to_lowercase() };
+        self.save_dir.join(genre_slug).join(world_slug).join(&safe_name).join("save.db")
     }
 
-    fn get_or_open_store(&mut self, genre_slug: &str, world_slug: &str) -> Result<&SqliteStore, PersistError> {
-        let key = Self::store_key(genre_slug, world_slug);
+    fn get_or_open_store(&mut self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<&SqliteStore, PersistError> {
+        let key = Self::store_key(genre_slug, world_slug, player_name);
         if !self.stores.contains_key(&key) {
-            let db_path = self.db_path(genre_slug, world_slug);
+            let db_path = self.db_path(genre_slug, world_slug, player_name);
             if let Some(parent) = db_path.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| PersistError::Database(format!("mkdir failed: {}", e)))?;
@@ -524,18 +542,18 @@ impl PersistenceWorker {
 
     fn handle_command(&mut self, cmd: PersistenceCommand) {
         match cmd {
-            PersistenceCommand::Save { genre_slug, world_slug, snapshot, reply } => {
-                let _span = tracing::info_span!("persistence_save", genre = %genre_slug, world = %world_slug).entered();
-                let result = self.get_or_open_store(&genre_slug, &world_slug).and_then(|store| store.save(&snapshot));
+            PersistenceCommand::Save { genre_slug, world_slug, player_name, snapshot, reply } => {
+                let _span = tracing::info_span!("persistence_save", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.save(&snapshot));
                 match &result {
                     Ok(()) => tracing::info!("Session saved"),
                     Err(e) => tracing::warn!(error = %e, "Save failed"),
                 }
                 let _ = reply.send(result);
             }
-            PersistenceCommand::Load { genre_slug, world_slug, reply } => {
-                let _span = tracing::info_span!("persistence_load", genre = %genre_slug, world = %world_slug).entered();
-                let result = self.get_or_open_store(&genre_slug, &world_slug).and_then(|store| store.load());
+            PersistenceCommand::Load { genre_slug, world_slug, player_name, reply } => {
+                let _span = tracing::info_span!("persistence_load", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.load());
                 match &result {
                     Ok(Some(_)) => tracing::info!("Session loaded"),
                     Ok(None) => tracing::debug!("No saved session found"),
@@ -543,14 +561,14 @@ impl PersistenceWorker {
                 }
                 let _ = reply.send(result);
             }
-            PersistenceCommand::AppendNarrative { genre_slug, world_slug, entry, reply } => {
-                let result = self.get_or_open_store(&genre_slug, &world_slug).and_then(|store| store.append_narrative(&entry));
+            PersistenceCommand::AppendNarrative { genre_slug, world_slug, player_name, entry, reply } => {
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.append_narrative(&entry));
                 let _ = reply.send(result);
             }
-            PersistenceCommand::Exists { genre_slug, world_slug, reply } => {
-                let db_path = self.db_path(&genre_slug, &world_slug);
+            PersistenceCommand::Exists { genre_slug, world_slug, player_name, reply } => {
+                let db_path = self.db_path(&genre_slug, &world_slug, &player_name);
                 let exists = db_path.exists();
-                tracing::debug!(genre = %genre_slug, world = %world_slug, exists, "Checking save");
+                tracing::debug!(genre = %genre_slug, world = %world_slug, player = %player_name, exists, "Checking save");
                 let _ = reply.send(exists);
             }
             PersistenceCommand::ListSaves { reply } => {
