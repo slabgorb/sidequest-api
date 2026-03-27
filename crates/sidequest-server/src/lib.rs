@@ -255,20 +255,8 @@ impl ServerError {
 }
 
 // ---------------------------------------------------------------------------
-// PlayerSession — stored for reconnection
+// Session key helper
 // ---------------------------------------------------------------------------
-
-/// Saved player session state, keyed by "player_name:genre:world".
-/// Enables reconnection: a returning player skips character creation.
-struct PlayerSession {
-    character_json: serde_json::Value,
-    character_name: String,
-    hp: i32,
-    max_hp: i32,
-    genre_slug: String,
-    world_slug: String,
-    location: String,
-}
 
 fn session_key(player_name: &str, genre: &str, world: &str) -> String {
     format!("{}:{}:{}", player_name, genre, world)
@@ -292,15 +280,11 @@ struct AppStateInner {
     connections: Mutex<HashMap<PlayerId, mpsc::Sender<GameMessage>>>,
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
-    saved_sessions: Mutex<HashMap<String, PlayerSession>>,
     watcher_tx: broadcast::Sender<WatcherEvent>,
-    // GameStore removed — rusqlite::Connection is not Send+Sync.
-    // Save/load will use a dedicated async task with its own connection.
-    // TODO: spawn persistence worker task with mpsc channel
+    persistence: sidequest_game::PersistenceHandle,
     render_queue: Option<sidequest_game::RenderQueue>,
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
-    persistence_handle: Option<sidequest_game::PersistenceHandle>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -312,28 +296,11 @@ impl fmt::Debug for AppStateInner {
 }
 
 impl AppState {
-    /// Create AppState with a specific GameService implementation.
-    /// This is the facade pattern — the server depends on the trait, not the impl.
+    /// Create AppState with a GameService and a save directory for persistence.
     pub fn new_with_game_service(
         game_service: Box<dyn GameService>,
         genre_packs_path: PathBuf,
-    ) -> Self {
-        Self::new_with_options(game_service, genre_packs_path, None)
-    }
-
-    /// Create AppState with a save directory for session persistence.
-    pub fn new_with_save_dir(
-        game_service: Box<dyn GameService>,
-        genre_packs_path: PathBuf,
         save_dir: PathBuf,
-    ) -> Self {
-        Self::new_with_options(game_service, genre_packs_path, Some(save_dir))
-    }
-
-    fn new_with_options(
-        game_service: Box<dyn GameService>,
-        genre_packs_path: PathBuf,
-        save_dir: Option<PathBuf>,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
         let (watcher_tx, _) = broadcast::channel(256);
@@ -373,6 +340,8 @@ impl AppState {
             },
         );
 
+        let persistence = sidequest_game::PersistenceWorker::spawn(save_dir);
+
         Self {
             inner: Arc::new(AppStateInner {
                 game_service,
@@ -380,79 +349,20 @@ impl AppState {
                 connections: Mutex::new(HashMap::new()),
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
-                saved_sessions: Mutex::new(HashMap::new()),
                 watcher_tx,
+                persistence,
                 render_queue: Some(render_queue),
                 subject_extractor: sidequest_game::SubjectExtractor::new(),
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
                     sidequest_game::BeatFilterConfig::default(),
                 )),
-                persistence_handle: save_dir.map(|dir| {
-                    sidequest_game::PersistenceWorker::spawn(dir)
-                }),
             }),
         }
     }
 
-    /// Store a player session for reconnection (in-memory + SQLite).
-    fn save_player_session(&self, key: String, session: PlayerSession) {
-        // Persist to SQLite if handle is available
-        if let Some(ref handle) = self.inner.persistence_handle {
-            let data = sidequest_game::PlayerSessionData {
-                key: key.clone(),
-                character_json: session.character_json.clone(),
-                character_name: session.character_name.clone(),
-                hp: session.hp,
-                max_hp: session.max_hp,
-                genre_slug: session.genre_slug.clone(),
-                world_slug: session.world_slug.clone(),
-                location: session.location.clone(),
-            };
-            let handle = handle.clone();
-            tokio::spawn(async move {
-                if let Err(e) = handle.save_player_session(&data).await {
-                    tracing::warn!(error = %e, key = %data.key, "Failed to persist player session");
-                }
-            });
-        }
-        self.inner
-            .saved_sessions
-            .lock()
-            .unwrap()
-            .insert(key, session);
-    }
-
-    /// Load persisted player sessions from SQLite into the in-memory map.
-    /// Called once at server startup.
-    pub async fn load_persisted_sessions(&self) {
-        if let Some(ref handle) = self.inner.persistence_handle {
-            match handle.load_all_player_sessions().await {
-                Ok(sessions) => {
-                    let mut map = self.inner.saved_sessions.lock().unwrap();
-                    for s in sessions {
-                        tracing::info!(key = %s.key, name = %s.character_name, "Restored player session");
-                        map.insert(s.key.clone(), PlayerSession {
-                            character_json: s.character_json,
-                            character_name: s.character_name,
-                            hp: s.hp,
-                            max_hp: s.max_hp,
-                            genre_slug: s.genre_slug,
-                            world_slug: s.world_slug,
-                            location: s.location,
-                        });
-                    }
-                    tracing::info!(count = map.len(), "Player sessions loaded from SQLite");
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to load persisted player sessions");
-                }
-            }
-        }
-    }
-
-    /// Check if a player has a saved session.
-    fn has_saved_session(&self, key: &str) -> bool {
-        self.inner.saved_sessions.lock().unwrap().contains_key(key)
+    /// Get the persistence handle for save/load operations.
+    pub fn persistence(&self) -> &sidequest_game::PersistenceHandle {
+        &self.inner.persistence
     }
 
     /// Get the game service reference.
@@ -1016,6 +926,7 @@ async fn dispatch_message(
                 state,
                 player_id,
             )
+            .await
         }
         GameMessage::CharacterCreation { payload, .. } => {
             if !session.is_creating() {
@@ -1073,7 +984,7 @@ async fn dispatch_message(
 
 /// Handle SESSION_EVENT{connect}.
 #[allow(clippy::too_many_arguments)]
-fn dispatch_connect(
+async fn dispatch_connect(
     payload: &SessionEventPayload,
     session: &mut Session,
     builder: &mut Option<CharacterBuilder>,
@@ -1091,9 +1002,8 @@ fn dispatch_connect(
     let world = payload.world.as_deref().unwrap_or("");
     let pname = payload.player_name.as_deref().unwrap_or("Player");
 
-    // Check for returning player
-    let key = session_key(pname, genre, world);
-    let returning = state.has_saved_session(&key);
+    // Check for returning player — load from SQLite
+    let returning = state.persistence().exists(genre, world).await;
 
     match session.handle_connect(genre, world, pname) {
         Ok(mut connected_msg) => {
@@ -1101,54 +1011,88 @@ fn dispatch_connect(
             *player_name_store = Some(pname.to_string());
 
             if returning {
-                // Returning player — set has_character=true and send ready with initial_state
-                if let GameMessage::SessionEvent {
-                    ref mut payload, ..
-                } = connected_msg
-                {
-                    payload.has_character = Some(true);
-                }
-                responses.push(connected_msg);
+                // Returning player — load snapshot from SQLite
+                match state.persistence().load(genre, world).await {
+                    Ok(Some(saved)) => {
+                        if let GameMessage::SessionEvent {
+                            ref mut payload, ..
+                        } = connected_msg
+                        {
+                            payload.has_character = Some(true);
+                        }
+                        responses.push(connected_msg);
 
-                // Build initial_state from saved session
-                let sessions = state.inner.saved_sessions.lock().unwrap();
-                if let Some(saved) = sessions.get(&key) {
-                    *character_json_store = Some(saved.character_json.clone());
-                    *character_name_store = Some(saved.character_name.clone());
-                    *character_hp = saved.hp;
-                    *character_max_hp = saved.max_hp;
+                        // Extract character data from saved snapshot
+                        if let Some(character) = saved.snapshot.characters.first() {
+                            *character_json_store =
+                                Some(serde_json::to_value(character).unwrap_or_default());
+                            *character_name_store =
+                                Some(character.core.name.as_str().to_string());
+                            *character_hp = character.core.hp;
+                            *character_max_hp = character.core.max_hp;
+                        }
 
-                    // Transition session to Playing
-                    let _ = session.complete_character_creation();
+                        // Transition session to Playing
+                        let _ = session.complete_character_creation();
 
-                    let ready = GameMessage::SessionEvent {
-                        payload: SessionEventPayload {
-                            event: "ready".to_string(),
-                            player_name: None,
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: Some(InitialState {
-                                characters: vec![CharacterState {
-                                    name: saved.character_name.clone(),
-                                    hp: saved.hp,
-                                    max_hp: saved.max_hp,
-                                    statuses: vec![],
-                                    inventory: vec![],
-                                }],
-                                location: saved.location.clone(),
-                                quests: std::collections::HashMap::new(),
-                            }),
-                        },
-                        player_id: player_id.to_string(),
-                    };
-                    responses.push(ready);
+                        let ready = GameMessage::SessionEvent {
+                            payload: SessionEventPayload {
+                                event: "ready".to_string(),
+                                player_name: None,
+                                genre: None,
+                                world: None,
+                                has_character: None,
+                                initial_state: Some(InitialState {
+                                    characters: saved
+                                        .snapshot
+                                        .characters
+                                        .iter()
+                                        .map(|c| CharacterState {
+                                            name: c.core.name.as_str().to_string(),
+                                            hp: c.core.hp,
+                                            max_hp: c.core.max_hp,
+                                            statuses: vec![],
+                                            inventory: vec![],
+                                        })
+                                        .collect(),
+                                    location: saved.snapshot.location.clone(),
+                                    quests: saved.snapshot.quest_log.clone(),
+                                }),
+                            },
+                            player_id: player_id.to_string(),
+                        };
+                        responses.push(ready);
+
+                        tracing::info!(
+                            player = %pname,
+                            genre = %genre,
+                            world = %world,
+                            "Player reconnected from saved session"
+                        );
+                    }
+                    Ok(None) => {
+                        // Save file exists but no game state — treat as new player
+                        tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
+                        responses.push(connected_msg);
+                        if let Some(scene_msg) = start_character_creation(
+                            builder, trope_defs, world_context, genre, world, state, player_id,
+                        ) {
+                            responses.push(scene_msg);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
+                        responses.push(connected_msg);
+                        if let Some(scene_msg) = start_character_creation(
+                            builder, trope_defs, world_context, genre, world, state, player_id,
+                        ) {
+                            responses.push(scene_msg);
+                        }
+                    }
                 }
             } else {
                 // New player — send connected, then start character creation
                 responses.push(connected_msg);
-
-                // Load genre pack and create character builder
                 if let Some(scene_msg) = start_character_creation(
                     builder,
                     trope_defs,
@@ -1356,22 +1300,19 @@ async fn dispatch_character_creation(
                     *character_max_hp = character.core.max_hp;
                     *character_json_store = Some(char_json.clone());
 
-                    // Save for reconnection
+                    // Save to SQLite for reconnection across restarts
                     let genre = session.genre_slug().unwrap_or("").to_string();
                     let world = session.world_slug().unwrap_or("").to_string();
-                    let key = session_key(pname, &genre, &world);
-                    state.save_player_session(
-                        key,
-                        PlayerSession {
-                            character_json: char_json.clone(),
-                            character_name: character.core.name.as_str().to_string(),
-                            hp: character.core.hp,
-                            max_hp: character.core.max_hp,
-                            genre_slug: genre.clone(),
-                            world_slug: world,
-                            location: "Starting area".to_string(),
-                        },
-                    );
+                    let snapshot = sidequest_game::GameSnapshot {
+                        genre_slug: genre.clone(),
+                        world_slug: world.clone(),
+                        characters: vec![character.clone()],
+                        location: "Starting area".to_string(),
+                        ..Default::default()
+                    };
+                    if let Err(e) = state.persistence().save(&genre, &world, &snapshot).await {
+                        tracing::warn!(error = %e, genre = %genre, world = %world, "Failed to persist initial session");
+                    }
 
                     // Transition session to Playing
                     let _ = session.complete_character_creation();
@@ -1986,5 +1927,9 @@ pub fn test_app_state() -> AppState {
 
     let (watcher_tx, _watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
-    AppState::new_with_game_service(Box::new(Orchestrator::new(watcher_tx)), genre_packs_path)
+    // Use a unique temp directory per test_app_state call to avoid cross-test contamination
+    let save_dir = std::env::temp_dir()
+        .join("sidequest-test-saves")
+        .join(format!("{}-{}", std::process::id(), uuid::Uuid::new_v4()));
+    AppState::new_with_game_service(Box::new(Orchestrator::new(watcher_tx)), genre_packs_path, save_dir)
 }

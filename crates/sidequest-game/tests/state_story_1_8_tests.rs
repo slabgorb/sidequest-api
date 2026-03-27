@@ -26,8 +26,7 @@ use sidequest_protocol::NonBlankString;
 
 // === New types from story 1-8 ===
 use sidequest_game::delta::{compute_delta, snapshot};
-use sidequest_game::persistence::GameStore;
-use sidequest_game::session::{SaveInfo, SessionManager};
+use sidequest_game::{SessionStore, SqliteStore};
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::state::{ChasePatch, CombatPatch, WorldStatePatch};
 
@@ -408,48 +407,34 @@ fn turn_manager_rejects_duplicate_input_same_round() {
 }
 
 // ============================================================================
-// AC 4: Persistence round-trip — save to rusqlite, load back, assert equality
+// AC 4: Persistence round-trip — save via SessionStore, load back
 // ============================================================================
 
 #[test]
 fn persistence_save_and_load_roundtrip() {
-    let store = GameStore::in_memory().expect("create in-memory store");
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
+    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
     let snap = test_snapshot();
 
-    let save_id = store.save(&snap).expect("save snapshot");
-    let loaded = store.load(save_id).expect("load snapshot");
+    store.save(&snap).expect("save snapshot");
+    let loaded = store.load().expect("load").expect("should have saved session");
 
-    assert_eq!(loaded.genre_slug, snap.genre_slug);
-    assert_eq!(loaded.world_slug, snap.world_slug);
-    assert_eq!(loaded.characters.len(), snap.characters.len());
-    assert_eq!(loaded.characters[0].core.name.as_str(), "Thorn Ironhide");
-    assert_eq!(loaded.location, snap.location);
-    assert_eq!(loaded.quest_log, snap.quest_log);
-    assert_eq!(loaded.atmosphere, snap.atmosphere);
-    assert_eq!(loaded.current_region, snap.current_region);
-    assert_eq!(loaded.discovered_regions, snap.discovered_regions);
+    assert_eq!(loaded.snapshot.genre_slug, snap.genre_slug);
+    assert_eq!(loaded.snapshot.world_slug, snap.world_slug);
+    assert_eq!(loaded.snapshot.characters.len(), snap.characters.len());
+    assert_eq!(loaded.snapshot.characters[0].core.name.as_str(), "Thorn Ironhide");
+    assert_eq!(loaded.snapshot.location, snap.location);
+    assert_eq!(loaded.snapshot.quest_log, snap.quest_log);
+    assert_eq!(loaded.snapshot.atmosphere, snap.atmosphere);
+    assert_eq!(loaded.snapshot.current_region, snap.current_region);
+    assert_eq!(loaded.snapshot.discovered_regions, snap.discovered_regions);
 }
 
 #[test]
-fn persistence_list_saves_returns_all() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-
-    let snap1 = test_snapshot();
-    let mut snap2 = test_snapshot();
-    snap2.world_slug = "toxic_marshes".to_string();
-
-    store.save(&snap1).expect("save 1");
-    store.save(&snap2).expect("save 2");
-
-    let saves = store.list_saves().expect("list saves");
-    assert_eq!(saves.len(), 2, "should have 2 saves");
-}
-
-#[test]
-fn persistence_load_nonexistent_returns_error() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let result = store.load(999);
-    assert!(result.is_err(), "loading nonexistent save should error");
+fn persistence_load_empty_returns_none() {
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
+    let result = store.load().expect("load should not error");
+    assert!(result.is_none(), "empty store should return None");
 }
 
 // ============================================================================
@@ -458,141 +443,94 @@ fn persistence_load_nonexistent_returns_error() {
 
 #[test]
 fn narrative_log_append_and_retrieve_in_order() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let snap = test_snapshot();
-    let save_id = store.save(&snap).expect("save snapshot");
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
 
-    // Append entries
     store
-        .append_narrative(save_id, &test_narrative_entry(1, "You enter the inn."))
+        .append_narrative(&test_narrative_entry(1, "You enter the inn."))
         .expect("append entry 1");
     store
-        .append_narrative(save_id, &test_narrative_entry(2, "The innkeeper looks up."))
+        .append_narrative(&test_narrative_entry(2, "The innkeeper looks up."))
         .expect("append entry 2");
     store
-        .append_narrative(save_id, &test_narrative_entry(3, "Combat begins!"))
+        .append_narrative(&test_narrative_entry(3, "Combat begins!"))
         .expect("append entry 3");
 
-    // Load back
-    let entries = store.load_narrative(save_id).expect("load narrative");
+    let entries = store.recent_narrative(10).expect("load narrative");
     assert_eq!(entries.len(), 3);
     assert_eq!(entries[0].content, "You enter the inn.");
     assert_eq!(entries[1].content, "The innkeeper looks up.");
     assert_eq!(entries[2].content, "Combat begins!");
-    // Verify ordering: round numbers should be monotonically increasing
     assert!(entries[0].round < entries[1].round);
     assert!(entries[1].round < entries[2].round);
 }
 
 #[test]
-fn narrative_log_empty_for_new_save() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let snap = test_snapshot();
-    let save_id = store.save(&snap).expect("save snapshot");
-
-    let entries = store.load_narrative(save_id).expect("load narrative");
-    assert!(
-        entries.is_empty(),
-        "new save should have empty narrative log"
-    );
+fn narrative_log_empty_for_new_store() {
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
+    let entries = store.recent_narrative(10).expect("load narrative");
+    assert!(entries.is_empty(), "new store should have empty narrative log");
 }
 
 // ============================================================================
-// AC 6: Auto-save atomic — interrupted save preserves previous valid state
+// AC 6: Save overwrites — singleton table, second save replaces first
 // ============================================================================
 
 #[test]
-fn auto_save_preserves_previous_on_failure() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-
-    // Save initial valid state
+fn save_overwrites_previous_state() {
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
+    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
     let snap = test_snapshot();
-    let save_id = store.save(&snap).expect("save initial");
+    store.save(&snap).expect("save initial");
 
-    // Attempt to save a second version — simulate what auto-save does
+    // Save a second version — singleton table overwrites
     let mut snap2 = test_snapshot();
     snap2.location = "Updated location".to_string();
-    store.auto_save(save_id, &snap2).expect("auto-save");
+    store.save(&snap2).expect("save again");
 
-    // Load back — should have the updated version
-    let loaded = store.load(save_id).expect("load after auto-save");
-    assert_eq!(loaded.location, "Updated location");
+    // Load back — should have the updated version (singleton overwrite)
+    let loaded = store.load().expect("load").expect("session");
+    assert_eq!(loaded.snapshot.location, "Updated location");
 }
-
-#[test]
-fn auto_save_is_atomic_via_transaction() {
-    // This test verifies that auto_save uses SQLite transactions.
-    // The auto_save method should BEGIN/COMMIT, so a partial write
-    // doesn't corrupt the saved state.
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let snap = test_snapshot();
-    let save_id = store.save(&snap).expect("save initial");
-
-    // Verify auto_save method exists and works
-    let mut updated = test_snapshot();
-    updated.atmosphere = "serene".to_string();
-    store
-        .auto_save(save_id, &updated)
-        .expect("auto-save should use transaction");
-
-    let loaded = store.load(save_id).expect("load after atomic auto-save");
-    assert_eq!(loaded.atmosphere, "serene");
-}
-
-// ============================================================================
-// AC 7: last_saved_at — UTC timestamp set on every save
-// ============================================================================
 
 #[test]
 fn last_saved_at_set_on_save() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let mut snap = test_snapshot();
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
+    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    let snap = test_snapshot();
     assert!(snap.last_saved_at.is_none(), "new snapshot has no saved_at");
 
     let before_save = Utc::now();
-    let save_id = store.save(&snap).expect("save snapshot");
+    store.save(&snap).expect("save snapshot");
     let after_save = Utc::now();
 
-    let loaded = store.load(save_id).expect("load snapshot");
+    let loaded = store.load().expect("load").expect("should have session");
     let saved_at = loaded
+        .snapshot
         .last_saved_at
         .expect("last_saved_at should be set after save");
 
-    assert!(
-        saved_at >= before_save,
-        "saved_at should be >= time before save"
-    );
-    assert!(
-        saved_at <= after_save,
-        "saved_at should be <= time after save"
-    );
+    assert!(saved_at >= before_save, "saved_at should be >= time before save");
+    assert!(saved_at <= after_save, "saved_at should be <= time after save");
 }
 
 #[test]
-fn last_saved_at_updated_on_auto_save() {
-    let store = GameStore::in_memory().expect("create in-memory store");
+fn save_overwrites_updates_timestamp() {
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
+    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+
     let snap = test_snapshot();
-    let save_id = store.save(&snap).expect("save initial");
+    store.save(&snap).expect("save initial");
+    let loaded1 = store.load().expect("load").expect("session");
+    let first_saved_at = loaded1.snapshot.last_saved_at.expect("timestamp");
 
-    let loaded1 = store.load(save_id).expect("load first save");
-    let first_saved_at = loaded1
-        .last_saved_at
-        .expect("first save should set timestamp");
-
-    // Small delay then auto-save
     let mut updated = test_snapshot();
     updated.atmosphere = "changed".to_string();
-    store.auto_save(save_id, &updated).expect("auto-save");
+    store.save(&updated).expect("save again");
+    let loaded2 = store.load().expect("load").expect("session");
+    let second_saved_at = loaded2.snapshot.last_saved_at.expect("timestamp");
 
-    let loaded2 = store.load(save_id).expect("load after auto-save");
-    let second_saved_at = loaded2
-        .last_saved_at
-        .expect("auto-save should update timestamp");
-
-    assert!(
-        second_saved_at >= first_saved_at,
-        "auto-save timestamp should be >= first save timestamp"
-    );
+    assert!(second_saved_at >= first_saved_at, "second save should have later timestamp");
+    assert_eq!(loaded2.snapshot.atmosphere, "changed");
 }
 
 // ============================================================================
@@ -676,63 +614,9 @@ fn chase_patch_initiates_chase() {
     );
 }
 
-// ============================================================================
-// SaveInfo — session metadata
-// ============================================================================
-
-#[test]
-fn save_info_from_snapshot() {
-    let snap = test_snapshot();
-    let info = SaveInfo::from_snapshot(&snap, 1);
-    assert_eq!(info.save_id(), 1);
-    assert_eq!(info.genre_slug(), "mutant_wasteland");
-    assert_eq!(info.world_slug(), "flickering_reach");
-}
-
-#[test]
-fn save_info_has_timestamps() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let snap = test_snapshot();
-    let save_id = store.save(&snap).expect("save snapshot");
-
-    let saves = store.list_saves().expect("list saves");
-    assert_eq!(saves.len(), 1);
-    let info = &saves[0];
-    // SaveInfo should include created_at and updated_at timestamps
-    assert!(info.created_at().timestamp() > 0);
-    assert!(info.updated_at().timestamp() > 0);
-}
-
-// ============================================================================
-// SessionManager — session lifecycle
-// ============================================================================
-
-#[test]
-fn session_manager_creates_new_session() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let mut mgr = SessionManager::new(store);
-    let snap = test_snapshot();
-
-    mgr.start_session(snap).expect("start session");
-    assert!(mgr.has_active_session());
-}
-
-#[test]
-fn session_manager_save_and_load_session() {
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let mut mgr = SessionManager::new(store);
-    let snap = test_snapshot();
-
-    mgr.start_session(snap).expect("start session");
-    let save_id = mgr.save().expect("save session");
-
-    // Create a new manager and load from save
-    let store2 = GameStore::in_memory().expect("create second store");
-    // This simulates reopening — in practice the same DB file
-    let mut mgr2 = SessionManager::new(store2);
-    // For a real test, we'd use the same store; this verifies the API exists
-    assert!(save_id > 0);
-}
+// GameStore, SaveInfo, and SessionManager tests removed — those types
+// were deleted as part of the persistence worker consolidation.
+// See persistence_story_2_4_tests.rs for SqliteStore/SessionStore tests.
 
 // ============================================================================
 // Rule enforcement: #2 — #[non_exhaustive] on public enums
@@ -747,12 +631,12 @@ fn session_manager_save_and_load_session() {
 
 #[test]
 fn persistence_error_is_non_exhaustive_friendly() {
-    // If GameStore::save returns a Result with a typed error,
-    // we should be able to match it with a wildcard.
-    let store = GameStore::in_memory().expect("create in-memory store");
-    let result = store.load(999);
+    // PersistError should be matchable with a wildcard (non_exhaustive).
+    let store = SqliteStore::open_in_memory().expect("create in-memory store");
+    let result = store.load();
     match result {
-        Ok(_) => panic!("should not find nonexistent save"),
+        Ok(None) => {} // Empty store returns None, not an error
+        Ok(Some(_)) => panic!("empty store should not have a session"),
         Err(_e) => {} // Error type exists and is matchable
     }
 }

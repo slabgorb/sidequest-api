@@ -269,6 +269,7 @@ async fn server_accepts_mock_game_service() {
     let state = AppState::new_with_game_service(
         Box::new(MockGameService),
         std::path::PathBuf::from("/tmp/test-genres"),
+        std::path::PathBuf::from("/tmp/test-saves"),
     );
     let app = build_router(state);
 

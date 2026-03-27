@@ -33,14 +33,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .join("saves")
         });
 
-    let state = AppState::new_with_save_dir(
+    let state = AppState::new_with_game_service(
         Box::new(Orchestrator::new(watcher_tx)),
         args.genre_packs_path().to_path_buf(),
         save_dir,
     );
-
-    // Load persisted player sessions from SQLite
-    state.load_persisted_sessions().await;
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
