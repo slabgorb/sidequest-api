@@ -326,8 +326,41 @@ impl AppState {
                             .await
                         {
                             Ok(result) => {
-                                tracing::info!(url = %result.image_url, ms = result.generation_ms, "Render complete");
-                                Ok((result.image_url, result.generation_ms))
+                                // The daemon returns an absolute file path (e.g. /tmp/sq-flux-xxx/render_abc.png).
+                                // Convert to a servable URL via /api/renders/{filename}.
+                                // First, copy the file to the renders directory so the static server can serve it.
+                                let raw_path = &result.image_url;
+                                let servable_url = if raw_path.starts_with('/') || raw_path.starts_with("C:\\") {
+                                    let src = std::path::Path::new(raw_path);
+                                    if let Some(filename) = src.file_name() {
+                                        let renders_dir = std::env::var("SIDEQUEST_OUTPUT_DIR")
+                                            .map(std::path::PathBuf::from)
+                                            .unwrap_or_else(|_| {
+                                                std::path::PathBuf::from(
+                                                    std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+                                                )
+                                                .join(".sidequest")
+                                                .join("renders")
+                                            });
+                                        let _ = std::fs::create_dir_all(&renders_dir);
+                                        let dest = renders_dir.join(filename);
+                                        if src.exists() {
+                                            if let Err(e) = std::fs::copy(src, &dest) {
+                                                tracing::warn!(error = %e, src = %raw_path, "Failed to copy render to serves dir");
+                                            }
+                                        }
+                                        format!("/api/renders/{}", filename.to_string_lossy())
+                                    } else {
+                                        raw_path.clone()
+                                    }
+                                } else if raw_path.starts_with("http://") || raw_path.starts_with("https://") || raw_path.starts_with("/api/") {
+                                    raw_path.clone()
+                                } else {
+                                    // Bare filename — assume it's in the renders dir
+                                    format!("/api/renders/{}", raw_path)
+                                };
+                                tracing::info!(raw = %raw_path, url = %servable_url, ms = result.generation_ms, "Render complete");
+                                Ok((servable_url, result.generation_ms))
                             }
                             Err(e) => {
                                 tracing::warn!(error = %e, prompt_preview = %&prompt[..prompt.len().min(80)], "Render request failed");
