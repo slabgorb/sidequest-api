@@ -6,7 +6,8 @@ use tokio::net::UnixStream;
 
 use crate::error::DaemonError;
 use crate::types::{
-    build_request_json, DaemonResponse, RenderParams, RenderResult, StatusResult, WarmUpParams,
+    build_request_json, DaemonResponse, RenderParams, RenderResult, StatusResult, TtsParams,
+    TtsResult, WarmUpParams,
 };
 
 /// Configuration for connecting to the daemon.
@@ -100,6 +101,17 @@ impl DaemonClient {
     pub async fn warm_up(&mut self, params: WarmUpParams) -> Result<StatusResult, DaemonError> {
         let resp = self
             .request("warm_up", &params, self.config.default_timeout)
+            .await?;
+        let result = resp
+            .result
+            .ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
+        serde_json::from_value(result).map_err(|e| DaemonError::InvalidResponse(e.to_string()))
+    }
+
+    /// Synthesize text to speech audio bytes.
+    pub async fn synthesize(&mut self, params: TtsParams) -> Result<TtsResult, DaemonError> {
+        let resp = self
+            .request("tts", &params, self.config.render_timeout)
             .await?;
         let result = resp
             .result
