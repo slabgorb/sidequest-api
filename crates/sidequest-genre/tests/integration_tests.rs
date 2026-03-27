@@ -629,3 +629,83 @@ fn two_phase_validate_catches_bad_clue_suspect_ref() {
         "validation should catch clue referencing nonexistent suspect"
     );
 }
+
+// ═══════════════════════════════════════════════════════════
+// Road Warrior — genre pack with richer world schema
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn load_road_warrior_genre_pack() {
+    let path = genre_packs_path().join("road_warrior");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).expect("should load road_warrior");
+    assert_eq!(pack.meta.name.as_str(), "Road Warrior");
+    assert!(
+        pack.worlds.contains_key("the_circuit"),
+        "should have the_circuit world"
+    );
+}
+
+#[test]
+fn road_warrior_circuit_world_has_regions_and_routes() {
+    let path = genre_packs_path().join("road_warrior");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let circuit = &pack.worlds["the_circuit"];
+
+    // 13 regions
+    assert_eq!(circuit.cartography.regions.len(), 13);
+    assert!(circuit.cartography.regions.contains_key("sturmichi"));
+    assert!(circuit.cartography.regions.contains_key("bromsviken"));
+
+    // Regions have terrain and controlled_by
+    let sturmichi = &circuit.cartography.regions["sturmichi"];
+    assert_eq!(sturmichi.terrain.as_deref(), Some("elevated_expressway"));
+    assert_eq!(sturmichi.controlled_by.as_deref(), Some("bosozoku"));
+    assert!(sturmichi.adjacent.contains(&"farolumi".to_string()));
+
+    // Chase profile lives in extras
+    assert!(sturmichi.extras.contains_key("chase_profile"));
+
+    // 7 routes with waypoints
+    assert_eq!(circuit.cartography.routes.len(), 7);
+    let full_circuit = &circuit.cartography.routes[0];
+    assert_eq!(full_circuit.name, "The Full Circuit");
+    assert!(!full_circuit.waypoints.is_empty());
+}
+
+#[test]
+fn road_warrior_world_config_has_extras() {
+    let path = genre_packs_path().join("road_warrior");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let circuit = &pack.worlds["the_circuit"];
+
+    assert_eq!(circuit.config.name, "The Circuit");
+    assert_eq!(circuit.config.slug, "the_circuit");
+    assert_eq!(circuit.config.era.as_deref(), Some("Late 1970s \u{2014} early 1980s"));
+    assert!(circuit.config.extras.contains_key("factions"));
+}
+
+#[test]
+fn road_warrior_world_lore_has_extras() {
+    let path = genre_packs_path().join("road_warrior");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path).unwrap();
+    let circuit = &pack.worlds["the_circuit"];
+
+    // Road warrior lore uses setting/faction_relations format
+    assert!(circuit.lore.extras.contains_key("setting") || circuit.lore.extras.contains_key("faction_relations"));
+}

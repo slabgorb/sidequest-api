@@ -100,25 +100,41 @@ impl GenrePack {
                 }
             }
 
-            // Check route references
+            // Check route references (point-to-point format only)
             for route in &world.cartography.routes {
-                if !region_slugs.contains(route.from_id.as_str()) {
-                    errors.push(GenreError::ValidationError {
-                        message: format!(
-                            "route '{}' in world '{world_slug}' has from_id '{}' \
-                             which does not exist",
-                            route.name, route.from_id
-                        ),
-                    });
+                if let Some(from) = &route.from_id {
+                    if !region_slugs.contains(from.as_str()) {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "route '{}' in world '{world_slug}' has from_id '{}' \
+                                 which does not exist",
+                                route.name, from
+                            ),
+                        });
+                    }
                 }
-                if !region_slugs.contains(route.to_id.as_str()) {
-                    errors.push(GenreError::ValidationError {
-                        message: format!(
-                            "route '{}' in world '{world_slug}' has to_id '{}' \
-                             which does not exist",
-                            route.name, route.to_id
-                        ),
-                    });
+                if let Some(to) = &route.to_id {
+                    if !region_slugs.contains(to.as_str()) {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "route '{}' in world '{world_slug}' has to_id '{}' \
+                                 which does not exist",
+                                route.name, to
+                            ),
+                        });
+                    }
+                }
+                // Waypoint format validation
+                for wp in &route.waypoints {
+                    if !region_slugs.contains(wp.as_str()) {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "route '{}' in world '{world_slug}' has waypoint '{}' \
+                                 which does not exist",
+                                route.name, wp
+                            ),
+                        });
+                    }
                 }
             }
         }
