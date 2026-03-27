@@ -1862,12 +1862,16 @@ async fn dispatch_player_action(
         ));
     }
 
-    // Bug 5: Include inventory in state summary so narrator knows what player has
+    // Inventory constraint — the narrator must not allow players to use items they don't have
+    state_summary.push_str("\n\nINVENTORY CONSTRAINT — THIS IS A HARD RULE:");
     if !inventory.items.is_empty() {
-        state_summary.push_str("\nInventory:");
+        state_summary.push_str("\nThe player ONLY has these items:");
         for item in &inventory.items {
-            state_summary.push_str(&format!(" {}{}", item.name, if item.quantity > 1 { format!(" (x{})", item.quantity) } else { String::new() }));
+            state_summary.push_str(&format!("\n- {}{}", item.name, if item.quantity > 1 { format!(" (x{})", item.quantity) } else { String::new() }));
         }
+        state_summary.push_str("\nIf the player claims to have or use an item NOT on this list, the narrator MUST reject it. Describe the attempt failing — the item is simply not there. Do NOT invent items the player does not possess.");
+    } else {
+        state_summary.push_str("\nThe player has NO items. If the player claims to use any item, the narrator MUST reject it — they have nothing in their possession yet.");
     }
 
     // Bug 6: Include chase state if active
