@@ -1718,12 +1718,32 @@ async fn dispatch_player_action(
 
     // Seed starter tropes if none are active yet (first turn)
     if trope_states.is_empty() && !trope_defs.is_empty() {
-        // Activate the first 2-3 tropes from the genre pack
-        let seed_count = trope_defs.len().min(3);
-        for def in &trope_defs[..seed_count] {
+        // Prefer tropes with passive_progression so tick() can advance them.
+        // Fall back to any trope if none have passive_progression.
+        let mut seedable: Vec<&sidequest_genre::TropeDefinition> = trope_defs
+            .iter()
+            .filter(|d| d.passive_progression.is_some() && d.id.is_some())
+            .collect();
+        if seedable.is_empty() {
+            seedable = trope_defs.iter().filter(|d| d.id.is_some()).collect();
+        }
+        let seed_count = seedable.len().min(3);
+        tracing::info!(
+            total_defs = trope_defs.len(),
+            with_progression = trope_defs.iter().filter(|d| d.passive_progression.is_some()).count(),
+            seedable = seedable.len(),
+            seed_count = seed_count,
+            "Trope seeding — selecting starter tropes"
+        );
+        for def in &seedable[..seed_count] {
             if let Some(id) = &def.id {
                 sidequest_game::trope::TropeEngine::activate(trope_states, id);
-                tracing::info!(trope_id = %id, "Seeded starter trope");
+                tracing::info!(
+                    trope_id = %id,
+                    name = %def.name,
+                    has_progression = def.passive_progression.is_some(),
+                    "Seeded starter trope"
+                );
                 state.send_watcher_event(WatcherEvent {
                     timestamp: chrono::Utc::now(),
                     component: "trope".to_string(),
@@ -2194,6 +2214,12 @@ async fn dispatch_player_action(
 
     // Scan narration for trope trigger keywords → activate matching tropes
     let narration_lower = clean_narration.to_lowercase();
+    tracing::debug!(
+        narration_len = narration_lower.len(),
+        active_tropes = trope_states.len(),
+        total_defs = trope_defs.len(),
+        "Trope keyword scan starting"
+    );
     for def in trope_defs.iter() {
         let id = match &def.id {
             Some(id) => id,
@@ -2237,6 +2263,16 @@ async fn dispatch_player_action(
     }
 
     // Trope engine tick — uses persistent per-session trope state and genre pack defs
+    // Log pre-tick state for debugging
+    for ts in trope_states.iter() {
+        tracing::info!(
+            trope_id = %ts.trope_definition_id(),
+            status = ?ts.status(),
+            progression = ts.progression(),
+            fired_beats = ts.fired_beats().len(),
+            "Trope pre-tick state"
+        );
+    }
     let fired = sidequest_game::trope::TropeEngine::tick(trope_states, trope_defs);
     sidequest_game::trope::TropeEngine::apply_keyword_modifiers(
         trope_states,
@@ -2248,6 +2284,15 @@ async fn dispatch_player_action(
         fired_beats = fired.len(),
         "Trope tick complete"
     );
+    // Log post-tick state
+    for ts in trope_states.iter() {
+        tracing::debug!(
+            trope_id = %ts.trope_definition_id(),
+            status = ?ts.status(),
+            progression = ts.progression(),
+            "Trope post-tick state"
+        );
+    }
     for beat in &fired {
         tracing::info!(trope = %beat.trope_name, "Trope beat fired");
         state.send_watcher_event(WatcherEvent {
