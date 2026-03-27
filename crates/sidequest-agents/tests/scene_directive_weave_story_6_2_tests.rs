@@ -47,11 +47,11 @@ fn sample_directive() -> SceneDirective {
         "The air smells of smoke".to_string(),
         "Villagers glance nervously at the horizon".to_string(),
     ];
-    format_scene_directive(&beats, &stakes, &hints)
+    format_scene_directive(&beats, &stakes, &hints, &[])
 }
 
 fn empty_directive() -> SceneDirective {
-    format_scene_directive(&[], &[], &[])
+    format_scene_directive(&[], &[], &[], &[])
 }
 
 // =========================================================================
@@ -278,7 +278,7 @@ fn rendered_directive_contains_source_labels() {
 fn rendered_directive_shows_element_content_after_label() {
     let mut registry = PromptRegistry::new();
     let beats = vec![fired_beat("a dragon lands on the town hall", 0.8, "survival")];
-    let directive = format_scene_directive(&beats, &[], &[]);
+    let directive = format_scene_directive(&beats, &[], &[], &[]);
 
     registry.register_scene_directive("narrator", &directive);
 
@@ -297,7 +297,7 @@ fn rendered_directive_numbers_elements() {
         fired_beat("first event", 0.8, "stakes"),
         fired_beat("second event", 0.5, "stakes"),
     ];
-    let directive = format_scene_directive(&beats, &[], &[]);
+    let directive = format_scene_directive(&beats, &[], &[], &[]);
 
     registry.register_scene_directive("narrator", &directive);
 
@@ -410,7 +410,7 @@ fn rendered_directive_contains_each_hint() {
 fn no_hints_section_when_hints_empty() {
     let mut registry = PromptRegistry::new();
     let beats = vec![fired_beat("some event", 0.8, "stakes")];
-    let directive = format_scene_directive(&beats, &[], &[]);
+    let directive = format_scene_directive(&beats, &[], &[], &[]);
 
     registry.register_scene_directive("narrator", &directive);
 
@@ -434,7 +434,7 @@ fn full_pipeline_directive_through_context_builder() {
     ];
     let stakes = vec![active_stake("the trade routes are severed")];
     let hints = vec!["Smoke rises from the east".to_string()];
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     // Step 2: Render to text via render_scene_directive_text
     let rendered = render_scene_directive_text(&directive)
@@ -501,7 +501,7 @@ fn full_pipeline_directive_through_context_builder() {
 #[test]
 fn full_pipeline_no_directive_when_empty() {
     // When no beats, stakes, or hints → no directive in prompt
-    let directive = format_scene_directive(&[], &[], &[]);
+    let directive = format_scene_directive(&[], &[], &[], &[]);
 
     let rendered = render_scene_directive_text(&directive);
     assert!(rendered.is_none(), "Empty directive should produce None");

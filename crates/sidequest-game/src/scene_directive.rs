@@ -4,6 +4,7 @@
 //! Story 6-1: Pure function that collects inputs from the trope engine
 //! and world state, then builds a `SceneDirective` for prompt injection.
 
+use crate::faction_agenda::FactionAgenda;
 use crate::trope::FiredBeat;
 use serde::{Deserialize, Serialize};
 
@@ -43,6 +44,8 @@ pub enum DirectiveSource {
     TropeBeat,
     /// From an active stake in the game state.
     ActiveStake,
+    /// From a faction agenda's scene injection.
+    FactionEvent,
 }
 
 impl DirectiveSource {
@@ -51,6 +54,7 @@ impl DirectiveSource {
         match self {
             Self::TropeBeat => "Trope Beat",
             Self::ActiveStake => "Active Stake",
+            Self::FactionEvent => "Faction Event",
         }
     }
 }
@@ -90,6 +94,7 @@ pub fn format_scene_directive(
     fired_beats: &[FiredBeat],
     active_stakes: &[ActiveStake],
     narrative_hints: &[String],
+    faction_agendas: &[FactionAgenda],
 ) -> SceneDirective {
     let mut elements = Vec::new();
 
@@ -112,9 +117,14 @@ pub fn format_scene_directive(
     elements.sort_by(|a, b| b.priority.cmp(&a.priority));
     elements.truncate(DEFAULT_MAX_ELEMENTS);
 
+    let faction_events: Vec<String> = faction_agendas
+        .iter()
+        .filter_map(|agenda| agenda.scene_injection())
+        .collect();
+
     SceneDirective {
         mandatory_elements: elements,
-        faction_events: vec![],
+        faction_events,
         narrative_hints: narrative_hints.to_vec(),
     }
 }

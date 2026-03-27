@@ -43,7 +43,7 @@ fn format_scene_directive_returns_owned_scene_directive() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive: SceneDirective = format_scene_directive(&beats, &stakes, &hints);
+    let directive: SceneDirective = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     // Verifies the function takes refs and returns an owned value
     assert!(!directive.mandatory_elements.is_empty());
@@ -59,7 +59,7 @@ fn fired_beat_becomes_trope_beat_element() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(directive.mandatory_elements.len(), 1);
     let elem = &directive.mandatory_elements[0];
@@ -80,7 +80,7 @@ fn multiple_beats_each_produce_element() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     let trope_elements: Vec<&DirectiveElement> = directive
         .mandatory_elements
@@ -100,7 +100,7 @@ fn active_stake_becomes_active_stake_element() {
     let stakes = vec![active_stake("the village could be destroyed")];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(directive.mandatory_elements.len(), 1);
     let elem = &directive.mandatory_elements[0];
@@ -117,7 +117,7 @@ fn multiple_stakes_each_produce_element() {
     ];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     let stake_elements: Vec<&DirectiveElement> = directive
         .mandatory_elements
@@ -141,7 +141,7 @@ fn elements_sorted_by_priority_descending() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     // Higher urgency (0.9) → higher priority → should appear first
     assert!(directive.mandatory_elements.len() >= 2);
@@ -157,7 +157,7 @@ fn beats_and_stakes_mixed_sorted_by_priority() {
     let stakes = vec![active_stake("critical stake")];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     // Should be sorted regardless of source type
     for window in directive.mandatory_elements.windows(2) {
@@ -183,7 +183,7 @@ fn caps_mandatory_elements_at_default_three() {
     let stakes = vec![active_stake("extra stake")];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert!(
         directive.mandatory_elements.len() <= 3,
@@ -203,7 +203,7 @@ fn cap_keeps_highest_priority_elements() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     // Should keep the 3 highest-priority elements, dropping the lowest
     assert!(directive.mandatory_elements.len() <= 3);
@@ -227,7 +227,7 @@ fn exactly_three_elements_not_capped() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(
         directive.mandatory_elements.len(),
@@ -246,7 +246,7 @@ fn empty_inputs_returns_empty_directive() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert!(directive.mandatory_elements.is_empty());
     assert!(directive.faction_events.is_empty());
@@ -266,7 +266,7 @@ fn narrative_hints_passed_through_as_is() {
         "A storm brews on the horizon".to_string(),
     ];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(directive.narrative_hints.len(), 2);
     assert_eq!(directive.narrative_hints[0], "The air is thick with tension");
@@ -282,7 +282,7 @@ fn narrative_hints_independent_of_elements() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints = vec!["a hint".to_string()];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     // Hints should not count toward element cap
     assert_eq!(directive.narrative_hints.len(), 1);
@@ -299,7 +299,7 @@ fn faction_events_empty_in_story_6_1() {
     let stakes = vec![active_stake("a stake")];
     let hints = vec!["hint".to_string()];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert!(
         directive.faction_events.is_empty(),
@@ -317,7 +317,7 @@ fn high_urgency_beat_gets_high_priority() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(directive.mandatory_elements[0].priority, DirectivePriority::High);
 }
@@ -328,7 +328,7 @@ fn medium_urgency_beat_gets_medium_priority() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(directive.mandatory_elements[0].priority, DirectivePriority::Medium);
 }
@@ -339,7 +339,7 @@ fn low_urgency_beat_gets_low_priority() {
     let stakes: Vec<ActiveStake> = vec![];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(directive.mandatory_elements[0].priority, DirectivePriority::Low);
 }
@@ -350,7 +350,7 @@ fn active_stakes_get_medium_priority() {
     let stakes = vec![active_stake("ongoing threat")];
     let hints: Vec<String> = vec![];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(
         directive.mandatory_elements[0].priority,
