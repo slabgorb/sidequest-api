@@ -19,28 +19,31 @@ pub struct ReminderConfig {
 impl ReminderConfig {
     /// Create a new reminder config with the given threshold and message.
     pub fn new(threshold: f64, message: String) -> Self {
-        todo!("ReminderConfig::new")
+        Self { threshold, message }
     }
 
     /// Fraction of barrier timeout before reminder fires (0.0–1.0).
     pub fn threshold(&self) -> f64 {
-        todo!("ReminderConfig::threshold")
+        self.threshold
     }
 
     /// The reminder message text.
     pub fn message(&self) -> &str {
-        todo!("ReminderConfig::message")
+        &self.message
     }
 
     /// Compute the reminder delay as a fraction of the barrier timeout.
     pub fn reminder_delay(&self, barrier_timeout: Duration) -> Duration {
-        todo!("ReminderConfig::reminder_delay")
+        barrier_timeout.mul_f64(self.threshold)
     }
 }
 
 impl Default for ReminderConfig {
     fn default() -> Self {
-        todo!("ReminderConfig::default")
+        Self {
+            threshold: 0.6,
+            message: "It's your turn — the party is waiting for you.".to_string(),
+        }
     }
 }
 
@@ -54,21 +57,30 @@ pub struct ReminderResult {
 impl ReminderResult {
     /// Check a session against a config, returning which players are idle.
     pub fn check(session: &MultiplayerSession, config: &ReminderConfig) -> Self {
-        todo!("ReminderResult::check")
+        let mut idle: Vec<String> = session
+            .pending_players()
+            .into_iter()
+            .collect();
+        idle.sort();
+
+        Self {
+            idle_players: idle,
+            message: config.message().to_string(),
+        }
     }
 
     /// Player IDs that haven't submitted actions.
     pub fn idle_players(&self) -> &[String] {
-        todo!("ReminderResult::idle_players")
+        &self.idle_players
     }
 
     /// The reminder message text.
     pub fn message(&self) -> &str {
-        todo!("ReminderResult::message")
+        &self.message
     }
 
     /// Whether a reminder should be sent (any idle players exist).
     pub fn should_send(&self) -> bool {
-        todo!("ReminderResult::should_send")
+        !self.idle_players.is_empty()
     }
 }
