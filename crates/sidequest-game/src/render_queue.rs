@@ -302,7 +302,8 @@ impl RenderQueue {
         }));
 
         let (job_tx, mut job_rx) = tokio::sync::mpsc::channel::<RenderJob>(config.queue_depth());
-        let (result_tx, _) = tokio::sync::broadcast::channel::<RenderJobResult>(config.result_buffer());
+        let (result_tx, _) =
+            tokio::sync::broadcast::channel::<RenderJobResult>(config.result_buffer());
 
         let worker_state = Arc::clone(&state);
         let worker_result_tx = result_tx.clone();
@@ -357,7 +358,10 @@ impl RenderQueue {
             // Channel closed — mark remaining jobs as failed
             let mut guard = worker_state.lock().await;
             for entry in guard.jobs.values_mut() {
-                if matches!(entry.status, RenderStatus::Queued | RenderStatus::InProgress) {
+                if matches!(
+                    entry.status,
+                    RenderStatus::Queued | RenderStatus::InProgress
+                ) {
                     entry.status = RenderStatus::Failed {
                         error: "queue shutdown".to_string(),
                     };
@@ -410,7 +414,8 @@ impl RenderQueue {
             SubjectTier::Landscape => "landscape",
             SubjectTier::Abstract => "scene_illustration",
             _ => "scene_illustration",
-        }.to_string();
+        }
+        .to_string();
         guard.jobs.insert(
             job_id,
             JobEntry {

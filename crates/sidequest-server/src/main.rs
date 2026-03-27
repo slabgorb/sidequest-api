@@ -15,7 +15,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     tracing::info!(port = args.port(), genre_packs = %args.genre_packs_path().display(), "SideQuest Server starting");
 
-    let (watcher_tx, watcher_rx) = tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
+    let (watcher_tx, watcher_rx) =
+        tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
     // Spawn the validator task on the cold path
     tokio::spawn(async move {

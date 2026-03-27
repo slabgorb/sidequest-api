@@ -206,9 +206,24 @@ fn classify_scene(narration: &str, context: &ExtractionContext) -> SceneType {
     let lower = narration.to_lowercase();
 
     let speech_verbs = [
-        "says", "said", "speaks", "spoke", "tells", "told", "growls", "growled",
-        "whispers", "whispered", "shouts", "shouted", "asks", "asked",
-        "replies", "replied", "demands", "demanded",
+        "says",
+        "said",
+        "speaks",
+        "spoke",
+        "tells",
+        "told",
+        "growls",
+        "growled",
+        "whispers",
+        "whispered",
+        "shouts",
+        "shouted",
+        "asks",
+        "asked",
+        "replies",
+        "replied",
+        "demands",
+        "demanded",
     ];
     let has_speech = speech_verbs.iter().any(|v| lower.contains(v));
     let has_quotes = narration.contains('\'') || narration.contains('"');
@@ -238,11 +253,40 @@ fn compute_weight(narration: &str, entities: &[String], context: &ExtractionCont
 
     let lower = narration.to_lowercase();
     let action_words = [
-        "swings", "swing", "charges", "charge", "lunges", "lunge", "strikes", "strike",
-        "attacks", "attack", "slashes", "slash", "cleaving", "cleave", "dives", "dive",
-        "flashing", "flash", "retaliates", "sprays", "spray", "roaring", "roar", "leaps",
-        "leap", "surges", "surge", "splits", "screams", "scream", "clash", "whirlwind",
-        "flurry", "blood",
+        "swings",
+        "swing",
+        "charges",
+        "charge",
+        "lunges",
+        "lunge",
+        "strikes",
+        "strike",
+        "attacks",
+        "attack",
+        "slashes",
+        "slash",
+        "cleaving",
+        "cleave",
+        "dives",
+        "dive",
+        "flashing",
+        "flash",
+        "retaliates",
+        "sprays",
+        "spray",
+        "roaring",
+        "roar",
+        "leaps",
+        "leap",
+        "surges",
+        "surge",
+        "splits",
+        "screams",
+        "scream",
+        "clash",
+        "whirlwind",
+        "flurry",
+        "blood",
     ];
     let action_count = action_words.iter().filter(|w| lower.contains(**w)).count();
     let action_score = (action_count as f32 * 0.05).min(0.3);
@@ -264,17 +308,45 @@ fn assign_tier(entities: &[String], narration: &str) -> SubjectTier {
     let lower = narration.to_lowercase();
 
     let landscape_cues = [
-        "cavern", "temple", "forest", "clearing", "mountain", "river", "column", "entrance",
-        "tower", "cathedral", "stalactite", "valley", "cliff", "ruins", "ocean", "desert",
-        "canyon", "cave", "passage", "oaks", "trees",
+        "cavern",
+        "temple",
+        "forest",
+        "clearing",
+        "mountain",
+        "river",
+        "column",
+        "entrance",
+        "tower",
+        "cathedral",
+        "stalactite",
+        "valley",
+        "cliff",
+        "ruins",
+        "ocean",
+        "desert",
+        "canyon",
+        "cave",
+        "passage",
+        "oaks",
+        "trees",
     ];
     if landscape_cues.iter().any(|c| lower.contains(c)) {
         return SubjectTier::Landscape;
     }
 
     let abstract_cues = [
-        "dread", "tension", "fear", "wonder", "awe", "unease", "foreboding", "chill",
-        "unnameable", "nameless", "creeping", "settles over",
+        "dread",
+        "tension",
+        "fear",
+        "wonder",
+        "awe",
+        "unease",
+        "foreboding",
+        "chill",
+        "unnameable",
+        "nameless",
+        "creeping",
+        "settles over",
     ];
     if abstract_cues.iter().any(|c| lower.contains(c)) {
         return SubjectTier::Abstract;

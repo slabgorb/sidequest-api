@@ -28,10 +28,9 @@ use sidequest_agents::orchestrator::{GameService, TurnContext};
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    AudioCuePayload, CharacterCreationPayload, CharacterSheetPayload, ChapterMarkerPayload,
-    ErrorPayload, GameMessage, NarrationEndPayload, NarrationPayload,
+    AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
+    CharacterState, ErrorPayload, GameMessage, InitialState, NarrationEndPayload, NarrationPayload,
     PartyMember, PartyStatusPayload, SessionEventPayload, ThinkingPayload,
-    CharacterState, InitialState,
 };
 
 // ---------------------------------------------------------------------------
@@ -330,11 +329,14 @@ impl AppState {
                 match sidequest_daemon_client::DaemonClient::connect(config).await {
                     Ok(mut client) => {
                         tracing::info!(tier = %tier, "Daemon connected, sending render request");
-                        match client.render(sidequest_daemon_client::RenderParams {
-                            prompt: prompt.clone(),
-                            art_style: art_style.clone(),
-                            tier,
-                        }).await {
+                        match client
+                            .render(sidequest_daemon_client::RenderParams {
+                                prompt: prompt.clone(),
+                                art_style: art_style.clone(),
+                                tier,
+                            })
+                            .await
+                        {
                             Ok(result) => {
                                 tracing::info!(url = %result.image_url, ms = result.generation_ms, "Render complete");
                                 Ok((result.image_url, result.generation_ms))
@@ -364,16 +366,20 @@ impl AppState {
                 watcher_tx,
                 render_queue: Some(render_queue),
                 subject_extractor: sidequest_game::SubjectExtractor::new(),
-                beat_filter: tokio::sync::Mutex::new(
-                    sidequest_game::BeatFilter::new(sidequest_game::BeatFilterConfig::default()),
-                ),
+                beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
+                    sidequest_game::BeatFilterConfig::default(),
+                )),
             }),
         }
     }
 
     /// Store a player session for reconnection.
     fn save_player_session(&self, key: String, session: PlayerSession) {
-        self.inner.saved_sessions.lock().unwrap().insert(key, session);
+        self.inner
+            .saved_sessions
+            .lock()
+            .unwrap()
+            .insert(key, session);
     }
 
     /// Check if a player has a saved session.
@@ -859,37 +865,35 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // Reader loop: read messages, deserialize, dispatch through session
     while let Some(msg) = ws_stream.next().await {
         match msg {
-            Ok(AxumWsMessage::Text(text)) => {
-                match serde_json::from_str::<GameMessage>(&text) {
-                    Ok(game_msg) => {
-                        let responses = dispatch_message(
-                            game_msg,
-                            &mut session,
-                            &mut builder,
-                            &mut player_name_for_session,
-                            &mut character_json,
-                            &mut character_name,
-                            &mut character_hp,
-                            &mut character_max_hp,
-                            &mut combat_state,
-                            &mut trope_states,
-                            &mut trope_defs,
-                            &mut world_context,
-                            &state,
-                            &player_id_str,
-                        ).await;
-                        for resp in responses {
-                            let _ = tx.send(resp).await;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(player_id = %player_id_str, error = %e, "Invalid message");
-                        let err_msg =
-                            error_response(&player_id_str, &format!("Invalid JSON: {}", e));
-                        let _ = tx.send(err_msg).await;
+            Ok(AxumWsMessage::Text(text)) => match serde_json::from_str::<GameMessage>(&text) {
+                Ok(game_msg) => {
+                    let responses = dispatch_message(
+                        game_msg,
+                        &mut session,
+                        &mut builder,
+                        &mut player_name_for_session,
+                        &mut character_json,
+                        &mut character_name,
+                        &mut character_hp,
+                        &mut character_max_hp,
+                        &mut combat_state,
+                        &mut trope_states,
+                        &mut trope_defs,
+                        &mut world_context,
+                        &state,
+                        &player_id_str,
+                    )
+                    .await;
+                    for resp in responses {
+                        let _ = tx.send(resp).await;
                     }
                 }
-            }
+                Err(e) => {
+                    tracing::warn!(player_id = %player_id_str, error = %e, "Invalid message");
+                    let err_msg = error_response(&player_id_str, &format!("Invalid JSON: {}", e));
+                    let _ = tx.send(err_msg).await;
+                }
+            },
             Ok(AxumWsMessage::Close(_)) => break,
             Ok(_) => {} // ping/pong/binary handled by axum
             Err(e) => {
@@ -964,16 +968,14 @@ async fn dispatch_message(
                 world_context,
                 state,
                 player_id,
-            ).await
+            )
+            .await
         }
         GameMessage::PlayerAction { payload, .. } => {
             if !session.is_playing() {
                 return vec![error_response(
                     player_id,
-                    &format!(
-                        "Cannot process action in {} state",
-                        session.state_name()
-                    ),
+                    &format!("Cannot process action in {} state", session.state_name()),
                 )];
             }
             dispatch_player_action(
@@ -988,16 +990,14 @@ async fn dispatch_message(
                 state,
                 player_id,
                 session.genre_slug().unwrap_or(""),
-            ).await
+            )
+            .await
         }
         // All other valid message types in wrong state
         _ => {
             vec![error_response(
                 player_id,
-                &format!(
-                    "Unexpected message in {} state",
-                    session.state_name()
-                ),
+                &format!("Unexpected message in {} state", session.state_name()),
             )]
         }
     }
@@ -1034,7 +1034,10 @@ fn dispatch_connect(
 
             if returning {
                 // Returning player — set has_character=true and send ready with initial_state
-                if let GameMessage::SessionEvent { ref mut payload, .. } = connected_msg {
+                if let GameMessage::SessionEvent {
+                    ref mut payload, ..
+                } = connected_msg
+                {
                     payload.has_character = Some(true);
                 }
                 responses.push(connected_msg);
@@ -1079,7 +1082,13 @@ fn dispatch_connect(
 
                 // Load genre pack and create character builder
                 if let Some(scene_msg) = start_character_creation(
-                    builder, trope_defs, world_context, genre, world, state, player_id,
+                    builder,
+                    trope_defs,
+                    world_context,
+                    genre,
+                    world,
+                    state,
+                    player_id,
                 ) {
                     responses.push(scene_msg);
                 }
@@ -1134,10 +1143,16 @@ fn start_character_creation(
         let mut ctx = format!("World: {}", world.config.name);
         ctx.push_str(&format!("\n{}", world.config.description));
         if !world.lore.history.is_empty() {
-            ctx.push_str(&format!("\nHistory: {}", world.lore.history.chars().take(200).collect::<String>()));
+            ctx.push_str(&format!(
+                "\nHistory: {}",
+                world.lore.history.chars().take(200).collect::<String>()
+            ));
         }
         if !world.lore.geography.is_empty() {
-            ctx.push_str(&format!("\nGeography: {}", world.lore.geography.chars().take(200).collect::<String>()));
+            ctx.push_str(&format!(
+                "\nGeography: {}",
+                world.lore.geography.chars().take(200).collect::<String>()
+            ));
         }
         *world_context_out = ctx;
         tracing::info!(world = %world_slug, context_len = world_context_out.len(), "Loaded world context");
@@ -1207,9 +1222,15 @@ async fn dispatch_character_creation(
                 severity: Severity::Info,
                 fields: {
                     let mut f = HashMap::new();
-                    f.insert("phase".to_string(), serde_json::Value::String(phase.to_string()));
+                    f.insert(
+                        "phase".to_string(),
+                        serde_json::Value::String(phase.to_string()),
+                    );
                     f.insert("choice_index".to_string(), serde_json::json!(index));
-                    f.insert("player_id".to_string(), serde_json::Value::String(player_id.to_string()));
+                    f.insert(
+                        "player_id".to_string(),
+                        serde_json::Value::String(player_id.to_string()),
+                    );
                     f
                 },
             });
@@ -1238,10 +1259,24 @@ async fn dispatch_character_creation(
                         severity: Severity::Info,
                         fields: {
                             let mut f = HashMap::new();
-                            f.insert("event".to_string(), serde_json::Value::String("character_built".to_string()));
-                            f.insert("name".to_string(), serde_json::Value::String(character.core.name.as_str().to_string()));
-                            f.insert("class".to_string(), serde_json::Value::String(character.char_class.as_str().to_string()));
-                            f.insert("race".to_string(), serde_json::Value::String(character.race.as_str().to_string()));
+                            f.insert(
+                                "event".to_string(),
+                                serde_json::Value::String("character_built".to_string()),
+                            );
+                            f.insert(
+                                "name".to_string(),
+                                serde_json::Value::String(character.core.name.as_str().to_string()),
+                            );
+                            f.insert(
+                                "class".to_string(),
+                                serde_json::Value::String(
+                                    character.char_class.as_str().to_string(),
+                                ),
+                            );
+                            f.insert(
+                                "race".to_string(),
+                                serde_json::Value::String(character.race.as_str().to_string()),
+                            );
                             f.insert("hp".to_string(), serde_json::json!(character.core.hp));
                             f
                         },
@@ -1317,7 +1352,8 @@ async fn dispatch_character_creation(
                         state,
                         player_id,
                         &genre,
-                    ).await;
+                    )
+                    .await;
 
                     // Emit CHARACTER_SHEET for the UI overlay
                     let char_sheet = GameMessage::CharacterSheet {
@@ -1325,7 +1361,11 @@ async fn dispatch_character_creation(
                             name: character.core.name.as_str().to_string(),
                             class: character.char_class.as_str().to_string(),
                             level: character.core.level as u32,
-                            stats: character.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+                            stats: character
+                                .stats
+                                .iter()
+                                .map(|(k, v)| (k.clone(), *v))
+                                .collect(),
                             abilities: character.hooks.clone(),
                             backstory: character.backstory.as_str().to_string(),
                             portrait_url: None,
@@ -1372,8 +1412,14 @@ async fn dispatch_player_action(
         severity: Severity::Info,
         fields: {
             let mut f = HashMap::new();
-            f.insert("action".to_string(), serde_json::Value::String(action.to_string()));
-            f.insert("player".to_string(), serde_json::Value::String(char_name.to_string()));
+            f.insert(
+                "action".to_string(),
+                serde_json::Value::String(action.to_string()),
+            );
+            f.insert(
+                "player".to_string(),
+                serde_json::Value::String(char_name.to_string()),
+            );
             f
         },
     });
@@ -1399,8 +1445,14 @@ async fn dispatch_player_action(
                     severity: Severity::Info,
                     fields: {
                         let mut f = HashMap::new();
-                        f.insert("event".to_string(), serde_json::Value::String("trope_activated".to_string()));
-                        f.insert("trope_id".to_string(), serde_json::Value::String(id.clone()));
+                        f.insert(
+                            "event".to_string(),
+                            serde_json::Value::String("trope_activated".to_string()),
+                        );
+                        f.insert(
+                            "trope_id".to_string(),
+                            serde_json::Value::String(id.clone()),
+                        );
                         f
                     },
                 });
@@ -1414,17 +1466,29 @@ async fn dispatch_player_action(
     } else {
         let mut lines = vec!["Active narrative arcs:".to_string()];
         for ts in trope_states.iter() {
-            if let Some(def) = trope_defs.iter().find(|d| d.id.as_deref() == Some(ts.trope_definition_id())) {
+            if let Some(def) = trope_defs
+                .iter()
+                .find(|d| d.id.as_deref() == Some(ts.trope_definition_id()))
+            {
                 lines.push(format!(
                     "- {} ({}% progressed): {}",
                     def.name,
                     (ts.progression() * 100.0) as u32,
-                    def.description.as_deref().unwrap_or("").chars().take(120).collect::<String>(),
+                    def.description
+                        .as_deref()
+                        .unwrap_or("")
+                        .chars()
+                        .take(120)
+                        .collect::<String>(),
                 ));
                 // Include the next unfired escalation beat as a hint
                 for beat in &def.escalation {
                     if beat.at > ts.progression() {
-                        lines.push(format!("  → Next beat at {}%: {}", (beat.at * 100.0) as u32, beat.event.chars().take(80).collect::<String>()));
+                        lines.push(format!(
+                            "  → Next beat at {}%: {}",
+                            (beat.at * 100.0) as u32,
+                            beat.event.chars().take(80).collect::<String>()
+                        ));
                         break;
                     }
                 }
@@ -1462,8 +1526,14 @@ async fn dispatch_player_action(
         severity: Severity::Info,
         fields: {
             let mut f = HashMap::new();
-            f.insert("narration_len".to_string(), serde_json::json!(result.narration.len()));
-            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
+            f.insert(
+                "narration_len".to_string(),
+                serde_json::json!(result.narration.len()),
+            );
+            f.insert(
+                "is_degraded".to_string(),
+                serde_json::json!(result.is_degraded),
+            );
             f
         },
     });
@@ -1480,8 +1550,14 @@ async fn dispatch_player_action(
             severity: Severity::Info,
             fields: {
                 let mut f = HashMap::new();
-                f.insert("event".to_string(), serde_json::Value::String("location_changed".to_string()));
-                f.insert("location".to_string(), serde_json::Value::String(location.clone()));
+                f.insert(
+                    "event".to_string(),
+                    serde_json::Value::String("location_changed".to_string()),
+                );
+                f.insert(
+                    "location".to_string(),
+                    serde_json::Value::String(location.clone()),
+                );
                 f
             },
         });
@@ -1557,7 +1633,10 @@ async fn dispatch_player_action(
             fields: {
                 let mut f = HashMap::new();
                 f.insert("round".to_string(), serde_json::json!(combat_state.round()));
-                f.insert("drama_weight".to_string(), serde_json::json!(combat_state.drama_weight()));
+                f.insert(
+                    "drama_weight".to_string(),
+                    serde_json::json!(combat_state.drama_weight()),
+                );
                 f
             },
         });
@@ -1575,7 +1654,10 @@ async fn dispatch_player_action(
             continue;
         }
         // Check if any trigger keyword appears in the narration
-        let triggered = def.triggers.iter().any(|t| narration_lower.contains(&t.to_lowercase()));
+        let triggered = def
+            .triggers
+            .iter()
+            .any(|t| narration_lower.contains(&t.to_lowercase()));
         if triggered {
             sidequest_game::trope::TropeEngine::activate(trope_states, id);
             tracing::info!(trope_id = %id, "Trope activated by narration keyword");
@@ -1586,9 +1668,18 @@ async fn dispatch_player_action(
                 severity: Severity::Info,
                 fields: {
                     let mut f = HashMap::new();
-                    f.insert("event".to_string(), serde_json::Value::String("trope_activated".to_string()));
-                    f.insert("trope_id".to_string(), serde_json::Value::String(id.clone()));
-                    f.insert("trigger".to_string(), serde_json::Value::String("narration_keyword".to_string()));
+                    f.insert(
+                        "event".to_string(),
+                        serde_json::Value::String("trope_activated".to_string()),
+                    );
+                    f.insert(
+                        "trope_id".to_string(),
+                        serde_json::Value::String(id.clone()),
+                    );
+                    f.insert(
+                        "trigger".to_string(),
+                        serde_json::Value::String("narration_keyword".to_string()),
+                    );
                     f
                 },
             });
@@ -1611,8 +1702,14 @@ async fn dispatch_player_action(
             severity: Severity::Info,
             fields: {
                 let mut f = HashMap::new();
-                f.insert("trope".to_string(), serde_json::Value::String(beat.trope_name.clone()));
-                f.insert("trope_id".to_string(), serde_json::Value::String(beat.trope_id.clone()));
+                f.insert(
+                    "trope".to_string(),
+                    serde_json::Value::String(beat.trope_name.clone()),
+                );
+                f.insert(
+                    "trope_id".to_string(),
+                    serde_json::Value::String(beat.trope_id.clone()),
+                );
                 f
             },
         });
@@ -1620,12 +1717,15 @@ async fn dispatch_player_action(
 
     // Render pipeline — extract subject from narration, filter, enqueue
     let extraction_context = sidequest_game::ExtractionContext {
-        current_location: extract_location_header(narration_text)
-            .unwrap_or_default(),
+        current_location: extract_location_header(narration_text).unwrap_or_default(),
         in_combat: false,
         ..Default::default()
     };
-    if let Some(subject) = state.inner.subject_extractor.extract(&clean_narration, &extraction_context) {
+    if let Some(subject) = state
+        .inner
+        .subject_extractor
+        .extract(&clean_narration, &extraction_context)
+    {
         tracing::info!(
             prompt = %subject.prompt_fragment(),
             tier = ?subject.tier(),
@@ -1637,7 +1737,12 @@ async fn dispatch_player_action(
             scene_transition: extract_location_header(narration_text).is_some(),
             player_requested: false,
         };
-        let decision = state.inner.beat_filter.lock().await.evaluate(&subject, &filter_ctx);
+        let decision = state
+            .inner
+            .beat_filter
+            .lock()
+            .await
+            .evaluate(&subject, &filter_ctx);
         tracing::info!(decision = ?decision, "BeatFilter decision");
         if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
             if let Some(ref queue) = state.inner.render_queue {
@@ -1648,7 +1753,10 @@ async fn dispatch_player_action(
             }
         }
     } else {
-        tracing::debug!(narration_len = clean_narration.len(), "No render subject extracted");
+        tracing::debug!(
+            narration_len = clean_narration.len(),
+            "No render subject extracted"
+        );
     }
 
     // Audio cue — trigger mood-based music from genre pack
@@ -1657,7 +1765,10 @@ async fn dispatch_player_action(
         messages.push(GameMessage::AudioCue {
             payload: AudioCuePayload {
                 mood: Some("exploration".to_string()),
-                music_track: Some(format!("/genre/{}/audio/music/exploration_full.ogg", genre_slug)),
+                music_track: Some(format!(
+                    "/genre/{}/audio/music/exploration_full.ogg",
+                    genre_slug
+                )),
                 sfx_triggers: vec![],
             },
             player_id: player_id.to_string(),
@@ -1681,7 +1792,12 @@ fn extract_location_header(text: &str) -> Option<String> {
 fn strip_location_header(text: &str) -> String {
     let first_line = text.lines().next().unwrap_or("").trim();
     if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
-        text.lines().skip(1).collect::<Vec<_>>().join("\n").trim().to_string()
+        text.lines()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string()
     } else {
         text.to_string()
     }
@@ -1716,7 +1832,11 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
                     continue;
                 }
             };
-            if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+            if ws_sink
+                .send(AxumWsMessage::Text(json.into()))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -1786,6 +1906,7 @@ pub fn test_app_state() -> AppState {
         .map(|p| p.join("genre_packs"))
         .unwrap_or_else(|| PathBuf::from("/tmp/test-genre-packs"));
 
-    let (watcher_tx, _watcher_rx) = tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
+    let (watcher_tx, _watcher_rx) =
+        tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
     AppState::new_with_game_service(Box::new(Orchestrator::new(watcher_tx)), genre_packs_path)
 }

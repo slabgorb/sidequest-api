@@ -33,9 +33,11 @@ static TITLE_ABBREVIATIONS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
 /// Non-title abbreviations — these don't split mid-sentence, but CAN end a sentence
 /// when followed by whitespace + capital letter (e.g., "etc. The next thing...").
 static OTHER_ABBREVIATIONS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
-    ["st", "ave", "etc", "vs", "vol", "dept", "est", "approx", "inc", "ltd"]
-        .into_iter()
-        .collect()
+    [
+        "st", "ave", "etc", "vs", "vol", "dept", "est", "approx", "inc", "ltd",
+    ]
+    .into_iter()
+    .collect()
 });
 
 /// Break narrative text into sentence-level semantic units.
@@ -229,7 +231,9 @@ fn is_followed_by_ws_and(text: &str, pos: usize, predicate: impl Fn(char) -> boo
 
 /// Check if text at `pos` starts with whitespace followed by a capital letter or opening quote.
 fn is_followed_by_ws_and_capital(text: &str, pos: usize) -> bool {
-    is_followed_by_ws_and(text, pos, |c| c.is_uppercase() || c == '"' || c == '\u{201c}')
+    is_followed_by_ws_and(text, pos, |c| {
+        c.is_uppercase() || c == '"' || c == '\u{201c}'
+    })
 }
 
 /// Check if text at `pos` starts with whitespace followed by an opening quote.
@@ -240,7 +244,11 @@ fn is_followed_by_ws_and_opening_quote(text: &str, pos: usize) -> bool {
 /// Return the word immediately before the dot at `dot_pos`.
 fn word_before_dot(text: &str, dot_pos: usize) -> Option<String> {
     let before = &text[..dot_pos];
-    let word: String = before.chars().rev().take_while(|c| c.is_alphabetic()).collect();
+    let word: String = before
+        .chars()
+        .rev()
+        .take_while(|c| c.is_alphabetic())
+        .collect();
     let word: String = word.chars().rev().collect();
     if word.is_empty() {
         None

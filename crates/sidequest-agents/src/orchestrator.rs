@@ -8,12 +8,12 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
+use crate::agent::Agent;
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
 use crate::agents::intent_router::IntentRouter;
 use crate::agents::narrator::NarratorAgent;
-use crate::agent::Agent;
 use crate::client::ClaudeClient;
 use crate::turn_record::{TurnIdCounter, TurnRecord};
 
@@ -103,9 +103,7 @@ impl GameService for Orchestrator {
 
         let prompt = format!(
             "{}{}\nThe player says: {}",
-            agent_prompt,
-            state_block,
-            action,
+            agent_prompt, state_block, action,
         );
 
         info!(action = %action, "Invoking Claude CLI for narration");

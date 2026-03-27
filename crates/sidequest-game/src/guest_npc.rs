@@ -28,7 +28,9 @@ impl PlayerRole {
     pub fn can_perform(&self, action: &ActionCategory) -> bool {
         match self {
             PlayerRole::Full => true,
-            PlayerRole::GuestNpc { allowed_actions, .. } => allowed_actions.contains(action),
+            PlayerRole::GuestNpc {
+                allowed_actions, ..
+            } => allowed_actions.contains(action),
             _ => false,
         }
     }
@@ -159,9 +161,7 @@ impl GuestNpcContext {
         if self.role.can_perform(action) {
             Ok(())
         } else {
-            Err(ActionError::RestrictedAction {
-                category: *action,
-            })
+            Err(ActionError::RestrictedAction { category: *action })
         }
     }
 

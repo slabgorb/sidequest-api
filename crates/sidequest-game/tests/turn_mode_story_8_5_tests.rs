@@ -113,10 +113,7 @@ fn free_play_should_not_use_barrier() {
 #[test]
 fn structured_should_use_barrier() {
     let mode = TurnMode::Structured;
-    assert!(
-        mode.should_use_barrier(),
-        "Structured SHOULD use barrier"
-    );
+    assert!(mode.should_use_barrier(), "Structured SHOULD use barrier");
 }
 
 #[test]
@@ -124,10 +121,7 @@ fn cinematic_should_use_barrier() {
     let mode = TurnMode::Cinematic {
         prompt: Some("test".to_string()),
     };
-    assert!(
-        mode.should_use_barrier(),
-        "Cinematic SHOULD use barrier"
-    );
+    assert!(mode.should_use_barrier(), "Cinematic SHOULD use barrier");
 }
 
 #[test]
@@ -147,21 +141,33 @@ fn cinematic_without_prompt_should_use_barrier() {
 fn combat_ended_from_free_play_is_no_op() {
     let mode = TurnMode::FreePlay;
     let next = mode.apply(TurnModeTransition::CombatEnded);
-    assert_eq!(next, TurnMode::FreePlay, "CombatEnded from FreePlay should be no-op");
+    assert_eq!(
+        next,
+        TurnMode::FreePlay,
+        "CombatEnded from FreePlay should be no-op"
+    );
 }
 
 #[test]
 fn scene_ended_from_free_play_is_no_op() {
     let mode = TurnMode::FreePlay;
     let next = mode.apply(TurnModeTransition::SceneEnded);
-    assert_eq!(next, TurnMode::FreePlay, "SceneEnded from FreePlay should be no-op");
+    assert_eq!(
+        next,
+        TurnMode::FreePlay,
+        "SceneEnded from FreePlay should be no-op"
+    );
 }
 
 #[test]
 fn combat_started_from_structured_is_no_op() {
     let mode = TurnMode::Structured;
     let next = mode.apply(TurnModeTransition::CombatStarted);
-    assert_eq!(next, TurnMode::Structured, "CombatStarted from Structured should be no-op");
+    assert_eq!(
+        next,
+        TurnMode::Structured,
+        "CombatStarted from Structured should be no-op"
+    );
 }
 
 #[test]
@@ -170,7 +176,11 @@ fn cutscene_from_structured_is_no_op() {
     let next = mode.apply(TurnModeTransition::CutsceneStarted {
         prompt: "should not transition".to_string(),
     });
-    assert_eq!(next, TurnMode::Structured, "CutsceneStarted from Structured should be no-op");
+    assert_eq!(
+        next,
+        TurnMode::Structured,
+        "CutsceneStarted from Structured should be no-op"
+    );
 }
 
 #[test]

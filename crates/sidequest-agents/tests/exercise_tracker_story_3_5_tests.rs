@@ -198,7 +198,10 @@ fn record_increments_turn_counter() {
     tracker.record("narrator");
     tracker.record("world_builder");
 
-    assert_eq!(tracker.turn_count, 2, "turn_count should be 2 after 2 records");
+    assert_eq!(
+        tracker.turn_count, 2,
+        "turn_count should be 2 after 2 records"
+    );
 }
 
 /// Multiple different agents each get their own count.
@@ -232,7 +235,11 @@ fn unknown_agent_is_tracked() {
     tracker.record("mystery_agent");
 
     assert_eq!(
-        tracker.histogram().get("mystery_agent").copied().unwrap_or(0),
+        tracker
+            .histogram()
+            .get("mystery_agent")
+            .copied()
+            .unwrap_or(0),
         1,
         "unknown agent 'mystery_agent' should be tracked with count 1"
     );
@@ -249,7 +256,10 @@ fn unknown_agent_does_not_displace_expected() {
 
     let h = tracker.histogram();
     // Expected agent still there
-    assert!(h.contains_key("narrator"), "narrator should still be in histogram");
+    assert!(
+        h.contains_key("narrator"),
+        "narrator should still be in histogram"
+    );
     assert_eq!(h.get("narrator").copied().unwrap_or(0), 1);
     // Unknown agent also there
     assert_eq!(h.get("mystery_agent").copied().unwrap_or(0), 1);
@@ -509,7 +519,10 @@ fn fresh_tracker_is_clean_slate() {
             agent
         );
     }
-    assert_eq!(fresh.turn_count, 0, "fresh tracker should have turn_count=0");
+    assert_eq!(
+        fresh.turn_count, 0,
+        "fresh tracker should have turn_count=0"
+    );
 }
 
 // ===========================================================================

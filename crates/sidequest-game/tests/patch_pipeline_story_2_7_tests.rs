@@ -20,9 +20,7 @@ use sidequest_game::disposition::{Attitude, Disposition};
 use sidequest_game::inventory::Inventory;
 use sidequest_game::narrative::NarrativeEntry;
 use sidequest_game::npc::Npc;
-use sidequest_game::state::{
-    ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch,
-};
+use sidequest_game::state::{ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch};
 use sidequest_game::turn::TurnManager;
 use sidequest_protocol::NonBlankString;
 
@@ -511,10 +509,7 @@ fn combat_patch_sets_in_combat() {
 fn combat_patch_sets_turn_order() {
     let mut snap = test_snapshot();
     let patch = CombatPatch {
-        turn_order: Some(vec![
-            "Thorn Ironhide".to_string(),
-            "Razortooth".to_string(),
-        ]),
+        turn_order: Some(vec!["Thorn Ironhide".to_string(), "Razortooth".to_string()]),
         ..Default::default()
     };
     snap.apply_combat_patch(&patch);
@@ -595,10 +590,7 @@ fn chase_patch_sets_phase() {
         ..Default::default()
     };
     snap.apply_chase_patch(&patch);
-    assert_eq!(
-        snap.chase.as_ref().unwrap().phase(),
-        Some("closing_in")
-    );
+    assert_eq!(snap.chase.as_ref().unwrap().phase(), Some("closing_in"));
 }
 
 #[test]
@@ -674,8 +666,12 @@ fn world_patch_discover_regions_appends() {
     };
     snap.apply_world_patch(&patch);
     assert_eq!(snap.discovered_regions.len(), 2);
-    assert!(snap.discovered_regions.contains(&"toxic_marshes".to_string()));
-    assert!(snap.discovered_regions.contains(&"flickering_reach".to_string()));
+    assert!(snap
+        .discovered_regions
+        .contains(&"toxic_marshes".to_string()));
+    assert!(snap
+        .discovered_regions
+        .contains(&"flickering_reach".to_string()));
 }
 
 #[test]
@@ -766,10 +762,13 @@ fn broadcast_party_status_always_included() {
     let delta = compute_delta(&before, &after);
 
     let messages = broadcast_state_changes(&delta, &snap);
-    let has_party = messages.iter().any(|m| {
-        matches!(m, sidequest_protocol::GameMessage::PartyStatus { .. })
-    });
-    assert!(has_party, "PARTY_STATUS should always be included after a turn");
+    let has_party = messages
+        .iter()
+        .any(|m| matches!(m, sidequest_protocol::GameMessage::PartyStatus { .. }));
+    assert!(
+        has_party,
+        "PARTY_STATUS should always be included after a turn"
+    );
 }
 
 #[test]
@@ -781,10 +780,13 @@ fn broadcast_chapter_marker_on_location_change() {
     let delta = compute_delta(&before, &after);
 
     let messages = broadcast_state_changes(&delta, &snap);
-    let has_chapter = messages.iter().any(|m| {
-        matches!(m, sidequest_protocol::GameMessage::ChapterMarker { .. })
-    });
-    assert!(has_chapter, "CHAPTER_MARKER should be sent on location change");
+    let has_chapter = messages
+        .iter()
+        .any(|m| matches!(m, sidequest_protocol::GameMessage::ChapterMarker { .. }));
+    assert!(
+        has_chapter,
+        "CHAPTER_MARKER should be sent on location change"
+    );
 }
 
 #[test]
@@ -796,9 +798,9 @@ fn broadcast_map_update_on_region_discovery() {
     let delta = compute_delta(&before, &after);
 
     let messages = broadcast_state_changes(&delta, &snap);
-    let has_map = messages.iter().any(|m| {
-        matches!(m, sidequest_protocol::GameMessage::MapUpdate { .. })
-    });
+    let has_map = messages
+        .iter()
+        .any(|m| matches!(m, sidequest_protocol::GameMessage::MapUpdate { .. }));
     assert!(has_map, "MAP_UPDATE should be sent on region discovery");
 }
 
@@ -811,10 +813,13 @@ fn broadcast_combat_event_on_combat_change() {
     let delta = compute_delta(&before, &after);
 
     let messages = broadcast_state_changes(&delta, &snap);
-    let has_combat = messages.iter().any(|m| {
-        matches!(m, sidequest_protocol::GameMessage::CombatEvent { .. })
-    });
-    assert!(has_combat, "COMBAT_EVENT should be sent when combat state changes");
+    let has_combat = messages
+        .iter()
+        .any(|m| matches!(m, sidequest_protocol::GameMessage::CombatEvent { .. }));
+    assert!(
+        has_combat,
+        "COMBAT_EVENT should be sent when combat state changes"
+    );
 }
 
 #[test]
@@ -825,9 +830,9 @@ fn broadcast_no_chapter_marker_when_location_unchanged() {
     let delta = compute_delta(&before, &after);
 
     let messages = broadcast_state_changes(&delta, &snap);
-    let has_chapter = messages.iter().any(|m| {
-        matches!(m, sidequest_protocol::GameMessage::ChapterMarker { .. })
-    });
+    let has_chapter = messages
+        .iter()
+        .any(|m| matches!(m, sidequest_protocol::GameMessage::ChapterMarker { .. }));
     assert!(!has_chapter, "No CHAPTER_MARKER when location unchanged");
 }
 
@@ -873,7 +878,10 @@ fn chase_patch_rejects_unknown_fields() {
 fn disposition_from_attitude_str_unknown_returns_neutral() {
     // Unknown attitude strings should map to neutral, not panic or silently skip
     let disp = Disposition::from_attitude_str("ambivalent");
-    assert!(disp.is_some(), "unknown attitude should still produce a disposition");
+    assert!(
+        disp.is_some(),
+        "unknown attitude should still produce a disposition"
+    );
     assert_eq!(disp.unwrap().attitude(), Attitude::Neutral);
 }
 

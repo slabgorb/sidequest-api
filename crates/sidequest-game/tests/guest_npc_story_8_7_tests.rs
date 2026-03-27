@@ -231,7 +231,11 @@ fn default_guest_actions_excludes_inventory() {
 #[test]
 fn default_guest_actions_has_exactly_three() {
     let actions = PlayerRole::default_guest_actions();
-    assert_eq!(actions.len(), 3, "default set should be Dialogue+Movement+Examine");
+    assert_eq!(
+        actions.len(),
+        3,
+        "default set should be Dialogue+Movement+Examine"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -506,7 +510,10 @@ fn guest_context_fields_accessed_via_getters() {
 
 #[test]
 fn available_npcs_returns_npc_names() {
-    let npcs = vec!["Marta the Innkeeper".to_string(), "Guard Captain".to_string()];
+    let npcs = vec![
+        "Marta the Innkeeper".to_string(),
+        "Guard Captain".to_string(),
+    ];
     let available = GuestNpcContext::available_npcs(&npcs);
     assert_eq!(available.len(), 2);
     assert!(available.contains(&"Marta the Innkeeper".to_string()));

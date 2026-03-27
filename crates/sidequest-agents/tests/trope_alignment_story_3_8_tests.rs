@@ -27,9 +27,7 @@ use sidequest_agents::agents::intent_router::Intent;
 use sidequest_agents::patch_legality::ValidationResult;
 use sidequest_agents::trope_alignment::{check_trope_alignment, extract_keywords, TropeContext};
 use sidequest_agents::turn_record::{PatchSummary, TurnRecord};
-use sidequest_game::{
-    CombatState, GameSnapshot, StateDelta, TurnManager,
-};
+use sidequest_game::{CombatState, GameSnapshot, StateDelta, TurnManager};
 
 // ===========================================================================
 // Test infrastructure: mock builders
@@ -339,7 +337,8 @@ fn extract_keywords_lowercased() {
     // All keywords should be lowercased for case-insensitive matching
     for kw in &keywords {
         assert_eq!(
-            kw, &kw.to_lowercase(),
+            kw,
+            &kw.to_lowercase(),
             "Keyword '{}' should be lowercased",
             kw
         );
@@ -737,11 +736,7 @@ fn multiple_beats_all_gaps() {
         ],
     );
     let contexts = vec![
-        suspicion_context(
-            "confrontation",
-            0.75,
-            "Direct accusation or tense standoff",
-        ),
+        suspicion_context("confrontation", 0.75, "Direct accusation or tense standoff"),
         coming_of_age_context(
             "first_challenge",
             0.25,
@@ -779,7 +774,7 @@ fn beat_with_empty_keywords_and_short_description_no_panic() {
         beat_name: "a_clue".to_string(),
         threshold: 0.50,
         description: "A new clue is found".to_string(), // all words < 4 chars except "found" (5) and "clue" (4)
-        keywords: vec![], // no tags
+        keywords: vec![],                               // no tags
     }];
 
     // Should not panic — gracefully handle sparse keyword sets
@@ -1007,10 +1002,7 @@ fn aligned_beat_does_not_emit_tracing_warn() {
     assert!(
         warnings.is_empty(),
         "Aligned beat should NOT emit tracing::warn!; got: {:?}",
-        warnings
-            .iter()
-            .map(|e| &e.fields)
-            .collect::<Vec<_>>()
+        warnings.iter().map(|e| &e.fields).collect::<Vec<_>>()
     );
 }
 
@@ -1020,10 +1012,7 @@ fn aligned_beat_does_not_emit_tracing_warn() {
 
 #[test]
 fn empty_narration_with_beat_produces_warning() {
-    let record = make_record(
-        "",
-        vec![("suspicion".to_string(), 0.25)],
-    );
+    let record = make_record("", vec![("suspicion".to_string(), 0.25)]);
     let contexts = vec![suspicion_context(
         "seeds_of_doubt",
         0.25,

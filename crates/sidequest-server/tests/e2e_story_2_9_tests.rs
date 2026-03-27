@@ -22,8 +22,8 @@ use std::time::Duration;
 use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 use tokio::time::timeout;
-use tokio_tungstenite::tungstenite::Message as WsMessage;
 use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::Message as WsMessage;
 
 use sidequest_server::{build_router, serve_with_listener, test_app_state, AppState};
 
@@ -60,9 +60,7 @@ async fn start_test_server_with_state(
 /// Connect a WebSocket client to the test server.
 async fn ws_connect(
     addr: std::net::SocketAddr,
-) -> tokio_tungstenite::WebSocketStream<
-    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-> {
+) -> tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>> {
     let url = format!("ws://127.0.0.1:{}/ws", addr.port());
     let (ws, _) = connect_async(&url)
         .await
@@ -217,7 +215,7 @@ async fn double_connect_rejected() {
 
     // Consume the connected response and any queued creation scene
     let _ = recv_game_message(&mut ws).await; // connected
-    // Drain the CHARACTER_CREATION scene that the server auto-sends after connect
+                                              // Drain the CHARACTER_CREATION scene that the server auto-sends after connect
     let msg2 = recv_game_message(&mut ws).await;
     if msg2["type"] != "ERROR" {
         // Scene was queued — now send second connect
@@ -290,10 +288,7 @@ async fn character_creation_scene_has_choices() {
     let choices = scene["payload"]["choices"]
         .as_array()
         .expect("Scene must have a choices array");
-    assert!(
-        !choices.is_empty(),
-        "Choices array must not be empty"
-    );
+    assert!(!choices.is_empty(), "Choices array must not be empty");
     for choice in choices {
         assert!(
             choice["label"].is_string(),
@@ -361,8 +356,14 @@ async fn character_creation_completes_to_ready() {
         }
     }
 
-    assert!(got_complete, "Must receive CHARACTER_CREATION{{phase: complete}}");
-    assert!(got_ready, "Must receive SESSION_EVENT{{ready}} after creation");
+    assert!(
+        got_complete,
+        "Must receive CHARACTER_CREATION{{phase: complete}}"
+    );
+    assert!(
+        got_ready,
+        "Must receive SESSION_EVENT{{ready}} after creation"
+    );
 }
 
 // =========================================================================
@@ -413,7 +414,10 @@ async fn turn_cycle_produces_thinking_then_narration() {
     }
 
     assert!(got_thinking, "Server must send THINKING before narration");
-    assert!(got_narration_end, "Server must send NARRATION_END after narration");
+    assert!(
+        got_narration_end,
+        "Server must send NARRATION_END after narration"
+    );
     assert!(
         !narration_text.is_empty(),
         "At least some narration text must be produced"
@@ -514,7 +518,10 @@ async fn party_status_sent_after_turn() {
             // Each member must have required fields per api-contract.md
             for member in members {
                 assert!(member["name"].is_string(), "Member must have name");
-                assert!(member["current_hp"].is_number(), "Member must have current_hp");
+                assert!(
+                    member["current_hp"].is_number(),
+                    "Member must have current_hp"
+                );
                 assert!(member["max_hp"].is_number(), "Member must have max_hp");
             }
             break;
@@ -676,10 +683,7 @@ async fn empty_json_object_produces_error() {
     send_game_message(&mut ws, &serde_json::json!({})).await;
 
     let response = recv_game_message(&mut ws).await;
-    assert_eq!(
-        response["type"], "ERROR",
-        "Empty JSON must produce ERROR"
-    );
+    assert_eq!(response["type"], "ERROR", "Empty JSON must produce ERROR");
 }
 
 // =========================================================================
@@ -882,12 +886,18 @@ async fn full_e2e_connect_create_play_narrate() {
         match msg["type"].as_str().unwrap_or("") {
             "THINKING" => got_thinking = true,
             "NARRATION" => {
-                if msg["payload"]["text"].as_str().map_or(false, |t| !t.is_empty()) {
+                if msg["payload"]["text"]
+                    .as_str()
+                    .map_or(false, |t| !t.is_empty())
+                {
                     got_narration_text = true;
                 }
             }
             "NARRATION_CHUNK" => {
-                if msg["payload"]["text"].as_str().map_or(false, |t| !t.is_empty()) {
+                if msg["payload"]["text"]
+                    .as_str()
+                    .map_or(false, |t| !t.is_empty())
+                {
                     got_narration_text = true;
                 }
             }

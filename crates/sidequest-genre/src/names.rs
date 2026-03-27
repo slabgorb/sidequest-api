@@ -125,7 +125,9 @@ impl NameGenerator {
 ///
 /// "kael de morvaine" → "Kael de Morvaine"
 fn titlecase_name(name: &str) -> String {
-    const SMALL_WORDS: &[&str] = &["de", "of", "the", "and", "le", "la", "von", "van", "du", "des"];
+    const SMALL_WORDS: &[&str] = &[
+        "de", "of", "the", "and", "le", "la", "von", "van", "du", "des",
+    ];
 
     name.split_whitespace()
         .enumerate()
@@ -161,15 +163,9 @@ pub fn build_from_culture<R: Rng>(
     for (slot_name, slot_config) in &culture.slots {
         let chain = build_chain_for_slot(slot_config, corpus_dir);
 
-        let word_list = slot_config
-            .word_list
-            .clone()
-            .unwrap_or_default();
+        let word_list = slot_config.word_list.clone().unwrap_or_default();
 
-        slots.insert(
-            slot_name.clone(),
-            SlotGenerator { chain, word_list },
-        );
+        slots.insert(slot_name.clone(), SlotGenerator { chain, word_list });
     }
 
     NameGenerator {

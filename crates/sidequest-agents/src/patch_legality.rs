@@ -55,8 +55,8 @@ pub fn check_dead_entity_actions(record: &TurnRecord) -> Vec<ValidationResult> {
     let mut results = Vec::new();
 
     for npc_before in &record.snapshot_before.npcs {
-        let is_dead = !npc_before.is_alive()
-            || npc_before.core.statuses.contains(&"dead".to_string());
+        let is_dead =
+            !npc_before.is_alive() || npc_before.core.statuses.contains(&"dead".to_string());
 
         if !is_dead {
             continue;
@@ -97,7 +97,11 @@ pub fn check_location_validity(record: &TurnRecord) -> Vec<ValidationResult> {
     let after_region = &record.snapshot_after.current_region;
 
     if before_region != after_region {
-        if !record.snapshot_after.discovered_regions.contains(after_region) {
+        if !record
+            .snapshot_after
+            .discovered_regions
+            .contains(after_region)
+        {
             return vec![ValidationResult::Violation(format!(
                 "Region changed to '{}' which is not in discovered_regions",
                 after_region

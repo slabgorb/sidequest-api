@@ -20,12 +20,12 @@ pub mod guest_npc;
 pub mod hp;
 pub mod inventory;
 pub mod multiplayer;
-pub mod perception;
 pub mod narrative;
 pub mod npc;
+pub mod perception;
 pub mod persistence;
-pub mod render_queue;
 pub mod progression;
+pub mod render_queue;
 pub mod segmenter;
 pub mod session;
 pub mod state;
@@ -34,6 +34,7 @@ pub mod trope;
 pub mod turn;
 pub mod turn_mode;
 
+pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
 pub use chase::{ChaseRound, ChaseState, ChaseType};
 pub use combat::{CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
@@ -47,17 +48,18 @@ pub use narrative::NarrativeEntry;
 pub use npc::Npc;
 pub use persistence::{GameStore, PersistenceError, SaveInfo};
 pub use persistence::{PersistError, SavedSession, SessionMeta, SessionStore, SqliteStore};
+pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
 pub use render_queue::{
     compute_content_hash, tier_to_dimensions, EnqueueResult, ImageDimensions, QueueError,
     RenderJobResult, RenderQueue, RenderQueueConfig, RenderStatus, DEFAULT_CACHE_TTL,
     MAX_QUEUE_DEPTH,
 };
-pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
+pub use segmenter::{Segment, SentenceSegmenter};
 pub use session::SessionManager;
-pub use state::{broadcast_state_changes, ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch};
+pub use state::{
+    broadcast_state_changes, ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch,
+};
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
-pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
-pub use segmenter::{Segment, SentenceSegmenter};
 pub use turn::{TurnManager, TurnPhase};

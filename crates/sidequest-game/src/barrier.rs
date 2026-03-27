@@ -113,10 +113,7 @@ impl AdaptiveTimeout {
 impl Default for AdaptiveTimeout {
     /// Default tiers: <4 players → 3s, 4+ players → 5s.
     fn default() -> Self {
-        Self::with_tiers(
-            vec![(4, Duration::from_secs(5))],
-            Duration::from_secs(3),
-        )
+        Self::with_tiers(vec![(4, Duration::from_secs(5))], Duration::from_secs(3))
     }
 }
 
@@ -240,10 +237,7 @@ impl TurnBarrier {
         let (deadline, enabled) = {
             let config = self.inner.config.lock().unwrap();
             if config.enabled {
-                (
-                    Some(tokio::time::Instant::now() + config.timeout),
-                    true,
-                )
+                (Some(tokio::time::Instant::now() + config.timeout), true)
             } else {
                 (None, false)
             }

@@ -233,7 +233,11 @@ mod tests {
         }
         let words = chain.make_words(5, 3, 8, &mut rand::rng());
         for word in &words {
-            assert!(word.len() >= 3 && word.len() <= 8, "word '{}' out of bounds", word);
+            assert!(
+                word.len() >= 3 && word.len() <= 8,
+                "word '{}' out of bounds",
+                word
+            );
         }
     }
 
@@ -275,8 +279,10 @@ mod tests {
     #[test]
     fn lookback_3_produces_smoother_words() {
         let mut chain = MarkovChain::new(3);
-        for w in ["sakura", "takeshi", "haruki", "kazuki", "naomi", "hikaru",
-                   "kenji", "sayuri", "hiroshi", "midori", "daichi", "aiko"] {
+        for w in [
+            "sakura", "takeshi", "haruki", "kazuki", "naomi", "hikaru", "kenji", "sayuri",
+            "hiroshi", "midori", "daichi", "aiko",
+        ] {
             chain.add_word(w);
         }
         let words = chain.make_words(5, 3, 10, &mut rand::rng());

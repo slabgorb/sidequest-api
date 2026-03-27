@@ -128,10 +128,7 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
             hp: 30,
             max_hp: 30,
             ac: 14,
-            inventory: Inventory {
-                items,
-                gold: 100,
-            },
+            inventory: Inventory { items, gold: 100 },
             statuses: vec![],
         },
         backstory: NonBlankString::new("A hero on a quest").unwrap(),
@@ -315,10 +312,7 @@ fn registry_from_snapshot_extracts_location() {
 #[test]
 fn registry_from_snapshot_extracts_discovered_regions() {
     let mut snapshot = mock_game_snapshot();
-    snapshot.discovered_regions = vec![
-        "flickering_reach".to_string(),
-        "ashen_wastes".to_string(),
-    ];
+    snapshot.discovered_regions = vec!["flickering_reach".to_string(), "ashen_wastes".to_string()];
 
     let registry = EntityRegistry::from_snapshot(&snapshot);
 
@@ -412,7 +406,8 @@ fn extracts_capitalized_word_mid_sentence() {
 fn extracts_multi_word_capitalized_phrase() {
     let refs = extract_potential_references("The blade known as Flaming Sword glowed brightly.");
     assert!(
-        refs.iter().any(|r| r.contains("Flaming Sword") || (r.contains("Flaming") && refs.contains(&"Sword".to_string()))),
+        refs.iter().any(|r| r.contains("Flaming Sword")
+            || (r.contains("Flaming") && refs.contains(&"Sword".to_string()))),
         "Should extract multi-word capitalized phrase 'Flaming Sword'; got: {:?}",
         refs
     );
@@ -443,11 +438,7 @@ fn skips_stop_words() {
     // "The", "His", "With" are stop words — should not appear in results
     let refs = extract_potential_references("He raised His sword. With a cry, he charged.");
     let has_stop_word = refs.iter().any(|r| r == "His" || r == "With");
-    assert!(
-        !has_stop_word,
-        "Should filter stop words; got: {:?}",
-        refs
-    );
+    assert!(!has_stop_word, "Should filter stop words; got: {:?}", refs);
 }
 
 #[test]
@@ -523,9 +514,8 @@ fn unknown_entity_flagged() {
 
 #[test]
 fn compound_name_substring_match_no_warning() {
-    let mut record = make_record_with_narration(
-        "The crowd parts as Old Grimjaw slams his fist on the table.",
-    );
+    let mut record =
+        make_record_with_narration("The crowd parts as Old Grimjaw slams his fist on the table.");
     record.snapshot_after.npcs = vec![make_npc("Grimjaw")];
 
     let results = check_entity_references(&record);
@@ -563,9 +553,8 @@ fn known_item_not_flagged() {
 
 #[test]
 fn known_npc_not_flagged() {
-    let mut record = make_record_with_narration(
-        "The merchant looks up as Grimjaw enters the tavern.",
-    );
+    let mut record =
+        make_record_with_narration("The merchant looks up as Grimjaw enters the tavern.");
     record.snapshot_after.npcs = vec![make_npc("Grimjaw")];
 
     let results = check_entity_references(&record);
@@ -640,9 +629,8 @@ fn unresolved_reference_emits_tracing_warn() {
     let (layer, captured) = EventCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
 
-    let mut record = make_record_with_narration(
-        "Without warning, Mordecai leaps from the rafters.",
-    );
+    let mut record =
+        make_record_with_narration("Without warning, Mordecai leaps from the rafters.");
     record.snapshot_after.characters = vec![make_character("Kael", vec![])];
 
     tracing::subscriber::with_default(subscriber, || {
@@ -671,9 +659,7 @@ fn known_entity_does_not_emit_tracing_warn() {
     let (layer, captured) = EventCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
 
-    let mut record = make_record_with_narration(
-        "The crowd watches as Kael enters the arena.",
-    );
+    let mut record = make_record_with_narration("The crowd watches as Kael enters the arena.");
     record.snapshot_after.characters = vec![make_character("Kael", vec![])];
 
     tracing::subscriber::with_default(subscriber, || {

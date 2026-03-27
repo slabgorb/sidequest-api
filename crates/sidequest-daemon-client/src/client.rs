@@ -43,9 +43,15 @@ impl DaemonClient {
     }
 
     /// Send a JSON-RPC request and read the response.
-    async fn request(&mut self, method: &str, params: &impl serde::Serialize, timeout: Duration) -> Result<DaemonResponse, DaemonError> {
+    async fn request(
+        &mut self,
+        method: &str,
+        params: &impl serde::Serialize,
+        timeout: Duration,
+    ) -> Result<DaemonResponse, DaemonError> {
         let req = build_request_json(method, params);
-        let mut line = serde_json::to_string(&req).map_err(|e| DaemonError::InvalidResponse(e.to_string()))?;
+        let mut line =
+            serde_json::to_string(&req).map_err(|e| DaemonError::InvalidResponse(e.to_string()))?;
         line.push('\n');
 
         let result = tokio::time::timeout(timeout, async {
@@ -74,27 +80,41 @@ impl DaemonClient {
 
     /// Health check — returns Ok if daemon is responsive.
     pub async fn ping(&mut self) -> Result<(), DaemonError> {
-        self.request("ping", &serde_json::json!({}), self.config.default_timeout).await?;
+        self.request("ping", &serde_json::json!({}), self.config.default_timeout)
+            .await?;
         Ok(())
     }
 
     /// Send a render request and wait for the result.
     pub async fn render(&mut self, params: RenderParams) -> Result<RenderResult, DaemonError> {
-        let resp = self.request("render", &params, self.config.render_timeout).await?;
-        let result = resp.result.ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
+        let resp = self
+            .request("render", &params, self.config.render_timeout)
+            .await?;
+        let result = resp
+            .result
+            .ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
         serde_json::from_value(result).map_err(|e| DaemonError::InvalidResponse(e.to_string()))
     }
 
     /// Send a warm_up request to pre-load a worker model.
     pub async fn warm_up(&mut self, params: WarmUpParams) -> Result<StatusResult, DaemonError> {
-        let resp = self.request("warm_up", &params, self.config.default_timeout).await?;
-        let result = resp.result.ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
+        let resp = self
+            .request("warm_up", &params, self.config.default_timeout)
+            .await?;
+        let result = resp
+            .result
+            .ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
         serde_json::from_value(result).map_err(|e| DaemonError::InvalidResponse(e.to_string()))
     }
 
     /// Request a graceful daemon shutdown.
     pub async fn shutdown(&mut self) -> Result<(), DaemonError> {
-        self.request("shutdown", &serde_json::json!({}), self.config.default_timeout).await?;
+        self.request(
+            "shutdown",
+            &serde_json::json!({}),
+            self.config.default_timeout,
+        )
+        .await?;
         Ok(())
     }
 }
