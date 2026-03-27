@@ -1877,6 +1877,37 @@ async fn dispatch_player_action(
         player_id: player_id.to_string(),
     });
 
+    // Combat detection — scan narration for combat start/end indicators.
+    // This ensures combat_state.in_combat() is set correctly so the combat
+    // tick runs and CombatState persists across non-combat actions.
+    {
+        let narr_lower = clean_narration.to_lowercase();
+        let combat_start_keywords = [
+            "initiative", "combat begins", "roll for initiative",
+            "attacks you", "lunges at", "swings at", "draws a weapon",
+            "charges at", "opens fire", "enters combat",
+        ];
+        let combat_end_keywords = [
+            "combat ends", "battle is over", "enemies defeated",
+            "falls unconscious", "retreats", "flees", "surrenders",
+            "combat resolved", "the fight is over",
+        ];
+
+        if combat_state.in_combat() {
+            // Check for combat end
+            if combat_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                combat_state.set_in_combat(false);
+                tracing::info!("Combat ended — detected end keyword in narration");
+            }
+        } else {
+            // Check for combat start
+            if combat_start_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                combat_state.set_in_combat(true);
+                tracing::info!("Combat started — detected start keyword in narration");
+            }
+        }
+    }
+
     // Combat tick — uses persistent per-session CombatState
     let was_in_combat = combat_state.in_combat();
     if combat_state.in_combat() {
