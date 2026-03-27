@@ -99,28 +99,51 @@ pub enum RewriterError {
 /// Uses a `RewriteStrategy` trait object so production code can use Claude
 /// while tests use a deterministic double.
 pub struct PerceptionRewriter {
-    _strategy: Box<dyn RewriteStrategy>,
+    strategy: Box<dyn RewriteStrategy>,
 }
 
 impl PerceptionRewriter {
     /// Create a new rewriter with the given strategy.
-    pub fn new(_strategy: Box<dyn RewriteStrategy>) -> Self {
-        todo!("Story 8-6: PerceptionRewriter::new")
+    pub fn new(strategy: Box<dyn RewriteStrategy>) -> Self {
+        Self { strategy }
     }
 
     /// Rewrite narration for a single affected character.
     pub fn rewrite(
         &self,
-        _base_narration: &str,
-        _filter: &PerceptionFilter,
-        _genre_voice: &str,
+        base_narration: &str,
+        filter: &PerceptionFilter,
+        genre_voice: &str,
     ) -> Result<String, RewriterError> {
-        todo!("Story 8-6: PerceptionRewriter::rewrite")
+        self.strategy.rewrite(base_narration, filter, genre_voice)
     }
 
     /// Produce a human-readable description of active effects for prompt composition.
-    pub fn describe_effects(_effects: &[PerceptualEffect]) -> String {
-        todo!("Story 8-6: PerceptionRewriter::describe_effects")
+    pub fn describe_effects(effects: &[PerceptualEffect]) -> String {
+        if effects.is_empty() {
+            return "none".to_string();
+        }
+        effects
+            .iter()
+            .map(|e| match e {
+                PerceptualEffect::Blinded => "Blinded (cannot see)".to_string(),
+                PerceptualEffect::Charmed { source } => {
+                    format!("Charmed by {source} (perceives as trusted ally)")
+                }
+                PerceptualEffect::Dominated { controller } => {
+                    format!("Dominated by {controller} (under their control)")
+                }
+                PerceptualEffect::Hallucinating => {
+                    "Hallucinating (perceives things that aren't there)".to_string()
+                }
+                PerceptualEffect::Deafened => "Deafened (cannot hear)".to_string(),
+                PerceptualEffect::Custom { name, description } => {
+                    format!("{name} ({description})")
+                }
+                _ => "Unknown effect".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
     }
 
     /// Rewrite narration for all affected players. Returns a map of
@@ -128,10 +151,18 @@ impl PerceptionRewriter {
     /// receive the base narration (graceful degradation per ADR-006).
     pub fn broadcast(
         &self,
-        _base_narration: &str,
-        _filters: &HashMap<String, PerceptionFilter>,
-        _genre_voice: &str,
+        base_narration: &str,
+        filters: &HashMap<String, PerceptionFilter>,
+        genre_voice: &str,
     ) -> Result<HashMap<String, String>, RewriterError> {
-        todo!("Story 8-6: PerceptionRewriter::broadcast")
+        let mut results = HashMap::new();
+        for (player_id, filter) in filters {
+            let narration = match self.strategy.rewrite(base_narration, filter, genre_voice) {
+                Ok(rewritten) => rewritten,
+                Err(_) => base_narration.to_string(),
+            };
+            results.insert(player_id.clone(), narration);
+        }
+        Ok(results)
     }
 }
