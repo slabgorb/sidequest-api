@@ -3,8 +3,6 @@
 //! Ported from sq-2/sidequest/agents/narrator.py.
 
 use crate::agent::Agent;
-use crate::context_builder::ContextBuilder;
-use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
 
 /// System prompt for the Narrator agent.
 const NARRATOR_SYSTEM_PROMPT: &str = "\
@@ -46,15 +44,6 @@ impl NarratorAgent {
         }
     }
 
-    /// Build context for a narrator prompt using the ContextBuilder.
-    pub fn build_context(&self, builder: &mut ContextBuilder) {
-        builder.add_section(PromptSection::new(
-            "narrator_identity",
-            &self.system_prompt,
-            AttentionZone::Primacy,
-            SectionCategory::Identity,
-        ));
-    }
 }
 
 impl Default for NarratorAgent {

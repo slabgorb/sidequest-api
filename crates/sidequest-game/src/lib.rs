@@ -40,6 +40,7 @@ pub mod tts_stream;
 pub mod turn;
 pub mod turn_mode;
 pub mod turn_reminder;
+pub mod voice_router;
 
 pub use audio_mixer::{AudioMixer, DuckConfig};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
@@ -78,3 +79,4 @@ pub use tension_tracker::{
 };
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
+pub use voice_router::{VoiceAssignment, VoiceRouter};

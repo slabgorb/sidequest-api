@@ -15,6 +15,8 @@ use crate::agents::ensemble::EnsembleAgent;
 use crate::agents::intent_router::IntentRouter;
 use crate::agents::narrator::NarratorAgent;
 use crate::client::ClaudeClient;
+use crate::context_builder::ContextBuilder;
+use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
 use crate::turn_record::{TurnIdCounter, TurnRecord};
 use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTracker};
 
@@ -104,24 +106,36 @@ impl GameService for Orchestrator {
             "Intent classified"
         );
 
-        let state_block = context
-            .state_summary
-            .as_deref()
-            .map(|s| format!("\n<game_state>\n{}\n</game_state>\n", s))
-            .unwrap_or_default();
+        // Build prompt via ContextBuilder — zone-ordered, telemetry-instrumented.
+        let mut builder = ContextBuilder::new();
 
-        // Dispatch to the classified agent's system prompt
-        let agent_prompt = match route.agent_name() {
-            "creature_smith" => self.creature_smith.system_prompt(),
-            "ensemble" => self.ensemble.system_prompt(),
-            "dialectician" => self.dialectician.system_prompt(),
-            _ => self.narrator.system_prompt(),
+        // Agent identity section (Primacy zone)
+        match route.agent_name() {
+            "creature_smith" => self.creature_smith.build_context(&mut builder),
+            "ensemble" => self.ensemble.build_context(&mut builder),
+            "dialectician" => self.dialectician.build_context(&mut builder),
+            _ => self.narrator.build_context(&mut builder),
         };
 
-        let prompt = format!(
-            "{}{}\nThe player says: {}",
-            agent_prompt, state_block, action,
-        );
+        // Game state section (Valley zone — lower attention, grounding context)
+        if let Some(state) = &context.state_summary {
+            builder.add_section(PromptSection::new(
+                "game_state",
+                format!("<game_state>\n{}\n</game_state>", state),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ));
+        }
+
+        // Player action section (Recency zone — highest attention at prompt end)
+        builder.add_section(PromptSection::new(
+            "player_action",
+            format!("The player says: {}", action),
+            AttentionZone::Recency,
+            SectionCategory::Action,
+        ));
+
+        let prompt = builder.compose();
 
         info!(action = %action, "Invoking Claude CLI for narration");
 
