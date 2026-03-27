@@ -1284,6 +1284,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sidequest-game",
+ "sidequest-genre",
  "sidequest-protocol",
  "tempfile",
  "thiserror",
