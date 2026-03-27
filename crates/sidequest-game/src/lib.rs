@@ -32,6 +32,7 @@ pub mod state;
 pub mod subject;
 pub mod trope;
 pub mod tension_tracker;
+pub mod tts_stream;
 pub mod turn;
 pub mod turn_mode;
 pub mod turn_reminder;
