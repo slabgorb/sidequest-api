@@ -899,7 +899,12 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut character_name: Option<String> = None;
     let mut character_hp: i32 = 10;
     let mut character_max_hp: i32 = 10;
+    let mut character_level: u32 = 1;
+    let mut character_xp: u32 = 0;
+    let mut current_location: String = String::new();
+    let mut inventory = sidequest_game::Inventory::default();
     let mut combat_state = sidequest_game::combat::CombatState::default();
+    let mut chase_state: Option<sidequest_game::ChaseState> = None;
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
@@ -924,7 +929,12 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut character_name,
                         &mut character_hp,
                         &mut character_max_hp,
+                        &mut character_level,
+                        &mut character_xp,
+                        &mut current_location,
+                        &mut inventory,
                         &mut combat_state,
+                        &mut chase_state,
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
@@ -977,7 +987,12 @@ async fn dispatch_message(
     character_name: &mut Option<String>,
     character_hp: &mut i32,
     character_max_hp: &mut i32,
+    character_level: &mut u32,
+    character_xp: &mut u32,
+    current_location: &mut String,
+    inventory: &mut sidequest_game::Inventory,
     combat_state: &mut sidequest_game::combat::CombatState,
+    chase_state: &mut Option<sidequest_game::ChaseState>,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
@@ -1023,7 +1038,12 @@ async fn dispatch_message(
                 character_name,
                 character_hp,
                 character_max_hp,
+                character_level,
+                character_xp,
+                current_location,
+                inventory,
                 combat_state,
+                chase_state,
                 trope_states,
                 trope_defs,
                 world_context,
@@ -1046,10 +1066,15 @@ async fn dispatch_message(
             dispatch_player_action(
                 &payload.action,
                 character_name.as_deref().unwrap_or("Unknown"),
-                *character_hp,
-                *character_max_hp,
+                character_hp,
+                character_max_hp,
+                character_level,
+                character_xp,
+                current_location,
+                inventory,
                 character_json,
                 combat_state,
+                chase_state,
                 trope_states,
                 trope_defs,
                 world_context,
@@ -1426,7 +1451,12 @@ async fn dispatch_character_creation(
     character_name_store: &mut Option<String>,
     character_hp: &mut i32,
     character_max_hp: &mut i32,
+    character_level: &mut u32,
+    character_xp: &mut u32,
+    current_location: &mut String,
+    inventory: &mut sidequest_game::Inventory,
     combat_state: &mut sidequest_game::combat::CombatState,
+    chase_state: &mut Option<sidequest_game::ChaseState>,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
@@ -1576,10 +1606,15 @@ async fn dispatch_character_creation(
                     let intro_messages = dispatch_player_action(
                         "I look around and take in my surroundings.",
                         character.core.name.as_str(),
-                        character.core.hp,
-                        character.core.max_hp,
+                        character_hp,
+                        character_max_hp,
+                        character_level,
+                        character_xp,
+                        current_location,
+                        inventory,
                         character_json_store,
                         combat_state,
+                        chase_state,
                         trope_states,
                         trope_defs,
                         world_context,
@@ -1634,10 +1669,15 @@ async fn dispatch_character_creation(
 async fn dispatch_player_action(
     action: &str,
     char_name: &str,
-    hp: i32,
-    max_hp: i32,
+    hp: &mut i32,
+    max_hp: &mut i32,
+    level: &mut u32,
+    xp: &mut u32,
+    current_location: &mut String,
+    inventory: &mut sidequest_game::Inventory,
     character_json: &Option<serde_json::Value>,
     combat_state: &mut sidequest_game::combat::CombatState,
+    chase_state: &mut Option<sidequest_game::ChaseState>,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &[sidequest_genre::TropeDefinition],
     world_context: &str,
@@ -1743,11 +1783,35 @@ async fn dispatch_player_action(
         lines.join("\n")
     };
 
-    // Build state summary for grounding narration
+    // Build state summary for grounding narration (Bug 1: include location + entities)
     let mut state_summary = format!(
-        "Character: {} (HP {}/{})\nGenre: {}",
-        char_name, hp, max_hp, genre_slug,
+        "Character: {} (HP {}/{}, Level {}, XP {})\nGenre: {}",
+        char_name, *hp, *max_hp, *level, *xp, genre_slug,
     );
+
+    // Bug 1: Inject current location so Claude maintains scene continuity
+    if !current_location.is_empty() {
+        state_summary.push_str(&format!(
+            "\nCurrent location: {} — The player is HERE. Do NOT move them to a different location unless they explicitly travel or a narrative event forces relocation. Continue the scene in this location.",
+            current_location
+        ));
+    }
+
+    // Bug 5: Include inventory in state summary so narrator knows what player has
+    if !inventory.items.is_empty() {
+        state_summary.push_str("\nInventory:");
+        for item in &inventory.items {
+            state_summary.push_str(&format!(" {}{}", item.name, if item.quantity > 1 { format!(" (x{})", item.quantity) } else { String::new() }));
+        }
+    }
+
+    // Bug 6: Include chase state if active
+    if let Some(ref cs) = chase_state {
+        state_summary.push_str(&format!(
+            "\nACTIVE CHASE: {:?} (round {}, separation {})",
+            cs.chase_type(), cs.round(), cs.separation()
+        ));
+    }
 
     // Include character abilities and mutations so the narrator knows what
     // the character can and cannot do (prevents hallucinated abilities).
@@ -1814,8 +1878,10 @@ async fn dispatch_player_action(
     let mut messages = vec![thinking];
 
     // Extract location header from narration (format: **Location Name**\n\n...)
+    // Bug 1: Update current_location so subsequent turns maintain continuity
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
+        *current_location = location.clone();
         state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
             component: "game".to_string(),
@@ -1855,7 +1921,99 @@ async fn dispatch_player_action(
     // Strip the location header from narration text if present
     let clean_narration = strip_location_header(narration_text);
 
+    // Bug 4: Combat HP changes — scan narration for damage/healing indicators
+    {
+        let narr_lower = clean_narration.to_lowercase();
+        let damage_keywords = [
+            "strikes you", "hits you", "slashes you", "damages you",
+            "wounds you", "hurts you", "burns you", "bites you",
+            "stabs you", "pierces you", "deals damage", "takes damage",
+            "you take", "injures you", "smashes into you",
+        ];
+        let heal_keywords = [
+            "heals you", "restores health", "mends your wounds",
+            "you feel better", "healing energy", "bandage",
+            "drink the potion", "drinks a potion", "health restored",
+        ];
+        let heavy_damage_keywords = [
+            "critical hit", "devastating blow", "massive damage",
+            "nearly kills", "grievous wound",
+        ];
+
+        if combat_state.in_combat() || damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+            if heavy_damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                let delta = -((*max_hp as f64 * 0.25) as i32).max(3);
+                *hp = sidequest_game::clamp_hp(*hp, delta, *max_hp);
+                tracing::info!(delta = delta, new_hp = *hp, "Heavy combat damage applied");
+            } else if damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                let delta = -((*max_hp as f64 * 0.12) as i32).max(1);
+                *hp = sidequest_game::clamp_hp(*hp, delta, *max_hp);
+                tracing::info!(delta = delta, new_hp = *hp, "Combat damage applied");
+            }
+        }
+        if heal_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+            let delta = ((*max_hp as f64 * 0.2) as i32).max(2);
+            *hp = sidequest_game::clamp_hp(*hp, delta, *max_hp);
+            tracing::info!(delta = delta, new_hp = *hp, "Healing applied");
+        }
+    }
+
+    // Bug 3: XP award based on action type
+    {
+        let xp_award = if combat_state.in_combat() {
+            25 // combat actions give more XP
+        } else {
+            10 // exploration/dialogue gives base XP
+        };
+        *xp += xp_award;
+        tracing::info!(xp_award = xp_award, total_xp = *xp, level = *level, "XP awarded");
+
+        // Check for level up
+        let threshold = sidequest_game::xp_for_level(*level + 1);
+        if *xp >= threshold {
+            *level += 1;
+            let new_max_hp = sidequest_game::level_to_hp(10, *level);
+            let hp_gain = new_max_hp - *max_hp;
+            *max_hp = new_max_hp;
+            *hp = sidequest_game::clamp_hp(*hp + hp_gain, 0, *max_hp);
+            tracing::info!(
+                new_level = *level,
+                new_max_hp = *max_hp,
+                hp_gain = hp_gain,
+                "Level up!"
+            );
+        }
+    }
+
+    // Bug 5: Extract items from narration and add to inventory
+    {
+        let items_found = extract_items_from_narration(&clean_narration);
+        for (item_name, item_type) in &items_found {
+            let item_id = item_name.to_lowercase().replace(' ', "_").replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+            // Skip if already in inventory
+            if inventory.find(&item_id).is_some() {
+                continue;
+            }
+            if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
+                sidequest_protocol::NonBlankString::new(&item_id),
+                sidequest_protocol::NonBlankString::new(item_name),
+                sidequest_protocol::NonBlankString::new(&format!("A {} found during adventure", item_type)),
+                sidequest_protocol::NonBlankString::new(item_type),
+                sidequest_protocol::NonBlankString::new("common"),
+            ) {
+                let item = sidequest_game::Item {
+                    id, name, description: desc, category: cat,
+                    value: 0, weight: 1.0, rarity, narrative_weight: 0.3,
+                    tags: vec![], equipped: false, quantity: 1,
+                };
+                let _ = inventory.add(item, 50);
+                tracing::info!(item_name = %item_name, "Item added to inventory from narration");
+            }
+        }
+    }
+
     // Narration — include character state so the UI state mirror picks it up
+    let inventory_names: Vec<String> = inventory.items.iter().map(|i| i.name.as_str().to_string()).collect();
     messages.push(GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration.clone(),
@@ -1863,10 +2021,10 @@ async fn dispatch_player_action(
                 location: extract_location_header(narration_text),
                 characters: Some(vec![sidequest_protocol::CharacterState {
                     name: char_name.to_string(),
-                    hp,
-                    max_hp,
+                    hp: *hp,
+                    max_hp: *max_hp,
                     statuses: vec![],
-                    inventory: vec![],
+                    inventory: inventory_names.clone(),
                 }]),
                 quests: None,
             }),
@@ -1886,28 +2044,43 @@ async fn dispatch_player_action(
         player_id: player_id.to_string(),
     });
 
+    // Extract character class from JSON for PartyStatus
+    let char_class = character_json
+        .as_ref()
+        .and_then(|cj| cj.get("char_class"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("Adventurer");
+
     // Party status
     messages.push(GameMessage::PartyStatus {
         payload: PartyStatusPayload {
             members: vec![PartyMember {
                 player_id: player_id.to_string(),
                 name: char_name.to_string(),
-                current_hp: hp,
-                max_hp,
+                current_hp: *hp,
+                max_hp: *max_hp,
                 statuses: vec![],
-                class: "Adventurer".to_string(),
-                level: 1,
+                class: char_class.to_string(),
+                level: *level,
                 portrait_url: None,
             }],
         },
         player_id: player_id.to_string(),
     });
 
-    // Inventory — Phase 1: empty until inventory threading is done
+    // Bug 5: Inventory — now wired to actual inventory state
     messages.push(GameMessage::Inventory {
         payload: InventoryPayload {
-            items: vec![],
-            gold: 0,
+            items: inventory.items.iter().map(|item| {
+                sidequest_protocol::InventoryItem {
+                    name: item.name.as_str().to_string(),
+                    item_type: item.category.as_str().to_string(),
+                    equipped: item.equipped,
+                    quantity: item.quantity,
+                    description: item.description.as_str().to_string(),
+                }
+            }).collect(),
+            gold: inventory.gold,
         },
         player_id: player_id.to_string(),
     });
@@ -1976,6 +2149,47 @@ async fn dispatch_player_action(
             },
             player_id: player_id.to_string(),
         });
+    }
+
+    // Bug 6: Chase detection and state tracking
+    {
+        let narr_lower = clean_narration.to_lowercase();
+        let chase_start_keywords = [
+            "chase begins", "gives chase", "starts chasing", "run!",
+            "flee!", "pursues you", "pursuit begins", "races after",
+            "sprints after", "bolts away",
+        ];
+        let chase_end_keywords = [
+            "escape", "lost them", "chase ends", "caught up",
+            "stopped running", "pursuit ends", "safe now",
+            "shakes off", "outrun",
+        ];
+
+        if let Some(ref mut cs) = chase_state {
+            // Update active chase
+            if chase_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                tracing::info!(rounds = cs.round(), "Chase resolved");
+                *chase_state = None;
+            } else {
+                // Advance chase round, adjust separation based on narration
+                let gain = if narr_lower.contains("gaining") || narr_lower.contains("closing") {
+                    -1
+                } else if narr_lower.contains("widening") || narr_lower.contains("pulling ahead") {
+                    1
+                } else {
+                    0
+                };
+                cs.set_separation(cs.separation() + gain);
+                cs.record_roll(0.5); // placeholder roll
+            }
+        } else if chase_start_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+            let cs = sidequest_game::ChaseState::new(
+                sidequest_game::ChaseType::Footrace,
+                0.5,
+            );
+            tracing::info!("Chase started — detected chase keyword in narration");
+            *chase_state = Some(cs);
+        }
     }
 
     // Scan narration for trope trigger keywords → activate matching tropes
@@ -2109,7 +2323,7 @@ async fn dispatch_player_action(
         let mood_ctx = sidequest_game::MoodContext {
             in_combat: combat_state.in_combat(),
             in_chase: false, // chase state not threaded yet
-            party_health_pct: if max_hp > 0 { hp as f32 / max_hp as f32 } else { 1.0 },
+            party_health_pct: if *max_hp > 0 { *hp as f32 / *max_hp as f32 } else { 1.0 },
             quest_completed: false,
             npc_died: false,
         };
@@ -2369,6 +2583,69 @@ fn strip_location_header(text: &str) -> String {
     } else {
         text.to_string()
     }
+}
+
+/// Bug 5: Extract item acquisitions from narration text.
+///
+/// Looks for patterns like "you pick up {item}", "you find {item}", "receives {item}", etc.
+/// Returns a list of (item_name, item_type) tuples.
+fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
+    let text_lower = text.to_lowercase();
+    let mut items = Vec::new();
+
+    let acquisition_patterns = [
+        "pick up ", "picks up ", "you find ", "you found ",
+        "receives ", "receive ", "you acquire ", "acquires ",
+        "you take the ", "takes the ", "you grab ", "grabs ",
+        "you pocket ", "pockets ", "hands you ", "gives you ",
+        "you loot ", "loots ",
+    ];
+
+    for pattern in &acquisition_patterns {
+        let mut search_from = 0;
+        while let Some(pos) = text_lower[search_from..].find(pattern) {
+            let start = search_from + pos + pattern.len();
+            if start >= text_lower.len() {
+                break;
+            }
+            // Extract the item name: take until punctuation or newline
+            let rest = &text[start..];
+            let end = rest.find(|c: char| matches!(c, '.' | ',' | '!' | '?' | '\n' | ';' | ':'))
+                .unwrap_or(rest.len());
+            let item_name = rest[..end].trim();
+            // Skip if too long (likely not an item) or too short
+            if item_name.len() >= 3 && item_name.len() <= 60 {
+                // Strip leading articles
+                let clean_name = item_name
+                    .strip_prefix("a ").or_else(|| item_name.strip_prefix("an "))
+                    .or_else(|| item_name.strip_prefix("the "))
+                    .or_else(|| item_name.strip_prefix("some "))
+                    .unwrap_or(item_name)
+                    .trim();
+                if clean_name.len() >= 2 {
+                    // Simple category heuristic
+                    let lower_name = clean_name.to_lowercase();
+                    let category = if lower_name.contains("sword") || lower_name.contains("blade") || lower_name.contains("axe") || lower_name.contains("dagger") || lower_name.contains("weapon") {
+                        "weapon"
+                    } else if lower_name.contains("armor") || lower_name.contains("shield") || lower_name.contains("helmet") || lower_name.contains("plate") {
+                        "armor"
+                    } else if lower_name.contains("potion") || lower_name.contains("salve") || lower_name.contains("herb") || lower_name.contains("food") || lower_name.contains("drink") {
+                        "consumable"
+                    } else if lower_name.contains("key") || lower_name.contains("tool") || lower_name.contains("rope") || lower_name.contains("torch") || lower_name.contains("lantern") {
+                        "tool"
+                    } else if lower_name.contains("coin") || lower_name.contains("gem") || lower_name.contains("gold") || lower_name.contains("jewel") {
+                        "treasure"
+                    } else {
+                        "misc"
+                    };
+                    items.push((clean_name.to_string(), category.to_string()));
+                }
+            }
+            search_from = start;
+        }
+    }
+
+    items
 }
 
 /// Convert a game-internal AudioCue to a protocol GameMessage for WebSocket broadcast.
