@@ -410,6 +410,9 @@ mod message_type_tests {
                 mood: Some("combat".into()),
                 music_track: Some("battle_theme_01".into()),
                 sfx_triggers: vec!["sword_clash".into()],
+                channel: Some("music".into()),
+                action: Some("fade_in".into()),
+                volume: Some(0.8),
             },
             player_id: String::new(),
         };

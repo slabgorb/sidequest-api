@@ -756,9 +756,13 @@ pub struct AudioAiGeneration {
     pub cache_generated: Option<bool>,
 }
 
+/// Default energy level for tracks without an explicit energy field.
+fn default_energy() -> f64 {
+    0.5
+}
+
 /// A single music track.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct MoodTrack {
     /// File path.
     pub path: String,
@@ -766,6 +770,9 @@ pub struct MoodTrack {
     pub title: String,
     /// Beats per minute.
     pub bpm: u32,
+    /// Energy level (0.0–1.0) for mood intensity matching.
+    #[serde(default = "default_energy")]
+    pub energy: f64,
 }
 
 /// Voice preset for a creature type.
