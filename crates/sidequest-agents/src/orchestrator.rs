@@ -31,6 +31,8 @@ pub struct ActionResult {
     pub combat_events: Vec<String>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
+    /// How the intent was classified (ADR-032: Haiku, StateOverride, or KeywordFallback).
+    pub classification_source: ClassificationSource,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -148,6 +150,8 @@ impl GameService for Orchestrator {
 
         info!(action = %action, "Invoking Claude CLI for narration");
 
+        let source = route.source();
+
         match self.client.send(&prompt) {
             Ok(narration) => {
                 info!(len = narration.len(), "Claude CLI returned narration");
@@ -156,6 +160,7 @@ impl GameService for Orchestrator {
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     is_degraded: false,
+                    classification_source: source,
                 }
             }
             Err(e) => {
@@ -168,6 +173,7 @@ impl GameService for Orchestrator {
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     is_degraded: true,
+                    classification_source: source,
                 }
             }
         }

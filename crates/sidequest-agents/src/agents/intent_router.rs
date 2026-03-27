@@ -297,15 +297,14 @@ impl IntentClassifier for HaikuClassifier {
 
 /// Routes player input to the appropriate agent via LLM classification.
 pub struct IntentRouter {
-    client: ClaudeClient,
     classifier: HaikuClassifier,
 }
 
 impl IntentRouter {
     /// Create a new intent router with a Claude client.
     pub fn new(client: ClaudeClient) -> Self {
-        let classifier = HaikuClassifier::new(client.clone());
-        Self { client, classifier }
+        let classifier = HaikuClassifier::new(client);
+        Self { classifier }
     }
 
     /// Classify player input using keyword matching only (no LLM call).
