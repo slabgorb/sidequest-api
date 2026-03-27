@@ -111,7 +111,7 @@ impl DaemonClient {
     /// Synthesize text to speech audio bytes.
     pub async fn synthesize(&mut self, params: TtsParams) -> Result<TtsResult, DaemonError> {
         let resp = self
-            .request("tts", &params, self.config.render_timeout)
+            .request("render", &params, self.config.render_timeout)
             .await?;
         let result = resp
             .result

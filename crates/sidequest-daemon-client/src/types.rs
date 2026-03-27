@@ -30,7 +30,9 @@ pub struct RenderParams {
 }
 
 /// Parameters for a `tts` (text-to-speech) request.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// Sent via the `render` method — the daemon dispatches by `tier` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsParams {
     /// The text to synthesize.
     pub text: String,
@@ -40,6 +42,25 @@ pub struct TtsParams {
     pub voice_id: String,
     /// Speech speed multiplier (1.0 = normal).
     pub speed: f32,
+    /// Render tier — tells the daemon to route to the TTS worker.
+    #[serde(default = "default_tts_tier")]
+    pub tier: String,
+}
+
+fn default_tts_tier() -> String {
+    "tts".to_string()
+}
+
+impl Default for TtsParams {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            model: String::new(),
+            voice_id: String::new(),
+            speed: 1.0,
+            tier: default_tts_tier(),
+        }
+    }
 }
 
 /// Result from a `tts` request.
