@@ -1060,6 +1060,7 @@ async fn dispatch_message(
                 state,
                 player_id,
                 session.genre_slug().unwrap_or(""),
+                session.world_slug().unwrap_or(""),
             )
             .await
         }
@@ -1589,6 +1590,7 @@ async fn dispatch_character_creation(
                         state,
                         player_id,
                         &genre,
+                        &world,
                     )
                     .await;
 
@@ -1646,6 +1648,7 @@ async fn dispatch_player_action(
     state: &AppState,
     player_id: &str,
     genre_slug: &str,
+    world_slug: &str,
 ) -> Vec<GameMessage> {
     // Watcher: action received
     state.send_watcher_event(WatcherEvent {
@@ -2124,6 +2127,35 @@ async fn dispatch_player_action(
             };
             for c in &mixer_cues {
                 messages.push(audio_cue_to_game_message(c, player_id, genre_slug, Some(mood_key)));
+            }
+        }
+    }
+
+    // Persist updated game state (location, narration log) for reconnection
+    if !genre_slug.is_empty() && !world_slug.is_empty() {
+        let location = extract_location_header(narration_text)
+            .unwrap_or_else(|| "Starting area".to_string());
+        match state.persistence().load(genre_slug, world_slug).await {
+            Ok(Some(saved)) => {
+                let mut snapshot = saved.snapshot;
+                snapshot.location = location;
+                // Append narration to log for recap on reconnect
+                snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
+                    timestamp: 0,
+                    round: 0,
+                    author: "narrator".to_string(),
+                    content: clean_narration.clone(),
+                    tags: vec![],
+                });
+                if let Err(e) = state.persistence().save(genre_slug, world_slug, &snapshot).await {
+                    tracing::warn!(error = %e, "Failed to persist updated game state");
+                }
+            }
+            Ok(None) => {
+                tracing::debug!("No saved session to update");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to load session for persistence update");
             }
         }
     }
