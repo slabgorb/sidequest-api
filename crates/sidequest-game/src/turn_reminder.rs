@@ -112,6 +112,14 @@ impl ReminderResult {
         !self.idle_players.is_empty()
     }
 
+    /// An empty result (no idle players). Used when reminders are suppressed.
+    fn empty(config: &ReminderConfig) -> Self {
+        Self {
+            idle_players: vec![],
+            message: config.message().to_string(),
+        }
+    }
+
     /// Mode-aware check. Returns empty result in FreePlay mode (no barrier).
     pub fn check_with_mode(
         session: &MultiplayerSession,
@@ -119,10 +127,7 @@ impl ReminderResult {
         mode: &TurnMode,
     ) -> Self {
         if matches!(mode, TurnMode::FreePlay) {
-            return Self {
-                idle_players: vec![],
-                message: config.message().to_string(),
-            };
+            return Self::empty(config);
         }
         Self::check(session, config)
     }
@@ -139,10 +144,7 @@ impl ReminderResult {
         mode: &TurnMode,
     ) -> Self {
         if matches!(mode, TurnMode::FreePlay) {
-            return Self {
-                idle_players: vec![],
-                message: config.message().to_string(),
-            };
+            return Self::empty(config);
         }
 
         let delay = config.reminder_delay(barrier_timeout);
