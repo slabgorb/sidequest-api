@@ -38,7 +38,6 @@ fn make_character(name: &str) -> Character {
         char_class: NonBlankString::new("Fighter").unwrap(),
         race: NonBlankString::new("Human").unwrap(),
         stats: HashMap::new(),
-        abilities: vec![],
     }
 }
 
@@ -181,7 +180,7 @@ fn generator_uses_strategy_for_generation() {
 fn prompt_includes_character_name() {
     // Use a strategy that echoes back the prompt to verify contents
     let strategy = AlwaysSucceedStrategy::new("narration");
-    let gen = CatchUpGenerator::new(Box::new(strategy));
+    let _gen = CatchUpGenerator::new(Box::new(strategy));
     let character = make_character("Elara Brightwood");
     let summaries = sample_turn_summaries(2);
 
