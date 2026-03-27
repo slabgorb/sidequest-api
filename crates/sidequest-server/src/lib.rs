@@ -29,8 +29,9 @@ use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
-    CharacterState, ErrorPayload, GameMessage, InitialState, NarrationEndPayload, NarrationPayload,
-    PartyMember, PartyStatusPayload, SessionEventPayload, ThinkingPayload,
+    CharacterState, CombatEventPayload, ErrorPayload, GameMessage, InitialState,
+    InventoryPayload, MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember,
+    PartyStatusPayload, SessionEventPayload, ThinkingPayload,
 };
 
 // ---------------------------------------------------------------------------
@@ -1573,7 +1574,16 @@ async fn dispatch_player_action(
         messages.push(GameMessage::ChapterMarker {
             payload: ChapterMarkerPayload {
                 title: Some(location.clone()),
-                location: Some(location),
+                location: Some(location.clone()),
+            },
+            player_id: player_id.to_string(),
+        });
+        messages.push(GameMessage::MapUpdate {
+            payload: MapUpdatePayload {
+                current_location: location,
+                region: String::new(),
+                explored: vec![],
+                fog_bounds: None,
             },
             player_id: player_id.to_string(),
         });
@@ -1630,7 +1640,17 @@ async fn dispatch_player_action(
         player_id: player_id.to_string(),
     });
 
+    // Inventory — Phase 1: empty until inventory threading is done
+    messages.push(GameMessage::Inventory {
+        payload: InventoryPayload {
+            items: vec![],
+            gold: 0,
+        },
+        player_id: player_id.to_string(),
+    });
+
     // Combat tick — uses persistent per-session CombatState
+    let was_in_combat = combat_state.in_combat();
     if combat_state.in_combat() {
         combat_state.tick_effects();
         combat_state.advance_round();
@@ -1648,6 +1668,19 @@ async fn dispatch_player_action(
                 );
                 f
             },
+        });
+    }
+
+    // Combat overlay — send whenever combat state is relevant
+    if was_in_combat || combat_state.in_combat() {
+        messages.push(GameMessage::CombatEvent {
+            payload: CombatEventPayload {
+                in_combat: combat_state.in_combat(),
+                enemies: vec![],
+                turn_order: vec![],
+                current_turn: String::new(),
+            },
+            player_id: player_id.to_string(),
         });
     }
 
