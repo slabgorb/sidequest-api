@@ -186,7 +186,9 @@ fn reminders_fire_in_cinematic_mode() {
     let result = ReminderResult::check_with_mode(
         &session,
         &config,
-        &TurnMode::Cinematic { prompt: Some("Choose wisely...".to_string()) },
+        &TurnMode::Cinematic {
+            prompt: Some("Choose wisely...".to_string()),
+        },
     );
 
     assert_eq!(result.idle_players().len(), 2);
@@ -234,13 +236,9 @@ async fn run_reminder_identifies_idle_after_delay() {
     let config = ReminderConfig::default();
     let barrier_timeout = Duration::from_millis(100);
 
-    let result = ReminderResult::run_reminder(
-        barrier_timeout,
-        &config,
-        &session,
-        &TurnMode::Structured,
-    )
-    .await;
+    let result =
+        ReminderResult::run_reminder(barrier_timeout, &config, &session, &TurnMode::Structured)
+            .await;
 
     // After delay, both players still idle
     assert_eq!(result.idle_players().len(), 2);
@@ -261,13 +259,9 @@ async fn run_reminder_returns_empty_when_all_submitted() {
     let config = ReminderConfig::default();
     let barrier_timeout = Duration::from_millis(100);
 
-    let result = ReminderResult::run_reminder(
-        barrier_timeout,
-        &config,
-        &session,
-        &TurnMode::Structured,
-    )
-    .await;
+    let result =
+        ReminderResult::run_reminder(barrier_timeout, &config, &session, &TurnMode::Structured)
+            .await;
 
     assert!(result.idle_players().is_empty());
     assert!(!result.should_send());
@@ -285,12 +279,8 @@ async fn run_reminder_cancelled_when_barrier_resolves() {
     // Barrier resolves after 50ms — well before the 6s reminder delay
     let barrier_resolve = sleep(Duration::from_millis(50));
 
-    let reminder_future = ReminderResult::run_reminder(
-        barrier_timeout,
-        &config,
-        &session,
-        &TurnMode::Structured,
-    );
+    let reminder_future =
+        ReminderResult::run_reminder(barrier_timeout, &config, &session, &TurnMode::Structured);
 
     // select! drops the loser — reminder should be safely cancelled
     let fired = select! {
@@ -310,13 +300,8 @@ async fn run_reminder_skips_freeplay() {
     let config = ReminderConfig::default();
     let barrier_timeout = Duration::from_millis(50);
 
-    let result = ReminderResult::run_reminder(
-        barrier_timeout,
-        &config,
-        &session,
-        &TurnMode::FreePlay,
-    )
-    .await;
+    let result =
+        ReminderResult::run_reminder(barrier_timeout, &config, &session, &TurnMode::FreePlay).await;
 
     assert!(
         result.idle_players().is_empty(),
@@ -337,13 +322,9 @@ async fn run_reminder_partial_submission_targets_only_idle() {
     let config = ReminderConfig::default();
     let barrier_timeout = Duration::from_millis(100);
 
-    let result = ReminderResult::run_reminder(
-        barrier_timeout,
-        &config,
-        &session,
-        &TurnMode::Structured,
-    )
-    .await;
+    let result =
+        ReminderResult::run_reminder(barrier_timeout, &config, &session, &TurnMode::Structured)
+            .await;
 
     // Only p2 and p3 are idle
     assert_eq!(result.idle_players().len(), 2);
