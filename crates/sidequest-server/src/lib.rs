@@ -1927,6 +1927,9 @@ pub fn test_app_state() -> AppState {
 
     let (watcher_tx, _watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
-    let save_dir = PathBuf::from("/tmp/sidequest-test-saves");
+    // Use a unique temp directory per test_app_state call to avoid cross-test contamination
+    let save_dir = std::env::temp_dir()
+        .join("sidequest-test-saves")
+        .join(format!("{}-{}", std::process::id(), uuid::Uuid::new_v4()));
     AppState::new_with_game_service(Box::new(Orchestrator::new(watcher_tx)), genre_packs_path, save_dir)
 }
