@@ -8,6 +8,7 @@
 pub mod barrier;
 pub mod beat_filter;
 pub mod builder;
+pub mod catch_up;
 pub mod character;
 pub mod chase;
 pub mod combat;
