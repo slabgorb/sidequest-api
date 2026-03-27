@@ -15,6 +15,7 @@ pub mod combatant;
 pub mod creature_core;
 pub mod delta;
 pub mod disposition;
+pub mod guest_npc;
 pub mod hp;
 pub mod inventory;
 pub mod multiplayer;
