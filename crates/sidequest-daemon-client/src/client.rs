@@ -21,7 +21,7 @@ impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
             socket_path: PathBuf::from("/tmp/sidequest-renderer.sock"),
-            render_timeout: Duration::from_secs(30),
+            render_timeout: Duration::from_secs(300),
             default_timeout: Duration::from_secs(10),
         }
     }

@@ -64,12 +64,27 @@ impl Default for TtsParams {
 }
 
 /// Result from a `tts` request.
+///
+/// The daemon returns `audio_bytes` (raw PCM s16le as a JSON array of ints)
+/// and optionally `audio_path` (file on disk). All fields use `serde(default)`
+/// so deserialization succeeds even if the daemon omits a field.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TtsResult {
-    /// Raw audio bytes (WAV or Opus encoded).
+    /// Raw audio bytes (PCM s16le at 24 kHz).
+    #[serde(default)]
     pub audio_bytes: Vec<u8>,
     /// Duration of the audio in milliseconds.
+    #[serde(default)]
     pub duration_ms: u64,
+    /// Wall-clock synthesis time in milliseconds.
+    #[serde(default, alias = "generation_ms")]
+    pub elapsed_ms: u64,
+    /// Voice preset name used for synthesis.
+    #[serde(default)]
+    pub voice: String,
+    /// Path to the WAV file on the daemon host (fallback if audio_bytes empty).
+    #[serde(default)]
+    pub audio_path: String,
 }
 
 /// Parameters for a `warm_up` request.
