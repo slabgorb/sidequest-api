@@ -1328,14 +1328,30 @@ async fn start_character_creation(
     ));
     tracing::info!(genre = %genre, "Audio subsystems initialized from genre pack");
 
-    // Extract trope definitions from the genre pack for per-session use
-    // Collect from genre-level tropes and all world tropes
+    // Extract trope definitions from the genre pack for per-session use.
+    // Collect from genre-level tropes and all world tropes.
+    // Auto-generate IDs from names for tropes that don't have explicit IDs,
+    // and filter out abstract archetypes (they need world-level specialization).
     let mut all_tropes = pack.tropes.clone();
     for world in pack.worlds.values() {
         all_tropes.extend(world.tropes.clone());
     }
+    // Backfill missing IDs from name slugs so seeding/tick can match them
+    for trope in &mut all_tropes {
+        if trope.id.is_none() {
+            let slug = trope
+                .name
+                .as_str()
+                .to_lowercase()
+                .replace(' ', "-")
+                .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+            trope.id = Some(slug);
+        }
+    }
+    // Filter out abstract archetypes — they are templates, not activatable tropes
+    all_tropes.retain(|t| !t.is_abstract);
     *trope_defs_out = all_tropes;
-    tracing::info!(count = trope_defs_out.len(), genre = %genre, "Loaded trope definitions");
+    tracing::info!(count = trope_defs_out.len(), genre = %genre, "Loaded trope definitions (abstract filtered, IDs backfilled)");
 
     // Extract world description for narrator prompt context
     if let Some(world) = pack.worlds.get(world_slug) {
@@ -1993,6 +2009,11 @@ async fn dispatch_player_action(
         trope_states,
         trope_defs,
         &clean_narration,
+    );
+    tracing::info!(
+        active_tropes = trope_states.len(),
+        fired_beats = fired.len(),
+        "Trope tick complete"
     );
     for beat in &fired {
         tracing::info!(trope = %beat.trope_name, "Trope beat fired");
