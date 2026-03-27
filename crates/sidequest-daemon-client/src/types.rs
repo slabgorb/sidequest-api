@@ -121,7 +121,8 @@ pub struct ErrorPayload {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RenderResult {
     /// Path to the generated image.
-    #[serde(default)]
+    /// Accepts `image_url`, `output_path`, `path`, or `file` from the daemon.
+    #[serde(default, alias = "output_path", alias = "path", alias = "file")]
     pub image_url: String,
     /// Time taken to generate the image in milliseconds.
     /// Accepts both `generation_ms` and `elapsed_ms` from the daemon.

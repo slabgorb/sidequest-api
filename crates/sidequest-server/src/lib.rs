@@ -688,15 +688,26 @@ pub fn build_router(state: AppState) -> Router {
                 } = result
                 {
                     // Rewrite absolute file paths to served URLs.
-                    // The daemon returns paths like /Users/.../renders/abc.png;
-                    // extract the filename and serve via /api/renders/{filename}.
-                    let served_url = if let Some(filename) = std::path::Path::new(&image_url)
-                        .file_name()
-                        .and_then(|f| f.to_str())
-                    {
-                        format!("/api/renders/{}", filename)
-                    } else {
-                        image_url
+                    // The daemon returns paths like {output_dir}/flux/render_abc.png;
+                    // strip the output_dir prefix and serve via /api/renders/{subpath}.
+                    let served_url = {
+                        let img_path = std::path::Path::new(&image_url);
+                        let renders_base = std::env::var("SIDEQUEST_OUTPUT_DIR")
+                            .map(std::path::PathBuf::from)
+                            .unwrap_or_else(|_| {
+                                std::path::PathBuf::from(
+                                    std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+                                )
+                                .join(".sidequest")
+                                .join("renders")
+                            });
+                        if let Ok(rel) = img_path.strip_prefix(&renders_base) {
+                            format!("/api/renders/{}", rel.display())
+                        } else if let Some(filename) = img_path.file_name().and_then(|f| f.to_str()) {
+                            format!("/api/renders/{}", filename)
+                        } else {
+                            image_url
+                        }
                     };
                     let msg = GameMessage::Image {
                         payload: sidequest_protocol::ImagePayload {
@@ -726,13 +737,18 @@ pub fn build_router(state: AppState) -> Router {
     // Serve genre pack static assets (fonts, images, audio) at /genre/{slug}/...
     let genre_assets = ServeDir::new(state.genre_packs_path());
 
-    // Serve rendered images at /api/renders/{filename}
-    let renders_dir = std::path::PathBuf::from(
-        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
-    )
-    .join(".sidequest")
-    .join("renders");
-    let renders_assets = ServeDir::new(renders_dir);
+    // Serve rendered images at /api/renders/...
+    // Use SIDEQUEST_OUTPUT_DIR (same dir the daemon writes to) or fall back to ~/.sidequest/renders
+    let renders_dir = std::env::var("SIDEQUEST_OUTPUT_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(
+                std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+            )
+            .join(".sidequest")
+            .join("renders")
+        });
+    let renders_assets = ServeDir::new(&renders_dir);
 
     Router::new()
         .route("/api/genres", get(list_genres))
