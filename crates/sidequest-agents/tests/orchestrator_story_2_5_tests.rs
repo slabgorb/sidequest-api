@@ -10,29 +10,9 @@
 
 use std::collections::HashMap;
 
-use sidequest_agents::agents::intent_router::{ClassificationSource, Intent, IntentRoute, IntentRouter, IntentClassifier};
+use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
 use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
 use sidequest_game::tension_tracker::DeliveryMode;
-
-// ============================================================================
-// Mock classifier for testing state overrides
-// ============================================================================
-
-struct MockClassifier {
-    intent: Intent,
-    confidence: f64,
-}
-
-impl IntentClassifier for MockClassifier {
-    fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
-        IntentRoute::with_classification(
-            self.intent,
-            self.confidence,
-            vec![],
-            ClassificationSource::Haiku,
-        )
-    }
-}
 
 // ============================================================================
 // AC-2/3/4: Intent routing table — Intent → agent name
@@ -83,17 +63,15 @@ fn chase_routes_to_dialectician() {
 
 #[test]
 fn chase_state_overrides_classification() {
-    let mock = MockClassifier { intent: Intent::Exploration, confidence: 0.9 };
     let mut ctx = TurnContext::default();
     ctx.in_chase = true;
 
-    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &mock);
+    let route = IntentRouter::classify_with_state("I look around", &ctx);
     assert_eq!(
         route.intent(),
         Intent::Chase,
-        "Active chase should override classifier"
+        "Active chase should override keyword classification"
     );
-    assert_eq!(route.source(), ClassificationSource::StateOverride);
 }
 
 // ============================================================================
@@ -102,17 +80,15 @@ fn chase_state_overrides_classification() {
 
 #[test]
 fn combat_state_overrides_classification() {
-    let mock = MockClassifier { intent: Intent::Exploration, confidence: 0.9 };
     let mut ctx = TurnContext::default();
     ctx.in_combat = true;
 
-    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &mock);
+    let route = IntentRouter::classify_with_state("I look around", &ctx);
     assert_eq!(
         route.intent(),
         Intent::Combat,
-        "Active combat should override classifier"
+        "Active combat should override keyword classification"
     );
-    assert_eq!(route.source(), ClassificationSource::StateOverride);
 }
 
 // ============================================================================
@@ -120,12 +96,10 @@ fn combat_state_overrides_classification() {
 // ============================================================================
 
 #[test]
-fn narrator_fallback_has_zero_confidence() {
-    let route = IntentRoute::narrator_fallback();
+fn fallback_routes_to_narrator() {
+    let route = IntentRoute::fallback();
     assert_eq!(route.agent_name(), "narrator");
     assert_eq!(route.intent(), Intent::Exploration);
-    assert_eq!(route.confidence(), 0.0);
-    assert_eq!(route.source(), ClassificationSource::HaikuUnavailable);
 }
 
 // ============================================================================
@@ -134,9 +108,8 @@ fn narrator_fallback_has_zero_confidence() {
 
 #[test]
 fn classify_does_not_mutate_context() {
-    let mock = MockClassifier { intent: Intent::Combat, confidence: 0.9 };
     let ctx = TurnContext::default();
-    let _route = IntentRouter::classify_with_classifier("attack", &ctx, &mock);
+    let _route = IntentRouter::classify_with_state("attack", &ctx);
     assert!(!ctx.in_combat, "classify must not mutate state");
     assert!(!ctx.in_chase, "classify must not mutate state");
 }
@@ -154,7 +127,7 @@ fn turn_result_has_required_fields() {
         is_degraded: false,
         agent_used: AgentKind::CreatureSmith,
         delivery_mode: DeliveryMode::Instant,
-        classification_source: ClassificationSource::Haiku,
+
     };
 
     assert_eq!(result.narration, "The goblin falls.");
@@ -175,7 +148,7 @@ fn degraded_turn_result_marked() {
         is_degraded: true,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
-        classification_source: ClassificationSource::HaikuUnavailable,
+
     };
 
     assert!(result.is_degraded);
@@ -222,7 +195,7 @@ fn turn_result_carries_state_delta() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
-        classification_source: ClassificationSource::Haiku,
+
     };
 
     assert!(result.state_delta.is_some());
