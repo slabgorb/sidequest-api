@@ -1141,6 +1141,74 @@ async fn dispatch_connect(
                         };
                         responses.push(ready);
 
+                        // Replay essential state for reconnecting client
+                        // CHARACTER_SHEET
+                        if let Some(character) = saved.snapshot.characters.first() {
+                            responses.push(GameMessage::CharacterSheet {
+                                payload: CharacterSheetPayload {
+                                    name: character.core.name.as_str().to_string(),
+                                    class: character.char_class.as_str().to_string(),
+                                    level: character.core.level as u32,
+                                    stats: character.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+                                    abilities: character.hooks.clone(),
+                                    backstory: character.backstory.as_str().to_string(),
+                                    portrait_url: None,
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                        }
+
+                        // CHAPTER_MARKER for current location
+                        if !saved.snapshot.location.is_empty() {
+                            responses.push(GameMessage::ChapterMarker {
+                                payload: ChapterMarkerPayload {
+                                    title: Some(saved.snapshot.location.clone()),
+                                    location: Some(saved.snapshot.location.clone()),
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                        }
+
+                        // Last NARRATION — recap or last narrative log entry
+                        let recap_text = saved.recap.clone().or_else(|| {
+                            saved.snapshot.narrative_log.last().map(|e| e.content.clone())
+                        });
+                        if let Some(text) = recap_text {
+                            responses.push(GameMessage::Narration {
+                                payload: NarrationPayload {
+                                    text,
+                                    state_delta: None,
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                            responses.push(GameMessage::NarrationEnd {
+                                payload: NarrationEndPayload {
+                                    state_delta: None,
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                        }
+
+                        // PARTY_STATUS
+                        {
+                            let members: Vec<PartyMember> = saved.snapshot.characters.iter().map(|c| {
+                                PartyMember {
+                                    player_id: player_id.to_string(),
+                                    name: c.core.name.as_str().to_string(),
+                                    current_hp: c.core.hp,
+                                    max_hp: c.core.max_hp,
+                                    statuses: c.core.statuses.clone(),
+                                    class: c.char_class.as_str().to_string(),
+                                    level: c.core.level as u32,
+                                    portrait_url: None,
+                                }
+                            }).collect();
+                            responses.push(GameMessage::PartyStatus {
+                                payload: PartyStatusPayload { members },
+                                player_id: player_id.to_string(),
+                            });
+                        }
+
                         // Initialize audio subsystems for returning player
                         if let Ok(genre_code) = GenreCode::new(genre) {
                             let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
@@ -2135,6 +2203,7 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
                 model: "kokoro".to_string(),
                 voice_id: "en_male_deep".to_string(),
                 speed: 0.95,
+                ..Default::default()
             };
             let mut client = self.client.lock().await;
             match client.synthesize(params).await {
