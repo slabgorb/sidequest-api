@@ -19,6 +19,7 @@ use std::collections::HashMap;
 // === New/extended types from story 2-5 ===
 use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
 use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
+use sidequest_game::tension_tracker::DeliveryMode;
 
 // ============================================================================
 // AC-2: Intent routing — combat
@@ -183,6 +184,7 @@ fn turn_result_has_required_fields() {
         combat_events: vec!["damage: 5".to_string()],
         is_degraded: false,
         agent_used: AgentKind::CreatureSmith,
+        delivery_mode: DeliveryMode::Instant,
     };
 
     assert_eq!(result.narration, "The goblin falls.");
@@ -202,6 +204,7 @@ fn degraded_turn_result_marked() {
         combat_events: vec![],
         is_degraded: true,
         agent_used: AgentKind::Narrator,
+        delivery_mode: DeliveryMode::Instant,
     };
 
     assert!(
@@ -254,6 +257,7 @@ fn turn_result_carries_state_delta() {
         combat_events: vec![],
         is_degraded: false,
         agent_used: AgentKind::Narrator,
+        delivery_mode: DeliveryMode::Instant,
     };
 
     assert!(result.state_delta.is_some());

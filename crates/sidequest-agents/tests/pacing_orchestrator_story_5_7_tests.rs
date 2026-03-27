@@ -117,9 +117,9 @@ fn pacing_section_injected_for_narrator_agent() {
         "narrator",
         PromptSection::new(
             "base",
-            SectionCategory::System,
-            AttentionZone::System,
             "You are a narrator.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ),
     );
 
@@ -158,9 +158,9 @@ fn pacing_section_injected_for_creature_smith() {
         "creature_smith",
         PromptSection::new(
             "base",
-            SectionCategory::System,
-            AttentionZone::System,
             "You manage combat.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ),
     );
 
@@ -199,9 +199,9 @@ fn no_pacing_section_for_non_narrating_agents() {
         "ensemble",
         PromptSection::new(
             "base",
-            SectionCategory::System,
-            AttentionZone::System,
             "You are the ensemble agent.",
+            AttentionZone::Primacy,
+            SectionCategory::Identity,
         ),
     );
 

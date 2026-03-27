@@ -13,11 +13,16 @@
 //!             AC5 (delivery_mode), AC6 (HP ratio), AC7 (non-combat passthrough),
 //!             AC8 (timing), AC9 (integration)
 
+use std::collections::HashMap;
+
 use sidequest_game::character::Character;
 use sidequest_game::tension_tracker::{
     CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker,
 };
 use sidequest_game::state::GameSnapshot;
+use sidequest_game::creature_core::CreatureCore;
+use sidequest_game::inventory::Inventory;
+use sidequest_protocol::NonBlankString;
 
 // ============================================================================
 // PacingHint type — AC1, AC5
@@ -391,11 +396,13 @@ fn three_turn_combat_pacing_progression() {
     let boring_peak = tracker.pacing_hint(&thresholds).drama_weight;
 
     // --- Turn 4: dramatic spike (killing blow) ---
+    // Observe outcome, then read pacing hint BEFORE tick (pacing for turn N
+    // reflects state going into turn N, tick advances to N+1)
     tracker.record_event(CombatEvent::Dramatic);
     tracker.inject_spike(1.0);
-    tracker.tick();
 
     let spike_hint = tracker.pacing_hint(&thresholds);
+    tracker.tick();
     assert!(
         spike_hint.drama_weight > boring_peak,
         "dramatic spike should exceed boring ramp: {} > {}",
@@ -483,15 +490,26 @@ fn drama_thresholds_fields_are_settable() {
 // ============================================================================
 
 /// Build a character with the given HP values for testing.
-/// `is_friendly` marks whether this is a player-controlled character.
 fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -> Character {
-    let mut c = Character::default();
-    // These fields will need to exist on Character for the hp ratio helper.
-    // If Character doesn't have these fields, this will fail to compile —
-    // Dev needs to ensure Character has current_hp, max_hp, is_friendly.
-    c.name = name.to_string();
-    c.current_hp = current_hp;
-    c.max_hp = max_hp;
-    c.is_friendly = is_friendly;
-    c
+    Character {
+        core: CreatureCore {
+            name: NonBlankString::new(name).unwrap(),
+            description: NonBlankString::new("test").unwrap(),
+            personality: NonBlankString::new("test").unwrap(),
+            level: 1,
+            hp: current_hp,
+            max_hp,
+            ac: 10,
+            inventory: Inventory::default(),
+            statuses: vec![],
+        },
+        backstory: NonBlankString::new("test").unwrap(),
+        narrative_state: String::new(),
+        hooks: vec![],
+        char_class: NonBlankString::new("Fighter").unwrap(),
+        race: NonBlankString::new("Human").unwrap(),
+        stats: HashMap::new(),
+        abilities: vec![],
+        is_friendly,
+    }
 }
