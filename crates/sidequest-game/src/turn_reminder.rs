@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::RwLock;
+use tracing::{instrument, warn};
 
 use crate::multiplayer::MultiplayerSession;
 use crate::turn_mode::TurnMode;
@@ -34,6 +35,9 @@ pub struct ReminderConfig {
 
 impl ReminderConfig {
     /// Create a new reminder config with the given threshold and message.
+    ///
+    /// Prefer [`try_new`](Self::try_new) which validates inputs.
+    #[deprecated(since = "0.1.0", note = "use try_new() for validated construction")]
     pub fn new(threshold: f64, message: String) -> Self {
         Self { threshold, message }
     }
@@ -52,9 +56,11 @@ impl ReminderConfig {
     /// Message must be non-empty and not whitespace-only.
     pub fn try_new(threshold: f64, message: String) -> Result<Self, ReminderError> {
         if threshold.is_nan() || threshold.is_infinite() || !(0.0..=1.0).contains(&threshold) {
+            warn!(threshold, "ReminderConfig rejected: invalid threshold");
             return Err(ReminderError::InvalidThreshold(threshold));
         }
         if message.trim().is_empty() {
+            warn!("ReminderConfig rejected: empty or whitespace-only message");
             return Err(ReminderError::EmptyMessage);
         }
         Ok(Self { threshold, message })
@@ -85,10 +91,7 @@ pub struct ReminderResult {
 impl ReminderResult {
     /// Check a session against a config, returning which players are idle.
     pub fn check(session: &MultiplayerSession, config: &ReminderConfig) -> Self {
-        let mut idle: Vec<String> = session
-            .pending_players()
-            .into_iter()
-            .collect();
+        let mut idle: Vec<String> = session.pending_players().into_iter().collect();
         idle.sort();
 
         Self {
@@ -137,6 +140,7 @@ impl ReminderResult {
     ///
     /// Cancellation-safe — dropping this future mid-sleep is fine (tokio::time::sleep
     /// is cancel-safe, and no state is mutated until after the await point).
+    #[instrument(skip(config, session), fields(threshold = config.threshold()))]
     pub async fn run_reminder(
         barrier_timeout: Duration,
         config: &ReminderConfig,
