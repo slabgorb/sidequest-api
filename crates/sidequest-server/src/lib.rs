@@ -687,9 +687,20 @@ pub fn build_router(state: AppState) -> Router {
                     generation_ms,
                 } = result
                 {
+                    // Rewrite absolute file paths to served URLs.
+                    // The daemon returns paths like /Users/.../renders/abc.png;
+                    // extract the filename and serve via /api/renders/{filename}.
+                    let served_url = if let Some(filename) = std::path::Path::new(&image_url)
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                    {
+                        format!("/api/renders/{}", filename)
+                    } else {
+                        image_url
+                    };
                     let msg = GameMessage::Image {
                         payload: sidequest_protocol::ImagePayload {
-                            url: image_url,
+                            url: served_url,
                             description: String::new(),
                             handout: false,
                             render_id: Some(job_id.to_string()),
@@ -712,14 +723,23 @@ pub fn build_router(state: AppState) -> Router {
         .allow_methods([axum::http::Method::GET])
         .allow_headers(tower_http::cors::Any);
 
-    // Serve genre pack static assets (fonts, images) at /genre/assets/
+    // Serve genre pack static assets (fonts, images, audio) at /genre/{slug}/...
     let genre_assets = ServeDir::new(state.genre_packs_path());
+
+    // Serve rendered images at /api/renders/{filename}
+    let renders_dir = std::path::PathBuf::from(
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+    )
+    .join(".sidequest")
+    .join("renders");
+    let renders_assets = ServeDir::new(renders_dir);
 
     Router::new()
         .route("/api/genres", get(list_genres))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(ws_watcher_handler))
         .nest_service("/genre", genre_assets)
+        .nest_service("/api/renders", renders_assets)
         .layer(cors)
         .with_state(state)
 }
@@ -1924,6 +1944,9 @@ async fn dispatch_player_action(
             quest_completed: false,
             npc_died: false,
         };
+        // Classify mood first so we can include it in the protocol message
+        let classification = director.classify_mood(&clean_narration, &mood_ctx);
+        let mood_key = classification.primary.as_key();
         if let Some(cue) = director.evaluate(&clean_narration, &mood_ctx) {
             let mixer_cues = {
                 let mut mixer_guard = audio_mixer.lock().await;
@@ -1934,7 +1957,7 @@ async fn dispatch_player_action(
                 }
             };
             for c in &mixer_cues {
-                messages.push(audio_cue_to_game_message(c, player_id));
+                messages.push(audio_cue_to_game_message(c, player_id, genre_slug, Some(mood_key)));
             }
         }
     }
@@ -1963,6 +1986,7 @@ async fn dispatch_player_action(
             // Clone Arcs for the spawned TTS task (mixer ducking + prerender)
             let mixer_for_tts = std::sync::Arc::clone(audio_mixer);
             let prerender_for_tts = std::sync::Arc::clone(prerender_scheduler);
+            let genre_slug_for_tts = genre_slug.to_string();
             let tts_segments_for_prerender = tts_segments.clone();
             let prerender_ctx = sidequest_game::PrerenderContext {
                 in_combat: combat_state.in_combat(),
@@ -2006,7 +2030,7 @@ async fn dispatch_player_action(
                                 if let Some(ref mut mixer) = *mixer_guard {
                                     for duck_cue in mixer.on_tts_start() {
                                         let _ = state_for_tts.broadcast(
-                                            audio_cue_to_game_message(&duck_cue, &player_id_for_tts),
+                                            audio_cue_to_game_message(&duck_cue, &player_id_for_tts, &genre_slug_for_tts, None),
                                         );
                                     }
                                 }
@@ -2057,7 +2081,7 @@ async fn dispatch_player_action(
                                 if let Some(ref mut mixer) = *mixer_guard {
                                     for restore_cue in mixer.on_tts_end() {
                                         let _ = state_for_tts.broadcast(
-                                            audio_cue_to_game_message(&restore_cue, &player_id_for_tts),
+                                            audio_cue_to_game_message(&restore_cue, &player_id_for_tts, &genre_slug_for_tts, None),
                                         );
                                     }
                                 }
@@ -2149,11 +2173,26 @@ fn strip_location_header(text: &str) -> String {
 }
 
 /// Convert a game-internal AudioCue to a protocol GameMessage for WebSocket broadcast.
-fn audio_cue_to_game_message(cue: &sidequest_game::AudioCue, player_id: &str) -> GameMessage {
+///
+/// `genre_slug` is prepended to track paths so the client can fetch via `/genre/{slug}/{path}`.
+/// `mood` is included so the client's deduplication logic works (it ignores cues without mood).
+fn audio_cue_to_game_message(
+    cue: &sidequest_game::AudioCue,
+    player_id: &str,
+    genre_slug: &str,
+    mood: Option<&str>,
+) -> GameMessage {
+    let full_track = cue.track_id.as_ref().map(|path| {
+        if genre_slug.is_empty() {
+            path.clone()
+        } else {
+            format!("/genre/{}/{}", genre_slug, path)
+        }
+    });
     GameMessage::AudioCue {
         payload: AudioCuePayload {
-            mood: None,
-            music_track: cue.track_id.clone(),
+            mood: mood.map(|s| s.to_string()),
+            music_track: full_track,
             sfx_triggers: vec![],
             channel: Some(cue.channel.to_string()),
             action: Some(cue.action.to_string()),
