@@ -45,6 +45,16 @@ pub enum DirectiveSource {
     ActiveStake,
 }
 
+impl DirectiveSource {
+    /// Human-readable label for prompt rendering (e.g., `[Trope Beat]`).
+    pub fn label(&self) -> &str {
+        match self {
+            Self::TropeBeat => "Trope Beat",
+            Self::ActiveStake => "Active Stake",
+        }
+    }
+}
+
 /// A single element within a scene directive.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirectiveElement {
