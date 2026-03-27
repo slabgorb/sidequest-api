@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 
 // === New/extended types from story 2-5 ===
-use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::intent_router::{ClassificationSource, Intent, IntentRoute, IntentRouter};
 use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
 use sidequest_game::tension_tracker::DeliveryMode;
 
@@ -185,6 +185,7 @@ fn turn_result_has_required_fields() {
         is_degraded: false,
         agent_used: AgentKind::CreatureSmith,
         delivery_mode: DeliveryMode::Instant,
+        classification_source: ClassificationSource::KeywordFallback,
     };
 
     assert_eq!(result.narration, "The goblin falls.");
@@ -205,6 +206,7 @@ fn degraded_turn_result_marked() {
         is_degraded: true,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
+        classification_source: ClassificationSource::KeywordFallback,
     };
 
     assert!(
@@ -258,6 +260,7 @@ fn turn_result_carries_state_delta() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
+        classification_source: ClassificationSource::KeywordFallback,
     };
 
     assert!(result.state_delta.is_some());

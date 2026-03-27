@@ -517,7 +517,6 @@ fn orchestrator_folds_ambiguity_into_narrator_prompt() {
     // This test verifies the orchestrator's ContextBuilder includes
     // an ambiguity section when the route is ambiguous.
     use sidequest_agents::context_builder::ContextBuilder;
-    use sidequest_agents::prompt_framework::SectionCategory;
 
     let ambiguous_route = IntentRoute::with_classification(
         Intent::Combat,

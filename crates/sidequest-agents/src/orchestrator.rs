@@ -12,7 +12,7 @@ use crate::agent::Agent;
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
-use crate::agents::intent_router::IntentRouter;
+use crate::agents::intent_router::{ClassificationSource, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::client::ClaudeClient;
 use crate::context_builder::ContextBuilder;
@@ -195,6 +195,8 @@ pub struct TurnResult {
     pub agent_used: AgentKind,
     /// Drama-aware delivery mode for text reveal (Story 5-7).
     pub delivery_mode: DeliveryMode,
+    /// How the intent was classified (ADR-032: Haiku, StateOverride, or KeywordFallback).
+    pub classification_source: ClassificationSource,
 }
 
 /// Typed agent selection — replaces string-based agent keys.
