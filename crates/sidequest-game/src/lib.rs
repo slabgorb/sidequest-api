@@ -49,7 +49,7 @@ pub use inventory::{Inventory, InventoryError, Item};
 pub use narrative::NarrativeEntry;
 pub use npc::Npc;
 pub use persistence::{
-    PersistError, PersistenceHandle, PersistenceWorker, PlayerSessionData, SaveListEntry,
+    PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry,
     SavedSession, SessionMeta, SessionStore, SqliteStore,
 };
 pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};

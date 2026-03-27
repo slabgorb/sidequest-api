@@ -31,7 +31,7 @@ use sidequest_protocol::{
 /// Composes all domain types (port lesson #4). Serializable for persistence
 /// and WebSocket broadcast. Port lesson #11: captures ALL client-visible fields,
 /// not just characters/location/quest_log like the Python version.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GameSnapshot {
     /// Genre pack identifier (e.g., "mutant_wasteland").
     pub genre_slug: String,
