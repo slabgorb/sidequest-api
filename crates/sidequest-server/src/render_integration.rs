@@ -66,13 +66,35 @@ pub fn spawn_image_broadcaster(
                     image_url,
                     generation_ms,
                 } => {
+                    // Guard: if the URL is empty after the whole pipeline,
+                    // something went very wrong — scream, don't broadcast garbage.
+                    if image_url.trim().is_empty() {
+                        tracing::error!(
+                            job_id = %job_id,
+                            "render_broadcast_blocked — image_url is empty, refusing to send broken IMAGE to clients"
+                        );
+                        continue;
+                    }
+
+                    let tier_str = tier_to_string(ctx.subject.tier());
+                    let scene_str = scene_type_to_string(ctx.subject.scene_type());
+
+                    tracing::info!(
+                        job_id = %job_id,
+                        image_url = %image_url,
+                        generation_ms = generation_ms,
+                        tier = %tier_str,
+                        scene_type = %scene_str,
+                        "render_broadcast — sending IMAGE to WebSocket clients"
+                    );
+
                     let payload = ImagePayload {
                         url: image_url,
                         description: ctx.subject.prompt_fragment().to_string(),
                         handout: false,
                         render_id: Some(job_id.to_string()),
-                        tier: Some(tier_to_string(ctx.subject.tier())),
-                        scene_type: Some(scene_type_to_string(ctx.subject.scene_type())),
+                        tier: Some(tier_str),
+                        scene_type: Some(scene_str),
                         generation_ms: Some(generation_ms),
                     };
 
@@ -85,10 +107,12 @@ pub fn spawn_image_broadcaster(
                     let _ = ws_tx.send(msg);
                 }
                 RenderJobResult::Failed { job_id, error } => {
-                    tracing::warn!(
+                    // Error level, not warn — a failed render means the player
+                    // gets no scene illustration. That's visible breakage.
+                    tracing::error!(
                         job_id = %job_id,
                         error = %error,
-                        "Render job failed, not broadcasting IMAGE"
+                        "render_broadcast_failed — render job failed, no IMAGE sent to clients"
                     );
                 }
                 _ => {

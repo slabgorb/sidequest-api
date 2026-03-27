@@ -191,6 +191,7 @@ mod message_type_tests {
                 world: Some("flickering_reach".into()),
                 has_character: None,
                 initial_state: None,
+                css: None,
             },
             player_id: String::new(),
         };
@@ -220,6 +221,7 @@ mod message_type_tests {
                     location: "Town Square".into(),
                     quests: std::collections::HashMap::new(),
                 }),
+                css: None,
             },
             player_id: String::new(),
         };
@@ -484,6 +486,7 @@ mod message_type_tests {
         let msg = GameMessage::Error {
             payload: ErrorPayload {
                 message: "something went wrong".into(),
+                reconnect_required: None,
             },
             player_id: String::new(),
         };

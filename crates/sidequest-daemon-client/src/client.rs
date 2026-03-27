@@ -87,14 +87,68 @@ impl DaemonClient {
     }
 
     /// Send a render request and wait for the result.
+    ///
+    /// Logs OTel-style events for the full render lifecycle:
+    /// - render_requested: what we're asking the daemon for
+    /// - render_result_received: success with URL and timing
+    /// - render_deserialize_failed: LOUD error if JSON doesn't match RenderResult
+    /// - render_empty_url: LOUD error if daemon returns empty/blank image path
     pub async fn render(&mut self, params: RenderParams) -> Result<RenderResult, DaemonError> {
+        tracing::info!(
+            prompt_len = params.prompt.len(),
+            art_style = %params.art_style,
+            tier = %params.tier,
+            "render_requested"
+        );
+
         let resp = self
             .request("render", &params, self.config.render_timeout)
             .await?;
-        let result = resp
+
+        let raw_result = resp
             .result
             .ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
-        serde_json::from_value(result).map_err(|e| DaemonError::InvalidResponse(e.to_string()))
+
+        // Log the raw JSON so we can debug field-name mismatches in the watch log.
+        tracing::debug!(raw_json = %raw_result, "render_raw_response");
+
+        // Deserialize — NO silent defaults. If image_url/image_path is missing,
+        // serde will fail here and we catch it loudly.
+        let render_result: RenderResult = serde_json::from_value(raw_result.clone())
+            .map_err(|e| {
+                // This is the "scream in the watch log" Keith asked for.
+                // If we hit this, the daemon returned JSON that doesn't have any
+                // recognized image path field (image_url, image_path, output_path, etc.)
+                tracing::error!(
+                    error = %e,
+                    raw_json = %raw_result,
+                    tier = %params.tier,
+                    "render_deserialize_failed — daemon response missing image path field"
+                );
+                DaemonError::InvalidResponse(e.to_string())
+            })?;
+
+        // Belt AND suspenders: even if serde accepted the field, reject empty strings.
+        // An empty URL means a broken <img> tag downstream.
+        if render_result.image_url.trim().is_empty() {
+            tracing::error!(
+                raw_json = %raw_result,
+                tier = %params.tier,
+                "render_empty_url — daemon returned blank image path, this will produce a broken image"
+            );
+            return Err(DaemonError::InvalidResponse(
+                "daemon returned empty image_url/image_path".into(),
+            ));
+        }
+
+        tracing::info!(
+            image_url = %render_result.image_url,
+            generation_ms = render_result.generation_ms,
+            tier = %params.tier,
+            "render_result_received"
+        );
+
+        Ok(render_result)
     }
 
     /// Send a warm_up request to pre-load a worker model.

@@ -58,6 +58,10 @@ pub struct SceneResult {
     pub anchors_added: Vec<LoreAnchor>,
     /// Mechanical effects applied by this scene's choice.
     pub effects_applied: MechanicalEffects,
+    /// The flavor description text from the chosen option (e.g. "A city built
+    /// from stacked ruins…"). Stored here so we can compose a narrative backstory
+    /// instead of only keeping the mechanical label.
+    pub choice_description: Option<String>,
 }
 
 /// A narrative hook derived from character creation choices.
@@ -137,6 +141,9 @@ pub struct AccumulatedChoices {
     pub rig_trait: Option<String>,
     /// Accumulated catch phrase (last one wins).
     pub catch_phrase: Option<String>,
+    /// Rich description text from each creation choice, in scene order.
+    /// Used to compose a narrative backstory instead of bare mechanical labels.
+    pub backstory_fragments: Vec<String>,
 }
 
 /// Errors from CharacterBuilder operations.
@@ -329,6 +336,10 @@ impl CharacterBuilder {
             if let Some(ref v) = eff.catch_phrase {
                 acc.catch_phrase = Some(v.clone());
             }
+            // Collect the rich description text from each choice for backstory
+            if let Some(ref desc) = result.choice_description {
+                acc.backstory_fragments.push(desc.clone());
+            }
         }
         acc
     }
@@ -365,12 +376,14 @@ impl CharacterBuilder {
         let effects = choice.mechanical_effects.clone();
         let hooks = extract_hooks(&scene.id, &effects);
         let anchors = extract_anchors(&scene.id, &effects);
+        let description = Some(choice.description.clone());
 
         self.results.push(SceneResult {
             input_type: SceneInputType::Choice(index),
             hooks_added: hooks,
             anchors_added: anchors,
             effects_applied: effects,
+            choice_description: description,
         });
 
         // Check for hook_prompt → AwaitingFollowup, else advance
@@ -426,6 +439,7 @@ impl CharacterBuilder {
             hooks_added: vec![],
             anchors_added: vec![],
             effects_applied: effects,
+            choice_description: None,
         });
 
         if let Some(ref prompt) = scene.hook_prompt {
@@ -576,8 +590,12 @@ impl CharacterBuilder {
             })
             .collect();
 
-        // Compose backstory from accumulated choices
-        let backstory_text = {
+        // Compose backstory from the rich description text collected during
+        // character creation. Each fragment is the flavor text the player saw
+        // when they picked a choice (e.g. "A city built from stacked ruins…").
+        // We weave them into prose rather than just listing mechanical labels.
+        let backstory_text = if acc.backstory_fragments.is_empty() {
+            // Fallback: use mechanical labels if somehow no descriptions were captured
             let mut parts = Vec::new();
             if let Some(ref bg) = acc.background {
                 parts.push(format!("Background: {}", bg));
@@ -590,6 +608,8 @@ impl CharacterBuilder {
             } else {
                 parts.join(". ")
             }
+        } else {
+            acc.backstory_fragments.join(" ")
         };
 
         let character = Character {

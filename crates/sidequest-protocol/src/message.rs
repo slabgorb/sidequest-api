@@ -311,6 +311,9 @@ pub struct SessionEventPayload {
     /// Initial game state (on ready).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub initial_state: Option<InitialState>,
+    /// Genre CSS content (on theme_css event).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub css: Option<String>,
 }
 
 /// Character creation flow payload.
@@ -550,6 +553,11 @@ pub struct ChapterMarkerPayload {
 pub struct ErrorPayload {
     /// Human-readable error message.
     pub message: String,
+    /// When true, the client must re-send a SESSION_EVENT{connect} before
+    /// retrying.  Set when the server has no session for this connection
+    /// (e.g. after a server restart).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reconnect_required: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------

@@ -20,13 +20,21 @@ pub struct DaemonRequest<P: Serialize> {
 /// Parameters for a `render` request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RenderParams {
-    /// The image generation prompt.
+    /// The image generation prompt (raw subject fragment).
     pub prompt: String,
     /// Art style to apply (e.g. "oil_painting", "pixel_art").
     pub art_style: String,
     /// Render tier — routes to the correct daemon worker.
     /// One of: "scene_illustration", "portrait", "landscape", "cartography", "tts", "music".
     pub tier: String,
+    /// Pre-composed positive prompt with genre style suffix and tag overrides baked in.
+    /// When set, the daemon's flux worker uses this directly instead of building from parts.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub positive_prompt: String,
+    /// Negative prompt from the genre's visual_style.yaml.
+    /// Flux doesn't use negative prompts natively, but future models (SDXL) will.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub negative_prompt: String,
 }
 
 /// Parameters for a `tts` (text-to-speech) request.
@@ -118,11 +126,19 @@ pub struct ErrorPayload {
 // ---------------------------------------------------------------------------
 
 /// Result from a `render` request.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// The daemon returns `image_path` as the field name, but we normalize to
+/// `image_url` on our side. The `alias` attributes let serde accept either name.
+///
+/// NOTE: `image_url` intentionally has NO `#[serde(default)]`. If the daemon
+/// omits the image path entirely, deserialization will FAIL — and that's what
+/// we want. A missing image path is a bug, not a graceful degradation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderResult {
     /// Path to the generated image.
-    /// Accepts `image_url`, `output_path`, `path`, or `file` from the daemon.
-    #[serde(default, alias = "output_path", alias = "path", alias = "file")]
+    /// Accepts `image_url`, `image_path`, `output_path`, `path`, or `file` from the daemon.
+    /// No default — if the daemon doesn't return a path, we want a loud error.
+    #[serde(alias = "image_path", alias = "output_path", alias = "path", alias = "file")]
     pub image_url: String,
     /// Time taken to generate the image in milliseconds.
     /// Accepts both `generation_ms` and `elapsed_ms` from the daemon.

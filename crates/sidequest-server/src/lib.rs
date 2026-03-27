@@ -312,16 +312,34 @@ impl AppState {
         let render_queue = sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
             |prompt, art_style, tier| async move {
-                tracing::info!(prompt_len = prompt.len(), art_style = %art_style, tier = %tier, "Render job starting — connecting to daemon");
+                // ── OTel: render pipeline start ──────────────────────────
+                tracing::info!(
+                    prompt_len = prompt.len(),
+                    prompt_preview = %&prompt[..prompt.len().min(120)],
+                    art_style = %art_style,
+                    tier = %tier,
+                    "render_pipeline_start — connecting to daemon"
+                );
                 let config = sidequest_daemon_client::DaemonConfig::default();
                 match sidequest_daemon_client::DaemonClient::connect(config).await {
                     Ok(mut client) => {
-                        tracing::info!(tier = %tier, "Daemon connected, sending render request");
+                        tracing::info!(tier = %tier, "render_daemon_connected");
+                        // The art_style field carries the full composed style string
+                        // (positive_suffix + location tag overrides), built at the
+                        // enqueue call site. Combine with the raw prompt fragment to
+                        // produce the positive_prompt the daemon expects.
+                        let positive_prompt = if art_style.is_empty() {
+                            prompt.clone()
+                        } else {
+                            format!("{}, {}", prompt, art_style)
+                        };
                         match client
                             .render(sidequest_daemon_client::RenderParams {
                                 prompt: prompt.clone(),
                                 art_style: art_style.clone(),
-                                tier,
+                                tier: tier.clone(),
+                                positive_prompt,
+                                ..Default::default()
                             })
                             .await
                         {
@@ -346,8 +364,11 @@ impl AppState {
                                         let dest = renders_dir.join(filename);
                                         if src.exists() {
                                             if let Err(e) = std::fs::copy(src, &dest) {
-                                                tracing::warn!(error = %e, src = %raw_path, "Failed to copy render to serves dir");
+                                                tracing::error!(error = %e, src = %raw_path, "render_file_copy_failed — image won't be servable");
                                             }
+                                        } else {
+                                            // File doesn't exist at the path daemon told us — loud error
+                                            tracing::error!(src = %raw_path, "render_file_missing — daemon returned path that doesn't exist on disk");
                                         }
                                         format!("/api/renders/{}", filename.to_string_lossy())
                                     } else {
@@ -359,17 +380,33 @@ impl AppState {
                                     // Bare filename — assume it's in the renders dir
                                     format!("/api/renders/{}", raw_path)
                                 };
-                                tracing::info!(raw = %raw_path, url = %servable_url, ms = result.generation_ms, "Render complete");
+                                // ── OTel: render pipeline success ────────────────────
+                                tracing::info!(
+                                    raw_path = %raw_path,
+                                    servable_url = %servable_url,
+                                    generation_ms = result.generation_ms,
+                                    tier = %tier,
+                                    "render_pipeline_complete"
+                                );
                                 Ok((servable_url, result.generation_ms))
                             }
                             Err(e) => {
-                                tracing::warn!(error = %e, prompt_preview = %&prompt[..prompt.len().min(80)], "Render request failed");
+                                // ── OTel: render pipeline failure ────────────────────
+                                // Error-level, not warn. A failed render is not a
+                                // recoverable situation — the player sees a broken image.
+                                tracing::error!(
+                                    error = %e,
+                                    prompt_preview = %&prompt[..prompt.len().min(80)],
+                                    tier = %tier,
+                                    "render_pipeline_failed — daemon returned error or deserialization failed"
+                                );
                                 Err(format!("render failed: {e}"))
                             }
                         }
                     }
                     Err(e) => {
-                        tracing::warn!(error = %e, "Daemon connect failed");
+                        // ── OTel: daemon connection failure ──────────────────
+                        tracing::error!(error = %e, tier = %tier, "render_daemon_connect_failed — is the renderer running?");
                         Err(format!("daemon unavailable: {e}"))
                     }
                 }
@@ -576,6 +613,7 @@ impl Session {
                         world: Some(world.to_string()),
                         has_character: Some(false),
                         initial_state: None,
+                        css: None,
                     },
                     player_id: String::new(),
                 })
@@ -690,6 +728,19 @@ pub fn error_response(player_id: &str, message: &str) -> GameMessage {
     GameMessage::Error {
         payload: ErrorPayload {
             message: message.to_string(),
+            reconnect_required: None,
+        },
+        player_id: player_id.to_string(),
+    }
+}
+
+/// Construct a GameMessage::Error that tells the client to re-send its
+/// SESSION_EVENT{connect} handshake before retrying.
+pub fn reconnect_required_response(player_id: &str, message: &str) -> GameMessage {
+    GameMessage::Error {
+        payload: ErrorPayload {
+            message: message.to_string(),
+            reconnect_required: Some(true),
         },
         player_id: player_id.to_string(),
     }
@@ -1095,10 +1146,18 @@ async fn dispatch_message(
         }
         GameMessage::PlayerAction { payload, .. } => {
             if !session.is_playing() {
-                return vec![error_response(
-                    player_id,
-                    &format!("Cannot process action in {} state", session.state_name()),
-                )];
+                let err = if session.is_awaiting_connect() {
+                    reconnect_required_response(
+                        player_id,
+                        "Session not established. Please reconnect.",
+                    )
+                } else {
+                    error_response(
+                        player_id,
+                        &format!("Cannot process action in {} state", session.state_name()),
+                    )
+                };
+                return vec![err];
             }
             dispatch_player_action(
                 &payload.action,
@@ -1130,10 +1189,17 @@ async fn dispatch_message(
         }
         // All other valid message types in wrong state
         _ => {
-            vec![error_response(
-                player_id,
-                &format!("Unexpected message in {} state", session.state_name()),
-            )]
+            if session.is_awaiting_connect() {
+                vec![reconnect_required_response(
+                    player_id,
+                    "Session not established. Please reconnect.",
+                )]
+            } else {
+                vec![error_response(
+                    player_id,
+                    &format!("Unexpected message in {} state", session.state_name()),
+                )]
+            }
         }
     }
 }
@@ -1218,6 +1284,7 @@ async fn dispatch_connect(
                                     location: saved.snapshot.location.clone(),
                                     quests: saved.snapshot.quest_log.clone(),
                                 }),
+                                css: None,
                             },
                             player_id: player_id.to_string(),
                         };
@@ -1304,6 +1371,16 @@ async fn dispatch_connect(
                                     sidequest_game::PrerenderConfig::default(),
                                 ));
                                 tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
+
+                                // Inject name bank context for returning player
+                                let cultures = pack.worlds.get(world)
+                                    .filter(|w| !w.cultures.is_empty())
+                                    .map(|w| w.cultures.as_slice())
+                                    .unwrap_or(&pack.cultures);
+                                let name_bank = build_name_bank_context(cultures);
+                                if !name_bank.is_empty() {
+                                    world_context.push_str(&name_bank);
+                                }
                             }
                         }
 
@@ -1356,6 +1433,23 @@ async fn dispatch_connect(
                 ).await {
                     responses.push(scene_msg);
                 }
+            }
+
+            // Send theme_css SESSION_EVENT if the genre pack has a client_theme.css
+            let css_path = state.genre_packs_path().join(genre).join("client_theme.css");
+            if let Ok(css) = tokio::fs::read_to_string(&css_path).await {
+                responses.push(GameMessage::SessionEvent {
+                    payload: SessionEventPayload {
+                        event: "theme_css".to_string(),
+                        player_name: None,
+                        genre: None,
+                        world: None,
+                        has_character: None,
+                        initial_state: None,
+                        css: Some(css),
+                    },
+                    player_id: player_id.to_string(),
+                });
             }
 
             responses
@@ -1452,6 +1546,16 @@ async fn start_character_creation(
         }
         *world_context_out = ctx;
         tracing::info!(world = %world_slug, context_len = world_context_out.len(), "Loaded world context");
+    }
+
+    // Inject name bank context from cultures (prefer world-specific, fall back to genre-level)
+    let cultures = pack.worlds.get(world_slug)
+        .filter(|w| !w.cultures.is_empty())
+        .map(|w| w.cultures.as_slice())
+        .unwrap_or(&pack.cultures);
+    let name_bank = build_name_bank_context(cultures);
+    if !name_bank.is_empty() {
+        world_context_out.push_str(&name_bank);
     }
 
     // Filter scenes to those with non-empty choices
@@ -1639,6 +1743,7 @@ async fn dispatch_character_creation(
                             world: None,
                             has_character: None,
                             initial_state: None,
+                            css: None,
                         },
                         player_id: player_id.to_string(),
                     };
@@ -1690,7 +1795,23 @@ async fn dispatch_character_creation(
                         player_id: player_id.to_string(),
                     };
 
-                    let mut msgs = vec![complete, char_sheet, ready];
+                    // Emit the character's backstory as a prose narration so
+                    // it appears in the narrative view — not just in the overlay.
+                    let backstory_narration = GameMessage::Narration {
+                        payload: NarrationPayload {
+                            text: character.backstory.as_str().to_string(),
+                            state_delta: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+                    let backstory_end = GameMessage::NarrationEnd {
+                        payload: NarrationEndPayload {
+                            state_delta: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+
+                    let mut msgs = vec![complete, char_sheet, backstory_narration, backstory_end, ready];
                     msgs.extend(intro_messages);
                     msgs
                 }
@@ -2411,11 +2532,30 @@ async fn dispatch_player_action(
         tracing::info!(decision = ?decision, "BeatFilter decision");
         if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
             if let Some(ref queue) = state.inner.render_queue {
+                // Compose the full style string: location tag override + positive_suffix.
+                // This flows through the render queue as "art_style" and gets combined
+                // with the raw prompt fragment in the render closure to build positive_prompt.
                 let (art_style, model) = match visual_style {
-                    Some(ref vs) => (vs.positive_suffix.as_str(), vs.preferred_model.as_str()),
-                    None => ("oil_painting", "flux-schnell"),
+                    Some(ref vs) => {
+                        // Match visual_tag_overrides against current location (substring match)
+                        let location = extraction_context.current_location.to_lowercase();
+                        let tag_override = if !location.is_empty() {
+                            vs.visual_tag_overrides
+                                .iter()
+                                .find(|(key, _)| location.contains(key.as_str()))
+                                .map(|(_, val)| val.as_str())
+                        } else {
+                            None
+                        };
+                        let style = match tag_override {
+                            Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
+                            None => vs.positive_suffix.clone(),
+                        };
+                        (style, vs.preferred_model.clone())
+                    }
+                    None => ("oil_painting".to_string(), "flux-schnell".to_string()),
                 };
-                match queue.enqueue(subject, art_style, model).await {
+                match queue.enqueue(subject, &art_style, &model).await {
                     Ok(result) => tracing::info!(result = ?result, "Render job enqueued"),
                     Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
                 }
@@ -2430,6 +2570,7 @@ async fn dispatch_player_action(
 
     // Audio cue — evaluate mood via MusicDirector, route through AudioMixer
     if let Some(ref mut director) = music_director {
+        tracing::info!("music_director_present — evaluating mood");
         let mood_ctx = sidequest_game::MoodContext {
             in_combat: combat_state.in_combat(),
             in_chase: false, // chase state not threaded yet
@@ -2440,7 +2581,21 @@ async fn dispatch_player_action(
         // Classify mood first so we can include it in the protocol message
         let classification = director.classify_mood(&clean_narration, &mood_ctx);
         let mood_key = classification.primary.as_key();
+        tracing::info!(
+            mood = mood_key,
+            intensity = classification.intensity,
+            confidence = classification.confidence,
+            in_combat = mood_ctx.in_combat,
+            "music_mood_classified"
+        );
         if let Some(cue) = director.evaluate(&clean_narration, &mood_ctx) {
+            tracing::info!(
+                mood = mood_key,
+                track = ?cue.track_id,
+                action = %cue.action,
+                volume = cue.volume,
+                "music_cue_produced"
+            );
             let mixer_cues = {
                 let mut mixer_guard = audio_mixer.lock().await;
                 if let Some(ref mut mixer) = *mixer_guard {
@@ -2449,10 +2604,15 @@ async fn dispatch_player_action(
                     vec![cue]
                 }
             };
+            tracing::info!(cue_count = mixer_cues.len(), "music_mixer_cues_ready");
             for c in &mixer_cues {
                 messages.push(audio_cue_to_game_message(c, player_id, genre_slug, Some(mood_key)));
             }
+        } else {
+            tracing::warn!(mood = mood_key, "music_evaluate_returned_none — no cue produced");
         }
+    } else {
+        tracing::warn!("music_director_missing — audio cues skipped");
     }
 
     // Persist updated game state (location, narration log) for reconnection
@@ -2817,6 +2977,133 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
         }
     }
 
+    // Introduction patterns: "a woman named X", "a man called X", "named X", "called X"
+    let intro_patterns = ["named ", "called ", "known as "];
+    for pat in &intro_patterns {
+        let mut search_from = 0;
+        while let Some(pos) = text_lower[search_from..].find(pat) {
+            let abs_pos = search_from + pos + pat.len();
+            if abs_pos < narration.len() {
+                // Extract the name that follows the pattern
+                let rest = &narration[abs_pos..];
+                let name_end = rest.find(|c: char| matches!(c, ',' | '.' | '!' | '?' | ';' | '\n' | '"' | '\u{201d}'))
+                    .unwrap_or(rest.len());
+                let candidate = rest[..name_end].trim();
+                if candidate.len() >= 2 && candidate.len() <= 40 && candidate.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    let name = candidate.to_string();
+                    if !name.to_lowercase().contains("you") {
+                        if !registry.iter().any(|e| e.name == name) {
+                            // Try to infer role from "X, the blacksmith" pattern after name
+                            let role = if name_end < rest.len() {
+                                let after_name = &rest[name_end..];
+                                if after_name.starts_with(", the ") || after_name.starts_with(", a ") {
+                                    let role_start = after_name.find(' ').map(|i| i + 1).unwrap_or(0);
+                                    let role_text = &after_name[role_start..];
+                                    let role_end = role_text.find(|c: char| matches!(c, ',' | '.' | '!' | '?'))
+                                        .unwrap_or(role_text.len().min(40));
+                                    role_text[..role_end].trim().to_string()
+                                } else { String::new() }
+                            } else { String::new() };
+                            registry.push(NpcRegistryEntry {
+                                name,
+                                pronouns: String::new(),
+                                role,
+                                location: current_location.to_string(),
+                                last_seen_turn: turn_count,
+                            });
+                        }
+                    }
+                }
+            }
+            search_from = abs_pos;
+        }
+    }
+
+    // Appositive pattern: "Name, the blacksmith" / "Name, a merchant"
+    {
+        use regex::Regex;
+        let appos_re = Regex::new(r"\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?), (?:the|a|an) ([a-z][a-z ]{1,30})").unwrap();
+        for caps in appos_re.captures_iter(narration) {
+            let name = caps[1].to_string();
+            let role = caps[2].trim_end_matches(|c: char| matches!(c, ',' | '.' | '!' | '?')).trim().to_string();
+            if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" {
+                if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
+                    if entry.role.is_empty() && !role.is_empty() {
+                        entry.role = role;
+                    }
+                    entry.last_seen_turn = turn_count;
+                    if !current_location.is_empty() {
+                        entry.location = current_location.to_string();
+                    }
+                } else {
+                    registry.push(NpcRegistryEntry {
+                        name,
+                        pronouns: String::new(),
+                        role,
+                        location: current_location.to_string(),
+                        last_seen_turn: turn_count,
+                    });
+                }
+            }
+        }
+    }
+
+    // Proper nouns as sentence subjects: capitalized word(s) before a verb
+    {
+        use regex::Regex;
+        let subject_re = Regex::new(r"(?:^|[.!?]\s+)([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+(?:is|was|has|had|walks|stands|sits|looks|turns|nods|shakes|moves|steps|reaches|pulls|holds|places|waves|smiles|frowns|laughs|sighs|watches|leads|appears|enters|exits|approaches|stares|glances|points|gestures|offers|hands|grabs|takes|gives|opens|closes|runs|stops|begins|continues)\b").unwrap();
+        for caps in subject_re.captures_iter(narration) {
+            let name = caps[1].to_string();
+            if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An"
+                && name != "It" && name != "This" && name != "That" && name != "There"
+                && name != "Here" && name != "Then" && name != "Now" && name != "But"
+                && name != "And" && name != "Or" && name != "Yet" && name != "So"
+            {
+                if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
+                    entry.last_seen_turn = turn_count;
+                    if !current_location.is_empty() {
+                        entry.location = current_location.to_string();
+                    }
+                } else {
+                    registry.push(NpcRegistryEntry {
+                        name,
+                        pronouns: String::new(),
+                        role: String::new(),
+                        location: current_location.to_string(),
+                        last_seen_turn: turn_count,
+                    });
+                }
+            }
+        }
+    }
+
+    // Possessive form: "Name's" — extract names from possessive patterns
+    {
+        use regex::Regex;
+        let poss_re = Regex::new(r"\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)'s\b").unwrap();
+        for caps in poss_re.captures_iter(narration) {
+            let name = caps[1].to_string();
+            if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An"
+                && name != "It" && name != "This" && name != "That"
+            {
+                if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
+                    entry.last_seen_turn = turn_count;
+                    if !current_location.is_empty() {
+                        entry.location = current_location.to_string();
+                    }
+                } else {
+                    registry.push(NpcRegistryEntry {
+                        name,
+                        pronouns: String::new(),
+                        role: String::new(),
+                        location: current_location.to_string(),
+                        last_seen_turn: turn_count,
+                    });
+                }
+            }
+        }
+    }
+
     // Infer pronouns from narration context
     for entry in registry.iter_mut() {
         if !entry.pronouns.is_empty() { continue; }
@@ -2854,6 +3141,32 @@ fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> String {
             desc.push_str(&format!(" — at {}", entry.location));
         }
         lines.push(desc);
+    }
+    lines.join("\n")
+}
+
+/// Build a name bank context string from genre pack cultures for the narrator prompt.
+/// Extracts word lists and person name patterns so the LLM uses culturally appropriate names.
+fn build_name_bank_context(cultures: &[sidequest_genre::Culture]) -> String {
+    if cultures.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec!["\nNAME BANKS — When introducing new NPCs, you MUST draw names from these cultural name banks. Do NOT use generic Western fantasy names like Maren, Kael, or Ash.".to_string()];
+    for culture in cultures {
+        lines.push(format!("\n## {} — {}", culture.name.as_str(), culture.description));
+        // Show word lists for each slot
+        for (slot_name, slot) in &culture.slots {
+            if let Some(ref words) = slot.word_list {
+                if !words.is_empty() {
+                    let sample: Vec<_> = words.iter().take(10).map(|s| s.as_str()).collect();
+                    lines.push(format!("  {}: {}", slot_name, sample.join(", ")));
+                }
+            }
+        }
+        // Show person name patterns
+        if !culture.person_patterns.is_empty() {
+            lines.push(format!("  Name patterns: {}", culture.person_patterns.join(", ")));
+        }
     }
     lines.join("\n")
 }
