@@ -20,17 +20,27 @@ pub struct DaemonRequest<P: Serialize> {
 /// Parameters for a `render` request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RenderParams {
-    /// The image generation prompt.
+    /// The image generation prompt (raw subject fragment).
     pub prompt: String,
     /// Art style to apply (e.g. "oil_painting", "pixel_art").
     pub art_style: String,
     /// Render tier — routes to the correct daemon worker.
     /// One of: "scene_illustration", "portrait", "landscape", "cartography", "tts", "music".
     pub tier: String,
+    /// Pre-composed positive prompt with genre style suffix and tag overrides baked in.
+    /// When set, the daemon's flux worker uses this directly instead of building from parts.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub positive_prompt: String,
+    /// Negative prompt from the genre's visual_style.yaml.
+    /// Flux doesn't use negative prompts natively, but future models (SDXL) will.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub negative_prompt: String,
 }
 
 /// Parameters for a `tts` (text-to-speech) request.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// Sent via the `render` method — the daemon dispatches by `tier` field.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsParams {
     /// The text to synthesize.
     pub text: String,
@@ -40,15 +50,49 @@ pub struct TtsParams {
     pub voice_id: String,
     /// Speech speed multiplier (1.0 = normal).
     pub speed: f32,
+    /// Render tier — tells the daemon to route to the TTS worker.
+    #[serde(default = "default_tts_tier")]
+    pub tier: String,
+}
+
+fn default_tts_tier() -> String {
+    "tts".to_string()
+}
+
+impl Default for TtsParams {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            model: String::new(),
+            voice_id: String::new(),
+            speed: 1.0,
+            tier: default_tts_tier(),
+        }
+    }
 }
 
 /// Result from a `tts` request.
+///
+/// The daemon returns `audio_bytes` (raw PCM s16le as a JSON array of ints)
+/// and optionally `audio_path` (file on disk). All fields use `serde(default)`
+/// so deserialization succeeds even if the daemon omits a field.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TtsResult {
-    /// Raw audio bytes (WAV or Opus encoded).
+    /// Raw audio bytes (PCM s16le at 24 kHz).
+    #[serde(default)]
     pub audio_bytes: Vec<u8>,
     /// Duration of the audio in milliseconds.
+    #[serde(default)]
     pub duration_ms: u64,
+    /// Wall-clock synthesis time in milliseconds.
+    #[serde(default, alias = "generation_ms")]
+    pub elapsed_ms: u64,
+    /// Voice preset name used for synthesis.
+    #[serde(default)]
+    pub voice: String,
+    /// Path to the WAV file on the daemon host (fallback if audio_bytes empty).
+    #[serde(default)]
+    pub audio_path: String,
 }
 
 /// Parameters for a `warm_up` request.
@@ -82,10 +126,19 @@ pub struct ErrorPayload {
 // ---------------------------------------------------------------------------
 
 /// Result from a `render` request.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+///
+/// The daemon returns `image_path` as the field name, but we normalize to
+/// `image_url` on our side. The `alias` attributes let serde accept either name.
+///
+/// NOTE: `image_url` intentionally has NO `#[serde(default)]`. If the daemon
+/// omits the image path entirely, deserialization will FAIL — and that's what
+/// we want. A missing image path is a bug, not a graceful degradation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenderResult {
     /// Path to the generated image.
-    #[serde(default)]
+    /// Accepts `image_url`, `image_path`, `output_path`, `path`, or `file` from the daemon.
+    /// No default — if the daemon doesn't return a path, we want a loud error.
+    #[serde(alias = "image_path", alias = "output_path", alias = "path", alias = "file")]
     pub image_url: String,
     /// Time taken to generate the image in milliseconds.
     /// Accepts both `generation_ms` and `elapsed_ms` from the daemon.

@@ -455,6 +455,7 @@ async fn broadcast_channel_delivers_to_subscribers() {
     let msg = GameMessage::Error {
         payload: sidequest_protocol::ErrorPayload {
             message: "test broadcast".to_string(),
+            reconnect_required: None,
         },
         player_id: "server".to_string(),
     };
@@ -483,6 +484,7 @@ async fn broadcast_with_no_subscribers_does_not_panic() {
     let msg = GameMessage::Error {
         payload: sidequest_protocol::ErrorPayload {
             message: "nobody listening".to_string(),
+            reconnect_required: None,
         },
         player_id: "server".to_string(),
     };
@@ -668,6 +670,7 @@ async fn websocket_broadcast_reaches_both_clients() {
     let msg = GameMessage::Error {
         payload: sidequest_protocol::ErrorPayload {
             message: "broadcast test".to_string(),
+            reconnect_required: None,
         },
         player_id: "server".to_string(),
     };

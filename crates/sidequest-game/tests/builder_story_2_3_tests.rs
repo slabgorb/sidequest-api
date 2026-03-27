@@ -207,6 +207,8 @@ fn test_rules() -> RulesConfig {
         custom_rules: HashMap::new(),
         stat_display_fields: vec![],
         encounter_base_tension: HashMap::new(),
+        race_label: None,
+        class_label: None,
     }
 }
 

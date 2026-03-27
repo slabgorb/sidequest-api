@@ -31,7 +31,7 @@ pub struct ActionResult {
     pub combat_events: Vec<String>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
-    /// How the intent was classified (ADR-032: Haiku, StateOverride, or KeywordFallback).
+    /// How the intent was classified (ADR-032: Haiku, StateOverride, or HaikuUnavailable).
     pub classification_source: ClassificationSource,
 }
 
@@ -210,7 +210,7 @@ pub struct TurnResult {
     pub agent_used: AgentKind,
     /// Drama-aware delivery mode for text reveal (Story 5-7).
     pub delivery_mode: DeliveryMode,
-    /// How the intent was classified (ADR-032: Haiku, StateOverride, or KeywordFallback).
+    /// How the intent was classified (ADR-032: Haiku, StateOverride, or HaikuUnavailable).
     pub classification_source: ClassificationSource,
 }
 

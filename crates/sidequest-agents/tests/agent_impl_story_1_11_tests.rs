@@ -165,7 +165,7 @@ mod agent_types_tests {
             state_delta: None,
             combat_events: vec![],
             is_degraded: false,
-            classification_source: ClassificationSource::KeywordFallback,
+            classification_source: ClassificationSource::Haiku,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -292,7 +292,7 @@ mod intent_routing_tests {
     #[test]
     fn intent_route_defaults_to_narrator_on_unknown() {
         // ADR-010: fallback to Narrator if classification fails
-        let route = IntentRoute::fallback();
+        let route = IntentRoute::narrator_fallback();
         assert_eq!(route.agent_name(), "narrator");
     }
 
@@ -332,7 +332,7 @@ mod game_service_tests {
             state_delta: None,
             combat_events: vec![],
             is_degraded: false,
-            classification_source: ClassificationSource::KeywordFallback,
+            classification_source: ClassificationSource::Haiku,
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -363,7 +363,7 @@ mod error_handling_tests {
             state_delta: None,
             combat_events: vec![],
             is_degraded: true,
-            classification_source: ClassificationSource::KeywordFallback,
+            classification_source: ClassificationSource::Haiku,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

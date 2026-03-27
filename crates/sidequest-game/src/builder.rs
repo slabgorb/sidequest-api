@@ -58,6 +58,10 @@ pub struct SceneResult {
     pub anchors_added: Vec<LoreAnchor>,
     /// Mechanical effects applied by this scene's choice.
     pub effects_applied: MechanicalEffects,
+    /// The flavor description text from the chosen option (e.g. "A city built
+    /// from stacked ruins…"). Stored here so we can compose a narrative backstory
+    /// instead of only keeping the mechanical label.
+    pub choice_description: Option<String>,
 }
 
 /// A narrative hook derived from character creation choices.
@@ -121,6 +125,25 @@ pub struct AccumulatedChoices {
     pub affinity_hint: Option<String>,
     /// Accumulated background (last one wins).
     pub background: Option<String>,
+    /// Accumulated mutation hint (last one wins).
+    pub mutation_hint: Option<String>,
+    /// Accumulated training hint (last one wins).
+    pub training_hint: Option<String>,
+    /// Accumulated emotional state (last one wins).
+    pub emotional_state: Option<String>,
+    /// Accumulated relationship (last one wins).
+    pub relationship: Option<String>,
+    /// Accumulated goals (last one wins).
+    pub goals: Option<String>,
+    /// Accumulated rig type hint (vehicle genres, last one wins).
+    pub rig_type_hint: Option<String>,
+    /// Accumulated rig trait (vehicle genres, last one wins).
+    pub rig_trait: Option<String>,
+    /// Accumulated catch phrase (last one wins).
+    pub catch_phrase: Option<String>,
+    /// Rich description text from each creation choice, in scene order.
+    /// Used to compose a narrative backstory instead of bare mechanical labels.
+    pub backstory_fragments: Vec<String>,
 }
 
 /// Errors from CharacterBuilder operations.
@@ -174,6 +197,8 @@ pub struct CharacterBuilder {
     default_hp: Option<u32>,
     default_ac: Option<u32>,
     class_hp_bases: HashMap<String, u32>,
+    race_label: String,
+    class_label: String,
 }
 
 impl CharacterBuilder {
@@ -209,6 +234,8 @@ impl CharacterBuilder {
             default_hp: rules.default_hp,
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
+            race_label: rules.race_label.clone().unwrap_or_else(|| "Race".to_string()),
+            class_label: rules.class_label.clone().unwrap_or_else(|| "Class".to_string()),
         }
     }
 
@@ -285,6 +312,34 @@ impl CharacterBuilder {
             if let Some(ref v) = eff.item_hint {
                 acc.item_hints.push(v.clone());
             }
+            if let Some(ref v) = eff.mutation_hint {
+                acc.mutation_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.training_hint {
+                acc.training_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.emotional_state {
+                acc.emotional_state = Some(v.clone());
+            }
+            if let Some(ref v) = eff.relationship {
+                acc.relationship = Some(v.clone());
+            }
+            if let Some(ref v) = eff.goals {
+                acc.goals = Some(v.clone());
+            }
+            if let Some(ref v) = eff.rig_type_hint {
+                acc.rig_type_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.rig_trait {
+                acc.rig_trait = Some(v.clone());
+            }
+            if let Some(ref v) = eff.catch_phrase {
+                acc.catch_phrase = Some(v.clone());
+            }
+            // Collect the rich description text from each choice for backstory
+            if let Some(ref desc) = result.choice_description {
+                acc.backstory_fragments.push(desc.clone());
+            }
         }
         acc
     }
@@ -321,12 +376,14 @@ impl CharacterBuilder {
         let effects = choice.mechanical_effects.clone();
         let hooks = extract_hooks(&scene.id, &effects);
         let anchors = extract_anchors(&scene.id, &effects);
+        let description = Some(choice.description.clone());
 
         self.results.push(SceneResult {
             input_type: SceneInputType::Choice(index),
             hooks_added: hooks,
             anchors_added: anchors,
             effects_applied: effects,
+            choice_description: description,
         });
 
         // Check for hook_prompt → AwaitingFollowup, else advance
@@ -382,6 +439,7 @@ impl CharacterBuilder {
             hooks_added: vec![],
             anchors_added: vec![],
             effects_applied: effects,
+            choice_description: None,
         });
 
         if let Some(ref prompt) = scene.hook_prompt {
@@ -532,8 +590,12 @@ impl CharacterBuilder {
             })
             .collect();
 
-        // Compose backstory from accumulated choices
-        let backstory_text = {
+        // Compose backstory from the rich description text collected during
+        // character creation. Each fragment is the flavor text the player saw
+        // when they picked a choice (e.g. "A city built from stacked ruins…").
+        // We weave them into prose rather than just listing mechanical labels.
+        let backstory_text = if acc.backstory_fragments.is_empty() {
+            // Fallback: use mechanical labels if somehow no descriptions were captured
             let mut parts = Vec::new();
             if let Some(ref bg) = acc.background {
                 parts.push(format!("Background: {}", bg));
@@ -546,6 +608,8 @@ impl CharacterBuilder {
             } else {
                 parts.join(". ")
             }
+        } else {
+            acc.backstory_fragments.join(" ")
         };
 
         let character = Character {
@@ -631,13 +695,28 @@ impl CharacterBuilder {
             BuilderPhase::Confirmation => {
                 let acc = self.accumulated();
                 let mut parts = vec![
-                    format!("Race: {}", acc.race_hint.as_deref().unwrap_or("Unknown")),
-                    format!("Class: {}", acc.class_hint.as_deref().unwrap_or("Unknown")),
+                    format!("{}: {}", self.race_label, acc.race_hint.as_deref().unwrap_or("Unknown")),
+                    format!("{}: {}", self.class_label, acc.class_hint.as_deref().unwrap_or("Unknown")),
                     format!(
                         "Personality: {}",
                         acc.personality_trait.as_deref().unwrap_or("Unknown")
                     ),
                 ];
+                if let Some(ref m) = acc.mutation_hint {
+                    parts.push(format!("Mutation: {}", m));
+                }
+                if let Some(ref a) = acc.affinity_hint {
+                    parts.push(format!("Affinity: {}", a));
+                }
+                if let Some(ref r) = acc.rig_type_hint {
+                    parts.push(format!("Rig: {}", r));
+                }
+                if let Some(ref rt) = acc.rig_trait {
+                    parts.push(format!("Rig Trait: {}", rt));
+                }
+                if !acc.item_hints.is_empty() {
+                    parts.push(format!("Equipment: {}", acc.item_hints.join(", ")));
+                }
                 if let Some(bg) = &acc.background {
                     parts.push(format!("\nBackstory: {}", bg));
                 }

@@ -272,9 +272,20 @@ impl MusicDirector {
     }
 
     /// Select a track for the classified mood using the theme rotator.
+    /// Tries the primary key first, then genre pack aliases (e.g. "rest" for "calm").
     fn select_track(&mut self, classification: &MoodClassification) -> Option<&MoodTrack> {
         let mood_key = classification.primary.as_key();
-        let tracks = self.mood_tracks.get(mood_key)?;
+        // Try primary key, then fallback aliases for genre packs that use different names
+        let fallbacks: &[&str] = match classification.primary {
+            Mood::Calm => &["rest", "teahouse"],
+            Mood::Mystery => &["spirit", "tension"],
+            Mood::Exploration => &["teahouse"],
+            _ => &[],
+        };
+        let tracks = self.mood_tracks.get(mood_key)
+            .or_else(|| {
+                fallbacks.iter().find_map(|alias| self.mood_tracks.get(*alias))
+            })?;
         self.rotator
             .select(mood_key, tracks, classification.intensity)
     }
@@ -295,14 +306,15 @@ impl MusicDirector {
     }
 
     /// Convert a string mood key to the Mood enum.
+    /// Handles genre pack aliases (e.g. "rest" → Calm, "spirit" → Mystery).
     fn key_to_mood(key: &str) -> Mood {
         match key {
             "combat" => Mood::Combat,
             "tension" => Mood::Tension,
             "triumph" => Mood::Triumph,
             "sorrow" => Mood::Sorrow,
-            "mystery" => Mood::Mystery,
-            "calm" => Mood::Calm,
+            "mystery" | "spirit" => Mood::Mystery,
+            "calm" | "rest" | "teahouse" => Mood::Calm,
             _ => Mood::Exploration,
         }
     }

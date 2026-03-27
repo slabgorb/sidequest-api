@@ -18,8 +18,7 @@ use sidequest_agents::prompt_framework::{
     render_scene_directive, AttentionZone, PromptComposer, PromptRegistry, SectionCategory,
 };
 
-// Import the new is_meaningful method on Intent
-use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::intent_router::{Intent, IntentRoute};
 
 use sidequest_genre::{PassiveProgression, TropeDefinition, TropeEscalation};
 use sidequest_protocol::NonBlankString;
@@ -141,16 +140,16 @@ fn meta_intent_is_not_meaningful() {
 #[test]
 fn intent_route_exposes_is_meaningful() {
     // Verify the wiring: IntentRoute delegates to Intent::is_meaningful
-    let route = IntentRouter::classify_keywords("I attack the goblin");
+    let route = IntentRoute::for_intent(Intent::Combat);
     assert!(
         route.is_meaningful(),
-        "Attack route should be meaningful"
+        "Combat route should be meaningful"
     );
 
-    let route = IntentRouter::classify_keywords("I look around");
+    let route = IntentRoute::for_intent(Intent::Exploration);
     assert!(
         !route.is_meaningful(),
-        "Look around route should not be meaningful"
+        "Exploration route should not be meaningful"
     );
 }
 
@@ -163,8 +162,8 @@ fn meaningful_intent_resets_turns_since_meaningful() {
     let mut snap = GameSnapshot::default();
     snap.turns_since_meaningful = 5; // player was idle
 
-    // Simulate meaningful action
-    let route = IntentRouter::classify_keywords("I attack the goblin");
+    // Simulate meaningful action (Combat)
+    let route = IntentRoute::for_intent(Intent::Combat);
     if route.is_meaningful() {
         snap.turns_since_meaningful = 0;
     } else {
@@ -182,8 +181,8 @@ fn non_meaningful_intent_increments_turns_since_meaningful() {
     let mut snap = GameSnapshot::default();
     snap.turns_since_meaningful = 3;
 
-    // Simulate non-meaningful action
-    let route = IntentRouter::classify_keywords("I look around the room");
+    // Simulate non-meaningful action (Exploration)
+    let route = IntentRoute::for_intent(Intent::Exploration);
     if route.is_meaningful() {
         snap.turns_since_meaningful = 0;
     } else {
@@ -476,14 +475,14 @@ fn active_player_pipeline_may_not_fire_beats() {
 #[test]
 fn only_narrator_route_triggers_directive_injection() {
     // Verify that intent classification determines which agent gets the directive
-    let narrator_route = IntentRouter::classify_keywords("I look around");
+    let narrator_route = IntentRoute::for_intent(Intent::Exploration);
     assert_eq!(
         narrator_route.agent_name(),
         "narrator",
         "Exploration should route to narrator"
     );
 
-    let combat_route = IntentRouter::classify_keywords("I attack");
+    let combat_route = IntentRoute::for_intent(Intent::Combat);
     assert_eq!(
         combat_route.agent_name(),
         "creature_smith",
