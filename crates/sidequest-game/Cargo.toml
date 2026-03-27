@@ -18,7 +18,7 @@ tracing = { workspace = true }
 rusqlite = { workspace = true }
 ordered-float = { workspace = true }
 regex = { workspace = true }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "sync", "rt"] }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }
