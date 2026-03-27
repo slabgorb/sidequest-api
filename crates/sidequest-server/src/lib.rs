@@ -839,6 +839,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
+    let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
 
     // Reader loop: read messages, deserialize, dispatch through session
     while let Some(msg) = ws_stream.next().await {
@@ -858,6 +859,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
+                        &mut visual_style,
                         &state,
                         &player_id_str,
                     )
@@ -907,6 +909,7 @@ async fn dispatch_message(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    visual_style: &mut Option<sidequest_genre::VisualStyle>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -923,6 +926,7 @@ async fn dispatch_message(
                 character_max_hp,
                 trope_defs,
                 world_context,
+                visual_style,
                 state,
                 player_id,
             )
@@ -945,6 +949,7 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                visual_style,
                 state,
                 player_id,
             )
@@ -966,6 +971,7 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                visual_style,
                 state,
                 player_id,
                 session.genre_slug().unwrap_or(""),
@@ -995,6 +1001,7 @@ async fn dispatch_connect(
     character_max_hp: &mut i32,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    visual_style: &mut Option<sidequest_genre::VisualStyle>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1075,7 +1082,7 @@ async fn dispatch_connect(
                         tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, genre, world, state, player_id,
+                            builder, trope_defs, world_context, visual_style, genre, world, state, player_id,
                         ) {
                             responses.push(scene_msg);
                         }
@@ -1084,7 +1091,7 @@ async fn dispatch_connect(
                         tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, genre, world, state, player_id,
+                            builder, trope_defs, world_context, visual_style, genre, world, state, player_id,
                         ) {
                             responses.push(scene_msg);
                         }
@@ -1097,6 +1104,7 @@ async fn dispatch_connect(
                     builder,
                     trope_defs,
                     world_context,
+                    visual_style,
                     genre,
                     world,
                     state,
@@ -1119,6 +1127,7 @@ fn start_character_creation(
     builder: &mut Option<CharacterBuilder>,
     trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context_out: &mut String,
+    visual_style_out: &mut Option<sidequest_genre::VisualStyle>,
     genre: &str,
     world_slug: &str,
     state: &AppState,
@@ -1140,6 +1149,8 @@ fn start_character_creation(
             return None;
         }
     };
+
+    *visual_style_out = Some(pack.visual_style.clone());
 
     // Extract trope definitions from the genre pack for per-session use
     // Collect from genre-level tropes and all world tropes
@@ -1210,6 +1221,7 @@ async fn dispatch_character_creation(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
+    visual_style: &Option<sidequest_genre::VisualStyle>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1358,6 +1370,7 @@ async fn dispatch_character_creation(
                         trope_states,
                         trope_defs,
                         world_context,
+                        visual_style,
                         state,
                         player_id,
                         &genre,
@@ -1409,6 +1422,7 @@ async fn dispatch_player_action(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &[sidequest_genre::TropeDefinition],
     world_context: &str,
+    visual_style: &Option<sidequest_genre::VisualStyle>,
     state: &AppState,
     player_id: &str,
     genre_slug: &str,
@@ -1755,7 +1769,11 @@ async fn dispatch_player_action(
         tracing::info!(decision = ?decision, "BeatFilter decision");
         if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
             if let Some(ref queue) = state.inner.render_queue {
-                match queue.enqueue(subject, "oil_painting", "flux-schnell").await {
+                let (art_style, model) = match visual_style {
+                    Some(ref vs) => (vs.positive_suffix.as_str(), vs.preferred_model.as_str()),
+                    None => ("oil_painting", "flux-schnell"),
+                };
+                match queue.enqueue(subject, art_style, model).await {
                     Ok(result) => tracing::info!(result = ?result, "Render job enqueued"),
                     Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
                 }
