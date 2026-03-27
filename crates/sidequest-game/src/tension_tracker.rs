@@ -11,6 +11,11 @@
 //!
 //! Story 5-1: TensionTracker struct — dual-track model with action tension
 //! (gambler's ramp) and stakes tension (HP-based).
+//!
+//! Story 5-2: Combat event classification — categorize combat outcomes as
+//! boring/dramatic, track boring_streak.
+
+use crate::combat::RoundResult;
 
 /// Combat event classification for the gambler's ramp.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +92,11 @@ impl TensionTracker {
         self.spike
     }
 
+    /// Current boring streak count — consecutive boring turns without a dramatic event.
+    pub fn boring_streak(&self) -> u32 {
+        self.boring_streak
+    }
+
     /// Inject a temporary drama boost, clamped to 1.0.
     pub fn inject_spike(&mut self, amount: f64) {
         self.spike = clamp01(self.spike + amount);
@@ -123,6 +133,44 @@ impl TensionTracker {
             self.spike = 0.0;
         }
     }
+}
+
+/// Dramatic damage threshold — total round damage at or above this is dramatic.
+const DRAMATIC_DAMAGE_THRESHOLD: i32 = 15;
+
+/// Classify a combat round result as Boring, Dramatic, or Normal.
+///
+/// Classification rules:
+/// - **Dramatic:** a combatant was killed (`killed` names the deceased), total
+///   damage >= threshold, or new status effects were applied.
+/// - **Boring:** zero effective damage and no new effects.
+/// - **Normal:** some damage dealt but below the dramatic threshold, no kills or effects.
+pub fn classify_round(round: &RoundResult, killed: Option<&str>) -> CombatEvent {
+    // A kill is always dramatic
+    if killed.is_some() {
+        return CombatEvent::Dramatic;
+    }
+
+    // New status effects are dramatic
+    if !round.effects_applied.is_empty() {
+        return CombatEvent::Dramatic;
+    }
+
+    let total_damage: i32 = round
+        .damage_events
+        .iter()
+        .map(|e| e.damage.max(0))
+        .sum();
+
+    if total_damage >= DRAMATIC_DAMAGE_THRESHOLD {
+        return CombatEvent::Dramatic;
+    }
+
+    if total_damage == 0 {
+        return CombatEvent::Boring;
+    }
+
+    CombatEvent::Normal
 }
 
 #[cfg(test)]
