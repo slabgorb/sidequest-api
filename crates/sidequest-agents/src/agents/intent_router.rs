@@ -3,8 +3,6 @@
 //! ADR-010: Intent-based agent routing. An LLM classifier routes each player
 //! input to a specialist agent based on intent and current game state.
 
-use crate::client::ClaudeClient;
-
 /// Player intent categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -80,15 +78,12 @@ impl IntentRoute {
 }
 
 /// Routes player input to the appropriate agent via LLM classification.
-pub struct IntentRouter {
-    #[allow(dead_code)]
-    client: ClaudeClient,
-}
+pub struct IntentRouter;
 
 impl IntentRouter {
-    /// Create a new intent router with a Claude client.
-    pub fn new(client: ClaudeClient) -> Self {
-        Self { client }
+    /// Create a new intent router.
+    pub fn new() -> Self {
+        Self
     }
 
     /// Classify player input using keyword matching only (no LLM call).
