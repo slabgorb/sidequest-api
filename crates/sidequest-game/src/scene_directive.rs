@@ -78,6 +78,7 @@ pub struct ActiveStake {
 }
 
 /// A composed scene directive for the narrator prompt.
+#[derive(Debug, Clone)]
 pub struct SceneDirective {
     /// Elements the narrator MUST weave into the response.
     pub mandatory_elements: Vec<DirectiveElement>,
