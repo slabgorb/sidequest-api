@@ -20,6 +20,7 @@ ordered-float = { workspace = true }
 base64 = "0.22"
 regex = { workspace = true }
 tokio = { workspace = true, features = ["time", "sync", "rt"] }
+rand = { workspace = true }
 
 [dev-dependencies]
 serde_yaml = { workspace = true }

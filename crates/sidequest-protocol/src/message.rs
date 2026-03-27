@@ -457,7 +457,6 @@ pub struct ImagePayload {
 
 /// Audio cue payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct AudioCuePayload {
     /// Music mood.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -468,6 +467,15 @@ pub struct AudioCuePayload {
     /// Sound effect triggers.
     #[serde(default)]
     pub sfx_triggers: Vec<String>,
+    /// Audio channel: "music", "sfx", "ambience".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    /// Audio action: "play", "fade_in", "fade_out", "duck", "restore", "stop".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action: Option<String>,
+    /// Volume level (0.0–1.0).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume: Option<f32>,
 }
 
 /// WebRTC voice signaling payload.
