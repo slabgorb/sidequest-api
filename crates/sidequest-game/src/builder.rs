@@ -573,6 +573,7 @@ impl CharacterBuilder {
             race: NonBlankString::new(race_str).unwrap(),
             stats,
             abilities: vec![],
+            is_friendly: true,
         };
 
         Ok(character)

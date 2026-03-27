@@ -16,6 +16,7 @@ use crate::agents::intent_router::IntentRouter;
 use crate::agents::narrator::NarratorAgent;
 use crate::client::ClaudeClient;
 use crate::turn_record::{TurnIdCounter, TurnRecord};
+use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTracker};
 
 /// Result of processing a player action through the orchestrator.
 #[derive(Debug, Clone)]
@@ -56,6 +57,10 @@ pub struct Orchestrator {
     creature_smith: CreatureSmithAgent,
     ensemble: EnsembleAgent,
     dialectician: DialecticianAgent,
+    /// Pacing engine — tracks drama weight across combat turns (Story 5-7).
+    tension_tracker: TensionTracker,
+    /// Genre-tunable pacing breakpoints (Story 5-7).
+    drama_thresholds: DramaThresholds,
 }
 
 impl Orchestrator {
@@ -69,7 +74,19 @@ impl Orchestrator {
             creature_smith: CreatureSmithAgent::new(),
             ensemble: EnsembleAgent::new(),
             dialectician: DialecticianAgent::new(),
+            tension_tracker: TensionTracker::new(),
+            drama_thresholds: DramaThresholds::default(),
         }
+    }
+
+    /// Access the tension tracker (pacing engine).
+    pub fn tension(&self) -> &TensionTracker {
+        &self.tension_tracker
+    }
+
+    /// Access the drama thresholds (genre-tunable pacing breakpoints).
+    pub fn drama_thresholds(&self) -> &DramaThresholds {
+        &self.drama_thresholds
     }
 }
 
@@ -162,6 +179,8 @@ pub struct TurnResult {
     pub is_degraded: bool,
     /// Which agent produced this result.
     pub agent_used: AgentKind,
+    /// Drama-aware delivery mode for text reveal (Story 5-7).
+    pub delivery_mode: DeliveryMode,
 }
 
 /// Typed agent selection — replaces string-based agent keys.

@@ -78,6 +78,20 @@ pub struct GameSnapshot {
 }
 
 impl GameSnapshot {
+    /// Find the lowest HP ratio among friendly (player-controlled) characters.
+    /// Returns 1.0 if no friendly characters exist.
+    pub fn lowest_friendly_hp_ratio(&self) -> f64 {
+        use crate::combatant::Combatant;
+        self.characters
+            .iter()
+            .filter(|c| c.is_friendly)
+            .map(|c| {
+                let max = c.max_hp();
+                if max == 0 { 0.0 } else { c.hp() as f64 / max as f64 }
+            })
+            .fold(1.0_f64, f64::min)
+    }
+
     /// Find a mutable character or NPC by name and apply an HP delta.
     fn apply_hp_change(&mut self, name: &str, delta: i32) {
         for c in &mut self.characters {

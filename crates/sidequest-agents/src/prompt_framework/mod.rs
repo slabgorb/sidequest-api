@@ -33,6 +33,33 @@ impl Default for PromptRegistry {
     }
 }
 
+/// Agents that receive pacing guidance in their prompts.
+const PACING_AGENTS: &[&str] = &["narrator", "creature_smith"];
+
+impl PromptRegistry {
+    /// Inject pacing guidance into the prompt for narrating agents.
+    /// Non-narrating agents (ensemble, dialectician, etc.) are silently skipped.
+    pub fn register_pacing_section(
+        &mut self,
+        agent_name: &str,
+        hint: &sidequest_game::tension_tracker::PacingHint,
+    ) {
+        if !PACING_AGENTS.contains(&agent_name) {
+            return;
+        }
+
+        let mut content = format!("## Pacing Guidance\n{}", hint.narrator_directive());
+        if let Some(ref beat) = hint.escalation_beat {
+            content.push_str(&format!("\n\n## Escalation Beat\n{}", beat));
+        }
+
+        self.register_section(
+            agent_name,
+            PromptSection::new("pacing", content, AttentionZone::Late, SectionCategory::Context),
+        );
+    }
+}
+
 impl PromptComposer for PromptRegistry {
     fn register_section(&mut self, agent_name: &str, section: PromptSection) {
         self.sections

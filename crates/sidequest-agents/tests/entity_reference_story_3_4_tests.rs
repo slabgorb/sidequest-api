@@ -137,6 +137,8 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
         char_class: NonBlankString::new("Fighter").unwrap(),
         race: NonBlankString::new("Human").unwrap(),
         stats: HashMap::new(),
+        abilities: vec![],
+        is_friendly: true,
     }
 }
 

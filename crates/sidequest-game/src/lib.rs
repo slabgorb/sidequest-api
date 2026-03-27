@@ -73,6 +73,8 @@ pub use state::{
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
-pub use tension_tracker::{CombatEvent, TensionTracker};
+pub use tension_tracker::{
+    CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker,
+};
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};

@@ -14,8 +14,74 @@
 //!
 //! Story 5-2: Combat event classification — categorize combat outcomes as
 //! boring/dramatic, track boring_streak.
+//!
+//! Story 5-7: Pacing hints — PacingHint, DeliveryMode, DramaThresholds,
+//! and TensionTracker::pacing_hint() for narrator prompt injection.
 
 use crate::combat::RoundResult;
+
+/// Drama-aware text delivery mode — controls how narration is revealed to the player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeliveryMode {
+    /// Full text appears at once (low drama).
+    Instant,
+    /// Text reveals sentence by sentence (mid drama).
+    Sentence,
+    /// Text streams word by word, typewriter style (high drama).
+    Streaming,
+}
+
+/// Genre-tunable breakpoints for pacing decisions.
+#[derive(Debug, Clone)]
+pub struct DramaThresholds {
+    /// Drama weight at or above which delivery switches from Instant to Sentence.
+    pub sentence_delivery_min: f64,
+    /// Drama weight above which delivery switches from Sentence to Streaming.
+    pub streaming_delivery_min: f64,
+    /// Drama weight above which image rendering is triggered (beat filter).
+    pub render_threshold: f64,
+    /// Consecutive boring turns before an escalation beat hint is injected.
+    pub escalation_streak: u32,
+    /// Number of boring turns to reach action_tension 1.0 (gambler's ramp length).
+    pub ramp_length: u32,
+}
+
+impl Default for DramaThresholds {
+    fn default() -> Self {
+        Self {
+            sentence_delivery_min: 0.30,
+            streaming_delivery_min: 0.70,
+            render_threshold: 0.40,
+            escalation_streak: 5,
+            ramp_length: 8,
+        }
+    }
+}
+
+/// Pacing guidance for a single turn — computed from TensionTracker state.
+#[derive(Debug, Clone)]
+pub struct PacingHint {
+    /// Combined drama metric from the tension tracker (0.0–1.0).
+    pub drama_weight: f64,
+    /// Suggested narration length in sentences (1–6).
+    pub target_sentences: u8,
+    /// How the client should reveal the narration text.
+    pub delivery_mode: DeliveryMode,
+    /// Optional escalation beat directive when boring streak exceeds threshold.
+    pub escalation_beat: Option<String>,
+}
+
+impl PacingHint {
+    /// Produce a narrator-facing directive string for prompt injection.
+    pub fn narrator_directive(&self) -> String {
+        format!(
+            "Target approximately {} sentence(s) for this narration. Drama level: {:.0}%.",
+            self.target_sentences,
+            self.drama_weight * 100.0,
+        )
+    }
+}
 
 /// Combat event classification for the gambler's ramp.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +197,35 @@ impl TensionTracker {
         self.spike *= SPIKE_DECAY;
         if self.spike < SPIKE_FLOOR {
             self.spike = 0.0;
+        }
+    }
+
+    /// Compute a pacing hint from the current tension state and genre thresholds.
+    pub fn pacing_hint(&self, thresholds: &DramaThresholds) -> PacingHint {
+        let dw = self.drama_weight();
+
+        let delivery_mode = if dw > thresholds.streaming_delivery_min {
+            DeliveryMode::Streaming
+        } else if dw >= thresholds.sentence_delivery_min {
+            DeliveryMode::Sentence
+        } else {
+            DeliveryMode::Instant
+        };
+
+        // Linear interpolation: 1 + floor(drama_weight * 5), range 1–6
+        let target_sentences = 1 + (dw * 5.0).floor() as u8;
+
+        let escalation_beat = if self.boring_streak >= thresholds.escalation_streak {
+            Some("The environment shifts — introduce a new element to break the monotony.".to_string())
+        } else {
+            None
+        };
+
+        PacingHint {
+            drama_weight: dw,
+            target_sentences,
+            delivery_mode,
+            escalation_beat,
         }
     }
 }

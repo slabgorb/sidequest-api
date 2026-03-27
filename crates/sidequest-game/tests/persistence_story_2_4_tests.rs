@@ -78,6 +78,7 @@ fn test_snapshot() -> GameSnapshot {
                 ("CHA".to_string(), 15),
             ]),
             abilities: vec![],
+            is_friendly: true,
         }],
         npcs: vec![],
         location: "Town Square".to_string(),
