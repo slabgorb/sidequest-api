@@ -139,16 +139,68 @@ impl TtsStreamer {
 
     /// Stream synthesized audio for the given segments.
     ///
-    /// Sends TtsStart, then TtsChunk for each segment, then TtsEnd
-    /// through the provided sender. Synthesis runs ahead of delivery
-    /// by `prefetch_count` segments.
+    /// Sends TtsStart, then TtsChunk for each successful segment, then TtsEnd
+    /// through the provided sender. Failed segments are skipped (non-fatal).
+    /// Honors `pause_after_ms` between segments.
     pub async fn stream(
         &self,
-        _segments: Vec<TtsSegment>,
-        _synthesizer: &dyn TtsSynthesizer,
-        _tx: tokio::sync::mpsc::Sender<TtsMessage>,
+        segments: Vec<TtsSegment>,
+        synthesizer: &dyn TtsSynthesizer,
+        tx: tokio::sync::mpsc::Sender<TtsMessage>,
     ) -> Result<(), TtsError> {
-        // TODO: implement in GREEN phase
-        todo!()
+        use base64::Engine;
+
+        let total = segments.len();
+
+        // Send start marker
+        if tx
+            .send(TtsMessage::Start {
+                total_segments: total,
+            })
+            .await
+            .is_err()
+        {
+            return Err(TtsError::ChannelClosed);
+        }
+
+        // Synthesize and deliver each segment
+        for segment in &segments {
+            match synthesizer.synthesize(&segment.text, &segment.speaker).await {
+                Ok(audio_bytes) => {
+                    let payload = TtsChunkPayload {
+                        audio_base64: base64::engine::general_purpose::STANDARD
+                            .encode(&audio_bytes),
+                        segment_index: segment.index,
+                        is_last_chunk: segment.is_last,
+                        speaker: segment.speaker.clone(),
+                        format: self.config.format.clone(),
+                    };
+                    if tx.send(TtsMessage::Chunk(payload)).await.is_err() {
+                        return Err(TtsError::ChannelClosed);
+                    }
+
+                    // Honor pause hint between segments
+                    if segment.pause_after_ms > 0 && !segment.is_last {
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            segment.pause_after_ms as u64,
+                        ))
+                        .await;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        segment_index = segment.index,
+                        error = %e,
+                        "TTS synthesis failed, skipping segment"
+                    );
+                    // Skip failed segment, continue with next
+                }
+            }
+        }
+
+        // Send end marker
+        let _ = tx.send(TtsMessage::End).await;
+
+        Ok(())
     }
 }
