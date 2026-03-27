@@ -239,7 +239,7 @@ fn fired_beats_produce_scene_directive() {
     let stakes = vec![active_stake("The village alliance is crumbling")];
     let hints = vec!["Smoke rises from the east".to_string()];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert!(
         !directive.mandatory_elements.is_empty(),
@@ -264,7 +264,7 @@ fn directive_registered_in_prompt_produces_mandatory_block() {
     let stakes = vec![active_stake("the trade routes are severed")];
     let hints = vec!["Smoke rises".to_string()];
 
-    let directive = format_scene_directive(&beats, &stakes, &hints);
+    let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     let mut registry = PromptRegistry::new();
     registry.register_scene_directive("narrator", &directive);
@@ -284,7 +284,7 @@ fn directive_registered_in_prompt_produces_mandatory_block() {
 #[test]
 fn directive_placed_in_early_zone() {
     let beats = vec![fired_beat("an explosion", 0.8, "safety")];
-    let directive = format_scene_directive(&beats, &[], &[]);
+    let directive = format_scene_directive(&beats, &[], &[], &[]);
 
     let mut registry = PromptRegistry::new();
     registry.register_scene_directive("narrator", &directive);
@@ -310,7 +310,7 @@ fn directive_placed_in_early_zone() {
 #[test]
 fn combat_agent_does_not_receive_directive() {
     let beats = vec![fired_beat("an explosion", 0.8, "safety")];
-    let directive = format_scene_directive(&beats, &[], &[]);
+    let directive = format_scene_directive(&beats, &[], &[], &[]);
 
     let mut registry = PromptRegistry::new();
     // Only register for narrator, NOT for creature_smith
@@ -326,7 +326,7 @@ fn combat_agent_does_not_receive_directive() {
 #[test]
 fn chase_agent_does_not_receive_directive() {
     let beats = vec![fired_beat("an explosion", 0.8, "safety")];
-    let directive = format_scene_directive(&beats, &[], &[]);
+    let directive = format_scene_directive(&beats, &[], &[], &[]);
 
     let mut registry = PromptRegistry::new();
     registry.register_scene_directive("narrator", &directive);
@@ -345,7 +345,7 @@ fn chase_agent_does_not_receive_directive() {
 #[test]
 fn empty_beats_produce_no_directive_block() {
     // No fired beats, no stakes → empty directive
-    let directive = format_scene_directive(&[], &[], &[]);
+    let directive = format_scene_directive(&[], &[], &[], &[]);
 
     assert!(
         directive.mandatory_elements.is_empty(),
@@ -362,7 +362,7 @@ fn empty_beats_produce_no_directive_block() {
 
 #[test]
 fn empty_directive_not_registered_in_prompt() {
-    let directive = format_scene_directive(&[], &[], &[]);
+    let directive = format_scene_directive(&[], &[], &[], &[]);
 
     let mut registry = PromptRegistry::new();
     registry.register_scene_directive("narrator", &directive);
@@ -380,7 +380,7 @@ fn empty_directive_not_registered_in_prompt() {
 
 #[test]
 fn faction_events_field_exists_on_directive() {
-    let directive = format_scene_directive(&[], &[], &[]);
+    let directive = format_scene_directive(&[], &[], &[], &[]);
     // faction_events should exist and be empty (placeholder until 6-5 wires it)
     assert!(
         directive.faction_events.is_empty(),
@@ -414,7 +414,7 @@ fn full_pipeline_engagement_to_directive_to_prompt() {
     } else {
         vec![]
     };
-    let directive = format_scene_directive(&fired, &stakes, &[]);
+    let directive = format_scene_directive(&fired, &stakes, &[], &[]);
 
     // 5. With 2.0x multiplier from passive player, beat at 0.1 should have fired
     assert!(
@@ -457,7 +457,7 @@ fn active_player_pipeline_may_not_fire_beats() {
     );
 
     // Empty fired beats → empty directive → no block in prompt
-    let directive = format_scene_directive(&fired, &[], &[]);
+    let directive = format_scene_directive(&fired, &[], &[], &[]);
     let mut registry = PromptRegistry::new();
     registry.register_scene_directive("narrator", &directive);
     let composed = registry.compose("narrator");

@@ -5,9 +5,26 @@
 //! who haven't submitted actions within a configurable fraction of
 //! the barrier timeout.
 
+use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::sync::RwLock;
+use tracing::{instrument, warn};
+
 use crate::multiplayer::MultiplayerSession;
+use crate::turn_mode::TurnMode;
+
+/// Error type for reminder configuration validation.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ReminderError {
+    /// Threshold must be a finite value in [0.0, 1.0].
+    #[error("threshold must be between 0.0 and 1.0, got {0}")]
+    InvalidThreshold(f64),
+    /// Reminder message cannot be empty or whitespace-only.
+    #[error("reminder message cannot be empty or whitespace-only")]
+    EmptyMessage,
+}
 
 /// Configuration for turn reminders: when to fire and what to say.
 #[derive(Debug, Clone)]
@@ -18,6 +35,9 @@ pub struct ReminderConfig {
 
 impl ReminderConfig {
     /// Create a new reminder config with the given threshold and message.
+    ///
+    /// Prefer [`try_new`](Self::try_new) which validates inputs.
+    #[deprecated(since = "0.1.0", note = "use try_new() for validated construction")]
     pub fn new(threshold: f64, message: String) -> Self {
         Self { threshold, message }
     }
@@ -30,6 +50,20 @@ impl ReminderConfig {
     /// The reminder message text.
     pub fn message(&self) -> &str {
         &self.message
+    }
+
+    /// Validated constructor. Threshold must be in [0.0, 1.0] and finite.
+    /// Message must be non-empty and not whitespace-only.
+    pub fn try_new(threshold: f64, message: String) -> Result<Self, ReminderError> {
+        if threshold.is_nan() || threshold.is_infinite() || !(0.0..=1.0).contains(&threshold) {
+            warn!(threshold, "ReminderConfig rejected: invalid threshold");
+            return Err(ReminderError::InvalidThreshold(threshold));
+        }
+        if message.trim().is_empty() {
+            warn!("ReminderConfig rejected: empty or whitespace-only message");
+            return Err(ReminderError::EmptyMessage);
+        }
+        Ok(Self { threshold, message })
     }
 
     /// Compute the reminder delay as a fraction of the barrier timeout.
@@ -57,10 +91,7 @@ pub struct ReminderResult {
 impl ReminderResult {
     /// Check a session against a config, returning which players are idle.
     pub fn check(session: &MultiplayerSession, config: &ReminderConfig) -> Self {
-        let mut idle: Vec<String> = session
-            .pending_players()
-            .into_iter()
-            .collect();
+        let mut idle: Vec<String> = session.pending_players().into_iter().collect();
         idle.sort();
 
         Self {
@@ -82,5 +113,48 @@ impl ReminderResult {
     /// Whether a reminder should be sent (any idle players exist).
     pub fn should_send(&self) -> bool {
         !self.idle_players.is_empty()
+    }
+
+    /// An empty result (no idle players). Used when reminders are suppressed.
+    fn empty(config: &ReminderConfig) -> Self {
+        Self {
+            idle_players: vec![],
+            message: config.message().to_string(),
+        }
+    }
+
+    /// Mode-aware check. Returns empty result in FreePlay mode (no barrier).
+    pub fn check_with_mode(
+        session: &MultiplayerSession,
+        config: &ReminderConfig,
+        mode: &TurnMode,
+    ) -> Self {
+        if matches!(mode, TurnMode::FreePlay) {
+            return Self::empty(config);
+        }
+        Self::check(session, config)
+    }
+
+    /// Async reminder execution. Sleeps for the configured delay, then checks
+    /// which players are idle. Returns empty in FreePlay mode without sleeping.
+    ///
+    /// Cancellation-safe — dropping this future mid-sleep is fine (tokio::time::sleep
+    /// is cancel-safe, and no state is mutated until after the await point).
+    #[instrument(skip(config, session), fields(threshold = config.threshold()))]
+    pub async fn run_reminder(
+        barrier_timeout: Duration,
+        config: &ReminderConfig,
+        session: &Arc<RwLock<MultiplayerSession>>,
+        mode: &TurnMode,
+    ) -> Self {
+        if matches!(mode, TurnMode::FreePlay) {
+            return Self::empty(config);
+        }
+
+        let delay = config.reminder_delay(barrier_timeout);
+        tokio::time::sleep(delay).await;
+
+        let session = session.read().await;
+        Self::check_with_mode(&session, config, mode)
     }
 }

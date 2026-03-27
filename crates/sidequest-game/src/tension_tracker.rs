@@ -6,8 +6,8 @@
 //! - **stakes_tension** (HP-based): rises as characters take damage or are in
 //!   danger, drops as they heal/rest. Measures how much is at stake.
 //!
-//! The combined **drama_weight** is `max(action_tension, stakes_tension)` with
-//! event spike injection and exponential decay.
+//! The combined **drama_weight** is `max(action_tension, stakes_tension, effective_spike)`
+//! with per-event linear decay.
 //!
 //! Story 5-1: TensionTracker struct — dual-track model with action tension
 //! (gambler's ramp) and stakes tension (HP-based).
@@ -94,13 +94,21 @@ pub enum CombatEvent {
     Normal,
 }
 
+/// A single event-driven tension spike with per-event decay.
+#[derive(Debug, Clone)]
+struct EventSpike {
+    magnitude: f64,
+    decay_rate: f64,
+}
+
 /// Dual-track tension model combining action tension (gambler's ramp)
 /// and stakes tension (HP-based).
 #[derive(Debug, Clone, Default)]
 pub struct TensionTracker {
     action_tension: f64,
     stakes_tension: f64,
-    spike: f64,
+    last_event_spike: Option<EventSpike>,
+    spike_decay_age: u32,
     boring_streak: u32,
 }
 
@@ -108,10 +116,8 @@ pub struct TensionTracker {
 const BORING_BASE: f64 = 0.05;
 /// Multiplicative decay factor for action tension per tick.
 const ACTION_DECAY: f64 = 0.9;
-/// Multiplicative decay factor for spike per tick.
-const SPIKE_DECAY: f64 = 0.5;
-/// Threshold below which spike snaps to zero.
-const SPIKE_FLOOR: f64 = 1e-6;
+/// Default per-turn decay rate for spikes injected via `inject_spike()`.
+const DEFAULT_SPIKE_DECAY_RATE: f64 = 0.15;
 
 fn clamp01(v: f64) -> f64 {
     v.clamp(0.0, 1.0)
@@ -123,7 +129,8 @@ impl TensionTracker {
         Self {
             action_tension: 0.0,
             stakes_tension: 0.0,
-            spike: 0.0,
+            last_event_spike: None,
+            spike_decay_age: 0,
             boring_streak: 0,
         }
     }
@@ -133,7 +140,8 @@ impl TensionTracker {
         Self {
             action_tension: clamp01(action),
             stakes_tension: clamp01(stakes),
-            spike: 0.0,
+            last_event_spike: None,
+            spike_decay_age: 0,
             boring_streak: 0,
         }
     }
@@ -148,14 +156,18 @@ impl TensionTracker {
         self.stakes_tension
     }
 
-    /// Combined drama metric: `max(action, stakes) + spike`, clamped to 1.0.
+    /// Combined drama metric: `max(action, stakes, effective_spike)`, clamped to 1.0.
     pub fn drama_weight(&self) -> f64 {
-        clamp01(self.action_tension.max(self.stakes_tension) + self.spike)
+        clamp01(
+            self.action_tension
+                .max(self.stakes_tension)
+                .max(self.effective_spike()),
+        )
     }
 
-    /// Current effective spike value after decay.
+    /// Current effective spike value after linear decay.
     pub fn active_spike(&self) -> f64 {
-        self.spike
+        self.effective_spike()
     }
 
     /// Current boring streak count — consecutive boring turns without a dramatic event.
@@ -163,9 +175,34 @@ impl TensionTracker {
         self.boring_streak
     }
 
-    /// Inject a temporary drama boost, clamped to 1.0.
+    /// Inject a temporary drama spike, replacing any existing spike.
     pub fn inject_spike(&mut self, amount: f64) {
-        self.spike = clamp01(self.spike + amount);
+        self.last_event_spike = Some(EventSpike {
+            magnitude: clamp01(amount),
+            decay_rate: DEFAULT_SPIKE_DECAY_RATE,
+        });
+        self.spike_decay_age = 0;
+    }
+
+    /// Effective spike value after linear decay. Returns 0.0 if no spike is active.
+    fn effective_spike(&self) -> f64 {
+        match &self.last_event_spike {
+            Some(spike) => {
+                (spike.magnitude - spike.decay_rate * self.spike_decay_age as f64).max(0.0)
+            }
+            None => 0.0,
+        }
+    }
+
+    /// Age the spike by one turn. Cleans up fully decayed spikes.
+    fn age_spike(&mut self) {
+        if self.last_event_spike.is_some() {
+            self.spike_decay_age += 1;
+            if self.effective_spike() <= 0.0 {
+                self.last_event_spike = None;
+                self.spike_decay_age = 0;
+            }
+        }
     }
 
     /// Record a combat event, updating action tension via the gambler's ramp.
@@ -191,13 +228,10 @@ impl TensionTracker {
         self.stakes_tension = clamp01(1.0 - current_hp as f64 / max_hp as f64);
     }
 
-    /// Advance one tick: decay action tension and spike. Stakes are HP-driven only.
+    /// Advance one tick: decay action tension and age spike. Stakes are HP-driven only.
     pub fn tick(&mut self) {
         self.action_tension *= ACTION_DECAY;
-        self.spike *= SPIKE_DECAY;
-        if self.spike < SPIKE_FLOOR {
-            self.spike = 0.0;
-        }
+        self.age_spike();
     }
 
     /// Compute a pacing hint from the current tension state and genre thresholds.
@@ -233,6 +267,9 @@ impl TensionTracker {
 /// Dramatic damage threshold — total round damage at or above this is dramatic.
 const DRAMATIC_DAMAGE_THRESHOLD: i32 = 15;
 
+/// HP ratio threshold below which a surviving target triggers NearMiss.
+const NEAR_MISS_HP_THRESHOLD: f64 = 0.2;
+
 /// Classify a combat round result as Boring, Dramatic, or Normal.
 ///
 /// Classification rules:
@@ -266,6 +303,151 @@ pub fn classify_round(round: &RoundResult, killed: Option<&str>) -> CombatEvent 
     }
 
     CombatEvent::Normal
+}
+
+// ============================================================================
+// Story 5-2: Detailed combat event classification
+// ============================================================================
+
+/// Specific dramatic combat events with spike magnitudes (ADR, epic 5 context).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DetailedCombatEvent {
+    /// Massive damage in a single blow.
+    CriticalHit,
+    /// A combatant was slain.
+    KillingBlow,
+    /// A combatant narrowly avoided death.
+    DeathSave,
+    /// First damage dealt in the encounter.
+    FirstBlood,
+    /// An attack that barely missed or was narrowly survived.
+    NearMiss,
+    /// Only one combatant remains standing on a side.
+    LastStanding,
+}
+
+impl DetailedCombatEvent {
+    /// Tension spike magnitude for this event type (0.0–1.0).
+    pub fn spike_magnitude(&self) -> f64 {
+        match self {
+            Self::CriticalHit => 0.8,
+            Self::KillingBlow => 1.0,
+            Self::DeathSave => 0.7,
+            Self::FirstBlood => 0.6,
+            Self::NearMiss => 0.5,
+            Self::LastStanding => 0.9,
+        }
+    }
+
+    /// Per-turn decay rate for the spike injected by this event.
+    pub fn decay_rate(&self) -> f64 {
+        match self {
+            Self::CriticalHit => 0.15,
+            Self::KillingBlow => 0.20,
+            Self::DeathSave => 0.15,
+            Self::FirstBlood => 0.10,
+            Self::NearMiss => 0.10,
+            Self::LastStanding => 0.20,
+        }
+    }
+}
+
+/// Classification of a combat turn for pacing decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnClassification {
+    /// Low-action turn — ramps the gambler's ramp.
+    Boring,
+    /// High-action moment with a specific dramatic event.
+    Dramatic(DetailedCombatEvent),
+    /// Routine action — some damage but not dramatic.
+    Normal,
+}
+
+/// Classify a combat round into a detailed turn classification.
+///
+/// Priority ordering: kill → near miss (low HP) → critical hit (high damage) → effects → normal → boring.
+///
+/// - `round`: the combat round result with damage events and effects.
+/// - `killed`: name of a combatant who died this round, if any.
+/// - `lowest_hp_ratio`: the lowest HP ratio (current/max) of any targeted combatant after damage,
+///   or `None` if unknown. Used to detect NearMiss events.
+pub fn classify_combat_outcome(
+    round: &RoundResult,
+    killed: Option<&str>,
+    lowest_hp_ratio: Option<f64>,
+) -> TurnClassification {
+    // Kill is always KillingBlow — highest priority
+    if killed.is_some() {
+        return TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow);
+    }
+
+    let total_damage: i32 = round
+        .damage_events
+        .iter()
+        .map(|e| e.damage.max(0))
+        .sum();
+
+    // Near miss — target survived at low HP
+    if let Some(ratio) = lowest_hp_ratio {
+        if ratio <= NEAR_MISS_HP_THRESHOLD && total_damage > 0 {
+            return TurnClassification::Dramatic(DetailedCombatEvent::NearMiss);
+        }
+    }
+
+    // Critical hit — high total damage
+    if total_damage >= DRAMATIC_DAMAGE_THRESHOLD {
+        return TurnClassification::Dramatic(DetailedCombatEvent::CriticalHit);
+    }
+
+    // Status effects are dramatic (FirstBlood-level)
+    if !round.effects_applied.is_empty() {
+        return TurnClassification::Dramatic(DetailedCombatEvent::FirstBlood);
+    }
+
+    // No damage at all — boring
+    if total_damage == 0 {
+        return TurnClassification::Boring;
+    }
+
+    // Some damage but not dramatic
+    TurnClassification::Normal
+}
+
+impl TensionTracker {
+    /// Observe a combat round: age existing spike, classify the outcome,
+    /// update boring_streak, inject spike for dramatic events with per-event decay.
+    pub fn observe(
+        &mut self,
+        round: &RoundResult,
+        killed: Option<&str>,
+        lowest_hp_ratio: Option<f64>,
+    ) -> TurnClassification {
+        // 1. Age any existing spike before processing new events
+        self.age_spike();
+
+        let classification = classify_combat_outcome(round, killed, lowest_hp_ratio);
+
+        match &classification {
+            TurnClassification::Boring => {
+                self.record_event(CombatEvent::Boring);
+            }
+            TurnClassification::Dramatic(event) => {
+                self.record_event(CombatEvent::Dramatic);
+                // Replace spike with per-event magnitude and decay rate
+                self.last_event_spike = Some(EventSpike {
+                    magnitude: event.spike_magnitude(),
+                    decay_rate: event.decay_rate(),
+                });
+                self.spike_decay_age = 0;
+            }
+            TurnClassification::Normal => {
+                self.record_event(CombatEvent::Normal);
+            }
+        }
+
+        classification
+    }
 }
 
 #[cfg(test)]
@@ -480,14 +662,14 @@ mod tests {
     fn spike_fully_decays_to_zero() {
         let mut tracker = TensionTracker::new();
         tracker.inject_spike(0.5);
-        // Tick enough times for full decay
-        for _ in 0..20 {
+        // Linear decay at DEFAULT_SPIKE_DECAY_RATE=0.15/tick: 0.5/0.15 ≈ 4 ticks
+        for _ in 0..10 {
             tracker.tick();
         }
-        assert!(
-            tracker.active_spike() < f64::EPSILON,
-            "spike should fully decay to ~0, got {}",
+        assert_eq!(
             tracker.active_spike(),
+            0.0,
+            "spike should fully decay to 0.0",
         );
     }
 
