@@ -54,6 +54,7 @@ pub use combatant::Combatant;
 pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};
 pub use disposition::{Attitude, Disposition};
+pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
 pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector};
