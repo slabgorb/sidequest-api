@@ -19,6 +19,7 @@ pub mod disposition;
 pub mod hp;
 pub mod inventory;
 pub mod multiplayer;
+pub mod perception;
 pub mod narrative;
 pub mod npc;
 pub mod persistence;
