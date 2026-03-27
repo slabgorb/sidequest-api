@@ -1854,10 +1854,10 @@ async fn dispatch_player_action(
         char_name, *hp, *max_hp, *level, *xp, genre_slug,
     );
 
-    // Bug 1: Inject current location so Claude maintains scene continuity
+    // Location constraint — prevent narrator from teleporting between scenes
     if !current_location.is_empty() {
         state_summary.push_str(&format!(
-            "\nCurrent location: {} — The player is HERE. Do NOT move them to a different location unless they explicitly travel or a narrative event forces relocation. Continue the scene in this location.",
+            "\n\nLOCATION CONSTRAINT — THIS IS A HARD RULE:\nThe player is at: {}\nYou MUST continue the scene at this location. Do NOT introduce a new setting, move to a different area, or describe the player arriving somewhere else UNLESS the player explicitly says they want to travel or leave. If the player's action implies staying here, describe what happens HERE. Only change location when the player takes a deliberate travel action (e.g., 'I go to...', 'I leave...', 'I head north').",
             current_location
         ));
     }
