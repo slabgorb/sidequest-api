@@ -260,7 +260,6 @@ async fn server_accepts_mock_game_service() {
                 state_delta: None,
                 combat_events: vec![],
                 is_degraded: false,
-                classification_source: sidequest_agents::agents::intent_router::ClassificationSource::Haiku,
             }
         }
     }

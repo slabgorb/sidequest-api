@@ -86,71 +86,52 @@ fn slow_trope_def() -> TropeDefinition {
 }
 
 // ============================================================================
-// AC: Engagement tracked — is_meaningful classification
+// AC: Engagement tracked — meaningful intent classification
+// is_meaningful was removed in PR#95; meaningful = Combat | Dialogue | Chase
 // ============================================================================
+
+/// Helper: meaningful intents are active engagement (Combat, Dialogue, Chase).
+fn is_meaningful(intent: Intent) -> bool {
+    matches!(intent, Intent::Combat | Intent::Dialogue | Intent::Chase)
+}
 
 #[test]
 fn combat_intent_is_meaningful() {
-    assert!(
-        Intent::Combat.is_meaningful(),
-        "Combat should be a meaningful action"
-    );
+    assert!(is_meaningful(Intent::Combat), "Combat should be meaningful");
 }
 
 #[test]
 fn dialogue_intent_is_meaningful() {
-    assert!(
-        Intent::Dialogue.is_meaningful(),
-        "Dialogue should be a meaningful action"
-    );
+    assert!(is_meaningful(Intent::Dialogue), "Dialogue should be meaningful");
 }
 
 #[test]
 fn chase_intent_is_meaningful() {
-    assert!(
-        Intent::Chase.is_meaningful(),
-        "Chase should be a meaningful action (active engagement)"
-    );
+    assert!(is_meaningful(Intent::Chase), "Chase should be meaningful");
 }
 
 #[test]
 fn exploration_intent_is_not_meaningful() {
-    assert!(
-        !Intent::Exploration.is_meaningful(),
-        "Exploration should not be meaningful (idle browsing)"
-    );
+    assert!(!is_meaningful(Intent::Exploration), "Exploration should not be meaningful");
 }
 
 #[test]
 fn examine_intent_is_not_meaningful() {
-    assert!(
-        !Intent::Examine.is_meaningful(),
-        "Examine should not be meaningful"
-    );
+    assert!(!is_meaningful(Intent::Examine), "Examine should not be meaningful");
 }
 
 #[test]
 fn meta_intent_is_not_meaningful() {
-    assert!(
-        !Intent::Meta.is_meaningful(),
-        "Meta commands should not be meaningful"
-    );
+    assert!(!is_meaningful(Intent::Meta), "Meta should not be meaningful");
 }
 
 #[test]
-fn intent_route_exposes_is_meaningful() {
-    // Verify the wiring: IntentRoute delegates to Intent::is_meaningful
+fn intent_route_exposes_meaningful_via_intent() {
     let route = IntentRoute::for_intent(Intent::Combat);
-    assert!(
-        route.is_meaningful(),
-        "Combat route should be meaningful"
-    );
+    assert!(is_meaningful(route.intent()), "Combat route should be meaningful");
 
     let route = IntentRoute::for_intent(Intent::Exploration);
-    assert!(
-        !route.is_meaningful(),
-        "Exploration route should not be meaningful"
-    );
+    assert!(!is_meaningful(route.intent()), "Exploration route should not be meaningful");
 }
 
 // ============================================================================
@@ -164,7 +145,7 @@ fn meaningful_intent_resets_turns_since_meaningful() {
 
     // Simulate meaningful action (Combat)
     let route = IntentRoute::for_intent(Intent::Combat);
-    if route.is_meaningful() {
+    if is_meaningful(route.intent()) {
         snap.turns_since_meaningful = 0;
     } else {
         snap.turns_since_meaningful += 1;
@@ -183,7 +164,7 @@ fn non_meaningful_intent_increments_turns_since_meaningful() {
 
     // Simulate non-meaningful action (Exploration)
     let route = IntentRoute::for_intent(Intent::Exploration);
-    if route.is_meaningful() {
+    if is_meaningful(route.intent()) {
         snap.turns_since_meaningful = 0;
     } else {
         snap.turns_since_meaningful += 1;
