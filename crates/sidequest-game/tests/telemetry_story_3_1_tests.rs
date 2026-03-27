@@ -133,6 +133,7 @@ fn test_snapshot() -> sidequest_game::GameSnapshot {
         last_saved_at: None,
         active_stakes: String::new(),
         lore_established: vec![],
+        turns_since_meaningful: 0,
     }
 }
 

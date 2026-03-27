@@ -253,7 +253,7 @@ fn game_snapshot_turns_since_meaningful_serializes() {
 fn game_snapshot_turns_since_meaningful_defaults_on_missing_field() {
     // Backward compatibility: old snapshots without the field should default to 0
     // This tests #[serde(default)] behavior
-    let json = r#"{"genre_slug":"","world_slug":"","characters":[],"npcs":[],"location":"","time_of_day":"","quest_log":{},"notes":[],"narrative_log":[],"combat":{"in_combat":false,"combatants":[],"turn_order":[],"current_turn":0,"round":0,"drama_weight":0.0,"available_actions":[]},"active_tropes":[],"atmosphere":"","current_region":"","discovered_regions":[],"discovered_routes":[],"turn_manager":{"current_turn":0,"barrier_active":false,"barrier_reason":null},"active_stakes":"","lore_established":[]}"#;
+    let json = r#"{"genre_slug":"","world_slug":"","characters":[],"npcs":[],"location":"","time_of_day":"","quest_log":{},"notes":[],"narrative_log":[],"combat":{"in_combat":false,"turn_order":[],"current_turn":null,"round":0,"drama_weight":0.0,"available_actions":[]},"active_tropes":[],"atmosphere":"","current_region":"","discovered_regions":[],"discovered_routes":[],"turn_manager":{"current_turn":0,"barrier_active":false,"barrier_reason":null},"last_saved_at":null,"active_stakes":"","lore_established":[]}"#;
     let snap: sidequest_game::state::GameSnapshot =
         serde_json::from_str(json).expect("should deserialize without turns_since_meaningful");
     assert_eq!(

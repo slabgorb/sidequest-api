@@ -54,6 +54,7 @@ pub struct GameSnapshot {
     /// Active combat state.
     pub combat: CombatState,
     /// Active chase sequence (None if no chase in progress).
+    #[serde(default)]
     pub chase: Option<ChaseState>,
     /// Currently active narrative tropes.
     pub active_tropes: Vec<String>,
@@ -68,6 +69,7 @@ pub struct GameSnapshot {
     /// Turn sequencing and barrier tracking.
     pub turn_manager: TurnManager,
     /// When this snapshot was last persisted (set by GameStore on save).
+    #[serde(default)]
     pub last_saved_at: Option<DateTime<Utc>>,
     /// Active narrative stakes description (story 2-7).
     #[serde(default)]
@@ -75,6 +77,10 @@ pub struct GameSnapshot {
     /// Established lore fragments (story 2-7).
     #[serde(default)]
     pub lore_established: Vec<String>,
+    /// Turns since last meaningful player action (story 6-3).
+    /// Drives the engagement multiplier for trope progression pacing.
+    #[serde(default)]
+    pub turns_since_meaningful: u32,
 }
 
 impl GameSnapshot {

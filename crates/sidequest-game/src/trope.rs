@@ -97,6 +97,18 @@ pub struct TropeEngine;
 impl TropeEngine {
     /// Advance all active tropes by their passive rate, then check for fired beats.
     pub fn tick(tropes: &mut [TropeState], trope_defs: &[TropeDefinition]) -> Vec<FiredBeat> {
+        Self::tick_with_multiplier(tropes, trope_defs, 1.0)
+    }
+
+    /// Advance all active tropes with an engagement multiplier applied to the passive rate.
+    ///
+    /// The multiplier scales `rate_per_turn` — a multiplier of 2.0 doubles progression
+    /// speed (passive player), while 0.5 halves it (active player).
+    pub fn tick_with_multiplier(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        multiplier: f64,
+    ) -> Vec<FiredBeat> {
         let def_map: HashMap<&str, &TropeDefinition> = trope_defs
             .iter()
             .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
@@ -117,9 +129,9 @@ impl TropeEngine {
                 continue;
             };
 
-            // Passive progression
+            // Passive progression scaled by engagement multiplier
             if let Some(pp) = &td.passive_progression {
-                ts.progression = (ts.progression + pp.rate_per_turn).min(1.0);
+                ts.progression = (ts.progression + pp.rate_per_turn * multiplier).min(1.0);
             }
 
             // Check escalation beats

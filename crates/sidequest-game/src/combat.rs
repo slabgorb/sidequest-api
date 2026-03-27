@@ -10,8 +10,11 @@ use serde::{Deserialize, Serialize};
 /// Tracks the state of an active combat encounter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatState {
+    #[serde(default)]
     round: u32,
+    #[serde(default)]
     damage_log: Vec<DamageEvent>,
+    #[serde(default)]
     effects: HashMap<String, Vec<StatusEffect>>,
     /// Whether combat is currently active.
     #[serde(default)]
