@@ -1759,15 +1759,25 @@ async fn dispatch_player_action(
         );
     }
 
-    // Audio cue — trigger mood-based music from genre pack
+    // Audio cue — derive mood from game state, trigger mood-based music from genre pack
     if !genre_slug.is_empty() {
-        tracing::info!(genre = %genre_slug, mood = "exploration", "Emitting AUDIO_CUE");
+        let location_changed = extract_location_header(narration_text).is_some();
+        let mood = if combat_state.in_combat() {
+            "combat"
+        } else if combat_state.drama_weight() > 0.7 {
+            "tension"
+        } else if location_changed {
+            "exploration"
+        } else {
+            "rest"
+        };
+        tracing::info!(genre = %genre_slug, mood = %mood, "Emitting AUDIO_CUE");
         messages.push(GameMessage::AudioCue {
             payload: AudioCuePayload {
-                mood: Some("exploration".to_string()),
+                mood: Some(mood.to_string()),
                 music_track: Some(format!(
-                    "/genre/{}/audio/music/exploration_full.ogg",
-                    genre_slug
+                    "/genre/{}/audio/music/{}_full.ogg",
+                    genre_slug, mood
                 )),
                 sfx_triggers: vec![],
             },
