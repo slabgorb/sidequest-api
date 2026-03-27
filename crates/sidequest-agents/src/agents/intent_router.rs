@@ -28,6 +28,16 @@ pub enum Intent {
     Chase,
 }
 
+impl Intent {
+    /// Whether this intent represents a meaningful player action that resets
+    /// the engagement counter. Combat, Dialogue, and Chase are meaningful
+    /// (the player is actively driving the story). Exploration, Examine, and
+    /// Meta are not (idle browsing or system commands).
+    pub fn is_meaningful(&self) -> bool {
+        matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase)
+    }
+}
+
 impl std::fmt::Display for Intent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -172,6 +182,12 @@ impl IntentRoute {
     /// Whether this classification is ambiguous (confidence < 0.5 from Haiku).
     pub fn is_ambiguous(&self) -> bool {
         self.source == ClassificationSource::Haiku && self.confidence < 0.5
+    }
+
+    /// Whether this route's intent is a meaningful player action.
+    /// Delegates to [`Intent::is_meaningful()`].
+    pub fn is_meaningful(&self) -> bool {
+        self.intent.is_meaningful()
     }
 }
 
