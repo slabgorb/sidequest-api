@@ -166,6 +166,12 @@ pub struct RulesConfig {
     /// Default AC value.
     #[serde(default)]
     pub default_ac: Option<u32>,
+    /// Display label for "Race" (genre-specific, e.g. "Origin", "Background").
+    #[serde(default)]
+    pub race_label: Option<String>,
+    /// Display label for "Class" (genre-specific, e.g. "Discipline", "Role").
+    #[serde(default)]
+    pub class_label: Option<String>,
     /// Default starting location description.
     #[serde(default)]
     pub default_location: Option<String>,

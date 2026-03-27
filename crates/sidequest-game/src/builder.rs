@@ -190,6 +190,8 @@ pub struct CharacterBuilder {
     default_hp: Option<u32>,
     default_ac: Option<u32>,
     class_hp_bases: HashMap<String, u32>,
+    race_label: String,
+    class_label: String,
 }
 
 impl CharacterBuilder {
@@ -225,6 +227,8 @@ impl CharacterBuilder {
             default_hp: rules.default_hp,
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
+            race_label: rules.race_label.clone().unwrap_or_else(|| "Race".to_string()),
+            class_label: rules.class_label.clone().unwrap_or_else(|| "Class".to_string()),
         }
     }
 
@@ -671,8 +675,8 @@ impl CharacterBuilder {
             BuilderPhase::Confirmation => {
                 let acc = self.accumulated();
                 let mut parts = vec![
-                    format!("Race: {}", acc.race_hint.as_deref().unwrap_or("Unknown")),
-                    format!("Class: {}", acc.class_hint.as_deref().unwrap_or("Unknown")),
+                    format!("{}: {}", self.race_label, acc.race_hint.as_deref().unwrap_or("Unknown")),
+                    format!("{}: {}", self.class_label, acc.class_hint.as_deref().unwrap_or("Unknown")),
                     format!(
                         "Personality: {}",
                         acc.personality_trait.as_deref().unwrap_or("Unknown")
