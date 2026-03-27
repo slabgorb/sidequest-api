@@ -1032,6 +1032,7 @@ async fn dispatch_message(
                 character_name.as_deref().unwrap_or("Unknown"),
                 *character_hp,
                 *character_max_hp,
+                character_json,
                 combat_state,
                 trope_states,
                 trope_defs,
@@ -1544,6 +1545,7 @@ async fn dispatch_character_creation(
                         character.core.name.as_str(),
                         character.core.hp,
                         character.core.max_hp,
+                        character_json_store,
                         combat_state,
                         trope_states,
                         trope_defs,
@@ -1600,6 +1602,7 @@ async fn dispatch_player_action(
     char_name: &str,
     hp: i32,
     max_hp: i32,
+    character_json: &Option<serde_json::Value>,
     combat_state: &mut sidequest_game::combat::CombatState,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &[sidequest_genre::TropeDefinition],
@@ -1710,6 +1713,33 @@ async fn dispatch_player_action(
         "Character: {} (HP {}/{})\nGenre: {}",
         char_name, hp, max_hp, genre_slug,
     );
+
+    // Include character abilities and mutations so the narrator knows what
+    // the character can and cannot do (prevents hallucinated abilities).
+    if let Some(ref cj) = character_json {
+        // Extract hooks (narrative abilities, mutations, etc.)
+        if let Some(hooks) = cj.get("hooks").and_then(|h| h.as_array()) {
+            let hook_strs: Vec<&str> = hooks.iter().filter_map(|v| v.as_str()).collect();
+            if !hook_strs.is_empty() {
+                state_summary.push_str("\nCharacter traits/abilities:\n");
+                for h in &hook_strs {
+                    state_summary.push_str(&format!("- {}\n", h));
+                }
+            }
+        }
+        // Extract backstory
+        if let Some(backstory) = cj.get("backstory").and_then(|b| b.as_str()) {
+            state_summary.push_str(&format!("\nBackstory: {}", backstory));
+        }
+        // Extract class and race for narrator awareness
+        if let Some(class) = cj.get("char_class").and_then(|c| c.as_str()) {
+            state_summary.push_str(&format!("\nClass: {}", class));
+        }
+        if let Some(race) = cj.get("race").and_then(|r| r.as_str()) {
+            state_summary.push_str(&format!("\nRace/Origin: {}", race));
+        }
+    }
+
     if !world_context.is_empty() {
         state_summary.push('\n');
         state_summary.push_str(world_context);
