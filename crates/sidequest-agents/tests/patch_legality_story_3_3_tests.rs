@@ -303,10 +303,7 @@ fn hp_below_max_hp_is_clean() {
         .filter(|r| matches!(r, ValidationResult::Violation(_)))
         .collect();
 
-    assert!(
-        violations.is_empty(),
-        "HP 10 < max_hp 20 should be clean"
-    );
+    assert!(violations.is_empty(), "HP 10 < max_hp 20 should be clean");
 }
 
 /// The violation message should identify the offending creature by name.

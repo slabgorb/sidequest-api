@@ -524,10 +524,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 enemies: state
                     .npcs
                     .iter()
-                    .filter(|n| {
-                        n.disposition.attitude()
-                            == crate::disposition::Attitude::Hostile
-                    })
+                    .filter(|n| n.disposition.attitude() == crate::disposition::Attitude::Hostile)
                     .map(|n| CombatEnemy {
                         name: n.name().to_string(),
                         hp: Combatant::hp(n),
@@ -536,11 +533,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                     })
                     .collect(),
                 turn_order: state.combat.turn_order().to_vec(),
-                current_turn: state
-                    .combat
-                    .current_turn()
-                    .unwrap_or("")
-                    .to_string(),
+                current_turn: state.combat.current_turn().unwrap_or("").to_string(),
             },
             player_id: String::new(),
         });

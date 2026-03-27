@@ -632,7 +632,10 @@ impl CharacterBuilder {
                 let mut parts = vec![
                     format!("Race: {}", acc.race_hint.as_deref().unwrap_or("Unknown")),
                     format!("Class: {}", acc.class_hint.as_deref().unwrap_or("Unknown")),
-                    format!("Personality: {}", acc.personality_trait.as_deref().unwrap_or("Unknown")),
+                    format!(
+                        "Personality: {}",
+                        acc.personality_trait.as_deref().unwrap_or("Unknown")
+                    ),
                 ];
                 if let Some(bg) = &acc.background {
                     parts.push(format!("\nBackstory: {}", bg));

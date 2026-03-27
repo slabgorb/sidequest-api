@@ -53,18 +53,19 @@ impl EntityRegistry {
             .characters
             .iter()
             .flat_map(|c| c.core.inventory.items.iter())
-            .chain(snapshot.npcs.iter().flat_map(|n| n.core.inventory.items.iter()))
+            .chain(
+                snapshot
+                    .npcs
+                    .iter()
+                    .flat_map(|n| n.core.inventory.items.iter()),
+            )
             .map(|item| item.name.as_str().to_string())
             .collect();
 
         let mut location_names = HashSet::new();
         location_names.insert(snapshot.location.clone());
 
-        let region_names: HashSet<String> = snapshot
-            .discovered_regions
-            .iter()
-            .cloned()
-            .collect();
+        let region_names: HashSet<String> = snapshot.discovered_regions.iter().cloned().collect();
 
         EntityRegistry {
             character_names,
@@ -115,16 +116,15 @@ pub fn extract_potential_references(narration: &str) -> Vec<String> {
 
     // Stop words that should not be treated as entity references even when capitalized.
     const STOP_WORDS: &[&str] = &[
-        "The", "A", "An", "And", "Or", "But", "In", "On", "At", "To", "For", "Of", "With",
-        "By", "From", "Up", "About", "Into", "Through", "During", "Before", "After",
-        "Above", "Below", "Between", "Under", "Again", "Further", "Then", "Once",
-        "He", "She", "It", "They", "We", "You", "I", "His", "Her", "Its", "Their",
-        "Our", "Your", "My", "This", "That", "These", "Those", "Is", "Was", "Were",
-        "Are", "Be", "Been", "Being", "Have", "Has", "Had", "Do", "Does", "Did",
-        "Will", "Would", "Could", "Should", "May", "Might", "Must", "Shall",
-        "Not", "No", "Nor", "So", "If", "As", "Each", "Which", "Who", "Whom",
-        "What", "When", "Where", "Why", "How", "All", "Both", "Few", "More",
-        "Most", "Other", "Some", "Such", "Than", "Too", "Very",
+        "The", "A", "An", "And", "Or", "But", "In", "On", "At", "To", "For", "Of", "With", "By",
+        "From", "Up", "About", "Into", "Through", "During", "Before", "After", "Above", "Below",
+        "Between", "Under", "Again", "Further", "Then", "Once", "He", "She", "It", "They", "We",
+        "You", "I", "His", "Her", "Its", "Their", "Our", "Your", "My", "This", "That", "These",
+        "Those", "Is", "Was", "Were", "Are", "Be", "Been", "Being", "Have", "Has", "Had", "Do",
+        "Does", "Did", "Will", "Would", "Could", "Should", "May", "Might", "Must", "Shall", "Not",
+        "No", "Nor", "So", "If", "As", "Each", "Which", "Who", "Whom", "What", "When", "Where",
+        "Why", "How", "All", "Both", "Few", "More", "Most", "Other", "Some", "Such", "Than", "Too",
+        "Very",
     ];
 
     let stop_set: HashSet<&str> = STOP_WORDS.iter().copied().collect();
@@ -140,7 +140,8 @@ pub fn extract_potential_references(narration: &str) -> Vec<String> {
     for word in &words {
         // Strip trailing punctuation for analysis
         let clean = word.trim_end_matches(|c: char| c.is_ascii_punctuation());
-        let has_trailing_sentence_end = word.ends_with('.') || word.ends_with('!') || word.ends_with('?');
+        let has_trailing_sentence_end =
+            word.ends_with('.') || word.ends_with('!') || word.ends_with('?');
 
         let is_capitalized = clean.chars().next().map_or(false, |c| c.is_uppercase());
 

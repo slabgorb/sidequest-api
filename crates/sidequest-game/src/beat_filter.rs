@@ -261,16 +261,17 @@ impl BeatFilter {
             .count() as u32;
         if burst_count >= self.config.burst_limit {
             return FilterDecision::Suppress {
-                reason: format!(
-                    "burst limit {} reached in window",
-                    self.config.burst_limit
-                ),
+                reason: format!("burst limit {} reached in window", self.config.burst_limit),
             };
         }
 
         // 5. Duplicate subject suppression
         let subject_hash = hash_subject(subject);
-        if self.render_history.iter().any(|r| r.subject_hash == subject_hash) {
+        if self
+            .render_history
+            .iter()
+            .any(|r| r.subject_hash == subject_hash)
+        {
             return FilterDecision::Suppress {
                 reason: "duplicate subject in history".into(),
             };
@@ -279,7 +280,11 @@ impl BeatFilter {
         // All checks passed — render
         self.record_render(now, subject);
         FilterDecision::Render {
-            reason: format!("weight {:.2} passed threshold {:.2}", subject.narrative_weight(), threshold),
+            reason: format!(
+                "weight {:.2} passed threshold {:.2}",
+                subject.narrative_weight(),
+                threshold
+            ),
         }
     }
 

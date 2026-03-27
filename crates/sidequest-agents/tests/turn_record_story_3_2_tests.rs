@@ -353,7 +353,10 @@ async fn try_send_does_not_block_on_full_channel() {
     let result = tx.try_send(make_mock_record(2));
     let elapsed = start.elapsed();
 
-    assert!(result.is_err(), "try_send on full channel should return Err");
+    assert!(
+        result.is_err(),
+        "try_send on full channel should return Err"
+    );
     assert!(
         elapsed < Duration::from_millis(10),
         "try_send should return immediately, took {:?}",
@@ -604,11 +607,7 @@ async fn validator_exits_cleanly_with_no_records() {
 fn turn_id_counter_starts_at_one() {
     let mut counter = TurnIdCounter::new();
     let first = counter.next_turn_id();
-    assert_eq!(
-        first, 1,
-        "Turn ID counter should start at 1, got {}",
-        first
-    );
+    assert_eq!(first, 1, "Turn ID counter should start at 1, got {}", first);
 }
 
 /// Consecutive calls to next_turn_id must return strictly increasing values.
@@ -882,7 +881,10 @@ async fn degraded_records_flow_through_channel() {
     tx.send(record).await.unwrap();
     let received = rx.recv().await.unwrap();
 
-    assert!(received.is_degraded, "Degraded flag should survive channel transit");
+    assert!(
+        received.is_degraded,
+        "Degraded flag should survive channel transit"
+    );
     assert_eq!(received.narration, "The narrator pauses...");
 }
 

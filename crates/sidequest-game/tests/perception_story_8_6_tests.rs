@@ -27,16 +27,8 @@ impl RewriteStrategy for TestRewriteStrategy {
         filter: &PerceptionFilter,
         _genre_voice: &str,
     ) -> Result<String, RewriterError> {
-        let effect_names: Vec<String> = filter
-            .effects()
-            .iter()
-            .map(|e| format!("{e:?}"))
-            .collect();
-        Ok(format!(
-            "[{}] {}",
-            effect_names.join(", "),
-            base_narration
-        ))
+        let effect_names: Vec<String> = filter.effects().iter().map(|e| format!("{e:?}")).collect();
+        Ok(format!("[{}] {}", effect_names.join(", "), base_narration))
     }
 }
 
@@ -55,10 +47,7 @@ impl RewriteStrategy for FailingRewriteStrategy {
 }
 
 fn blinded_filter(name: &str) -> PerceptionFilter {
-    PerceptionFilter::new(
-        name.to_string(),
-        vec![PerceptualEffect::Blinded],
-    )
+    PerceptionFilter::new(name.to_string(), vec![PerceptualEffect::Blinded])
 }
 
 fn charmed_filter(name: &str, source: &str) -> PerceptionFilter {
@@ -73,10 +62,7 @@ fn charmed_filter(name: &str, source: &str) -> PerceptionFilter {
 fn multi_effect_filter(name: &str) -> PerceptionFilter {
     PerceptionFilter::new(
         name.to_string(),
-        vec![
-            PerceptualEffect::Blinded,
-            PerceptualEffect::Deafened,
-        ],
+        vec![PerceptualEffect::Blinded, PerceptualEffect::Deafened],
     )
 }
 
@@ -151,10 +137,7 @@ fn perceptual_effect_is_clone() {
 
 #[test]
 fn perception_filter_new_stores_character_name_and_effects() {
-    let filter = PerceptionFilter::new(
-        "Thorn".to_string(),
-        vec![PerceptualEffect::Blinded],
-    );
+    let filter = PerceptionFilter::new("Thorn".to_string(), vec![PerceptualEffect::Blinded]);
     assert_eq!(filter.character_name(), "Thorn");
     assert_eq!(filter.effects().len(), 1);
 }
@@ -289,7 +272,10 @@ fn rewriter_error_is_agent_variant() {
 
     // Verify it's the Agent error variant with the message
     let msg = format!("{err}");
-    assert!(msg.contains("mock failure"), "error should contain failure message: {msg}");
+    assert!(
+        msg.contains("mock failure"),
+        "error should contain failure message: {msg}"
+    );
 }
 
 // ===========================================================================
@@ -356,8 +342,14 @@ fn describe_effects_multiple_joins_all() {
     ];
     let description = PerceptionRewriter::describe_effects(&effects);
     // All three effects should be present in the description
-    assert!(description.to_lowercase().contains("blind"), "missing blinded: {description}");
-    assert!(description.to_lowercase().contains("deaf"), "missing deafened: {description}");
+    assert!(
+        description.to_lowercase().contains("blind"),
+        "missing blinded: {description}"
+    );
+    assert!(
+        description.to_lowercase().contains("deaf"),
+        "missing deafened: {description}"
+    );
     assert!(
         description.to_lowercase().contains("hallucin"),
         "missing hallucinating: {description}"
@@ -391,7 +383,10 @@ fn broadcast_unaffected_players_receive_base_narration() {
     let results = rewriter.broadcast(base, &filters, "dark fantasy").unwrap();
 
     // With no filters, broadcast should return empty (no rewrites needed)
-    assert!(results.is_empty(), "no rewrites expected for unaffected players");
+    assert!(
+        results.is_empty(),
+        "no rewrites expected for unaffected players"
+    );
 }
 
 #[test]
@@ -419,10 +414,7 @@ fn broadcast_multiple_affected_players_each_get_own_rewrite() {
     let base = "The room shakes.";
     let mut filters = HashMap::new();
     filters.insert("player-1".to_string(), blinded_filter("Thorn"));
-    filters.insert(
-        "player-2".to_string(),
-        charmed_filter("Elara", "Siren"),
-    );
+    filters.insert("player-2".to_string(), charmed_filter("Elara", "Siren"));
 
     let results = rewriter.broadcast(base, &filters, "fantasy").unwrap();
 
@@ -468,10 +460,7 @@ fn broadcast_mixed_success_and_failure() {
     let base = "The ground trembles.";
     let mut filters = HashMap::new();
     filters.insert("player-1".to_string(), blinded_filter("Thorn"));
-    filters.insert(
-        "player-2".to_string(),
-        charmed_filter("Elara", "Lich"),
-    );
+    filters.insert("player-2".to_string(), charmed_filter("Elara", "Lich"));
 
     let results = rewriter.broadcast(base, &filters, "horror").unwrap();
 
@@ -539,10 +528,7 @@ fn perceptual_effect_is_non_exhaustive() {
 // pattern should exist for future validation.)
 #[test]
 fn perception_filter_constructor_returns_valid_filter() {
-    let filter = PerceptionFilter::new(
-        "Thorn".to_string(),
-        vec![PerceptualEffect::Blinded],
-    );
+    let filter = PerceptionFilter::new("Thorn".to_string(), vec![PerceptualEffect::Blinded]);
     assert_eq!(filter.character_name(), "Thorn");
     assert_eq!(filter.effects().len(), 1);
 }

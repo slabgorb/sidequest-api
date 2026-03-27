@@ -159,7 +159,10 @@ fn resolved_turn_has_narration_for_each_player() {
     let mut session = two_player_session();
     let _ = session.submit_action("player-1", "I search the room");
     let result = session.submit_action("player-2", "I guard the door");
-    let narration = result.narration.as_ref().expect("resolved turn should have narration");
+    let narration = result
+        .narration
+        .as_ref()
+        .expect("resolved turn should have narration");
     assert!(narration.contains_key("player-1"));
     assert!(narration.contains_key("player-2"));
 }
@@ -212,7 +215,10 @@ fn actions_are_keyed_by_player_id() {
     let mut session = two_player_session();
     session.submit_action("player-1", "I swing my sword");
     let actions = session.current_actions();
-    assert_eq!(actions.get("player-1").map(String::as_str), Some("I swing my sword"));
+    assert_eq!(
+        actions.get("player-1").map(String::as_str),
+        Some("I swing my sword")
+    );
     assert!(actions.get("player-2").is_none());
 }
 
@@ -291,17 +297,11 @@ fn player_removed_mid_turn_unblocks_barrier() {
 fn max_players_enforced() {
     let mut players = HashMap::new();
     for i in 0..MultiplayerSession::MAX_PLAYERS {
-        players.insert(
-            format!("player-{i}"),
-            make_character(&format!("Hero {i}")),
-        );
+        players.insert(format!("player-{i}"), make_character(&format!("Hero {i}")));
     }
     let mut session = MultiplayerSession::new(players);
     // One more should fail
-    let result = session.add_player(
-        "one-too-many".to_string(),
-        make_character("Overflow"),
-    );
+    let result = session.add_player("one-too-many".to_string(), make_character("Overflow"));
     assert!(result.is_err());
 }
 

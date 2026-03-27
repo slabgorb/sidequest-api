@@ -30,7 +30,8 @@ fn root_bonding() -> AbilityDefinition {
 fn fireball() -> AbilityDefinition {
     AbilityDefinition {
         name: "Fireball".to_string(),
-        genre_description: "You gather the heat of the world into your palm and hurl it screaming.".to_string(),
+        genre_description: "You gather the heat of the world into your palm and hurl it screaming."
+            .to_string(),
         mechanical_effect: "8d6 fire damage, 20ft radius, DEX save for half".to_string(),
         involuntary: false,
         source: AbilitySource::Class,
@@ -106,10 +107,7 @@ fn involuntary_ability_detected() {
 #[test]
 fn voluntary_ability_detected() {
     let ability = fireball();
-    assert!(
-        !ability.is_involuntary(),
-        "Fireball should be voluntary"
-    );
+    assert!(!ability.is_involuntary(), "Fireball should be voluntary");
 }
 
 // ===========================================================================
@@ -144,7 +142,8 @@ fn source_item() {
 fn source_play() {
     let ability = AbilityDefinition {
         name: "Street Wisdom".to_string(),
-        genre_description: "Years in the Undercity taught you to read a room before entering.".to_string(),
+        genre_description: "Years in the Undercity taught you to read a room before entering."
+            .to_string(),
         mechanical_effect: "+1 Perception in urban environments".to_string(),
         involuntary: false,
         source: AbilitySource::Play,
@@ -165,8 +164,8 @@ mechanical_effect: "+2 Nature, detect corruption 30ft"
 involuntary: true
 source: Race
 "#;
-    let ability: AbilityDefinition = serde_yaml::from_str(yaml)
-        .expect("should deserialize from YAML");
+    let ability: AbilityDefinition =
+        serde_yaml::from_str(yaml).expect("should deserialize from YAML");
     assert_eq!(ability.name, "Root-Bonding");
     assert!(ability.involuntary);
     assert_eq!(ability.source, AbilitySource::Race);
@@ -186,8 +185,8 @@ fn yaml_list_deserialization() {
   involuntary: false
   source: Class
 "#;
-    let abilities: Vec<AbilityDefinition> = serde_yaml::from_str(yaml)
-        .expect("should deserialize list from YAML");
+    let abilities: Vec<AbilityDefinition> =
+        serde_yaml::from_str(yaml).expect("should deserialize list from YAML");
     assert_eq!(abilities.len(), 2);
     assert_eq!(abilities[0].name, "Root-Bonding");
     assert_eq!(abilities[1].name, "Fireball");
@@ -201,8 +200,8 @@ fn yaml_list_deserialization() {
 fn json_round_trip() {
     let original = root_bonding();
     let json = serde_json::to_string(&original).expect("should serialize to JSON");
-    let restored: AbilityDefinition = serde_json::from_str(&json)
-        .expect("should deserialize from JSON");
+    let restored: AbilityDefinition =
+        serde_json::from_str(&json).expect("should deserialize from JSON");
     assert_eq!(restored.name, original.name);
     assert_eq!(restored.genre_description, original.genre_description);
     assert_eq!(restored.mechanical_effect, original.mechanical_effect);
@@ -215,9 +214,18 @@ fn json_contains_all_fields() {
     let ability = root_bonding();
     let json = serde_json::to_string(&ability).expect("should serialize");
     assert!(json.contains("name"), "JSON should contain name");
-    assert!(json.contains("genre_description"), "JSON should contain genre_description");
-    assert!(json.contains("mechanical_effect"), "JSON should contain mechanical_effect");
-    assert!(json.contains("involuntary"), "JSON should contain involuntary");
+    assert!(
+        json.contains("genre_description"),
+        "JSON should contain genre_description"
+    );
+    assert!(
+        json.contains("mechanical_effect"),
+        "JSON should contain mechanical_effect"
+    );
+    assert!(
+        json.contains("involuntary"),
+        "JSON should contain involuntary"
+    );
     assert!(json.contains("source"), "JSON should contain source");
 }
 
@@ -227,11 +235,11 @@ fn json_contains_all_fields() {
 
 #[test]
 fn character_has_abilities_field() {
-    use std::collections::HashMap;
     use sidequest_game::character::Character;
     use sidequest_game::creature_core::CreatureCore;
     use sidequest_game::inventory::Inventory;
     use sidequest_protocol::NonBlankString;
+    use std::collections::HashMap;
 
     let character = Character {
         core: CreatureCore {
@@ -274,7 +282,10 @@ fn empty_mechanical_effect() {
         source: AbilitySource::Play,
     };
     assert!(ability.mechanical_effect.is_empty());
-    assert!(!ability.display().is_empty(), "genre display should still work");
+    assert!(
+        !ability.display().is_empty(),
+        "genre display should still work"
+    );
 }
 
 #[test]

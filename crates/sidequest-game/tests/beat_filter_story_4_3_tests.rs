@@ -14,7 +14,7 @@
 use std::time::Duration;
 
 use sidequest_game::beat_filter::{
-    BeatFilter, BeatFilterConfig, FilterContext, FilterDecision, hash_subject,
+    hash_subject, BeatFilter, BeatFilterConfig, FilterContext, FilterDecision,
 };
 use sidequest_game::subject::{RenderSubject, SceneType, SubjectTier};
 
@@ -274,12 +274,12 @@ fn second_render_within_cooldown_suppressed() {
 fn burst_limit_suppresses_after_limit_reached() {
     // Use a config with 0 cooldown to isolate burst testing
     let config = BeatFilterConfig::new(
-        0.1,                       // low threshold so everything passes weight
-        Duration::from_secs(0),    // no cooldown
-        0.1,                       // low combat threshold
-        20,                        // max_history
-        3,                         // burst_limit
-        Duration::from_secs(60),   // burst_window
+        0.1,                     // low threshold so everything passes weight
+        Duration::from_secs(0),  // no cooldown
+        0.1,                     // low combat threshold
+        20,                      // max_history
+        3,                       // burst_limit
+        Duration::from_secs(60), // burst_window
     )
     .expect("valid config");
 
@@ -522,11 +522,19 @@ fn default_config_has_expected_values() {
     let config = BeatFilterConfig::default();
 
     assert_eq!(config.weight_threshold(), 0.4, "Default weight threshold");
-    assert_eq!(config.cooldown(), Duration::from_secs(15), "Default cooldown");
+    assert_eq!(
+        config.cooldown(),
+        Duration::from_secs(15),
+        "Default cooldown"
+    );
     assert_eq!(config.combat_threshold(), 0.25, "Default combat threshold");
     assert_eq!(config.max_history(), 20, "Default max history");
     assert_eq!(config.burst_limit(), 3, "Default burst limit");
-    assert_eq!(config.burst_window(), Duration::from_secs(60), "Default burst window");
+    assert_eq!(
+        config.burst_window(),
+        Duration::from_secs(60),
+        "Default burst window"
+    );
 }
 
 // ============================================================================
@@ -536,11 +544,11 @@ fn default_config_has_expected_values() {
 #[test]
 fn history_pruned_to_max_history() {
     let config = BeatFilterConfig::new(
-        0.1,                       // low threshold
-        Duration::from_secs(0),    // no cooldown
+        0.1,                    // low threshold
+        Duration::from_secs(0), // no cooldown
         0.1,
-        5,                         // max_history = 5
-        100,                       // high burst limit
+        5,   // max_history = 5
+        100, // high burst limit
         Duration::from_secs(60),
     )
     .expect("valid config");
@@ -566,7 +574,11 @@ fn history_grows_on_render_decision() {
     let mut filter = default_filter();
     let ctx = normal_context();
 
-    assert_eq!(filter.history_len(), 0, "Fresh filter should have empty history");
+    assert_eq!(
+        filter.history_len(),
+        0,
+        "Fresh filter should have empty history"
+    );
 
     let subject = high_weight_subject();
     let decision = filter.evaluate(&subject, &ctx);
@@ -678,10 +690,7 @@ fn config_rejects_zero_max_history() {
         3,
         Duration::from_secs(60),
     );
-    assert!(
-        result.is_none(),
-        "Zero max_history should be rejected"
-    );
+    assert!(result.is_none(), "Zero max_history should be rejected");
 }
 
 #[test]
@@ -694,10 +703,7 @@ fn config_rejects_zero_burst_limit() {
         0, // invalid: 0
         Duration::from_secs(60),
     );
-    assert!(
-        result.is_none(),
-        "Zero burst_limit should be rejected"
-    );
+    assert!(result.is_none(), "Zero burst_limit should be rejected");
 }
 
 #[test]
@@ -860,7 +866,11 @@ fn clear_history_resets_all_tracking() {
 
     // Clear history should reset everything
     filter.clear_history();
-    assert_eq!(filter.history_len(), 0, "History should be empty after clear");
+    assert_eq!(
+        filter.history_len(),
+        0,
+        "History should be empty after clear"
+    );
 
     // Should be able to render again
     let after_clear = filter.evaluate(&unique_subject(2), &ctx);

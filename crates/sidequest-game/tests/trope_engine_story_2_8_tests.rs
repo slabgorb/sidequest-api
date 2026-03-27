@@ -433,7 +433,11 @@ fn activate_trope_idempotent() {
     TropeEngine::activate(&mut tropes, "rising_threat");
     TropeEngine::activate(&mut tropes, "rising_threat");
 
-    assert_eq!(tropes.len(), 1, "Duplicate activation should not create second entry");
+    assert_eq!(
+        tropes.len(),
+        1,
+        "Duplicate activation should not create second entry"
+    );
 }
 
 // ============================================================================

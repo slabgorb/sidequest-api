@@ -11,12 +11,12 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use sidequest_game::barrier::AdaptiveTimeout;
 use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
 use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::multiplayer::MultiplayerSession;
-use sidequest_game::barrier::AdaptiveTimeout;
 use sidequest_protocol::NonBlankString;
 
 // ---------------------------------------------------------------------------
@@ -113,9 +113,8 @@ fn zero_players_uses_smallest_tier() {
 #[test]
 fn custom_two_tier() {
     // 1-2 players → 2s, 3+ → 10s
-    let adaptive = AdaptiveTimeout::with_tiers(vec![
-        (3, Duration::from_secs(10)),
-    ], Duration::from_secs(2));
+    let adaptive =
+        AdaptiveTimeout::with_tiers(vec![(3, Duration::from_secs(10))], Duration::from_secs(2));
     assert_eq!(adaptive.timeout_for(1), Duration::from_secs(2));
     assert_eq!(adaptive.timeout_for(2), Duration::from_secs(2));
     assert_eq!(adaptive.timeout_for(3), Duration::from_secs(10));
@@ -125,10 +124,10 @@ fn custom_two_tier() {
 #[test]
 fn custom_three_tier() {
     // 1-2 → 2s, 3-4 → 5s, 5+ → 8s
-    let adaptive = AdaptiveTimeout::with_tiers(vec![
-        (3, Duration::from_secs(5)),
-        (5, Duration::from_secs(8)),
-    ], Duration::from_secs(2));
+    let adaptive = AdaptiveTimeout::with_tiers(
+        vec![(3, Duration::from_secs(5)), (5, Duration::from_secs(8))],
+        Duration::from_secs(2),
+    );
     assert_eq!(adaptive.timeout_for(2), Duration::from_secs(2));
     assert_eq!(adaptive.timeout_for(3), Duration::from_secs(5));
     assert_eq!(adaptive.timeout_for(4), Duration::from_secs(5));
@@ -253,9 +252,7 @@ async fn adaptive_timeout_fires_at_3s_for_small_party() {
     let barrier = TurnBarrier::with_adaptive(session, adaptive);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     // Submit for player-0 only
     tokio::time::advance(Duration::from_millis(10)).await;
@@ -278,9 +275,7 @@ async fn adaptive_timeout_fires_at_5s_for_large_party() {
     let barrier = TurnBarrier::with_adaptive(session, adaptive);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     // Submit for player-0 only
     tokio::time::advance(Duration::from_millis(10)).await;
@@ -288,7 +283,10 @@ async fn adaptive_timeout_fires_at_5s_for_large_party() {
 
     // At 4s the 5s timeout shouldn't have fired yet
     tokio::time::advance(Duration::from_secs(4)).await;
-    assert!(!wait_handle.is_finished(), "5s timeout should not fire at 4s");
+    assert!(
+        !wait_handle.is_finished(),
+        "5s timeout should not fire at 4s"
+    );
 
     // At 6s it should have
     tokio::time::advance(Duration::from_secs(2)).await;

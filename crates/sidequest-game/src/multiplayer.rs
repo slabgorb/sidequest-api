@@ -262,10 +262,7 @@ impl MultiplayerSession {
 
     /// Remove a player without triggering auto-resolution.
     /// Used by `TurnBarrier` which manages resolution itself.
-    pub fn remove_player_no_resolve(
-        &mut self,
-        player_id: &str,
-    ) -> Result<usize, MultiplayerError> {
+    pub fn remove_player_no_resolve(&mut self, player_id: &str) -> Result<usize, MultiplayerError> {
         if self.players.remove(player_id).is_none() {
             return Err(MultiplayerError::PlayerNotFound(player_id.to_string()));
         }

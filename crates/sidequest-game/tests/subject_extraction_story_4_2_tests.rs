@@ -41,10 +41,7 @@ fn exploration_context() -> ExtractionContext {
 
 fn dialogue_context() -> ExtractionContext {
     ExtractionContext {
-        known_npcs: vec![
-            "Captain Voss".to_string(),
-            "Lira the Merchant".to_string(),
-        ],
+        known_npcs: vec!["Captain Voss".to_string(), "Lira the Merchant".to_string()],
         current_location: "The Docks".to_string(),
         in_combat: false,
         recent_subjects: vec![],
@@ -67,11 +64,16 @@ fn extract_identifies_known_npc_by_name() {
                      roaring with fury as the blade arcs through the air.";
 
     let result = extractor.extract(narration, &ctx);
-    assert!(result.is_some(), "Should extract a subject from combat narration with known NPC");
+    assert!(
+        result.is_some(),
+        "Should extract a subject from combat narration with known NPC"
+    );
 
     let subject = result.unwrap();
     assert!(
-        subject.entities().contains(&"Grak the Destroyer".to_string()),
+        subject
+            .entities()
+            .contains(&"Grak the Destroyer".to_string()),
         "Should identify 'Grak the Destroyer' from known_npcs. Got: {:?}",
         subject.entities()
     );
@@ -86,7 +88,9 @@ fn extract_identifies_multiple_known_npcs() {
 
     let result = extractor.extract(narration, &ctx).unwrap();
     assert!(
-        result.entities().contains(&"Grak the Destroyer".to_string()),
+        result
+            .entities()
+            .contains(&"Grak the Destroyer".to_string()),
         "Should find Grak. Got: {:?}",
         result.entities()
     );
@@ -530,7 +534,9 @@ fn recent_subjects_suppresses_duplicate_entities() {
         }
         Some(subject) => {
             assert!(
-                !subject.entities().contains(&"Grak the Destroyer".to_string()),
+                !subject
+                    .entities()
+                    .contains(&"Grak the Destroyer".to_string()),
                 "Grak was in recent_subjects — should be deduplicated from entities"
             );
         }

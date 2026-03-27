@@ -91,7 +91,9 @@ pub fn check_trope_alignment(
     for ctx in trope_contexts {
         let keywords = extract_keywords(ctx);
 
-        let matched = keywords.iter().any(|kw| narration_lower.contains(kw.as_str()));
+        let matched = keywords
+            .iter()
+            .any(|kw| narration_lower.contains(kw.as_str()));
 
         if matched {
             tracing::debug!(

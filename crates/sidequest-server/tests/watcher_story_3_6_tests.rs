@@ -89,7 +89,10 @@ fn watcher_event_serializes_to_json() {
     let json_str = serde_json::to_string(&event).expect("WatcherEvent must be Serialize");
     let parsed: Value = serde_json::from_str(&json_str).unwrap();
 
-    assert!(parsed["timestamp"].is_string(), "timestamp must be a string");
+    assert!(
+        parsed["timestamp"].is_string(),
+        "timestamp must be a string"
+    );
     assert_eq!(parsed["component"], "agent");
     assert!(
         parsed["event_type"].is_string(),
@@ -270,10 +273,7 @@ async fn watcher_endpoint_rejects_non_upgrade_request() {
 
     // Route must exist (not 404), but reject non-upgrade (likely 400 or 405)
     let status = response.status().as_u16();
-    assert_ne!(
-        status, 404,
-        "/ws/watcher route must exist, got 404"
-    );
+    assert_ne!(status, 404, "/ws/watcher route must exist, got 404");
     assert!(
         status >= 400 && status < 500,
         "/ws/watcher should reject non-upgrade with 4xx, got {}",
@@ -290,12 +290,7 @@ async fn game_and_watcher_routes_coexist() {
     // Both routes should exist — neither should 404
     let resp_ws = app
         .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/ws")
-                .body(Body::empty())
-                .unwrap(),
-        )
+        .oneshot(Request::builder().uri("/ws").body(Body::empty()).unwrap())
         .await
         .unwrap();
 
@@ -309,11 +304,7 @@ async fn game_and_watcher_routes_coexist() {
         .await
         .unwrap();
 
-    assert_ne!(
-        resp_ws.status().as_u16(),
-        404,
-        "/ws route must exist"
-    );
+    assert_ne!(resp_ws.status().as_u16(), 404, "/ws route must exist");
     assert_ne!(
         resp_watcher.status().as_u16(),
         404,
@@ -339,9 +330,10 @@ async fn watcher_client_receives_broadcast_events() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let _server = tokio::spawn(async move {
-        create_server_with_listener(state, listener, shutdown_rx).await
-    });
+    let _server =
+        tokio::spawn(
+            async move { create_server_with_listener(state, listener, shutdown_rx).await },
+        );
 
     // Connect to the watcher endpoint (not /ws)
     let url = format!("ws://127.0.0.1:{}/ws/watcher", addr.port());
@@ -364,8 +356,8 @@ async fn watcher_client_receives_broadcast_events() {
         .expect("Message should not be an error");
 
     if let tokio_tungstenite::tungstenite::Message::Text(text) = msg {
-        let parsed: Value = serde_json::from_str(&text)
-            .expect("Watcher message must be valid JSON");
+        let parsed: Value =
+            serde_json::from_str(&text).expect("Watcher message must be valid JSON");
         assert_eq!(parsed["component"], "agent");
         assert_eq!(parsed["event_type"], "agent_span_open");
         assert!(parsed["timestamp"].is_string());
@@ -392,9 +384,10 @@ async fn multiple_watcher_clients_receive_same_event() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let _server = tokio::spawn(async move {
-        create_server_with_listener(state, listener, shutdown_rx).await
-    });
+    let _server =
+        tokio::spawn(
+            async move { create_server_with_listener(state, listener, shutdown_rx).await },
+        );
 
     let url = format!("ws://127.0.0.1:{}/ws/watcher", addr.port());
 
@@ -457,16 +450,21 @@ async fn watcher_disconnect_does_not_affect_game_ws() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let _server = tokio::spawn(async move {
-        create_server_with_listener(state, listener, shutdown_rx).await
-    });
+    let _server =
+        tokio::spawn(
+            async move { create_server_with_listener(state, listener, shutdown_rx).await },
+        );
 
     let game_url = format!("ws://127.0.0.1:{}/ws", addr.port());
     let watcher_url = format!("ws://127.0.0.1:{}/ws/watcher", addr.port());
 
     // Connect a game client and a watcher client
-    let (mut game_ws, _) = connect_async(&game_url).await.expect("Game client should connect");
-    let (watcher_ws, _) = connect_async(&watcher_url).await.expect("Watcher should connect");
+    let (mut game_ws, _) = connect_async(&game_url)
+        .await
+        .expect("Game client should connect");
+    let (watcher_ws, _) = connect_async(&watcher_url)
+        .await
+        .expect("Watcher should connect");
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
@@ -511,9 +509,10 @@ async fn watcher_events_do_not_leak_to_game_clients() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let _server = tokio::spawn(async move {
-        create_server_with_listener(state, listener, shutdown_rx).await
-    });
+    let _server =
+        tokio::spawn(
+            async move { create_server_with_listener(state, listener, shutdown_rx).await },
+        );
 
     let game_url = format!("ws://127.0.0.1:{}/ws", addr.port());
     let watcher_url = format!("ws://127.0.0.1:{}/ws/watcher", addr.port());

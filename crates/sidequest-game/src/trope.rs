@@ -96,10 +96,7 @@ pub struct TropeEngine;
 
 impl TropeEngine {
     /// Advance all active tropes by their passive rate, then check for fired beats.
-    pub fn tick(
-        tropes: &mut [TropeState],
-        trope_defs: &[TropeDefinition],
-    ) -> Vec<FiredBeat> {
+    pub fn tick(tropes: &mut [TropeState], trope_defs: &[TropeDefinition]) -> Vec<FiredBeat> {
         let def_map: HashMap<&str, &TropeDefinition> = trope_defs
             .iter()
             .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
@@ -189,7 +186,10 @@ impl TropeEngine {
 
     /// Activate a trope. Idempotent — returns existing if already active.
     pub fn activate<'a>(tropes: &'a mut Vec<TropeState>, def_id: &str) -> &'a TropeState {
-        if let Some(idx) = tropes.iter().position(|ts| ts.trope_definition_id == def_id) {
+        if let Some(idx) = tropes
+            .iter()
+            .position(|ts| ts.trope_definition_id == def_id)
+        {
             return &tropes[idx];
         }
         tropes.push(TropeState::new(def_id));

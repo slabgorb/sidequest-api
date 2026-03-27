@@ -59,7 +59,8 @@ impl Npc {
     /// are locked after first set — subsequent patches cannot overwrite them.
     pub fn merge_patch(&mut self, patch: &NpcPatch) {
         if let Some(ref desc) = patch.description {
-            self.core.description = NonBlankString::new(desc).unwrap_or_else(|_| self.core.description.clone());
+            self.core.description =
+                NonBlankString::new(desc).unwrap_or_else(|_| self.core.description.clone());
         }
         if let Some(ref loc) = patch.location {
             self.location = NonBlankString::new(loc).ok();

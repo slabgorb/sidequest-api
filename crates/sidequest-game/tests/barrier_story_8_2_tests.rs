@@ -12,11 +12,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
 use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::multiplayer::MultiplayerSession;
-use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
 use sidequest_protocol::NonBlankString;
 
 // ---------------------------------------------------------------------------
@@ -131,9 +131,7 @@ async fn submit_during_wait_resolves_immediately() {
 
     // Clone barrier handle for the spawned task (Arc internally)
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     // Give the wait task a moment to start
     tokio::time::advance(Duration::from_millis(10)).await;
@@ -159,9 +157,7 @@ async fn last_submit_wakes_waiter_without_sleeping_full_timeout() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
 
@@ -190,9 +186,7 @@ async fn timeout_auto_resolves_with_partial_submissions() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
 
@@ -218,9 +212,7 @@ async fn timeout_with_no_submissions() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     // Nobody submits — advance past timeout
     tokio::time::advance(Duration::from_secs(6)).await;
@@ -241,9 +233,7 @@ async fn timeout_advances_turn_number() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
     barrier.submit_action("player-1", "attack");
@@ -266,9 +256,7 @@ async fn result_identifies_multiple_missing_players() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
     barrier.submit_action("player-1", "attack");
@@ -292,9 +280,7 @@ async fn result_narration_includes_all_players_even_timed_out() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
     barrier.submit_action("player-1", "I search the room");
@@ -356,9 +342,7 @@ async fn disabled_timeout_waits_indefinitely_for_all_submissions() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
     barrier.submit_action("player-1", "attack");
@@ -393,9 +377,7 @@ async fn submit_just_before_timeout_prefers_action() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
     barrier.submit_action("player-1", "attack");
@@ -446,9 +428,7 @@ async fn player_removed_during_wait_resolves_immediately() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
 
@@ -475,9 +455,7 @@ async fn player_added_during_wait_extends_barrier() {
     let barrier = TurnBarrier::new(session, config);
 
     let b = barrier.clone();
-    let wait_handle = tokio::spawn(async move {
-        b.wait_for_turn().await
-    });
+    let wait_handle = tokio::spawn(async move { b.wait_for_turn().await });
 
     tokio::time::advance(Duration::from_millis(10)).await;
 
@@ -486,7 +464,9 @@ async fn player_added_during_wait_extends_barrier() {
     barrier.submit_action("player-2", "defend");
 
     // New player joins before turn resolves
-    barrier.add_player("player-3".to_string(), make_character("Rook")).unwrap();
+    barrier
+        .add_player("player-3".to_string(), make_character("Rook"))
+        .unwrap();
 
     // Should NOT have resolved — player-3 hasn't submitted
     tokio::time::advance(Duration::from_millis(10)).await;
