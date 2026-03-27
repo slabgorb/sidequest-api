@@ -4,6 +4,8 @@
 //! catch-up summary. The generator uses a pluggable strategy (trait object) for
 //! the actual LLM call, allowing test doubles.
 
+use crate::combatant::Combatant;
+
 /// A lightweight per-turn summary maintained by the session.
 ///
 /// One line per turn, updated as turns resolve. Avoids sending full narration
@@ -17,17 +19,20 @@ pub struct TurnSummary {
 impl TurnSummary {
     /// Create a new turn summary.
     pub fn new(turn_number: u32, summary: String) -> Self {
-        todo!()
+        Self {
+            turn_number,
+            summary,
+        }
     }
 
     /// The turn number.
     pub fn turn_number(&self) -> u32 {
-        todo!()
+        self.turn_number
     }
 
     /// The summary text.
     pub fn summary(&self) -> &str {
-        todo!()
+        &self.summary
     }
 }
 
@@ -62,32 +67,41 @@ pub struct CatchUpResult {
 impl CatchUpResult {
     /// Create a result from successful generation.
     pub fn generated(narration: String) -> Self {
-        todo!()
+        Self {
+            narration,
+            is_fallback: false,
+            target_player_id: None,
+        }
     }
 
     /// Create a fallback result (used when generation fails).
     pub fn fallback(narration: String) -> Self {
-        todo!()
+        Self {
+            narration,
+            is_fallback: true,
+            target_player_id: None,
+        }
     }
 
     /// The narration text.
     pub fn narration(&self) -> &str {
-        todo!()
+        &self.narration
     }
 
     /// Whether this result is a fallback (not LLM-generated).
     pub fn is_fallback(&self) -> bool {
-        todo!()
+        self.is_fallback
     }
 
     /// Set the target player ID for targeted delivery.
-    pub fn for_player(self, player_id: String) -> Self {
-        todo!()
+    pub fn for_player(mut self, player_id: String) -> Self {
+        self.target_player_id = Some(player_id);
+        self
     }
 
     /// The target player ID, if set.
     pub fn target_player_id(&self) -> Option<&str> {
-        todo!()
+        self.target_player_id.as_deref()
     }
 }
 
@@ -102,7 +116,7 @@ pub struct CatchUpGenerator {
 impl CatchUpGenerator {
     /// Create a new generator with the given strategy.
     pub fn new(strategy: Box<dyn GenerationStrategy>) -> Self {
-        todo!()
+        Self { strategy }
     }
 
     /// Generate catch-up narration for a joining player.
@@ -116,7 +130,9 @@ impl CatchUpGenerator {
         location: &str,
         genre_voice: &str,
     ) -> Result<CatchUpResult, CatchUpError> {
-        todo!()
+        let prompt = Self::build_prompt(character, recent_turns, location, genre_voice);
+        let narration = self.strategy.generate(&prompt)?;
+        Ok(CatchUpResult::generated(narration))
     }
 
     /// Generate catch-up with automatic fallback on failure.
@@ -130,15 +146,28 @@ impl CatchUpGenerator {
         location: &str,
         genre_voice: &str,
     ) -> Result<CatchUpResult, CatchUpError> {
-        todo!()
+        match self.generate_catch_up(character, recent_turns, location, genre_voice) {
+            Ok(result) => Ok(result),
+            Err(_) => {
+                let fallback = format!("You are {} at {}.", character.name(), location);
+                Ok(CatchUpResult::fallback(fallback))
+            }
+        }
     }
 
     /// Format recent turn summaries for the prompt.
     ///
-    /// Takes the last 5 turns (most recent first) and formats them
-    /// as a bulleted list.
+    /// Takes the last 5 turns and formats them as a bulleted list.
     pub fn format_recent(turns: &[TurnSummary]) -> String {
-        todo!()
+        if turns.is_empty() {
+            return String::new();
+        }
+        let start = turns.len().saturating_sub(5);
+        turns[start..]
+            .iter()
+            .map(|t| format!("- {}", t.summary()))
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Build the prompt string for catch-up generation.
@@ -150,11 +179,23 @@ impl CatchUpGenerator {
         location: &str,
         genre_voice: &str,
     ) -> String {
-        todo!()
+        let events = Self::format_recent(recent_turns);
+        format!(
+            "Write a brief arrival summary for {} joining a game in progress.\n\
+             Genre: {}\n\
+             Location: {}\n\
+             Recent events:\n{}\n\n\
+             2-3 sentences, in genre voice. What does {} see and know?",
+            character.name(),
+            genre_voice,
+            location,
+            events,
+            character.name(),
+        )
     }
 
     /// Generate a brief join notification for existing players.
     pub fn join_notification(character_name: &str) -> String {
-        todo!()
+        format!("{} has joined the session.", character_name)
     }
 }
