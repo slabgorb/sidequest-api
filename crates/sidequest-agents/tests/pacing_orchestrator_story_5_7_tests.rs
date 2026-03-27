@@ -10,6 +10,7 @@
 //! ACs tested: AC1 (turn pipeline threading), AC2 (narrator prompt),
 //!             AC4 (no breaking changes), AC5 (delivery_mode in result)
 
+use sidequest_agents::agents::intent_router::ClassificationSource;
 use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
 use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, PacingHint, TensionTracker};
 
@@ -27,6 +28,7 @@ fn turn_result_has_existing_fields() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant, // NEW field
+        classification_source: ClassificationSource::KeywordFallback,
     };
     assert_eq!(result.narration, "The goblin dodges.");
     assert!(result.state_delta.is_none());
@@ -48,6 +50,7 @@ fn turn_result_carries_delivery_mode() {
         is_degraded: false,
         agent_used: AgentKind::CreatureSmith,
         delivery_mode: DeliveryMode::Streaming,
+        classification_source: ClassificationSource::KeywordFallback,
     };
     assert_eq!(
         result.delivery_mode,
@@ -65,6 +68,7 @@ fn turn_result_defaults_to_instant_when_no_combat() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
+        classification_source: ClassificationSource::KeywordFallback,
     };
     assert_eq!(
         result.delivery_mode,
