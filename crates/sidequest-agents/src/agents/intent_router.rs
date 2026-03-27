@@ -74,19 +74,23 @@ pub struct IntentRoute {
 }
 
 impl IntentRoute {
-    /// Create a route for a given intent (keyword fallback path).
-    /// Confidence is 1.0 for direct matches, used by existing callers.
-    pub fn for_intent(intent: Intent) -> Self {
-        let agent_name = match intent {
+    /// Map an intent to its specialist agent name.
+    fn agent_for(intent: Intent) -> &'static str {
+        match intent {
             Intent::Combat => "creature_smith",
             Intent::Dialogue => "ensemble",
             Intent::Exploration => "narrator",
             Intent::Examine => "narrator",
             Intent::Meta => "narrator",
             Intent::Chase => "dialectician",
-        };
+        }
+    }
+
+    /// Create a route for a given intent (keyword fallback path).
+    /// Confidence is 1.0 for direct matches, used by existing callers.
+    pub fn for_intent(intent: Intent) -> Self {
         Self {
-            agent_name: agent_name.to_string(),
+            agent_name: Self::agent_for(intent).to_string(),
             intent,
             confidence: 1.0,
             candidates: vec![],
@@ -105,37 +109,6 @@ impl IntentRoute {
         }
     }
 
-    /// Create a route with full classification data (ADR-032).
-    ///
-    /// Panics if confidence is outside 0.0..=1.0. Use `try_with_classification`
-    /// at trust boundaries.
-    pub fn with_classification(
-        intent: Intent,
-        confidence: f64,
-        candidates: Vec<Intent>,
-        source: ClassificationSource,
-    ) -> Self {
-        assert!(
-            (0.0..=1.0).contains(&confidence),
-            "confidence must be 0.0..=1.0, got {confidence}"
-        );
-        let agent_name = match intent {
-            Intent::Combat => "creature_smith",
-            Intent::Dialogue => "ensemble",
-            Intent::Exploration => "narrator",
-            Intent::Examine => "narrator",
-            Intent::Meta => "narrator",
-            Intent::Chase => "dialectician",
-        };
-        Self {
-            agent_name: agent_name.to_string(),
-            intent,
-            confidence,
-            candidates,
-            source,
-        }
-    }
-
     /// Validated constructor — returns Err if confidence is outside 0.0..=1.0.
     pub fn try_with_classification(
         intent: Intent,
@@ -148,7 +121,27 @@ impl IntentRoute {
                 "confidence must be 0.0..=1.0, got {confidence}"
             ));
         }
-        Ok(Self::with_classification(intent, confidence, candidates, source))
+        Ok(Self {
+            agent_name: Self::agent_for(intent).to_string(),
+            intent,
+            confidence,
+            candidates,
+            source,
+        })
+    }
+
+    /// Create a route with full classification data (ADR-032).
+    ///
+    /// Panics if confidence is outside 0.0..=1.0. Use `try_with_classification`
+    /// at trust boundaries.
+    pub fn with_classification(
+        intent: Intent,
+        confidence: f64,
+        candidates: Vec<Intent>,
+        source: ClassificationSource,
+    ) -> Self {
+        Self::try_with_classification(intent, confidence, candidates, source)
+            .expect("confidence must be 0.0..=1.0")
     }
 
     /// The agent name this route points to.
