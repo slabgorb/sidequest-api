@@ -2568,11 +2568,13 @@ async fn dispatch_player_action(
                         }
                         sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
                             // Build binary voice frame: [4-byte header len][JSON header][audio bytes]
+                            // The daemon always returns raw PCM s16le — use that format string
+                            // so the UI routes to playVoicePCM instead of decodeAudioData.
                             let header = serde_json::json!({
                                 "type": "VOICE_AUDIO",
                                 "segment_id": format!("seg_{}", chunk.segment_index),
                                 "sample_rate": 24000,
-                                "format": format!("{:?}", chunk.format).to_lowercase()
+                                "format": "pcm_s16le"
                             });
                             let header_bytes = serde_json::to_vec(&header).unwrap_or_default();
                             let audio_bytes = &chunk.audio_raw;
