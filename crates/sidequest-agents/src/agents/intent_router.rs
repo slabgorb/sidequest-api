@@ -232,9 +232,31 @@ impl HaikuClassifier {
         )
     }
 
+    /// Strip markdown code fences that LLMs sometimes wrap around JSON.
+    ///
+    /// Handles ```json\n{...}\n``` and ```\n{...}\n``` variants.
+    fn strip_code_fences(raw: &str) -> String {
+        let trimmed = raw.trim();
+        if trimmed.starts_with("```") {
+            // Remove opening fence (```json or ```)
+            let after_open = if let Some(pos) = trimmed.find('\n') {
+                &trimmed[pos + 1..]
+            } else {
+                return trimmed.to_string();
+            };
+            // Remove closing fence
+            let content = after_open.trim_end();
+            let content = content.strip_suffix("```").unwrap_or(content);
+            content.trim().to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     /// Parse the JSON response from Haiku into an IntentRoute.
     fn parse_response(raw: &str) -> Option<IntentRoute> {
-        let value: serde_json::Value = serde_json::from_str(raw.trim()).ok()?;
+        let cleaned = Self::strip_code_fences(raw);
+        let value: serde_json::Value = serde_json::from_str(&cleaned).ok()?;
 
         let intent_str = value.get("intent")?.as_str()?;
         let intent = match intent_str {
