@@ -34,6 +34,7 @@ pub mod subject;
 pub mod trope;
 pub mod turn;
 pub mod turn_mode;
+pub mod turn_reminder;
 
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
