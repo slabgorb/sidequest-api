@@ -943,6 +943,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut world_context: String = String::new();
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
+    let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>> =
@@ -975,6 +976,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut music_director,
                         &audio_mixer,
                         &prerender_scheduler,
+                        &mut npc_registry,
                         &state,
                         &player_id_str,
                     )
@@ -1033,6 +1035,7 @@ async fn dispatch_message(
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    npc_registry: &mut Vec<NpcRegistryEntry>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1081,6 +1084,7 @@ async fn dispatch_message(
                 trope_defs,
                 world_context,
                 visual_style,
+                npc_registry,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1112,6 +1116,7 @@ async fn dispatch_message(
                 trope_defs,
                 world_context,
                 visual_style,
+                npc_registry,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1494,6 +1499,7 @@ async fn dispatch_character_creation(
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
+    npc_registry: &mut Vec<NpcRegistryEntry>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1652,6 +1658,7 @@ async fn dispatch_character_creation(
                         trope_defs,
                         world_context,
                         visual_style,
+                        npc_registry,
                         music_director,
                         audio_mixer,
                         prerender_scheduler,
@@ -1715,6 +1722,7 @@ async fn dispatch_player_action(
     trope_defs: &[sidequest_genre::TropeDefinition],
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
+    npc_registry: &mut Vec<NpcRegistryEntry>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1901,6 +1909,12 @@ async fn dispatch_player_action(
         state_summary.push_str(&trope_context);
     }
 
+    // Inject NPC registry so the narrator maintains identity consistency
+    let npc_context = build_npc_registry_context(npc_registry);
+    if !npc_context.is_empty() {
+        state_summary.push_str(&npc_context);
+    }
+
     // Process the action through GameService
     let context = TurnContext {
         state_summary: Some(state_summary),
@@ -1973,6 +1987,13 @@ async fn dispatch_player_action(
 
     // Strip the location header from narration text if present
     let clean_narration = strip_location_header(narration_text);
+
+    // Update NPC registry from narration — tracks names, pronouns, locations
+    // so subsequent turns maintain NPC identity consistency.
+    // Use trope_states len as a rough turn counter.
+    let turn_approx = trope_states.len() as u32 + 1;
+    update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx);
+    tracing::debug!(npc_count = npc_registry.len(), "NPC registry updated from narration");
 
     // Bug 4: Combat HP changes — scan narration for damage/healing indicators
     {
@@ -2724,6 +2745,104 @@ fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
     }
 
     items
+}
+
+/// Lightweight NPC registry entry — tracks name, pronouns, role, and location
+/// so the narrator prompt can maintain identity consistency across turns.
+#[derive(Debug, Clone)]
+struct NpcRegistryEntry {
+    name: String,
+    pronouns: String,
+    role: String,
+    location: String,
+    last_seen_turn: u32,
+}
+
+/// Extract NPC names from narration text and update the registry.
+/// Looks for patterns like dialogue attribution ("Name says", "Name asks")
+/// and introduction patterns ("a woman named Name", "Name, the blacksmith").
+fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, current_location: &str, turn_count: u32) {
+    // Dialogue attribution: "Name says/asks/replies/shouts/whispers/mutters"
+    let speech_verbs = ["says", "asks", "replies", "shouts", "whispers", "mutters", "growls", "calls", "declares", "speaks"];
+    let text_lower = narration.to_lowercase();
+
+    for verb in &speech_verbs {
+        let pattern = format!(" {}", verb);
+        let mut search_from = 0;
+        while let Some(pos) = text_lower[search_from..].find(&pattern) {
+            let abs_pos = search_from + pos;
+            // Walk backward to find the start of the name (capital letter after punctuation/newline/start)
+            let before = &narration[..abs_pos];
+            // Find the last sentence boundary before this verb
+            let name_start = before.rfind(|c: char| matches!(c, '.' | '!' | '?' | '\n' | '"' | '\u{201c}'))
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            let candidate = before[name_start..].trim();
+            // A valid NPC name: starts with uppercase, 2-40 chars, no lowercase-only words that look like common text
+            if candidate.len() >= 2 && candidate.len() <= 40 && candidate.chars().next().map_or(false, |c| c.is_uppercase()) {
+                let name = candidate.to_string();
+                // Skip if it's the player character reference
+                if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" {
+                    // Update existing or add new
+                    if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
+                        entry.last_seen_turn = turn_count;
+                        if !current_location.is_empty() {
+                            entry.location = current_location.to_string();
+                        }
+                    } else {
+                        registry.push(NpcRegistryEntry {
+                            name,
+                            pronouns: String::new(),
+                            role: String::new(),
+                            location: current_location.to_string(),
+                            last_seen_turn: turn_count,
+                        });
+                    }
+                }
+            }
+            search_from = abs_pos + 1;
+        }
+    }
+
+    // Infer pronouns from narration context
+    for entry in registry.iter_mut() {
+        if !entry.pronouns.is_empty() { continue; }
+        let name_lower = entry.name.to_lowercase();
+        // Check narration for pronoun references near the name
+        if let Some(name_pos) = text_lower.find(&name_lower) {
+            let after = &text_lower[name_pos..];
+            let window = &after[..after.len().min(200)];
+            if window.contains(" she ") || window.contains(" her ") || window.contains(" hers ") {
+                entry.pronouns = "she/her".to_string();
+            } else if window.contains(" he ") || window.contains(" his ") || window.contains(" him ") {
+                entry.pronouns = "he/him".to_string();
+            } else if window.contains(" they ") || window.contains(" their ") || window.contains(" them ") {
+                entry.pronouns = "they/them".to_string();
+            }
+        }
+    }
+}
+
+/// Build the NPC registry context string for the narrator prompt.
+fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> String {
+    if registry.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec!["\nACTIVE NPCs — you MUST use these exact names, pronouns, and roles. Do NOT rename, change gender, or alter these characters:".to_string()];
+    for entry in registry {
+        let mut desc = format!("- {}", entry.name);
+        if !entry.pronouns.is_empty() {
+            desc.push_str(&format!(" ({})", entry.pronouns));
+        }
+        if !entry.role.is_empty() {
+            desc.push_str(&format!(", {}", entry.role));
+        }
+        if !entry.location.is_empty() {
+            desc.push_str(&format!(" — at {}", entry.location));
+        }
+        lines.push(desc);
+    }
+    lines.join("\n")
 }
 
 /// Convert a game-internal AudioCue to a protocol GameMessage for WebSocket broadcast.
