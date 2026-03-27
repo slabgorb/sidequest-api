@@ -4,6 +4,8 @@
 //! computation, threshold math, per-player targeting, suppression after
 //! submission, and edge cases.
 
+#![allow(deprecated)] // Tests exercise the deprecated ReminderConfig::new() API
+
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -38,6 +40,7 @@ fn make_character(name: &str) -> Character {
         race: NonBlankString::new("Human").unwrap(),
         stats: HashMap::new(),
         abilities: vec![],
+        is_friendly: true,
     }
 }
 
@@ -78,14 +81,6 @@ fn custom_config_stores_threshold_and_message() {
     let config = ReminderConfig::new(0.75, "Hurry up, adventurer!".to_string());
     assert!((config.threshold() - 0.75).abs() < f64::EPSILON);
     assert_eq!(config.message(), "Hurry up, adventurer!");
-}
-
-#[test]
-fn config_fields_are_private() {
-    // Compile-time check: fields accessed through getters only
-    let config = ReminderConfig::default();
-    let _t: f64 = config.threshold();
-    let _m: &str = config.message();
 }
 
 // ===========================================================================

@@ -13,6 +13,43 @@ mod tests;
 pub use soul::{parse_soul_md, SoulData, SoulPrinciple};
 pub use types::{AttentionZone, PromptSection, RuleTier, SectionCategory};
 
+use sidequest_game::scene_directive::SceneDirective;
+
+/// Render a `SceneDirective` into its prompt text representation.
+///
+/// Returns `None` if the directive has no mandatory elements (empty suppression).
+/// The rendered block uses `[SCENE DIRECTIVES — MANDATORY]` header with MUST-weave
+/// language and numbered elements labeled by source (Story 6-2).
+pub fn render_scene_directive(directive: &SceneDirective) -> Option<String> {
+    if directive.mandatory_elements.is_empty() {
+        return None;
+    }
+
+    let mut block = String::from(
+        "[SCENE DIRECTIVES — MANDATORY]\n\
+         You MUST weave at least one of the following into your response.\n\
+         These are not suggestions — they are active story elements.\n\n",
+    );
+
+    for (i, elem) in directive.mandatory_elements.iter().enumerate() {
+        block.push_str(&format!(
+            "{}. [{}] {}\n",
+            i + 1,
+            elem.source.label(),
+            elem.content
+        ));
+    }
+
+    if !directive.narrative_hints.is_empty() {
+        block.push_str("\nNarrative hints (weave if natural):\n");
+        for hint in &directive.narrative_hints {
+            block.push_str(&format!("- {}\n", hint));
+        }
+    }
+
+    Some(block)
+}
+
 /// Concrete implementation of PromptComposer — stores sections per agent, composes in zone order.
 pub struct PromptRegistry {
     sections: std::collections::HashMap<String, Vec<PromptSection>>,
@@ -30,6 +67,58 @@ impl PromptRegistry {
 impl Default for PromptRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Agents that receive pacing guidance in their prompts.
+const PACING_AGENTS: &[&str] = &["narrator", "creature_smith"];
+
+impl PromptRegistry {
+    /// Inject pacing guidance into the prompt for narrating agents.
+    /// Non-narrating agents (ensemble, dialectician, etc.) are silently skipped.
+    pub fn register_pacing_section(
+        &mut self,
+        agent_name: &str,
+        hint: &sidequest_game::tension_tracker::PacingHint,
+    ) {
+        if !PACING_AGENTS.contains(&agent_name) {
+            return;
+        }
+
+        let mut content = format!("## Pacing Guidance\n{}", hint.narrator_directive());
+        if let Some(ref beat) = hint.escalation_beat {
+            content.push_str(&format!("\n\n## Escalation Beat\n{}", beat));
+        }
+
+        self.register_section(
+            agent_name,
+            PromptSection::new("pacing", content, AttentionZone::Late, SectionCategory::Context),
+        );
+    }
+
+    /// Inject a scene directive into the narrator prompt with narrative primacy.
+    ///
+    /// The directive is placed in the `Early` attention zone — after agent identity
+    /// but before game state — ensuring the narrator sees it with high attention.
+    /// Empty directives are suppressed (no section registered).
+    ///
+    /// Story 6-2: Parallel to `register_pacing_section()`.
+    pub fn register_scene_directive(
+        &mut self,
+        agent_name: &str,
+        directive: &SceneDirective,
+    ) {
+        if let Some(content) = render_scene_directive(directive) {
+            self.register_section(
+                agent_name,
+                PromptSection::new(
+                    "scene_directive",
+                    content,
+                    AttentionZone::Early,
+                    SectionCategory::Context,
+                ),
+            );
+        }
     }
 }
 

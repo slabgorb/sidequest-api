@@ -57,6 +57,9 @@ fn mock_game_snapshot() -> GameSnapshot {
         discovered_routes: vec![],
         turn_manager: TurnManager::new(),
         last_saved_at: None,
+        active_stakes: String::new(),
+        lore_established: vec![],
+        turns_since_meaningful: 0,
     }
 }
 
@@ -75,6 +78,8 @@ fn mock_state_delta() -> StateDelta {
         "atmosphere": false,
         "regions": false,
         "routes": false,
+        "active_stakes": false,
+        "lore": false,
         "new_location": null
     }))
     .expect("mock StateDelta should deserialize")
@@ -96,6 +101,8 @@ fn make_npc(name: &str) -> Npc {
         },
         voice_id: None,
         disposition: Disposition::new(0),
+        pronouns: None,
+        appearance: None,
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
     }
 }
@@ -137,6 +144,8 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
         char_class: NonBlankString::new("Fighter").unwrap(),
         race: NonBlankString::new("Human").unwrap(),
         stats: HashMap::new(),
+        abilities: vec![],
+        is_friendly: true,
     }
 }
 

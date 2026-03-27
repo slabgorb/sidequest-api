@@ -78,6 +78,7 @@ fn test_snapshot() -> GameSnapshot {
                 ("CHA".to_string(), 15),
             ]),
             abilities: vec![],
+            is_friendly: true,
         }],
         npcs: vec![],
         location: "Town Square".to_string(),
@@ -96,6 +97,7 @@ fn test_snapshot() -> GameSnapshot {
         last_saved_at: None,
         active_stakes: String::new(),
         lore_established: vec![],
+        turns_since_meaningful: 0,
     }
 }
 

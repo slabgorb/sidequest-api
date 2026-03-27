@@ -43,6 +43,14 @@ pub struct Character {
     /// Genre-voiced ability definitions with mechanical effects.
     #[serde(default)]
     pub abilities: Vec<AbilityDefinition>,
+
+    /// Whether this is a player-controlled (friendly) character.
+    #[serde(default = "default_friendly")]
+    pub is_friendly: bool,
+}
+
+fn default_friendly() -> bool {
+    true
 }
 
 impl Character {
@@ -103,6 +111,7 @@ mod tests {
                 ("CHA".to_string(), 6),
             ]),
             abilities: vec![],
+            is_friendly: true,
         }
     }
 

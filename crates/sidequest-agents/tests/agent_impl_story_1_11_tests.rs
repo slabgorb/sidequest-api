@@ -12,7 +12,7 @@ use sidequest_agents::extractor::JsonExtractor;
 use sidequest_agents::agents::creature_smith::CreatureSmithAgent;
 use sidequest_agents::agents::dialectician::DialecticianAgent;
 use sidequest_agents::agents::ensemble::EnsembleAgent;
-use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::intent_router::{ClassificationSource, Intent, IntentRoute, IntentRouter};
 use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::agents::resonator::ResonatorAgent;
 use sidequest_agents::agents::troper::TroperAgent;
@@ -165,6 +165,7 @@ mod agent_types_tests {
             state_delta: None,
             combat_events: vec![],
             is_degraded: false,
+            classification_source: ClassificationSource::KeywordFallback,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -331,6 +332,7 @@ mod game_service_tests {
             state_delta: None,
             combat_events: vec![],
             is_degraded: false,
+            classification_source: ClassificationSource::KeywordFallback,
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -361,6 +363,7 @@ mod error_handling_tests {
             state_delta: None,
             combat_events: vec![],
             is_degraded: true,
+            classification_source: ClassificationSource::KeywordFallback,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

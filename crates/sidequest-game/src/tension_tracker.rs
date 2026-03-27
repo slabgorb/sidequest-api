@@ -14,8 +14,74 @@
 //!
 //! Story 5-2: Combat event classification — categorize combat outcomes as
 //! boring/dramatic, track boring_streak.
+//!
+//! Story 5-7: Pacing hints — PacingHint, DeliveryMode, DramaThresholds,
+//! and TensionTracker::pacing_hint() for narrator prompt injection.
 
 use crate::combat::RoundResult;
+
+/// Drama-aware text delivery mode — controls how narration is revealed to the player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DeliveryMode {
+    /// Full text appears at once (low drama).
+    Instant,
+    /// Text reveals sentence by sentence (mid drama).
+    Sentence,
+    /// Text streams word by word, typewriter style (high drama).
+    Streaming,
+}
+
+/// Genre-tunable breakpoints for pacing decisions.
+#[derive(Debug, Clone)]
+pub struct DramaThresholds {
+    /// Drama weight at or above which delivery switches from Instant to Sentence.
+    pub sentence_delivery_min: f64,
+    /// Drama weight above which delivery switches from Sentence to Streaming.
+    pub streaming_delivery_min: f64,
+    /// Drama weight above which image rendering is triggered (beat filter).
+    pub render_threshold: f64,
+    /// Consecutive boring turns before an escalation beat hint is injected.
+    pub escalation_streak: u32,
+    /// Number of boring turns to reach action_tension 1.0 (gambler's ramp length).
+    pub ramp_length: u32,
+}
+
+impl Default for DramaThresholds {
+    fn default() -> Self {
+        Self {
+            sentence_delivery_min: 0.30,
+            streaming_delivery_min: 0.70,
+            render_threshold: 0.40,
+            escalation_streak: 5,
+            ramp_length: 8,
+        }
+    }
+}
+
+/// Pacing guidance for a single turn — computed from TensionTracker state.
+#[derive(Debug, Clone)]
+pub struct PacingHint {
+    /// Combined drama metric from the tension tracker (0.0–1.0).
+    pub drama_weight: f64,
+    /// Suggested narration length in sentences (1–6).
+    pub target_sentences: u8,
+    /// How the client should reveal the narration text.
+    pub delivery_mode: DeliveryMode,
+    /// Optional escalation beat directive when boring streak exceeds threshold.
+    pub escalation_beat: Option<String>,
+}
+
+impl PacingHint {
+    /// Produce a narrator-facing directive string for prompt injection.
+    pub fn narrator_directive(&self) -> String {
+        format!(
+            "Target approximately {} sentence(s) for this narration. Drama level: {:.0}%.",
+            self.target_sentences,
+            self.drama_weight * 100.0,
+        )
+    }
+}
 
 /// Combat event classification for the gambler's ramp.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,10 +199,42 @@ impl TensionTracker {
             self.spike = 0.0;
         }
     }
+
+    /// Compute a pacing hint from the current tension state and genre thresholds.
+    pub fn pacing_hint(&self, thresholds: &DramaThresholds) -> PacingHint {
+        let dw = self.drama_weight();
+
+        let delivery_mode = if dw > thresholds.streaming_delivery_min {
+            DeliveryMode::Streaming
+        } else if dw >= thresholds.sentence_delivery_min {
+            DeliveryMode::Sentence
+        } else {
+            DeliveryMode::Instant
+        };
+
+        // Linear interpolation: 1 + floor(drama_weight * 5), range 1–6
+        let target_sentences = 1 + (dw * 5.0).floor() as u8;
+
+        let escalation_beat = if self.boring_streak >= thresholds.escalation_streak {
+            Some("The environment shifts — introduce a new element to break the monotony.".to_string())
+        } else {
+            None
+        };
+
+        PacingHint {
+            drama_weight: dw,
+            target_sentences,
+            delivery_mode,
+            escalation_beat,
+        }
+    }
 }
 
 /// Dramatic damage threshold — total round damage at or above this is dramatic.
 const DRAMATIC_DAMAGE_THRESHOLD: i32 = 15;
+
+/// HP ratio threshold below which a surviving target triggers NearMiss.
+const NEAR_MISS_HP_THRESHOLD: f64 = 0.2;
 
 /// Classify a combat round result as Boring, Dramatic, or Normal.
 ///
@@ -171,6 +269,143 @@ pub fn classify_round(round: &RoundResult, killed: Option<&str>) -> CombatEvent 
     }
 
     CombatEvent::Normal
+}
+
+// ============================================================================
+// Story 5-2: Detailed combat event classification
+// ============================================================================
+
+/// Specific dramatic combat events with spike magnitudes (ADR, epic 5 context).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DetailedCombatEvent {
+    /// Massive damage in a single blow.
+    CriticalHit,
+    /// A combatant was slain.
+    KillingBlow,
+    /// A combatant narrowly avoided death.
+    DeathSave,
+    /// First damage dealt in the encounter.
+    FirstBlood,
+    /// An attack that barely missed or was narrowly survived.
+    NearMiss,
+    /// Only one combatant remains standing on a side.
+    LastStanding,
+}
+
+impl DetailedCombatEvent {
+    /// Tension spike magnitude for this event type (0.0–1.0).
+    pub fn spike_magnitude(&self) -> f64 {
+        match self {
+            Self::CriticalHit => 0.8,
+            Self::KillingBlow => 1.0,
+            Self::DeathSave => 0.7,
+            Self::FirstBlood => 0.6,
+            Self::NearMiss => 0.5,
+            Self::LastStanding => 0.9,
+        }
+    }
+
+    /// Per-turn decay rate for the spike injected by this event.
+    pub fn decay_rate(&self) -> f64 {
+        match self {
+            Self::CriticalHit => 0.15,
+            Self::KillingBlow => 0.20,
+            Self::DeathSave => 0.15,
+            Self::FirstBlood => 0.10,
+            Self::NearMiss => 0.10,
+            Self::LastStanding => 0.20,
+        }
+    }
+}
+
+/// Classification of a combat turn for pacing decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnClassification {
+    /// Low-action turn — ramps the gambler's ramp.
+    Boring,
+    /// High-action moment with a specific dramatic event.
+    Dramatic(DetailedCombatEvent),
+    /// Routine action — some damage but not dramatic.
+    Normal,
+}
+
+/// Classify a combat round into a detailed turn classification.
+///
+/// Priority ordering: kill → near miss (low HP) → critical hit (high damage) → effects → normal → boring.
+///
+/// - `round`: the combat round result with damage events and effects.
+/// - `killed`: name of a combatant who died this round, if any.
+/// - `lowest_hp_ratio`: the lowest HP ratio (current/max) of any targeted combatant after damage,
+///   or `None` if unknown. Used to detect NearMiss events.
+pub fn classify_combat_outcome(
+    round: &RoundResult,
+    killed: Option<&str>,
+    lowest_hp_ratio: Option<f64>,
+) -> TurnClassification {
+    // Kill is always KillingBlow — highest priority
+    if killed.is_some() {
+        return TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow);
+    }
+
+    let total_damage: i32 = round
+        .damage_events
+        .iter()
+        .map(|e| e.damage.max(0))
+        .sum();
+
+    // Near miss — target survived at low HP
+    if let Some(ratio) = lowest_hp_ratio {
+        if ratio <= NEAR_MISS_HP_THRESHOLD && total_damage > 0 {
+            return TurnClassification::Dramatic(DetailedCombatEvent::NearMiss);
+        }
+    }
+
+    // Critical hit — high total damage
+    if total_damage >= DRAMATIC_DAMAGE_THRESHOLD {
+        return TurnClassification::Dramatic(DetailedCombatEvent::CriticalHit);
+    }
+
+    // Status effects are dramatic (FirstBlood-level)
+    if !round.effects_applied.is_empty() {
+        return TurnClassification::Dramatic(DetailedCombatEvent::FirstBlood);
+    }
+
+    // No damage at all — boring
+    if total_damage == 0 {
+        return TurnClassification::Boring;
+    }
+
+    // Some damage but not dramatic
+    TurnClassification::Normal
+}
+
+impl TensionTracker {
+    /// Observe a combat round: classify the outcome, update boring_streak,
+    /// inject spike for dramatic events, and return the classification.
+    pub fn observe(
+        &mut self,
+        round: &RoundResult,
+        killed: Option<&str>,
+        lowest_hp_ratio: Option<f64>,
+    ) -> TurnClassification {
+        let classification = classify_combat_outcome(round, killed, lowest_hp_ratio);
+
+        match &classification {
+            TurnClassification::Boring => {
+                self.record_event(CombatEvent::Boring);
+            }
+            TurnClassification::Dramatic(event) => {
+                self.record_event(CombatEvent::Dramatic);
+                self.inject_spike(event.spike_magnitude());
+            }
+            TurnClassification::Normal => {
+                self.record_event(CombatEvent::Normal);
+            }
+        }
+
+        classification
+    }
 }
 
 #[cfg(test)]

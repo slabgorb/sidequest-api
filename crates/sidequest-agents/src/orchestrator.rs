@@ -12,10 +12,13 @@ use crate::agent::Agent;
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
-use crate::agents::intent_router::IntentRouter;
+use crate::agents::intent_router::{ClassificationSource, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::client::ClaudeClient;
+use crate::context_builder::ContextBuilder;
+use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
 use crate::turn_record::{TurnIdCounter, TurnRecord};
+use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTracker};
 
 /// Result of processing a player action through the orchestrator.
 #[derive(Debug, Clone)]
@@ -28,6 +31,8 @@ pub struct ActionResult {
     pub combat_events: Vec<String>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
+    /// How the intent was classified (ADR-032: Haiku, StateOverride, or KeywordFallback).
+    pub classification_source: ClassificationSource,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -51,25 +56,45 @@ pub struct Orchestrator {
     pub turn_id_counter: TurnIdCounter,
     /// Claude CLI client for LLM invocations.
     client: ClaudeClient,
+    /// Two-tier intent classifier (ADR-032: Haiku → keyword fallback).
+    intent_router: IntentRouter,
     /// Specialist agents — dispatched by intent classification.
     narrator: NarratorAgent,
     creature_smith: CreatureSmithAgent,
     ensemble: EnsembleAgent,
     dialectician: DialecticianAgent,
+    /// Pacing engine — tracks drama weight across combat turns (Story 5-7).
+    tension_tracker: TensionTracker,
+    /// Genre-tunable pacing breakpoints (Story 5-7).
+    drama_thresholds: DramaThresholds,
 }
 
 impl Orchestrator {
     /// Create a new orchestrator with a watcher channel sender.
     pub fn new(watcher_tx: mpsc::Sender<TurnRecord>) -> Self {
+        let client = ClaudeClient::new();
         Self {
             watcher_tx,
             turn_id_counter: TurnIdCounter::new(),
-            client: ClaudeClient::new(),
+            intent_router: IntentRouter::new(client.clone()),
+            client,
             narrator: NarratorAgent::new(),
             creature_smith: CreatureSmithAgent::new(),
             ensemble: EnsembleAgent::new(),
             dialectician: DialecticianAgent::new(),
+            tension_tracker: TensionTracker::new(),
+            drama_thresholds: DramaThresholds::default(),
         }
+    }
+
+    /// Access the tension tracker (pacing engine).
+    pub fn tension(&self) -> &TensionTracker {
+        &self.tension_tracker
+    }
+
+    /// Access the drama thresholds (genre-tunable pacing breakpoints).
+    pub fn drama_thresholds(&self) -> &DramaThresholds {
+        &self.drama_thresholds
     }
 }
 
@@ -79,34 +104,53 @@ impl GameService for Orchestrator {
     }
 
     fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult {
-        // Classify intent for routing and telemetry
-        let route = IntentRouter::classify_with_state(action, context);
+        // ADR-032: Two-tier intent classification (Haiku → keyword fallback)
+        let route = self.intent_router.classify(action, context);
         info!(
             intent = %route.intent(),
             agent = %route.agent_name(),
+            source = %route.source(),
+            confidence = route.confidence(),
             "Intent classified"
         );
 
-        let state_block = context
-            .state_summary
-            .as_deref()
-            .map(|s| format!("\n<game_state>\n{}\n</game_state>\n", s))
-            .unwrap_or_default();
+        // Build prompt via ContextBuilder — zone-ordered, telemetry-instrumented.
+        let mut builder = ContextBuilder::new();
 
-        // Dispatch to the classified agent's system prompt
-        let agent_prompt = match route.agent_name() {
-            "creature_smith" => self.creature_smith.system_prompt(),
-            "ensemble" => self.ensemble.system_prompt(),
-            "dialectician" => self.dialectician.system_prompt(),
-            _ => self.narrator.system_prompt(),
+        // Agent identity section (Primacy zone)
+        match route.agent_name() {
+            "creature_smith" => self.creature_smith.build_context(&mut builder),
+            "ensemble" => self.ensemble.build_context(&mut builder),
+            "dialectician" => self.dialectician.build_context(&mut builder),
+            _ => self.narrator.build_context(&mut builder),
         };
 
-        let prompt = format!(
-            "{}{}\nThe player says: {}",
-            agent_prompt, state_block, action,
-        );
+        // ADR-032: Fold ambiguity context into narrator prompt when classification is uncertain
+        IntentRouter::add_ambiguity_context(&mut builder, &route);
+
+        // Game state section (Valley zone — lower attention, grounding context)
+        if let Some(state) = &context.state_summary {
+            builder.add_section(PromptSection::new(
+                "game_state",
+                format!("<game_state>\n{}\n</game_state>", state),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ));
+        }
+
+        // Player action section (Recency zone — highest attention at prompt end)
+        builder.add_section(PromptSection::new(
+            "player_action",
+            format!("The player says: {}", action),
+            AttentionZone::Recency,
+            SectionCategory::Action,
+        ));
+
+        let prompt = builder.compose();
 
         info!(action = %action, "Invoking Claude CLI for narration");
+
+        let source = route.source();
 
         match self.client.send(&prompt) {
             Ok(narration) => {
@@ -116,6 +160,7 @@ impl GameService for Orchestrator {
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     is_degraded: false,
+                    classification_source: source,
                 }
             }
             Err(e) => {
@@ -128,6 +173,7 @@ impl GameService for Orchestrator {
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     is_degraded: true,
+                    classification_source: source,
                 }
             }
         }
@@ -162,6 +208,10 @@ pub struct TurnResult {
     pub is_degraded: bool,
     /// Which agent produced this result.
     pub agent_used: AgentKind,
+    /// Drama-aware delivery mode for text reveal (Story 5-7).
+    pub delivery_mode: DeliveryMode,
+    /// How the intent was classified (ADR-032: Haiku, StateOverride, or KeywordFallback).
+    pub classification_source: ClassificationSource,
 }
 
 /// Typed agent selection — replaces string-based agent keys.

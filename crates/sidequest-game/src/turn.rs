@@ -29,6 +29,12 @@ pub enum TurnPhase {
     Broadcast,
 }
 
+impl Default for TurnPhase {
+    fn default() -> Self {
+        Self::InputCollection
+    }
+}
+
 /// Tracks the current turn round, phase, and player input barrier.
 ///
 /// Round counter always increments, never resets.
@@ -36,8 +42,11 @@ pub enum TurnPhase {
 /// past InputCollection. Duplicate submissions from the same player are ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnManager {
+    #[serde(default)]
     round: u32,
+    #[serde(default)]
     phase: TurnPhase,
+    #[serde(default)]
     player_count: usize,
     #[serde(skip)]
     submitted: HashSet<String>,

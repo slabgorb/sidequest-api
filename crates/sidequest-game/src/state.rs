@@ -54,6 +54,7 @@ pub struct GameSnapshot {
     /// Active combat state.
     pub combat: CombatState,
     /// Active chase sequence (None if no chase in progress).
+    #[serde(default)]
     pub chase: Option<ChaseState>,
     /// Currently active narrative tropes.
     pub active_tropes: Vec<String>,
@@ -68,6 +69,7 @@ pub struct GameSnapshot {
     /// Turn sequencing and barrier tracking.
     pub turn_manager: TurnManager,
     /// When this snapshot was last persisted (set by GameStore on save).
+    #[serde(default)]
     pub last_saved_at: Option<DateTime<Utc>>,
     /// Active narrative stakes description (story 2-7).
     #[serde(default)]
@@ -75,9 +77,27 @@ pub struct GameSnapshot {
     /// Established lore fragments (story 2-7).
     #[serde(default)]
     pub lore_established: Vec<String>,
+    /// Turns since last meaningful player action (story 6-3).
+    /// Drives the engagement multiplier for trope progression pacing.
+    #[serde(default)]
+    pub turns_since_meaningful: u32,
 }
 
 impl GameSnapshot {
+    /// Find the lowest HP ratio among friendly (player-controlled) characters.
+    /// Returns 1.0 if no friendly characters exist.
+    pub fn lowest_friendly_hp_ratio(&self) -> f64 {
+        use crate::combatant::Combatant;
+        self.characters
+            .iter()
+            .filter(|c| c.is_friendly)
+            .map(|c| {
+                let max = c.max_hp();
+                if max == 0 { 0.0 } else { c.hp() as f64 / max as f64 }
+            })
+            .fold(1.0_f64, f64::min)
+    }
+
     /// Find a mutable character or NPC by name and apply an HP delta.
     fn apply_hp_change(&mut self, name: &str, delta: i32) {
         for c in &mut self.characters {

@@ -1,7 +1,8 @@
 //! Genre pack model structs.
 //!
-//! Every struct uses `#[serde(deny_unknown_fields)]` to catch YAML typos at
-//! deserialization time — the key Rust improvement over Python's `extra="allow"`.
+//! Structs use `#[serde(deny_unknown_fields)]` where appropriate to catch YAML
+//! typos. Content structs that genre packs extend use `#[serde(flatten)]` extras
+//! bags instead, allowing genre-specific fields without breaking deserialization.
 
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
@@ -69,6 +70,16 @@ pub struct World {
     pub cultures: Vec<Culture>,
     /// World-specific tropes from `tropes.yaml` (resolved inheritance).
     pub tropes: Vec<TropeDefinition>,
+    /// World-level NPC archetypes (overrides genre-level when present).
+    pub archetypes: Vec<NpcArchetype>,
+    /// World-level visual style (overrides genre-level when present).
+    /// Stored as raw JSON because world visual_style can have richer structure
+    /// than the genre-level VisualStyle struct (e.g., per-region overrides with maps).
+    pub visual_style: Option<serde_json::Value>,
+    /// World-level campaign history (road_warrior format — not in low_fantasy).
+    pub history: Option<serde_json::Value>,
+    /// Raw legends data (preserves origin_myth and other map-format data).
+    pub legends_raw: Option<serde_json::Value>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -122,7 +133,6 @@ pub struct Inspiration {
 
 /// Game rules configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct RulesConfig {
     /// Narrative tone (e.g., "gonzo-sincere").
     #[serde(default)]
@@ -185,7 +195,6 @@ pub struct RulesConfig {
 
 /// UI theme colors and typography.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct GenreTheme {
     /// Primary color hex.
     pub primary: String,
@@ -211,7 +220,6 @@ pub struct GenreTheme {
 
 /// Section break (dinkus) glyphs.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Dinkus {
     /// Whether dinkus is enabled.
     pub enabled: bool,
@@ -225,7 +233,6 @@ pub struct Dinkus {
 
 /// Session opener configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct SessionOpener {
     /// Whether session openers are enabled.
     pub enabled: bool,
@@ -237,7 +244,6 @@ pub struct SessionOpener {
 
 /// Genre-level lore.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Lore {
     /// World name (may be empty at genre level).
     pub world_name: String,
@@ -250,6 +256,9 @@ pub struct Lore {
     /// Factions (some genre-level packs include factions at the top level).
     #[serde(default)]
     pub factions: Vec<Faction>,
+    /// Genre-specific lore extensions (setting_anchor, etc.).
+    #[serde(flatten)]
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -257,32 +266,45 @@ pub struct Lore {
 // ═══════════════════════════════════════════════════════════
 
 /// World-specific lore with factions.
+///
+/// Accepts both the low_fantasy format (world_name/history/geography/cosmology)
+/// and the road_warrior format (setting/faction_relations/daily_life).
+/// Genre-specific fields land in `extras` for AI prompt injection.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct WorldLore {
-    /// World name.
-    pub world_name: String,
-    /// History text.
-    pub history: String,
-    /// Geography description.
-    pub geography: String,
-    /// Cosmology text.
-    pub cosmology: String,
-    /// Political factions.
+    /// World name (low_fantasy format).
+    #[serde(default)]
+    pub world_name: Option<String>,
+    /// History text (low_fantasy format).
+    #[serde(default)]
+    pub history: Option<String>,
+    /// Geography description (low_fantasy format).
+    #[serde(default)]
+    pub geography: Option<String>,
+    /// Cosmology text (low_fantasy format).
+    #[serde(default)]
+    pub cosmology: Option<String>,
+    /// Political factions (simple format — name/description/disposition).
     #[serde(default)]
     pub factions: Vec<Faction>,
+    /// Genre-specific lore extensions (setting, faction_relations, daily_life, etc.).
+    #[serde(flatten)]
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 /// A political or social faction.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Faction {
     /// Faction name.
     pub name: String,
     /// Description of the faction.
     pub description: String,
     /// Starting disposition toward the player.
+    #[serde(default)]
     pub disposition: String,
+    /// Genre-specific faction extensions.
+    #[serde(flatten)]
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -291,7 +313,6 @@ pub struct Faction {
 
 /// An NPC archetype template.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct NpcArchetype {
     /// Archetype name.
     pub name: NonBlankString,
@@ -322,7 +343,6 @@ pub struct NpcArchetype {
 
 /// A character creation scene with narrative choices.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct CharCreationScene {
     /// Scene identifier.
     pub id: String,
@@ -343,7 +363,6 @@ pub struct CharCreationScene {
 
 /// A choice within a character creation scene.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct CharCreationChoice {
     /// Display label.
     pub label: String,
@@ -355,7 +374,6 @@ pub struct CharCreationChoice {
 
 /// Mechanical effects of a character creation choice.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct MechanicalEffects {
     /// Suggested class.
     #[serde(default)]
@@ -410,7 +428,6 @@ pub struct MechanicalEffects {
 
 /// Image generation style configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct VisualStyle {
     /// Positive prompt suffix for image generation.
     pub positive_suffix: String,
@@ -431,7 +448,6 @@ pub struct VisualStyle {
 
 /// A narrative trope definition (genre-level or world-level).
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct TropeDefinition {
     /// Trope identifier (optional — some tropes use name-based slugs).
     #[serde(default)]
@@ -522,12 +538,16 @@ pub struct PassiveProgression {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProgressionConfig {
     /// Skill/affinity trees.
+    #[serde(default)]
     pub affinities: Vec<Affinity>,
     /// Categories for milestone tracking.
+    #[serde(default)]
     pub milestone_categories: Vec<String>,
     /// Milestones required per level.
+    #[serde(default)]
     pub milestones_per_level: u32,
     /// Maximum character level.
+    #[serde(default)]
     pub max_level: u32,
     /// Item naming/power-up thresholds.
     #[serde(default)]
@@ -657,7 +677,6 @@ pub struct LevelBonuses {
 
 /// A wealth tier with optional gold cap.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct WealthTier {
     /// Maximum gold for this tier (None = no cap).
     pub max_gold: Option<u32>,
@@ -684,7 +703,6 @@ pub struct AxesConfig {
 
 /// A single narrative axis definition.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct AxisDefinition {
     /// Axis identifier.
     pub id: String,
@@ -700,7 +718,6 @@ pub struct AxisDefinition {
 
 /// A preset combination of axis values.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct AxisPreset {
     /// Preset name.
     pub name: String,
@@ -756,9 +773,13 @@ pub struct AudioAiGeneration {
     pub cache_generated: Option<bool>,
 }
 
+/// Default energy level for tracks without an explicit energy field.
+fn default_energy() -> f64 {
+    0.5
+}
+
 /// A single music track.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct MoodTrack {
     /// File path.
     pub path: String,
@@ -766,6 +787,9 @@ pub struct MoodTrack {
     pub title: String,
     /// Beats per minute.
     pub bpm: u32,
+    /// Energy level (0.0–1.0) for mood intensity matching.
+    #[serde(default = "default_energy")]
+    pub energy: f64,
 }
 
 /// Voice preset for a creature type.
@@ -797,7 +821,6 @@ pub struct AudioEffect {
 
 /// Mixer volume configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct MixerConfig {
     /// Music volume (0.0–1.0).
     pub music_volume: f64,
@@ -828,7 +851,6 @@ pub struct AudioTheme {
 
 /// A single variation within an audio theme.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct AudioVariation {
     /// Variation type (full, ambient, sparse, overture, resolution, tension_build).
     #[serde(rename = "type")]
@@ -937,7 +959,6 @@ pub struct BeatObstacle {
 
 /// An achievement linked to trope progression.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Achievement {
     /// Achievement identifier.
     pub id: String,
@@ -959,7 +980,6 @@ pub struct Achievement {
 
 /// A power tier description for a character class at a level range.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct PowerTier {
     /// Level range [min, max].
     pub level_range: [u32; 2],
@@ -1009,7 +1029,8 @@ pub struct VoiceConfig {
 pub struct WorldConfig {
     /// World display name.
     pub name: String,
-    /// URL-safe slug.
+    /// URL-safe slug (optional — can be inferred from directory name).
+    #[serde(default)]
     pub slug: String,
     /// Description text.
     pub description: String,
@@ -1019,6 +1040,16 @@ pub struct WorldConfig {
     /// Axis values for this world.
     #[serde(default)]
     pub axis_snapshot: HashMap<String, f64>,
+    /// Historical era (e.g., "Late 1970s").
+    #[serde(default)]
+    pub era: Option<String>,
+    /// Tonal description for AI narration.
+    #[serde(default)]
+    pub tone: Option<String>,
+    /// Genre-specific extensions (factions, faction_count, etc.).
+    /// Captured for AI prompt injection without engine-level typing.
+    #[serde(flatten)]
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1027,12 +1058,12 @@ pub struct WorldConfig {
 
 /// Map and region configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct CartographyConfig {
     /// World name.
     #[serde(default)]
     pub world_name: String,
     /// Starting region slug.
+    #[serde(default)]
     pub starting_region: String,
     /// Map style prompt for image generation.
     #[serde(default)]
@@ -1070,6 +1101,15 @@ pub struct Region {
     /// Settlements in this region (strings or detailed objects).
     #[serde(default)]
     pub settlements: Vec<Landmark>,
+    /// Terrain type (e.g., "elevated_expressway", "coastal_mountain_pass").
+    #[serde(default)]
+    pub terrain: Option<String>,
+    /// Faction controlling this region.
+    #[serde(default)]
+    pub controlled_by: Option<String>,
+    /// Genre-specific region extensions (chase_profile, etc.).
+    #[serde(flatten)]
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 /// A landmark — either a simple name string or a detailed object.
@@ -1123,22 +1163,41 @@ impl<'de> Deserialize<'de> for Landmark {
     }
 }
 
-/// A route between two regions.
+/// A route between regions.
+///
+/// Supports two formats:
+/// - Point-to-point (low_fantasy): from_id, to_id, distance, danger
+/// - Waypoint-based (road_warrior): id, waypoints, difficulty
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub struct Route {
     /// Route name.
     pub name: String,
-    /// Source region slug.
-    pub from_id: String,
-    /// Destination region slug.
-    pub to_id: String,
-    /// Travel distance category.
-    pub distance: String,
-    /// Danger level.
-    pub danger: String,
     /// Description.
     pub description: String,
+    /// Route slug (waypoint format).
+    #[serde(default)]
+    pub id: Option<String>,
+    /// Source region slug (point-to-point format).
+    #[serde(default)]
+    pub from_id: Option<String>,
+    /// Destination region slug (point-to-point format).
+    #[serde(default)]
+    pub to_id: Option<String>,
+    /// Travel distance category (point-to-point format).
+    #[serde(default)]
+    pub distance: Option<String>,
+    /// Danger level (point-to-point format).
+    #[serde(default)]
+    pub danger: Option<String>,
+    /// Ordered waypoints (waypoint format).
+    #[serde(default)]
+    pub waypoints: Vec<String>,
+    /// Difficulty level (waypoint format).
+    #[serde(default)]
+    pub difficulty: Option<String>,
+    /// Genre-specific route extensions (faction_crossings, etc.).
+    #[serde(flatten)]
+    pub extras: HashMap<String, serde_json::Value>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1150,9 +1209,11 @@ pub struct Route {
 pub struct Legend {
     /// Legend name.
     pub name: String,
-    /// Summary text.
+    /// Summary text (also accepts "description" from road_warrior format).
+    #[serde(default, alias = "description")]
     pub summary: String,
     /// Historical era.
+    #[serde(default)]
     pub era: String,
     /// Cultures affected.
     #[serde(default)]

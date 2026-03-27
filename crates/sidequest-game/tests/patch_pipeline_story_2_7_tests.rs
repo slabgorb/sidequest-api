@@ -51,6 +51,7 @@ fn test_character() -> Character {
         race: NonBlankString::new("Dwarf").unwrap(),
         stats: HashMap::from([("STR".to_string(), 16), ("DEX".to_string(), 10)]),
         abilities: vec![],
+            is_friendly: true,
     }
 }
 
@@ -121,6 +122,7 @@ fn test_snapshot() -> GameSnapshot {
         last_saved_at: None,
         active_stakes: String::new(),
         lore_established: vec![],
+        turns_since_meaningful: 0,
     }
 }
 

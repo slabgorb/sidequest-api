@@ -510,7 +510,7 @@ routes:
     assert_eq!(dome.name, "Tood's Dome");
     assert!(dome.adjacent.contains(&"glass_flat".to_string()));
     assert_eq!(carto.routes.len(), 1);
-    assert_eq!(carto.routes[0].danger, "moderate");
+    assert_eq!(carto.routes[0].danger.as_deref(), Some("moderate"));
 }
 
 // ── WorldConfig (world.yaml) ─────────────────────────────
@@ -748,7 +748,9 @@ bogus_field: oops
 }
 
 #[test]
-fn rules_config_rejects_typo() {
+fn rules_config_accepts_extra_fields() {
+    // Content structs no longer use deny_unknown_fields — extra fields are
+    // silently ignored to support genre-specific extensions.
     let yaml = r#"
 tone: test
 lethality: low
@@ -763,13 +765,13 @@ letality: this-is-a-typo
 "#;
     let result: Result<RulesConfig, _> = serde_yaml::from_str(yaml);
     assert!(
-        result.is_err(),
-        "deny_unknown_fields should reject 'letality' typo"
+        result.is_ok(),
+        "content structs accept extra fields for genre extensibility"
     );
 }
 
 #[test]
-fn npc_archetype_rejects_unknown_field() {
+fn npc_archetype_accepts_extra_fields() {
     let yaml = r#"
 name: Test NPC
 description: Test
@@ -784,13 +786,13 @@ secret_power: should_not_exist
 "#;
     let result: Result<NpcArchetype, _> = serde_yaml::from_str(yaml);
     assert!(
-        result.is_err(),
-        "deny_unknown_fields should reject secret_power"
+        result.is_ok(),
+        "content structs accept extra fields for genre extensibility"
     );
 }
 
 #[test]
-fn visual_style_rejects_unknown_field() {
+fn visual_style_accepts_extra_fields() {
     let yaml = r#"
 positive_suffix: test
 negative_prompt: test
@@ -801,13 +803,13 @@ unknown_setting: bad
 "#;
     let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml);
     assert!(
-        result.is_err(),
-        "deny_unknown_fields should reject unknown_setting"
+        result.is_ok(),
+        "content structs accept extra fields for genre extensibility"
     );
 }
 
 #[test]
-fn trope_definition_rejects_unknown_field() {
+fn trope_definition_accepts_extra_fields() {
     let yaml = r#"
 name: Test Trope
 category: conflict
@@ -818,8 +820,8 @@ secret_mechanic: should_fail
 "#;
     let result: Result<TropeDefinition, _> = serde_yaml::from_str(yaml);
     assert!(
-        result.is_err(),
-        "deny_unknown_fields should reject secret_mechanic"
+        result.is_ok(),
+        "content structs accept extra fields for genre extensibility"
     );
 }
 

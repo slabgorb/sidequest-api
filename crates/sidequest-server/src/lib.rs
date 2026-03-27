@@ -286,6 +286,7 @@ struct AppStateInner {
     render_queue: Option<sidequest_game::RenderQueue>,
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
+    binary_broadcast_tx: broadcast::Sender<Vec<u8>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -305,6 +306,7 @@ impl AppState {
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
         let (watcher_tx, _) = broadcast::channel(256);
+        let (binary_broadcast_tx, _) = broadcast::channel(64);
 
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
@@ -357,6 +359,7 @@ impl AppState {
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
                     sidequest_game::BeatFilterConfig::default(),
                 )),
+                binary_broadcast_tx,
             }),
         }
     }
@@ -413,6 +416,16 @@ impl AppState {
     /// Silently ignores the error when no subscribers are connected (zero overhead).
     pub fn send_watcher_event(&self, event: WatcherEvent) {
         let _ = self.inner.watcher_tx.send(event);
+    }
+
+    /// Broadcast binary data to all connected WebSocket clients.
+    fn broadcast_binary(&self, data: Vec<u8>) {
+        let _ = self.inner.binary_broadcast_tx.send(data);
+    }
+
+    /// Subscribe to binary broadcast frames (e.g. TTS audio).
+    fn subscribe_binary(&self) -> broadcast::Receiver<Vec<u8>> {
+        self.inner.binary_broadcast_tx.subscribe()
     }
 
     /// Check if a player is currently processing an action.
@@ -674,9 +687,20 @@ pub fn build_router(state: AppState) -> Router {
                     generation_ms,
                 } = result
                 {
+                    // Rewrite absolute file paths to served URLs.
+                    // The daemon returns paths like /Users/.../renders/abc.png;
+                    // extract the filename and serve via /api/renders/{filename}.
+                    let served_url = if let Some(filename) = std::path::Path::new(&image_url)
+                        .file_name()
+                        .and_then(|f| f.to_str())
+                    {
+                        format!("/api/renders/{}", filename)
+                    } else {
+                        image_url
+                    };
                     let msg = GameMessage::Image {
                         payload: sidequest_protocol::ImagePayload {
-                            url: image_url,
+                            url: served_url,
                             description: String::new(),
                             handout: false,
                             render_id: Some(job_id.to_string()),
@@ -699,14 +723,23 @@ pub fn build_router(state: AppState) -> Router {
         .allow_methods([axum::http::Method::GET])
         .allow_headers(tower_http::cors::Any);
 
-    // Serve genre pack static assets (fonts, images) at /genre/assets/
+    // Serve genre pack static assets (fonts, images, audio) at /genre/{slug}/...
     let genre_assets = ServeDir::new(state.genre_packs_path());
+
+    // Serve rendered images at /api/renders/{filename}
+    let renders_dir = std::path::PathBuf::from(
+        std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
+    )
+    .join(".sidequest")
+    .join("renders");
+    let renders_assets = ServeDir::new(renders_dir);
 
     Router::new()
         .route("/api/genres", get(list_genres))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(ws_watcher_handler))
         .nest_service("/genre", genre_assets)
+        .nest_service("/api/renders", renders_assets)
         .layer(cors)
         .with_state(state)
 }
@@ -791,10 +824,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
 
     // Subscribe to broadcast
     let mut broadcast_rx = state.subscribe_broadcast();
+    let mut binary_rx = state.subscribe_binary();
 
     let player_id_str = player_id.to_string();
 
-    // Writer task: reads from mpsc channel + broadcast, sends to WS
+    // Writer task: reads from mpsc channel + broadcast + binary, sends to WS
     let writer_player_id = player_id_str.clone();
     let writer_handle = tokio::spawn(async move {
         loop {
@@ -823,6 +857,19 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         break;
                     }
                 }
+                result = binary_rx.recv() => {
+                    match result {
+                        Ok(bytes) => {
+                            if ws_sink.send(AxumWsMessage::Binary(bytes.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!(player_id = %writer_player_id, skipped = n, "Binary broadcast lagged");
+                        }
+                        Err(_) => break,
+                    }
+                }
                 else => break,
             }
         }
@@ -841,6 +888,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
+    let mut music_director: Option<sidequest_game::MusicDirector> = None;
+    let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(None));
+    let prerender_scheduler: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>> =
+        std::sync::Arc::new(tokio::sync::Mutex::new(None));
 
     // Reader loop: read messages, deserialize, dispatch through session
     while let Some(msg) = ws_stream.next().await {
@@ -861,6 +913,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut trope_defs,
                         &mut world_context,
                         &mut visual_style,
+                        &mut music_director,
+                        &audio_mixer,
+                        &prerender_scheduler,
                         &state,
                         &player_id_str,
                     )
@@ -911,6 +966,9 @@ async fn dispatch_message(
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
+    music_director: &mut Option<sidequest_game::MusicDirector>,
+    audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -928,6 +986,9 @@ async fn dispatch_message(
                 trope_defs,
                 world_context,
                 visual_style,
+                music_director,
+                audio_mixer,
+                prerender_scheduler,
                 state,
                 player_id,
             )
@@ -951,6 +1012,9 @@ async fn dispatch_message(
                 trope_defs,
                 world_context,
                 visual_style,
+                music_director,
+                audio_mixer,
+                prerender_scheduler,
                 state,
                 player_id,
             )
@@ -973,6 +1037,9 @@ async fn dispatch_message(
                 trope_defs,
                 world_context,
                 visual_style,
+                music_director,
+                audio_mixer,
+                prerender_scheduler,
                 state,
                 player_id,
                 session.genre_slug().unwrap_or(""),
@@ -1003,6 +1070,9 @@ async fn dispatch_connect(
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
+    music_director: &mut Option<sidequest_game::MusicDirector>,
+    audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1071,6 +1141,22 @@ async fn dispatch_connect(
                         };
                         responses.push(ready);
 
+                        // Initialize audio subsystems for returning player
+                        if let Ok(genre_code) = GenreCode::new(genre) {
+                            let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
+                            if let Ok(pack) = loader.load(&genre_code) {
+                                *visual_style = Some(pack.visual_style.clone());
+                                *music_director = Some(sidequest_game::MusicDirector::new(&pack.audio));
+                                *audio_mixer.lock().await = Some(sidequest_game::AudioMixer::new(
+                                    sidequest_game::DuckConfig::default(),
+                                ));
+                                *prerender_scheduler.lock().await = Some(sidequest_game::PrerenderScheduler::new(
+                                    sidequest_game::PrerenderConfig::default(),
+                                ));
+                                tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
+                            }
+                        }
+
                         tracing::info!(
                             player = %pname,
                             genre = %genre,
@@ -1083,8 +1169,10 @@ async fn dispatch_connect(
                         tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, visual_style, genre, world, state, player_id,
-                        ) {
+                            builder, trope_defs, world_context, visual_style,
+                            music_director, audio_mixer, prerender_scheduler,
+                            genre, world, state, player_id,
+                        ).await {
                             responses.push(scene_msg);
                         }
                     }
@@ -1092,8 +1180,10 @@ async fn dispatch_connect(
                         tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, visual_style, genre, world, state, player_id,
-                        ) {
+                            builder, trope_defs, world_context, visual_style,
+                            music_director, audio_mixer, prerender_scheduler,
+                            genre, world, state, player_id,
+                        ).await {
                             responses.push(scene_msg);
                         }
                     }
@@ -1106,11 +1196,14 @@ async fn dispatch_connect(
                     trope_defs,
                     world_context,
                     visual_style,
+                    music_director,
+                    audio_mixer,
+                    prerender_scheduler,
                     genre,
                     world,
                     state,
                     player_id,
-                ) {
+                ).await {
                     responses.push(scene_msg);
                 }
             }
@@ -1124,11 +1217,14 @@ async fn dispatch_connect(
 }
 
 /// Load genre pack, create CharacterBuilder, return first scene message + trope defs + world context.
-fn start_character_creation(
+async fn start_character_creation(
     builder: &mut Option<CharacterBuilder>,
     trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context_out: &mut String,
     visual_style_out: &mut Option<sidequest_genre::VisualStyle>,
+    music_director_out: &mut Option<sidequest_game::MusicDirector>,
+    audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     genre: &str,
     world_slug: &str,
     state: &AppState,
@@ -1153,6 +1249,16 @@ fn start_character_creation(
 
     *visual_style_out = Some(pack.visual_style.clone());
 
+    // Initialize audio subsystems from genre pack
+    *music_director_out = Some(sidequest_game::MusicDirector::new(&pack.audio));
+    *audio_mixer_lock.lock().await = Some(sidequest_game::AudioMixer::new(
+        sidequest_game::DuckConfig::default(),
+    ));
+    *prerender_lock.lock().await = Some(sidequest_game::PrerenderScheduler::new(
+        sidequest_game::PrerenderConfig::default(),
+    ));
+    tracing::info!(genre = %genre, "Audio subsystems initialized from genre pack");
+
     // Extract trope definitions from the genre pack for per-session use
     // Collect from genre-level tropes and all world tropes
     let mut all_tropes = pack.tropes.clone();
@@ -1166,16 +1272,16 @@ fn start_character_creation(
     if let Some(world) = pack.worlds.get(world_slug) {
         let mut ctx = format!("World: {}", world.config.name);
         ctx.push_str(&format!("\n{}", world.config.description));
-        if !world.lore.history.is_empty() {
+        if let Some(ref history) = world.lore.history {
             ctx.push_str(&format!(
                 "\nHistory: {}",
-                world.lore.history.chars().take(200).collect::<String>()
+                history.chars().take(200).collect::<String>()
             ));
         }
-        if !world.lore.geography.is_empty() {
+        if let Some(ref geography) = world.lore.geography {
             ctx.push_str(&format!(
                 "\nGeography: {}",
-                world.lore.geography.chars().take(200).collect::<String>()
+                geography.chars().take(200).collect::<String>()
             ));
         }
         *world_context_out = ctx;
@@ -1223,6 +1329,9 @@ async fn dispatch_character_creation(
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
+    music_director: &mut Option<sidequest_game::MusicDirector>,
+    audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1372,6 +1481,9 @@ async fn dispatch_character_creation(
                         trope_defs,
                         world_context,
                         visual_style,
+                        music_director,
+                        audio_mixer,
+                        prerender_scheduler,
                         state,
                         player_id,
                         &genre,
@@ -1414,6 +1526,7 @@ async fn dispatch_character_creation(
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_player_action(
     action: &str,
     char_name: &str,
@@ -1424,6 +1537,9 @@ async fn dispatch_player_action(
     trope_defs: &[sidequest_genre::TropeDefinition],
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
+    music_director: &mut Option<sidequest_game::MusicDirector>,
+    audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     state: &AppState,
     player_id: &str,
     genre_slug: &str,
@@ -1819,30 +1935,31 @@ async fn dispatch_player_action(
         );
     }
 
-    // Audio cue — derive mood from game state, trigger mood-based music from genre pack
-    if !genre_slug.is_empty() {
-        let location_changed = extract_location_header(narration_text).is_some();
-        let mood = if combat_state.in_combat() {
-            "combat"
-        } else if combat_state.drama_weight() > 0.7 {
-            "tension"
-        } else if location_changed {
-            "exploration"
-        } else {
-            "rest"
+    // Audio cue — evaluate mood via MusicDirector, route through AudioMixer
+    if let Some(ref mut director) = music_director {
+        let mood_ctx = sidequest_game::MoodContext {
+            in_combat: combat_state.in_combat(),
+            in_chase: false, // chase state not threaded yet
+            party_health_pct: if max_hp > 0 { hp as f32 / max_hp as f32 } else { 1.0 },
+            quest_completed: false,
+            npc_died: false,
         };
-        tracing::info!(genre = %genre_slug, mood = %mood, "Emitting AUDIO_CUE");
-        messages.push(GameMessage::AudioCue {
-            payload: AudioCuePayload {
-                mood: Some(mood.to_string()),
-                music_track: Some(format!(
-                    "/genre/{}/audio/music/{}_full.ogg",
-                    genre_slug, mood
-                )),
-                sfx_triggers: vec![],
-            },
-            player_id: player_id.to_string(),
-        });
+        // Classify mood first so we can include it in the protocol message
+        let classification = director.classify_mood(&clean_narration, &mood_ctx);
+        let mood_key = classification.primary.as_key();
+        if let Some(cue) = director.evaluate(&clean_narration, &mood_ctx) {
+            let mixer_cues = {
+                let mut mixer_guard = audio_mixer.lock().await;
+                if let Some(ref mut mixer) = *mixer_guard {
+                    mixer.apply_cue(cue)
+                } else {
+                    vec![cue]
+                }
+            };
+            for c in &mixer_cues {
+                messages.push(audio_cue_to_game_message(c, player_id, genre_slug, Some(mood_key)));
+            }
+        }
     }
 
     // TTS streaming — segment narration and spawn background synthesis task
@@ -1866,6 +1983,22 @@ async fn dispatch_player_action(
             let tts_config = sidequest_game::tts_stream::TtsStreamConfig::default();
             let streamer = sidequest_game::tts_stream::TtsStreamer::new(tts_config);
 
+            // Clone Arcs for the spawned TTS task (mixer ducking + prerender)
+            let mixer_for_tts = std::sync::Arc::clone(audio_mixer);
+            let prerender_for_tts = std::sync::Arc::clone(prerender_scheduler);
+            let genre_slug_for_tts = genre_slug.to_string();
+            let tts_segments_for_prerender = tts_segments.clone();
+            let prerender_ctx = sidequest_game::PrerenderContext {
+                in_combat: combat_state.in_combat(),
+                combatant_names: vec![], // TODO: extract from combat state when available
+                pending_destination: extract_location_header(narration_text).map(|s| s.to_string()),
+                active_dialogue_npc: None, // TODO: parse from narration when available
+                art_style: match visual_style {
+                    Some(ref vs) => vs.positive_suffix.clone(),
+                    None => "oil_painting".to_string(),
+                },
+            };
+
             tokio::spawn(async move {
                 let (msg_tx, mut msg_rx) =
                     tokio::sync::mpsc::channel::<sidequest_game::tts_stream::TtsMessage>(32);
@@ -1887,32 +2020,85 @@ async fn dispatch_player_action(
                     }
                 });
 
-                // Bridge TtsMessage → GameMessage → broadcast
+                // Bridge TtsMessage → binary frames (chunks) or GameMessage (start/end)
                 while let Some(tts_msg) = msg_rx.recv().await {
-                    let game_msg = match tts_msg {
+                    match tts_msg {
                         sidequest_game::tts_stream::TtsMessage::Start { total_segments } => {
-                            GameMessage::TtsStart {
+                            // Duck audio channels during TTS
+                            {
+                                let mut mixer_guard = mixer_for_tts.lock().await;
+                                if let Some(ref mut mixer) = *mixer_guard {
+                                    for duck_cue in mixer.on_tts_start() {
+                                        let _ = state_for_tts.broadcast(
+                                            audio_cue_to_game_message(&duck_cue, &player_id_for_tts, &genre_slug_for_tts, None),
+                                        );
+                                    }
+                                }
+                            }
+                            // Speculative prerender during TTS playback
+                            {
+                                let mut prerender_guard = prerender_for_tts.lock().await;
+                                if let Some(ref mut prerender) = *prerender_guard {
+                                    if let Some(subject) = prerender.on_tts_start(
+                                        &tts_segments_for_prerender,
+                                        &prerender_ctx,
+                                    ) {
+                                        if let Some(ref queue) = state_for_tts.inner.render_queue {
+                                            let _ = queue.enqueue(subject, &prerender_ctx.art_style, "flux-schnell").await;
+                                        }
+                                    }
+                                }
+                            }
+                            let game_msg = GameMessage::TtsStart {
                                 payload: sidequest_protocol::TtsStartPayload { total_segments },
                                 player_id: player_id_for_tts.clone(),
-                            }
+                            };
+                            let _ = state_for_tts.broadcast(game_msg);
                         }
                         sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
-                            GameMessage::TtsChunk {
-                                payload: sidequest_protocol::TtsChunkPayload {
-                                    audio_base64: chunk.audio_base64,
-                                    segment_index: chunk.segment_index,
-                                    is_last_chunk: chunk.is_last_chunk,
-                                    speaker: chunk.speaker,
-                                    format: format!("{:?}", chunk.format).to_lowercase(),
-                                },
-                                player_id: player_id_for_tts.clone(),
-                            }
+                            // Build binary voice frame: [4-byte header len][JSON header][audio bytes]
+                            let header = serde_json::json!({
+                                "type": "VOICE_AUDIO",
+                                "segment_id": format!("seg_{}", chunk.segment_index),
+                                "sample_rate": 24000,
+                                "format": format!("{:?}", chunk.format).to_lowercase()
+                            });
+                            let header_bytes = serde_json::to_vec(&header).unwrap_or_default();
+                            let audio_bytes = &chunk.audio_raw;
+                            let mut frame =
+                                Vec::with_capacity(4 + header_bytes.len() + audio_bytes.len());
+                            frame.extend_from_slice(
+                                &(header_bytes.len() as u32).to_be_bytes(),
+                            );
+                            frame.extend_from_slice(&header_bytes);
+                            frame.extend_from_slice(audio_bytes);
+                            state_for_tts.broadcast_binary(frame);
                         }
-                        sidequest_game::tts_stream::TtsMessage::End => GameMessage::TtsEnd {
-                            player_id: player_id_for_tts.clone(),
-                        },
-                    };
-                    let _ = state_for_tts.broadcast(game_msg);
+                        sidequest_game::tts_stream::TtsMessage::End => {
+                            // Restore audio channels after TTS
+                            {
+                                let mut mixer_guard = mixer_for_tts.lock().await;
+                                if let Some(ref mut mixer) = *mixer_guard {
+                                    for restore_cue in mixer.on_tts_end() {
+                                        let _ = state_for_tts.broadcast(
+                                            audio_cue_to_game_message(&restore_cue, &player_id_for_tts, &genre_slug_for_tts, None),
+                                        );
+                                    }
+                                }
+                            }
+                            // Clear prerender pending state
+                            {
+                                let mut prerender_guard = prerender_for_tts.lock().await;
+                                if let Some(ref mut prerender) = *prerender_guard {
+                                    prerender.on_tts_end();
+                                }
+                            }
+                            let game_msg = GameMessage::TtsEnd {
+                                player_id: player_id_for_tts.clone(),
+                            };
+                            let _ = state_for_tts.broadcast(game_msg);
+                        }
+                    }
                 }
 
                 let _ = stream_handle.await;
@@ -1983,6 +2169,36 @@ fn strip_location_header(text: &str) -> String {
             .to_string()
     } else {
         text.to_string()
+    }
+}
+
+/// Convert a game-internal AudioCue to a protocol GameMessage for WebSocket broadcast.
+///
+/// `genre_slug` is prepended to track paths so the client can fetch via `/genre/{slug}/{path}`.
+/// `mood` is included so the client's deduplication logic works (it ignores cues without mood).
+fn audio_cue_to_game_message(
+    cue: &sidequest_game::AudioCue,
+    player_id: &str,
+    genre_slug: &str,
+    mood: Option<&str>,
+) -> GameMessage {
+    let full_track = cue.track_id.as_ref().map(|path| {
+        if genre_slug.is_empty() {
+            path.clone()
+        } else {
+            format!("/genre/{}/{}", genre_slug, path)
+        }
+    });
+    GameMessage::AudioCue {
+        payload: AudioCuePayload {
+            mood: mood.map(|s| s.to_string()),
+            music_track: full_track,
+            sfx_triggers: vec![],
+            channel: Some(cue.channel.to_string()),
+            action: Some(cue.action.to_string()),
+            volume: Some(cue.volume),
+        },
+        player_id: player_id.to_string(),
     }
 }
 
