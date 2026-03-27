@@ -1881,10 +1881,13 @@ async fn dispatch_player_action(
         if let Some(hooks) = cj.get("hooks").and_then(|h| h.as_array()) {
             let hook_strs: Vec<&str> = hooks.iter().filter_map(|v| v.as_str()).collect();
             if !hook_strs.is_empty() {
-                state_summary.push_str("\nCharacter traits/abilities:\n");
+                state_summary.push_str("\n\nABILITY CONSTRAINTS — THIS IS A HARD RULE:\n");
+                state_summary.push_str("The character can ONLY use the following abilities. Any action that requires a power, mutation, or supernatural ability NOT on this list MUST fail or be reinterpreted as a mundane attempt. Do NOT grant the character abilities they do not have.\n");
+                state_summary.push_str("Allowed abilities:\n");
                 for h in &hook_strs {
                     state_summary.push_str(&format!("- {}\n", h));
                 }
+                state_summary.push_str("If the player attempts to use an ability NOT listed above, describe the attempt failing or reframe it as a non-supernatural action.\n");
             }
         }
         // Extract backstory
