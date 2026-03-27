@@ -29,6 +29,28 @@ pub struct RenderParams {
     pub tier: String,
 }
 
+/// Parameters for a `tts` (text-to-speech) request.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TtsParams {
+    /// The text to synthesize.
+    pub text: String,
+    /// TTS model name (e.g. "kokoro", "piper").
+    pub model: String,
+    /// Voice ID within the model.
+    pub voice_id: String,
+    /// Speech speed multiplier (1.0 = normal).
+    pub speed: f32,
+}
+
+/// Result from a `tts` request.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TtsResult {
+    /// Raw audio bytes (WAV or Opus encoded).
+    pub audio_bytes: Vec<u8>,
+    /// Duration of the audio in milliseconds.
+    pub duration_ms: u64,
+}
+
 /// Parameters for a `warm_up` request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WarmUpParams {

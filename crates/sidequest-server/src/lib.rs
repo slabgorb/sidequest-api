@@ -1794,7 +1794,120 @@ async fn dispatch_player_action(
         });
     }
 
+    // TTS streaming — segment narration and spawn background synthesis task
+    if !clean_narration.is_empty() {
+        let segmenter = sidequest_game::SentenceSegmenter::new();
+        let segments = segmenter.segment(&clean_narration);
+        if !segments.is_empty() {
+            let tts_segments: Vec<sidequest_game::tts_stream::TtsSegment> = segments
+                .iter()
+                .map(|seg| sidequest_game::tts_stream::TtsSegment {
+                    text: seg.text.clone(),
+                    index: seg.index,
+                    is_last: seg.is_last,
+                    speaker: "narrator".to_string(),
+                    pause_after_ms: if seg.is_last { 0 } else { 200 },
+                })
+                .collect();
+
+            let player_id_for_tts = player_id.to_string();
+            let state_for_tts = state.clone();
+            let tts_config = sidequest_game::tts_stream::TtsStreamConfig::default();
+            let streamer = sidequest_game::tts_stream::TtsStreamer::new(tts_config);
+
+            tokio::spawn(async move {
+                let (msg_tx, mut msg_rx) =
+                    tokio::sync::mpsc::channel::<sidequest_game::tts_stream::TtsMessage>(32);
+
+                // Connect to daemon for synthesis
+                let daemon_config = sidequest_daemon_client::DaemonConfig::default();
+                let synthesizer = match sidequest_daemon_client::DaemonClient::connect(daemon_config).await {
+                    Ok(client) => DaemonSynthesizer { client: tokio::sync::Mutex::new(client) },
+                    Err(e) => {
+                        tracing::warn!(error = %e, "TTS daemon unavailable — skipping voice synthesis");
+                        return;
+                    }
+                };
+
+                // Spawn the streamer pipeline
+                let stream_handle = tokio::spawn(async move {
+                    if let Err(e) = streamer.stream(tts_segments, &synthesizer, msg_tx).await {
+                        tracing::warn!(error = %e, "TTS stream failed");
+                    }
+                });
+
+                // Bridge TtsMessage → GameMessage → broadcast
+                while let Some(tts_msg) = msg_rx.recv().await {
+                    let game_msg = match tts_msg {
+                        sidequest_game::tts_stream::TtsMessage::Start { total_segments } => {
+                            GameMessage::TtsStart {
+                                payload: sidequest_protocol::TtsStartPayload { total_segments },
+                                player_id: player_id_for_tts.clone(),
+                            }
+                        }
+                        sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
+                            GameMessage::TtsChunk {
+                                payload: sidequest_protocol::TtsChunkPayload {
+                                    audio_base64: chunk.audio_base64,
+                                    segment_index: chunk.segment_index,
+                                    is_last_chunk: chunk.is_last_chunk,
+                                    speaker: chunk.speaker,
+                                    format: format!("{:?}", chunk.format).to_lowercase(),
+                                },
+                                player_id: player_id_for_tts.clone(),
+                            }
+                        }
+                        sidequest_game::tts_stream::TtsMessage::End => GameMessage::TtsEnd {
+                            player_id: player_id_for_tts.clone(),
+                        },
+                    };
+                    let _ = state_for_tts.broadcast(game_msg);
+                }
+
+                let _ = stream_handle.await;
+                tracing::info!(player_id = %player_id_for_tts, "TTS stream complete");
+            });
+        }
+    }
+
     messages
+}
+
+/// DaemonSynthesizer — implements TtsSynthesizer for the real daemon client.
+struct DaemonSynthesizer {
+    client: tokio::sync::Mutex<sidequest_daemon_client::DaemonClient>,
+}
+
+impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
+    fn synthesize(
+        &self,
+        text: &str,
+        _speaker: &str,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<Vec<u8>, sidequest_game::tts_stream::TtsError>,
+                > + Send
+                + '_,
+        >,
+    > {
+        let text = text.to_string();
+        Box::pin(async move {
+            let params = sidequest_daemon_client::TtsParams {
+                text,
+                model: "kokoro".to_string(),
+                voice_id: "en_male_deep".to_string(),
+                speed: 0.95,
+            };
+            let mut client = self.client.lock().await;
+            match client.synthesize(params).await {
+                Ok(result) => Ok(result.audio_bytes),
+                Err(e) => Err(sidequest_game::tts_stream::TtsError::SynthesisFailed(
+                    e.to_string(),
+                )),
+            }
+        })
+    }
 }
 
 /// Extract a location header from narration text (format: **Location Name**)

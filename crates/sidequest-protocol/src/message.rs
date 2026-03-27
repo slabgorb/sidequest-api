@@ -189,6 +189,31 @@ pub enum GameMessage {
         player_id: String,
     },
 
+    /// TTS stream start — sent before first audio chunk.
+    #[serde(rename = "TTS_START")]
+    TtsStart {
+        /// The typed payload for this message.
+        payload: TtsStartPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
+    /// TTS audio chunk — base64-encoded audio for one narration segment.
+    #[serde(rename = "TTS_CHUNK")]
+    TtsChunk {
+        /// The typed payload for this message.
+        payload: TtsChunkPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
+    /// TTS stream end — sent after last audio chunk.
+    #[serde(rename = "TTS_END")]
+    TtsEnd {
+        /// The player who sent this message.
+        player_id: String,
+    },
+
     /// Queued player actions.
     #[serde(rename = "ACTION_QUEUE")]
     ActionQueue {
@@ -466,6 +491,28 @@ pub struct VoiceTextPayload {
     /// The spoken text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+}
+
+/// TTS stream start payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TtsStartPayload {
+    /// Total number of audio segments to expect.
+    pub total_segments: usize,
+}
+
+/// TTS audio chunk payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TtsChunkPayload {
+    /// Base64-encoded audio bytes.
+    pub audio_base64: String,
+    /// Segment index in the narration.
+    pub segment_index: usize,
+    /// Whether this is the last chunk.
+    pub is_last_chunk: bool,
+    /// Speaker identity (character name or "narrator").
+    pub speaker: String,
+    /// Audio format ("wav" or "opus").
+    pub format: String,
 }
 
 /// Action queue payload.
