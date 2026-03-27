@@ -56,6 +56,7 @@ fn mock_game_snapshot() -> GameSnapshot {
         last_saved_at: None,
         active_stakes: String::new(),
         lore_established: vec![],
+        turns_since_meaningful: 0,
     }
 }
 
@@ -74,6 +75,8 @@ fn mock_state_delta() -> StateDelta {
         "atmosphere": false,
         "regions": false,
         "routes": false,
+        "active_stakes": false,
+        "lore": false,
         "active_stakes": false,
         "lore": false,
         "new_location": null

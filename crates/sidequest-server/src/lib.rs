@@ -1272,16 +1272,16 @@ async fn start_character_creation(
     if let Some(world) = pack.worlds.get(world_slug) {
         let mut ctx = format!("World: {}", world.config.name);
         ctx.push_str(&format!("\n{}", world.config.description));
-        if !world.lore.history.is_empty() {
+        if let Some(ref history) = world.lore.history {
             ctx.push_str(&format!(
                 "\nHistory: {}",
-                world.lore.history.chars().take(200).collect::<String>()
+                history.chars().take(200).collect::<String>()
             ));
         }
-        if !world.lore.geography.is_empty() {
+        if let Some(ref geography) = world.lore.geography {
             ctx.push_str(&format!(
                 "\nGeography: {}",
-                world.lore.geography.chars().take(200).collect::<String>()
+                geography.chars().take(200).collect::<String>()
             ));
         }
         *world_context_out = ctx;
