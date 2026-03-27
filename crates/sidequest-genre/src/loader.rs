@@ -136,11 +136,14 @@ fn load_single_world(
 ) -> Result<World, GenreError> {
     let config: WorldConfig = load_yaml(&world_path.join("world.yaml"))?;
     let lore: WorldLore = load_yaml(&world_path.join("lore.yaml"))?;
-    let legends: Vec<Legend> =
-        load_yaml_optional(&world_path.join("legends.yaml"))?.unwrap_or_default();
     let cartography: CartographyConfig = load_yaml(&world_path.join("cartography.yaml"))?;
     let cultures: Vec<Culture> =
         load_yaml_optional(&world_path.join("cultures.yaml"))?.unwrap_or_default();
+
+    // Legends: accept either Vec<Legend> (low_fantasy) or map with "legends" key (road_warrior).
+    // Keep the raw value for AI prompt injection of origin_myth etc.
+    let legends_path = world_path.join("legends.yaml");
+    let (legends, legends_raw) = load_legends_flexible(&legends_path)?;
 
     // Load world tropes and resolve inheritance from genre-level tropes
     let raw_world_tropes: Vec<TropeDefinition> =
@@ -151,6 +154,14 @@ fn load_single_world(
         resolve_trope_inheritance(genre_tropes, &raw_world_tropes)?
     };
 
+    // Optional world-level overrides
+    let archetypes: Vec<NpcArchetype> =
+        load_yaml_optional(&world_path.join("archetypes.yaml"))?.unwrap_or_default();
+    let visual_style: Option<serde_json::Value> =
+        load_yaml_optional(&world_path.join("visual_style.yaml"))?;
+    let history: Option<serde_json::Value> =
+        load_yaml_optional(&world_path.join("history.yaml"))?;
+
     Ok(World {
         config,
         lore,
@@ -158,7 +169,38 @@ fn load_single_world(
         cartography,
         cultures,
         tropes,
+        archetypes,
+        visual_style,
+        history,
+        legends_raw,
     })
+}
+
+/// Load legends.yaml flexibly: accepts Vec<Legend> or a map with a "legends" key.
+fn load_legends_flexible(path: &Path) -> Result<(Vec<Legend>, Option<serde_json::Value>), GenreError> {
+    if !path.exists() {
+        return Ok((Vec::new(), None));
+    }
+
+    let content = std::fs::read_to_string(path).map_err(|e| load_error(path, e))?;
+
+    // Try as Vec<Legend> first (low_fantasy format)
+    if let Ok(legends) = serde_yaml::from_str::<Vec<Legend>>(&content) {
+        return Ok((legends, None));
+    }
+
+    // Try as a map — extract "legends" key if present, keep full raw value
+    let raw: serde_json::Value =
+        serde_yaml::from_str(&content).map_err(|e| load_error(path, e))?;
+
+    let legends = if let Some(legends_val) = raw.get("legends") {
+        serde_json::from_value::<Vec<Legend>>(legends_val.clone())
+            .map_err(|e| load_error(path, e))?
+    } else {
+        Vec::new()
+    };
+
+    Ok((legends, Some(raw)))
 }
 
 /// Multi-path genre pack loader.
