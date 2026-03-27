@@ -32,6 +32,7 @@ pub mod session;
 pub mod state;
 pub mod subject;
 pub mod trope;
+pub mod tension_tracker;
 pub mod turn;
 pub mod turn_mode;
 
@@ -63,4 +64,5 @@ pub use state::{
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
+pub use tension_tracker::{CombatEvent, TensionTracker};
 pub use turn::{TurnManager, TurnPhase};
