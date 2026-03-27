@@ -30,6 +30,7 @@ pub mod persistence;
 pub mod prerender;
 pub mod progression;
 pub mod render_queue;
+pub mod scene_directive;
 pub mod segmenter;
 pub mod state;
 pub mod subject;
