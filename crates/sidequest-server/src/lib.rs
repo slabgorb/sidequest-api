@@ -2787,7 +2787,7 @@ async fn dispatch_player_action(
             let tts_segments: Vec<sidequest_game::tts_stream::TtsSegment> = segments
                 .iter()
                 .map(|seg| sidequest_game::tts_stream::TtsSegment {
-                    text: seg.text.clone(),
+                    text: strip_markdown_for_tts(&seg.text),
                     index: seg.index,
                     is_last: seg.is_last,
                     speaker: "narrator".to_string(),
@@ -3074,6 +3074,48 @@ fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
     }
 
     items
+}
+
+/// Strip markdown syntax from text for TTS voice synthesis.
+/// Removes bold (**), italic (*/_), headers (#), links, images, code blocks.
+fn strip_markdown_for_tts(text: &str) -> String {
+    let mut result = text.to_string();
+    // Bold and italic: **text**, *text*, __text__, _text_
+    // Process ** before * to avoid partial matches
+    result = result.replace("**", "");
+    result = result.replace("__", "");
+    // Single * and _ as italic markers (only between word boundaries)
+    // Simple approach: remove standalone * and _ that look like formatting
+    let mut cleaned = String::with_capacity(result.len());
+    let chars: Vec<char> = result.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if (chars[i] == '*' || chars[i] == '_')
+            && i + 1 < chars.len()
+            && chars[i + 1].is_alphanumeric()
+        {
+            // Skip opening italic marker
+            i += 1;
+            continue;
+        }
+        if (chars[i] == '*' || chars[i] == '_')
+            && i > 0
+            && chars[i - 1].is_alphanumeric()
+        {
+            // Skip closing italic marker
+            i += 1;
+            continue;
+        }
+        cleaned.push(chars[i]);
+        i += 1;
+    }
+    // Remove markdown headers (# at start of line)
+    cleaned = cleaned
+        .lines()
+        .map(|line| line.trim_start_matches('#').trim_start())
+        .collect::<Vec<_>>()
+        .join("\n");
+    cleaned
 }
 
 /// Extract item losses from narration — trades, gifts, drops.
