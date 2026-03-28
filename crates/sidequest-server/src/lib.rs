@@ -1157,6 +1157,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
+                        &mut axes_config,
+                        &mut axis_values,
                         &mut visual_style,
                         &mut music_director,
                         &audio_mixer,
@@ -1169,6 +1171,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &shared_session,
                         &state,
                         &player_id_str,
+                        &mut continuity_corrections,
                     )
                     .await;
                     for resp in responses {
@@ -1265,6 +1268,8 @@ async fn dispatch_message(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    axes_config: &mut Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -1277,6 +1282,7 @@ async fn dispatch_message(
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     state: &AppState,
     player_id: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1293,6 +1299,8 @@ async fn dispatch_message(
                 discovered_regions,
                 trope_defs,
                 world_context,
+                axes_config,
+                axis_values,
                 visual_style,
                 music_director,
                 audio_mixer,
@@ -1302,6 +1310,7 @@ async fn dispatch_message(
                 lore_store,
                 state,
                 player_id,
+                continuity_corrections,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1333,6 +1342,8 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                axes_config,
+                axis_values,
                 visual_style,
                 npc_registry,
                 narration_history,
@@ -1345,6 +1356,7 @@ async fn dispatch_message(
                 prerender_scheduler,
                 state,
                 player_id,
+                continuity_corrections,
             )
             .await
         }
@@ -1378,6 +1390,8 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                axes_config,
+                axis_values,
                 visual_style,
                 npc_registry,
                 narration_history,
@@ -1393,7 +1407,7 @@ async fn dispatch_message(
                 session.genre_slug().unwrap_or(""),
                 session.world_slug().unwrap_or(""),
                 player_name_store.as_deref().unwrap_or("Player"),
-                &mut continuity_corrections,
+                continuity_corrections,
             )
             .await
         }
@@ -1429,6 +1443,8 @@ async fn dispatch_connect(
     discovered_regions: &mut Vec<String>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    axes_config: &mut Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -1438,6 +1454,7 @@ async fn dispatch_connect(
     lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1586,6 +1603,7 @@ async fn dispatch_connect(
                             let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
                             if let Ok(pack) = loader.load(&genre_code) {
                                 *visual_style = Some(pack.visual_style.clone());
+                                *axes_config = Some(pack.axes.clone());
                                 *music_director = Some(sidequest_game::MusicDirector::new(&pack.audio));
                                 *audio_mixer.lock().await = Some(sidequest_game::AudioMixer::new(
                                     sidequest_game::DuckConfig::default(),
@@ -1627,7 +1645,7 @@ async fn dispatch_connect(
                         tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, visual_style,
+                            builder, trope_defs, world_context, visual_style, axes_config,
                             music_director, audio_mixer, prerender_scheduler,
                             lore_store, genre, world, state, player_id,
                         ).await {
@@ -1638,7 +1656,7 @@ async fn dispatch_connect(
                         tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, visual_style,
+                            builder, trope_defs, world_context, visual_style, axes_config,
                             music_director, audio_mixer, prerender_scheduler,
                             lore_store, genre, world, state, player_id,
                         ).await {
@@ -1654,6 +1672,7 @@ async fn dispatch_connect(
                     trope_defs,
                     world_context,
                     visual_style,
+                    axes_config,
                     music_director,
                     audio_mixer,
                     prerender_scheduler,
@@ -1698,6 +1717,7 @@ async fn start_character_creation(
     trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context_out: &mut String,
     visual_style_out: &mut Option<sidequest_genre::VisualStyle>,
+    axes_config_out: &mut Option<sidequest_genre::AxesConfig>,
     music_director_out: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1725,6 +1745,7 @@ async fn start_character_creation(
     };
 
     *visual_style_out = Some(pack.visual_style.clone());
+    *axes_config_out = Some(pack.axes.clone());
 
     // Initialize audio subsystems from genre pack
     *music_director_out = Some(sidequest_game::MusicDirector::new(&pack.audio));
@@ -1840,6 +1861,8 @@ async fn dispatch_character_creation(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
+    axes_config: &Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
@@ -1852,6 +1875,7 @@ async fn dispatch_character_creation(
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     state: &AppState,
     player_id: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2006,6 +2030,8 @@ async fn dispatch_character_creation(
                         trope_states,
                         trope_defs,
                         world_context,
+                        axes_config,
+                        axis_values,
                         visual_style,
                         npc_registry,
                         narration_history,
@@ -2021,7 +2047,7 @@ async fn dispatch_character_creation(
                         &genre,
                         &world,
                         &pname_for_save,
-                        &mut continuity_corrections,
+                        continuity_corrections,
                     )
                     .await;
 
@@ -2152,6 +2178,8 @@ async fn dispatch_player_action(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &[sidequest_genre::TropeDefinition],
     world_context: &str,
+    axes_config: &Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
@@ -2243,6 +2271,9 @@ async fn dispatch_player_action(
         router.register(Box::new(MapCommand));
         router.register(Box::new(SaveCommand));
         router.register(Box::new(GmCommand));
+        if let Some(ref ac) = axes_config {
+            router.register(Box::new(sidequest_game::ToneCommand::new(ac.clone())));
+        }
 
         // Build a minimal GameSnapshot from the local session state.
         let snapshot = {
@@ -2252,6 +2283,7 @@ async fn dispatch_player_action(
                 location: current_location.clone(),
                 combat: combat_state.clone(),
                 chase: chase_state.clone(),
+                axis_values: axis_values.clone(),
                 active_tropes: trope_states.iter().map(|ts| ts.trope_definition_id().to_string()).collect(),
                 ..GameSnapshot::default()
             };
@@ -2284,6 +2316,10 @@ async fn dispatch_player_action(
                         }
                     }
                     format!("GM command applied.")
+                }
+                sidequest_game::slash_router::CommandResult::ToneChange(new_values) => {
+                    *axis_values = new_values.clone();
+                    format!("Tone updated.")
                 }
                 _ => "Command executed.".to_string(),
             };
