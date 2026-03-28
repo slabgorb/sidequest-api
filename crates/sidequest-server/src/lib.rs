@@ -2206,11 +2206,13 @@ async fn dispatch_player_action(
         },
     });
 
-    // THINKING indicator
+    // THINKING indicator — send eagerly BEFORE LLM call so UI shows it immediately
     let thinking = GameMessage::Thinking {
         payload: ThinkingPayload {},
         player_id: player_id.to_string(),
     };
+    tracing::info!(player_id = %player_id, "thinking.sent");
+    let _ = state.broadcast(thinking.clone());
 
     // Slash command interception — route /commands to mechanical handlers, not the LLM.
     if action.starts_with('/') {
@@ -2284,7 +2286,6 @@ async fn dispatch_player_action(
             });
 
             return vec![
-                thinking,
                 GameMessage::Narration {
                     payload: NarrationPayload {
                         text,
@@ -2598,7 +2599,7 @@ async fn dispatch_player_action(
                         },
                         player_id: player_id.to_string(),
                     };
-                    return vec![thinking, waiting];
+                    return vec![waiting];
                 }
             }
         }
@@ -2639,7 +2640,7 @@ async fn dispatch_player_action(
         },
     });
 
-    let mut messages = vec![thinking];
+    let mut messages = vec![];
 
     // Extract location header from narration (format: **Location Name**\n\n...)
     // Bug 1: Update current_location so subsequent turns maintain continuity
