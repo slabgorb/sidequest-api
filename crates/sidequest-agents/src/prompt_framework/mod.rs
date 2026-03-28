@@ -13,6 +13,8 @@ mod tests;
 pub use soul::{parse_soul_md, SoulData, SoulPrinciple};
 pub use types::{AttentionZone, PromptSection, RuleTier, SectionCategory};
 
+use sidequest_game::character::Character;
+use sidequest_game::known_fact::Confidence;
 use sidequest_game::npc::Npc;
 use sidequest_game::scene_directive::SceneDirective;
 
@@ -160,6 +162,49 @@ impl PromptRegistry {
             );
         }
     }
+    /// Inject a character's known facts into the narrator prompt.
+    ///
+    /// Builds a `[CHARACTER KNOWLEDGE]` section with facts tagged by confidence
+    /// level (certain/suspected/rumored), sorted most-recent-first, capped at 20.
+    /// Does nothing if the character has no known facts.
+    ///
+    /// Story 9-4: Parallel to `register_ocean_personalities_section()`.
+    pub fn register_knowledge_section(
+        &mut self,
+        agent_name: &str,
+        character: &Character,
+    ) {
+        if character.known_facts.is_empty() {
+            return;
+        }
+
+        // Sort by learned_turn descending (most recent first), cap at 20
+        let mut facts: Vec<&sidequest_game::known_fact::KnownFact> =
+            character.known_facts.iter().collect();
+        facts.sort_by(|a, b| b.learned_turn.cmp(&a.learned_turn));
+        let facts: Vec<_> = facts.into_iter().take(20).collect();
+
+        let mut content = format!("[{}'s KNOWLEDGE]\n", character.core.name);
+        for fact in &facts {
+            let confidence_tag = match fact.confidence {
+                Confidence::Certain => "certain",
+                Confidence::Suspected => "suspected",
+                Confidence::Rumored => "rumored",
+            };
+            content.push_str(&format!("- {} ({})\n", fact.content, confidence_tag));
+        }
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "character_knowledge",
+                content,
+                AttentionZone::Valley,
+                SectionCategory::Context,
+            ),
+        );
+    }
+
 }
 
 impl PromptComposer for PromptRegistry {

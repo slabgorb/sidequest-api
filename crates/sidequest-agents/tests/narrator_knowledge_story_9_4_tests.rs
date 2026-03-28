@@ -234,9 +234,18 @@ fn knowledge_section_confidence_tag_associated_with_fact() {
 fn knowledge_section_caps_at_20_facts() {
     let mut registry = PromptRegistry::new();
 
-    // Create 25 facts with ascending turn numbers
-    let facts: Vec<KnownFact> = (1..=25)
-        .map(|i| make_fact(&format!("Fact number {}", i), i, Confidence::Certain))
+    // Create 25 facts with ascending turn numbers.
+    // Use NATO phonetic alphabet to avoid substring collisions
+    // (e.g., "Fact number 1" matches inside "Fact number 10").
+    let labels = [
+        "alpha", "bravo", "charlie", "delta", "echo",
+        "foxtrot", "golf", "hotel", "india", "juliet",
+        "kilo", "lima", "mike", "november", "oscar",
+        "papa", "quebec", "romeo", "sierra", "tango",
+        "uniform", "victor", "whiskey", "xray", "yankee",
+    ];
+    let facts: Vec<KnownFact> = labels.iter().enumerate()
+        .map(|(i, label)| make_fact(&format!("fact-{}", label), (i + 1) as u64, Confidence::Certain))
         .collect();
     let character = test_character_with_facts("Reva", facts);
 
@@ -245,21 +254,21 @@ fn knowledge_section_caps_at_20_facts() {
     let prompt = registry.compose("narrator");
 
     // Facts 6-25 (most recent 20) should be present
-    for i in 6..=25 {
+    for label in &labels[5..] {
         assert!(
-            prompt.contains(&format!("Fact number {}", i)),
-            "Fact {} (within cap) should be in prompt.\nPrompt:\n{}",
-            i,
+            prompt.contains(&format!("fact-{}", label)),
+            "fact-{} (within cap) should be in prompt.\nPrompt:\n{}",
+            label,
             prompt,
         );
     }
 
     // Facts 1-5 (oldest, beyond cap) should NOT be present
-    for i in 1..=5 {
+    for label in &labels[..5] {
         assert!(
-            !prompt.contains(&format!("Fact number {}", i)),
-            "Fact {} (beyond cap of 20) should NOT be in prompt.\nPrompt:\n{}",
-            i,
+            !prompt.contains(&format!("fact-{}", label)),
+            "fact-{} (beyond cap of 20) should NOT be in prompt.\nPrompt:\n{}",
+            label,
             prompt,
         );
     }
@@ -439,27 +448,22 @@ fn per_character_facts_are_not_mixed() {
     let thorn_fact_pos = prompt.find("Thorn-only fact")
         .expect("Thorn's fact should be in prompt");
 
-    // Reva's fact should be closer to Reva's header than to Thorn's
-    let reva_fact_dist_to_reva = reva_fact_pos.abs_diff(reva_pos);
-    let reva_fact_dist_to_thorn = reva_fact_pos.abs_diff(thorn_pos);
+    // Reva's fact should appear after Reva's header and before Thorn's header
     assert!(
-        reva_fact_dist_to_reva < reva_fact_dist_to_thorn,
-        "Reva's fact should be in Reva's section, not Thorn's.\n\
-         Reva header at {}, Thorn header at {}, Reva fact at {}",
+        reva_fact_pos > reva_pos && reva_fact_pos < thorn_pos,
+        "Reva's fact should be between Reva's header and Thorn's header.\n\
+         Reva header at {}, Reva fact at {}, Thorn header at {}",
         reva_pos,
-        thorn_pos,
         reva_fact_pos,
+        thorn_pos,
     );
 
-    // Thorn's fact should be closer to Thorn's header
-    let thorn_fact_dist_to_thorn = thorn_fact_pos.abs_diff(thorn_pos);
-    let thorn_fact_dist_to_reva = thorn_fact_pos.abs_diff(reva_pos);
+    // Thorn's fact should appear after Thorn's header
     assert!(
-        thorn_fact_dist_to_thorn < thorn_fact_dist_to_reva,
-        "Thorn's fact should be in Thorn's section, not Reva's.\n\
-         Thorn header at {}, Reva header at {}, Thorn fact at {}",
+        thorn_fact_pos > thorn_pos,
+        "Thorn's fact should appear after Thorn's header.\n\
+         Thorn header at {}, Thorn fact at {}",
         thorn_pos,
-        reva_pos,
         thorn_fact_pos,
     );
 }
