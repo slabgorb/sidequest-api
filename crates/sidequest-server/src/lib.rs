@@ -3306,6 +3306,11 @@ async fn dispatch_player_action(
     if !clean_narration.is_empty() {
         let segmenter = sidequest_game::SentenceSegmenter::new();
         let segments = segmenter.segment(&clean_narration);
+        tracing::info!(
+            segment_count = segments.len(),
+            narration_len = clean_narration.len(),
+            "tts.segmented"
+        );
         if !segments.is_empty() {
             let tts_segments: Vec<sidequest_game::tts_stream::TtsSegment> = segments
                 .iter()
@@ -3396,6 +3401,18 @@ async fn dispatch_player_action(
                             let _ = state_for_tts.broadcast(game_msg);
                         }
                         sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
+                            // Send NARRATION_CHUNK so text reveals sentence-by-sentence
+                            // synchronized with TTS playback (items 2+3).
+                            if let Some(seg) = tts_segments_for_prerender.get(chunk.segment_index) {
+                                let chunk_msg = GameMessage::NarrationChunk {
+                                    payload: sidequest_protocol::NarrationChunkPayload {
+                                        text: seg.text.clone(),
+                                    },
+                                    player_id: player_id_for_tts.clone(),
+                                };
+                                let _ = state_for_tts.broadcast(chunk_msg);
+                            }
+
                             // Build binary voice frame: [4-byte header len][JSON header][audio bytes]
                             // The daemon always returns raw PCM s16le — use that format string
                             // so the UI routes to playVoicePCM instead of decodeAudioData.
