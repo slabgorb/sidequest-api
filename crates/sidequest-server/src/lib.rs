@@ -1116,6 +1116,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
+    let mut axes_config: Option<sidequest_genre::AxesConfig> = None;
+    let mut axis_values: Vec<sidequest_game::axis::AxisValue> = vec![];
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
@@ -1125,6 +1127,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // Bug 17: In-memory narration history for context accumulation across turns.
     // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
     let mut narration_history: Vec<String> = vec![];
+    // Continuity validator: corrections from the previous turn, injected into the next narrator prompt.
+    let mut continuity_corrections = String::new();
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>> =
@@ -1389,6 +1393,7 @@ async fn dispatch_message(
                 session.genre_slug().unwrap_or(""),
                 session.world_slug().unwrap_or(""),
                 player_name_store.as_deref().unwrap_or("Player"),
+                &mut continuity_corrections,
             )
             .await
         }
@@ -1472,6 +1477,7 @@ async fn dispatch_connect(
                         *discovered_regions = saved.snapshot.discovered_regions.clone();
                         *turn_manager = saved.snapshot.turn_manager.clone();
                         *npc_registry = saved.snapshot.npc_registry.clone();
+                        *axis_values = saved.snapshot.axis_values.clone();
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -2015,6 +2021,7 @@ async fn dispatch_character_creation(
                         &genre,
                         &world,
                         &pname_for_save,
+                        &mut continuity_corrections,
                     )
                     .await;
 
@@ -2160,6 +2167,7 @@ async fn dispatch_player_action(
     genre_slug: &str,
     world_slug: &str,
     player_name_for_save: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     // Sync world-level state from shared session (if multiplayer)
     {
@@ -2536,6 +2544,32 @@ async fn dispatch_player_action(
             state_summary.push_str("\n\n");
             state_summary.push_str(&lore_text);
         }
+    }
+
+    // F9: Wish Consequence Engine — detect power-grab actions and inject consequence context
+    {
+        let mut engine = sidequest_game::WishConsequenceEngine::new();
+        if let Some(wish) = engine.evaluate(char_name, action) {
+            let wish_context = sidequest_game::WishConsequenceEngine::build_prompt_context(&wish);
+            tracing::info!(
+                wisher = %wish.wisher_name,
+                category = ?wish.consequence_category,
+                "wish_consequence.power_grab_detected"
+            );
+            state_summary.push_str(&wish_context);
+        }
+    }
+
+    // Inject continuity corrections from the previous turn (if any)
+    if !continuity_corrections.is_empty() {
+        state_summary.push_str("\n\n");
+        state_summary.push_str(continuity_corrections);
+        tracing::info!(
+            corrections_len = continuity_corrections.len(),
+            "continuity.corrections_injected_to_prompt"
+        );
+        // Clear after injection — corrections are one-shot
+        continuity_corrections.clear();
     }
 
     // Check if barrier mode is active (Structured/Cinematic turn mode)
@@ -3396,6 +3430,7 @@ async fn dispatch_player_action(
                 // Sync turn manager and NPC registry to snapshot for cross-session persistence
                 snapshot.turn_manager = turn_manager.clone();
                 snapshot.npc_registry = npc_registry.clone();
+                snapshot.axis_values = axis_values.clone();
                 // Append narration to log for recap on reconnect
                 snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
                     timestamp: 0,

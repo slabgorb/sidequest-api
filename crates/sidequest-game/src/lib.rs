@@ -7,6 +7,7 @@
 
 pub mod ability;
 pub mod audio_mixer;
+pub mod axis;
 pub mod barrier;
 pub mod beat_filter;
 pub mod builder;
@@ -16,6 +17,8 @@ pub mod chase;
 pub mod combat;
 pub mod commands;
 pub mod conlang;
+pub mod consequence;
+pub mod continuity;
 pub mod combatant;
 pub mod creature_core;
 pub mod delta;
@@ -54,12 +57,15 @@ pub mod turn_reminder;
 pub mod voice_router;
 pub mod world_materialization;
 
+pub use axis::{AxisValue, ToneCommand, format_tone_context};
 pub use audio_mixer::{AudioMixer, DuckConfig};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
 pub use chase::{ChaseRound, ChaseState, ChaseType};
 pub use combat::{CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
+pub use consequence::{ConsequenceCategory, GenieWish, WishConsequenceEngine, WishStatus};
 pub use conlang::{format_name_bank_for_prompt, GeneratedName, Morpheme, MorphemeCategory, MorphemeGlossary, NameBank, NameGenConfig, NamePattern};
+pub use continuity::{Contradiction, ContradictionCategory, ValidationResult, validate as validate_continuity};
 pub use combatant::Combatant;
 pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};

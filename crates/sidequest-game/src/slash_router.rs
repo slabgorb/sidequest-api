@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 
+use crate::axis::AxisValue;
 use crate::state::{GameSnapshot, WorldStatePatch};
 
 /// Result of executing a slash command.
@@ -17,6 +18,8 @@ pub enum CommandResult {
     StateMutation(WorldStatePatch),
     /// An error message (unknown command, bad args, etc.).
     Error(String),
+    /// Axis value change (for /tone commands). The full new set of axis values.
+    ToneChange(Vec<AxisValue>),
 }
 
 /// Trait for slash command handlers.
