@@ -59,6 +59,20 @@ impl Npc {
         self.attitude()
     }
 
+    /// Disposition offset from OCEAN Agreeableness dimension.
+    /// Returns 0 if no OCEAN profile is set.
+    pub fn agreeableness_disposition_offset(&self) -> i32 {
+        match &self.ocean {
+            Some(ocean) => ((ocean.agreeableness - 5.0) * 1.0).round() as i32,
+            None => 0,
+        }
+    }
+
+    /// Effective disposition: base disposition value plus agreeableness offset.
+    pub fn effective_disposition(&self) -> i32 {
+        self.disposition.value() + self.agreeableness_disposition_offset()
+    }
+
     /// Merge mutable fields from a patch. Identity fields (pronouns, appearance)
     /// are locked after first set — subsequent patches cannot overwrite them.
     pub fn merge_patch(&mut self, patch: &NpcPatch) {
