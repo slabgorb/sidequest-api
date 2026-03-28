@@ -1308,6 +1308,7 @@ async fn dispatch_message(
                 npc_registry,
                 narration_history,
                 discovered_regions,
+                shared_session_holder,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1910,6 +1911,7 @@ async fn dispatch_character_creation(
                         npc_registry,
                         narration_history,
                         discovered_regions,
+                        shared_session_holder,
                         music_director,
                         audio_mixer,
                         prerender_scheduler,
@@ -2038,6 +2040,7 @@ async fn dispatch_player_action(
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
+    shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -2047,6 +2050,21 @@ async fn dispatch_player_action(
     world_slug: &str,
     player_name_for_save: &str,
 ) -> Vec<GameMessage> {
+    // Sync world-level state from shared session (if multiplayer)
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            ss.sync_to_locals(
+                current_location,
+                npc_registry,
+                narration_history,
+                discovered_regions,
+                trope_states,
+            );
+        }
+    }
+
     // Watcher: action received
     state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
@@ -3121,6 +3139,33 @@ async fn dispatch_player_action(
                 let _ = stream_handle.await;
                 tracing::info!(player_id = %player_id_for_tts, "TTS stream complete");
             });
+        }
+    }
+
+    // Sync world-level state back to shared session and broadcast narration
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let mut ss = ss_arc.lock().await;
+            ss.sync_from_locals(
+                current_location,
+                npc_registry,
+                narration_history,
+                discovered_regions,
+                trope_states,
+            );
+            // Broadcast narration messages to other session members
+            for msg in &messages {
+                match msg {
+                    GameMessage::Narration { .. }
+                    | GameMessage::NarrationEnd { .. }
+                    | GameMessage::ChapterMarker { .. }
+                    | GameMessage::PartyStatus { .. } => {
+                        ss.broadcast(msg.clone());
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
