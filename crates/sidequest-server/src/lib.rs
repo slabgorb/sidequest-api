@@ -1290,6 +1290,7 @@ async fn dispatch_connect(
                                         .collect(),
                                     location: saved.snapshot.location.clone(),
                                     quests: saved.snapshot.quest_log.clone(),
+                                    turn_count: saved.snapshot.turn_manager.round(),
                                 }),
                                 css: None,
                             },

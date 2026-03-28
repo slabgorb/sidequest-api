@@ -665,6 +665,9 @@ pub struct InitialState {
     pub location: String,
     /// Quest log.
     pub quests: HashMap<String, String>,
+    /// Current turn count (persisted across sessions).
+    #[serde(default)]
+    pub turn_count: u32,
 }
 
 /// A choice in the character creation flow.
