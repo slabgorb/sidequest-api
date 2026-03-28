@@ -4,3 +4,4 @@
 //! in story 10-2 so that `NpcArchetype` can reference it without a circular dep).
 
 pub use sidequest_genre::OceanProfile;
+pub use sidequest_genre::{OceanDimension, OceanShift, OceanShiftLog};

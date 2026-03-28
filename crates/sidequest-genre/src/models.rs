@@ -167,6 +167,91 @@ impl OceanProfile {
 }
 
 // ═══════════════════════════════════════════════════════════
+// OCEAN dimension enum & shift log (story 10-5)
+// ═══════════════════════════════════════════════════════════
+
+/// One of the Big Five personality dimensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OceanDimension {
+    /// Openness to experience.
+    Openness,
+    /// Conscientiousness.
+    Conscientiousness,
+    /// Extraversion.
+    Extraversion,
+    /// Agreeableness.
+    Agreeableness,
+    /// Neuroticism.
+    Neuroticism,
+}
+
+/// A single recorded personality shift.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OceanShift {
+    /// Which OCEAN dimension changed.
+    pub dimension: OceanDimension,
+    /// Value before the shift.
+    pub old_value: f64,
+    /// Value after the shift (clamped to 0.0–10.0).
+    pub new_value: f64,
+    /// Free-text reason for the change.
+    pub cause: String,
+    /// Game turn when the shift occurred.
+    pub turn: u32,
+}
+
+/// Append-only log of personality shifts.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct OceanShiftLog {
+    shifts: Vec<OceanShift>,
+}
+
+impl OceanShiftLog {
+    /// Append a shift entry.
+    pub fn push(&mut self, _shift: OceanShift) {
+        // TODO: implement in GREEN phase
+    }
+
+    /// Return all recorded shifts.
+    pub fn shifts(&self) -> &[OceanShift] {
+        &self.shifts
+    }
+
+    /// Return shifts for a specific dimension.
+    pub fn shifts_for(&self, _dimension: OceanDimension) -> Vec<&OceanShift> {
+        // TODO: implement in GREEN phase
+        Vec::new()
+    }
+}
+
+impl OceanProfile {
+    /// Apply a delta to a single dimension, clamp, log the shift, and return
+    /// the new value.
+    pub fn apply_shift(
+        &mut self,
+        _dimension: OceanDimension,
+        _delta: f64,
+        _cause: String,
+        _turn: u32,
+        _log: &mut OceanShiftLog,
+    ) -> f64 {
+        // TODO: implement in GREEN phase
+        0.0
+    }
+
+    /// Read a dimension's current value.
+    pub fn get(&self, dimension: OceanDimension) -> f64 {
+        match dimension {
+            OceanDimension::Openness => self.openness,
+            OceanDimension::Conscientiousness => self.conscientiousness,
+            OceanDimension::Extraversion => self.extraversion,
+            OceanDimension::Agreeableness => self.agreeableness,
+            OceanDimension::Neuroticism => self.neuroticism,
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Top-level aggregates (assembled by loader, not deserialized directly)
 // ═══════════════════════════════════════════════════════════
 
