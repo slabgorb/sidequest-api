@@ -1294,10 +1294,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sidequest-api"
-version = "0.1.0"
-
-[[package]]
 name = "sidequest-daemon-client"
 version = "0.1.0"
 dependencies = [
