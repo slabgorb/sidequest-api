@@ -3449,29 +3449,72 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
     }
 }
 
-/// Extract a location header from narration text (format: **Location Name**)
+/// Extract a location header from narration text.
+///
+/// Checks the first 3 non-empty lines for location patterns:
+/// - `**Location Name**` (bold header — primary format)
+/// - `## Location Name` (markdown h2)
+/// - `[Location: Name]` (bracketed tag)
 fn extract_location_header(text: &str) -> Option<String> {
-    let first_line = text.lines().next()?.trim();
-    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
-        Some(first_line[2..first_line.len() - 2].to_string())
-    } else {
-        None
+    for line in text.lines().take(3) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Bold header: **Location Name**
+        if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
+            return Some(trimmed[2..trimmed.len() - 2].to_string());
+        }
+        // Markdown h2: ## Location Name
+        if trimmed.starts_with("## ") && trimmed.len() > 3 {
+            return Some(trimmed[3..].trim().to_string());
+        }
+        // Bracketed tag: [Location: Name]
+        if trimmed.starts_with("[Location:") && trimmed.ends_with(']') {
+            let inner = &trimmed[10..trimmed.len() - 1].trim();
+            if !inner.is_empty() {
+                return Some(inner.to_string());
+            }
+        }
+        // Only check the first non-empty line for the primary format,
+        // but continue checking for h2/bracketed in lines 2-3.
+        break;
     }
+    // Second pass: check lines 2-3 for any format (narrator sometimes
+    // puts flavor text before the location header)
+    for line in text.lines().skip(1).take(2) {
+        let trimmed = line.trim();
+        if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
+            return Some(trimmed[2..trimmed.len() - 2].to_string());
+        }
+        if trimmed.starts_with("## ") && trimmed.len() > 3 {
+            return Some(trimmed[3..].trim().to_string());
+        }
+    }
+    None
 }
 
-/// Strip the location header line from narration text
+/// Strip the location header line from narration text.
+/// Handles all formats recognized by extract_location_header.
 fn strip_location_header(text: &str) -> String {
-    let first_line = text.lines().next().unwrap_or("").trim();
-    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
-        text.lines()
-            .skip(1)
-            .collect::<Vec<_>>()
-            .join("\n")
-            .trim()
-            .to_string()
-    } else {
-        text.to_string()
+    // Find which line (if any) contains the location header
+    for (i, line) in text.lines().take(3).enumerate() {
+        let trimmed = line.trim();
+        let is_header = (trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4)
+            || (trimmed.starts_with("## ") && trimmed.len() > 3)
+            || (trimmed.starts_with("[Location:") && trimmed.ends_with(']'));
+        if is_header {
+            return text.lines()
+                .enumerate()
+                .filter(|(idx, _)| *idx != i)
+                .map(|(_, l)| l)
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+        }
     }
+    text.to_string()
 }
 
 /// Bug 5: Extract item acquisitions from narration text.
