@@ -2525,7 +2525,7 @@ async fn dispatch_player_action(
     };
     let result = state.game_service().process_action(action, &context);
 
-    // Watcher: narration generated
+    // Watcher: narration generated (with intent classification and agent routing)
     state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
         component: "game".to_string(),
@@ -2542,6 +2542,12 @@ async fn dispatch_player_action(
                 serde_json::json!(result.is_degraded),
             );
             f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+            if let Some(ref intent) = result.classified_intent {
+                f.insert("classified_intent".to_string(), serde_json::json!(intent));
+            }
+            if let Some(ref agent) = result.agent_name {
+                f.insert("agent_routed_to".to_string(), serde_json::json!(agent));
+            }
             f
         },
     });

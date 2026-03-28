@@ -32,6 +32,10 @@ pub struct ActionResult {
     pub combat_events: Vec<String>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
+    /// Which intent was classified (for OTEL telemetry).
+    pub classified_intent: Option<String>,
+    /// Which agent handled the action (for OTEL telemetry).
+    pub agent_name: Option<String>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -141,6 +145,9 @@ impl GameService for Orchestrator {
 
         info!(action = %action, "Invoking Claude CLI for narration");
 
+        let intent_str = route.intent().to_string();
+        let agent_str = route.agent_name().to_string();
+
         match self.client.send(&prompt) {
             Ok(narration) => {
                 info!(len = narration.len(), "Claude CLI returned narration");
@@ -149,6 +156,8 @@ impl GameService for Orchestrator {
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     is_degraded: false,
+                    classified_intent: Some(intent_str),
+                    agent_name: Some(agent_str),
                 }
             }
             Err(e) => {
@@ -161,6 +170,8 @@ impl GameService for Orchestrator {
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     is_degraded: true,
+                    classified_intent: Some(intent_str),
+                    agent_name: Some(agent_str),
                 }
             }
         }
