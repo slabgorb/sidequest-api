@@ -13,6 +13,7 @@ use crate::achievement::AchievementTracker;
 use crate::axis::AxisValue;
 use crate::character::Character;
 use crate::chase::{ChaseState, ChaseType};
+use crate::chase_depth::{ChaseActor, RigStats, RigType};
 use crate::combat::CombatState;
 use crate::consequence::GenieWish;
 use crate::combatant::Combatant;
@@ -380,6 +381,11 @@ impl GameSnapshot {
             self.chase = Some(ChaseState::new(chase_type, threshold));
             changed.push("chase_started");
         }
+        if let Some((chase_type, threshold, rig_type, goal)) = patch.start_vehicle {
+            self.chase =
+                Some(ChaseState::new_vehicle_chase(chase_type, threshold, rig_type, goal));
+            changed.push("vehicle_chase_started");
+        }
         if let Some(roll) = patch.roll {
             if let Some(ref mut chase) = self.chase {
                 chase.record_roll(roll);
@@ -402,6 +408,30 @@ impl GameSnapshot {
             if let Some(ref mut chase) = self.chase {
                 chase.set_event(event.clone());
                 changed.push("event");
+            }
+        }
+        if let Some(ref rig) = patch.rig {
+            if let Some(ref mut chase) = self.chase {
+                chase.set_rig(rig.clone());
+                changed.push("rig");
+            }
+        }
+        if let Some(ref actors) = patch.actors {
+            if let Some(ref mut chase) = self.chase {
+                chase.set_actors(actors.clone());
+                changed.push("actors");
+            }
+        }
+        if patch.advance_beat {
+            if let Some(ref mut chase) = self.chase {
+                chase.advance_beat();
+                changed.push("beat_advanced");
+            }
+        }
+        if patch.abandon {
+            if let Some(ref mut chase) = self.chase {
+                chase.abandon();
+                changed.push("abandoned");
             }
         }
 
@@ -520,6 +550,8 @@ pub struct CombatPatch {
 pub struct ChasePatch {
     /// Start a new chase with (type, escape_threshold).
     pub start: Option<(ChaseType, f64)>,
+    /// Start a vehicle chase with (type, threshold, rig_type, goal).
+    pub start_vehicle: Option<(ChaseType, f64, RigType, i32)>,
     /// Record an escape roll.
     pub roll: Option<f64>,
     /// Distance between pursuer and quarry.
@@ -528,6 +560,16 @@ pub struct ChasePatch {
     pub phase: Option<String>,
     /// Chase event description.
     pub event: Option<String>,
+    /// Set rig stats (C1).
+    pub rig: Option<RigStats>,
+    /// Set crew assignments (C2).
+    pub actors: Option<Vec<ChaseActor>>,
+    /// Advance to next beat (C3). If true, calls advance_beat().
+    #[serde(default)]
+    pub advance_beat: bool,
+    /// Abandon the chase (C3).
+    #[serde(default)]
+    pub abandon: bool,
 }
 
 /// Generate reactive GameMessages from a state delta (ADR-027).
