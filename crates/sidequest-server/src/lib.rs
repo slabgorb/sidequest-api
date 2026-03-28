@@ -2340,6 +2340,16 @@ async fn dispatch_player_action(
                 tracing::info!(item_name = %item_name, "Item added to inventory from narration");
             }
         }
+
+        // Extract item losses from narration (trades, gifts, drops)
+        let items_lost = extract_item_losses(&clean_narration);
+        for lost_name in &items_lost {
+            let item_id = lost_name.to_lowercase().replace(' ', "_").replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+            if inventory.find(&item_id).is_some() {
+                let _ = inventory.remove(&item_id);
+                tracing::info!(item_name = %lost_name, "Item removed from inventory from narration");
+            }
+        }
     }
 
     // Narration — include character state so the UI state mirror picks it up
@@ -3064,6 +3074,67 @@ fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
     }
 
     items
+}
+
+/// Extract item losses from narration — trades, gifts, drops.
+/// Returns a list of item names that the player lost.
+fn extract_item_losses(text: &str) -> Vec<String> {
+    let text_lower = text.to_lowercase();
+    let mut lost = Vec::new();
+
+    let loss_patterns = [
+        "hand over ", "hands over ", "give away ", "gives away ",
+        "trade the ", "trades the ", "trading the ",
+        "hand the ", "hands the ",
+        "surrender the ", "surrenders the ",
+        "drop the ", "drops the ",
+        "toss the ", "tosses the ",
+        "you give ", "you hand ",
+        "you trade ", "you surrender ",
+        "you drop ", "you toss ",
+        "parts with the ", "part with the ",
+        "relinquish the ", "relinquishes the ",
+    ];
+
+    for pattern in &loss_patterns {
+        let mut search_from = 0;
+        while let Some(pos) = text_lower[search_from..].find(pattern) {
+            let start = search_from + pos + pattern.len();
+            if start >= text_lower.len() {
+                break;
+            }
+            let rest = &text[start..];
+            let end = rest.find(|c: char| matches!(c, '.' | ',' | '!' | '?' | '\n' | ';' | ':'))
+                .unwrap_or(rest.len());
+            let item_name = rest[..end].trim();
+            if item_name.len() >= 2 && item_name.len() <= 60 {
+                let after_article = item_name
+                    .strip_prefix("a ").or_else(|| item_name.strip_prefix("an "))
+                    .or_else(|| item_name.strip_prefix("the "))
+                    .or_else(|| item_name.strip_prefix("some "))
+                    .unwrap_or(item_name)
+                    .trim();
+                // Truncate at prepositions (same as acquisition extraction)
+                let stop_words = [" to ", " for ", " in ", " with ", " from ", " as "];
+                let mut clean_end = after_article.len();
+                for sw in &stop_words {
+                    if let Some(p) = after_article.to_lowercase().find(sw) {
+                        if p > 0 && p < clean_end {
+                            clean_end = p;
+                        }
+                    }
+                }
+                let words: Vec<&str> = after_article[..clean_end].split_whitespace().collect();
+                let clean_name = if words.len() > 4 { words[..4].join(" ") } else { words.join(" ") };
+                if clean_name.len() >= 2 {
+                    lost.push(clean_name);
+                }
+            }
+            search_from = start;
+        }
+    }
+
+    lost
 }
 
 /// Lightweight NPC registry entry — tracks name, pronouns, role, and location
