@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 sidequest-protocol = { path = "../sidequest-protocol" }
 sidequest-game = { path = "../sidequest-game" }
+sidequest-genre = { path = "../sidequest-genre" }
 tokio = { workspace = true, features = ["process", "sync"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
