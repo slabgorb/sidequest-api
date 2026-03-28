@@ -14,6 +14,7 @@ pub mod catch_up;
 pub mod character;
 pub mod chase;
 pub mod combat;
+pub mod conlang;
 pub mod combatant;
 pub mod creature_core;
 pub mod delta;
@@ -51,6 +52,7 @@ pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecisio
 pub use character::Character;
 pub use chase::{ChaseRound, ChaseState, ChaseType};
 pub use combat::{CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
+pub use conlang::{Morpheme, MorphemeCategory, MorphemeGlossary};
 pub use combatant::Combatant;
 pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};
