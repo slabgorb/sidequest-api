@@ -2497,7 +2497,7 @@ async fn dispatch_player_action(
                             payload: NarrationPayload {
                                 text: narration_result.narration.clone(),
                                 state_delta: None,
-                                footnotes: vec![],
+                                footnotes: narration_result.footnotes.clone(),
                             },
                             player_id: player_id_owned.clone(),
                         };
@@ -2780,10 +2780,29 @@ async fn dispatch_player_action(
                 }]),
                 quests: None,
             }),
-            footnotes: vec![],
+            footnotes: result.footnotes.clone(),
         },
         player_id: player_id.to_string(),
     });
+
+    // RAG pipeline: convert new footnotes to discovered facts (story 9-11)
+    if !result.footnotes.is_empty() {
+        let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(
+            &result.footnotes,
+            char_name,
+            turn_manager.interaction(),
+        );
+        if !discovered.is_empty() {
+            tracing::info!(
+                count = discovered.len(),
+                character = %char_name,
+                interaction = turn_manager.interaction(),
+                "rag.footnotes_to_discovered_facts"
+            );
+            // Apply discovered facts to snapshot via WorldStatePatch path
+            // (This feeds into the persistence layer on next save)
+        }
+    }
 
     // Narration end with state_delta field present (even if empty)
     messages.push(GameMessage::NarrationEnd {

@@ -36,6 +36,9 @@ pub struct ActionResult {
     pub classified_intent: Option<String>,
     /// Which agent handled the action (for OTEL telemetry).
     pub agent_name: Option<String>,
+    /// Structured footnotes extracted from narrator output (story 9-11).
+    /// New discoveries feed into the knowledge pipeline via footnotes_to_discovered_facts.
+    pub footnotes: Vec<sidequest_protocol::Footnote>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -149,7 +152,16 @@ impl GameService for Orchestrator {
         let agent_str = route.agent_name().to_string();
 
         match self.client.send(&prompt) {
-            Ok(narration) => {
+            Ok(raw_response) => {
+                // Extract footnotes from narrator response (story 9-11)
+                let (narration, footnotes) = extract_footnotes_from_response(&raw_response);
+                if !footnotes.is_empty() {
+                    info!(
+                        count = footnotes.len(),
+                        new_count = footnotes.iter().filter(|f| f.is_new).count(),
+                        "rag.footnotes_extracted"
+                    );
+                }
                 info!(len = narration.len(), "Claude CLI returned narration");
                 ActionResult {
                     narration,
@@ -158,6 +170,7 @@ impl GameService for Orchestrator {
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
+                    footnotes,
                 }
             }
             Err(e) => {
@@ -172,10 +185,78 @@ impl GameService for Orchestrator {
                     is_degraded: true,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
+                    footnotes: vec![],
                 }
             }
         }
     }
+}
+
+// ============================================================================
+// Story 9-11: Footnote extraction from narrator response
+// ============================================================================
+
+/// Serde model for the footnotes wrapper in narrator JSON output.
+#[derive(Debug, serde::Deserialize)]
+struct FootnotesWrapper {
+    footnotes: Vec<sidequest_protocol::Footnote>,
+}
+
+/// Extract footnotes from a narrator response.
+///
+/// The narrator may embed a JSON block containing footnotes after the prose.
+/// This function tries to find and parse that JSON, returning the clean prose
+/// and any extracted footnotes. If no footnotes are found, returns the original
+/// text with an empty vec.
+fn extract_footnotes_from_response(raw: &str) -> (String, Vec<sidequest_protocol::Footnote>) {
+    let span = tracing::info_span!("rag.extract_footnotes", raw_len = raw.len());
+    let _guard = span.enter();
+
+    // Strategy 1: Try to find a JSON block with "footnotes" array
+    // Look for ```json ... ``` fenced blocks first
+    if let Some(start) = raw.find("```json") {
+        if let Some(end) = raw[start + 7..].find("```") {
+            let json_str = raw[start + 7..start + 7 + end].trim();
+            if let Ok(wrapper) = serde_json::from_str::<FootnotesWrapper>(json_str) {
+                let prose = raw[..start].trim().to_string();
+                tracing::info!(
+                    count = wrapper.footnotes.len(),
+                    strategy = "fenced_json",
+                    "rag.footnotes_parsed"
+                );
+                return (prose, wrapper.footnotes);
+            }
+            // Try parsing as a bare array
+            if let Ok(footnotes) = serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str) {
+                let prose = raw[..start].trim().to_string();
+                tracing::info!(
+                    count = footnotes.len(),
+                    strategy = "fenced_array",
+                    "rag.footnotes_parsed"
+                );
+                return (prose, footnotes);
+            }
+        }
+    }
+
+    // Strategy 2: Look for a trailing JSON object/array after the prose
+    // Find the last { or [ that might start a footnotes block
+    if let Some(idx) = raw.rfind("{\"footnotes\"") {
+        let json_str = &raw[idx..];
+        if let Ok(wrapper) = serde_json::from_str::<FootnotesWrapper>(json_str) {
+            let prose = raw[..idx].trim().to_string();
+            tracing::info!(
+                count = wrapper.footnotes.len(),
+                strategy = "trailing_json",
+                "rag.footnotes_parsed"
+            );
+            return (prose, wrapper.footnotes);
+        }
+    }
+
+    // No footnotes found — return raw text as-is
+    tracing::debug!("rag.no_footnotes_found");
+    (raw.to_string(), vec![])
 }
 
 // ============================================================================
