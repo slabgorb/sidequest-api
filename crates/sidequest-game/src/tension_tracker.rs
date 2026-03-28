@@ -20,6 +20,10 @@
 
 use crate::combat::RoundResult;
 
+// Re-export DramaThresholds from genre crate (canonical definition lives there
+// since it's loaded from genre-pack YAML; game crate consumes it).
+pub use sidequest_genre::DramaThresholds;
+
 /// Drama-aware text delivery mode — controls how narration is revealed to the player.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -30,33 +34,6 @@ pub enum DeliveryMode {
     Sentence,
     /// Text streams word by word, typewriter style (high drama).
     Streaming,
-}
-
-/// Genre-tunable breakpoints for pacing decisions.
-#[derive(Debug, Clone)]
-pub struct DramaThresholds {
-    /// Drama weight at or above which delivery switches from Instant to Sentence.
-    pub sentence_delivery_min: f64,
-    /// Drama weight above which delivery switches from Sentence to Streaming.
-    pub streaming_delivery_min: f64,
-    /// Drama weight above which image rendering is triggered (beat filter).
-    pub render_threshold: f64,
-    /// Consecutive boring turns before an escalation beat hint is injected.
-    pub escalation_streak: u32,
-    /// Number of boring turns to reach action_tension 1.0 (gambler's ramp length).
-    pub ramp_length: u32,
-}
-
-impl Default for DramaThresholds {
-    fn default() -> Self {
-        Self {
-            sentence_delivery_min: 0.30,
-            streaming_delivery_min: 0.70,
-            render_threshold: 0.40,
-            escalation_streak: 5,
-            ramp_length: 8,
-        }
-    }
 }
 
 /// Pacing guidance for a single turn — computed from TensionTracker state.

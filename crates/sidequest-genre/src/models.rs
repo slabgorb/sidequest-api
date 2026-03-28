@@ -9,6 +9,41 @@ use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════
+// Pacing thresholds (loaded from pacing.yaml, consumed by game crate)
+// ═══════════════════════════════════════════════════════════
+
+/// Genre-tunable breakpoints for pacing decisions.
+///
+/// Loaded from an optional `pacing.yaml` in the genre pack directory.
+/// Missing fields fall back to defaults via `#[serde(default)]`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DramaThresholds {
+    /// Drama weight at or above which delivery switches from Instant to Sentence.
+    pub sentence_delivery_min: f64,
+    /// Drama weight above which delivery switches from Sentence to Streaming.
+    pub streaming_delivery_min: f64,
+    /// Drama weight above which image rendering is triggered (beat filter).
+    pub render_threshold: f64,
+    /// Consecutive boring turns before an escalation beat hint is injected.
+    pub escalation_streak: u32,
+    /// Number of boring turns to reach action_tension 1.0 (gambler's ramp length).
+    pub ramp_length: u32,
+}
+
+impl Default for DramaThresholds {
+    fn default() -> Self {
+        Self {
+            sentence_delivery_min: 0.30,
+            streaming_delivery_min: 0.70,
+            render_threshold: 0.40,
+            escalation_streak: 5,
+            ramp_length: 8,
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Top-level aggregates (assembled by loader, not deserialized directly)
 // ═══════════════════════════════════════════════════════════
 
@@ -53,6 +88,8 @@ pub struct GenrePack {
     pub worlds: HashMap<String, World>,
     /// Scenario packs loaded from `scenarios/*/`.
     pub scenarios: HashMap<String, ScenarioPack>,
+    /// Pacing thresholds from `pacing.yaml` (optional per genre pack).
+    pub drama_thresholds: Option<DramaThresholds>,
 }
 
 /// A world within a genre pack, assembled from `worlds/{slug}/`.
