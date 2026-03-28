@@ -59,8 +59,8 @@ pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
 pub use lore::{
-    seed_lore_from_char_creation, seed_lore_from_genre_pack, LoreCategory, LoreFragment,
-    LoreSource, LoreStore,
+    format_lore_context, seed_lore_from_char_creation, seed_lore_from_genre_pack,
+    select_lore_for_prompt, LoreCategory, LoreFragment, LoreSource, LoreStore,
 };
 pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector};
 pub use narrative::NarrativeEntry;
