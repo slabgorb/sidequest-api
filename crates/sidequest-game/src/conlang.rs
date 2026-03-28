@@ -148,6 +148,31 @@ pub struct NameBank {
     pub names: Vec<GeneratedName>,
 }
 
+/// Format a name bank as a text block suitable for injection into a narrator prompt.
+///
+/// Returns a section with a header and one line per name (up to `max_names`),
+/// showing name, gloss, and optional pronunciation.
+/// Returns an empty string if the bank is empty or `max_names` is zero.
+pub fn format_name_bank_for_prompt(bank: &NameBank, max_names: usize) -> String {
+    if bank.names.is_empty() || max_names == 0 {
+        return String::new();
+    }
+
+    let mut lines = Vec::new();
+    lines.push(format!("## Names ({})", bank.language_id));
+
+    for name in bank.names.iter().take(max_names) {
+        let line = if let Some(ref pron) = name.pronunciation {
+            format!("- {} — \"{}\" [{}]", name.name, name.gloss, pron)
+        } else {
+            format!("- {} — \"{}\"", name.name, name.gloss)
+        };
+        lines.push(line);
+    }
+
+    lines.join("\n")
+}
+
 impl NameBank {
     /// Generate a bank of names from a glossary and config.
     pub fn generate(glossary: &MorphemeGlossary, config: &NameGenConfig) -> Self {
@@ -730,6 +755,148 @@ mod tests {
         for name in &bank.names {
             assert_eq!(name.pattern, NamePattern::Root,
                 "With only roots, pattern should be Root but got {:?}", name.pattern);
+        }
+    }
+
+    // === format_name_bank_for_prompt tests ===
+
+    fn make_name(name: &str, gloss: &str, pronunciation: Option<&str>) -> GeneratedName {
+        GeneratedName {
+            name: name.to_string(),
+            gloss: gloss.to_string(),
+            pronunciation: pronunciation.map(|p| p.to_string()),
+            pattern: NamePattern::Root,
+            language_id: "draconic".to_string(),
+        }
+    }
+
+    fn make_bank(names: Vec<GeneratedName>) -> NameBank {
+        NameBank {
+            language_id: "draconic".to_string(),
+            names,
+        }
+    }
+
+    #[test]
+    fn format_prompt_empty_bank_returns_empty_string() {
+        let bank = make_bank(vec![]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn format_prompt_single_name_includes_name_and_gloss() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        assert!(result.contains("zar"), "Output should contain the name 'zar'");
+        assert!(result.contains("fire"), "Output should contain the gloss 'fire'");
+    }
+
+    #[test]
+    fn format_prompt_multiple_names_each_on_own_line() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+            make_name("dra", "dragon", None),
+            make_name("kel", "stone", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        // Each name should appear on its own line
+        let lines: Vec<&str> = result.lines().collect();
+        let name_lines: Vec<&&str> = lines.iter().filter(|l| !l.starts_with("##") && (l.contains("zar") || l.contains("dra") || l.contains("kel"))).collect();
+        assert_eq!(name_lines.len(), 3, "Each name should be on its own line");
+    }
+
+    #[test]
+    fn format_prompt_starts_with_section_header() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        let first_line = result.lines().next().unwrap();
+        assert!(first_line.starts_with("##"), "Output should start with a markdown header, got: '{}'", first_line);
+    }
+
+    #[test]
+    fn format_prompt_header_contains_language_id() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        let first_line = result.lines().next().unwrap();
+        assert!(first_line.contains("draconic") || first_line.contains("Draconic"),
+            "Header should contain language_id, got: '{}'", first_line);
+    }
+
+    #[test]
+    fn format_prompt_max_names_limits_output() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+            make_name("dra", "dragon", None),
+            make_name("kel", "stone", None),
+            make_name("vor", "great", None),
+            make_name("thi", "walker", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 2);
+        // Only first 2 names should appear
+        assert!(result.contains("zar"), "First name should be included");
+        assert!(result.contains("dra"), "Second name should be included");
+        assert!(!result.contains("kel"), "Third name should NOT be included");
+        assert!(!result.contains("vor"), "Fourth name should NOT be included");
+        assert!(!result.contains("thi"), "Fifth name should NOT be included");
+    }
+
+    #[test]
+    fn format_prompt_max_names_larger_than_bank_includes_all() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+            make_name("dra", "dragon", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 100);
+        assert!(result.contains("zar"));
+        assert!(result.contains("dra"));
+    }
+
+    #[test]
+    fn format_prompt_max_names_zero_returns_empty_string() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 0);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn format_prompt_includes_pronunciation_when_present() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", Some("zahr")),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        assert!(result.contains("zahr"), "Output should include pronunciation 'zahr'");
+    }
+
+    #[test]
+    fn format_prompt_omits_pronunciation_gracefully_when_absent() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        assert!(result.contains("zar"), "Name should still appear");
+        assert!(result.contains("fire"), "Gloss should still appear");
+        // Should not contain empty parens or "None"
+        assert!(!result.contains("None"), "Should not contain literal 'None'");
+    }
+
+    #[test]
+    fn format_prompt_no_trailing_whitespace_on_lines() {
+        let bank = make_bank(vec![
+            make_name("zar", "fire", Some("zahr")),
+            make_name("dra", "dragon", None),
+        ]);
+        let result = format_name_bank_for_prompt(&bank, 10);
+        for line in result.lines() {
+            assert_eq!(line, line.trim_end(), "Line has trailing whitespace: '{}'", line);
         }
     }
 }
