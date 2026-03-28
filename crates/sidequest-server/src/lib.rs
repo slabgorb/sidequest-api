@@ -2081,9 +2081,24 @@ async fn dispatch_player_action(
 
     // Location constraint — prevent narrator from teleporting between scenes
     if !current_location.is_empty() {
+        // Dialogue context: if the player interacted with an NPC in the last 2 turns,
+        // any location mention in the action is likely dialogue (describing a place to
+        // the NPC), not a travel intent. Strengthen the stay-put constraint.
+        let turn_approx = trope_states.len() as u32 + 1;
+        let recent_npc_interaction = npc_registry.iter().any(|e| {
+            turn_approx.saturating_sub(e.last_seen_turn) <= 2
+        });
+        let extra_dialogue_guard = if recent_npc_interaction {
+            " IMPORTANT: The player is currently in dialogue with an NPC. If the player's \
+             action mentions a location or place name, they are TALKING ABOUT that place, \
+             NOT traveling there. Keep the scene at the current location. Only move if the \
+             player explicitly ends the conversation and states they are leaving."
+        } else {
+            ""
+        };
         state_summary.push_str(&format!(
-            "\n\nLOCATION CONSTRAINT — THIS IS A HARD RULE:\nThe player is at: {}\nYou MUST continue the scene at this location. Do NOT introduce a new setting, move to a different area, or describe the player arriving somewhere else UNLESS the player explicitly says they want to travel or leave. If the player's action implies staying here, describe what happens HERE. Only change location when the player takes a deliberate travel action (e.g., 'I go to...', 'I leave...', 'I head north').",
-            current_location
+            "\n\nLOCATION CONSTRAINT — THIS IS A HARD RULE:\nThe player is at: {}\nYou MUST continue the scene at this location. Do NOT introduce a new setting, move to a different area, or describe the player arriving somewhere else UNLESS the player explicitly says they want to travel or leave. If the player's action implies staying here, describe what happens HERE. Only change location when the player takes a deliberate travel action (e.g., 'I go to...', 'I leave...', 'I head north').{}",
+            current_location, extra_dialogue_guard
         ));
     }
 
