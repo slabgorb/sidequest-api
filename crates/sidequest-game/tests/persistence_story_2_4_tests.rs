@@ -104,6 +104,7 @@ fn test_snapshot() -> GameSnapshot {
         turns_since_meaningful: 0,
         total_beats_fired: 0,
         campaign_maturity: sidequest_game::CampaignMaturity::Fresh,
+        npc_registry: vec![],
         world_history: vec![],
         ..GameSnapshot::default()
     }

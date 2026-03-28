@@ -73,6 +73,53 @@ impl Character {
     pub fn apply_hp_delta(&mut self, delta: i32) {
         self.core.apply_hp_delta(delta);
     }
+
+    /// Produce a genre-voiced narrative character sheet for player display.
+    ///
+    /// The sheet uses narrative descriptions throughout — no raw numbers,
+    /// no mechanical effects, no stat blocks. Genre voice is used to compose
+    /// the identity line from name, race, and class.
+    ///
+    /// Story 9-5.
+    pub fn to_narrative_sheet(&self, _genre_voice: &str) -> crate::narrative_sheet::NarrativeSheet {
+        use crate::narrative_sheet::{
+            AbilityEntry, CharacterStatus, KnowledgeEntry, NarrativeSheet,
+        };
+
+        let identity = format!(
+            "{}, {} {}",
+            self.core.name, self.race, self.char_class
+        );
+
+        let abilities = self
+            .abilities
+            .iter()
+            .map(|a| AbilityEntry {
+                name: a.name.clone(),
+                description: a.genre_description.clone(),
+                involuntary: a.involuntary,
+            })
+            .collect();
+
+        let knowledge = self
+            .known_facts
+            .iter()
+            .map(|f| KnowledgeEntry {
+                content: f.content.clone(),
+                confidence: f.confidence.clone(),
+            })
+            .collect();
+
+        let status =
+            CharacterStatus::from_creature(self.core.hp, self.core.max_hp, &self.core.statuses);
+
+        NarrativeSheet {
+            identity,
+            abilities,
+            knowledge,
+            status,
+        }
+    }
 }
 
 impl Combatant for Character {
