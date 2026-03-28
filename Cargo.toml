@@ -61,10 +61,3 @@ regex = "1.10"
 # Ordered floats for hashing
 ordered-float = { version = "4", features = ["serde"] }
 
-[package]
-name = "sidequest-api"
-version.workspace = true
-edition.workspace = true
-description.workspace = true
-
-[dependencies]
