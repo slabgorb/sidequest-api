@@ -3306,6 +3306,11 @@ async fn dispatch_player_action(
     if !clean_narration.is_empty() {
         let segmenter = sidequest_game::SentenceSegmenter::new();
         let segments = segmenter.segment(&clean_narration);
+        tracing::info!(
+            segment_count = segments.len(),
+            narration_len = clean_narration.len(),
+            "tts.segmented"
+        );
         if !segments.is_empty() {
             let tts_segments: Vec<sidequest_game::tts_stream::TtsSegment> = segments
                 .iter()
