@@ -58,7 +58,7 @@ pub use disposition::{Attitude, Disposition};
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
-pub use lore::{LoreCategory, LoreFragment, LoreSource};
+pub use lore::{LoreCategory, LoreFragment, LoreSource, LoreStore};
 pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector};
 pub use narrative::NarrativeEntry;
 pub use npc::Npc;
