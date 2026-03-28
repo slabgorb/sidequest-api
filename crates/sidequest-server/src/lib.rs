@@ -1089,6 +1089,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
     let mut discovered_regions: Vec<String> = vec![];
     let mut turn_manager = sidequest_game::TurnManager::new();
+    let mut lore_store = sidequest_game::LoreStore::new();
     // Bug 17: In-memory narration history for context accumulation across turns.
     // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
     let mut narration_history: Vec<String> = vec![];
@@ -1128,6 +1129,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut narration_history,
                         &mut discovered_regions,
                         &mut turn_manager,
+                        &mut lore_store,
                         &shared_session,
                         &state,
                         &player_id_str,
@@ -1235,6 +1237,7 @@ async fn dispatch_message(
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
+    lore_store: &mut sidequest_game::LoreStore,
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     state: &AppState,
     player_id: &str,
@@ -1260,6 +1263,7 @@ async fn dispatch_message(
                 prerender_scheduler,
                 turn_manager,
                 npc_registry,
+                lore_store,
                 state,
                 player_id,
             )
@@ -1298,6 +1302,7 @@ async fn dispatch_message(
                 narration_history,
                 discovered_regions,
                 turn_manager,
+                lore_store,
                 shared_session_holder,
                 music_director,
                 audio_mixer,
@@ -1342,6 +1347,7 @@ async fn dispatch_message(
                 narration_history,
                 discovered_regions,
                 turn_manager,
+                lore_store,
                 shared_session_holder,
                 music_director,
                 audio_mixer,
@@ -1392,6 +1398,7 @@ async fn dispatch_connect(
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     turn_manager: &mut sidequest_game::TurnManager,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1550,6 +1557,14 @@ async fn dispatch_connect(
                                 ));
                                 tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
 
+                                // Seed lore store from genre pack (story 11-4)
+                                let lore_count = sidequest_game::seed_lore_from_genre_pack(lore_store, &pack);
+                                tracing::info!(
+                                    count = lore_count,
+                                    genre = %genre,
+                                    "rag.lore_store_seeded"
+                                );
+
                                 // Inject name bank context for returning player
                                 let cultures = pack.worlds.get(world)
                                     .filter(|w| !w.cultures.is_empty())
@@ -1576,7 +1591,7 @@ async fn dispatch_connect(
                         if let Some(scene_msg) = start_character_creation(
                             builder, trope_defs, world_context, visual_style,
                             music_director, audio_mixer, prerender_scheduler,
-                            genre, world, state, player_id,
+                            lore_store, genre, world, state, player_id,
                         ).await {
                             responses.push(scene_msg);
                         }
@@ -1587,7 +1602,7 @@ async fn dispatch_connect(
                         if let Some(scene_msg) = start_character_creation(
                             builder, trope_defs, world_context, visual_style,
                             music_director, audio_mixer, prerender_scheduler,
-                            genre, world, state, player_id,
+                            lore_store, genre, world, state, player_id,
                         ).await {
                             responses.push(scene_msg);
                         }
@@ -1604,6 +1619,7 @@ async fn dispatch_connect(
                     music_director,
                     audio_mixer,
                     prerender_scheduler,
+                    lore_store,
                     genre,
                     world,
                     state,
@@ -1647,6 +1663,7 @@ async fn start_character_creation(
     music_director_out: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    lore_store: &mut sidequest_game::LoreStore,
     genre: &str,
     world_slug: &str,
     state: &AppState,
@@ -1680,6 +1697,10 @@ async fn start_character_creation(
         sidequest_game::PrerenderConfig::default(),
     ));
     tracing::info!(genre = %genre, "Audio subsystems initialized from genre pack");
+
+    // Seed lore store from genre pack (story 11-4)
+    let lore_count = sidequest_game::seed_lore_from_genre_pack(lore_store, &pack);
+    tracing::info!(count = lore_count, genre = %genre, "rag.lore_store_seeded");
 
     // Extract trope definitions from the genre pack for per-session use.
     // Collect from genre-level tropes and all world tropes.
@@ -1786,6 +1807,7 @@ async fn dispatch_character_creation(
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
+    lore_store: &mut sidequest_game::LoreStore,
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -1951,6 +1973,7 @@ async fn dispatch_character_creation(
                         narration_history,
                         discovered_regions,
                         turn_manager,
+                        lore_store,
                         shared_session_holder,
                         music_director,
                         audio_mixer,
@@ -2095,6 +2118,7 @@ async fn dispatch_player_action(
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
+    lore_store: &sidequest_game::LoreStore,
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -2445,6 +2469,32 @@ async fn dispatch_player_action(
     let npc_context = build_npc_registry_context(npc_registry);
     if !npc_context.is_empty() {
         state_summary.push_str(&npc_context);
+    }
+
+    // Inject lore context from genre pack — budget-aware selection (story 11-4)
+    {
+        let context_hint = if !current_location.is_empty() {
+            Some(current_location.as_str())
+        } else {
+            None
+        };
+        let lore_budget = 500; // ~500 tokens for lore context
+        let selected = sidequest_game::select_lore_for_prompt(
+            lore_store,
+            lore_budget,
+            context_hint,
+        );
+        if !selected.is_empty() {
+            let lore_text = sidequest_game::format_lore_context(&selected);
+            tracing::info!(
+                fragments = selected.len(),
+                tokens = selected.iter().map(|f| f.token_estimate()).sum::<usize>(),
+                hint = ?context_hint,
+                "rag.lore_injected_to_prompt"
+            );
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&lore_text);
+        }
     }
 
     // Check if barrier mode is active (Structured/Cinematic turn mode)
