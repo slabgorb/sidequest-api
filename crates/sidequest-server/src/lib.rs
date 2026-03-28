@@ -28,12 +28,50 @@ use tracing_subscriber::{EnvFilter, Registry};
 use sidequest_agents::orchestrator::{GameService, TurnContext};
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{GenreCode, GenreLoader};
+use sidequest_game::narrative_sheet::NarrativeSheet;
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
     CharacterState, CombatEventPayload, ErrorPayload, GameMessage, InitialState,
     InventoryPayload, MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember,
-    PartyStatusPayload, SessionEventPayload, ThinkingPayload,
+    PartyStatusPayload, SessionEventPayload, SheetAbility, SheetKnowledge, SheetStatus,
+    ThinkingPayload,
 };
+
+// ---------------------------------------------------------------------------
+// NarrativeSheet → CharacterSheetPayload conversion (Story 9-10)
+// ---------------------------------------------------------------------------
+
+/// Convert a game-crate `NarrativeSheet` into the protocol `CharacterSheetPayload`.
+fn narrative_sheet_to_payload(
+    sheet: NarrativeSheet,
+    portrait_url: Option<String>,
+) -> CharacterSheetPayload {
+    CharacterSheetPayload {
+        identity: sheet.identity,
+        abilities: sheet
+            .abilities
+            .into_iter()
+            .map(|a| SheetAbility {
+                name: a.name,
+                description: a.description,
+                involuntary: a.involuntary,
+            })
+            .collect(),
+        knowledge: sheet
+            .knowledge
+            .into_iter()
+            .map(|k| SheetKnowledge {
+                content: k.content,
+                confidence: format!("{:?}", k.confidence),
+            })
+            .collect(),
+        status: SheetStatus {
+            health: sheet.status.health,
+            conditions: sheet.status.conditions,
+        },
+        portrait_url,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Watcher Telemetry Types (Story 3-6)
@@ -1498,18 +1536,11 @@ async fn dispatch_connect(
                         responses.push(ready);
 
                         // Replay essential state for reconnecting client
-                        // CHARACTER_SHEET
+                        // CHARACTER_SHEET (story 9-10: narrative sheet format)
                         if let Some(character) = saved.snapshot.characters.first() {
+                            let sheet = character.to_narrative_sheet("");
                             responses.push(GameMessage::CharacterSheet {
-                                payload: CharacterSheetPayload {
-                                    name: character.core.name.as_str().to_string(),
-                                    class: character.char_class.as_str().to_string(),
-                                    level: character.core.level as u32,
-                                    stats: character.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
-                                    abilities: character.hooks.clone(),
-                                    backstory: character.backstory.as_str().to_string(),
-                                    portrait_url: None,
-                                },
+                                payload: narrative_sheet_to_payload(sheet, None),
                                 player_id: player_id.to_string(),
                             });
                         }
@@ -2009,21 +2040,10 @@ async fn dispatch_character_creation(
                     )
                     .await;
 
-                    // Emit CHARACTER_SHEET for the UI overlay
+                    // Emit CHARACTER_SHEET for the UI overlay (story 9-10: narrative sheet)
+                    let sheet = character.to_narrative_sheet("");
                     let char_sheet = GameMessage::CharacterSheet {
-                        payload: CharacterSheetPayload {
-                            name: character.core.name.as_str().to_string(),
-                            class: character.char_class.as_str().to_string(),
-                            level: character.core.level as u32,
-                            stats: character
-                                .stats
-                                .iter()
-                                .map(|(k, v)| (k.clone(), *v))
-                                .collect(),
-                            abilities: character.hooks.clone(),
-                            backstory: character.backstory.as_str().to_string(),
-                            portrait_url: None,
-                        },
+                        payload: narrative_sheet_to_payload(sheet, None),
                         player_id: player_id.to_string(),
                     };
 

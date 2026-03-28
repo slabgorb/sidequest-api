@@ -3,26 +3,33 @@
 //! Tests that CharacterSheetPayload embeds NarrativeSheet fields and that
 //! the server constructs CHARACTER_SHEET messages via to_narrative_sheet().
 
-use sidequest_game::ability::AbilityDefinition;
+use sidequest_game::ability::{AbilityDefinition, AbilitySource};
 use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
-use sidequest_game::known_fact::{Confidence, KnownFact};
+use sidequest_game::inventory::Inventory;
+use sidequest_game::known_fact::{Confidence, FactSource, KnownFact};
 use sidequest_game::narrative_sheet::NarrativeSheet;
+use sidequest_protocol::NonBlankString;
 
 /// Build a test character with abilities and known facts for wiring tests.
 fn test_character() -> Character {
-    let mut core = CreatureCore::default();
-    core.name = "Reva".into();
-    core.hp = 20;
-    core.max_hp = 30;
-    core.level = 4;
-    core.statuses = vec!["poisoned".to_string()];
+    let core = CreatureCore {
+        name: NonBlankString::new("Reva").unwrap(),
+        description: NonBlankString::new("An elven ranger").unwrap(),
+        personality: NonBlankString::new("Quiet and perceptive").unwrap(),
+        level: 4,
+        hp: 20,
+        max_hp: 30,
+        ac: 14,
+        inventory: Inventory::default(),
+        statuses: vec!["poisoned".to_string()],
+    };
 
-    let mut ch = Character {
+    Character {
         core,
-        race: "Elf".into(),
-        char_class: "Ranger".into(),
-        backstory: "Born under starlight.".into(),
+        race: NonBlankString::new("Elf").unwrap(),
+        char_class: NonBlankString::new("Ranger").unwrap(),
+        backstory: NonBlankString::new("Born under starlight.").unwrap(),
         narrative_state: String::new(),
         hooks: vec![],
         stats: std::collections::HashMap::new(),
@@ -32,34 +39,32 @@ fn test_character() -> Character {
                 genre_description: "You sense the health of living things through the earth.".into(),
                 mechanical_effect: "+2 perception in forests".into(),
                 involuntary: true,
+                source: AbilitySource::Race,
             },
             AbilityDefinition {
                 name: "Arrow Storm".into(),
                 genre_description: "A hail of arrows descends on your foes.".into(),
                 mechanical_effect: "3d6 ranged AoE".into(),
                 involuntary: false,
+                source: AbilitySource::Class,
             },
         ],
         known_facts: vec![
             KnownFact {
                 content: "The grove is corrupted by blight.".into(),
                 confidence: Confidence::Certain,
-                source: "observation".into(),
+                source: FactSource::Observation,
                 learned_turn: 5,
-                category: "Lore".into(),
-                fact_id: None,
             },
             KnownFact {
                 content: "Elder Mossbeard may know a cure.".into(),
                 confidence: Confidence::Suspected,
-                source: "rumor".into(),
+                source: FactSource::Dialogue,
                 learned_turn: 7,
-                category: "Person".into(),
-                fact_id: None,
             },
         ],
-    };
-    ch
+        is_friendly: true,
+    }
 }
 
 // ── AC-1: NarrativeSheet serializes to JSON matching protocol shape ──────────

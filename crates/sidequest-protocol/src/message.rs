@@ -431,25 +431,53 @@ pub struct PartyStatusPayload {
     pub members: Vec<PartyMember>,
 }
 
-/// Character sheet details.
+/// Character sheet details — genre-voiced narrative format.
+///
+/// Story 9-10: Replaces raw stat block with NarrativeSheet-shaped fields.
+/// No raw numbers, no mechanical effects — everything in genre voice.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CharacterSheetPayload {
-    /// Character name.
-    pub name: String,
-    /// Character class.
-    pub class: String,
-    /// Character level.
-    pub level: u32,
-    /// Ability scores / stats.
-    pub stats: HashMap<String, i32>,
-    /// Known abilities.
-    pub abilities: Vec<String>,
-    /// Character backstory.
-    pub backstory: String,
+    /// Genre-voiced identity line (e.g., "Reva, Elf Ranger").
+    pub identity: String,
+    /// Abilities with genre descriptions.
+    pub abilities: Vec<SheetAbility>,
+    /// Known facts with confidence tags.
+    pub knowledge: Vec<SheetKnowledge>,
+    /// Narrative health and conditions.
+    pub status: SheetStatus,
     /// Portrait image URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
+}
+
+/// A single ability entry for the character sheet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SheetAbility {
+    /// Ability name.
+    pub name: String,
+    /// Genre-voiced description — what the player sees.
+    pub description: String,
+    /// Whether this ability triggers without player action.
+    pub involuntary: bool,
+}
+
+/// A single knowledge entry for the character sheet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SheetKnowledge {
+    /// The fact content in genre voice.
+    pub content: String,
+    /// Confidence level as string (Certain/Suspected/Rumored).
+    pub confidence: String,
+}
+
+/// Character status in narrative voice.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SheetStatus {
+    /// Narrative description of health.
+    pub health: String,
+    /// Active conditions in narrative voice.
+    pub conditions: Vec<String>,
 }
 
 /// Full inventory snapshot.

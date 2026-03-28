@@ -300,15 +300,17 @@ mod message_type_tests {
     fn character_sheet_round_trip() {
         let msg = GameMessage::CharacterSheet {
             payload: CharacterSheetPayload {
-                name: "Grok".into(),
-                class: "Warrior".into(),
-                level: 3,
-                stats: std::collections::HashMap::from([
-                    ("strength".into(), 16),
-                    ("dexterity".into(), 12),
-                ]),
-                abilities: vec!["Power Strike".into()],
-                backstory: "A wandering fighter.".into(),
+                identity: "Grok, Orc Warrior".into(),
+                abilities: vec![SheetAbility {
+                    name: "Power Strike".into(),
+                    description: "A devastating blow that sends foes reeling.".into(),
+                    involuntary: false,
+                }],
+                knowledge: vec![],
+                status: SheetStatus {
+                    health: "in good health".into(),
+                    conditions: vec![],
+                },
                 portrait_url: None,
             },
             player_id: String::new(),
