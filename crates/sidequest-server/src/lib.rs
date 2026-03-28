@@ -2791,12 +2791,40 @@ async fn dispatch_player_action(
             if combat_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
                 combat_state.set_in_combat(false);
                 tracing::info!("Combat ended — detected end keyword in narration");
+                // Transition turn mode: Structured → FreePlay
+                {
+                    let holder = shared_session_holder.lock().await;
+                    if let Some(ref ss_arc) = *holder {
+                        let mut ss = ss_arc.lock().await;
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
+                        tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat end");
+                    }
+                }
             }
         } else {
             // Check for combat start
             if combat_start_keywords.iter().any(|kw| narr_lower.contains(kw)) {
                 combat_state.set_in_combat(true);
                 tracing::info!("Combat started — detected start keyword in narration");
+                // Transition turn mode: FreePlay → Structured
+                {
+                    let holder = shared_session_holder.lock().await;
+                    if let Some(ref ss_arc) = *holder {
+                        let mut ss = ss_arc.lock().await;
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
+                        tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
+                        // Initialize barrier if transitioning to structured mode
+                        if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
+                            let mp_session = sidequest_game::multiplayer::MultiplayerSession::new(HashMap::new());
+                            ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::new(
+                                mp_session,
+                                sidequest_game::barrier::TurnBarrierConfig::default(),
+                            ));
+                        }
+                    }
+                }
             }
         }
     }
