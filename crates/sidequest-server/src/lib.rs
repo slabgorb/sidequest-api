@@ -1167,6 +1167,19 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             remaining_players = remaining,
             "Player removed from shared session"
         );
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "multiplayer".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("event".to_string(), serde_json::json!("session_left"));
+                f.insert("session_key".to_string(), serde_json::json!(key));
+                f.insert("remaining_players".to_string(), serde_json::json!(remaining));
+                f
+            },
+        });
     }
     state.remove_connection(&player_id);
     writer_handle.abort();
@@ -1994,11 +2007,25 @@ async fn dispatch_character_creation(
                                 };
                                 ss.broadcast(party_msg);
                             }
+                            let pc = ss.player_count();
                             tracing::info!(
                                 player_id = %player_id,
-                                player_count = ss.player_count(),
+                                player_count = pc,
                                 "Player joined shared session"
                             );
+                            state.send_watcher_event(WatcherEvent {
+                                timestamp: chrono::Utc::now(),
+                                component: "multiplayer".to_string(),
+                                event_type: WatcherEventType::StateTransition,
+                                severity: Severity::Info,
+                                fields: {
+                                    let mut f = HashMap::new();
+                                    f.insert("event".to_string(), serde_json::json!("session_joined"));
+                                    f.insert("session_key".to_string(), serde_json::json!(format!("{}:{}", genre, world)));
+                                    f.insert("player_count".to_string(), serde_json::json!(pc));
+                                    f
+                                },
+                            });
                         }
                     }
 
@@ -2062,6 +2089,23 @@ async fn dispatch_player_action(
                 discovered_regions,
                 trope_states,
             );
+            let pc = ss.player_count();
+            if pc > 1 {
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "multiplayer".to_string(),
+                    event_type: WatcherEventType::AgentSpanOpen,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("multiplayer_action"));
+                        f.insert("session_key".to_string(), serde_json::json!(format!("{}:{}", genre_slug, world_slug)));
+                        f.insert("player_id".to_string(), serde_json::json!(player_id));
+                        f.insert("party_size".to_string(), serde_json::json!(pc));
+                        f
+                    },
+                });
+            }
         }
     }
 
