@@ -4,6 +4,7 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub mod render_integration;
+pub mod shared_session;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -3217,12 +3218,12 @@ fn extract_item_losses(text: &str) -> Vec<String> {
 /// Lightweight NPC registry entry — tracks name, pronouns, role, and location
 /// so the narrator prompt can maintain identity consistency across turns.
 #[derive(Debug, Clone)]
-struct NpcRegistryEntry {
-    name: String,
-    pronouns: String,
-    role: String,
-    location: String,
-    last_seen_turn: u32,
+pub(crate) struct NpcRegistryEntry {
+    pub(crate) name: String,
+    pub(crate) pronouns: String,
+    pub(crate) role: String,
+    pub(crate) location: String,
+    pub(crate) last_seen_turn: u32,
 }
 
 /// Extract NPC names from narration text and update the registry.
