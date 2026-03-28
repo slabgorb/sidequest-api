@@ -39,6 +39,7 @@ pub mod progression;
 pub mod render_queue;
 pub mod scene_directive;
 pub mod segmenter;
+pub mod slash_router;
 pub mod state;
 pub mod subject;
 pub mod theme_rotator;
