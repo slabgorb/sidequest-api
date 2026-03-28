@@ -30,6 +30,7 @@ pub mod hp;
 pub mod inventory;
 pub mod known_fact;
 pub mod lore;
+pub mod merchant;
 pub mod multiplayer;
 pub mod music_director;
 pub mod narrative;
@@ -73,6 +74,10 @@ pub use disposition::{Attitude, Disposition};
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
+pub use merchant::{
+    calculate_price, execute_buy, execute_sell, format_merchant_context,
+    MerchantError, MerchantTransaction, TransactionType,
+};
 pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{
     accumulate_lore, accumulate_lore_batch, cosine_similarity, format_lore_context,
