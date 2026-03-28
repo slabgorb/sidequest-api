@@ -79,6 +79,7 @@ fn test_snapshot() -> GameSnapshot {
             ]),
             abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
             is_friendly: true,
         }],
         npcs: vec![],

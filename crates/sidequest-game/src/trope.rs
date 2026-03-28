@@ -79,6 +79,11 @@ impl TropeState {
     pub fn notes(&self) -> &[String] {
         &self.notes
     }
+
+    /// Add a note to this trope.
+    pub fn add_note(&mut self, note: String) {
+        self.notes.push(note);
+    }
 }
 
 /// A beat that fired during a tick.
@@ -217,7 +222,7 @@ impl TropeEngine {
             ts.status = TropeStatus::Resolved;
             ts.progression = 1.0;
             if let Some(n) = note {
-                ts.notes.push(n.to_string());
+                ts.add_note(n.to_string());
             }
         }
     }

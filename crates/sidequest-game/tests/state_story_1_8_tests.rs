@@ -55,6 +55,7 @@ fn test_character() -> Character {
         stats: HashMap::from([("STR".to_string(), 16), ("DEX".to_string(), 10)]),
         abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
             is_friendly: true,
     }
 }

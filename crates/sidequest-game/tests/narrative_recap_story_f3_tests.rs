@@ -336,6 +336,7 @@ fn sqlite_load_produces_rich_recap() {
             ]),
             abilities: vec![],
             known_facts: vec![],
+            affinities: vec![],
             is_friendly: true,
         }],
         location: "Town Square".to_string(),

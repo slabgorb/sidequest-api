@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
+use crate::achievement::AchievementTracker;
 use crate::axis::AxisValue;
 use crate::character::Character;
 use crate::chase::{ChaseState, ChaseType};
@@ -105,6 +106,9 @@ pub struct GameSnapshot {
     /// Persisted so tone settings survive across sessions.
     #[serde(default)]
     pub axis_values: Vec<AxisValue>,
+    /// Achievement tracker (story F7).
+    #[serde(default)]
+    pub achievement_tracker: AchievementTracker,
 }
 
 impl GameSnapshot {
