@@ -9,9 +9,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
+use crate::axis::AxisValue;
 use crate::character::Character;
 use crate::chase::{ChaseState, ChaseType};
 use crate::combat::CombatState;
+use crate::consequence::GenieWish;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 use crate::delta::StateDelta;
@@ -96,6 +98,13 @@ pub struct GameSnapshot {
     /// Persisted so NPC identities survive across sessions.
     #[serde(default)]
     pub npc_registry: Vec<crate::npc::NpcRegistryEntry>,
+    /// Genie wishes — power-grab actions granted with ironic consequences (F9).
+    #[serde(default)]
+    pub genie_wishes: Vec<GenieWish>,
+    /// Current narrative axis values (story F2/F10 — /tone command).
+    /// Persisted so tone settings survive across sessions.
+    #[serde(default)]
+    pub axis_values: Vec<AxisValue>,
 }
 
 impl GameSnapshot {

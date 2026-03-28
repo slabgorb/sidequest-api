@@ -55,6 +55,7 @@ fn test_snapshot() -> GameSnapshot {
         campaign_maturity: Default::default(),
         world_history: vec![],
         last_saved_at: None,
+        ..Default::default()
     }
 }
 

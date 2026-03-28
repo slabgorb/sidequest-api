@@ -1116,6 +1116,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
+    let mut axes_config: Option<sidequest_genre::AxesConfig> = None;
+    let mut axis_values: Vec<sidequest_game::axis::AxisValue> = vec![];
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
@@ -1125,6 +1127,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // Bug 17: In-memory narration history for context accumulation across turns.
     // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
     let mut narration_history: Vec<String> = vec![];
+    // Continuity validator: corrections from the previous turn, injected into the next narrator prompt.
+    let mut continuity_corrections = String::new();
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>> =
@@ -1153,6 +1157,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
+                        &mut axes_config,
+                        &mut axis_values,
                         &mut visual_style,
                         &mut music_director,
                         &audio_mixer,
@@ -1165,6 +1171,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &shared_session,
                         &state,
                         &player_id_str,
+                        &mut continuity_corrections,
                     )
                     .await;
                     for resp in responses {
@@ -1261,6 +1268,8 @@ async fn dispatch_message(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    axes_config: &mut Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -1273,6 +1282,7 @@ async fn dispatch_message(
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     state: &AppState,
     player_id: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1289,6 +1299,8 @@ async fn dispatch_message(
                 discovered_regions,
                 trope_defs,
                 world_context,
+                axes_config,
+                axis_values,
                 visual_style,
                 music_director,
                 audio_mixer,
@@ -1298,6 +1310,7 @@ async fn dispatch_message(
                 lore_store,
                 state,
                 player_id,
+                continuity_corrections,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1329,6 +1342,8 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                axes_config,
+                axis_values,
                 visual_style,
                 npc_registry,
                 narration_history,
@@ -1341,6 +1356,7 @@ async fn dispatch_message(
                 prerender_scheduler,
                 state,
                 player_id,
+                continuity_corrections,
             )
             .await
         }
@@ -1374,6 +1390,8 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                axes_config,
+                axis_values,
                 visual_style,
                 npc_registry,
                 narration_history,
@@ -1389,6 +1407,7 @@ async fn dispatch_message(
                 session.genre_slug().unwrap_or(""),
                 session.world_slug().unwrap_or(""),
                 player_name_store.as_deref().unwrap_or("Player"),
+                continuity_corrections,
             )
             .await
         }
@@ -1424,6 +1443,8 @@ async fn dispatch_connect(
     discovered_regions: &mut Vec<String>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    axes_config: &mut Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -1433,6 +1454,7 @@ async fn dispatch_connect(
     lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1472,6 +1494,7 @@ async fn dispatch_connect(
                         *discovered_regions = saved.snapshot.discovered_regions.clone();
                         *turn_manager = saved.snapshot.turn_manager.clone();
                         *npc_registry = saved.snapshot.npc_registry.clone();
+                        *axis_values = saved.snapshot.axis_values.clone();
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -1580,6 +1603,7 @@ async fn dispatch_connect(
                             let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
                             if let Ok(pack) = loader.load(&genre_code) {
                                 *visual_style = Some(pack.visual_style.clone());
+                                *axes_config = Some(pack.axes.clone());
                                 *music_director = Some(sidequest_game::MusicDirector::new(&pack.audio));
                                 *audio_mixer.lock().await = Some(sidequest_game::AudioMixer::new(
                                     sidequest_game::DuckConfig::default(),
@@ -1621,7 +1645,7 @@ async fn dispatch_connect(
                         tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, visual_style,
+                            builder, trope_defs, world_context, visual_style, axes_config,
                             music_director, audio_mixer, prerender_scheduler,
                             lore_store, genre, world, state, player_id,
                         ).await {
@@ -1632,7 +1656,7 @@ async fn dispatch_connect(
                         tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
                         responses.push(connected_msg);
                         if let Some(scene_msg) = start_character_creation(
-                            builder, trope_defs, world_context, visual_style,
+                            builder, trope_defs, world_context, visual_style, axes_config,
                             music_director, audio_mixer, prerender_scheduler,
                             lore_store, genre, world, state, player_id,
                         ).await {
@@ -1648,6 +1672,7 @@ async fn dispatch_connect(
                     trope_defs,
                     world_context,
                     visual_style,
+                    axes_config,
                     music_director,
                     audio_mixer,
                     prerender_scheduler,
@@ -1692,6 +1717,7 @@ async fn start_character_creation(
     trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context_out: &mut String,
     visual_style_out: &mut Option<sidequest_genre::VisualStyle>,
+    axes_config_out: &mut Option<sidequest_genre::AxesConfig>,
     music_director_out: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1719,6 +1745,7 @@ async fn start_character_creation(
     };
 
     *visual_style_out = Some(pack.visual_style.clone());
+    *axes_config_out = Some(pack.axes.clone());
 
     // Initialize audio subsystems from genre pack
     *music_director_out = Some(sidequest_game::MusicDirector::new(&pack.audio));
@@ -1834,6 +1861,8 @@ async fn dispatch_character_creation(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
+    axes_config: &Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
@@ -1846,6 +1875,7 @@ async fn dispatch_character_creation(
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     state: &AppState,
     player_id: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2000,6 +2030,8 @@ async fn dispatch_character_creation(
                         trope_states,
                         trope_defs,
                         world_context,
+                        axes_config,
+                        axis_values,
                         visual_style,
                         npc_registry,
                         narration_history,
@@ -2015,6 +2047,7 @@ async fn dispatch_character_creation(
                         &genre,
                         &world,
                         &pname_for_save,
+                        continuity_corrections,
                     )
                     .await;
 
@@ -2145,6 +2178,8 @@ async fn dispatch_player_action(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &[sidequest_genre::TropeDefinition],
     world_context: &str,
+    axes_config: &Option<sidequest_genre::AxesConfig>,
+    axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
@@ -2160,6 +2195,7 @@ async fn dispatch_player_action(
     genre_slug: &str,
     world_slug: &str,
     player_name_for_save: &str,
+    continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     // Sync world-level state from shared session (if multiplayer)
     {
@@ -2235,6 +2271,9 @@ async fn dispatch_player_action(
         router.register(Box::new(MapCommand));
         router.register(Box::new(SaveCommand));
         router.register(Box::new(GmCommand));
+        if let Some(ref ac) = axes_config {
+            router.register(Box::new(sidequest_game::ToneCommand::new(ac.clone())));
+        }
 
         // Build a minimal GameSnapshot from the local session state.
         let snapshot = {
@@ -2244,6 +2283,7 @@ async fn dispatch_player_action(
                 location: current_location.clone(),
                 combat: combat_state.clone(),
                 chase: chase_state.clone(),
+                axis_values: axis_values.clone(),
                 active_tropes: trope_states.iter().map(|ts| ts.trope_definition_id().to_string()).collect(),
                 ..GameSnapshot::default()
             };
@@ -2276,6 +2316,10 @@ async fn dispatch_player_action(
                         }
                     }
                     format!("GM command applied.")
+                }
+                sidequest_game::slash_router::CommandResult::ToneChange(new_values) => {
+                    *axis_values = new_values.clone();
+                    format!("Tone updated.")
                 }
                 _ => "Command executed.".to_string(),
             };
@@ -2487,6 +2531,14 @@ async fn dispatch_player_action(
         state_summary.push_str(&trope_context);
     }
 
+    // Inject tone context from narrative axes (story F2/F10)
+    if let Some(ref ac) = axes_config {
+        let tone_text = sidequest_game::format_tone_context(ac, axis_values);
+        if !tone_text.is_empty() {
+            state_summary.push_str(&tone_text);
+        }
+    }
+
     // Bug 17: Include recent narration history so the narrator maintains continuity
     if !narration_history.is_empty() {
         state_summary.push_str("\n\nRECENT CONVERSATION HISTORY (most recent last):\n");
@@ -2528,6 +2580,32 @@ async fn dispatch_player_action(
             state_summary.push_str("\n\n");
             state_summary.push_str(&lore_text);
         }
+    }
+
+    // F9: Wish Consequence Engine — detect power-grab actions and inject consequence context
+    {
+        let mut engine = sidequest_game::WishConsequenceEngine::new();
+        if let Some(wish) = engine.evaluate(char_name, action) {
+            let wish_context = sidequest_game::WishConsequenceEngine::build_prompt_context(&wish);
+            tracing::info!(
+                wisher = %wish.wisher_name,
+                category = ?wish.consequence_category,
+                "wish_consequence.power_grab_detected"
+            );
+            state_summary.push_str(&wish_context);
+        }
+    }
+
+    // Inject continuity corrections from the previous turn (if any)
+    if !continuity_corrections.is_empty() {
+        state_summary.push_str("\n\n");
+        state_summary.push_str(continuity_corrections);
+        tracing::info!(
+            corrections_len = continuity_corrections.len(),
+            "continuity.corrections_injected_to_prompt"
+        );
+        // Clear after injection — corrections are one-shot
+        continuity_corrections.clear();
     }
 
     // Check if barrier mode is active (Structured/Cinematic turn mode)
@@ -2614,13 +2692,24 @@ async fn dispatch_player_action(
         }
     }
 
+    // Preprocess raw player input — STT cleanup + three-perspective rewrite.
+    // Uses haiku-tier LLM with 15s timeout; falls back to mechanical rewrite on failure.
+    let preprocessed = sidequest_agents::preprocessor::preprocess_action(action, char_name);
+    tracing::info!(
+        raw = %action,
+        you = %preprocessed.you,
+        named = %preprocessed.named,
+        intent = %preprocessed.intent,
+        "Action preprocessed"
+    );
+
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
         in_combat: combat_state.in_combat(),
         in_chase: chase_state.is_some(),
     };
-    let result = state.game_service().process_action(action, &context);
+    let result = state.game_service().process_action(&preprocessed.you, &context);
 
     // Watcher: narration generated (with intent classification and agent routing)
     state.send_watcher_event(WatcherEvent {
@@ -2722,6 +2811,41 @@ async fn dispatch_player_action(
     let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
     update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx, &region_refs);
     tracing::debug!(npc_count = npc_registry.len(), "NPC registry updated from narration");
+
+    // Continuity validation — check narrator output against game state.
+    // Build a minimal snapshot from the local session variables for the validator.
+    {
+        let mut validation_snapshot = sidequest_game::GameSnapshot {
+            location: current_location.clone(),
+            ..sidequest_game::GameSnapshot::default()
+        };
+        // Reconstruct character with inventory for the validator
+        if let Some(ref cj) = character_json {
+            if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                ch.core.hp = *hp;
+                ch.core.inventory = inventory.clone();
+                validation_snapshot.characters.push(ch);
+            }
+        }
+        let validation_result = sidequest_game::validate_continuity(&clean_narration, &validation_snapshot);
+        if !validation_result.is_clean() {
+            let corrections = validation_result.format_corrections();
+            tracing::warn!(
+                contradictions = validation_result.contradictions.len(),
+                "continuity.contradictions_detected"
+            );
+            for c in &validation_result.contradictions {
+                tracing::warn!(
+                    category = ?c.category,
+                    detail = %c.detail,
+                    expected = %c.expected,
+                    "continuity.contradiction"
+                );
+            }
+            // Store for injection into the NEXT turn's narrator prompt
+            *continuity_corrections = corrections;
+        }
+    }
 
     // Bug 4: Combat HP changes — scan narration for damage/healing indicators
     {
@@ -3342,6 +3466,7 @@ async fn dispatch_player_action(
                 // Sync turn manager and NPC registry to snapshot for cross-session persistence
                 snapshot.turn_manager = turn_manager.clone();
                 snapshot.npc_registry = npc_registry.clone();
+                snapshot.axis_values = axis_values.clone();
                 // Append narration to log for recap on reconnect
                 snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
                     timestamp: 0,
