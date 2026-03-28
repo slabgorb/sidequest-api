@@ -12,6 +12,7 @@ pub mod context_builder;
 pub mod entity_reference;
 pub mod exercise_tracker;
 pub mod extractor;
+pub mod footnotes;
 pub mod format_helpers;
 pub mod orchestrator;
 pub mod patch_legality;
