@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
 use crate::ability::AbilityDefinition;
+use crate::affinity::AffinityState;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 use crate::known_fact::KnownFact;
@@ -49,6 +50,11 @@ pub struct Character {
     /// Facts learned during play — accumulates monotonically.
     #[serde(default)]
     pub known_facts: Vec<KnownFact>,
+
+    // Affinity progression (Story F8)
+    /// Per-affinity tier tracking for ability progression.
+    #[serde(default)]
+    pub affinities: Vec<AffinityState>,
 
     /// Whether this is a player-controlled (friendly) character.
     #[serde(default = "default_friendly")]
@@ -118,6 +124,7 @@ mod tests {
             ]),
             abilities: vec![],
             known_facts: vec![],
+            affinities: vec![],
             is_friendly: true,
         }
     }

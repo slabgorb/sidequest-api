@@ -13,12 +13,12 @@
 //! ACs tested: Model defined, Source types, Confidence levels,
 //!             Patch extension, Character storage, Persistence, Accumulation
 
+use sidequest_game::ability::AbilityDefinition;
 use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 use sidequest_game::state::WorldStatePatch;
-use sidequest_game::ability::AbilityDefinition;
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
 
@@ -60,6 +60,7 @@ fn make_character(name: &str, facts: Vec<KnownFact>) -> Character {
         ]),
         abilities: vec![],
         known_facts: facts,
+        affinities: vec![],
         is_friendly: true,
     }
 }
@@ -98,19 +99,34 @@ fn known_fact_content_preserves_text() {
 
 #[test]
 fn fact_source_observation() {
-    let fact = make_fact("Smoke rising from the north", 3, FactSource::Observation, Confidence::Certain);
+    let fact = make_fact(
+        "Smoke rising from the north",
+        3,
+        FactSource::Observation,
+        Confidence::Certain,
+    );
     assert!(matches!(fact.source, FactSource::Observation));
 }
 
 #[test]
 fn fact_source_dialogue() {
-    let fact = make_fact("The innkeeper warned of bandits", 5, FactSource::Dialogue, Confidence::Certain);
+    let fact = make_fact(
+        "The innkeeper warned of bandits",
+        5,
+        FactSource::Dialogue,
+        Confidence::Certain,
+    );
     assert!(matches!(fact.source, FactSource::Dialogue));
 }
 
 #[test]
 fn fact_source_discovery() {
-    let fact = make_fact("Hidden passage behind the bookcase", 12, FactSource::Discovery, Confidence::Certain);
+    let fact = make_fact(
+        "Hidden passage behind the bookcase",
+        12,
+        FactSource::Discovery,
+        Confidence::Certain,
+    );
     assert!(matches!(fact.source, FactSource::Discovery));
 }
 
@@ -120,19 +136,34 @@ fn fact_source_discovery() {
 
 #[test]
 fn confidence_certain() {
-    let fact = make_fact("The bridge is collapsed", 2, FactSource::Observation, Confidence::Certain);
+    let fact = make_fact(
+        "The bridge is collapsed",
+        2,
+        FactSource::Observation,
+        Confidence::Certain,
+    );
     assert!(matches!(fact.confidence, Confidence::Certain));
 }
 
 #[test]
 fn confidence_suspected() {
-    let fact = make_fact("The merchant may be lying", 8, FactSource::Dialogue, Confidence::Suspected);
+    let fact = make_fact(
+        "The merchant may be lying",
+        8,
+        FactSource::Dialogue,
+        Confidence::Suspected,
+    );
     assert!(matches!(fact.confidence, Confidence::Suspected));
 }
 
 #[test]
 fn confidence_rumored() {
-    let fact = make_fact("They say a dragon sleeps beneath", 1, FactSource::Dialogue, Confidence::Rumored);
+    let fact = make_fact(
+        "They say a dragon sleeps beneath",
+        1,
+        FactSource::Dialogue,
+        Confidence::Rumored,
+    );
     assert!(matches!(fact.confidence, Confidence::Rumored));
 }
 
@@ -145,7 +176,12 @@ fn world_state_patch_has_discovered_facts_field() {
     let patch = WorldStatePatch {
         discovered_facts: Some(vec![DiscoveredFact {
             character_name: "Reva".to_string(),
-            fact: make_fact("Corruption in the grove", 14, FactSource::Observation, Confidence::Certain),
+            fact: make_fact(
+                "Corruption in the grove",
+                14,
+                FactSource::Observation,
+                Confidence::Certain,
+            ),
         }]),
         ..Default::default()
     };
@@ -165,7 +201,12 @@ fn world_state_patch_discovered_facts_defaults_to_none() {
 fn discovered_fact_carries_character_and_fact() {
     let discovered = DiscoveredFact {
         character_name: "Kael".to_string(),
-        fact: make_fact("Ambush planned at dawn", 10, FactSource::Discovery, Confidence::Suspected),
+        fact: make_fact(
+            "Ambush planned at dawn",
+            10,
+            FactSource::Discovery,
+            Confidence::Suspected,
+        ),
     };
     assert_eq!(discovered.character_name, "Kael");
     assert_eq!(discovered.fact.content, "Ambush planned at dawn");
@@ -205,9 +246,24 @@ fn character_with_multiple_facts() {
     let reva = make_character(
         "Reva",
         vec![
-            make_fact("The bridge is broken", 2, FactSource::Observation, Confidence::Certain),
-            make_fact("The innkeeper is suspicious", 5, FactSource::Dialogue, Confidence::Suspected),
-            make_fact("Secret tunnel exists", 12, FactSource::Discovery, Confidence::Certain),
+            make_fact(
+                "The bridge is broken",
+                2,
+                FactSource::Observation,
+                Confidence::Certain,
+            ),
+            make_fact(
+                "The innkeeper is suspicious",
+                5,
+                FactSource::Dialogue,
+                Confidence::Suspected,
+            ),
+            make_fact(
+                "Secret tunnel exists",
+                12,
+                FactSource::Discovery,
+                Confidence::Certain,
+            ),
         ],
     );
     assert_eq!(reva.known_facts.len(), 3);
@@ -238,7 +294,11 @@ fn known_fact_serde_round_trip() {
 
 #[test]
 fn fact_source_serde_round_trip() {
-    for source in [FactSource::Observation, FactSource::Dialogue, FactSource::Discovery] {
+    for source in [
+        FactSource::Observation,
+        FactSource::Dialogue,
+        FactSource::Discovery,
+    ] {
         let json = serde_json::to_string(&source).expect("serialize source");
         let restored: FactSource = serde_json::from_str(&json).expect("deserialize source");
         assert_eq!(
@@ -252,7 +312,11 @@ fn fact_source_serde_round_trip() {
 
 #[test]
 fn confidence_serde_round_trip() {
-    for confidence in [Confidence::Certain, Confidence::Suspected, Confidence::Rumored] {
+    for confidence in [
+        Confidence::Certain,
+        Confidence::Suspected,
+        Confidence::Rumored,
+    ] {
         let json = serde_json::to_string(&confidence).expect("serialize confidence");
         let restored: Confidence = serde_json::from_str(&json).expect("deserialize confidence");
         assert_eq!(
@@ -269,16 +333,33 @@ fn character_with_facts_serde_round_trip() {
     let reva = make_character(
         "Reva",
         vec![
-            make_fact("The mayor is a cultist", 14, FactSource::Dialogue, Confidence::Certain),
-            make_fact("Dragon beneath the mountain", 1, FactSource::Dialogue, Confidence::Rumored),
+            make_fact(
+                "The mayor is a cultist",
+                14,
+                FactSource::Dialogue,
+                Confidence::Certain,
+            ),
+            make_fact(
+                "Dragon beneath the mountain",
+                1,
+                FactSource::Dialogue,
+                Confidence::Rumored,
+            ),
         ],
     );
     let json = serde_json::to_string(&reva).expect("serialize character with facts");
-    let restored: Character = serde_json::from_str(&json).expect("deserialize character with facts");
+    let restored: Character =
+        serde_json::from_str(&json).expect("deserialize character with facts");
     assert_eq!(restored.known_facts.len(), 2);
     assert_eq!(restored.known_facts[0].content, "The mayor is a cultist");
-    assert_eq!(restored.known_facts[1].content, "Dragon beneath the mountain");
-    assert!(matches!(restored.known_facts[1].confidence, Confidence::Rumored));
+    assert_eq!(
+        restored.known_facts[1].content,
+        "Dragon beneath the mountain"
+    );
+    assert!(matches!(
+        restored.known_facts[1].confidence,
+        Confidence::Rumored
+    ));
 }
 
 #[test]
@@ -343,8 +424,18 @@ fn facts_accumulate_by_push() {
 fn duplicate_content_facts_both_kept() {
     // Facts are monotonic — even duplicates are kept (no dedup in this story)
     let mut reva = make_character("Reva", vec![]);
-    let fact1 = make_fact("The mayor is a cultist", 14, FactSource::Dialogue, Confidence::Suspected);
-    let fact2 = make_fact("The mayor is a cultist", 20, FactSource::Observation, Confidence::Certain);
+    let fact1 = make_fact(
+        "The mayor is a cultist",
+        14,
+        FactSource::Dialogue,
+        Confidence::Suspected,
+    );
+    let fact2 = make_fact(
+        "The mayor is a cultist",
+        20,
+        FactSource::Observation,
+        Confidence::Certain,
+    );
 
     reva.known_facts.push(fact1);
     reva.known_facts.push(fact2);
@@ -352,8 +443,14 @@ fn duplicate_content_facts_both_kept() {
     assert_eq!(reva.known_facts.len(), 2);
     assert_eq!(reva.known_facts[0].learned_turn, 14);
     assert_eq!(reva.known_facts[1].learned_turn, 20);
-    assert!(matches!(reva.known_facts[0].confidence, Confidence::Suspected));
-    assert!(matches!(reva.known_facts[1].confidence, Confidence::Certain));
+    assert!(matches!(
+        reva.known_facts[0].confidence,
+        Confidence::Suspected
+    ));
+    assert!(matches!(
+        reva.known_facts[1].confidence,
+        Confidence::Certain
+    ));
 }
 
 // ============================================================================
@@ -364,10 +461,16 @@ fn duplicate_content_facts_both_kept() {
 fn discovered_fact_serde_round_trip() {
     let discovered = DiscoveredFact {
         character_name: "Reva".to_string(),
-        fact: make_fact("Corruption detected", 14, FactSource::Observation, Confidence::Certain),
+        fact: make_fact(
+            "Corruption detected",
+            14,
+            FactSource::Observation,
+            Confidence::Certain,
+        ),
     };
     let json = serde_json::to_string(&discovered).expect("serialize discovered fact");
-    let restored: DiscoveredFact = serde_json::from_str(&json).expect("deserialize discovered fact");
+    let restored: DiscoveredFact =
+        serde_json::from_str(&json).expect("deserialize discovered fact");
     assert_eq!(restored.character_name, "Reva");
     assert_eq!(restored.fact.content, "Corruption detected");
 }
@@ -378,17 +481,28 @@ fn world_state_patch_with_facts_serde_round_trip() {
         discovered_facts: Some(vec![
             DiscoveredFact {
                 character_name: "Reva".to_string(),
-                fact: make_fact("Grove is corrupted", 14, FactSource::Observation, Confidence::Certain),
+                fact: make_fact(
+                    "Grove is corrupted",
+                    14,
+                    FactSource::Observation,
+                    Confidence::Certain,
+                ),
             },
             DiscoveredFact {
                 character_name: "Kael".to_string(),
-                fact: make_fact("Ambush at dawn", 15, FactSource::Discovery, Confidence::Suspected),
+                fact: make_fact(
+                    "Ambush at dawn",
+                    15,
+                    FactSource::Discovery,
+                    Confidence::Suspected,
+                ),
             },
         ]),
         ..Default::default()
     };
     let json = serde_json::to_string(&patch).expect("serialize patch with facts");
-    let restored: WorldStatePatch = serde_json::from_str(&json).expect("deserialize patch with facts");
+    let restored: WorldStatePatch =
+        serde_json::from_str(&json).expect("deserialize patch with facts");
     let facts = restored.discovered_facts.unwrap();
     assert_eq!(facts.len(), 2);
     assert_eq!(facts[0].character_name, "Reva");

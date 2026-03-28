@@ -54,7 +54,10 @@ impl ValidationResult {
         let mut lines = vec!["[STATE CORRECTIONS]".to_string()];
         lines.push("The following contradictions were detected in your previous narration. Correct these in your next response:".to_string());
         for c in &self.contradictions {
-            lines.push(format!("- {:?}: {} (expected: {})", c.category, c.detail, c.expected));
+            lines.push(format!(
+                "- {:?}: {} (expected: {})",
+                c.category, c.detail, c.expected
+            ));
         }
         lines.push("[/STATE CORRECTIONS]".to_string());
         lines.join("\n")
@@ -63,9 +66,14 @@ impl ValidationResult {
 
 /// Action phrases that trigger inventory validation.
 const ACTION_PHRASES: &[&str] = &[
-    "draw your", "draws their", "draws his", "draws her",
-    "wield", "wields",
-    "brandish", "brandishes",
+    "draw your",
+    "draws their",
+    "draws his",
+    "draws her",
+    "wield",
+    "wields",
+    "brandish",
+    "brandishes",
 ];
 
 /// Time-of-day keyword mapping: period name -> keywords that should appear.
@@ -81,10 +89,15 @@ fn time_keywords(period: &str) -> &'static [&'static str] {
 
 /// All time-of-day keywords across all periods (for detecting mismatches).
 const ALL_TIME_KEYWORDS: &[(&str, &str)] = &[
-    ("sunrise", "morning"), ("dawn", "morning"),
-    ("midday", "afternoon"), ("noon", "afternoon"),
-    ("dusk", "evening"), ("sunset", "evening"),
-    ("midnight", "night"), ("moonlight", "night"), ("starlight", "night"),
+    ("sunrise", "morning"),
+    ("dawn", "morning"),
+    ("midday", "afternoon"),
+    ("noon", "afternoon"),
+    ("dusk", "evening"),
+    ("sunset", "evening"),
+    ("midnight", "night"),
+    ("moonlight", "night"),
+    ("starlight", "night"),
 ];
 
 /// Validate narrator text against game state. Returns all contradictions found.
@@ -158,17 +171,21 @@ fn check_inventory(text_lower: &str, state: &GameSnapshot, out: &mut Vec<Contrad
     if item_names.is_empty() {
         out.push(Contradiction {
             category: ContradictionCategory::Inventory,
-            detail: "Narration describes wielding/drawing an item but the party has no items".to_string(),
+            detail: "Narration describes wielding/drawing an item but the party has no items"
+                .to_string(),
             expected: "No items in inventory".to_string(),
         });
         return;
     }
 
-    let any_item_mentioned = item_names.iter().any(|name| text_lower.contains(name.as_str()));
+    let any_item_mentioned = item_names
+        .iter()
+        .any(|name| text_lower.contains(name.as_str()));
     if !any_item_mentioned {
         out.push(Contradiction {
             category: ContradictionCategory::Inventory,
-            detail: "Narration describes wielding/drawing an item not found in inventory".to_string(),
+            detail: "Narration describes wielding/drawing an item not found in inventory"
+                .to_string(),
             expected: format!("Known items: {}", item_names.join(", ")),
         });
     }
@@ -275,6 +292,7 @@ mod tests {
             stats: std::collections::HashMap::new(),
             abilities: vec![],
             known_facts: vec![],
+            affinities: vec![],
             is_friendly: true,
         }
     }
@@ -293,7 +311,10 @@ mod tests {
         let state = make_snapshot();
         let result = validate("You stand in a dark forest clearing.", &state);
         assert!(!result.is_clean());
-        assert_eq!(result.contradictions[0].category, ContradictionCategory::Location);
+        assert_eq!(
+            result.contradictions[0].category,
+            ContradictionCategory::Location
+        );
     }
 
     #[test]
@@ -315,7 +336,10 @@ mod tests {
             &state,
         );
         assert!(!result.is_clean());
-        assert_eq!(result.contradictions[0].category, ContradictionCategory::DeadNpc);
+        assert_eq!(
+            result.contradictions[0].category,
+            ContradictionCategory::DeadNpc
+        );
     }
 
     #[test]
@@ -345,45 +369,43 @@ mod tests {
     #[test]
     fn action_phrase_with_known_item_is_clean() {
         let mut state = make_snapshot();
-        state.characters.push(make_character_with_items(vec![make_item("Iron Sword")]));
-        let result = validate(
-            "You draw your iron sword at the rusty anchor.",
-            &state,
-        );
+        state
+            .characters
+            .push(make_character_with_items(vec![make_item("Iron Sword")]));
+        let result = validate("You draw your iron sword at the rusty anchor.", &state);
         assert!(result.is_clean());
     }
 
     #[test]
     fn action_phrase_with_unknown_item_is_contradiction() {
         let mut state = make_snapshot();
-        state.characters.push(make_character_with_items(vec![make_item("Iron Sword")]));
-        let result = validate(
-            "You brandish a flaming axe at the rusty anchor.",
-            &state,
-        );
+        state
+            .characters
+            .push(make_character_with_items(vec![make_item("Iron Sword")]));
+        let result = validate("You brandish a flaming axe at the rusty anchor.", &state);
         assert!(!result.is_clean());
-        assert_eq!(result.contradictions[0].category, ContradictionCategory::Inventory);
+        assert_eq!(
+            result.contradictions[0].category,
+            ContradictionCategory::Inventory
+        );
     }
 
     #[test]
     fn action_phrase_with_empty_inventory_is_contradiction() {
         let mut state = make_snapshot();
         state.characters.push(make_character_with_items(vec![]));
-        let result = validate(
-            "You draw your weapon at the rusty anchor.",
-            &state,
-        );
+        let result = validate("You draw your weapon at the rusty anchor.", &state);
         assert!(!result.is_clean());
-        assert_eq!(result.contradictions[0].category, ContradictionCategory::Inventory);
+        assert_eq!(
+            result.contradictions[0].category,
+            ContradictionCategory::Inventory
+        );
     }
 
     #[test]
     fn no_action_phrase_skips_inventory_check() {
         let state = make_snapshot();
-        let result = validate(
-            "You look around the rusty anchor carefully.",
-            &state,
-        );
+        let result = validate("You look around the rusty anchor carefully.", &state);
         assert!(result.is_clean());
     }
 
@@ -392,10 +414,7 @@ mod tests {
     #[test]
     fn matching_time_keyword_is_clean() {
         let state = make_snapshot(); // time_of_day = "night"
-        let result = validate(
-            "The moonlight illuminates the rusty anchor.",
-            &state,
-        );
+        let result = validate("The moonlight illuminates the rusty anchor.", &state);
         assert!(result.is_clean());
     }
 
@@ -407,16 +426,16 @@ mod tests {
             &state,
         );
         assert!(!result.is_clean());
-        assert_eq!(result.contradictions[0].category, ContradictionCategory::TimeOfDay);
+        assert_eq!(
+            result.contradictions[0].category,
+            ContradictionCategory::TimeOfDay
+        );
     }
 
     #[test]
     fn no_time_keywords_is_clean() {
         let state = make_snapshot();
-        let result = validate(
-            "You enter the rusty anchor and order a drink.",
-            &state,
-        );
+        let result = validate("You enter the rusty anchor and order a drink.", &state);
         assert!(result.is_clean());
     }
 
@@ -424,10 +443,7 @@ mod tests {
     fn empty_time_of_day_skips_check() {
         let mut state = make_snapshot();
         state.time_of_day = String::new();
-        let result = validate(
-            "The sunrise is beautiful at the rusty anchor.",
-            &state,
-        );
+        let result = validate("The sunrise is beautiful at the rusty anchor.", &state);
         assert!(result.is_clean());
     }
 
@@ -461,10 +477,7 @@ mod tests {
     fn multiple_contradictions_collected() {
         let mut state = make_snapshot();
         state.npcs.push(make_npc("Grimjaw", 0));
-        let result = validate(
-            "Grimjaw waves as you arrive at the sunrise market.",
-            &state,
-        );
+        let result = validate("Grimjaw waves as you arrive at the sunrise market.", &state);
         assert!(result.contradictions.len() >= 2);
         let categories: Vec<_> = result.contradictions.iter().map(|c| &c.category).collect();
         assert!(categories.contains(&&ContradictionCategory::Location));

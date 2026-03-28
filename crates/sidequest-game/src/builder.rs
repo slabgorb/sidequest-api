@@ -236,8 +236,14 @@ impl CharacterBuilder {
             default_hp: rules.default_hp,
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
-            race_label: rules.race_label.clone().unwrap_or_else(|| "Race".to_string()),
-            class_label: rules.class_label.clone().unwrap_or_else(|| "Class".to_string()),
+            race_label: rules
+                .race_label
+                .clone()
+                .unwrap_or_else(|| "Race".to_string()),
+            class_label: rules
+                .class_label
+                .clone()
+                .unwrap_or_else(|| "Class".to_string()),
         }
     }
 
@@ -645,6 +651,7 @@ impl CharacterBuilder {
             stats,
             abilities: vec![],
             known_facts: vec![],
+            affinities: vec![],
             is_friendly: true,
         };
 
@@ -703,8 +710,16 @@ impl CharacterBuilder {
             BuilderPhase::Confirmation => {
                 let acc = self.accumulated();
                 let mut parts = vec![
-                    format!("{}: {}", self.race_label, acc.race_hint.as_deref().unwrap_or("Unknown")),
-                    format!("{}: {}", self.class_label, acc.class_hint.as_deref().unwrap_or("Unknown")),
+                    format!(
+                        "{}: {}",
+                        self.race_label,
+                        acc.race_hint.as_deref().unwrap_or("Unknown")
+                    ),
+                    format!(
+                        "{}: {}",
+                        self.class_label,
+                        acc.class_hint.as_deref().unwrap_or("Unknown")
+                    ),
                     format!(
                         "Personality: {}",
                         acc.personality_trait.as_deref().unwrap_or("Unknown")
@@ -793,7 +808,10 @@ impl CharacterBuilder {
         // If no explicit bonuses were set and we're using the flat default,
         // derive differentiation from the player's accumulated choices so
         // stats aren't all 10.
-        if acc.stat_bonuses.is_empty() && self.stat_generation != "standard_array" && self.ability_score_names.len() >= 3 {
+        if acc.stat_bonuses.is_empty()
+            && self.stat_generation != "standard_array"
+            && self.ability_score_names.len() >= 3
+        {
             let names = &self.ability_score_names;
             // Origin/race → boost first stat
             if acc.race_hint.is_some() {

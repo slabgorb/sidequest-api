@@ -60,6 +60,7 @@ fn test_character_with_facts(name: &str, facts: Vec<KnownFact>) -> Character {
         stats: HashMap::new(),
         abilities: vec![],
         known_facts: facts,
+        affinities: vec![],
         is_friendly: true,
     }
 }
@@ -86,9 +87,11 @@ fn narrator_registry_with_identity() -> PromptRegistry {
 fn knowledge_section_injected_for_narrator() {
     let mut registry = narrator_registry_with_identity();
 
-    let facts = vec![
-        make_fact("The mayor is secretly a cultist", 5, Confidence::Certain),
-    ];
+    let facts = vec![make_fact(
+        "The mayor is secretly a cultist",
+        5,
+        Confidence::Certain,
+    )];
     let character = test_character_with_facts("Reva Thornwood", facts);
 
     registry.register_knowledge_section("narrator", &character);
@@ -109,7 +112,11 @@ fn knowledge_section_contains_multiple_facts() {
     let facts = vec![
         make_fact("The mayor is secretly a cultist", 5, Confidence::Certain),
         make_fact("The old well leads to tunnels", 8, Confidence::Suspected),
-        make_fact("A dragon sleeps beneath the mountain", 12, Confidence::Rumored),
+        make_fact(
+            "A dragon sleeps beneath the mountain",
+            12,
+            Confidence::Rumored,
+        ),
     ];
     let character = test_character_with_facts("Reva Thornwood", facts);
 
@@ -139,9 +146,7 @@ fn knowledge_section_contains_multiple_facts() {
 fn knowledge_section_tags_certain_facts() {
     let mut registry = PromptRegistry::new();
 
-    let facts = vec![
-        make_fact("The mayor is a cultist", 5, Confidence::Certain),
-    ];
+    let facts = vec![make_fact("The mayor is a cultist", 5, Confidence::Certain)];
     let character = test_character_with_facts("Reva", facts);
 
     registry.register_knowledge_section("narrator", &character);
@@ -159,9 +164,11 @@ fn knowledge_section_tags_certain_facts() {
 fn knowledge_section_tags_suspected_facts() {
     let mut registry = PromptRegistry::new();
 
-    let facts = vec![
-        make_fact("The well leads to tunnels", 8, Confidence::Suspected),
-    ];
+    let facts = vec![make_fact(
+        "The well leads to tunnels",
+        8,
+        Confidence::Suspected,
+    )];
     let character = test_character_with_facts("Reva", facts);
 
     registry.register_knowledge_section("narrator", &character);
@@ -179,9 +186,11 @@ fn knowledge_section_tags_suspected_facts() {
 fn knowledge_section_tags_rumored_facts() {
     let mut registry = PromptRegistry::new();
 
-    let facts = vec![
-        make_fact("A dragon sleeps beneath the mountain", 12, Confidence::Rumored),
-    ];
+    let facts = vec![make_fact(
+        "A dragon sleeps beneath the mountain",
+        12,
+        Confidence::Rumored,
+    )];
     let character = test_character_with_facts("Reva", facts);
 
     registry.register_knowledge_section("narrator", &character);
@@ -201,7 +210,11 @@ fn knowledge_section_confidence_tag_associated_with_fact() {
 
     let facts = vec![
         make_fact("The mayor is a cultist", 5, Confidence::Certain),
-        make_fact("A dragon sleeps beneath the mountain", 12, Confidence::Rumored),
+        make_fact(
+            "A dragon sleeps beneath the mountain",
+            12,
+            Confidence::Rumored,
+        ),
     ];
     let character = test_character_with_facts("Reva", facts);
 
@@ -238,14 +251,20 @@ fn knowledge_section_caps_at_20_facts() {
     // Use NATO phonetic alphabet to avoid substring collisions
     // (e.g., "Fact number 1" matches inside "Fact number 10").
     let labels = [
-        "alpha", "bravo", "charlie", "delta", "echo",
-        "foxtrot", "golf", "hotel", "india", "juliet",
-        "kilo", "lima", "mike", "november", "oscar",
-        "papa", "quebec", "romeo", "sierra", "tango",
-        "uniform", "victor", "whiskey", "xray", "yankee",
+        "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india",
+        "juliet", "kilo", "lima", "mike", "november", "oscar", "papa", "quebec", "romeo", "sierra",
+        "tango", "uniform", "victor", "whiskey", "xray", "yankee",
     ];
-    let facts: Vec<KnownFact> = labels.iter().enumerate()
-        .map(|(i, label)| make_fact(&format!("fact-{}", label), (i + 1) as u64, Confidence::Certain))
+    let facts: Vec<KnownFact> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            make_fact(
+                &format!("fact-{}", label),
+                (i + 1) as u64,
+                Confidence::Certain,
+            )
+        })
         .collect();
     let character = test_character_with_facts("Reva", facts);
 
@@ -289,11 +308,14 @@ fn knowledge_section_most_recent_first() {
 
     let prompt = registry.compose("narrator");
 
-    let recent_pos = prompt.find("Recent discovery")
+    let recent_pos = prompt
+        .find("Recent discovery")
         .expect("Recent discovery should be in prompt");
-    let middle_pos = prompt.find("Middle discovery")
+    let middle_pos = prompt
+        .find("Middle discovery")
         .expect("Middle discovery should be in prompt");
-    let old_pos = prompt.find("Old discovery")
+    let old_pos = prompt
+        .find("Old discovery")
         .expect("Old discovery should be in prompt");
 
     assert!(
@@ -383,14 +405,14 @@ fn no_knowledge_header_when_facts_empty() {
 fn per_character_knowledge_is_separate() {
     let mut registry = PromptRegistry::new();
 
-    let reva_facts = vec![
-        make_fact("The mayor is a cultist", 5, Confidence::Certain),
-    ];
+    let reva_facts = vec![make_fact("The mayor is a cultist", 5, Confidence::Certain)];
     let reva = test_character_with_facts("Reva Thornwood", reva_facts);
 
-    let thorn_facts = vec![
-        make_fact("The mine contains mithril", 3, Confidence::Suspected),
-    ];
+    let thorn_facts = vec![make_fact(
+        "The mine contains mithril",
+        3,
+        Confidence::Suspected,
+    )];
     let thorn = test_character_with_facts("Thorn Ironhide", thorn_facts);
 
     registry.register_knowledge_section("narrator", &reva);
@@ -438,14 +460,18 @@ fn per_character_facts_are_not_mixed() {
     let prompt = registry.compose("narrator");
 
     // Find each character's section by name header
-    let reva_pos = prompt.find("Reva Thornwood")
+    let reva_pos = prompt
+        .find("Reva Thornwood")
         .expect("Reva's name should be in prompt");
-    let thorn_pos = prompt.find("Thorn Ironhide")
+    let thorn_pos = prompt
+        .find("Thorn Ironhide")
         .expect("Thorn's name should be in prompt");
 
-    let reva_fact_pos = prompt.find("Reva-only fact")
+    let reva_fact_pos = prompt
+        .find("Reva-only fact")
         .expect("Reva's fact should be in prompt");
-    let thorn_fact_pos = prompt.find("Thorn-only fact")
+    let thorn_fact_pos = prompt
+        .find("Thorn-only fact")
         .expect("Thorn's fact should be in prompt");
 
     // Reva's fact should appear after Reva's header and before Thorn's header
@@ -476,9 +502,7 @@ fn per_character_facts_are_not_mixed() {
 fn knowledge_section_header_contains_character_name() {
     let mut registry = PromptRegistry::new();
 
-    let facts = vec![
-        make_fact("The mayor is a cultist", 5, Confidence::Certain),
-    ];
+    let facts = vec![make_fact("The mayor is a cultist", 5, Confidence::Certain)];
     let character = test_character_with_facts("Reva Thornwood", facts);
 
     registry.register_knowledge_section("narrator", &character);
@@ -502,9 +526,7 @@ fn knowledge_section_header_contains_character_name() {
 fn knowledge_section_placed_in_valley_zone() {
     let mut registry = PromptRegistry::new();
 
-    let facts = vec![
-        make_fact("A fact", 1, Confidence::Certain),
-    ];
+    let facts = vec![make_fact("A fact", 1, Confidence::Certain)];
     let character = test_character_with_facts("Reva", facts);
 
     registry.register_knowledge_section("narrator", &character);
@@ -536,9 +558,7 @@ fn knowledge_section_placed_in_valley_zone() {
 fn knowledge_section_appears_before_player_action() {
     let mut registry = PromptRegistry::new();
 
-    let facts = vec![
-        make_fact("The mayor is a cultist", 5, Confidence::Certain),
-    ];
+    let facts = vec![make_fact("The mayor is a cultist", 5, Confidence::Certain)];
     let character = test_character_with_facts("Reva", facts);
 
     registry.register_knowledge_section("narrator", &character);
@@ -555,9 +575,11 @@ fn knowledge_section_appears_before_player_action() {
 
     let prompt = registry.compose("narrator");
 
-    let knowledge_pos = prompt.find("The mayor is a cultist")
+    let knowledge_pos = prompt
+        .find("The mayor is a cultist")
         .expect("Knowledge fact should be in prompt");
-    let action_pos = prompt.find("I confront the mayor")
+    let action_pos = prompt
+        .find("I confront the mayor")
         .expect("Player action should be in prompt");
 
     assert!(
@@ -573,18 +595,18 @@ fn knowledge_section_appears_before_player_action() {
 fn knowledge_section_appears_after_identity() {
     let mut registry = narrator_registry_with_identity();
 
-    let facts = vec![
-        make_fact("The mayor is a cultist", 5, Confidence::Certain),
-    ];
+    let facts = vec![make_fact("The mayor is a cultist", 5, Confidence::Certain)];
     let character = test_character_with_facts("Reva", facts);
 
     registry.register_knowledge_section("narrator", &character);
 
     let prompt = registry.compose("narrator");
 
-    let identity_pos = prompt.find("You are the narrator")
+    let identity_pos = prompt
+        .find("You are the narrator")
         .expect("Identity should be in prompt");
-    let knowledge_pos = prompt.find("The mayor is a cultist")
+    let knowledge_pos = prompt
+        .find("The mayor is a cultist")
         .expect("Knowledge fact should be in prompt");
 
     assert!(
@@ -618,8 +640,16 @@ fn full_pipeline_knowledge_in_narrator_prompt() {
     // Step 2: Character with diverse facts
     let facts = vec![
         make_fact("The mayor is secretly a cultist", 15, Confidence::Certain),
-        make_fact("The old well leads to underground tunnels", 10, Confidence::Suspected),
-        make_fact("A dragon sleeps beneath the mountain", 5, Confidence::Rumored),
+        make_fact(
+            "The old well leads to underground tunnels",
+            10,
+            Confidence::Suspected,
+        ),
+        make_fact(
+            "A dragon sleeps beneath the mountain",
+            5,
+            Confidence::Rumored,
+        ),
     ];
     let reva = test_character_with_facts("Reva Thornwood", facts);
 

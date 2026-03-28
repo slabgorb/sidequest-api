@@ -40,7 +40,8 @@ fn make_character(name: &str) -> Character {
         stats: HashMap::new(),
         abilities: vec![],
         known_facts: vec![],
-            is_friendly: true,
+        affinities: vec![],
+        is_friendly: true,
     }
 }
 
@@ -79,7 +80,6 @@ impl GenerationStrategy for AlwaysFailStrategy {
         ))
     }
 }
-
 
 // ===========================================================================
 // Section 1: TurnSummary struct
@@ -125,7 +125,10 @@ fn turn_summary_fields_are_private() {
 fn catch_up_error_generation_failed_variant() {
     let err = CatchUpError::GenerationFailed("timeout".to_string());
     let msg = format!("{}", err);
-    assert!(msg.contains("timeout"), "error message should contain cause");
+    assert!(
+        msg.contains("timeout"),
+        "error message should contain cause"
+    );
 }
 
 #[test]
@@ -169,7 +172,12 @@ fn generator_uses_strategy_for_generation() {
     let summaries = sample_turn_summaries(3);
 
     let result = gen
-        .generate_catch_up(&character, &summaries, "The Rusty Dagger Tavern", "dark fantasy")
+        .generate_catch_up(
+            &character,
+            &summaries,
+            "The Rusty Dagger Tavern",
+            "dark fantasy",
+        )
         .unwrap();
 
     assert_eq!(result.narration(), "You arrive at the tavern.");
@@ -189,12 +197,8 @@ fn prompt_includes_character_name() {
 
     // The generator must build a prompt containing the character name.
     // We verify this through build_prompt which should be a public helper.
-    let prompt = CatchUpGenerator::build_prompt(
-        &character,
-        &summaries,
-        "Dark Forest",
-        "dark fantasy",
-    );
+    let prompt =
+        CatchUpGenerator::build_prompt(&character, &summaries, "Dark Forest", "dark fantasy");
     assert!(
         prompt.contains("Elara Brightwood"),
         "prompt should contain character name, got: {}",
@@ -207,12 +211,8 @@ fn prompt_includes_location() {
     let character = make_character("Thorn");
     let summaries = sample_turn_summaries(2);
 
-    let prompt = CatchUpGenerator::build_prompt(
-        &character,
-        &summaries,
-        "Dark Forest",
-        "dark fantasy",
-    );
+    let prompt =
+        CatchUpGenerator::build_prompt(&character, &summaries, "Dark Forest", "dark fantasy");
     assert!(
         prompt.contains("Dark Forest"),
         "prompt should contain location, got: {}",
@@ -225,12 +225,7 @@ fn prompt_includes_genre_voice() {
     let character = make_character("Thorn");
     let summaries = sample_turn_summaries(1);
 
-    let prompt = CatchUpGenerator::build_prompt(
-        &character,
-        &summaries,
-        "Castle",
-        "dark fantasy",
-    );
+    let prompt = CatchUpGenerator::build_prompt(&character, &summaries, "Castle", "dark fantasy");
     assert!(
         prompt.contains("dark fantasy"),
         "prompt should contain genre voice, got: {}",
@@ -246,12 +241,8 @@ fn prompt_includes_recent_events() {
         TurnSummary::new(2, "Elara healed the wounded".to_string()),
     ];
 
-    let prompt = CatchUpGenerator::build_prompt(
-        &character,
-        &summaries,
-        "Village Square",
-        "high fantasy",
-    );
+    let prompt =
+        CatchUpGenerator::build_prompt(&character, &summaries, "Village Square", "high fantasy");
     assert!(
         prompt.contains("dragon attacked"),
         "prompt should contain recent events, got: {}",
@@ -317,7 +308,10 @@ fn generation_failure_returns_fallback_narration() {
     assert!(result.is_ok(), "fallback should handle generation failure");
 
     let catch_up = result.unwrap();
-    assert!(catch_up.is_fallback(), "result should be marked as fallback");
+    assert!(
+        catch_up.is_fallback(),
+        "result should be marked as fallback"
+    );
     // Fallback should include at least the location
     assert!(
         catch_up.narration().contains("Rusty Dagger Tavern"),
@@ -356,11 +350,11 @@ fn successful_generation_is_not_marked_as_fallback() {
         .generate_catch_up_with_fallback(&character, &summaries, "Dungeon", "dark fantasy")
         .unwrap();
 
-    assert!(!result.is_fallback(), "successful generation should not be fallback");
-    assert_eq!(
-        result.narration(),
-        "The torchlight flickers as you enter."
+    assert!(
+        !result.is_fallback(),
+        "successful generation should not be fallback"
     );
+    assert_eq!(result.narration(), "The torchlight flickers as you enter.");
 }
 
 // ===========================================================================
@@ -385,7 +379,9 @@ fn catch_up_result_fallback_variant() {
 fn catch_up_result_is_debug() {
     let result = CatchUpResult::generated("test".to_string());
     let debug = format!("{:?}", result);
-    assert!(debug.contains("CatchUpResult") || debug.contains("Generated") || debug.contains("test"));
+    assert!(
+        debug.contains("CatchUpResult") || debug.contains("Generated") || debug.contains("test")
+    );
 }
 
 // ===========================================================================
@@ -394,8 +390,8 @@ fn catch_up_result_is_debug() {
 
 #[test]
 fn catch_up_result_has_target_player_id() {
-    let result = CatchUpResult::generated("narration".to_string())
-        .for_player("player-3".to_string());
+    let result =
+        CatchUpResult::generated("narration".to_string()).for_player("player-3".to_string());
 
     assert_eq!(result.target_player_id(), Some("player-3"));
 }
@@ -455,8 +451,7 @@ fn generate_with_empty_summaries_returns_error_or_minimal() {
 #[test]
 fn generation_strategy_trait_is_object_safe() {
     // Must be able to create Box<dyn GenerationStrategy> for DI
-    let strategy: Box<dyn GenerationStrategy> =
-        Box::new(AlwaysSucceedStrategy::new("test"));
+    let strategy: Box<dyn GenerationStrategy> = Box::new(AlwaysSucceedStrategy::new("test"));
     let result = strategy.generate("prompt");
     assert!(result.is_ok());
 }
