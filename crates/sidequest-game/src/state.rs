@@ -304,6 +304,12 @@ impl GameSnapshot {
                         pronouns: npc_patch.pronouns.clone(),
                         appearance: npc_patch.appearance.clone(),
                         age: npc_patch.age.clone(),
+                        build: npc_patch.build.clone(),
+                        height: npc_patch.height.clone(),
+                        distinguishing_features: npc_patch
+                            .distinguishing_features
+                            .clone()
+                            .unwrap_or_default(),
                         ocean: None,
                     };
                     self.npcs.push(new_npc);
@@ -504,6 +510,12 @@ pub struct NpcPatch {
     pub appearance: Option<String>,
     /// Age description (identity-locked).
     pub age: Option<String>,
+    /// Body build descriptor (identity-locked).
+    pub build: Option<String>,
+    /// Relative height descriptor (identity-locked).
+    pub height: Option<String>,
+    /// Specific visual details (identity-locked).
+    pub distinguishing_features: Option<Vec<String>>,
     /// Current location.
     pub location: Option<String>,
 }

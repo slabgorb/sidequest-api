@@ -108,7 +108,7 @@ pub use music_director::{
     AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector,
 };
 pub use narrative::NarrativeEntry;
-pub use npc::{Npc, NpcRegistryEntry};
+pub use npc::{enrich_registry_from_npcs, Npc, NpcRegistryEntry};
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
 pub use ocean_shift_proposals::{propose_ocean_shifts, OceanShiftProposal, PersonalityEvent};
 pub use persistence::{

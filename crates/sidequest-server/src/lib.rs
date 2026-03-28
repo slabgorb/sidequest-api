@@ -4595,6 +4595,8 @@ fn update_npc_registry(
                             role: String::new(),
                             location: current_location.to_string(),
                             last_seen_turn: turn_count,
+                            age: String::new(),
+                            appearance: String::new(),
                         });
                     }
                 }
@@ -4650,6 +4652,8 @@ fn update_npc_registry(
                                 role,
                                 location: current_location.to_string(),
                                 last_seen_turn: turn_count,
+                                age: String::new(),
+                                appearance: String::new(),
                             });
                         }
                     }
@@ -4692,6 +4696,8 @@ fn update_npc_registry(
                         role,
                         location: current_location.to_string(),
                         last_seen_turn: turn_count,
+                        age: String::new(),
+                        appearance: String::new(),
                     });
                 }
             }
@@ -4734,6 +4740,8 @@ fn update_npc_registry(
                         role: String::new(),
                         location: current_location.to_string(),
                         last_seen_turn: turn_count,
+                        age: String::new(),
+                        appearance: String::new(),
                     });
                 }
             }
@@ -4767,6 +4775,8 @@ fn update_npc_registry(
                         role: String::new(),
                         location: current_location.to_string(),
                         last_seen_turn: turn_count,
+                        age: String::new(),
+                        appearance: String::new(),
                     });
                 }
             }
@@ -4805,7 +4815,7 @@ fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> String {
     if registry.is_empty() {
         return String::new();
     }
-    let mut lines = vec!["\nACTIVE NPCs — you MUST use these exact names, pronouns, and roles. Do NOT rename, change gender, or alter these characters:".to_string()];
+    let mut lines = vec!["\nACTIVE NPCs — you MUST use these exact names, pronouns, roles, and physical descriptions. Do NOT rename, change gender, alter appearance, or contradict established physical details:".to_string()];
     for entry in registry {
         let mut desc = format!("- {}", entry.name);
         if !entry.pronouns.is_empty() {
@@ -4813,6 +4823,17 @@ fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> String {
         }
         if !entry.role.is_empty() {
             desc.push_str(&format!(", {}", entry.role));
+        }
+        // Physical description — age and appearance are identity-locked
+        let mut physical: Vec<&str> = Vec::new();
+        if !entry.age.is_empty() {
+            physical.push(&entry.age);
+        }
+        if !entry.appearance.is_empty() {
+            physical.push(&entry.appearance);
+        }
+        if !physical.is_empty() {
+            desc.push_str(&format!(" [{}]", physical.join("; ")));
         }
         if !entry.location.is_empty() {
             desc.push_str(&format!(" — at {}", entry.location));

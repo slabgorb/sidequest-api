@@ -40,6 +40,16 @@ pub struct Npc {
     /// Age description (identity-locked: set once, never overwritten).
     #[serde(default)]
     pub age: Option<String>,
+    /// Body build descriptor (identity-locked: "stocky", "slender", "muscular", etc.).
+    #[serde(default)]
+    pub build: Option<String>,
+    /// Relative height descriptor (identity-locked: "tall", "short", "towering", etc.).
+    #[serde(default)]
+    pub height: Option<String>,
+    /// Specific visual details for consistent portrayal (identity-locked).
+    /// E.g., "scar across left eye", "silver-streaked hair", "missing right hand".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub distinguishing_features: Vec<String>,
     /// OCEAN personality profile (Story 10-1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ocean: Option<OceanProfile>,
@@ -103,6 +113,21 @@ impl Npc {
                 self.age = Some(a.clone());
             }
         }
+        if self.build.is_none() {
+            if let Some(ref b) = patch.build {
+                self.build = Some(b.clone());
+            }
+        }
+        if self.height.is_none() {
+            if let Some(ref h) = patch.height {
+                self.height = Some(h.clone());
+            }
+        }
+        if self.distinguishing_features.is_empty() {
+            if let Some(ref df) = patch.distinguishing_features {
+                self.distinguishing_features = df.clone();
+            }
+        }
     }
 }
 
@@ -148,6 +173,9 @@ mod tests {
             pronouns: Some("she/her".to_string()),
             appearance: Some("Flour-dusted apron".to_string()),
             age: Some("middle-aged".to_string()),
+            build: Some("stocky".to_string()),
+            height: Some("short".to_string()),
+            distinguishing_features: vec!["flour-dusted hands".to_string()],
             ocean: None,
         }
     }
@@ -171,6 +199,9 @@ mod tests {
             pronouns: None,
             appearance: None,
             age: None,
+            build: None,
+            height: None,
+            distinguishing_features: vec![],
             ocean: None,
         }
     }
@@ -304,13 +335,112 @@ mod tests {
         let result = serde_json::from_str::<Npc>(json);
         assert!(result.is_err(), "blank name should fail deserialization");
     }
+
+    // === Physical description fields ===
+
+    #[test]
+    fn physical_fields_present() {
+        let npc = friendly_innkeeper();
+        assert_eq!(npc.build, Some("stocky".to_string()));
+        assert_eq!(npc.height, Some("short".to_string()));
+        assert_eq!(npc.distinguishing_features, vec!["flour-dusted hands"]);
+    }
+
+    #[test]
+    fn physical_fields_identity_locked_in_merge() {
+        let mut npc = friendly_innkeeper();
+        let patch = NpcPatch {
+            name: "Marta the Innkeeper".to_string(),
+            description: None,
+            personality: None,
+            role: None,
+            pronouns: Some("he/him".to_string()), // should NOT overwrite
+            appearance: Some("New appearance".to_string()), // should NOT overwrite
+            age: Some("young".to_string()), // should NOT overwrite
+            build: Some("slender".to_string()), // should NOT overwrite
+            height: Some("tall".to_string()), // should NOT overwrite
+            distinguishing_features: Some(vec!["tattoo".to_string()]), // should NOT overwrite
+            location: None,
+        };
+        npc.merge_patch(&patch);
+        // All identity-locked fields should retain original values
+        assert_eq!(npc.pronouns, Some("she/her".to_string()));
+        assert_eq!(npc.appearance, Some("Flour-dusted apron".to_string()));
+        assert_eq!(npc.age, Some("middle-aged".to_string()));
+        assert_eq!(npc.build, Some("stocky".to_string()));
+        assert_eq!(npc.height, Some("short".to_string()));
+        assert_eq!(npc.distinguishing_features, vec!["flour-dusted hands"]);
+    }
+
+    #[test]
+    fn physical_fields_set_when_empty() {
+        let mut npc = hostile_bandit(); // all physical fields empty
+        let patch = NpcPatch {
+            name: "Razortooth".to_string(),
+            description: None,
+            personality: None,
+            role: None,
+            pronouns: Some("he/him".to_string()),
+            appearance: Some("Scarred face".to_string()),
+            age: Some("old".to_string()),
+            build: Some("muscular".to_string()),
+            height: Some("tall".to_string()),
+            distinguishing_features: Some(vec!["missing teeth".to_string(), "neck scar".to_string()]),
+            location: None,
+        };
+        npc.merge_patch(&patch);
+        assert_eq!(npc.pronouns, Some("he/him".to_string()));
+        assert_eq!(npc.appearance, Some("Scarred face".to_string()));
+        assert_eq!(npc.age, Some("old".to_string()));
+        assert_eq!(npc.build, Some("muscular".to_string()));
+        assert_eq!(npc.height, Some("tall".to_string()));
+        assert_eq!(npc.distinguishing_features, vec!["missing teeth", "neck scar"]);
+    }
+
+    // === Registry enrichment ===
+
+    #[test]
+    fn enrich_registry_backfills_physical_data() {
+        let npcs = vec![friendly_innkeeper()];
+        let mut registry = vec![NpcRegistryEntry {
+            name: "Marta the Innkeeper".to_string(),
+            pronouns: String::new(),
+            role: "innkeeper".to_string(),
+            location: "The Rusty Nail Inn".to_string(),
+            last_seen_turn: 1,
+            age: String::new(),
+            appearance: String::new(),
+        }];
+        enrich_registry_from_npcs(&mut registry, &npcs);
+        assert_eq!(registry[0].pronouns, "she/her");
+        assert_eq!(registry[0].age, "middle-aged");
+        assert_eq!(registry[0].appearance, "Flour-dusted apron");
+    }
+
+    #[test]
+    fn enrich_registry_does_not_overwrite_existing() {
+        let npcs = vec![friendly_innkeeper()];
+        let mut registry = vec![NpcRegistryEntry {
+            name: "Marta the Innkeeper".to_string(),
+            pronouns: "they/them".to_string(), // pre-existing
+            role: "innkeeper".to_string(),
+            location: "The Rusty Nail Inn".to_string(),
+            last_seen_turn: 1,
+            age: "elderly".to_string(), // pre-existing
+            appearance: String::new(), // empty — should be backfilled
+        }];
+        enrich_registry_from_npcs(&mut registry, &npcs);
+        assert_eq!(registry[0].pronouns, "they/them"); // unchanged
+        assert_eq!(registry[0].age, "elderly"); // unchanged
+        assert_eq!(registry[0].appearance, "Flour-dusted apron"); // backfilled
+    }
 }
 
 /// Lightweight NPC identity entry for the narrator registry.
 ///
-/// Tracks name, pronouns, role, and last-seen location so the narrator prompt
-/// can maintain NPC identity consistency across turns. Much lighter than `Npc`
-/// — no combat stats, no inventory, no disposition.
+/// Tracks name, pronouns, role, last-seen location, and physical description so
+/// the narrator prompt can maintain NPC identity consistency across turns. Much
+/// lighter than `Npc` — no combat stats, no inventory, no disposition.
 ///
 /// Serializable for persistence in GameSnapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -325,4 +455,36 @@ pub struct NpcRegistryEntry {
     pub location: String,
     /// Interaction number when this NPC was last seen.
     pub last_seen_turn: u32,
+    /// Age description (backfilled from Npc data when available).
+    #[serde(default)]
+    pub age: String,
+    /// Physical appearance (backfilled from Npc data when available).
+    #[serde(default)]
+    pub appearance: String,
+}
+
+/// Enrich registry entries with physical description data from full Npc structs.
+///
+/// Called after `update_npc_registry` to backfill age, appearance, and other
+/// identity-locked fields that regex extraction can't capture. Matches by name.
+pub fn enrich_registry_from_npcs(registry: &mut [NpcRegistryEntry], npcs: &[Npc]) {
+    for entry in registry.iter_mut() {
+        if let Some(npc) = npcs.iter().find(|n| n.name() == entry.name) {
+            if entry.age.is_empty() {
+                if let Some(ref age) = npc.age {
+                    entry.age = age.clone();
+                }
+            }
+            if entry.appearance.is_empty() {
+                if let Some(ref appearance) = npc.appearance {
+                    entry.appearance = appearance.clone();
+                }
+            }
+            if entry.pronouns.is_empty() {
+                if let Some(ref pronouns) = npc.pronouns {
+                    entry.pronouns = pronouns.clone();
+                }
+            }
+        }
+    }
 }
