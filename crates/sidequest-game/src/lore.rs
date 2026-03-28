@@ -362,6 +362,59 @@ pub fn format_lore_context(fragments: &[&LoreFragment]) -> String {
     output
 }
 
+// ---------------------------------------------------------------------------
+// Lore accumulation — create fragments from game events (story 11-5)
+// ---------------------------------------------------------------------------
+
+/// Create a lore fragment from a game event and add it to the store.
+///
+/// Returns the fragment id on success, or an error if the description is empty
+/// or the fragment could not be added.
+pub fn accumulate_lore(
+    store: &mut LoreStore,
+    event_description: &str,
+    category: LoreCategory,
+    turn: u64,
+    metadata: HashMap<String, String>,
+) -> Result<String, String> {
+    if event_description.is_empty() {
+        return Err("event description must not be empty".to_string());
+    }
+
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+    event_description.hash(&mut hasher);
+    turn.hash(&mut hasher);
+    let hash = hasher.finish();
+    let id = format!("evt-{turn}-{hash:016x}");
+
+    let fragment = LoreFragment::new(
+        id.clone(),
+        category,
+        event_description.to_string(),
+        LoreSource::GameEvent,
+        Some(turn),
+        metadata,
+    );
+    store.add(fragment)?;
+    Ok(id)
+}
+
+/// Batch version of [`accumulate_lore`] — processes multiple events at once.
+pub fn accumulate_lore_batch(
+    store: &mut LoreStore,
+    events: &[(String, LoreCategory, u64, HashMap<String, String>)],
+) -> Vec<Result<String, String>> {
+    events
+        .iter()
+        .map(|(desc, cat, turn, meta)| {
+            accumulate_lore(store, desc, cat.clone(), *turn, meta.clone())
+        })
+        .collect()
+}
+
 /// Display-friendly label for a [`LoreCategory`].
 impl std::fmt::Display for LoreCategory {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1690,5 +1743,364 @@ mod tests {
         assert!(result.contains("## History"));
         assert!(result.contains("## Faction"));
         assert!(result.contains("## Character"));
+    }
+
+    // ===================================================================
+    // Lore accumulation tests (story 11-5)
+    // ===================================================================
+
+    #[test]
+    fn accumulate_lore_creates_fragment_with_game_event_source() {
+        let mut store = LoreStore::new();
+        let id = accumulate_lore(
+            &mut store,
+            "The hero defeated the dragon",
+            LoreCategory::Event,
+            5,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_keyword("defeated the dragon");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].source(), &LoreSource::GameEvent);
+        assert_eq!(results[0].id(), id);
+    }
+
+    #[test]
+    fn accumulate_lore_sets_turn_created() {
+        let mut store = LoreStore::new();
+        accumulate_lore(
+            &mut store,
+            "A mysterious stranger arrived",
+            LoreCategory::Character,
+            42,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_keyword("mysterious stranger");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].turn_created(), Some(42));
+    }
+
+    #[test]
+    fn accumulate_lore_content_matches_description() {
+        let mut store = LoreStore::new();
+        let desc = "The ancient temple crumbled to dust";
+        accumulate_lore(
+            &mut store,
+            desc,
+            LoreCategory::History,
+            10,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_keyword("ancient temple");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].content(), desc);
+    }
+
+    #[test]
+    fn accumulate_lore_category_history() {
+        let mut store = LoreStore::new();
+        accumulate_lore(
+            &mut store,
+            "The kingdom fell centuries ago",
+            LoreCategory::History,
+            1,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_category(&LoreCategory::History);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn accumulate_lore_category_faction() {
+        let mut store = LoreStore::new();
+        accumulate_lore(
+            &mut store,
+            "The Shadow Guild gained influence",
+            LoreCategory::Faction,
+            3,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_category(&LoreCategory::Faction);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn accumulate_lore_category_geography() {
+        let mut store = LoreStore::new();
+        accumulate_lore(
+            &mut store,
+            "A new mountain pass was discovered",
+            LoreCategory::Geography,
+            7,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_category(&LoreCategory::Geography);
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn accumulate_lore_category_custom() {
+        let mut store = LoreStore::new();
+        accumulate_lore(
+            &mut store,
+            "A prophecy was revealed",
+            LoreCategory::Custom("Prophecy".to_string()),
+            2,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_category(&LoreCategory::Custom("Prophecy".to_string()));
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn accumulate_lore_preserves_metadata() {
+        let mut store = LoreStore::new();
+        let mut meta = HashMap::new();
+        meta.insert("event_type".to_string(), "combat".to_string());
+        meta.insert("location".to_string(), "dark_forest".to_string());
+
+        accumulate_lore(
+            &mut store,
+            "A battle erupted in the forest",
+            LoreCategory::Event,
+            15,
+            meta,
+        )
+        .unwrap();
+
+        let results = store.query_by_keyword("battle erupted");
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].metadata().get("event_type").unwrap(),
+            "combat"
+        );
+        assert_eq!(
+            results[0].metadata().get("location").unwrap(),
+            "dark_forest"
+        );
+    }
+
+    #[test]
+    fn accumulate_lore_computes_token_estimate() {
+        let mut store = LoreStore::new();
+        let desc = "a]".repeat(20); // 40 chars → 10 tokens
+        accumulate_lore(
+            &mut store,
+            &desc,
+            LoreCategory::Event,
+            1,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let results = store.query_by_keyword(&desc);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].token_estimate(), 10);
+    }
+
+    #[test]
+    fn accumulate_lore_increases_store_len() {
+        let mut store = LoreStore::new();
+        assert_eq!(store.len(), 0);
+
+        accumulate_lore(
+            &mut store,
+            "Something happened",
+            LoreCategory::Event,
+            1,
+            HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!(store.len(), 1);
+
+        accumulate_lore(
+            &mut store,
+            "Something else happened",
+            LoreCategory::Event,
+            2,
+            HashMap::new(),
+        )
+        .unwrap();
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn accumulate_lore_returns_fragment_id() {
+        let mut store = LoreStore::new();
+        let id = accumulate_lore(
+            &mut store,
+            "The king abdicated the throne",
+            LoreCategory::History,
+            8,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        // Id should be non-empty
+        assert!(!id.is_empty());
+        // The fragment should be findable by keyword and have this id
+        let results = store.query_by_keyword("king abdicated");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id(), id);
+    }
+
+    #[test]
+    fn accumulate_lore_unique_ids_same_turn_different_content() {
+        let mut store = LoreStore::new();
+        let id1 = accumulate_lore(
+            &mut store,
+            "The hero found a sword",
+            LoreCategory::Item,
+            5,
+            HashMap::new(),
+        )
+        .unwrap();
+        let id2 = accumulate_lore(
+            &mut store,
+            "The hero found a shield",
+            LoreCategory::Item,
+            5,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        assert_ne!(id1, id2);
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn accumulate_lore_rejects_empty_description() {
+        let mut store = LoreStore::new();
+        let result = accumulate_lore(
+            &mut store,
+            "",
+            LoreCategory::Event,
+            1,
+            HashMap::new(),
+        );
+
+        assert!(result.is_err());
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn accumulate_lore_queryable_by_category_after_add() {
+        let mut store = LoreStore::new();
+        accumulate_lore(
+            &mut store,
+            "New trade routes opened to the east",
+            LoreCategory::Geography,
+            20,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let by_cat = store.query_by_category(&LoreCategory::Geography);
+        assert_eq!(by_cat.len(), 1);
+        assert_eq!(by_cat[0].content(), "New trade routes opened to the east");
+    }
+
+    #[test]
+    fn accumulate_lore_queryable_by_keyword_after_add() {
+        let mut store = LoreStore::new();
+        accumulate_lore(
+            &mut store,
+            "The wizard enchanted a powerful amulet",
+            LoreCategory::Item,
+            11,
+            HashMap::new(),
+        )
+        .unwrap();
+
+        let by_kw = store.query_by_keyword("enchanted");
+        assert_eq!(by_kw.len(), 1);
+        assert_eq!(by_kw[0].turn_created(), Some(11));
+    }
+
+    // --- accumulate_lore_batch tests ---
+
+    #[test]
+    fn accumulate_lore_batch_processes_multiple_events() {
+        let mut store = LoreStore::new();
+        let events = vec![
+            (
+                "A village was founded".to_string(),
+                LoreCategory::History,
+                1,
+                HashMap::new(),
+            ),
+            (
+                "A river was discovered".to_string(),
+                LoreCategory::Geography,
+                2,
+                HashMap::new(),
+            ),
+            (
+                "Two factions clashed".to_string(),
+                LoreCategory::Faction,
+                3,
+                HashMap::new(),
+            ),
+        ];
+
+        let results = accumulate_lore_batch(&mut store, &events);
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| r.is_ok()));
+        assert_eq!(store.len(), 3);
+    }
+
+    #[test]
+    fn accumulate_lore_batch_returns_errors_for_empty_descriptions() {
+        let mut store = LoreStore::new();
+        let events = vec![
+            (
+                "Valid event".to_string(),
+                LoreCategory::Event,
+                1,
+                HashMap::new(),
+            ),
+            (
+                "".to_string(),
+                LoreCategory::Event,
+                2,
+                HashMap::new(),
+            ),
+            (
+                "Another valid event".to_string(),
+                LoreCategory::Event,
+                3,
+                HashMap::new(),
+            ),
+        ];
+
+        let results = accumulate_lore_batch(&mut store, &events);
+        assert_eq!(results.len(), 3);
+        assert!(results[0].is_ok());
+        assert!(results[1].is_err());
+        assert!(results[2].is_ok());
+        // Only 2 valid fragments added
+        assert_eq!(store.len(), 2);
+    }
+
+    #[test]
+    fn accumulate_lore_batch_empty_input() {
+        let mut store = LoreStore::new();
+        let results = accumulate_lore_batch(&mut store, &[]);
+        assert!(results.is_empty());
+        assert_eq!(store.len(), 0);
     }
 }
