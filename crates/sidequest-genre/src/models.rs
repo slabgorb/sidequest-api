@@ -111,6 +111,16 @@ impl OceanProfile {
         }
     }
 
+    /// Produce a natural-language behavioral summary from OCEAN scores.
+    ///
+    /// Dimensions with extreme scores (low 0–3, high 7–10) contribute
+    /// adjectives; mid-range dimensions are omitted. An all-neutral profile
+    /// returns a fallback phrase.
+    pub fn behavioral_summary(&self) -> String {
+        // TODO(10-3): implement — stub returns empty string so tests compile
+        String::new()
+    }
+
     /// Return a new profile jittered by up to ±`max_delta` per dimension,
     /// clamped to [0.0, 10.0].
     pub fn with_jitter(&self, max_delta: f64) -> Self {
