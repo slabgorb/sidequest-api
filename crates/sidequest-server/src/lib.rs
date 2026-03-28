@@ -2164,7 +2164,8 @@ async fn dispatch_player_action(
     // Process the action through GameService
     let context = TurnContext {
         state_summary: Some(state_summary),
-        ..TurnContext::default()
+        in_combat: combat_state.in_combat(),
+        in_chase: chase_state.is_some(),
     };
     let result = state.game_service().process_action(action, &context);
 
