@@ -2110,6 +2110,7 @@ async fn dispatch_player_action(
     }
 
     // Watcher: action received
+    let turn_number = trope_states.len() as u32 + 1;
     state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
         component: "game".to_string(),
@@ -2125,6 +2126,7 @@ async fn dispatch_player_action(
                 "player".to_string(),
                 serde_json::Value::String(char_name.to_string()),
             );
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
             f
         },
     });
@@ -2525,6 +2527,7 @@ async fn dispatch_player_action(
                 "is_degraded".to_string(),
                 serde_json::json!(result.is_degraded),
             );
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
             f
         },
     });
@@ -2554,6 +2557,7 @@ async fn dispatch_player_action(
                     "location".to_string(),
                     serde_json::Value::String(location.clone()),
                 );
+                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
                 f
             },
         });
@@ -2682,6 +2686,19 @@ async fn dispatch_player_action(
                 };
                 let _ = inventory.add(item, 50);
                 tracing::info!(item_name = %item_name, "Item added to inventory from narration");
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "inventory".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("item_gained"));
+                        f.insert("item".to_string(), serde_json::json!(item_name));
+                        f.insert("turn_number".to_string(), serde_json::json!(trope_states.len() as u32 + 1));
+                        f
+                    },
+                });
             }
         }
 
@@ -2692,6 +2709,19 @@ async fn dispatch_player_action(
             if inventory.find(&item_id).is_some() {
                 let _ = inventory.remove(&item_id);
                 tracing::info!(item_name = %lost_name, "Item removed from inventory from narration");
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "inventory".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("item_lost"));
+                        f.insert("item".to_string(), serde_json::json!(lost_name));
+                        f.insert("turn_number".to_string(), serde_json::json!(trope_states.len() as u32 + 1));
+                        f
+                    },
+                });
             }
         }
     }
@@ -3296,6 +3326,51 @@ async fn dispatch_player_action(
                 tracing::info!(player_id = %player_id_for_tts, "TTS stream complete");
             });
         }
+    }
+
+    // GM Panel: emit full game state snapshot after all mutations
+    {
+        let turn_approx = trope_states.len() as u32 + 1;
+        let npc_data: Vec<serde_json::Value> = npc_registry.iter().map(|e| {
+            serde_json::json!({
+                "name": e.name,
+                "pronouns": e.pronouns,
+                "role": e.role,
+                "location": e.location,
+                "last_seen_turn": e.last_seen_turn,
+            })
+        }).collect();
+        let inventory_names: Vec<String> = inventory.items.iter().map(|i| i.name.as_str().to_string()).collect();
+        let active_tropes: Vec<serde_json::Value> = trope_states.iter().map(|ts| {
+            serde_json::json!({
+                "id": ts.trope_definition_id(),
+                "progression": ts.progression(),
+                "status": format!("{:?}", ts.status()),
+            })
+        }).collect();
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "game".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("event".to_string(), serde_json::json!("game_state_snapshot"));
+                f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
+                f.insert("location".to_string(), serde_json::json!(current_location.as_str()));
+                f.insert("hp".to_string(), serde_json::json!(*hp));
+                f.insert("max_hp".to_string(), serde_json::json!(*max_hp));
+                f.insert("level".to_string(), serde_json::json!(*level));
+                f.insert("xp".to_string(), serde_json::json!(*xp));
+                f.insert("inventory".to_string(), serde_json::json!(inventory_names));
+                f.insert("npc_registry".to_string(), serde_json::json!(npc_data));
+                f.insert("active_tropes".to_string(), serde_json::json!(active_tropes));
+                f.insert("in_combat".to_string(), serde_json::json!(combat_state.in_combat()));
+                f.insert("player_id".to_string(), serde_json::json!(player_id));
+                f.insert("character".to_string(), serde_json::json!(char_name));
+                f
+            },
+        });
     }
 
     // Sync world-level state back to shared session and broadcast narration
