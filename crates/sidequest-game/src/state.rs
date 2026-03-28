@@ -203,6 +203,29 @@ impl GameSnapshot {
             changed.push("lore_established");
         }
 
+        // Discovered facts — route each fact to its character's known_facts (story 9-3)
+        if let Some(ref facts) = patch.discovered_facts {
+            for df in facts {
+                if let Some(character) = self.characters.iter_mut().find(|c| c.name() == df.character_name) {
+                    tracing::info!(
+                        character = %df.character_name,
+                        fact = %df.fact.content,
+                        source = ?df.fact.source,
+                        turn = df.fact.learned_turn,
+                        "rag.discovered_fact_applied"
+                    );
+                    character.known_facts.push(df.fact.clone());
+                } else {
+                    tracing::warn!(
+                        character = %df.character_name,
+                        fact = %df.fact.content,
+                        "rag.discovered_fact_orphaned — character not found"
+                    );
+                }
+            }
+            changed.push("discovered_facts");
+        }
+
         // HP changes
         if let Some(ref hp) = patch.hp_changes {
             for (name, delta) in hp {

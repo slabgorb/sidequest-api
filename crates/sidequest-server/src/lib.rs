@@ -1088,6 +1088,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
     let mut discovered_regions: Vec<String> = vec![];
+    let mut turn_manager = sidequest_game::TurnManager::new();
     // Bug 17: In-memory narration history for context accumulation across turns.
     // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
     let mut narration_history: Vec<String> = vec![];
@@ -1126,6 +1127,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut npc_registry,
                         &mut narration_history,
                         &mut discovered_regions,
+                        &mut turn_manager,
                         &shared_session,
                         &state,
                         &player_id_str,
@@ -1232,6 +1234,7 @@ async fn dispatch_message(
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
+    turn_manager: &mut sidequest_game::TurnManager,
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     state: &AppState,
     player_id: &str,
@@ -1255,6 +1258,7 @@ async fn dispatch_message(
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
+                turn_manager,
                 state,
                 player_id,
             )
@@ -1292,6 +1296,7 @@ async fn dispatch_message(
                 npc_registry,
                 narration_history,
                 discovered_regions,
+                turn_manager,
                 shared_session_holder,
                 music_director,
                 audio_mixer,
@@ -1335,6 +1340,7 @@ async fn dispatch_message(
                 npc_registry,
                 narration_history,
                 discovered_regions,
+                turn_manager,
                 shared_session_holder,
                 music_director,
                 audio_mixer,
@@ -1383,6 +1389,7 @@ async fn dispatch_connect(
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    turn_manager: &mut sidequest_game::TurnManager,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1419,9 +1426,10 @@ async fn dispatch_connect(
                             *character_hp = character.core.hp;
                             *character_max_hp = character.core.max_hp;
                         }
-                        // Restore location and discovered regions from snapshot
+                        // Restore location, regions, and turn state from snapshot
                         *current_location = saved.snapshot.location.clone();
                         *discovered_regions = saved.snapshot.discovered_regions.clone();
+                        *turn_manager = saved.snapshot.turn_manager.clone();
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -1774,6 +1782,7 @@ async fn dispatch_character_creation(
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
+    turn_manager: &mut sidequest_game::TurnManager,
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -1938,6 +1947,7 @@ async fn dispatch_character_creation(
                         npc_registry,
                         narration_history,
                         discovered_regions,
+                        turn_manager,
                         shared_session_holder,
                         music_director,
                         audio_mixer,
@@ -2081,6 +2091,7 @@ async fn dispatch_player_action(
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
+    turn_manager: &mut sidequest_game::TurnManager,
     shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
@@ -2124,7 +2135,7 @@ async fn dispatch_player_action(
     }
 
     // Watcher: action received
-    let turn_number = trope_states.len() as u32 + 1;
+    let turn_number = turn_manager.interaction();
     state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
         component: "game".to_string(),
@@ -2340,7 +2351,7 @@ async fn dispatch_player_action(
         // Dialogue context: if the player interacted with an NPC in the last 2 turns,
         // any location mention in the action is likely dialogue (describing a place to
         // the NPC), not a travel intent. Strengthen the stay-put constraint.
-        let turn_approx = trope_states.len() as u32 + 1;
+        let turn_approx = turn_manager.interaction() as u32;
         let recent_npc_interaction = npc_registry.iter().any(|e| {
             turn_approx.saturating_sub(e.last_seen_turn) <= 2
         });
@@ -2597,6 +2608,13 @@ async fn dispatch_player_action(
             },
             player_id: player_id.to_string(),
         });
+        // Location change = meaningful narrative beat → advance display round
+        turn_manager.advance_round();
+        tracing::info!(
+            new_round = turn_manager.round(),
+            interaction = turn_manager.interaction(),
+            "turn_manager.advance_round — location change"
+        );
     }
 
     // Strip the location header from narration text if present
@@ -2614,7 +2632,7 @@ async fn dispatch_player_action(
     // Update NPC registry from narration — tracks names, pronouns, locations
     // so subsequent turns maintain NPC identity consistency.
     // Use trope_states len as a rough turn counter.
-    let turn_approx = trope_states.len() as u32 + 1;
+    let turn_approx = turn_manager.interaction() as u32;
     let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
     update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx, &region_refs);
     tracing::debug!(npc_count = npc_registry.len(), "NPC registry updated from narration");
@@ -2715,7 +2733,7 @@ async fn dispatch_player_action(
                         let mut f = HashMap::new();
                         f.insert("event".to_string(), serde_json::json!("item_gained"));
                         f.insert("item".to_string(), serde_json::json!(item_name));
-                        f.insert("turn_number".to_string(), serde_json::json!(trope_states.len() as u32 + 1));
+                        f.insert("turn_number".to_string(), serde_json::json!(turn_manager.interaction()));
                         f
                     },
                 });
@@ -2738,7 +2756,7 @@ async fn dispatch_player_action(
                         let mut f = HashMap::new();
                         f.insert("event".to_string(), serde_json::json!("item_lost"));
                         f.insert("item".to_string(), serde_json::json!(lost_name));
-                        f.insert("turn_number".to_string(), serde_json::json!(trope_states.len() as u32 + 1));
+                        f.insert("turn_number".to_string(), serde_json::json!(turn_manager.interaction()));
                         f
                     },
                 });
@@ -3172,6 +3190,14 @@ async fn dispatch_player_action(
         tracing::warn!("music_director_missing — audio cues skipped");
     }
 
+    // Record this interaction in the turn manager (granular counter for chronology)
+    turn_manager.record_interaction();
+    tracing::info!(
+        interaction = turn_manager.interaction(),
+        round = turn_manager.round(),
+        "turn_manager.record_interaction"
+    );
+
     // Persist updated game state (location, narration log) for reconnection
     if !genre_slug.is_empty() && !world_slug.is_empty() {
         let location = extract_location_header(narration_text)
@@ -3180,10 +3206,12 @@ async fn dispatch_player_action(
             Ok(Some(saved)) => {
                 let mut snapshot = saved.snapshot;
                 snapshot.location = location;
+                // Sync turn manager to snapshot — preserves both counters across sessions
+                snapshot.turn_manager = turn_manager.clone();
                 // Append narration to log for recap on reconnect
                 snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
                     timestamp: 0,
-                    round: 0,
+                    round: turn_manager.interaction() as u32,
                     author: "narrator".to_string(),
                     content: clean_narration.clone(),
                     tags: vec![],
@@ -3350,7 +3378,7 @@ async fn dispatch_player_action(
 
     // GM Panel: emit full game state snapshot after all mutations
     {
-        let turn_approx = trope_states.len() as u32 + 1;
+        let turn_approx = turn_manager.interaction() as u32;
         let npc_data: Vec<serde_json::Value> = npc_registry.iter().map(|e| {
             serde_json::json!({
                 "name": e.name,
