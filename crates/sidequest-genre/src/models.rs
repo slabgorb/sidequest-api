@@ -4,7 +4,8 @@
 //! typos. Content structs that genre packs extend use `#[serde(flatten)]` extras
 //! bags instead, allowing genre-specific fields without breaking deserialization.
 
-use serde::{Deserialize, Serialize};
+use rand::Rng;
+use serde::{Deserialize, Deserializer, Serialize};
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
 
@@ -39,6 +40,91 @@ impl Default for DramaThresholds {
             render_threshold: 0.40,
             escalation_streak: 5,
             ramp_length: 8,
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// OCEAN personality profile (loaded from archetypes.yaml, consumed by game crate)
+// ═══════════════════════════════════════════════════════════
+
+/// Clamp a value to the 0.0–10.0 range.
+fn clamp_dimension(v: f64) -> f64 {
+    v.clamp(0.0, 10.0)
+}
+
+/// Deserialize an f64 and clamp it to [0.0, 10.0].
+fn deserialize_clamped<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+    let v = f64::deserialize(deserializer)?;
+    Ok(clamp_dimension(v))
+}
+
+fn neutral() -> f64 {
+    5.0
+}
+
+/// Big Five (OCEAN) personality profile.
+///
+/// Each dimension is an f64 in the range 0.0–10.0. Out-of-range values are
+/// clamped on deserialization. Default is 5.0 (neutral) for all dimensions.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OceanProfile {
+    /// Openness to experience.
+    #[serde(default = "neutral", deserialize_with = "deserialize_clamped")]
+    pub openness: f64,
+    /// Conscientiousness.
+    #[serde(default = "neutral", deserialize_with = "deserialize_clamped")]
+    pub conscientiousness: f64,
+    /// Extraversion.
+    #[serde(default = "neutral", deserialize_with = "deserialize_clamped")]
+    pub extraversion: f64,
+    /// Agreeableness.
+    #[serde(default = "neutral", deserialize_with = "deserialize_clamped")]
+    pub agreeableness: f64,
+    /// Neuroticism.
+    #[serde(default = "neutral", deserialize_with = "deserialize_clamped")]
+    pub neuroticism: f64,
+}
+
+impl Default for OceanProfile {
+    fn default() -> Self {
+        Self {
+            openness: 5.0,
+            conscientiousness: 5.0,
+            extraversion: 5.0,
+            agreeableness: 5.0,
+            neuroticism: 5.0,
+        }
+    }
+}
+
+impl OceanProfile {
+    /// Generate a fully random OCEAN profile with values in [0.0, 10.0].
+    pub fn random() -> Self {
+        let mut rng = rand::rng();
+        Self {
+            openness: rng.random_range(0.0..=10.0),
+            conscientiousness: rng.random_range(0.0..=10.0),
+            extraversion: rng.random_range(0.0..=10.0),
+            agreeableness: rng.random_range(0.0..=10.0),
+            neuroticism: rng.random_range(0.0..=10.0),
+        }
+    }
+
+    /// Return a new profile jittered by up to ±`max_delta` per dimension,
+    /// clamped to [0.0, 10.0].
+    pub fn with_jitter(&self, max_delta: f64) -> Self {
+        let mut rng = rand::rng();
+        let mut jitter = |base: f64| -> f64 {
+            let offset = rng.random_range(-max_delta..=max_delta);
+            clamp_dimension(base + offset)
+        };
+        Self {
+            openness: jitter(self.openness),
+            conscientiousness: jitter(self.conscientiousness),
+            extraversion: jitter(self.extraversion),
+            agreeableness: jitter(self.agreeableness),
+            neuroticism: jitter(self.neuroticism),
         }
     }
 }
@@ -378,6 +464,9 @@ pub struct NpcArchetype {
     /// Item catalog references for starting gear.
     #[serde(default)]
     pub catalog_items: Vec<String>,
+    /// Optional OCEAN personality baseline for this archetype.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocean: Option<OceanProfile>,
 }
 
 // ═══════════════════════════════════════════════════════════
