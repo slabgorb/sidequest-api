@@ -41,6 +41,14 @@ impl TurnMode {
                     prompt: Some(prompt),
                 }
             }
+            // Multiplayer: auto-transition to Structured when 2+ players present
+            (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { player_count }) if player_count > 1 => {
+                TurnMode::Structured
+            }
+            // Revert to FreePlay when back to solo
+            (TurnMode::Structured, TurnModeTransition::PlayerLeft { player_count }) if player_count <= 1 => {
+                TurnMode::FreePlay
+            }
             (TurnMode::Structured, TurnModeTransition::CombatEnded) => TurnMode::FreePlay,
             (TurnMode::Cinematic { .. }, TurnModeTransition::SceneEnded) => TurnMode::FreePlay,
             // All other combinations are no-ops.
@@ -75,4 +83,14 @@ pub enum TurnModeTransition {
     },
     /// The current scene has ended — return to free-form play.
     SceneEnded,
+    /// A player joined the session (carries new total player count).
+    PlayerJoined {
+        /// Total player count after join.
+        player_count: usize,
+    },
+    /// A player left the session (carries remaining player count).
+    PlayerLeft {
+        /// Total player count after leave.
+        player_count: usize,
+    },
 }

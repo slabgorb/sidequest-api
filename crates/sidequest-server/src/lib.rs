@@ -526,7 +526,22 @@ impl AppState {
         let remaining = if let Some(session_arc) = sessions.get(&key).cloned() {
             if let Ok(mut session) = session_arc.try_lock() {
                 session.players.remove(player_id);
-                session.players.len()
+                // Remove player from barrier roster if active
+                if let Some(ref barrier) = session.turn_barrier {
+                    let _ = barrier.remove_player(player_id);
+                }
+                let remaining = session.players.len();
+                // Transition TurnMode when dropping back to solo
+                let old_mode = std::mem::take(&mut session.turn_mode);
+                session.turn_mode = old_mode.apply(
+                    sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                        player_count: remaining,
+                    },
+                );
+                if !session.turn_mode.should_use_barrier() {
+                    session.turn_barrier = None;
+                }
+                remaining
             } else {
                 return 1; // Couldn't lock — conservatively report not empty
             }
@@ -2251,6 +2266,57 @@ async fn dispatch_character_creation(
                                     f
                                 },
                             });
+
+                            // Transition TurnMode when multiplayer becomes active
+                            let old_mode = std::mem::take(&mut ss.turn_mode);
+                            ss.turn_mode = old_mode.apply(
+                                sidequest_game::turn_mode::TurnModeTransition::PlayerJoined {
+                                    player_count: pc,
+                                },
+                            );
+                            if ss.turn_mode.should_use_barrier() {
+                                if let Some(ref barrier) = ss.turn_barrier {
+                                    // Add player to existing barrier roster
+                                    let placeholder_char = {
+                                        use sidequest_game::character::Character;
+                                        use sidequest_game::creature_core::CreatureCore;
+                                        use sidequest_game::inventory::Inventory;
+                                        use sidequest_protocol::NonBlankString;
+                                        Character {
+                                            core: CreatureCore {
+                                                name: NonBlankString::new(player_id).unwrap(),
+                                                description: NonBlankString::new("barrier placeholder").unwrap(),
+                                                personality: NonBlankString::new("n/a").unwrap(),
+                                                level: 1, hp: 1, max_hp: 1, ac: 10,
+                                                statuses: vec![],
+                                                inventory: Inventory::default(),
+                                            },
+                                            backstory: NonBlankString::new("n/a").unwrap(),
+                                            narrative_state: String::new(),
+                                            hooks: vec![],
+                                            char_class: NonBlankString::new("barrier").unwrap(),
+                                            race: NonBlankString::new("barrier").unwrap(),
+                                            stats: HashMap::new(),
+                                            abilities: vec![],
+                                            known_facts: vec![],
+                                            affinities: vec![],
+                                            is_friendly: true,
+                                        }
+                                    };
+                                    let _ = barrier.add_player(player_id.to_string(), placeholder_char);
+                                    tracing::info!(player_id = %player_id, "Added player to existing barrier");
+                                } else {
+                                    // Initialize barrier from current player roster
+                                    let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
+                                        ss.players.keys().cloned(),
+                                    );
+                                    let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
+                                    ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
+                                        mp_session, adaptive,
+                                    ));
+                                    tracing::info!(player_count = pc, "Initialized turn barrier for multiplayer");
+                                }
+                            }
                         }
                     }
 
