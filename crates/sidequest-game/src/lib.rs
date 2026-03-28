@@ -14,6 +14,7 @@ pub mod catch_up;
 pub mod character;
 pub mod chase;
 pub mod combat;
+pub mod commands;
 pub mod conlang;
 pub mod combatant;
 pub mod creature_core;
