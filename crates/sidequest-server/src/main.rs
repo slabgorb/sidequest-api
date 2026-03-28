@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     sidequest_server::init_tracing();
 
     let args = Args::parse();
-    tracing::info!(port = args.port(), genre_packs = %args.genre_packs_path().display(), "SideQuest Server starting");
+    tracing::info!(port = args.port(), genre_packs = %args.genre_packs_path().display(), no_tts = args.no_tts(), "SideQuest Server starting");
 
     let (watcher_tx, watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
@@ -37,7 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Box::new(Orchestrator::new(watcher_tx)),
         args.genre_packs_path().to_path_buf(),
         save_dir,
-    );
+    )
+    .with_tts_disabled(args.no_tts());
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 

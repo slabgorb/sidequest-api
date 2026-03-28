@@ -188,6 +188,10 @@ pub struct Args {
     /// Directory for save files. Defaults to ~/.sidequest/saves.
     #[arg(long)]
     save_dir: Option<PathBuf>,
+
+    /// Disable TTS voice synthesis (narration text is still sent, just no audio).
+    #[arg(long, default_value = "false")]
+    no_tts: bool,
 }
 
 impl Args {
@@ -204,6 +208,11 @@ impl Args {
     /// Optional save directory.
     pub fn save_dir(&self) -> Option<&Path> {
         self.save_dir.as_deref()
+    }
+
+    /// Whether TTS is disabled.
+    pub fn no_tts(&self) -> bool {
+        self.no_tts
     }
 }
 
@@ -290,6 +299,8 @@ struct AppStateInner {
     binary_broadcast_tx: broadcast::Sender<Vec<u8>>,
     /// Shared multiplayer sessions keyed by "genre:world".
     sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
+    /// When true, skip TTS synthesis entirely (text narration still sent).
+    tts_disabled: bool,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -434,8 +445,20 @@ impl AppState {
                 )),
                 binary_broadcast_tx,
                 sessions: Mutex::new(HashMap::new()),
+                tts_disabled: false,
             }),
         }
+    }
+
+    /// Disable TTS voice synthesis (builder-style).
+    pub fn with_tts_disabled(mut self, disabled: bool) -> Self {
+        Arc::get_mut(&mut self.inner).expect("with_tts_disabled must be called before cloning").tts_disabled = disabled;
+        self
+    }
+
+    /// Whether TTS is disabled.
+    pub fn tts_disabled(&self) -> bool {
+        self.inner.tts_disabled
     }
 
     /// Get the persistence handle for save/load operations.
@@ -3303,7 +3326,7 @@ async fn dispatch_player_action(
     }
 
     // TTS streaming — segment narration and spawn background synthesis task
-    if !clean_narration.is_empty() {
+    if !clean_narration.is_empty() && !state.tts_disabled() {
         let segmenter = sidequest_game::SentenceSegmenter::new();
         let segments = segmenter.segment(&clean_narration);
         tracing::info!(
