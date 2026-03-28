@@ -59,11 +59,11 @@ pub mod turn_reminder;
 pub mod voice_router;
 pub mod world_materialization;
 
+pub use achievement::{Achievement, AchievementTracker};
 pub use affinity::{
     AffinityState, AffinityTierUpEvent, check_affinity_thresholds,
     increment_affinity_progress, resolve_abilities, MAX_TIER, TIER_NAMES,
 };
-pub use achievement::{Achievement, AchievementTracker};
 pub use axis::{AxisValue, ToneCommand, format_tone_context};
 pub use audio_mixer::{AudioMixer, DuckConfig};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
@@ -88,7 +88,7 @@ pub use lore::{
     LoreCategory, LoreFragment, LoreSource, LoreStore,
 };
 pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector};
-pub use narrative::{EncounterTag, NarrativeEntry, generate_recap};
+pub use narrative::NarrativeEntry;
 pub use npc::{Npc, NpcRegistryEntry};
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
 pub use ocean_shift_proposals::{OceanShiftProposal, PersonalityEvent, propose_ocean_shifts};

@@ -12,6 +12,7 @@ use rusqlite::{params, Connection};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
+use crate::combatant::Combatant;
 use crate::narrative::NarrativeEntry;
 use crate::state::GameSnapshot;
 
@@ -273,7 +274,14 @@ impl SessionStore for SqliteStore {
             created_at: Utc::now(),
             last_played: Utc::now(),
         });
-        let recap = self.generate_recap()?;
+        // Rich recap with character names and location (story F3)
+        let entries = self.recent_narrative(20)?;
+        let character_names: Vec<String> = snapshot
+            .characters
+            .iter()
+            .map(|c| Combatant::name(c).to_string())
+            .collect();
+        let recap = crate::narrative::generate_recap(&entries, &character_names, &snapshot.location);
         Ok(Some(SavedSession { meta, snapshot, recap }))
     }
 
@@ -299,7 +307,16 @@ impl SessionStore for SqliteStore {
                 let content: String = row.get(2)?;
                 let tags_json: String = row.get::<_, String>(3).unwrap_or_default();
                 let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-                Ok(NarrativeEntry { timestamp: 0, round, author, content, tags })
+                Ok(NarrativeEntry {
+                    timestamp: 0,
+                    round,
+                    author,
+                    content,
+                    tags,
+                    encounter_tags: vec![],
+                    speaker: None,
+                    entry_type: None,
+                })
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(entries)

@@ -55,6 +55,7 @@ fn test_character() -> Character {
         stats: HashMap::from([("STR".to_string(), 16), ("DEX".to_string(), 10)]),
         abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
             is_friendly: true,
     }
 }
@@ -89,6 +90,9 @@ fn test_narrative_entry(round: u32, content: &str) -> NarrativeEntry {
         author: "narrator".to_string(),
         content: content.to_string(),
         tags: vec!["scene".to_string()],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
     }
 }
 
