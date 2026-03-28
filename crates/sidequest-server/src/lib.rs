@@ -1284,8 +1284,8 @@ async fn dispatch_connect(
                                             name: c.core.name.as_str().to_string(),
                                             hp: c.core.hp,
                                             max_hp: c.core.max_hp,
-                                            statuses: vec![],
-                                            inventory: vec![],
+                                            statuses: c.core.statuses.clone(),
+                                            inventory: c.core.inventory.items.iter().map(|i| i.name.as_str().to_string()).collect(),
                                         })
                                         .collect(),
                                     location: saved.snapshot.location.clone(),
@@ -1893,6 +1893,97 @@ async fn dispatch_player_action(
         payload: ThinkingPayload {},
         player_id: player_id.to_string(),
     };
+
+    // Slash command interception — route /commands to mechanical handlers, not the LLM.
+    if action.starts_with('/') {
+        use sidequest_game::slash_router::SlashRouter;
+        use sidequest_game::commands::{StatusCommand, InventoryCommand, MapCommand, SaveCommand, GmCommand};
+        use sidequest_game::state::GameSnapshot;
+
+        let mut router = SlashRouter::new();
+        router.register(Box::new(StatusCommand));
+        router.register(Box::new(InventoryCommand));
+        router.register(Box::new(MapCommand));
+        router.register(Box::new(SaveCommand));
+        router.register(Box::new(GmCommand));
+
+        // Build a minimal GameSnapshot from the local session state.
+        let snapshot = {
+            let mut snap = GameSnapshot {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                location: current_location.clone(),
+                combat: combat_state.clone(),
+                chase: chase_state.clone(),
+                active_tropes: trope_states.iter().map(|ts| ts.trope_definition_id().to_string()).collect(),
+                ..GameSnapshot::default()
+            };
+            // Reconstruct a minimal Character from loose variables.
+            if let Some(ref cj) = character_json {
+                if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                    // Sync mutable fields that may have diverged from the JSON snapshot.
+                    ch.core.hp = *hp;
+                    ch.core.max_hp = *max_hp;
+                    ch.core.level = *level;
+                    ch.core.inventory = inventory.clone();
+                    snap.characters.push(ch);
+                }
+            }
+            snap
+        };
+
+        if let Some(cmd_result) = router.try_dispatch(action, &snapshot) {
+            let text = match &cmd_result {
+                sidequest_game::slash_router::CommandResult::Display(t) => t.clone(),
+                sidequest_game::slash_router::CommandResult::Error(e) => e.clone(),
+                sidequest_game::slash_router::CommandResult::StateMutation(patch) => {
+                    // Apply location/region changes from /gm commands.
+                    if let Some(ref loc) = patch.location {
+                        *current_location = loc.clone();
+                    }
+                    if let Some(ref hp_changes) = patch.hp_changes {
+                        for (_target, delta) in hp_changes {
+                            *hp = (*hp + delta).max(0);
+                        }
+                    }
+                    format!("GM command applied.")
+                }
+                _ => "Command executed.".to_string(),
+            };
+
+            // Watcher: slash command handled
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "game".to_string(),
+                event_type: WatcherEventType::AgentSpanClose,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("slash_command".to_string(), serde_json::Value::String(action.to_string()));
+                    f.insert("result_len".to_string(), serde_json::json!(text.len()));
+                    f
+                },
+            });
+
+            return vec![
+                thinking,
+                GameMessage::Narration {
+                    payload: NarrationPayload {
+                        text,
+                        state_delta: None,
+                        footnotes: vec![],
+                    },
+                    player_id: player_id.to_string(),
+                },
+                GameMessage::NarrationEnd {
+                    payload: NarrationEndPayload {
+                        state_delta: None,
+                    },
+                    player_id: player_id.to_string(),
+                },
+            ];
+        }
+    }
 
     // Seed starter tropes if none are active yet (first turn)
     if trope_states.is_empty() && !trope_defs.is_empty() {
