@@ -995,6 +995,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
+    let mut discovered_regions: Vec<String> = vec![];
     // Bug 17: In-memory narration history for context accumulation across turns.
     // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
     let mut narration_history: Vec<String> = vec![];
@@ -1032,6 +1033,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &prerender_scheduler,
                         &mut npc_registry,
                         &mut narration_history,
+                        &mut discovered_regions,
                         &state,
                         &player_id_str,
                     )
@@ -1092,6 +1094,7 @@ async fn dispatch_message(
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
+    discovered_regions: &mut Vec<String>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1106,6 +1109,8 @@ async fn dispatch_message(
                 character_name,
                 character_hp,
                 character_max_hp,
+                current_location,
+                discovered_regions,
                 trope_defs,
                 world_context,
                 visual_style,
@@ -1142,6 +1147,7 @@ async fn dispatch_message(
                 visual_style,
                 npc_registry,
                 narration_history,
+                discovered_regions,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1183,6 +1189,7 @@ async fn dispatch_message(
                 visual_style,
                 npc_registry,
                 narration_history,
+                discovered_regions,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1222,6 +1229,8 @@ async fn dispatch_connect(
     character_name_store: &mut Option<String>,
     character_hp: &mut i32,
     character_max_hp: &mut i32,
+    current_location: &mut String,
+    discovered_regions: &mut Vec<String>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
@@ -1264,6 +1273,9 @@ async fn dispatch_connect(
                             *character_hp = character.core.hp;
                             *character_max_hp = character.core.max_hp;
                         }
+                        // Restore location and discovered regions from snapshot
+                        *current_location = saved.snapshot.location.clone();
+                        *discovered_regions = saved.snapshot.discovered_regions.clone();
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -1615,6 +1627,7 @@ async fn dispatch_character_creation(
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
+    discovered_regions: &mut Vec<String>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1777,6 +1790,7 @@ async fn dispatch_character_creation(
                         visual_style,
                         npc_registry,
                         narration_history,
+                        discovered_regions,
                         music_director,
                         audio_mixer,
                         prerender_scheduler,
@@ -1860,6 +1874,7 @@ async fn dispatch_player_action(
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
+    discovered_regions: &mut Vec<String>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -2212,6 +2227,9 @@ async fn dispatch_player_action(
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
         *current_location = location.clone();
+        if !discovered_regions.iter().any(|r| r == &location) {
+            discovered_regions.push(location.clone());
+        }
         state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
             component: "game".to_string(),
@@ -2264,7 +2282,8 @@ async fn dispatch_player_action(
     // so subsequent turns maintain NPC identity consistency.
     // Use trope_states len as a rough turn counter.
     let turn_approx = trope_states.len() as u32 + 1;
-    update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx);
+    let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
+    update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx, &region_refs);
     tracing::debug!(npc_count = npc_registry.len(), "NPC registry updated from narration");
 
     // Bug 4: Combat HP changes — scan narration for damage/healing indicators
@@ -3209,7 +3228,18 @@ struct NpcRegistryEntry {
 /// Extract NPC names from narration text and update the registry.
 /// Looks for patterns like dialogue attribution ("Name says", "Name asks")
 /// and introduction patterns ("a woman named Name", "Name, the blacksmith").
-fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, current_location: &str, turn_count: u32) {
+fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, current_location: &str, turn_count: u32, location_names: &[&str]) {
+    // Build a set of names that should never become NPCs (location/region names).
+    let rejected: Vec<String> = std::iter::once(current_location)
+        .chain(location_names.iter().copied())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_lowercase())
+        .collect();
+    let is_location_name = |name: &str| -> bool {
+        let lower = name.to_lowercase();
+        rejected.iter().any(|loc| lower == *loc || loc.contains(&lower) || lower.contains(loc.as_str()))
+    };
+
     // Dialogue attribution: "Name says/asks/replies/shouts/whispers/mutters"
     let speech_verbs = ["says", "asks", "replies", "shouts", "whispers", "mutters", "growls", "calls", "declares", "speaks"];
     let text_lower = narration.to_lowercase();
@@ -3230,7 +3260,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
             if candidate.len() >= 2 && candidate.len() <= 40 && candidate.chars().next().map_or(false, |c| c.is_uppercase()) {
                 let name = candidate.to_string();
                 // Skip if it's the player character reference
-                if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" {
+                if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" && !is_location_name(&name) {
                     // Update existing or add new
                     if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                         entry.last_seen_turn = turn_count;
@@ -3266,7 +3296,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
                 let candidate = rest[..name_end].trim();
                 if candidate.len() >= 2 && candidate.len() <= 40 && candidate.chars().next().map_or(false, |c| c.is_uppercase()) {
                     let name = candidate.to_string();
-                    if !name.to_lowercase().contains("you") {
+                    if !name.to_lowercase().contains("you") && !is_location_name(&name) {
                         if !registry.iter().any(|e| e.name == name) {
                             // Try to infer role from "X, the blacksmith" pattern after name
                             let role = if name_end < rest.len() {
@@ -3301,7 +3331,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
         for caps in appos_re.captures_iter(narration) {
             let name = caps[1].to_string();
             let role = caps[2].trim_end_matches(|c: char| matches!(c, ',' | '.' | '!' | '?')).trim().to_string();
-            if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" {
+            if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" && !is_location_name(&name) {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     if entry.role.is_empty() && !role.is_empty() {
                         entry.role = role;
@@ -3333,6 +3363,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
                 && name != "It" && name != "This" && name != "That" && name != "There"
                 && name != "Here" && name != "Then" && name != "Now" && name != "But"
                 && name != "And" && name != "Or" && name != "Yet" && name != "So"
+                && !is_location_name(&name)
             {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     entry.last_seen_turn = turn_count;
@@ -3360,6 +3391,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
             let name = caps[1].to_string();
             if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An"
                 && name != "It" && name != "This" && name != "That"
+                && !is_location_name(&name)
             {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     entry.last_seen_turn = turn_count;
