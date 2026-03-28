@@ -1136,16 +1136,37 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         }
     }
 
-    // Cleanup — remove from shared session if joined
-    if let Some(genre) = session.genre_slug() {
-        if let Some(world) = session.world_slug() {
-            let remaining = state.remove_player_from_session(genre, world, &player_id_str);
-            tracing::info!(
-                player_id = %player_id_str,
-                remaining_players = remaining,
-                "Player removed from shared session"
-            );
+    // Cleanup — remove from shared session if joined, broadcast updated PARTY_STATUS
+    if let (Some(genre), Some(world)) = (session.genre_slug(), session.world_slug()) {
+        let key = shared_session::game_session_key(genre, world);
+        // Broadcast leave before removing, so the broadcast channel still exists
+        {
+            let sessions = state.inner.sessions.lock().unwrap();
+            if let Some(ss_arc) = sessions.get(&key).cloned() {
+                drop(sessions);
+                if let Ok(ss) = ss_arc.try_lock() {
+                    let leave_msg = GameMessage::SessionEvent {
+                        payload: SessionEventPayload {
+                            event: "player_left".to_string(),
+                            player_name: player_name_for_session.clone(),
+                            genre: None,
+                            world: None,
+                            has_character: None,
+                            initial_state: None,
+                            css: None,
+                        },
+                        player_id: player_id_str.clone(),
+                    };
+                    ss.broadcast(leave_msg);
+                }
+            }
         }
+        let remaining = state.remove_player_from_session(genre, world, &player_id_str);
+        tracing::info!(
+            player_id = %player_id_str,
+            remaining_players = remaining,
+            "Player removed from shared session"
+        );
     }
     state.remove_connection(&player_id);
     writer_handle.abort();
@@ -1244,6 +1265,7 @@ async fn dispatch_message(
                 npc_registry,
                 narration_history,
                 discovered_regions,
+                shared_session_holder,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1724,6 +1746,7 @@ async fn dispatch_character_creation(
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
+    shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1932,6 +1955,50 @@ async fn dispatch_character_creation(
                         },
                         player_id: player_id.to_string(),
                     };
+
+                    // Add player to shared session and broadcast PARTY_STATUS
+                    {
+                        let holder = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let mut ss = ss_arc.lock().await;
+                            let ps = shared_session::PlayerState::new(
+                                player_name_store.clone().unwrap_or_else(|| "Player".to_string()),
+                            );
+                            ss.players.insert(player_id.to_string(), ps);
+                            // Build and broadcast PARTY_STATUS to all session members
+                            let members: Vec<PartyMember> = ss.players.iter().filter_map(|(pid, _ps)| {
+                                // Try to get character info — the current player's data
+                                // is in our local vars, others will be in their PlayerState.
+                                if pid == player_id {
+                                    Some(PartyMember {
+                                        player_id: pid.clone(),
+                                        name: character.core.name.as_str().to_string(),
+                                        current_hp: character.core.hp,
+                                        max_hp: character.core.max_hp,
+                                        statuses: character.core.statuses.clone(),
+                                        class: character.char_class.as_str().to_string(),
+                                        level: character.core.level as u32,
+                                        portrait_url: None,
+                                    })
+                                } else {
+                                    // Other player — use their character_name if available
+                                    None
+                                }
+                            }).collect();
+                            if !members.is_empty() {
+                                let party_msg = GameMessage::PartyStatus {
+                                    payload: PartyStatusPayload { members },
+                                    player_id: player_id.to_string(),
+                                };
+                                ss.broadcast(party_msg);
+                            }
+                            tracing::info!(
+                                player_id = %player_id,
+                                player_count = ss.player_count(),
+                                "Player joined shared session"
+                            );
+                        }
+                    }
 
                     let mut msgs = vec![complete, char_sheet, backstory_narration, backstory_end, ready];
                     msgs.extend(intro_messages);
