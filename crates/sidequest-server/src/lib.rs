@@ -3474,6 +3474,9 @@ async fn dispatch_player_action(
                     author: "narrator".to_string(),
                     content: clean_narration.clone(),
                     tags: vec![],
+                    encounter_tags: vec![],
+                    speaker: None,
+                    entry_type: None,
                 });
                 if let Err(e) = state.persistence().save(genre_slug, world_slug, player_name_for_save, &snapshot).await {
                     tracing::warn!(error = %e, "Failed to persist updated game state");
