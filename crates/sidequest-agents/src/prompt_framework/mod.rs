@@ -13,6 +13,7 @@ mod tests;
 pub use soul::{parse_soul_md, SoulData, SoulPrinciple};
 pub use types::{AttentionZone, PromptSection, RuleTier, SectionCategory};
 
+use sidequest_game::npc::Npc;
 use sidequest_game::scene_directive::SceneDirective;
 
 /// Render a `SceneDirective` into its prompt text representation.
@@ -93,6 +94,45 @@ impl PromptRegistry {
         self.register_section(
             agent_name,
             PromptSection::new("pacing", content, AttentionZone::Late, SectionCategory::Context),
+        );
+    }
+
+    /// Inject OCEAN personality summaries for NPCs into the narrator prompt.
+    ///
+    /// Filters to NPCs with an `ocean` profile, builds a labeled personality
+    /// block per NPC, and registers it in the Valley zone with Context category.
+    /// Does nothing if no NPCs have OCEAN profiles.
+    ///
+    /// Story 10-4: Parallel to `register_pacing_section()`.
+    pub fn register_ocean_personalities_section(&mut self, agent_name: &str, npcs: &[Npc]) {
+        let entries: Vec<String> = npcs
+            .iter()
+            .filter_map(|npc| {
+                npc.ocean.as_ref().map(|ocean| {
+                    format!("- {}: {}", npc.core.name, ocean.behavioral_summary())
+                })
+            })
+            .collect();
+
+        if entries.is_empty() {
+            return;
+        }
+
+        let content = format!(
+            "## NPC Personalities\n\
+             Use these personality descriptions to shape each NPC's dialogue and behavior.\n\n\
+             {}",
+            entries.join("\n")
+        );
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "ocean_personalities",
+                content,
+                AttentionZone::Valley,
+                SectionCategory::Context,
+            ),
         );
     }
 
