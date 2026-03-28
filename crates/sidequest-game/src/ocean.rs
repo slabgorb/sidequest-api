@@ -51,3 +51,17 @@ impl Default for OceanProfile {
         }
     }
 }
+
+impl OceanProfile {
+    /// Generate a fully random OCEAN profile (Story 10-2).
+    pub fn random() -> Self {
+        // TODO(10-2): implement random generation
+        Self::default()
+    }
+
+    /// Return a new profile jittered by up to ±`max_delta` per dimension (Story 10-2).
+    pub fn with_jitter(&self, _max_delta: f64) -> Self {
+        // TODO(10-2): implement jitter
+        self.clone()
+    }
+}
