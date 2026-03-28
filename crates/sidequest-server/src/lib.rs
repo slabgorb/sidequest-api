@@ -288,6 +288,8 @@ struct AppStateInner {
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
     binary_broadcast_tx: broadcast::Sender<Vec<u8>>,
+    /// Shared multiplayer sessions keyed by "genre:world".
+    sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -431,6 +433,7 @@ impl AppState {
                     sidequest_game::BeatFilterConfig::default(),
                 )),
                 binary_broadcast_tx,
+                sessions: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -463,6 +466,46 @@ impl AppState {
     /// Remove a connection by player id.
     pub fn remove_connection(&self, player_id: &PlayerId) {
         self.inner.connections.lock().unwrap().remove(player_id);
+    }
+
+    /// Get or create a shared multiplayer session for a genre:world pair.
+    pub fn get_or_create_session(
+        &self,
+        genre: &str,
+        world: &str,
+    ) -> Arc<tokio::sync::Mutex<shared_session::SharedGameSession>> {
+        let key = shared_session::game_session_key(genre, world);
+        let mut sessions = self.inner.sessions.lock().unwrap();
+        sessions
+            .entry(key)
+            .or_insert_with(|| {
+                Arc::new(tokio::sync::Mutex::new(
+                    shared_session::SharedGameSession::new(genre.to_string(), world.to_string()),
+                ))
+            })
+            .clone()
+    }
+
+    /// Remove a player from a shared session. If the session is empty
+    /// afterward, remove it from the registry entirely. Returns the
+    /// remaining player count (0 means session was removed).
+    pub fn remove_player_from_session(&self, genre: &str, world: &str, player_id: &str) -> usize {
+        let key = shared_session::game_session_key(genre, world);
+        let mut sessions = self.inner.sessions.lock().unwrap();
+        let remaining = if let Some(session_arc) = sessions.get(&key).cloned() {
+            if let Ok(mut session) = session_arc.try_lock() {
+                session.players.remove(player_id);
+                session.players.len()
+            } else {
+                return 1; // Couldn't lock — conservatively report not empty
+            }
+        } else {
+            return 0;
+        };
+        if remaining == 0 {
+            sessions.remove(&key);
+        }
+        remaining
     }
 
     /// Subscribe to the broadcast channel.
