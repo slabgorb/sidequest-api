@@ -285,6 +285,99 @@ pub fn seed_lore_from_char_creation(
     count
 }
 
+// ---------------------------------------------------------------------------
+// Lore injection — select & format fragments for prompt context (story 11-4)
+// ---------------------------------------------------------------------------
+
+/// Select lore fragments from the store that fit within the given token budget.
+///
+/// When `context_hint` is provided, fragments whose content matches the hint
+/// keyword are prioritised. Among equally-prioritised fragments, earlier-added
+/// fragments are preferred. The returned vec never exceeds `budget` total tokens.
+pub fn select_lore_for_prompt<'a>(
+    store: &'a LoreStore,
+    budget: usize,
+    context_hint: Option<&str>,
+) -> Vec<&'a LoreFragment> {
+    if store.is_empty() || budget == 0 {
+        return Vec::new();
+    }
+
+    let hint_lower = context_hint.map(|h| h.to_lowercase());
+
+    let mut fragments: Vec<&LoreFragment> = store.fragments.values().collect();
+    // Stable sort by id first, then partition by hint match
+    fragments.sort_by_key(|f| f.id().to_string());
+    fragments.sort_by_key(|f| {
+        if let Some(ref hint) = hint_lower {
+            if f.content().to_lowercase().contains(hint) {
+                return 0;
+            }
+        }
+        1
+    });
+
+    let mut selected = Vec::new();
+    let mut remaining = budget;
+    for frag in fragments {
+        let cost = frag.token_estimate();
+        if cost <= remaining {
+            selected.push(frag);
+            remaining -= cost;
+        }
+    }
+    selected
+}
+
+/// Format selected lore fragments into a prompt-ready string, grouped by
+/// category with markdown section headers (e.g. `## History`).
+///
+/// Returns an empty string when `fragments` is empty.
+pub fn format_lore_context(fragments: &[&LoreFragment]) -> String {
+    if fragments.is_empty() {
+        return String::new();
+    }
+
+    // Group fragments by category, preserving input order within each group.
+    let mut groups: Vec<(&LoreCategory, Vec<&LoreFragment>)> = Vec::new();
+    for frag in fragments {
+        if let Some((_cat, group)) = groups.iter_mut().find(|(c, _)| *c == frag.category()) {
+            group.push(frag);
+        } else {
+            groups.push((frag.category(), vec![frag]));
+        }
+    }
+
+    let mut output = String::new();
+    for (i, (category, frags)) in groups.iter().enumerate() {
+        if i > 0 {
+            output.push('\n');
+        }
+        output.push_str(&format!("## {category}\n"));
+        for frag in frags {
+            output.push_str(frag.content());
+            output.push('\n');
+        }
+    }
+    output
+}
+
+/// Display-friendly label for a [`LoreCategory`].
+impl std::fmt::Display for LoreCategory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoreCategory::History => write!(f, "History"),
+            LoreCategory::Geography => write!(f, "Geography"),
+            LoreCategory::Faction => write!(f, "Faction"),
+            LoreCategory::Character => write!(f, "Character"),
+            LoreCategory::Item => write!(f, "Item"),
+            LoreCategory::Event => write!(f, "Event"),
+            LoreCategory::Language => write!(f, "Language"),
+            LoreCategory::Custom(s) => write!(f, "{s}"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1337,5 +1430,265 @@ mod tests {
             store.total_tokens() > 0,
             "token budget should be positive after seeding"
         );
+    }
+
+    // ===================================================================
+    // select_lore_for_prompt tests (story 11-4)
+    // ===================================================================
+
+    /// Helper: build a store with known fragments for injection tests.
+    fn injection_store() -> LoreStore {
+        let mut store = LoreStore::new();
+        store
+            .add(LoreFragment::new(
+                "inj-hist-001".into(),
+                LoreCategory::History,
+                "The ancient kingdom fell a thousand years ago.".into(),
+                LoreSource::GenrePack,
+                Some(1),
+                HashMap::new(),
+            ))
+            .unwrap();
+        store
+            .add(LoreFragment::new(
+                "inj-geo-001".into(),
+                LoreCategory::Geography,
+                "The Crystal Caverns lie beneath the eastern ridge.".into(),
+                LoreSource::GenrePack,
+                Some(2),
+                HashMap::new(),
+            ))
+            .unwrap();
+        store
+            .add(LoreFragment::new(
+                "inj-fac-001".into(),
+                LoreCategory::Faction,
+                "The Iron Circle is a secretive merchant guild.".into(),
+                LoreSource::GameEvent,
+                Some(3),
+                HashMap::new(),
+            ))
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn select_lore_empty_store_returns_empty() {
+        let store = LoreStore::new();
+        let result = select_lore_for_prompt(&store, 1000, None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn select_lore_zero_budget_returns_empty() {
+        let store = injection_store();
+        let result = select_lore_for_prompt(&store, 0, None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn select_lore_large_budget_returns_all() {
+        let store = injection_store();
+        let result = select_lore_for_prompt(&store, 100_000, None);
+        assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn select_lore_respects_token_budget() {
+        let store = injection_store();
+        // Total tokens across all 3 fragments is well above 10.
+        // With a budget of 15, we should not get all fragments.
+        let result = select_lore_for_prompt(&store, 15, None);
+        let total: usize = result.iter().map(|f| f.token_estimate()).sum();
+        assert!(total <= 15, "total tokens {total} exceeds budget 15");
+        assert!(
+            !result.is_empty(),
+            "should return at least one fragment for budget 15"
+        );
+    }
+
+    #[test]
+    fn select_lore_no_duplicates() {
+        let store = injection_store();
+        let result = select_lore_for_prompt(&store, 100_000, None);
+        let mut ids: Vec<&str> = result.iter().map(|f| f.id()).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), result.len(), "duplicate fragments detected");
+    }
+
+    #[test]
+    fn select_lore_context_hint_prioritises_matching() {
+        let store = injection_store();
+        // "caverns" appears only in the geography fragment
+        let result = select_lore_for_prompt(&store, 15, Some("caverns"));
+        let ids: Vec<&str> = result.iter().map(|f| f.id()).collect();
+        assert!(
+            ids.contains(&"inj-geo-001"),
+            "hint-matched fragment should be included"
+        );
+    }
+
+    #[test]
+    fn select_lore_context_hint_still_respects_budget() {
+        let mut store = LoreStore::new();
+        // One huge fragment matching the hint — larger than budget
+        store
+            .add(LoreFragment::new(
+                "huge".into(),
+                LoreCategory::History,
+                "dragons ".repeat(500), // ~1000 tokens
+                LoreSource::GenrePack,
+                None,
+                HashMap::new(),
+            ))
+            .unwrap();
+        // One small fragment
+        store
+            .add(LoreFragment::new(
+                "tiny".into(),
+                LoreCategory::Geography,
+                "A small hill.".into(),
+                LoreSource::GenrePack,
+                None,
+                HashMap::new(),
+            ))
+            .unwrap();
+
+        let result = select_lore_for_prompt(&store, 10, Some("dragons"));
+        let total: usize = result.iter().map(|f| f.token_estimate()).sum();
+        assert!(total <= 10, "total tokens {total} exceeds budget 10");
+    }
+
+    #[test]
+    fn select_lore_prioritises_when_budget_limited() {
+        // With a tight budget, the function must choose — it shouldn't just
+        // return a random subset. We verify it returns *some* fragments
+        // and stays within budget.
+        let store = injection_store();
+        let budget = store.total_tokens() / 2;
+        let result = select_lore_for_prompt(&store, budget, None);
+        let total: usize = result.iter().map(|f| f.token_estimate()).sum();
+        assert!(total <= budget);
+        assert!(!result.is_empty());
+        assert!(result.len() < 3, "should not fit all fragments");
+    }
+
+    // ===================================================================
+    // format_lore_context tests (story 11-4)
+    // ===================================================================
+
+    #[test]
+    fn format_lore_empty_returns_empty_string() {
+        let result = format_lore_context(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn format_lore_single_fragment_includes_content() {
+        let frag = LoreFragment::new(
+            "fmt-001".into(),
+            LoreCategory::History,
+            "The kingdom was founded long ago.".into(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        let result = format_lore_context(&[&frag]);
+        assert!(
+            result.contains("The kingdom was founded long ago."),
+            "output should contain fragment content"
+        );
+    }
+
+    #[test]
+    fn format_lore_single_fragment_includes_category_header() {
+        let frag = LoreFragment::new(
+            "fmt-002".into(),
+            LoreCategory::Faction,
+            "The guild rules the city.".into(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        let result = format_lore_context(&[&frag]);
+        assert!(
+            result.contains("## Faction"),
+            "output should contain category header, got: {result}"
+        );
+    }
+
+    #[test]
+    fn format_lore_groups_by_category() {
+        let hist1 = LoreFragment::new(
+            "fmt-h1".into(),
+            LoreCategory::History,
+            "Event one.".into(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        let hist2 = LoreFragment::new(
+            "fmt-h2".into(),
+            LoreCategory::History,
+            "Event two.".into(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        let geo = LoreFragment::new(
+            "fmt-g1".into(),
+            LoreCategory::Geography,
+            "Mountains here.".into(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+
+        let result = format_lore_context(&[&hist1, &geo, &hist2]);
+
+        // Both history fragments should appear under the same History header
+        let history_section_count = result.matches("## History").count();
+        assert_eq!(
+            history_section_count, 1,
+            "History header should appear exactly once"
+        );
+        assert!(result.contains("## Geography"));
+        assert!(result.contains("Event one."));
+        assert!(result.contains("Event two."));
+        assert!(result.contains("Mountains here."));
+    }
+
+    #[test]
+    fn format_lore_multiple_categories_have_headers() {
+        let frag_a = LoreFragment::new(
+            "fmt-a".into(),
+            LoreCategory::History,
+            "Ancient times.".into(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        let frag_b = LoreFragment::new(
+            "fmt-b".into(),
+            LoreCategory::Faction,
+            "The council.".into(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        let frag_c = LoreFragment::new(
+            "fmt-c".into(),
+            LoreCategory::Character,
+            "A brave hero.".into(),
+            LoreSource::CharacterCreation,
+            None,
+            HashMap::new(),
+        );
+
+        let result = format_lore_context(&[&frag_a, &frag_b, &frag_c]);
+        assert!(result.contains("## History"));
+        assert!(result.contains("## Faction"));
+        assert!(result.contains("## Character"));
     }
 }
