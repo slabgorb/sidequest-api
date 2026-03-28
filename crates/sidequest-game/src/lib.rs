@@ -62,6 +62,7 @@ pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
 pub use lore::{
     accumulate_lore, accumulate_lore_batch, cosine_similarity, format_lore_context,
+    query_language_knowledge, record_language_knowledge, record_name_knowledge,
     seed_lore_from_char_creation, seed_lore_from_genre_pack, select_lore_for_prompt,
     LoreCategory, LoreFragment, LoreSource, LoreStore,
 };
