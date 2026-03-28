@@ -2258,7 +2258,7 @@ async fn dispatch_player_action(
             "strikes you", "hits you", "slashes you", "damages you",
             "wounds you", "hurts you", "burns you", "bites you",
             "stabs you", "pierces you", "deals damage", "takes damage",
-            "you take", "injures you", "smashes into you",
+            "you take damage", "you take a hit", "injures you", "smashes into you",
         ];
         let heal_keywords = [
             "heals you", "restores health", "mends your wounds",
