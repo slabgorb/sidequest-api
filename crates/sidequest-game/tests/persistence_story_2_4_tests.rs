@@ -78,7 +78,8 @@ fn test_snapshot() -> GameSnapshot {
                 ("CHA".to_string(), 15),
             ]),
             abilities: vec![],
-        known_facts: vec![],
+            known_facts: vec![],
+            affinities: vec![],
             is_friendly: true,
         }],
         npcs: vec![],
@@ -113,6 +114,9 @@ fn test_entry(round: u32, author: &str, content: &str) -> NarrativeEntry {
         author: author.to_string(),
         content: content.to_string(),
         tags: vec![],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
     }
 }
 
@@ -578,6 +582,9 @@ fn narrative_entry_preserves_all_fields() {
         author: "narrator".to_string(),
         content: "A dramatic scene unfolds.".to_string(),
         tags: vec!["combat".to_string(), "boss".to_string()],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
     };
 
     store.append_narrative(&entry).unwrap();

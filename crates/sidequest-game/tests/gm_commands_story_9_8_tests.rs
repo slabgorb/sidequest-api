@@ -17,16 +17,16 @@
 
 use std::collections::HashMap;
 
+use sidequest_game::character::Character;
+use sidequest_game::combat::CombatState;
 use sidequest_game::commands::GmCommand;
+use sidequest_game::creature_core::CreatureCore;
+use sidequest_game::disposition::Disposition;
+use sidequest_game::inventory::Inventory;
+use sidequest_game::npc::Npc;
 use sidequest_game::slash_router::{CommandHandler, CommandResult, SlashRouter};
 use sidequest_game::state::{GameSnapshot, WorldStatePatch};
-use sidequest_game::character::Character;
-use sidequest_game::creature_core::CreatureCore;
-use sidequest_game::inventory::Inventory;
-use sidequest_game::combat::CombatState;
 use sidequest_game::turn::TurnManager;
-use sidequest_game::npc::Npc;
-use sidequest_game::disposition::Disposition;
 use sidequest_protocol::NonBlankString;
 
 // ============================================================================
@@ -84,6 +84,7 @@ fn test_character() -> Character {
         stats: HashMap::from([("STR".to_string(), 12)]),
         abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
         is_friendly: true,
     }
 }
@@ -106,7 +107,7 @@ fn test_npc() -> Npc {
         location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
         pronouns: None,
         appearance: None,
-            age: None,
+        age: None,
         ocean: None,
     }
 }
@@ -190,10 +191,7 @@ fn gm_set_missing_all_args_returns_error() {
     let result = dispatch_gm("set");
     match result {
         CommandResult::Error(msg) => {
-            assert!(
-                !msg.is_empty(),
-                "Should return error for missing args"
-            );
+            assert!(!msg.is_empty(), "Should return error for missing args");
         }
         other => panic!("Expected Error for missing args, got {:?}", other),
     }
@@ -245,7 +243,10 @@ fn gm_teleport_discovers_region() {
         CommandResult::StateMutation(patch) => {
             // Should add to discover_regions for dedup append
             assert!(
-                patch.discover_regions.as_ref().map_or(false, |r| r.contains(&"Haunted_Wastes".to_string())),
+                patch
+                    .discover_regions
+                    .as_ref()
+                    .map_or(false, |r| r.contains(&"Haunted_Wastes".to_string())),
                 "Should discover the target region, got: {:?}",
                 patch.discover_regions
             );
@@ -278,7 +279,10 @@ fn gm_spawn_creates_npc_patch() {
     let result = dispatch_gm("spawn Morsemere Harbinger reverent");
     match result {
         CommandResult::StateMutation(patch) => {
-            let npcs = patch.npcs_present.as_ref().expect("Should have npcs_present");
+            let npcs = patch
+                .npcs_present
+                .as_ref()
+                .expect("Should have npcs_present");
             assert_eq!(npcs.len(), 1, "Should spawn exactly one NPC");
             assert_eq!(npcs[0].name, "Morsemere", "NPC name should match");
             assert_eq!(
@@ -317,7 +321,9 @@ fn gm_dmg_creates_hp_change() {
         CommandResult::StateMutation(patch) => {
             let hp = patch.hp_changes.as_ref().expect("Should have hp_changes");
             // Should apply negative HP (damage)
-            let damage = hp.get("Reva Ashwalker").expect("Should target Reva Ashwalker");
+            let damage = hp
+                .get("Reva Ashwalker")
+                .expect("Should target Reva Ashwalker");
             assert_eq!(*damage, -5, "Should apply -5 HP (damage)");
         }
         other => panic!("Expected StateMutation, got {:?}", other),
@@ -387,10 +393,7 @@ fn gm_no_subcommand_returns_error() {
     let result = dispatch_gm("");
     match result {
         CommandResult::Error(msg) => {
-            assert!(
-                !msg.is_empty(),
-                "Should return error for empty subcommand"
-            );
+            assert!(!msg.is_empty(), "Should return error for empty subcommand");
         }
         other => panic!("Expected Error for empty subcommand, got {:?}", other),
     }
@@ -415,7 +418,10 @@ fn all_gm_subcommands_return_state_mutation() {
         let result = cmd.handle(&state, args);
         match result {
             CommandResult::StateMutation(_) => {} // correct
-            other => panic!("'/gm {}' should return StateMutation, got {:?}", args, other),
+            other => panic!(
+                "'/gm {}' should return StateMutation, got {:?}",
+                args, other
+            ),
         }
     }
 }
@@ -428,7 +434,10 @@ fn all_gm_subcommands_return_state_mutation() {
 fn gm_command_trait_methods() {
     let cmd = GmCommand;
     assert_eq!(cmd.name(), "gm");
-    assert!(!cmd.description().is_empty(), "Description must not be empty");
+    assert!(
+        !cmd.description().is_empty(),
+        "Description must not be empty"
+    );
 }
 
 // ============================================================================

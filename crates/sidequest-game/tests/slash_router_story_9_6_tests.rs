@@ -16,12 +16,12 @@
 
 use std::collections::HashMap;
 
-use sidequest_game::slash_router::{CommandHandler, CommandResult, SlashRouter};
-use sidequest_game::state::GameSnapshot;
 use sidequest_game::character::Character;
+use sidequest_game::combat::CombatState;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
-use sidequest_game::combat::CombatState;
+use sidequest_game::slash_router::{CommandHandler, CommandResult, SlashRouter};
+use sidequest_game::state::GameSnapshot;
 use sidequest_game::turn::TurnManager;
 use sidequest_protocol::NonBlankString;
 
@@ -80,6 +80,7 @@ fn test_character() -> Character {
         stats: HashMap::from([("STR".to_string(), 12), ("DEX".to_string(), 14)]),
         abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
         is_friendly: true,
     }
 }
@@ -136,7 +137,10 @@ fn slash_input_is_intercepted_by_router() {
     let state = test_snapshot();
 
     let result = router.try_dispatch("/echo hello", &state);
-    assert!(result.is_some(), "Slash input must be intercepted by the router");
+    assert!(
+        result.is_some(),
+        "Slash input must be intercepted by the router"
+    );
 
     match result.unwrap() {
         CommandResult::Display(text) => assert_eq!(text, "echo: hello"),
@@ -155,7 +159,10 @@ fn non_slash_input_returns_none() {
     let state = test_snapshot();
 
     let result = router.try_dispatch("I attack the goblin", &state);
-    assert!(result.is_none(), "Non-slash input must pass through (return None)");
+    assert!(
+        result.is_none(),
+        "Non-slash input must pass through (return None)"
+    );
 }
 
 #[test]
@@ -291,7 +298,10 @@ fn command_lookup_is_case_sensitive() {
     assert!(result.is_some(), "Slash input is still intercepted");
     match result.unwrap() {
         CommandResult::Error(_) => {} // correct — case mismatch means unknown
-        other => panic!("Expected Error for case-mismatched command, got {:?}", other),
+        other => panic!(
+            "Expected Error for case-mismatched command, got {:?}",
+            other
+        ),
     }
 }
 
@@ -305,7 +315,10 @@ fn unknown_command_returns_error() {
     let state = test_snapshot();
 
     let result = router.try_dispatch("/nonexistent", &state);
-    assert!(result.is_some(), "Unknown slash commands should still be intercepted");
+    assert!(
+        result.is_some(),
+        "Unknown slash commands should still be intercepted"
+    );
     match result.unwrap() {
         CommandResult::Error(msg) => {
             assert!(
@@ -361,7 +374,10 @@ fn handler_receives_immutable_state_and_produces_result() {
         other => panic!("Expected Display, got {:?}", other),
     };
 
-    assert_eq!(text1, text2, "Pure function: same state must produce same result");
+    assert_eq!(
+        text1, text2,
+        "Pure function: same state must produce same result"
+    );
 }
 
 #[test]
@@ -495,8 +511,11 @@ fn slash_command_with_unicode_args() {
     assert!(result.is_some());
     match result.unwrap() {
         CommandResult::Display(text) => {
-            assert!(text.contains("caf\u{00e9}") || text.contains("cafe\u{0301}"),
-                "Should handle unicode args, got: {}", text);
+            assert!(
+                text.contains("caf\u{00e9}") || text.contains("cafe\u{0301}"),
+                "Should handle unicode args, got: {}",
+                text
+            );
         }
         other => panic!("Expected Display, got {:?}", other),
     }
@@ -511,8 +530,12 @@ fn register_overwrites_duplicate_command_name() {
     // Register a second handler with the same name
     struct EchoV2;
     impl CommandHandler for EchoV2 {
-        fn name(&self) -> &str { "echo" }
-        fn description(&self) -> &str { "Echo v2" }
+        fn name(&self) -> &str {
+            "echo"
+        }
+        fn description(&self) -> &str {
+            "Echo v2"
+        }
         fn handle(&self, _state: &GameSnapshot, args: &str) -> CommandResult {
             CommandResult::Display(format!("v2: {}", args))
         }

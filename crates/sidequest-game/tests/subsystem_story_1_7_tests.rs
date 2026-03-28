@@ -328,6 +328,9 @@ fn narrative_entry_created_with_fields() {
         author: "narrator".to_string(),
         content: "The cave echoes with distant rumbling.".to_string(),
         tags: vec!["atmosphere".to_string()],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
     };
     assert_eq!(entry.timestamp, 1000);
     assert_eq!(entry.round, 1);
@@ -345,6 +348,9 @@ fn narrative_log_is_append_only() {
         author: "narrator".to_string(),
         content: "First entry.".to_string(),
         tags: vec![],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
     });
     log.push(NarrativeEntry {
         timestamp: 2000,
@@ -352,6 +358,9 @@ fn narrative_log_is_append_only() {
         author: "combat".to_string(),
         content: "Second entry.".to_string(),
         tags: vec!["combat".to_string()],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
     });
     assert_eq!(log.len(), 2);
     assert_eq!(log[0].content, "First entry.");
@@ -367,6 +376,9 @@ fn narrative_log_query_by_reverse_iteration() {
             author: "narrator".to_string(),
             content: "First.".to_string(),
             tags: vec![],
+            encounter_tags: vec![],
+            speaker: None,
+            entry_type: None,
         },
         NarrativeEntry {
             timestamp: 2000,
@@ -374,6 +386,9 @@ fn narrative_log_query_by_reverse_iteration() {
             author: "narrator".to_string(),
             content: "Second.".to_string(),
             tags: vec![],
+            encounter_tags: vec![],
+            speaker: None,
+            entry_type: None,
         },
         NarrativeEntry {
             timestamp: 3000,
@@ -381,6 +396,9 @@ fn narrative_log_query_by_reverse_iteration() {
             author: "narrator".to_string(),
             content: "Third.".to_string(),
             tags: vec![],
+            encounter_tags: vec![],
+            speaker: None,
+            entry_type: None,
         },
     ];
     // Newest first via reverse iteration

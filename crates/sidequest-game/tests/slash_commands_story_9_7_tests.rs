@@ -19,13 +19,13 @@
 
 use std::collections::HashMap;
 
-use sidequest_game::commands::{InventoryCommand, MapCommand, SaveCommand, StatusCommand};
-use sidequest_game::slash_router::{CommandHandler, CommandResult, SlashRouter};
-use sidequest_game::state::GameSnapshot;
 use sidequest_game::character::Character;
+use sidequest_game::combat::CombatState;
+use sidequest_game::commands::{InventoryCommand, MapCommand, SaveCommand, StatusCommand};
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::{Inventory, Item};
-use sidequest_game::combat::CombatState;
+use sidequest_game::slash_router::{CommandHandler, CommandResult, SlashRouter};
+use sidequest_game::state::GameSnapshot;
 use sidequest_game::turn::TurnManager;
 use sidequest_protocol::NonBlankString;
 
@@ -147,12 +147,10 @@ fn test_character() -> Character {
         hooks: vec![],
         char_class: NonBlankString::new("Scavenger").unwrap(),
         race: NonBlankString::new("Mutant").unwrap(),
-        stats: HashMap::from([
-            ("STR".to_string(), 12),
-            ("DEX".to_string(), 14),
-        ]),
+        stats: HashMap::from([("STR".to_string(), 12), ("DEX".to_string(), 14)]),
         abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
         is_friendly: true,
     }
 }
@@ -172,7 +170,11 @@ fn status_displays_character_name_and_hp() {
 
     match result.unwrap() {
         CommandResult::Display(text) => {
-            assert!(text.contains("Reva Ashwalker"), "Should contain name, got: {}", text);
+            assert!(
+                text.contains("Reva Ashwalker"),
+                "Should contain name, got: {}",
+                text
+            );
             assert!(
                 text.contains("18") && text.contains("20"),
                 "Should contain HP 18/20, got: {}",
@@ -191,8 +193,16 @@ fn status_displays_level_class_race() {
 
     match router.try_dispatch("/status", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(text.contains("Scavenger"), "Should contain class, got: {}", text);
-            assert!(text.contains("Mutant"), "Should contain race, got: {}", text);
+            assert!(
+                text.contains("Scavenger"),
+                "Should contain class, got: {}",
+                text
+            );
+            assert!(
+                text.contains("Mutant"),
+                "Should contain race, got: {}",
+                text
+            );
             // Level can be shown as "Level 2", "Lv 2", "2", etc.
             assert!(text.contains("2"), "Should contain level, got: {}", text);
         }
@@ -264,8 +274,16 @@ fn inventory_lists_equipped_items() {
 
     match router.try_dispatch("/inventory", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(text.contains("Rusty Machete"), "Should list machete, got: {}", text);
-            assert!(text.contains("Leather Jacket"), "Should list jacket, got: {}", text);
+            assert!(
+                text.contains("Rusty Machete"),
+                "Should list machete, got: {}",
+                text
+            );
+            assert!(
+                text.contains("Leather Jacket"),
+                "Should list jacket, got: {}",
+                text
+            );
         }
         other => panic!("Expected Display, got {:?}", other),
     }
@@ -279,8 +297,16 @@ fn inventory_lists_pack_contents() {
 
     match router.try_dispatch("/inventory", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(text.contains("Bedroll"), "Should list pack items, got: {}", text);
-            assert!(text.contains("Rations"), "Should list rations, got: {}", text);
+            assert!(
+                text.contains("Bedroll"),
+                "Should list pack items, got: {}",
+                text
+            );
+            assert!(
+                text.contains("Rations"),
+                "Should list rations, got: {}",
+                text
+            );
         }
         other => panic!("Expected Display, got {:?}", other),
     }
@@ -301,7 +327,8 @@ fn inventory_separates_equipped_from_pack() {
             assert!(
                 machete_pos < bedroll_pos,
                 "Equipped items should appear before pack items. Machete at {}, Bedroll at {}",
-                machete_pos, bedroll_pos
+                machete_pos,
+                bedroll_pos
             );
         }
         other => panic!("Expected Display, got {:?}", other),
@@ -316,7 +343,11 @@ fn inventory_shows_gold() {
 
     match router.try_dispatch("/inventory", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(text.contains("50"), "Should show gold amount (50), got: {}", text);
+            assert!(
+                text.contains("50"),
+                "Should show gold amount (50), got: {}",
+                text
+            );
         }
         other => panic!("Expected Display, got {:?}", other),
     }
@@ -378,9 +409,21 @@ fn map_lists_all_discovered_regions() {
 
     match router.try_dispatch("/map", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(text.contains("outer_wastes"), "Should list region, got: {}", text);
-            assert!(text.contains("scorched_field"), "Should list region, got: {}", text);
-            assert!(text.contains("crumbling_tower"), "Should list region, got: {}", text);
+            assert!(
+                text.contains("outer_wastes"),
+                "Should list region, got: {}",
+                text
+            );
+            assert!(
+                text.contains("scorched_field"),
+                "Should list region, got: {}",
+                text
+            );
+            assert!(
+                text.contains("crumbling_tower"),
+                "Should list region, got: {}",
+                text
+            );
         }
         other => panic!("Expected Display, got {:?}", other),
     }
@@ -396,11 +439,14 @@ fn map_marks_current_region() {
         CommandResult::Display(text) => {
             // Current region should be visually distinct from others
             // Find the line with outer_wastes and check it has a marker
-            let current_line = text.lines()
+            let current_line = text
+                .lines()
                 .find(|l| l.contains("outer_wastes"))
                 .expect("Should contain outer_wastes line");
             assert!(
-                current_line.contains("*") || current_line.contains("current") || current_line.contains("→"),
+                current_line.contains("*")
+                    || current_line.contains("current")
+                    || current_line.contains("→"),
                 "Current region should be marked, got line: {}",
                 current_line
             );
@@ -527,11 +573,7 @@ fn all_four_commands_dispatch_through_router() {
 
     for cmd in &["/status", "/inventory", "/map", "/save"] {
         let result = router.try_dispatch(cmd, &state);
-        assert!(
-            result.is_some(),
-            "{} should be dispatched by router",
-            cmd
-        );
+        assert!(result.is_some(), "{} should be dispatched by router", cmd);
         match result.unwrap() {
             CommandResult::Display(_) => {} // all should produce Display
             CommandResult::Error(msg) => panic!("{} returned error: {}", cmd, msg),
@@ -548,26 +590,38 @@ fn all_four_commands_dispatch_through_router() {
 fn status_command_trait_methods() {
     let cmd = StatusCommand;
     assert_eq!(cmd.name(), "status");
-    assert!(!cmd.description().is_empty(), "Description must not be empty");
+    assert!(
+        !cmd.description().is_empty(),
+        "Description must not be empty"
+    );
 }
 
 #[test]
 fn inventory_command_trait_methods() {
     let cmd = InventoryCommand;
     assert_eq!(cmd.name(), "inventory");
-    assert!(!cmd.description().is_empty(), "Description must not be empty");
+    assert!(
+        !cmd.description().is_empty(),
+        "Description must not be empty"
+    );
 }
 
 #[test]
 fn map_command_trait_methods() {
     let cmd = MapCommand;
     assert_eq!(cmd.name(), "map");
-    assert!(!cmd.description().is_empty(), "Description must not be empty");
+    assert!(
+        !cmd.description().is_empty(),
+        "Description must not be empty"
+    );
 }
 
 #[test]
 fn save_command_trait_methods() {
     let cmd = SaveCommand;
     assert_eq!(cmd.name(), "save");
-    assert!(!cmd.description().is_empty(), "Description must not be empty");
+    assert!(
+        !cmd.description().is_empty(),
+        "Description must not be empty"
+    );
 }

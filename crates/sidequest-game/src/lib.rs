@@ -6,6 +6,8 @@
 #![warn(missing_docs)]
 
 pub mod ability;
+pub mod achievement;
+pub mod affinity;
 pub mod audio_mixer;
 pub mod axis;
 pub mod barrier;
@@ -15,11 +17,11 @@ pub mod catch_up;
 pub mod character;
 pub mod chase;
 pub mod combat;
+pub mod combatant;
 pub mod commands;
 pub mod conlang;
 pub mod consequence;
 pub mod continuity;
-pub mod combatant;
 pub mod creature_core;
 pub mod delta;
 pub mod disposition;
@@ -30,6 +32,7 @@ pub mod hp;
 pub mod inventory;
 pub mod known_fact;
 pub mod lore;
+pub mod merchant;
 pub mod multiplayer;
 pub mod music_director;
 pub mod narrative;
@@ -47,9 +50,9 @@ pub mod segmenter;
 pub mod slash_router;
 pub mod state;
 pub mod subject;
+pub mod tension_tracker;
 pub mod theme_rotator;
 pub mod trope;
-pub mod tension_tracker;
 pub mod tts_stream;
 pub mod turn;
 pub mod turn_mode;
@@ -57,37 +60,53 @@ pub mod turn_reminder;
 pub mod voice_router;
 pub mod world_materialization;
 
-pub use axis::{AxisValue, ToneCommand, format_tone_context};
+pub use achievement::{Achievement, AchievementTracker};
+pub use affinity::{
+    AffinityState, AffinityTierUpEvent, check_affinity_thresholds,
+    increment_affinity_progress, resolve_abilities, MAX_TIER, TIER_NAMES,
+};
 pub use audio_mixer::{AudioMixer, DuckConfig};
+pub use axis::{format_tone_context, AxisValue, ToneCommand};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
 pub use chase::{ChaseRound, ChaseState, ChaseType};
 pub use combat::{CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
-pub use consequence::{ConsequenceCategory, GenieWish, WishConsequenceEngine, WishStatus};
-pub use conlang::{format_name_bank_for_prompt, GeneratedName, Morpheme, MorphemeCategory, MorphemeGlossary, NameBank, NameGenConfig, NamePattern};
-pub use continuity::{Contradiction, ContradictionCategory, ValidationResult, validate as validate_continuity};
 pub use combatant::Combatant;
+pub use conlang::{
+    format_name_bank_for_prompt, GeneratedName, Morpheme, MorphemeCategory, MorphemeGlossary,
+    NameBank, NameGenConfig, NamePattern,
+};
+pub use consequence::{ConsequenceCategory, GenieWish, WishConsequenceEngine, WishStatus};
+pub use continuity::{
+    validate as validate_continuity, Contradiction, ContradictionCategory, ValidationResult,
+};
 pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};
 pub use disposition::{Attitude, Disposition};
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
+pub use merchant::{
+    calculate_price, execute_buy, execute_sell, format_merchant_context,
+    MerchantError, MerchantTransaction, TransactionType,
+};
 pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{
     accumulate_lore, accumulate_lore_batch, cosine_similarity, format_lore_context,
     query_language_knowledge, record_language_knowledge, record_name_knowledge,
-    seed_lore_from_char_creation, seed_lore_from_genre_pack, select_lore_for_prompt,
-    LoreCategory, LoreFragment, LoreSource, LoreStore,
+    seed_lore_from_char_creation, seed_lore_from_genre_pack, select_lore_for_prompt, LoreCategory,
+    LoreFragment, LoreSource, LoreStore,
 };
-pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector};
+pub use music_director::{
+    AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector,
+};
 pub use narrative::NarrativeEntry;
 pub use npc::{Npc, NpcRegistryEntry};
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
-pub use ocean_shift_proposals::{OceanShiftProposal, PersonalityEvent, propose_ocean_shifts};
+pub use ocean_shift_proposals::{propose_ocean_shifts, OceanShiftProposal, PersonalityEvent};
 pub use persistence::{
-    PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry,
-    SavedSession, SessionMeta, SessionStore, SqliteStore,
+    PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry, SavedSession, SessionMeta,
+    SessionStore, SqliteStore,
 };
 pub use preprocessor::PreprocessedAction;
 pub use prerender::{PrerenderConfig, PrerenderContext, PrerenderScheduler, WasteTracker};
@@ -104,10 +123,8 @@ pub use state::{
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
-pub use tension_tracker::{
-    CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker,
-};
+pub use tension_tracker::{CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker};
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
 pub use voice_router::{VoiceAssignment, VoiceRouter};
-pub use world_materialization::{CampaignMaturity, HistoryChapter, materialize_world};
+pub use world_materialization::{materialize_world, CampaignMaturity, HistoryChapter};
