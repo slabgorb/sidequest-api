@@ -23,7 +23,7 @@ fn genre_packs_path() -> PathBuf {
         // crate manifest is at sidequest-api/crates/sidequest-genre/
         // genre_packs is at oq-2/genre_packs/ (3 levels up)
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest.join("../../../genre_packs")
+        manifest.join("../../../sidequest-content/genre_packs")
     }
 }
 
