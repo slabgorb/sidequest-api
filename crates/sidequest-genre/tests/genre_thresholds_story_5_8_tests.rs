@@ -21,7 +21,7 @@ fn genre_packs_path() -> PathBuf {
         PathBuf::from(p)
     } else {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest.join("../../../genre_packs")
+        manifest.join("../../../sidequest-content/genre_packs")
     }
 }
 
