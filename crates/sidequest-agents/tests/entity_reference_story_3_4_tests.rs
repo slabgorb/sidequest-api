@@ -104,6 +104,7 @@ fn make_npc(name: &str) -> Npc {
         pronouns: None,
         appearance: None,
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
+        ocean: None,
     }
 }
 

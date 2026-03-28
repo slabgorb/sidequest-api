@@ -251,6 +251,7 @@ impl GameSnapshot {
                             .and_then(|l| NonBlankString::new(l).ok()),
                         pronouns: npc_patch.pronouns.clone(),
                         appearance: npc_patch.appearance.clone(),
+                        ocean: None,
                     };
                     self.npcs.push(new_npc);
                 }
