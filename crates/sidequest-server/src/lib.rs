@@ -2417,7 +2417,91 @@ async fn dispatch_player_action(
         state_summary.push_str(&npc_context);
     }
 
-    // Process the action through GameService
+    // Check if barrier mode is active (Structured/Cinematic turn mode)
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            if ss.turn_mode.should_use_barrier() {
+                if let Some(ref barrier) = ss.turn_barrier {
+                    // Submit action to barrier (doesn't trigger narration yet)
+                    barrier.submit_action(player_id, action);
+
+                    // Clone what we need for the spawned resolution task
+                    let barrier_clone = barrier.clone();
+                    let ss_arc_clone = ss_arc.clone();
+                    let state_clone = state.clone();
+                    let genre_slug_owned = genre_slug.to_string();
+                    let world_slug_owned = world_slug.to_string();
+                    let action_owned = action.to_string();
+                    let player_id_owned = player_id.to_string();
+                    drop(ss);
+                    drop(holder);
+
+                    // Spawn a task that waits for all players to submit
+                    tokio::spawn(async move {
+                        let result = barrier_clone.wait_for_turn().await;
+                        tracing::info!(
+                            timed_out = result.timed_out,
+                            missing = ?result.missing_players,
+                            genre = %genre_slug_owned,
+                            world = %world_slug_owned,
+                            "Turn barrier resolved"
+                        );
+                        // Build combined context with all players' actions
+                        let named_actions = {
+                            let ss = ss_arc_clone.lock().await;
+                            ss.multiplayer.named_actions()
+                        };
+                        let combined_action = named_actions
+                            .iter()
+                            .map(|(name, act)| format!("{}: {}", name, act))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let context = TurnContext {
+                            state_summary: Some(format!("Combined party actions:\n{}", combined_action)),
+                            in_combat: false,
+                            in_chase: false,
+                        };
+                        let narration_result = state_clone.game_service().process_action(&action_owned, &context);
+                        // Broadcast narration to all session members
+                        let ss = ss_arc_clone.lock().await;
+                        let narration_msg = GameMessage::Narration {
+                            payload: NarrationPayload {
+                                text: narration_result.narration.clone(),
+                                state_delta: None,
+                                footnotes: vec![],
+                            },
+                            player_id: player_id_owned.clone(),
+                        };
+                        ss.broadcast(narration_msg);
+                        let end_msg = GameMessage::NarrationEnd {
+                            payload: NarrationEndPayload { state_delta: None },
+                            player_id: player_id_owned,
+                        };
+                        ss.broadcast(end_msg);
+                    });
+
+                    // Tell this player they're waiting for others
+                    let waiting = GameMessage::SessionEvent {
+                        payload: SessionEventPayload {
+                            event: "waiting".to_string(),
+                            player_name: None,
+                            genre: None,
+                            world: None,
+                            has_character: None,
+                            initial_state: None,
+                            css: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+                    return vec![thinking, waiting];
+                }
+            }
+        }
+    }
+
+    // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
         in_combat: combat_state.in_combat(),
