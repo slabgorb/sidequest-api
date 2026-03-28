@@ -995,6 +995,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
+    // Bug 17: In-memory narration history for context accumulation across turns.
+    // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
+    let mut narration_history: Vec<String> = vec![];
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>> =
@@ -1028,6 +1031,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &audio_mixer,
                         &prerender_scheduler,
                         &mut npc_registry,
+                        &mut narration_history,
                         &state,
                         &player_id_str,
                     )
@@ -1087,6 +1091,7 @@ async fn dispatch_message(
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    narration_history: &mut Vec<String>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1136,6 +1141,7 @@ async fn dispatch_message(
                 world_context,
                 visual_style,
                 npc_registry,
+                narration_history,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1176,6 +1182,7 @@ async fn dispatch_message(
                 world_context,
                 visual_style,
                 npc_registry,
+                narration_history,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1605,6 +1612,7 @@ async fn dispatch_character_creation(
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    narration_history: &mut Vec<String>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1766,6 +1774,7 @@ async fn dispatch_character_creation(
                         world_context,
                         visual_style,
                         npc_registry,
+                        narration_history,
                         music_director,
                         audio_mixer,
                         prerender_scheduler,
@@ -1847,6 +1856,7 @@ async fn dispatch_player_action(
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    narration_history: &mut Vec<String>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -2041,6 +2051,17 @@ async fn dispatch_player_action(
         state_summary.push_str(&trope_context);
     }
 
+    // Bug 17: Include recent narration history so the narrator maintains continuity
+    if !narration_history.is_empty() {
+        state_summary.push_str("\n\nRECENT CONVERSATION HISTORY (most recent last):\n");
+        // Include at most the last 10 turns to stay within context limits
+        let start = narration_history.len().saturating_sub(10);
+        for entry in &narration_history[start..] {
+            state_summary.push_str(entry);
+            state_summary.push('\n');
+        }
+    }
+
     // Inject NPC registry so the narrator maintains identity consistency
     let npc_context = build_npc_registry_context(npc_registry);
     if !npc_context.is_empty() {
@@ -2119,6 +2140,15 @@ async fn dispatch_player_action(
 
     // Strip the location header from narration text if present
     let clean_narration = strip_location_header(narration_text);
+
+    // Bug 17: Accumulate narration history for context on subsequent turns.
+    // Truncate narrator response to ~300 chars to keep context bounded.
+    let truncated_narration: String = clean_narration.chars().take(300).collect();
+    narration_history.push(format!("Player: {}\nNarrator: {}", action, truncated_narration));
+    // Cap the buffer at 20 entries to prevent unbounded growth
+    if narration_history.len() > 20 {
+        narration_history.drain(..narration_history.len() - 20);
+    }
 
     // Update NPC registry from narration — tracks names, pronouns, locations
     // so subsequent turns maintain NPC identity consistency.
