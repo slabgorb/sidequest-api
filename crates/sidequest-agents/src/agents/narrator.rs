@@ -45,10 +45,13 @@ Example prose: \"As you enter the grove, Reva feels a deep wrongness [1].\"
 [ITEM PROTOCOL]
 When the player ACTUALLY ACQUIRES a physical item (picks it up, is handed it,
 loots it, buys it), include it in items_gained. Do NOT include items that are
-merely mentioned, seen, or belong to someone else.
+merely mentioned, seen, described in the environment, or belong to someone else.
+
+CRITICAL: items_gained is ONLY for items the player now POSSESSES. Not items they
+see, hear about, notice, or interact with without taking.
 
 Each item has:
-- name: short item name (e.g., \"sealed matte-black case\")
+- name: a SHORT noun phrase (1-5 words, max 60 chars). Examples: \"sealed matte-black case\", \"iron shortsword\", \"healing potion\". NOT a sentence or description.
 - description: one sentence describing the item
 - category: one of \"weapon\", \"armor\", \"tool\", \"consumable\", \"quest\", \"treasure\", \"misc\"
 

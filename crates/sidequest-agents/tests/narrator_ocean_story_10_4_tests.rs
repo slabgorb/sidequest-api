@@ -47,6 +47,9 @@ fn npc_with_ocean(name: &str, ocean: OceanProfile) -> Npc {
         pronouns: None,
         appearance: None,
             age: None,
+        build: None,
+        height: None,
+        distinguishing_features: vec![],
         ocean: Some(ocean),
     }
 }
@@ -70,6 +73,9 @@ fn npc_without_ocean(name: &str) -> Npc {
         pronouns: None,
         appearance: None,
             age: None,
+        build: None,
+        height: None,
+        distinguishing_features: vec![],
         ocean: None,
     }
 }

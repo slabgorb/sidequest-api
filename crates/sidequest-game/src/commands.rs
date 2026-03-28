@@ -272,6 +272,9 @@ impl GmCommand {
                 pronouns: None,
                 appearance: None,
                 age: None,
+                build: None,
+                height: None,
+                distinguishing_features: None,
                 location: None,
             }]),
             ..Default::default()

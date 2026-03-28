@@ -76,6 +76,9 @@ fn test_npc() -> Npc {
         pronouns: Some("she/her".to_string()),
         appearance: Some("Flour-dusted apron, kind eyes".to_string()),
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: vec![],
         ocean: None,
     }
 }
@@ -99,6 +102,9 @@ fn test_npc_no_identity() -> Npc {
         pronouns: None,
         appearance: None,
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: vec![],
         ocean: None,
     }
 }
@@ -360,6 +366,9 @@ fn world_patch_npcs_present_adds_new_npc() {
         pronouns: Some("he/him".to_string()),
         appearance: Some("Missing teeth, scar across face".to_string()),
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: None,
         location: Some("The Wasteland Highway".to_string()),
     };
 
@@ -384,6 +393,9 @@ fn world_patch_npcs_present_merges_existing_npc() {
         pronouns: None,
         appearance: None,
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: None,
         location: None,
     };
 
@@ -415,6 +427,9 @@ fn npc_merge_patch_updates_mutable_fields() {
         pronouns: None,
         appearance: None,
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: None,
         location: Some("The Kitchen".to_string()),
     };
 
@@ -436,6 +451,9 @@ fn npc_merge_patch_locks_pronouns_after_first_set() {
         pronouns: Some("they/them".to_string()), // attempt to overwrite
         appearance: None,
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: None,
         location: None,
     };
 
@@ -457,6 +475,9 @@ fn npc_merge_patch_locks_appearance_after_first_set() {
         pronouns: None,
         appearance: Some("Completely different look".to_string()),
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: None,
         location: None,
     };
 
@@ -481,6 +502,9 @@ fn npc_merge_patch_sets_pronouns_when_empty() {
         pronouns: Some("they/them".to_string()),
         appearance: None,
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: None,
         location: None,
     };
 
@@ -501,6 +525,9 @@ fn npc_merge_patch_sets_appearance_when_empty() {
         pronouns: None,
         appearance: Some("Tall, dark cloak".to_string()),
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: None,
         location: None,
     };
 

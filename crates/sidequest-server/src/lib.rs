@@ -1026,7 +1026,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let writer_player_id = player_id_str.clone();
     let writer_handle = tokio::spawn(async move {
         // Session broadcast receiver — lazily initialized when shared session is set.
-        let mut session_rx: Option<broadcast::Receiver<GameMessage>> = None;
+        let mut session_rx: Option<broadcast::Receiver<crate::shared_session::TargetedMessage>> = None;
 
         loop {
             // Lazily subscribe to session broadcast if we don't have a receiver yet.
@@ -1066,8 +1066,16 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                 }
                 // Session-scoped broadcast: narration from other players in the same session.
                 // Skip messages originating from this player to avoid duplicate rendering.
+                // Also filters targeted messages — only delivers to the intended recipient.
                 result = async { match session_rx.as_mut() { Some(rx) => rx.recv().await, None => std::future::pending().await } } => {
-                    if let Ok(msg) = result {
+                    if let Ok(targeted) = result {
+                        // Target filter: if message is targeted to a specific player, skip if not us
+                        if let Some(ref target) = targeted.target_player_id {
+                            if target != &writer_player_id {
+                                continue;
+                            }
+                        }
+                        let msg = targeted.msg;
                         // Filter: skip messages from self (acting player already gets
                         // narration via the direct tx channel)
                         let msg_player_id = match &msg {
@@ -1536,6 +1544,8 @@ async fn dispatch_connect(
                                             name: c.core.name.as_str().to_string(),
                                             hp: c.core.hp,
                                             max_hp: c.core.max_hp,
+                                            level: c.core.level,
+                                            class: c.char_class.as_str().to_string(),
                                             statuses: c.core.statuses.clone(),
                                             inventory: c
                                                 .core
@@ -2181,11 +2191,10 @@ async fn dispatch_character_creation(
                             let members: Vec<PartyMember> = ss
                                 .players
                                 .iter()
-                                .filter_map(|(pid, _ps)| {
-                                    // Try to get character info — the current player's data
-                                    // is in our local vars, others will be in their PlayerState.
+                                .map(|(pid, ps)| {
                                     if pid == player_id {
-                                        Some(PartyMember {
+                                        // Current player — use local character data
+                                        PartyMember {
                                             player_id: pid.clone(),
                                             name: character.core.name.as_str().to_string(),
                                             current_hp: character.core.hp,
@@ -2194,10 +2203,19 @@ async fn dispatch_character_creation(
                                             class: character.char_class.as_str().to_string(),
                                             level: character.core.level as u32,
                                             portrait_url: None,
-                                        })
+                                        }
                                     } else {
-                                        // Other player — use their character_name if available
-                                        None
+                                        // Other player — use PlayerState fields
+                                        PartyMember {
+                                            player_id: pid.clone(),
+                                            name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                                            current_hp: ps.character_hp,
+                                            max_hp: ps.character_max_hp,
+                                            statuses: vec![],
+                                            class: String::new(),
+                                            level: ps.character_level,
+                                            portrait_url: None,
+                                        }
                                     }
                                 })
                                 .collect();
@@ -3175,9 +3193,37 @@ async fn dispatch_player_action(
     // Item acquisition — driven by structured extraction from the LLM response.
     // The narrator emits items_gained in its JSON block when the player
     // actually acquires something.
+    const VALID_ITEM_CATEGORIES: &[&str] = &[
+        "weapon", "armor", "tool", "consumable", "quest", "treasure", "misc",
+    ];
     for item_def in &result.items_gained {
-        let item_id = item_def
-            .name
+        // Reject prose fragments: item names should be short noun phrases,
+        // not sentences or long descriptions.
+        let name_trimmed = item_def.name.trim();
+        let word_count = name_trimmed.split_whitespace().count();
+        if name_trimmed.len() > 60 || word_count > 8 {
+            tracing::warn!(
+                item_name = %item_def.name,
+                len = name_trimmed.len(),
+                words = word_count,
+                "Rejected item: name too long (likely prose fragment)"
+            );
+            continue;
+        }
+        // Reject names that look like sentences (contain common verbs)
+        let lower = name_trimmed.to_lowercase();
+        if lower.starts_with("the ") && word_count > 5 {
+            tracing::warn!(item_name = %item_def.name, "Rejected item: sentence-like name");
+            continue;
+        }
+        // Validate category
+        let category = item_def.category.trim().to_lowercase();
+        let valid_cat = if VALID_ITEM_CATEGORIES.contains(&category.as_str()) {
+            category
+        } else {
+            "misc".to_string()
+        };
+        let item_id = name_trimmed
             .to_lowercase()
             .replace(' ', "_")
             .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
@@ -3186,9 +3232,9 @@ async fn dispatch_player_action(
         }
         if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
             sidequest_protocol::NonBlankString::new(&item_id),
-            sidequest_protocol::NonBlankString::new(&item_def.name),
+            sidequest_protocol::NonBlankString::new(name_trimmed),
             sidequest_protocol::NonBlankString::new(&item_def.description),
-            sidequest_protocol::NonBlankString::new(&item_def.category),
+            sidequest_protocol::NonBlankString::new(&valid_cat),
             sidequest_protocol::NonBlankString::new("common"),
         ) {
             let item = sidequest_game::Item {
@@ -3301,6 +3347,11 @@ async fn dispatch_player_action(
         .iter()
         .map(|i| i.name.as_str().to_string())
         .collect();
+    let char_class_name = character_json
+        .as_ref()
+        .and_then(|cj| cj.get("char_class"))
+        .and_then(|c| c.as_str())
+        .unwrap_or("Adventurer");
     messages.push(GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration.clone(),
@@ -3310,6 +3361,8 @@ async fn dispatch_player_action(
                     name: char_name.to_string(),
                     hp: *hp,
                     max_hp: *max_hp,
+                    level: *level,
+                    class: char_class_name.to_string(),
                     statuses: vec![],
                     inventory: inventory_names.clone(),
                 }]),
@@ -3364,22 +3417,45 @@ async fn dispatch_player_action(
         .and_then(|c| c.as_str())
         .unwrap_or("Adventurer");
 
-    // Party status
-    messages.push(GameMessage::PartyStatus {
-        payload: PartyStatusPayload {
-            members: vec![PartyMember {
-                player_id: player_id.to_string(),
-                name: char_name.to_string(),
-                current_hp: *hp,
-                max_hp: *max_hp,
-                statuses: vec![],
-                class: char_class.to_string(),
-                level: *level,
-                portrait_url: None,
-            }],
-        },
-        player_id: player_id.to_string(),
-    });
+    // Party status — build full party from shared session (multiplayer) or local only (single-player)
+    {
+        let mut party_members = vec![PartyMember {
+            player_id: player_id.to_string(),
+            name: char_name.to_string(),
+            current_hp: *hp,
+            max_hp: *max_hp,
+            statuses: vec![],
+            class: char_class.to_string(),
+            level: *level,
+            portrait_url: None,
+        }];
+        // In multiplayer, include other players from the shared session
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            for (pid, ps) in &ss.players {
+                if pid == player_id {
+                    continue; // Already added above with fresh local data
+                }
+                party_members.push(PartyMember {
+                    player_id: pid.clone(),
+                    name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                    current_hp: ps.character_hp,
+                    max_hp: ps.character_max_hp,
+                    statuses: vec![],
+                    class: String::new(),
+                    level: ps.character_level,
+                    portrait_url: None,
+                });
+            }
+        }
+        messages.push(GameMessage::PartyStatus {
+            payload: PartyStatusPayload {
+                members: party_members,
+            },
+            player_id: player_id.to_string(),
+        });
+    }
 
     // Bug 5: Inventory — now wired to actual inventory state
     messages.push(GameMessage::Inventory {
@@ -3465,12 +3541,13 @@ async fn dispatch_player_action(
                         tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
                         // Initialize barrier if transitioning to structured mode
                         if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
-                            let mp_session = sidequest_game::multiplayer::MultiplayerSession::new(
-                                HashMap::new(),
+                            let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
+                                ss.players.keys().cloned(),
                             );
-                            ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::new(
+                            let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
+                            ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
                                 mp_session,
-                                sidequest_game::barrier::TurnBarrierConfig::default(),
+                                adaptive,
                             ));
                         }
                     }
@@ -4108,19 +4185,53 @@ async fn dispatch_player_action(
                 discovered_regions,
                 trope_states,
             );
-            // Broadcast narration messages to other session members.
-            // If perception effects are active, log it (actual rewriting
-            // requires a PerceptionRewriter strategy — currently RED phase).
-            if ss.has_perception_effects() {
-                tracing::debug!(
-                    "Perception effects active for {} player(s) — rewriting not yet wired (RED phase)",
-                    ss.perception_filters.len()
-                );
+            // Sync acting player's character data to PlayerState for other players' PARTY_STATUS
+            if let Some(ps) = ss.players.get_mut(player_id) {
+                ps.character_hp = *hp;
+                ps.character_max_hp = *max_hp;
+                ps.character_level = *level;
+                if ps.character_name.is_none() {
+                    ps.character_name = Some(char_name.to_string());
+                }
             }
-            // Broadcast narration to session members. The writer task filters
-            // out messages from self, so the acting player won't see duplicates.
+            // Broadcast narration messages to other session members.
+            // When perception effects are active, route narration per-player
+            // so each player can receive perception-filtered text.
+            let has_effects = ss.has_perception_effects();
             for msg in &messages {
                 match msg {
+                    GameMessage::Narration { payload, player_id } if has_effects => {
+                        // Per-player routing: send tailored narration to each affected player.
+                        // Players without perception effects get the base narration.
+                        let filters = &ss.perception_filters;
+                        for (target_id, _player_state) in &ss.players {
+                            if let Some(filter) = filters.get(target_id) {
+                                // Player has active perception effects — annotate narration
+                                let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
+                                let rewritten_text = format!(
+                                    "[Your perception is altered: {}]\n\n{}",
+                                    effects_desc, payload.text
+                                );
+                                let rewritten_msg = GameMessage::Narration {
+                                    payload: sidequest_protocol::NarrationPayload {
+                                        text: rewritten_text,
+                                        state_delta: payload.state_delta.clone(),
+                                        footnotes: payload.footnotes.clone(),
+                                    },
+                                    player_id: player_id.clone(),
+                                };
+                                ss.send_to_player(rewritten_msg, target_id.clone());
+                                tracing::debug!(
+                                    target_player = %target_id,
+                                    effects = %effects_desc,
+                                    "Sent perception-filtered narration"
+                                );
+                            } else {
+                                // No effects — send base narration to this player
+                                ss.send_to_player(msg.clone(), target_id.clone());
+                            }
+                        }
+                    }
                     GameMessage::Narration { .. }
                     | GameMessage::NarrationEnd { .. }
                     | GameMessage::ChapterMarker { .. }
@@ -4549,6 +4660,37 @@ fn update_npc_registry(
             .any(|loc| lower == *loc || loc.contains(&lower) || lower.contains(loc.as_str()))
     };
 
+    // Common English words that should never be NPC names. These frequently
+    // appear capitalized at sentence starts and match our regex patterns.
+    const COMMON_WORDS: &[&str] = &[
+        "the", "a", "an", "it", "its", "this", "that", "these", "those",
+        "there", "here", "then", "now", "but", "and", "or", "yet", "so",
+        "you", "your", "my", "our", "their", "his", "her", "we", "they",
+        "something", "someone", "somebody", "nothing", "nobody", "anyone",
+        "anything", "everything", "everyone", "one", "each", "every",
+        "another", "other", "others", "both", "few", "many", "some",
+        "after", "before", "above", "below", "behind", "between",
+        "perhaps", "maybe", "also", "still", "just", "only", "even",
+        "soon", "once", "when", "where", "while", "since", "until",
+        "though", "although", "however", "meanwhile", "suddenly",
+        "slowly", "quickly", "finally", "somehow",
+    ];
+    let is_common_word = |name: &str| -> bool {
+        let lower = name.to_lowercase();
+        // Single-word candidates: reject if they're a common word
+        if !name.contains(' ') {
+            return COMMON_WORDS.contains(&lower.as_str());
+        }
+        // Multi-word candidates: reject if the first word is a common non-name word
+        // (e.g., "Something dark" → "something" is not a name)
+        if let Some(first) = lower.split_whitespace().next() {
+            if COMMON_WORDS.contains(&first) {
+                return true;
+            }
+        }
+        false
+    };
+
     // Dialogue attribution: "Name says/asks/replies/shouts/whispers/mutters"
     let speech_verbs = [
         "says", "asks", "replies", "shouts", "whispers", "mutters", "growls", "calls", "declares",
@@ -4575,11 +4717,8 @@ fn update_npc_registry(
                 && candidate.chars().next().map_or(false, |c| c.is_uppercase())
             {
                 let name = candidate.to_string();
-                // Skip if it's the player character reference
-                if !name.to_lowercase().contains("you")
-                    && name != "The"
-                    && name != "A"
-                    && name != "An"
+                // Skip common words, location names, and player references
+                if !is_common_word(&name)
                     && !is_location_name(&name)
                 {
                     // Update existing or add new
@@ -4625,7 +4764,7 @@ fn update_npc_registry(
                     && candidate.chars().next().map_or(false, |c| c.is_uppercase())
                 {
                     let name = candidate.to_string();
-                    if !name.to_lowercase().contains("you") && !is_location_name(&name) {
+                    if !is_common_word(&name) && !is_location_name(&name) {
                         if !registry.iter().any(|e| e.name == name) {
                             // Try to infer role from "X, the blacksmith" pattern after name
                             let role = if name_end < rest.len() {
@@ -4675,12 +4814,7 @@ fn update_npc_registry(
                 .trim_end_matches(|c: char| matches!(c, ',' | '.' | '!' | '?'))
                 .trim()
                 .to_string();
-            if !name.to_lowercase().contains("you")
-                && name != "The"
-                && name != "A"
-                && name != "An"
-                && !is_location_name(&name)
-            {
+            if !is_common_word(&name) && !is_location_name(&name) {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     if entry.role.is_empty() && !role.is_empty() {
                         entry.role = role;
@@ -4710,24 +4844,7 @@ fn update_npc_registry(
         let subject_re = Regex::new(r"(?:^|[.!?]\s+)([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s+(?:is|was|has|had|walks|stands|sits|looks|turns|nods|shakes|moves|steps|reaches|pulls|holds|places|waves|smiles|frowns|laughs|sighs|watches|leads|appears|enters|exits|approaches|stares|glances|points|gestures|offers|hands|grabs|takes|gives|opens|closes|runs|stops|begins|continues)\b").unwrap();
         for caps in subject_re.captures_iter(narration) {
             let name = caps[1].to_string();
-            if !name.to_lowercase().contains("you")
-                && name != "The"
-                && name != "A"
-                && name != "An"
-                && name != "It"
-                && name != "This"
-                && name != "That"
-                && name != "There"
-                && name != "Here"
-                && name != "Then"
-                && name != "Now"
-                && name != "But"
-                && name != "And"
-                && name != "Or"
-                && name != "Yet"
-                && name != "So"
-                && !is_location_name(&name)
-            {
+            if !is_common_word(&name) && !is_location_name(&name) {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     entry.last_seen_turn = turn_count;
                     if !current_location.is_empty() {
@@ -4754,15 +4871,7 @@ fn update_npc_registry(
         let poss_re = Regex::new(r"\b([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)'s\b").unwrap();
         for caps in poss_re.captures_iter(narration) {
             let name = caps[1].to_string();
-            if !name.to_lowercase().contains("you")
-                && name != "The"
-                && name != "A"
-                && name != "An"
-                && name != "It"
-                && name != "This"
-                && name != "That"
-                && !is_location_name(&name)
-            {
+            if !is_common_word(&name) && !is_location_name(&name) {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     entry.last_seen_turn = turn_count;
                     if !current_location.is_empty() {

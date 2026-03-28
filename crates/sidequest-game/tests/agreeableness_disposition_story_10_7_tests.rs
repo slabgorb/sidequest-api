@@ -42,7 +42,10 @@ fn npc_with_agreeableness(agreeableness: f64, base_disposition: i32) -> Npc {
         location: None,
         pronouns: None,
         appearance: None,
-            age: None,
+        age: None,
+        build: None,
+        height: None,
+        distinguishing_features: vec![],
         ocean: Some(ocean),
     }
 }
@@ -70,7 +73,10 @@ fn npc_without_ocean(base_disposition: i32) -> Npc {
         location: None,
         pronouns: None,
         appearance: None,
-            age: None,
+        age: None,
+        build: None,
+        height: None,
+        distinguishing_features: vec![],
         ocean: None,
     }
 }

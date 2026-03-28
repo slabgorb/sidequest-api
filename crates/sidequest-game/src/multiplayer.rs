@@ -78,6 +78,50 @@ impl MultiplayerSession {
         }
     }
 
+    /// Create a session from player IDs only (no Character data).
+    ///
+    /// Used by `TurnBarrier` which only needs player count and ID tracking
+    /// for barrier-met checks, not full Character objects.
+    pub fn with_player_ids(player_ids: impl IntoIterator<Item = String>) -> Self {
+        use crate::creature_core::CreatureCore;
+        use crate::inventory::Inventory;
+        use sidequest_protocol::NonBlankString;
+
+        let players: HashMap<String, Character> = player_ids
+            .into_iter()
+            .map(|id| {
+                let name = NonBlankString::new(&id).unwrap_or_else(|_| {
+                    NonBlankString::new("unknown").unwrap()
+                });
+                let character = Character {
+                    core: CreatureCore {
+                        name: name.clone(),
+                        description: NonBlankString::new("barrier placeholder").unwrap(),
+                        personality: NonBlankString::new("n/a").unwrap(),
+                        level: 1,
+                        hp: 1,
+                        max_hp: 1,
+                        ac: 10,
+                        statuses: vec![],
+                        inventory: Inventory::default(),
+                    },
+                    backstory: NonBlankString::new("n/a").unwrap(),
+                    narrative_state: String::new(),
+                    hooks: vec![],
+                    char_class: NonBlankString::new("barrier").unwrap(),
+                    race: NonBlankString::new("barrier").unwrap(),
+                    stats: HashMap::new(),
+                    abilities: vec![],
+                    known_facts: vec![],
+                    affinities: vec![],
+                    is_friendly: true,
+                };
+                (id, character)
+            })
+            .collect();
+        Self::new(players)
+    }
+
     /// Number of players currently in the session.
     pub fn player_count(&self) -> usize {
         self.players.len()

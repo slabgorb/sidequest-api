@@ -676,6 +676,12 @@ pub struct CharacterState {
     pub hp: i32,
     /// Maximum hit points.
     pub max_hp: i32,
+    /// Character level.
+    #[serde(default)]
+    pub level: u32,
+    /// Character class (e.g., "Ranger", "Mage").
+    #[serde(default)]
+    pub class: String,
     /// Active status effects.
     pub statuses: Vec<String>,
     /// Inventory item names.

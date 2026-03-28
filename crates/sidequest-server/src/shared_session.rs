@@ -11,6 +11,16 @@ use tokio::sync::broadcast;
 use sidequest_game::barrier::TurnBarrier;
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_game::multiplayer::MultiplayerSession;
+
+/// Server-internal wrapper for targeted broadcast messages.
+/// When `target_player_id` is Some, only that player receives the message.
+/// When None, all session members receive it (standard broadcast).
+#[derive(Debug, Clone)]
+pub struct TargetedMessage {
+    pub msg: GameMessage,
+    /// If set, only deliver to this player. None = broadcast to all.
+    pub target_player_id: Option<String>,
+}
 use sidequest_game::perception::{PerceptionFilter, PerceptionRewriter};
 use sidequest_game::turn_mode::TurnMode;
 use sidequest_protocol::GameMessage;
@@ -113,13 +123,13 @@ pub struct SharedGameSession {
     pub players: HashMap<String, PlayerState>,
 
     // --- Session-scoped broadcast (narration to all members) ---
-    pub session_tx: broadcast::Sender<GameMessage>,
+    pub session_tx: broadcast::Sender<TargetedMessage>,
 }
 
 impl SharedGameSession {
     /// Create a new shared session for a genre:world pair.
     pub fn new(genre_slug: String, world_slug: String) -> Self {
-        let (session_tx, _) = broadcast::channel(64);
+        let (session_tx, _) = broadcast::channel::<TargetedMessage>(64);
         let multiplayer = MultiplayerSession::new(HashMap::new());
         Self {
             genre_slug,
@@ -150,14 +160,26 @@ impl SharedGameSession {
     }
 
     /// Subscribe to the session broadcast channel.
-    pub fn subscribe(&self) -> broadcast::Receiver<GameMessage> {
+    pub fn subscribe(&self) -> broadcast::Receiver<TargetedMessage> {
         self.session_tx.subscribe()
     }
 
     /// Broadcast a message to all session members.
     pub fn broadcast(&self, msg: GameMessage) {
         // Ignore send errors (no active receivers is fine)
-        let _ = self.session_tx.send(msg);
+        let _ = self.session_tx.send(TargetedMessage {
+            msg,
+            target_player_id: None,
+        });
+    }
+
+    /// Send a message to a specific player via the session channel.
+    /// The writer task filters based on `target_player_id`.
+    pub fn send_to_player(&self, msg: GameMessage, target: String) {
+        let _ = self.session_tx.send(TargetedMessage {
+            msg,
+            target_player_id: Some(target),
+        });
     }
 
     /// Check if any players have active perceptual effects that would

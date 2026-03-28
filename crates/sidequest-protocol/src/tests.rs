@@ -132,6 +132,8 @@ mod message_type_tests {
                         name: "Grok".into(),
                         hp: 15,
                         max_hp: 20,
+                        level: 3,
+                        class: "Fighter".into(),
                         statuses: vec!["poisoned".into()],
                         inventory: vec!["sword".into()],
                     }]),

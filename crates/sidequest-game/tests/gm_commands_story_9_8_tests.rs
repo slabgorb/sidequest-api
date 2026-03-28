@@ -108,6 +108,9 @@ fn test_npc() -> Npc {
         pronouns: None,
         appearance: None,
         age: None,
+        build: None,
+        height: None,
+        distinguishing_features: vec![],
         ocean: None,
     }
 }
