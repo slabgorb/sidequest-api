@@ -2,8 +2,16 @@
 //!
 //! Implements ADR-017: three chase types, escape threshold (default 50%),
 //! and round-by-round escape roll tracking.
+//!
+//! Extended with Chase Depth (C1-C5): rig damage, multi-actor roles,
+//! beat system, terrain modifiers, and cinematography.
 
 use serde::{Deserialize, Serialize};
+
+use crate::chase_depth::{
+    check_outcome, danger_for_beat, format_chase_context, phase_for_beat, terrain_modifiers,
+    ChaseActor, ChaseBeat, ChaseOutcome, ChasePhase, RigStats, RigType,
+};
 
 /// The type of chase encounter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -43,6 +51,31 @@ pub struct ChaseState {
     /// Most recent chase event (story 2-7).
     #[serde(default)]
     chase_event: Option<String>,
+
+    // -- Chase Depth (C1-C5) --
+
+    /// Rig stats (C1). None for non-vehicle chases.
+    #[serde(default)]
+    rig: Option<RigStats>,
+    /// Crew assignments (C2).
+    #[serde(default)]
+    actors: Vec<ChaseActor>,
+    /// Current beat number (C3), 0-indexed.
+    #[serde(default)]
+    beat: u32,
+    /// Separation goal for escape (C3).
+    #[serde(default = "default_goal")]
+    goal: i32,
+    /// Current structured phase (C3).
+    #[serde(default)]
+    structured_phase: Option<ChasePhase>,
+    /// Chase outcome if resolved (C3).
+    #[serde(default)]
+    outcome: Option<ChaseOutcome>,
+}
+
+fn default_goal() -> i32 {
+    10
 }
 
 impl ChaseState {
@@ -57,7 +90,27 @@ impl ChaseState {
             separation_distance: 0,
             chase_phase: None,
             chase_event: None,
+            rig: None,
+            actors: Vec::new(),
+            beat: 0,
+            goal: 10,
+            structured_phase: None,
+            outcome: None,
         }
+    }
+
+    /// Create a vehicle chase with rig stats (C1).
+    pub fn new_vehicle_chase(
+        chase_type: ChaseType,
+        escape_threshold: f64,
+        rig_type: RigType,
+        goal: i32,
+    ) -> Self {
+        let mut state = Self::new(chase_type, escape_threshold);
+        state.rig = Some(RigStats::from_type(rig_type));
+        state.goal = goal;
+        state.structured_phase = Some(ChasePhase::Setup);
+        state
     }
 
     /// The type of this chase.
@@ -128,5 +181,106 @@ impl ChaseState {
         if escaped {
             self.resolved = true;
         }
+    }
+
+    // -- Chase Depth accessors (C1-C5) --
+
+    /// Rig stats, if this is a vehicle chase (C1).
+    pub fn rig(&self) -> Option<&RigStats> {
+        self.rig.as_ref()
+    }
+
+    /// Mutable rig stats (C1).
+    pub fn rig_mut(&mut self) -> Option<&mut RigStats> {
+        self.rig.as_mut()
+    }
+
+    /// Set rig stats (C1).
+    pub fn set_rig(&mut self, rig: RigStats) {
+        self.rig = Some(rig);
+    }
+
+    /// Crew assignments (C2).
+    pub fn actors(&self) -> &[ChaseActor] {
+        &self.actors
+    }
+
+    /// Assign crew roles (C2).
+    pub fn set_actors(&mut self, actors: Vec<ChaseActor>) {
+        self.actors = actors;
+    }
+
+    /// Current beat number (C3).
+    pub fn beat(&self) -> u32 {
+        self.beat
+    }
+
+    /// Escape goal (C3).
+    pub fn goal(&self) -> i32 {
+        self.goal
+    }
+
+    /// Current structured phase (C3).
+    pub fn structured_phase(&self) -> Option<ChasePhase> {
+        self.structured_phase
+    }
+
+    /// Chase outcome (C3).
+    pub fn outcome(&self) -> Option<ChaseOutcome> {
+        self.outcome
+    }
+
+    /// Advance to the next beat (C3). Applies terrain damage (C4).
+    /// Returns the new phase and any outcome.
+    pub fn advance_beat(&mut self) -> (ChasePhase, Option<ChaseOutcome>) {
+        self.beat += 1;
+        let phase = phase_for_beat(self.beat, self.outcome.is_some());
+        self.structured_phase = Some(phase);
+
+        // Apply terrain damage (C4)
+        let danger = danger_for_beat(self.beat, phase);
+        let mods = terrain_modifiers(danger);
+        if mods.rig_damage_per_beat > 0 {
+            if let Some(ref mut rig) = self.rig {
+                rig.apply_damage(mods.rig_damage_per_beat);
+            }
+        }
+
+        // Check outcome (C3)
+        let rig_hp = self.rig.as_ref().map_or(i32::MAX, |r| r.rig_hp);
+        if let Some(outcome) = check_outcome(self.separation_distance, self.goal, rig_hp) {
+            self.outcome = Some(outcome);
+            self.resolved = true;
+        }
+
+        (phase, self.outcome)
+    }
+
+    /// Generate a ChaseBeat for the current state (C3).
+    pub fn current_beat(&self, decisions: Vec<crate::chase_depth::BeatDecision>) -> ChaseBeat {
+        let phase = self
+            .structured_phase
+            .unwrap_or_else(|| phase_for_beat(self.beat, self.outcome.is_some()));
+        let danger = danger_for_beat(self.beat, phase);
+        ChaseBeat {
+            beat_number: self.beat,
+            phase,
+            decisions,
+            terrain_danger: danger,
+        }
+    }
+
+    /// Format narrator context for the current chase state (C1-C5).
+    pub fn format_context(&self, decisions: Vec<crate::chase_depth::BeatDecision>) -> String {
+        let beat = self.current_beat(decisions);
+        let default_rig = RigStats::from_type(RigType::Frankenstein);
+        let rig = self.rig.as_ref().unwrap_or(&default_rig);
+        format_chase_context(&beat, rig, &self.actors, self.separation_distance, self.goal)
+    }
+
+    /// Mark the chase as abandoned (C3).
+    pub fn abandon(&mut self) {
+        self.outcome = Some(ChaseOutcome::Abandoned);
+        self.resolved = true;
     }
 }
