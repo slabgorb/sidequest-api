@@ -15,6 +15,7 @@ use crate::agents::ensemble::EnsembleAgent;
 use crate::agents::intent_router::IntentRouter;
 #[allow(unused_imports)] // classify_with_state is a static method
 use crate::agents::narrator::NarratorAgent;
+use crate::agents::troper::TroperAgent;
 use crate::client::ClaudeClient;
 use crate::context_builder::ContextBuilder;
 use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
@@ -73,6 +74,8 @@ pub struct Orchestrator {
     tension_tracker: TensionTracker,
     /// Genre-tunable pacing breakpoints (Story 5-7).
     drama_thresholds: DramaThresholds,
+    /// Trope beat injection agent (ADR-018).
+    troper: TroperAgent,
 }
 
 impl Orchestrator {
@@ -89,6 +92,7 @@ impl Orchestrator {
             dialectician: DialecticianAgent::new(),
             tension_tracker: TensionTracker::new(),
             drama_thresholds: DramaThresholds::default(),
+            troper: TroperAgent::new(),
         }
     }
 
@@ -100,6 +104,16 @@ impl Orchestrator {
     /// Access the drama thresholds (genre-tunable pacing breakpoints).
     pub fn drama_thresholds(&self) -> &DramaThresholds {
         &self.drama_thresholds
+    }
+
+    /// Mutable access to the Troper agent for loading fired beats.
+    pub fn troper_mut(&mut self) -> &mut TroperAgent {
+        &mut self.troper
+    }
+
+    /// Read access to the Troper agent.
+    pub fn troper(&self) -> &TroperAgent {
+        &self.troper
     }
 }
 
