@@ -8,6 +8,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use sidequest_genre::{CharCreationScene, GenrePack};
 
 // ---------------------------------------------------------------------------
 // LoreStore — in-memory indexed collection of LoreFragments (story 11-2)
@@ -175,6 +176,113 @@ impl LoreFragment {
     pub fn metadata(&self) -> &HashMap<String, String> {
         &self.metadata
     }
+}
+
+// ---------------------------------------------------------------------------
+// Lore seeding — bootstrap store from genre pack + char creation (story 11-3)
+// ---------------------------------------------------------------------------
+
+/// Seed a [`LoreStore`] with lore fragments derived from a genre pack's lore
+/// section (history, geography, cosmology, factions).
+///
+/// Returns the number of fragments added.
+pub fn seed_lore_from_genre_pack(store: &mut LoreStore, genre_pack: &GenrePack) -> usize {
+    let mut count = 0;
+
+    if !genre_pack.lore.history.is_empty() {
+        let frag = LoreFragment::new(
+            "lore_genre_history".to_string(),
+            LoreCategory::History,
+            genre_pack.lore.history.clone(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        if store.add(frag).is_ok() {
+            count += 1;
+        }
+    }
+
+    if !genre_pack.lore.geography.is_empty() {
+        let frag = LoreFragment::new(
+            "lore_genre_geography".to_string(),
+            LoreCategory::Geography,
+            genre_pack.lore.geography.clone(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        if store.add(frag).is_ok() {
+            count += 1;
+        }
+    }
+
+    if !genre_pack.lore.cosmology.is_empty() {
+        let frag = LoreFragment::new(
+            "lore_genre_cosmology".to_string(),
+            LoreCategory::History,
+            genre_pack.lore.cosmology.clone(),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        );
+        if store.add(frag).is_ok() {
+            count += 1;
+        }
+    }
+
+    for faction in &genre_pack.lore.factions {
+        let slug = faction.name.to_lowercase().replace(' ', "_");
+        let mut metadata = HashMap::new();
+        metadata.insert("faction_name".to_string(), faction.name.clone());
+        let frag = LoreFragment::new(
+            format!("lore_genre_faction_{slug}"),
+            LoreCategory::Faction,
+            format!("{}: {}", faction.name, faction.description),
+            LoreSource::GenrePack,
+            None,
+            metadata,
+        );
+        if store.add(frag).is_ok() {
+            count += 1;
+        }
+    }
+
+    count
+}
+
+/// Seed a [`LoreStore`] with lore fragments derived from character creation
+/// scene choices.
+///
+/// Returns the number of fragments added.
+pub fn seed_lore_from_char_creation(
+    store: &mut LoreStore,
+    scenes: &[CharCreationScene],
+) -> usize {
+    let mut count = 0;
+
+    for scene in scenes {
+        for (index, choice) in scene.choices.iter().enumerate() {
+            let mut metadata = HashMap::new();
+            metadata.insert("scene_id".to_string(), scene.id.clone());
+            metadata.insert("choice_index".to_string(), index.to_string());
+            metadata.insert("choice_label".to_string(), choice.label.clone());
+
+            let frag = LoreFragment::new(
+                format!("lore_char_creation_{}_{}", scene.id, index),
+                LoreCategory::Character,
+                format!("{}: {}", choice.label, choice.description),
+                LoreSource::CharacterCreation,
+                None,
+                metadata,
+            );
+            if store.add(frag).is_ok() {
+                count += 1;
+            }
+        }
+    }
+
+    count
 }
 
 #[cfg(test)]
@@ -700,5 +808,534 @@ mod tests {
             HashMap::new(),
         ));
         assert_eq!(store.len(), 1);
+    }
+
+    // ===================================================================
+    // Lore seeding tests (story 11-3)
+    // ===================================================================
+
+    use sidequest_genre::{
+        CharCreationChoice, CharCreationScene, Faction, GenrePack, Lore, MechanicalEffects,
+    };
+    use super::{seed_lore_from_char_creation, seed_lore_from_genre_pack};
+
+    /// Build a minimal GenrePack with only the fields relevant to lore seeding.
+    /// Non-lore fields are filled with harmless defaults via serde deserialization.
+    fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePack {
+        use sidequest_genre::*;
+        use sidequest_protocol::NonBlankString;
+
+        GenrePack {
+            meta: PackMeta {
+                name: NonBlankString::new("test-pack").unwrap(),
+                version: "0.1.0".to_string(),
+                description: "Test genre pack".to_string(),
+                min_sidequest_version: "0.1.0".to_string(),
+                refine_hooks: None,
+                inspirations: vec![],
+                era_range: None,
+                core_vibe: None,
+                emotional_tone: vec![],
+                differentiation: None,
+            },
+            rules: serde_json::from_value(serde_json::json!({
+                "magic_level": "none",
+                "stat_generation": "point_buy",
+                "point_buy_budget": 27,
+                "ability_score_names": ["STR", "DEX", "CON", "INT", "WIS", "CHA"],
+                "allowed_classes": ["fighter"],
+                "allowed_races": ["human"],
+                "class_hp_bases": {"fighter": 10}
+            })).unwrap(),
+            lore,
+            theme: serde_json::from_value(serde_json::json!({
+                "primary": "#000",
+                "secondary": "#fff",
+                "accent": "#f00",
+                "background": "#111",
+                "surface": "#222",
+                "text": "#eee",
+                "border_style": "solid",
+                "web_font_family": "monospace",
+                "dinkus": {
+                    "enabled": false,
+                    "cooldown": 3,
+                    "default_weight": "light",
+                    "glyph": {}
+                },
+                "session_opener": { "enabled": false }
+            })).unwrap(),
+            archetypes: vec![],
+            char_creation,
+            visual_style: serde_json::from_value(serde_json::json!({
+                "positive_suffix": "test",
+                "negative_prompt": "",
+                "preferred_model": "test",
+                "base_seed": 42
+            })).unwrap(),
+            progression: serde_json::from_value(serde_json::json!({})).unwrap(),
+            axes: serde_json::from_value(serde_json::json!({
+                "definitions": []
+            })).unwrap(),
+            audio: serde_json::from_value(serde_json::json!({
+                "mood_tracks": {},
+                "sfx_library": {},
+                "creature_voice_presets": {},
+                "mixer": {
+                    "music_volume": 0.5,
+                    "sfx_volume": 0.5,
+                    "voice_volume": 0.8,
+                    "duck_music_for_voice": true,
+                    "duck_amount_db": -6.0,
+                    "crossfade_default_ms": 2000
+                }
+            })).unwrap(),
+            cultures: vec![],
+            prompts: serde_json::from_value(serde_json::json!({
+                "narrator": "test",
+                "combat": "test",
+                "npc": "test",
+                "world_state": "test"
+            })).unwrap(),
+            tropes: vec![],
+            beat_vocabulary: None,
+            achievements: vec![],
+            voice_presets: None,
+            power_tiers: HashMap::new(),
+            worlds: HashMap::new(),
+            scenarios: HashMap::new(),
+        }
+    }
+
+    fn test_lore() -> Lore {
+        Lore {
+            world_name: "The Shattered Reach".to_string(),
+            history: "Three generations ago, the Reach was one kingdom.".to_string(),
+            geography: "The Shattered Reach spans a broad river valley.".to_string(),
+            cosmology: "The people hold no unified theology.".to_string(),
+            factions: vec![
+                Faction {
+                    name: "The Merchant Consortium".to_string(),
+                    description: "A coalition of wealthy trading families.".to_string(),
+                    disposition: "neutral".to_string(),
+                    extras: HashMap::new(),
+                },
+                Faction {
+                    name: "Order of the Ashen Veil".to_string(),
+                    description: "A religious order devoted to the old gods.".to_string(),
+                    disposition: "hostile".to_string(),
+                    extras: HashMap::new(),
+                },
+            ],
+            extras: HashMap::new(),
+        }
+    }
+
+    fn test_mechanical_effects() -> MechanicalEffects {
+        MechanicalEffects {
+            class_hint: None,
+            race_hint: None,
+            mutation_hint: None,
+            item_hint: None,
+            affinity_hint: None,
+            training_hint: None,
+            background: Some("farmhand".to_string()),
+            personality_trait: None,
+            emotional_state: None,
+            relationship: None,
+            goals: None,
+            allows_freeform: None,
+            rig_type_hint: None,
+            rig_trait: None,
+            catch_phrase: None,
+        }
+    }
+
+    fn test_char_creation_scenes() -> Vec<CharCreationScene> {
+        vec![
+            CharCreationScene {
+                id: "origins".to_string(),
+                title: "Your Origins".to_string(),
+                narration: "Where did you come from?".to_string(),
+                choices: vec![
+                    CharCreationChoice {
+                        label: "The Hearthlands".to_string(),
+                        description: "You grew up on a quiet farm.".to_string(),
+                        mechanical_effects: test_mechanical_effects(),
+                    },
+                    CharCreationChoice {
+                        label: "The Stone Halls".to_string(),
+                        description: "You were raised underground.".to_string(),
+                        mechanical_effects: test_mechanical_effects(),
+                    },
+                ],
+                allows_freeform: None,
+                hook_prompt: None,
+            },
+            CharCreationScene {
+                id: "motivation".to_string(),
+                title: "Your Drive".to_string(),
+                narration: "What drives you?".to_string(),
+                choices: vec![CharCreationChoice {
+                    label: "Revenge".to_string(),
+                    description: "Someone wronged you.".to_string(),
+                    mechanical_effects: test_mechanical_effects(),
+                }],
+                allows_freeform: None,
+                hook_prompt: None,
+            },
+        ]
+    }
+
+    // --- Genre pack lore seeding ---
+
+    #[test]
+    fn seed_genre_pack_history_fragment() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let results = store.query_by_category(&LoreCategory::History);
+        let history = results.iter().find(|f| f.id() == "lore_genre_history");
+        assert!(history.is_some(), "expected lore_genre_history fragment");
+        let h = history.unwrap();
+        assert!(h.content().contains("Three generations ago"));
+        assert_eq!(h.source(), &LoreSource::GenrePack);
+        assert_eq!(h.turn_created(), None);
+    }
+
+    #[test]
+    fn seed_genre_pack_geography_fragment() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let results = store.query_by_category(&LoreCategory::Geography);
+        assert_eq!(results.len(), 1);
+        let g = &results[0];
+        assert_eq!(g.id(), "lore_genre_geography");
+        assert!(g.content().contains("broad river valley"));
+        assert_eq!(g.source(), &LoreSource::GenrePack);
+        assert_eq!(g.turn_created(), None);
+    }
+
+    #[test]
+    fn seed_genre_pack_cosmology_is_history_category() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let all_history = store.query_by_category(&LoreCategory::History);
+        let cosmo = all_history.iter().find(|f| f.id() == "lore_genre_cosmology");
+        assert!(cosmo.is_some(), "cosmology should be filed under History");
+        assert!(cosmo.unwrap().content().contains("no unified theology"));
+    }
+
+    #[test]
+    fn seed_genre_pack_factions() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let factions = store.query_by_category(&LoreCategory::Faction);
+        assert_eq!(factions.len(), 2, "expected one fragment per faction");
+    }
+
+    #[test]
+    fn seed_genre_pack_faction_content_includes_name_and_description() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let factions = store.query_by_category(&LoreCategory::Faction);
+        let merchant = factions
+            .iter()
+            .find(|f| f.content().contains("Merchant Consortium"))
+            .expect("expected Merchant Consortium faction fragment");
+        assert!(merchant.content().contains("wealthy trading families"));
+        assert_eq!(merchant.source(), &LoreSource::GenrePack);
+        assert_eq!(merchant.turn_created(), None);
+    }
+
+    #[test]
+    fn seed_genre_pack_faction_metadata_includes_faction_name() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let factions = store.query_by_category(&LoreCategory::Faction);
+        let any_faction = &factions[0];
+        assert!(
+            any_faction.metadata().contains_key("faction_name"),
+            "faction fragments should have faction_name in metadata"
+        );
+    }
+
+    #[test]
+    fn seed_genre_pack_returns_fragment_count() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        // history + geography + cosmology + 2 factions = 5
+        let count = seed_lore_from_genre_pack(&mut store, &pack);
+        assert_eq!(count, 5);
+    }
+
+    #[test]
+    fn seed_genre_pack_all_sources_are_genre_pack() {
+        let lore = test_lore();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        // Check every fragment has GenrePack source
+        for cat in &[
+            LoreCategory::History,
+            LoreCategory::Geography,
+            LoreCategory::Faction,
+        ] {
+            for frag in store.query_by_category(cat) {
+                assert_eq!(frag.source(), &LoreSource::GenrePack);
+            }
+        }
+    }
+
+    // --- Empty section handling ---
+
+    #[test]
+    fn seed_genre_pack_empty_history_skipped() {
+        let mut lore = test_lore();
+        lore.history = String::new();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let history = store.query_by_category(&LoreCategory::History);
+        // Should only have cosmology, not an empty history fragment
+        assert!(
+            history.iter().all(|f| f.id() != "lore_genre_history"),
+            "empty history should not produce a fragment"
+        );
+    }
+
+    #[test]
+    fn seed_genre_pack_empty_geography_skipped() {
+        let mut lore = test_lore();
+        lore.geography = String::new();
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let geo = store.query_by_category(&LoreCategory::Geography);
+        assert!(geo.is_empty(), "empty geography should not produce a fragment");
+    }
+
+    #[test]
+    fn seed_genre_pack_empty_factions_skipped() {
+        let mut lore = test_lore();
+        lore.factions = vec![];
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        seed_lore_from_genre_pack(&mut store, &pack);
+
+        let factions = store.query_by_category(&LoreCategory::Faction);
+        assert!(factions.is_empty());
+    }
+
+    #[test]
+    fn seed_genre_pack_all_empty_returns_zero() {
+        let lore = Lore {
+            world_name: String::new(),
+            history: String::new(),
+            geography: String::new(),
+            cosmology: String::new(),
+            factions: vec![],
+            extras: HashMap::new(),
+        };
+        let pack = test_genre_pack(lore, vec![]);
+        let mut store = LoreStore::new();
+        let count = seed_lore_from_genre_pack(&mut store, &pack);
+        assert_eq!(count, 0);
+        assert!(store.is_empty());
+    }
+
+    // --- Character creation seeding ---
+
+    #[test]
+    fn seed_char_creation_creates_character_fragments() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        let chars = store.query_by_category(&LoreCategory::Character);
+        // 2 choices in origins + 1 choice in motivation = 3
+        assert_eq!(chars.len(), 3);
+    }
+
+    #[test]
+    fn seed_char_creation_content_format() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        let chars = store.query_by_category(&LoreCategory::Character);
+        let hearthlands = chars
+            .iter()
+            .find(|f| f.content().contains("Hearthlands"))
+            .expect("expected Hearthlands fragment");
+        assert_eq!(
+            hearthlands.content(),
+            "The Hearthlands: You grew up on a quiet farm."
+        );
+    }
+
+    #[test]
+    fn seed_char_creation_ids() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        let chars = store.query_by_category(&LoreCategory::Character);
+        let ids: Vec<&str> = chars.iter().map(|f| f.id()).collect();
+        assert!(ids.contains(&"lore_char_creation_origins_0"));
+        assert!(ids.contains(&"lore_char_creation_origins_1"));
+        assert!(ids.contains(&"lore_char_creation_motivation_0"));
+    }
+
+    #[test]
+    fn seed_char_creation_source_is_character_creation() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        for frag in store.query_by_category(&LoreCategory::Character) {
+            assert_eq!(frag.source(), &LoreSource::CharacterCreation);
+        }
+    }
+
+    #[test]
+    fn seed_char_creation_turn_created_is_none() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        for frag in store.query_by_category(&LoreCategory::Character) {
+            assert_eq!(frag.turn_created(), None);
+        }
+    }
+
+    #[test]
+    fn seed_char_creation_metadata_has_scene_id() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        let chars = store.query_by_category(&LoreCategory::Character);
+        let first = chars
+            .iter()
+            .find(|f| f.id() == "lore_char_creation_origins_0")
+            .unwrap();
+        assert_eq!(first.metadata().get("scene_id").unwrap(), "origins");
+    }
+
+    #[test]
+    fn seed_char_creation_metadata_has_choice_index() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        let chars = store.query_by_category(&LoreCategory::Character);
+        let second = chars
+            .iter()
+            .find(|f| f.id() == "lore_char_creation_origins_1")
+            .unwrap();
+        assert_eq!(second.metadata().get("choice_index").unwrap(), "1");
+    }
+
+    #[test]
+    fn seed_char_creation_metadata_has_choice_label() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        let chars = store.query_by_category(&LoreCategory::Character);
+        let first = chars
+            .iter()
+            .find(|f| f.id() == "lore_char_creation_origins_0")
+            .unwrap();
+        assert_eq!(
+            first.metadata().get("choice_label").unwrap(),
+            "The Hearthlands"
+        );
+    }
+
+    #[test]
+    fn seed_char_creation_returns_count() {
+        let scenes = test_char_creation_scenes();
+        let mut store = LoreStore::new();
+        let count = seed_lore_from_char_creation(&mut store, &scenes);
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn seed_char_creation_empty_scenes_returns_zero() {
+        let mut store = LoreStore::new();
+        let count = seed_lore_from_char_creation(&mut store, &[]);
+        assert_eq!(count, 0);
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn seed_char_creation_scene_with_no_choices_skipped() {
+        let scenes = vec![CharCreationScene {
+            id: "confirm".to_string(),
+            title: "Confirm".to_string(),
+            narration: "Confirm your choices.".to_string(),
+            choices: vec![],
+            allows_freeform: None,
+            hook_prompt: None,
+        }];
+        let mut store = LoreStore::new();
+        let count = seed_lore_from_char_creation(&mut store, &scenes);
+        assert_eq!(count, 0);
+    }
+
+    // --- Combined tests ---
+
+    #[test]
+    fn seed_combined_genre_and_char_creation() {
+        let lore = test_lore();
+        let scenes = test_char_creation_scenes();
+        let pack = test_genre_pack(lore, scenes.clone());
+        let mut store = LoreStore::new();
+
+        let genre_count = seed_lore_from_genre_pack(&mut store, &pack);
+        let char_count = seed_lore_from_char_creation(&mut store, &scenes);
+
+        // 5 genre + 3 char creation = 8
+        assert_eq!(genre_count + char_count, 8);
+        assert_eq!(store.len(), 8);
+    }
+
+    #[test]
+    fn seed_combined_token_budget_reflects_all() {
+        let lore = test_lore();
+        let scenes = test_char_creation_scenes();
+        let pack = test_genre_pack(lore, scenes.clone());
+        let mut store = LoreStore::new();
+
+        seed_lore_from_genre_pack(&mut store, &pack);
+        seed_lore_from_char_creation(&mut store, &scenes);
+
+        assert!(
+            store.total_tokens() > 0,
+            "token budget should be positive after seeding"
+        );
     }
 }
