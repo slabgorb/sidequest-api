@@ -162,6 +162,7 @@ impl PromptRegistry {
             );
         }
     }
+
     /// Inject a character's known facts into the narrator prompt.
     ///
     /// Builds a `[CHARACTER KNOWLEDGE]` section with facts tagged by confidence
