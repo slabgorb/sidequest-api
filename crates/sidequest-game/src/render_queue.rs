@@ -16,7 +16,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use crate::subject::{RenderSubject, SubjectTier};
+use crate::subject::{RenderSubject, SceneType, SubjectTier};
 
 /// Maximum queue depth to prevent unbounded memory growth (CWE-400).
 pub const MAX_QUEUE_DEPTH: usize = 1000;
@@ -100,6 +100,10 @@ pub enum RenderJobResult {
         image_url: String,
         /// Generation time in milliseconds.
         generation_ms: u64,
+        /// Render tier for UI layout (e.g., "portrait", "landscape", "scene").
+        tier: String,
+        /// Scene type for UI context (e.g., "combat", "dialogue", "exploration").
+        scene_type: String,
     },
     /// Render failed.
     Failed {
@@ -268,6 +272,7 @@ struct RenderJob {
     prompt: String,
     art_style: String,
     tier: String,
+    scene_type: String,
 }
 
 /// The async render queue.
@@ -318,7 +323,7 @@ impl RenderQueue {
                 }
 
                 // Call the render function
-                let result = render_fn(job.prompt, job.art_style, job.tier).await;
+                let result = render_fn(job.prompt, job.art_style, job.tier.clone()).await;
 
                 // Update state and broadcast
                 let broadcast_msg = match result {
@@ -335,6 +340,8 @@ impl RenderQueue {
                             job_id: job.job_id,
                             image_url,
                             generation_ms,
+                            tier: job.tier,
+                            scene_type: job.scene_type,
                         }
                     }
                     Err(error) => {
@@ -428,11 +435,21 @@ impl RenderQueue {
         drop(guard);
 
         // Send to worker — if channel is full/closed, mark failed
+        let scene_type = match subject.scene_type() {
+            SceneType::Combat => "combat",
+            SceneType::Dialogue => "dialogue",
+            SceneType::Exploration => "exploration",
+            SceneType::Discovery => "discovery",
+            SceneType::Transition => "transition",
+            _ => "exploration",
+        }
+        .to_string();
         let job = RenderJob {
             job_id,
             prompt,
             art_style: art_style.to_string(),
             tier,
+            scene_type,
         };
         if self.job_tx.send(job).await.is_err() {
             let mut guard = self.state.lock().await;

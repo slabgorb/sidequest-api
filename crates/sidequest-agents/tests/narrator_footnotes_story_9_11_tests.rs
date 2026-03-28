@@ -123,14 +123,16 @@ fn footnote_markers_match_array_indices() {
 
     // Each footnote's marker should correspond to a [N] marker in the prose
     for footnote in &payload.footnotes {
-        let marker_text = format!("[{}]", footnote.marker);
-        assert!(
-            payload.text.contains(&marker_text),
-            "Prose should contain marker {} for footnote: {}.\nProse: {}",
-            marker_text,
-            footnote.summary,
-            payload.text,
-        );
+        if let Some(marker) = footnote.marker {
+            let marker_text = format!("[{}]", marker);
+            assert!(
+                payload.text.contains(&marker_text),
+                "Prose should contain marker {} for footnote: {}.\nProse: {}",
+                marker_text,
+                footnote.summary,
+                payload.text,
+            );
+        }
     }
 }
 
@@ -138,8 +140,8 @@ fn footnote_markers_match_array_indices() {
 fn footnote_markers_are_sequential_from_one() {
     let payload = sample_payload_with_footnotes();
 
-    let markers: Vec<u32> = payload.footnotes.iter().map(|f| f.marker).collect();
-    let expected: Vec<u32> = (1..=payload.footnotes.len() as u32).collect();
+    let markers: Vec<Option<u32>> = payload.footnotes.iter().map(|f| f.marker).collect();
+    let expected: Vec<Option<u32>> = (1..=payload.footnotes.len() as u32).map(Some).collect();
 
     assert_eq!(
         markers, expected,

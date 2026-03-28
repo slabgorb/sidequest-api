@@ -115,10 +115,40 @@ pub struct DaemonResponse {
 }
 
 /// Error payload returned by the daemon inside a response.
+/// The daemon sends string codes (e.g., "PARSE_ERROR") while JSON-RPC spec uses ints.
+/// We accept both via a flexible deserializer.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ErrorPayload {
+    #[serde(deserialize_with = "deserialize_error_code")]
     pub code: i32,
     pub message: String,
+}
+
+/// Accept both integer and string error codes from the daemon.
+/// String codes are mapped to -1 (unknown) since the daemon uses string codes
+/// like "PARSE_ERROR", "INVALID_REQUEST", etc.
+fn deserialize_error_code<'de, D>(deserializer: D) -> Result<i32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+    struct ErrorCodeVisitor;
+    impl<'de> de::Visitor<'de> for ErrorCodeVisitor {
+        type Value = i32;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an integer or string error code")
+        }
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<i32, E> {
+            Ok(v as i32)
+        }
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<i32, E> {
+            Ok(v as i32)
+        }
+        fn visit_str<E: de::Error>(self, _v: &str) -> Result<i32, E> {
+            Ok(-1) // String error codes map to -1
+        }
+    }
+    deserializer.deserialize_any(ErrorCodeVisitor)
 }
 
 // ---------------------------------------------------------------------------

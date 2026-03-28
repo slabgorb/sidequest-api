@@ -42,12 +42,26 @@ After your prose, emit a fenced JSON block with a footnotes array. Each entry ha
 
 Example prose: \"As you enter the grove, Reva feels a deep wrongness [1].\"
 
+[ITEM PROTOCOL]
+When the player ACTUALLY ACQUIRES a physical item (picks it up, is handed it,
+loots it, buys it), include it in items_gained. Do NOT include items that are
+merely mentioned, seen, or belong to someone else.
+
+Each item has:
+- name: short item name (e.g., \"sealed matte-black case\")
+- description: one sentence describing the item
+- category: one of \"weapon\", \"armor\", \"tool\", \"consumable\", \"quest\", \"treasure\", \"misc\"
+
+[JSON BLOCK]
+After your prose, emit a single fenced JSON block containing any combination of
+footnotes and items_gained. Omit empty arrays.
+
 Example output:
 ```json
-{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}]}
+{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}]}
 ```
 
-If a turn reveals nothing new and references nothing, omit the JSON block entirely.
+If a turn reveals nothing new, references nothing, and the player gains no items, omit the JSON block entirely.
 </system>";
 
 /// The Narrator agent — exploration, description, story progression.

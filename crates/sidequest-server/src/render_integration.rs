@@ -65,6 +65,7 @@ pub fn spawn_image_broadcaster(
                     job_id,
                     image_url,
                     generation_ms,
+                    ..
                 } => {
                     // Guard: if the URL is empty after the whole pipeline,
                     // something went very wrong — scream, don't broadcast garbage.

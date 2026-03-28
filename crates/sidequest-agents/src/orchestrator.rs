@@ -39,6 +39,8 @@ pub struct ActionResult {
     /// Structured footnotes extracted from narrator output (story 9-11).
     /// New discoveries feed into the knowledge pipeline via footnotes_to_discovered_facts.
     pub footnotes: Vec<sidequest_protocol::Footnote>,
+    /// Items gained by the player this turn (extracted from narrator JSON block).
+    pub items_gained: Vec<sidequest_protocol::ItemGained>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -153,24 +155,31 @@ impl GameService for Orchestrator {
 
         match self.client.send(&prompt) {
             Ok(raw_response) => {
-                // Extract footnotes from narrator response (story 9-11)
-                let (narration, footnotes) = extract_footnotes_from_response(&raw_response);
-                if !footnotes.is_empty() {
+                // Extract structured data from narrator response (footnotes + items)
+                let extraction = extract_structured_from_response(&raw_response);
+                if !extraction.footnotes.is_empty() {
                     info!(
-                        count = footnotes.len(),
-                        new_count = footnotes.iter().filter(|f| f.is_new).count(),
+                        count = extraction.footnotes.len(),
+                        new_count = extraction.footnotes.iter().filter(|f| f.is_new).count(),
                         "rag.footnotes_extracted"
                     );
                 }
-                info!(len = narration.len(), "Claude CLI returned narration");
+                if !extraction.items_gained.is_empty() {
+                    info!(
+                        count = extraction.items_gained.len(),
+                        "rag.items_gained_extracted"
+                    );
+                }
+                info!(len = extraction.prose.len(), "Claude CLI returned narration");
                 ActionResult {
-                    narration,
+                    narration: extraction.prose,
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
-                    footnotes,
+                    footnotes: extraction.footnotes,
+                    items_gained: extraction.items_gained,
                 }
             }
             Err(e) => {
@@ -186,6 +195,7 @@ impl GameService for Orchestrator {
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
                     footnotes: vec![],
+                    items_gained: vec![],
                 }
             }
         }
@@ -196,67 +206,86 @@ impl GameService for Orchestrator {
 // Story 9-11: Footnote extraction from narrator response
 // ============================================================================
 
-/// Serde model for the footnotes wrapper in narrator JSON output.
+/// Serde model for the narrator's structured JSON output block.
+/// Contains footnotes and optionally items gained by the player.
 #[derive(Debug, serde::Deserialize)]
-struct FootnotesWrapper {
+struct NarratorStructuredBlock {
+    #[serde(default)]
     footnotes: Vec<sidequest_protocol::Footnote>,
+    #[serde(default)]
+    items_gained: Vec<sidequest_protocol::ItemGained>,
 }
 
-/// Extract footnotes from a narrator response.
+/// Extracted structured data from a narrator response.
+struct NarratorExtraction {
+    prose: String,
+    footnotes: Vec<sidequest_protocol::Footnote>,
+    items_gained: Vec<sidequest_protocol::ItemGained>,
+}
+
+/// Extract structured data (footnotes, items) from a narrator response.
 ///
-/// The narrator may embed a JSON block containing footnotes after the prose.
-/// This function tries to find and parse that JSON, returning the clean prose
-/// and any extracted footnotes. If no footnotes are found, returns the original
-/// text with an empty vec.
-fn extract_footnotes_from_response(raw: &str) -> (String, Vec<sidequest_protocol::Footnote>) {
-    let span = tracing::info_span!("rag.extract_footnotes", raw_len = raw.len());
+/// The narrator embeds a JSON block after the prose containing footnotes
+/// and items_gained. This function finds and parses that block, returning
+/// the clean prose and extracted structured data.
+fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
+    let span = tracing::info_span!("rag.extract_structured", raw_len = raw.len());
     let _guard = span.enter();
 
-    // Strategy 1: Try to find a JSON block with "footnotes" array
-    // Look for ```json ... ``` fenced blocks first
+    // Strategy 1: Fenced JSON block (```json ... ```)
     if let Some(start) = raw.find("```json") {
         if let Some(end) = raw[start + 7..].find("```") {
             let json_str = raw[start + 7..start + 7 + end].trim();
-            if let Ok(wrapper) = serde_json::from_str::<FootnotesWrapper>(json_str) {
+            if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
                 let prose = raw[..start].trim().to_string();
                 tracing::info!(
-                    count = wrapper.footnotes.len(),
+                    footnotes = block.footnotes.len(),
+                    items = block.items_gained.len(),
                     strategy = "fenced_json",
-                    "rag.footnotes_parsed"
+                    "rag.structured_parsed"
                 );
-                return (prose, wrapper.footnotes);
+                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained };
             }
-            // Try parsing as a bare array
+            // Try parsing as a bare footnotes array (legacy format)
             if let Ok(footnotes) = serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str) {
                 let prose = raw[..start].trim().to_string();
                 tracing::info!(
-                    count = footnotes.len(),
+                    footnotes = footnotes.len(),
                     strategy = "fenced_array",
-                    "rag.footnotes_parsed"
+                    "rag.structured_parsed"
                 );
-                return (prose, footnotes);
+                return NarratorExtraction { prose, footnotes, items_gained: vec![] };
             }
         }
     }
 
-    // Strategy 2: Look for a trailing JSON object/array after the prose
-    // Find the last { or [ that might start a footnotes block
+    // Strategy 2: Trailing JSON object
     if let Some(idx) = raw.rfind("{\"footnotes\"") {
         let json_str = &raw[idx..];
-        if let Ok(wrapper) = serde_json::from_str::<FootnotesWrapper>(json_str) {
+        if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
             let prose = raw[..idx].trim().to_string();
             tracing::info!(
-                count = wrapper.footnotes.len(),
+                footnotes = block.footnotes.len(),
+                items = block.items_gained.len(),
                 strategy = "trailing_json",
-                "rag.footnotes_parsed"
+                "rag.structured_parsed"
             );
-            return (prose, wrapper.footnotes);
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained };
         }
     }
 
-    // No footnotes found — return raw text as-is
-    tracing::debug!("rag.no_footnotes_found");
-    (raw.to_string(), vec![])
+    // Also try items_gained as the leading key
+    if let Some(idx) = raw.rfind("{\"items_gained\"") {
+        let json_str = &raw[idx..];
+        if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
+            let prose = raw[..idx].trim().to_string();
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained };
+        }
+    }
+
+    // No structured data found
+    tracing::debug!("rag.no_structured_data_found");
+    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![] }
 }
 
 // ============================================================================

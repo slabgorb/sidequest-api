@@ -295,7 +295,9 @@ where
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Footnote {
     /// Marker number matching `[N]` superscript in prose.
-    pub marker: u32,
+    /// Optional because the LLM sometimes omits or nulls it.
+    #[serde(default)]
+    pub marker: Option<u32>,
     /// Links to existing KnownFact if this is a callback (is_new: false).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fact_id: Option<String>,
@@ -304,6 +306,7 @@ pub struct Footnote {
     /// Classification category for the footnote.
     pub category: FactCategory,
     /// True if this is a new revelation, false if referencing prior knowledge.
+    #[serde(alias = "isnew")]
     pub is_new: bool,
 }
 
@@ -637,6 +640,30 @@ pub struct StateDelta {
     /// Updated quest statuses, merged by key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quests: Option<HashMap<String, String>>,
+    /// Items gained by the player this turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items_gained: Option<Vec<ItemGained>>,
+}
+
+/// An item the player gained during narration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ItemGained {
+    /// Short item name (e.g., "sealed matte-black case").
+    pub name: String,
+    /// One-sentence description.
+    #[serde(default = "default_item_description")]
+    pub description: String,
+    /// Category (weapon, armor, tool, consumable, quest, misc).
+    #[serde(default = "default_item_category")]
+    pub category: String,
+}
+
+fn default_item_description() -> String {
+    "An item found during adventure.".to_string()
+}
+
+fn default_item_category() -> String {
+    "misc".to_string()
 }
 
 /// Character state as seen by the client (UI-facing).

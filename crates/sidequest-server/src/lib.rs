@@ -836,11 +836,15 @@ pub fn build_router(state: AppState) -> Router {
                     job_id,
                     image_url,
                     generation_ms,
+                    tier,
+                    scene_type,
                 } = result
                 {
+                    if image_url.trim().is_empty() {
+                        tracing::error!(job_id = %job_id, "render_broadcast_blocked — empty image_url");
+                        continue;
+                    }
                     // Rewrite absolute file paths to served URLs.
-                    // The daemon returns paths like {output_dir}/flux/render_abc.png;
-                    // strip the output_dir prefix and serve via /api/renders/{subpath}.
                     let served_url = {
                         let img_path = std::path::Path::new(&image_url);
                         let renders_base = std::env::var("SIDEQUEST_OUTPUT_DIR")
@@ -860,14 +864,19 @@ pub fn build_router(state: AppState) -> Router {
                             image_url
                         }
                     };
+                    tracing::info!(
+                        job_id = %job_id, url = %served_url,
+                        tier = %tier, scene_type = %scene_type,
+                        "render_broadcast — sending IMAGE"
+                    );
                     let msg = GameMessage::Image {
                         payload: sidequest_protocol::ImagePayload {
                             url: served_url,
                             description: String::new(),
                             handout: false,
                             render_id: Some(job_id.to_string()),
-                            tier: None,
-                            scene_type: None,
+                            tier: if tier.is_empty() { None } else { Some(tier) },
+                            scene_type: if scene_type.is_empty() { None } else { Some(scene_type) },
                             generation_ms: Some(generation_ms),
                         },
                         player_id: String::new(),
@@ -2778,8 +2787,33 @@ async fn dispatch_player_action(
         }
     }
 
-    // Bug 5: Extract items from narration and add to inventory
-    {
+    // Item acquisition — driven by structured extraction from the LLM response.
+    // The narrator emits items_gained in its JSON block when the player
+    // actually acquires something.
+    for item_def in &result.items_gained {
+        let item_id = item_def.name.to_lowercase().replace(' ', "_").replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+        if inventory.find(&item_id).is_some() {
+            continue;
+        }
+        if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
+            sidequest_protocol::NonBlankString::new(&item_id),
+            sidequest_protocol::NonBlankString::new(&item_def.name),
+            sidequest_protocol::NonBlankString::new(&item_def.description),
+            sidequest_protocol::NonBlankString::new(&item_def.category),
+            sidequest_protocol::NonBlankString::new("common"),
+        ) {
+            let item = sidequest_game::Item {
+                id, name, description: desc, category: cat,
+                value: 0, weight: 1.0, rarity, narrative_weight: 0.3,
+                tags: vec![], equipped: false, quantity: 1,
+            };
+            let _ = inventory.add(item, 50);
+            tracing::info!(item_name = %item_def.name, "Item added to inventory from LLM extraction");
+        }
+    }
+
+    // Legacy regex-based extraction disabled — replaced by LLM structured extraction above.
+    if false {
         let items_found = extract_items_from_narration(&clean_narration);
         for (item_name, item_type) in &items_found {
             let item_id = item_name.to_lowercase().replace(' ', "_").replace(|c: char| !c.is_alphanumeric() && c != '_', "");
@@ -2856,6 +2890,7 @@ async fn dispatch_player_action(
                     inventory: inventory_names.clone(),
                 }]),
                 quests: None,
+                items_gained: if result.items_gained.is_empty() { None } else { Some(result.items_gained.clone()) },
             }),
             footnotes: result.footnotes.clone(),
         },
@@ -2888,6 +2923,7 @@ async fn dispatch_player_action(
                 location: None,
                 characters: None,
                 quests: None,
+                items_gained: None,
             }),
         },
         player_id: player_id.to_string(),
@@ -3175,7 +3211,8 @@ async fn dispatch_player_action(
     // Render pipeline — extract subject from narration, filter, enqueue
     let extraction_context = sidequest_game::ExtractionContext {
         current_location: extract_location_header(narration_text).unwrap_or_default(),
-        in_combat: false,
+        in_combat: combat_state.in_combat(),
+        known_npcs: npc_registry.iter().map(|e| e.name.clone()).collect(),
         ..Default::default()
     };
     if let Some(subject) = state
@@ -3689,12 +3726,14 @@ fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
     let text_lower = text.to_lowercase();
     let mut items = Vec::new();
 
+    // Tightened patterns — require 2nd person ("you") to avoid matching
+    // NPC dialogue and reported speech. Removed ambiguous patterns like
+    // "hands you", "gives you" which trigger on dialogue too easily.
     let acquisition_patterns = [
-        "pick up ", "picks up ", "you find ", "you found ",
-        "receives ", "receive ", "you acquire ", "acquires ",
-        "you take the ", "takes the ", "you grab ", "grabs ",
-        "you pocket ", "pockets ", "hands you ", "gives you ",
-        "you loot ", "loots ",
+        "you pick up ", "you find a ", "you find an ", "you find the ",
+        "you found a ", "you found an ", "you found the ",
+        "you acquire ", "you take the ", "you grab the ",
+        "you pocket the ", "you loot ",
     ];
 
     for pattern in &acquisition_patterns {

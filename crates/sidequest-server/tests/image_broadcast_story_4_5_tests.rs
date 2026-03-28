@@ -42,7 +42,7 @@ fn test_render_context_success() -> RenderResultContext {
         result: RenderJobResult::Success {
             job_id: Uuid::new_v4(),
             image_url: "http://daemon:8081/renders/abc123.png".to_string(),
-            generation_ms: 3200,
+            generation_ms: 3200, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
         },
         subject: test_subject(SubjectTier::Landscape, SceneType::Exploration),
     }
@@ -212,7 +212,7 @@ async fn tier_portrait_serializes_lowercase() {
         result: RenderJobResult::Success {
             job_id: Uuid::new_v4(),
             image_url: "http://daemon:8081/renders/portrait1.png".to_string(),
-            generation_ms: 1500,
+            generation_ms: 1500, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
         },
         subject: test_subject(SubjectTier::Portrait, SceneType::Dialogue),
     };
@@ -277,7 +277,7 @@ async fn scene_type_combat_serializes_lowercase() {
         result: RenderJobResult::Success {
             job_id: Uuid::new_v4(),
             image_url: "http://daemon:8081/renders/combat1.png".to_string(),
-            generation_ms: 4000,
+            generation_ms: 4000, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
         },
         subject: test_subject(SubjectTier::Scene, SceneType::Combat),
     };
@@ -344,7 +344,7 @@ async fn broadcaster_does_not_block_render_queue_sender() {
             result: RenderJobResult::Success {
                 job_id: Uuid::new_v4(),
                 image_url: format!("http://daemon:8081/renders/img{}.png", i),
-                generation_ms: 1000 + i as u64 * 100,
+                generation_ms: 1000 + i as u64 * 100, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
             },
             subject: test_subject(SubjectTier::Scene, SceneType::Exploration),
         };
@@ -378,7 +378,7 @@ async fn image_payload_includes_generation_ms() {
         result: RenderJobResult::Success {
             job_id: Uuid::new_v4(),
             image_url: "http://daemon:8081/renders/latency_test.png".to_string(),
-            generation_ms: expected_ms,
+            generation_ms: expected_ms, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
         },
         subject: test_subject(SubjectTier::Scene, SceneType::Combat),
     };
@@ -526,7 +526,7 @@ async fn image_description_comes_from_subject_prompt_fragment() {
         result: RenderJobResult::Success {
             job_id: Uuid::new_v4(),
             image_url: "http://daemon:8081/renders/desc_test.png".to_string(),
-            generation_ms: 2000,
+            generation_ms: 2000, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
         },
         subject,
     };
@@ -567,7 +567,7 @@ async fn image_url_comes_from_render_result() {
         result: RenderJobResult::Success {
             job_id: Uuid::new_v4(),
             image_url: expected_url.to_string(),
-            generation_ms: 1000,
+            generation_ms: 1000, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
         },
         subject: test_subject(SubjectTier::Scene, SceneType::Exploration),
     };
@@ -613,7 +613,7 @@ async fn multiple_renders_produce_multiple_image_messages() {
             result: RenderJobResult::Success {
                 job_id: Uuid::new_v4(),
                 image_url: format!("http://daemon:8081/renders/multi_{}.png", i),
-                generation_ms: 1000 * (i + 1) as u64,
+                generation_ms: 1000 * (i + 1) as u64, tier: "landscape".to_string(), scene_type: "exploration".to_string(),
             },
             subject: test_subject(SubjectTier::Scene, SceneType::Exploration),
         };

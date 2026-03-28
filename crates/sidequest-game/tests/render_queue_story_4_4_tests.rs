@@ -593,12 +593,15 @@ fn render_job_result_success_carries_all_fields() {
         job_id,
         image_url: "/renders/abc123.png".to_string(),
         generation_ms: 3500,
+        tier: "landscape".to_string(),
+        scene_type: "exploration".to_string(),
     };
     match result {
         RenderJobResult::Success {
             job_id: id,
             image_url,
             generation_ms,
+            ..
         } => {
             assert_eq!(id, job_id);
             assert_eq!(image_url, "/renders/abc123.png");
@@ -762,6 +765,8 @@ fn render_job_result_variants_require_wildcard() {
             job_id: uuid::Uuid::nil(),
             image_url: "test.png".to_string(),
             generation_ms: 100,
+            tier: "landscape".to_string(),
+            scene_type: "exploration".to_string(),
         },
         RenderJobResult::Failed {
             job_id: uuid::Uuid::nil(),
