@@ -29,6 +29,7 @@ pub mod multiplayer;
 pub mod music_director;
 pub mod narrative;
 pub mod npc;
+pub mod ocean;
 pub mod perception;
 pub mod persistence;
 pub mod prerender;
@@ -69,6 +70,7 @@ pub use lore::{
 pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector};
 pub use narrative::NarrativeEntry;
 pub use npc::Npc;
+pub use ocean::OceanProfile;
 pub use persistence::{
     PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry,
     SavedSession, SessionMeta, SessionStore, SqliteStore,

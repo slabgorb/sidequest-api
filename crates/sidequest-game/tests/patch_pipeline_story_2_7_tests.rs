@@ -73,6 +73,7 @@ fn test_npc() -> Npc {
         location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
         pronouns: Some("she/her".to_string()),
         appearance: Some("Flour-dusted apron, kind eyes".to_string()),
+        ocean: None,
     }
 }
 
@@ -94,6 +95,7 @@ fn test_npc_no_identity() -> Npc {
         location: None,
         pronouns: None,
         appearance: None,
+        ocean: None,
     }
 }
 

@@ -10,6 +10,7 @@ use sidequest_protocol::NonBlankString;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 use crate::disposition::{Attitude, Disposition};
+use crate::ocean::OceanProfile;
 use crate::state::NpcPatch;
 
 /// A non-player character in the game world.
@@ -36,6 +37,9 @@ pub struct Npc {
     /// Physical appearance (identity-locked: set once, never overwritten).
     #[serde(default)]
     pub appearance: Option<String>,
+    /// OCEAN personality profile (Story 10-1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocean: Option<OceanProfile>,
 }
 
 impl Npc {
@@ -121,6 +125,7 @@ mod tests {
             location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
             pronouns: Some("she/her".to_string()),
             appearance: Some("Flour-dusted apron".to_string()),
+            ocean: None,
         }
     }
 
@@ -142,6 +147,7 @@ mod tests {
             location: None, // off-stage
             pronouns: None,
             appearance: None,
+            ocean: None,
         }
     }
 
