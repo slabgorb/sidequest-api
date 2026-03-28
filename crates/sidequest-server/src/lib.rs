@@ -2487,6 +2487,14 @@ async fn dispatch_player_action(
         state_summary.push_str(&trope_context);
     }
 
+    // Inject tone context from narrative axes (story F2/F10)
+    if let Some(ref ac) = axes_config {
+        let tone_text = sidequest_game::format_tone_context(ac, axis_values);
+        if !tone_text.is_empty() {
+            state_summary.push_str(&tone_text);
+        }
+    }
+
     // Bug 17: Include recent narration history so the narrator maintains continuity
     if !narration_history.is_empty() {
         state_summary.push_str("\n\nRECENT CONVERSATION HISTORY (most recent last):\n");
@@ -2614,13 +2622,24 @@ async fn dispatch_player_action(
         }
     }
 
+    // Preprocess raw player input — STT cleanup + three-perspective rewrite.
+    // Uses haiku-tier LLM with 15s timeout; falls back to mechanical rewrite on failure.
+    let preprocessed = sidequest_agents::preprocessor::preprocess_action(action, char_name);
+    tracing::info!(
+        raw = %action,
+        you = %preprocessed.you,
+        named = %preprocessed.named,
+        intent = %preprocessed.intent,
+        "Action preprocessed"
+    );
+
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
         in_combat: combat_state.in_combat(),
         in_chase: chase_state.is_some(),
     };
-    let result = state.game_service().process_action(action, &context);
+    let result = state.game_service().process_action(&preprocessed.you, &context);
 
     // Watcher: narration generated (with intent classification and agent routing)
     state.send_watcher_event(WatcherEvent {
@@ -2722,6 +2741,41 @@ async fn dispatch_player_action(
     let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
     update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx, &region_refs);
     tracing::debug!(npc_count = npc_registry.len(), "NPC registry updated from narration");
+
+    // Continuity validation — check narrator output against game state.
+    // Build a minimal snapshot from the local session variables for the validator.
+    {
+        let mut validation_snapshot = sidequest_game::GameSnapshot {
+            location: current_location.clone(),
+            ..sidequest_game::GameSnapshot::default()
+        };
+        // Reconstruct character with inventory for the validator
+        if let Some(ref cj) = character_json {
+            if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                ch.core.hp = *hp;
+                ch.core.inventory = inventory.clone();
+                validation_snapshot.characters.push(ch);
+            }
+        }
+        let validation_result = sidequest_game::validate_continuity(&clean_narration, &validation_snapshot);
+        if !validation_result.is_clean() {
+            let corrections = validation_result.format_corrections();
+            tracing::warn!(
+                contradictions = validation_result.contradictions.len(),
+                "continuity.contradictions_detected"
+            );
+            for c in &validation_result.contradictions {
+                tracing::warn!(
+                    category = ?c.category,
+                    detail = %c.detail,
+                    expected = %c.expected,
+                    "continuity.contradiction"
+                );
+            }
+            // Store for injection into the NEXT turn's narrator prompt
+            *continuity_corrections = corrections;
+        }
+    }
 
     // Bug 4: Combat HP changes — scan narration for damage/healing indicators
     {

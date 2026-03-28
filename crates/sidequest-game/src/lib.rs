@@ -35,6 +35,7 @@ pub mod ocean;
 pub mod ocean_shift_proposals;
 pub mod perception;
 pub mod persistence;
+pub mod preprocessor;
 pub mod prerender;
 pub mod progression;
 pub mod render_queue;
@@ -82,6 +83,7 @@ pub use persistence::{
     PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry,
     SavedSession, SessionMeta, SessionStore, SqliteStore,
 };
+pub use preprocessor::PreprocessedAction;
 pub use prerender::{PrerenderConfig, PrerenderContext, PrerenderScheduler, WasteTracker};
 pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
 pub use render_queue::{
