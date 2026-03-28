@@ -89,6 +89,9 @@ fn test_narrative_entry(round: u32, content: &str) -> NarrativeEntry {
         author: "narrator".to_string(),
         content: content.to_string(),
         tags: vec!["scene".to_string()],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
     }
 }
 
