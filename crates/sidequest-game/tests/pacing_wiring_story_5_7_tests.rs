@@ -510,6 +510,7 @@ fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -
         race: NonBlankString::new("Human").unwrap(),
         stats: HashMap::new(),
         abilities: vec![],
+        known_facts: vec![],
         is_friendly,
     }
 }

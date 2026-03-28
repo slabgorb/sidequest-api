@@ -260,6 +260,7 @@ fn character_has_abilities_field() {
         race: NonBlankString::new("Human").unwrap(),
         stats: HashMap::new(),
         abilities: vec![root_bonding(), fireball()],
+        known_facts: vec![],
         is_friendly: true,
     };
 

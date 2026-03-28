@@ -293,7 +293,7 @@ fn character_without_facts_deserializes_with_empty_vec() {
         "hp": 20,
         "max_hp": 20,
         "ac": 14,
-        "inventory": {"items": []},
+        "inventory": {"items": [], "gold": 0},
         "statuses": [],
         "backstory": "Born in the wilds",
         "narrative_state": "Exploring",

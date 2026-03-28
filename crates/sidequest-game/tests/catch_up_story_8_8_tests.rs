@@ -39,6 +39,7 @@ fn make_character(name: &str) -> Character {
         race: NonBlankString::new("Human").unwrap(),
         stats: HashMap::new(),
         abilities: vec![],
+        known_facts: vec![],
             is_friendly: true,
     }
 }

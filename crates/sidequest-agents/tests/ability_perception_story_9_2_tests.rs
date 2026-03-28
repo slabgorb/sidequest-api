@@ -50,6 +50,7 @@ fn make_character(name: &str, abilities: Vec<AbilityDefinition>) -> Character {
             ("WIS".to_string(), 14),
         ]),
         abilities,
+        known_facts: vec![],
         is_friendly: true,
     }
 }
