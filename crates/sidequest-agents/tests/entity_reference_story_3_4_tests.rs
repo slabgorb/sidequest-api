@@ -104,7 +104,7 @@ fn make_npc(name: &str) -> Npc {
         disposition: Disposition::new(0),
         pronouns: None,
         appearance: None,
-            age: None,
+        age: None,
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
         ocean: None,
     }
@@ -149,6 +149,7 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
         stats: HashMap::new(),
         abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
         is_friendly: true,
     }
 }

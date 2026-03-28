@@ -51,6 +51,7 @@ fn make_character(name: &str, abilities: Vec<AbilityDefinition>) -> Character {
         ]),
         abilities,
         known_facts: vec![],
+        affinities: vec![],
         is_friendly: true,
     }
 }
@@ -480,9 +481,7 @@ fn ability_section_placed_in_valley_zone() {
     registry.register_ability_context("narrator", &[reva]);
 
     let sections = registry.get_sections("narrator", None, Some(AttentionZone::Valley));
-    let ability_section = sections
-        .iter()
-        .find(|s| s.name == "ability_context");
+    let ability_section = sections.iter().find(|s| s.name == "ability_context");
     assert!(
         ability_section.is_some(),
         "ability_context section should be registered in Valley zone",

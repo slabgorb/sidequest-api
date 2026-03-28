@@ -261,6 +261,7 @@ fn character_has_abilities_field() {
         stats: HashMap::new(),
         abilities: vec![root_bonding(), fireball()],
         known_facts: vec![],
+        affinities: vec![],
         is_friendly: true,
     };
 

@@ -26,9 +26,9 @@ use sidequest_protocol::NonBlankString;
 
 // === New types from story 1-8 ===
 use sidequest_game::delta::{compute_delta, snapshot};
-use sidequest_game::{SessionStore, SqliteStore};
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::state::{ChasePatch, CombatPatch, WorldStatePatch};
+use sidequest_game::{SessionStore, SqliteStore};
 
 // ============================================================================
 // Test fixtures
@@ -56,7 +56,7 @@ fn test_character() -> Character {
         abilities: vec![],
         known_facts: vec![],
         affinities: vec![],
-            is_friendly: true,
+        is_friendly: true,
     }
 }
 
@@ -78,7 +78,7 @@ fn test_npc() -> Npc {
         location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
         pronouns: None,
         appearance: None,
-            age: None,
+        age: None,
         ocean: None,
     }
 }
@@ -426,16 +426,24 @@ fn turn_manager_rejects_duplicate_input_same_round() {
 #[test]
 fn persistence_save_and_load_roundtrip() {
     let store = SqliteStore::open_in_memory().expect("create in-memory store");
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
     let snap = test_snapshot();
 
     store.save(&snap).expect("save snapshot");
-    let loaded = store.load().expect("load").expect("should have saved session");
+    let loaded = store
+        .load()
+        .expect("load")
+        .expect("should have saved session");
 
     assert_eq!(loaded.snapshot.genre_slug, snap.genre_slug);
     assert_eq!(loaded.snapshot.world_slug, snap.world_slug);
     assert_eq!(loaded.snapshot.characters.len(), snap.characters.len());
-    assert_eq!(loaded.snapshot.characters[0].core.name.as_str(), "Thorn Ironhide");
+    assert_eq!(
+        loaded.snapshot.characters[0].core.name.as_str(),
+        "Thorn Ironhide"
+    );
     assert_eq!(loaded.snapshot.location, snap.location);
     assert_eq!(loaded.snapshot.quest_log, snap.quest_log);
     assert_eq!(loaded.snapshot.atmosphere, snap.atmosphere);
@@ -481,7 +489,10 @@ fn narrative_log_append_and_retrieve_in_order() {
 fn narrative_log_empty_for_new_store() {
     let store = SqliteStore::open_in_memory().expect("create in-memory store");
     let entries = store.recent_narrative(10).expect("load narrative");
-    assert!(entries.is_empty(), "new store should have empty narrative log");
+    assert!(
+        entries.is_empty(),
+        "new store should have empty narrative log"
+    );
 }
 
 // ============================================================================
@@ -491,7 +502,9 @@ fn narrative_log_empty_for_new_store() {
 #[test]
 fn save_overwrites_previous_state() {
     let store = SqliteStore::open_in_memory().expect("create in-memory store");
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
     let snap = test_snapshot();
     store.save(&snap).expect("save initial");
 
@@ -508,7 +521,9 @@ fn save_overwrites_previous_state() {
 #[test]
 fn last_saved_at_set_on_save() {
     let store = SqliteStore::open_in_memory().expect("create in-memory store");
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
     let snap = test_snapshot();
     assert!(snap.last_saved_at.is_none(), "new snapshot has no saved_at");
 
@@ -522,14 +537,22 @@ fn last_saved_at_set_on_save() {
         .last_saved_at
         .expect("last_saved_at should be set after save");
 
-    assert!(saved_at >= before_save, "saved_at should be >= time before save");
-    assert!(saved_at <= after_save, "saved_at should be <= time after save");
+    assert!(
+        saved_at >= before_save,
+        "saved_at should be >= time before save"
+    );
+    assert!(
+        saved_at <= after_save,
+        "saved_at should be <= time after save"
+    );
 }
 
 #[test]
 fn save_overwrites_updates_timestamp() {
     let store = SqliteStore::open_in_memory().expect("create in-memory store");
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
 
     let snap = test_snapshot();
     store.save(&snap).expect("save initial");
@@ -542,7 +565,10 @@ fn save_overwrites_updates_timestamp() {
     let loaded2 = store.load().expect("load").expect("session");
     let second_saved_at = loaded2.snapshot.last_saved_at.expect("timestamp");
 
-    assert!(second_saved_at >= first_saved_at, "second save should have later timestamp");
+    assert!(
+        second_saved_at >= first_saved_at,
+        "second save should have later timestamp"
+    );
     assert_eq!(loaded2.snapshot.atmosphere, "changed");
 }
 

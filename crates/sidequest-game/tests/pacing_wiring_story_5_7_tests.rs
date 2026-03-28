@@ -16,12 +16,12 @@
 use std::collections::HashMap;
 
 use sidequest_game::character::Character;
+use sidequest_game::creature_core::CreatureCore;
+use sidequest_game::inventory::Inventory;
+use sidequest_game::state::GameSnapshot;
 use sidequest_game::tension_tracker::{
     CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker,
 };
-use sidequest_game::state::GameSnapshot;
-use sidequest_game::creature_core::CreatureCore;
-use sidequest_game::inventory::Inventory;
 use sidequest_protocol::NonBlankString;
 
 // ============================================================================
@@ -289,8 +289,12 @@ fn lowest_hp_ratio_with_no_characters_returns_one() {
 #[test]
 fn lowest_hp_ratio_with_full_health_characters() {
     let mut snapshot = GameSnapshot::default();
-    snapshot.characters.push(make_character("hero", 100, 100, true));
-    snapshot.characters.push(make_character("mage", 80, 80, true));
+    snapshot
+        .characters
+        .push(make_character("hero", 100, 100, true));
+    snapshot
+        .characters
+        .push(make_character("mage", 80, 80, true));
     assert!(
         (snapshot.lowest_friendly_hp_ratio() - 1.0).abs() < f64::EPSILON,
         "full health characters should return 1.0",
@@ -300,8 +304,12 @@ fn lowest_hp_ratio_with_full_health_characters() {
 #[test]
 fn lowest_hp_ratio_returns_lowest_among_friendlies() {
     let mut snapshot = GameSnapshot::default();
-    snapshot.characters.push(make_character("tank", 90, 100, true));
-    snapshot.characters.push(make_character("mage", 30, 100, true));
+    snapshot
+        .characters
+        .push(make_character("tank", 90, 100, true));
+    snapshot
+        .characters
+        .push(make_character("mage", 30, 100, true));
     let ratio = snapshot.lowest_friendly_hp_ratio();
     assert!(
         (ratio - 0.3).abs() < f64::EPSILON,
@@ -313,8 +321,12 @@ fn lowest_hp_ratio_returns_lowest_among_friendlies() {
 #[test]
 fn lowest_hp_ratio_ignores_enemies() {
     let mut snapshot = GameSnapshot::default();
-    snapshot.characters.push(make_character("hero", 80, 100, true));
-    snapshot.characters.push(make_character("goblin", 10, 100, false));
+    snapshot
+        .characters
+        .push(make_character("hero", 80, 100, true));
+    snapshot
+        .characters
+        .push(make_character("goblin", 10, 100, false));
     let ratio = snapshot.lowest_friendly_hp_ratio();
     assert!(
         (ratio - 0.8).abs() < f64::EPSILON,
@@ -326,7 +338,9 @@ fn lowest_hp_ratio_ignores_enemies() {
 #[test]
 fn lowest_hp_ratio_zero_hp_returns_zero() {
     let mut snapshot = GameSnapshot::default();
-    snapshot.characters.push(make_character("hero", 0, 100, true));
+    snapshot
+        .characters
+        .push(make_character("hero", 0, 100, true));
     assert!(
         snapshot.lowest_friendly_hp_ratio().abs() < f64::EPSILON,
         "0 HP character should yield 0.0 ratio",
@@ -511,6 +525,7 @@ fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -
         stats: HashMap::new(),
         abilities: vec![],
         known_facts: vec![],
+        affinities: vec![],
         is_friendly,
     }
 }
