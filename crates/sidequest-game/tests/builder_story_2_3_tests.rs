@@ -49,6 +49,7 @@ fn effects_warrior() -> MechanicalEffects {
         rig_type_hint: None,
         rig_trait: None,
         catch_phrase: None,
+        stat_bonuses: Default::default(),
     }
 }
 
@@ -69,6 +70,7 @@ fn effects_scholar() -> MechanicalEffects {
         rig_type_hint: None,
         rig_trait: None,
         catch_phrase: None,
+        stat_bonuses: Default::default(),
     }
 }
 
@@ -89,6 +91,7 @@ fn effects_empty() -> MechanicalEffects {
         rig_type_hint: None,
         rig_trait: None,
         catch_phrase: None,
+        stat_bonuses: Default::default(),
     }
 }
 

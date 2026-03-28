@@ -1251,6 +1251,7 @@ mod tests {
             rig_type_hint: None,
             rig_trait: None,
             catch_phrase: None,
+            stat_bonuses: Default::default(),
         }
     }
 
