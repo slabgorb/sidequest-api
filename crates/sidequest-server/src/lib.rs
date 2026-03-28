@@ -972,10 +972,29 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
 
     let player_id_str = player_id.to_string();
 
-    // Writer task: reads from mpsc channel + broadcast + binary, sends to WS
+    // Shared session — populated after dispatch_connect identifies genre/world.
+    // Wrapped in Arc so the writer task can also receive session broadcasts.
+    let shared_session: Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    let shared_session_for_writer = shared_session.clone();
+
+    // Writer task: reads from mpsc channel + broadcast + binary + session, sends to WS
     let writer_player_id = player_id_str.clone();
     let writer_handle = tokio::spawn(async move {
+        // Session broadcast receiver — lazily initialized when shared session is set.
+        let mut session_rx: Option<broadcast::Receiver<GameMessage>> = None;
+
         loop {
+            // Lazily subscribe to session broadcast if we don't have a receiver yet.
+            if session_rx.is_none() {
+                let guard = shared_session_for_writer.lock().await;
+                if let Some(ref ss) = *guard {
+                    if let Ok(ss_lock) = ss.try_lock() {
+                        session_rx = Some(ss_lock.subscribe());
+                    }
+                }
+            }
+
             tokio::select! {
                 Some(msg) = rx.recv() => {
                     let json = match serde_json::to_string(&msg) {
@@ -999,6 +1018,21 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                     };
                     if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
                         break;
+                    }
+                }
+                // Session-scoped broadcast: narration from other players in the same session
+                result = async { match session_rx.as_mut() { Some(rx) => rx.recv().await, None => std::future::pending().await } } => {
+                    if let Ok(msg) = result {
+                        let json = match serde_json::to_string(&msg) {
+                            Ok(j) => j,
+                            Err(e) => {
+                                tracing::error!(player_id = %writer_player_id, error = %e, "Failed to serialize session message");
+                                continue;
+                            }
+                        };
+                        if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                            break;
+                        }
                     }
                 }
                 result = binary_rx.recv() => {
@@ -1078,6 +1112,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut npc_registry,
                         &mut narration_history,
                         &mut discovered_regions,
+                        &shared_session,
                         &state,
                         &player_id_str,
                     )
@@ -1101,7 +1136,17 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         }
     }
 
-    // Cleanup
+    // Cleanup — remove from shared session if joined
+    if let Some(genre) = session.genre_slug() {
+        if let Some(world) = session.world_slug() {
+            let remaining = state.remove_player_from_session(genre, world, &player_id_str);
+            tracing::info!(
+                player_id = %player_id_str,
+                remaining_players = remaining,
+                "Player removed from shared session"
+            );
+        }
+    }
     state.remove_connection(&player_id);
     writer_handle.abort();
     tracing::info!(player_id = %player_id_str, "WebSocket disconnected");
@@ -1139,12 +1184,13 @@ async fn dispatch_message(
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
+    shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
-            dispatch_connect(
+            let responses = dispatch_connect(
                 payload,
                 session,
                 builder,
@@ -1164,7 +1210,13 @@ async fn dispatch_message(
                 state,
                 player_id,
             )
-            .await
+            .await;
+            // After connect identifies genre/world, join/create the shared session
+            if let (Some(genre), Some(world)) = (session.genre_slug(), session.world_slug()) {
+                let ss = state.get_or_create_session(genre, world);
+                *shared_session_holder.lock().await = Some(ss);
+            }
+            responses
         }
         GameMessage::CharacterCreation { payload, .. } => {
             if !session.is_creating() {

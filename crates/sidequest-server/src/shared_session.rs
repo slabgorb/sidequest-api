@@ -153,4 +153,38 @@ impl SharedGameSession {
         // Ignore send errors (no active receivers is fine)
         let _ = self.session_tx.send(msg);
     }
+
+    /// Copy world-level state FROM the shared session INTO local variables.
+    /// Used at the start of dispatch_player_action so existing code works unchanged.
+    pub fn sync_to_locals(
+        &self,
+        current_location: &mut String,
+        npc_registry: &mut Vec<NpcRegistryEntry>,
+        narration_history: &mut Vec<String>,
+        discovered_regions: &mut Vec<String>,
+        trope_states: &mut Vec<sidequest_game::trope::TropeState>,
+    ) {
+        *current_location = self.current_location.clone();
+        *npc_registry = self.npc_registry.clone();
+        *narration_history = self.narration_history.clone();
+        *discovered_regions = self.discovered_regions.clone();
+        *trope_states = self.trope_states.clone();
+    }
+
+    /// Copy world-level state FROM local variables BACK INTO the shared session.
+    /// Used at the end of dispatch_player_action after the narrator has run.
+    pub fn sync_from_locals(
+        &mut self,
+        current_location: &str,
+        npc_registry: &[NpcRegistryEntry],
+        narration_history: &[String],
+        discovered_regions: &[String],
+        trope_states: &[sidequest_game::trope::TropeState],
+    ) {
+        self.current_location = current_location.to_string();
+        self.npc_registry = npc_registry.to_vec();
+        self.narration_history = narration_history.to_vec();
+        self.discovered_regions = discovered_regions.to_vec();
+        self.trope_states = trope_states.to_vec();
+    }
 }
