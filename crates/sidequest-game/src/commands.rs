@@ -3,8 +3,10 @@
 //! Each command implements `CommandHandler` and operates as a pure function
 //! of game state. No LLM calls, no async, no side effects.
 
+use std::collections::HashMap;
+
 use crate::slash_router::{CommandHandler, CommandResult};
-use crate::state::GameSnapshot;
+use crate::state::{GameSnapshot, NpcPatch, WorldStatePatch};
 
 /// `/status` — Shows character HP, level, class, race, location, and situation.
 pub struct StatusCommand;
@@ -159,5 +161,156 @@ impl CommandHandler for SaveCommand {
             .map(|ch| ch.core.name.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
         CommandResult::Display(format!("Game saved for {}.", name))
+    }
+}
+
+/// `/gm` — Game master commands that modify game state.
+///
+/// Dispatches on subcommand: set, teleport, spawn, dmg.
+/// All subcommands return `StateMutation(WorldStatePatch)`.
+pub struct GmCommand;
+
+impl CommandHandler for GmCommand {
+    fn name(&self) -> &str {
+        "gm"
+    }
+
+    fn description(&self) -> &str {
+        "Game master commands (operator only)"
+    }
+
+    fn handle(&self, _state: &GameSnapshot, args: &str) -> CommandResult {
+        let (sub, sub_args) = match args.split_once(' ') {
+            Some((s, a)) => (s, a.trim()),
+            None => (args, ""),
+        };
+        match sub {
+            "set" => Self::handle_set(sub_args),
+            "teleport" => Self::handle_teleport(sub_args),
+            "spawn" => Self::handle_spawn(sub_args),
+            "dmg" => Self::handle_dmg(sub_args),
+            "" => CommandResult::Error("Usage: /gm <set|teleport|spawn|dmg> [args]".to_string()),
+            other => CommandResult::Error(format!("Unknown GM subcommand: {}", other)),
+        }
+    }
+}
+
+impl GmCommand {
+    fn handle_set(args: &str) -> CommandResult {
+        let (field, value) = match args.split_once(' ') {
+            Some((f, v)) => (f, v),
+            None if !args.is_empty() => {
+                return CommandResult::Error(
+                    "Usage: /gm set <field> <value>. Missing value.".to_string(),
+                );
+            }
+            None => {
+                return CommandResult::Error(
+                    "Usage: /gm set <field> <value>".to_string(),
+                );
+            }
+        };
+
+        let mut patch = WorldStatePatch::default();
+        match field {
+            "location" => patch.location = Some(value.to_string()),
+            "time_of_day" => patch.time_of_day = Some(value.to_string()),
+            "atmosphere" => patch.atmosphere = Some(value.to_string()),
+            "current_region" => patch.current_region = Some(value.to_string()),
+            "active_stakes" => patch.active_stakes = Some(value.to_string()),
+            other => {
+                return CommandResult::Error(format!(
+                    "Unknown field: '{}'. Valid fields: location, time_of_day, atmosphere, current_region, active_stakes",
+                    other
+                ));
+            }
+        }
+        CommandResult::StateMutation(patch)
+    }
+
+    fn handle_teleport(args: &str) -> CommandResult {
+        let (region, location) = match args.split_once(' ') {
+            Some((r, l)) => (r, l),
+            None if !args.is_empty() => {
+                return CommandResult::Error(
+                    "Usage: /gm teleport <region> <location>".to_string(),
+                );
+            }
+            None => {
+                return CommandResult::Error(
+                    "Usage: /gm teleport <region> <location>".to_string(),
+                );
+            }
+        };
+
+        CommandResult::StateMutation(WorldStatePatch {
+            location: Some(location.to_string()),
+            current_region: Some(region.to_string()),
+            discover_regions: Some(vec![region.to_string()]),
+            ..Default::default()
+        })
+    }
+
+    fn handle_spawn(args: &str) -> CommandResult {
+        if args.is_empty() {
+            return CommandResult::Error(
+                "Usage: /gm spawn <name> [role] [personality]".to_string(),
+            );
+        }
+
+        let parts: Vec<&str> = args.splitn(3, ' ').collect();
+        let name = parts[0];
+        let role = parts.get(1).map(|s| s.to_string());
+        let personality = parts.get(2).map(|s| s.to_string());
+
+        CommandResult::StateMutation(WorldStatePatch {
+            npcs_present: Some(vec![NpcPatch {
+                name: name.to_string(),
+                description: None,
+                personality,
+                role,
+                pronouns: None,
+                appearance: None,
+                location: None,
+            }]),
+            ..Default::default()
+        })
+    }
+
+    fn handle_dmg(args: &str) -> CommandResult {
+        if args.is_empty() {
+            return CommandResult::Error(
+                "Usage: /gm dmg <target> <amount>".to_string(),
+            );
+        }
+
+        // Find the last word as the amount, everything before is the target name
+        let args_trimmed = args.trim();
+        let (target, amount_str) = match args_trimmed.rsplit_once(' ') {
+            Some((t, a)) => (t, a),
+            None => {
+                return CommandResult::Error(
+                    "Usage: /gm dmg <target> <amount>".to_string(),
+                );
+            }
+        };
+
+        let amount: i32 = match amount_str.parse() {
+            Ok(n) => n,
+            Err(_) => {
+                return CommandResult::Error(format!(
+                    "Invalid number '{}'. Amount must be a valid integer.",
+                    amount_str
+                ));
+            }
+        };
+
+        let mut hp_changes = HashMap::new();
+        hp_changes.insert(target.to_string(), -amount);
+
+        CommandResult::StateMutation(WorldStatePatch {
+            hp_changes: Some(hp_changes),
+            ..Default::default()
+        })
     }
 }
