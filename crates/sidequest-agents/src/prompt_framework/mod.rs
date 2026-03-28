@@ -206,6 +206,41 @@ impl PromptRegistry {
         );
     }
 
+    /// Inject the footnote protocol instruction into the narrator prompt.
+    ///
+    /// Tells the narrator to emit `[N]` markers in prose when revealing or
+    /// referencing knowledge, with structured footnote entries in the response.
+    /// Placed in the Late zone (Format category) — output instructions near
+    /// the end of the prompt for high recency attention.
+    ///
+    /// Story 9-11: Parallel to `register_knowledge_section()`.
+    pub fn register_footnote_protocol_section(&mut self, agent_name: &str) {
+        let content = "\
+[FOOTNOTE PROTOCOL]
+When you reveal new information or reference something the party previously learned,
+include a numbered marker in your prose like [1], [2], etc.
+
+For each marker, emit a footnote in your structured output with:
+- summary: one-sentence description of the fact
+- category: one of Lore, Place, Person, Quest, Ability
+- is_new: true if this is a new revelation, false if referencing prior knowledge
+
+Example prose: \"As you enter the grove, Reva feels a deep wrongness [1].\"
+Example footnote: { \"marker\": 1, \"summary\": \"Corruption detected in the grove\", \"category\": \"Place\", \"is_new\": true }
+
+If you reference something the party already knows, set is_new to false and include the fact_id.
+If nothing new is revealed and nothing prior is referenced, omit the footnotes array entirely.";
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "footnote_protocol",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ),
+        );
+    }
 }
 
 impl PromptComposer for PromptRegistry {

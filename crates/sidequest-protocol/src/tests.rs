@@ -109,6 +109,7 @@ mod message_type_tests {
             payload: NarrationPayload {
                 text: "The orc lunges...".into(),
                 state_delta: None,
+                footnotes: vec![],
             },
             player_id: String::new(),
         };
@@ -124,6 +125,7 @@ mod message_type_tests {
         let msg = GameMessage::Narration {
             payload: NarrationPayload {
                 text: "You arrive.".into(),
+                footnotes: vec![],
                 state_delta: Some(StateDelta {
                     location: Some("Dark Cave".into()),
                     characters: Some(vec![CharacterState {

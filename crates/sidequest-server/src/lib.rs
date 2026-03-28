@@ -1334,6 +1334,7 @@ async fn dispatch_connect(
                                 payload: NarrationPayload {
                                     text,
                                     state_delta: None,
+                                    footnotes: vec![],
                                 },
                                 player_id: player_id.to_string(),
                             });
@@ -1810,6 +1811,7 @@ async fn dispatch_character_creation(
                         payload: NarrationPayload {
                             text: character.backstory.as_str().to_string(),
                             state_delta: None,
+                            footnotes: vec![],
                         },
                         player_id: player_id.to_string(),
                     };
@@ -2264,6 +2266,7 @@ async fn dispatch_player_action(
                 }]),
                 quests: None,
             }),
+            footnotes: vec![],
         },
         player_id: player_id.to_string(),
     });

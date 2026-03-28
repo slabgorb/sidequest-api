@@ -257,7 +257,9 @@ pub struct PlayerActionPayload {
     pub aside: bool,
 }
 
-/// Narration payload with optional state delta.
+/// Narration payload with optional state delta and structured footnotes.
+///
+/// Story 9-11: Extended with `footnotes` for knowledge extraction pipeline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NarrationPayload {
@@ -266,6 +268,61 @@ pub struct NarrationPayload {
     /// Optional state changes resulting from this narration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_delta: Option<StateDelta>,
+    /// Structured footnotes — new discoveries and callbacks to prior knowledge.
+    /// Empty when narrator reveals nothing new and references nothing.
+    #[serde(default, deserialize_with = "deserialize_null_as_empty_vec")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub footnotes: Vec<Footnote>,
+}
+
+/// Deserialize null or missing values as empty Vec.
+fn deserialize_null_as_empty_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    let opt: Option<Vec<T>> = Option::deserialize(deserializer)?;
+    Ok(opt.unwrap_or_default())
+}
+
+/// A structured footnote from narrator output.
+///
+/// Footnotes capture discoveries and callbacks to prior knowledge.
+/// New discoveries (`is_new: true`) become KnownFact entries.
+/// Callbacks (`is_new: false`) link to existing KnownFacts via `fact_id`.
+///
+/// Story 9-11: Part of the knowledge extraction pipeline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Footnote {
+    /// Marker number matching `[N]` superscript in prose.
+    pub marker: u32,
+    /// Links to existing KnownFact if this is a callback (is_new: false).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fact_id: Option<String>,
+    /// One-sentence description of the fact.
+    pub summary: String,
+    /// Classification category for the footnote.
+    pub category: FactCategory,
+    /// True if this is a new revelation, false if referencing prior knowledge.
+    pub is_new: bool,
+}
+
+/// Classification category for narrator footnotes.
+///
+/// Story 9-11: Categorizes what kind of knowledge the footnote represents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum FactCategory {
+    /// World history, mythology, or cosmology.
+    Lore,
+    /// Geographic location or landmark.
+    Place,
+    /// NPC, faction, or named individual.
+    Person,
+    /// Quest objective, task, or mission.
+    Quest,
+    /// Character ability, skill, or power.
+    Ability,
 }
 
 /// Partial narration text (streaming chunk).
