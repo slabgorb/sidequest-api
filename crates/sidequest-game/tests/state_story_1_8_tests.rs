@@ -77,6 +77,7 @@ fn test_npc() -> Npc {
         location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
         pronouns: None,
         appearance: None,
+            age: None,
         ocean: None,
     }
 }

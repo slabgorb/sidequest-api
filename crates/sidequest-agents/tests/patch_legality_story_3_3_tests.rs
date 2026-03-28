@@ -104,6 +104,7 @@ fn make_npc(name: &str, hp: i32, max_hp: i32, statuses: Vec<String>) -> Npc {
         disposition: Disposition::new(0),
         pronouns: None,
         appearance: None,
+            age: None,
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
         ocean: None,
     }

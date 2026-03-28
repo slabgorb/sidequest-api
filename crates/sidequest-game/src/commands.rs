@@ -271,6 +271,7 @@ impl GmCommand {
                 role,
                 pronouns: None,
                 appearance: None,
+                age: None,
                 location: None,
             }]),
             ..Default::default()

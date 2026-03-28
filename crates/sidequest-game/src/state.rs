@@ -262,6 +262,7 @@ impl GameSnapshot {
                             .and_then(|l| NonBlankString::new(l).ok()),
                         pronouns: npc_patch.pronouns.clone(),
                         appearance: npc_patch.appearance.clone(),
+                        age: npc_patch.age.clone(),
                         ocean: None,
                     };
                     self.npcs.push(new_npc);
@@ -431,6 +432,8 @@ pub struct NpcPatch {
     pub pronouns: Option<String>,
     /// Appearance (identity-locked).
     pub appearance: Option<String>,
+    /// Age description (identity-locked).
+    pub age: Option<String>,
     /// Current location.
     pub location: Option<String>,
 }

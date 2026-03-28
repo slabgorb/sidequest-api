@@ -37,6 +37,9 @@ pub struct Npc {
     /// Physical appearance (identity-locked: set once, never overwritten).
     #[serde(default)]
     pub appearance: Option<String>,
+    /// Age description (identity-locked: set once, never overwritten).
+    #[serde(default)]
+    pub age: Option<String>,
     /// OCEAN personality profile (Story 10-1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ocean: Option<OceanProfile>,
@@ -95,6 +98,11 @@ impl Npc {
                 self.appearance = Some(a.clone());
             }
         }
+        if self.age.is_none() {
+            if let Some(ref a) = patch.age {
+                self.age = Some(a.clone());
+            }
+        }
     }
 }
 
@@ -139,6 +147,7 @@ mod tests {
             location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
             pronouns: Some("she/her".to_string()),
             appearance: Some("Flour-dusted apron".to_string()),
+            age: Some("middle-aged".to_string()),
             ocean: None,
         }
     }
@@ -161,6 +170,7 @@ mod tests {
             location: None, // off-stage
             pronouns: None,
             appearance: None,
+            age: None,
             ocean: None,
         }
     }
