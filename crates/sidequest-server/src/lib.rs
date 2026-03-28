@@ -1020,9 +1020,23 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         break;
                     }
                 }
-                // Session-scoped broadcast: narration from other players in the same session
+                // Session-scoped broadcast: narration from other players in the same session.
+                // Skip messages originating from this player to avoid duplicate rendering.
                 result = async { match session_rx.as_mut() { Some(rx) => rx.recv().await, None => std::future::pending().await } } => {
                     if let Ok(msg) = result {
+                        // Filter: skip messages from self (acting player already gets
+                        // narration via the direct tx channel)
+                        let msg_player_id = match &msg {
+                            GameMessage::Narration { player_id, .. }
+                            | GameMessage::NarrationEnd { player_id, .. }
+                            | GameMessage::ChapterMarker { player_id, .. }
+                            | GameMessage::PartyStatus { player_id, .. }
+                            | GameMessage::SessionEvent { player_id, .. } => Some(player_id.as_str()),
+                            _ => None,
+                        };
+                        if msg_player_id == Some(writer_player_id.as_str()) {
+                            continue;
+                        }
                         let json = match serde_json::to_string(&msg) {
                             Ok(j) => j,
                             Err(e) => {
@@ -3394,6 +3408,8 @@ async fn dispatch_player_action(
                     ss.perception_filters.len()
                 );
             }
+            // Broadcast narration to session members. The writer task filters
+            // out messages from self, so the acting player won't see duplicates.
             for msg in &messages {
                 match msg {
                     GameMessage::Narration { .. }
