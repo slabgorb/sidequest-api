@@ -688,6 +688,9 @@ pub struct MechanicalEffects {
     /// Catch phrase or hook.
     #[serde(default, rename = "catch")]
     pub catch_phrase: Option<String>,
+    /// Stat bonuses from this choice (e.g. {"Strength": 2, "Agility": -1}).
+    #[serde(default)]
+    pub stat_bonuses: HashMap<String, i32>,
 }
 
 // ═══════════════════════════════════════════════════════════

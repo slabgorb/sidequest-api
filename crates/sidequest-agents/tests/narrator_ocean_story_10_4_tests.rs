@@ -46,6 +46,7 @@ fn npc_with_ocean(name: &str, ocean: OceanProfile) -> Npc {
         location: Some(NonBlankString::new("Town Square").unwrap()),
         pronouns: None,
         appearance: None,
+            age: None,
         ocean: Some(ocean),
     }
 }
@@ -68,6 +69,7 @@ fn npc_without_ocean(name: &str) -> Npc {
         location: Some(NonBlankString::new("Town Square").unwrap()),
         pronouns: None,
         appearance: None,
+            age: None,
         ocean: None,
     }
 }

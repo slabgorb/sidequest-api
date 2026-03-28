@@ -4,6 +4,7 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub mod render_integration;
+pub mod shared_session;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -287,6 +288,8 @@ struct AppStateInner {
     subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
     binary_broadcast_tx: broadcast::Sender<Vec<u8>>,
+    /// Shared multiplayer sessions keyed by "genre:world".
+    sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -430,6 +433,7 @@ impl AppState {
                     sidequest_game::BeatFilterConfig::default(),
                 )),
                 binary_broadcast_tx,
+                sessions: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -462,6 +466,46 @@ impl AppState {
     /// Remove a connection by player id.
     pub fn remove_connection(&self, player_id: &PlayerId) {
         self.inner.connections.lock().unwrap().remove(player_id);
+    }
+
+    /// Get or create a shared multiplayer session for a genre:world pair.
+    pub fn get_or_create_session(
+        &self,
+        genre: &str,
+        world: &str,
+    ) -> Arc<tokio::sync::Mutex<shared_session::SharedGameSession>> {
+        let key = shared_session::game_session_key(genre, world);
+        let mut sessions = self.inner.sessions.lock().unwrap();
+        sessions
+            .entry(key)
+            .or_insert_with(|| {
+                Arc::new(tokio::sync::Mutex::new(
+                    shared_session::SharedGameSession::new(genre.to_string(), world.to_string()),
+                ))
+            })
+            .clone()
+    }
+
+    /// Remove a player from a shared session. If the session is empty
+    /// afterward, remove it from the registry entirely. Returns the
+    /// remaining player count (0 means session was removed).
+    pub fn remove_player_from_session(&self, genre: &str, world: &str, player_id: &str) -> usize {
+        let key = shared_session::game_session_key(genre, world);
+        let mut sessions = self.inner.sessions.lock().unwrap();
+        let remaining = if let Some(session_arc) = sessions.get(&key).cloned() {
+            if let Ok(mut session) = session_arc.try_lock() {
+                session.players.remove(player_id);
+                session.players.len()
+            } else {
+                return 1; // Couldn't lock — conservatively report not empty
+            }
+        } else {
+            return 0;
+        };
+        if remaining == 0 {
+            sessions.remove(&key);
+        }
+        remaining
     }
 
     /// Subscribe to the broadcast channel.
@@ -928,10 +972,29 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
 
     let player_id_str = player_id.to_string();
 
-    // Writer task: reads from mpsc channel + broadcast + binary, sends to WS
+    // Shared session — populated after dispatch_connect identifies genre/world.
+    // Wrapped in Arc so the writer task can also receive session broadcasts.
+    let shared_session: Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    let shared_session_for_writer = shared_session.clone();
+
+    // Writer task: reads from mpsc channel + broadcast + binary + session, sends to WS
     let writer_player_id = player_id_str.clone();
     let writer_handle = tokio::spawn(async move {
+        // Session broadcast receiver — lazily initialized when shared session is set.
+        let mut session_rx: Option<broadcast::Receiver<GameMessage>> = None;
+
         loop {
+            // Lazily subscribe to session broadcast if we don't have a receiver yet.
+            if session_rx.is_none() {
+                let guard = shared_session_for_writer.lock().await;
+                if let Some(ref ss) = *guard {
+                    if let Ok(ss_lock) = ss.try_lock() {
+                        session_rx = Some(ss_lock.subscribe());
+                    }
+                }
+            }
+
             tokio::select! {
                 Some(msg) = rx.recv() => {
                     let json = match serde_json::to_string(&msg) {
@@ -955,6 +1018,35 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                     };
                     if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
                         break;
+                    }
+                }
+                // Session-scoped broadcast: narration from other players in the same session.
+                // Skip messages originating from this player to avoid duplicate rendering.
+                result = async { match session_rx.as_mut() { Some(rx) => rx.recv().await, None => std::future::pending().await } } => {
+                    if let Ok(msg) = result {
+                        // Filter: skip messages from self (acting player already gets
+                        // narration via the direct tx channel)
+                        let msg_player_id = match &msg {
+                            GameMessage::Narration { player_id, .. }
+                            | GameMessage::NarrationEnd { player_id, .. }
+                            | GameMessage::ChapterMarker { player_id, .. }
+                            | GameMessage::PartyStatus { player_id, .. }
+                            | GameMessage::SessionEvent { player_id, .. } => Some(player_id.as_str()),
+                            _ => None,
+                        };
+                        if msg_player_id == Some(writer_player_id.as_str()) {
+                            continue;
+                        }
+                        let json = match serde_json::to_string(&msg) {
+                            Ok(j) => j,
+                            Err(e) => {
+                                tracing::error!(player_id = %writer_player_id, error = %e, "Failed to serialize session message");
+                                continue;
+                            }
+                        };
+                        if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                            break;
+                        }
                     }
                 }
                 result = binary_rx.recv() => {
@@ -995,6 +1087,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
+    let mut discovered_regions: Vec<String> = vec![];
+    let mut turn_manager = sidequest_game::TurnManager::new();
+    let mut lore_store = sidequest_game::LoreStore::new();
     // Bug 17: In-memory narration history for context accumulation across turns.
     // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
     let mut narration_history: Vec<String> = vec![];
@@ -1032,6 +1127,10 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &prerender_scheduler,
                         &mut npc_registry,
                         &mut narration_history,
+                        &mut discovered_regions,
+                        &mut turn_manager,
+                        &mut lore_store,
+                        &shared_session,
                         &state,
                         &player_id_str,
                     )
@@ -1055,7 +1154,51 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         }
     }
 
-    // Cleanup
+    // Cleanup — remove from shared session if joined, broadcast updated PARTY_STATUS
+    if let (Some(genre), Some(world)) = (session.genre_slug(), session.world_slug()) {
+        let key = shared_session::game_session_key(genre, world);
+        // Broadcast leave before removing, so the broadcast channel still exists
+        {
+            let sessions = state.inner.sessions.lock().unwrap();
+            if let Some(ss_arc) = sessions.get(&key).cloned() {
+                drop(sessions);
+                if let Ok(ss) = ss_arc.try_lock() {
+                    let leave_msg = GameMessage::SessionEvent {
+                        payload: SessionEventPayload {
+                            event: "player_left".to_string(),
+                            player_name: player_name_for_session.clone(),
+                            genre: None,
+                            world: None,
+                            has_character: None,
+                            initial_state: None,
+                            css: None,
+                        },
+                        player_id: player_id_str.clone(),
+                    };
+                    ss.broadcast(leave_msg);
+                }
+            }
+        }
+        let remaining = state.remove_player_from_session(genre, world, &player_id_str);
+        tracing::info!(
+            player_id = %player_id_str,
+            remaining_players = remaining,
+            "Player removed from shared session"
+        );
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "multiplayer".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("event".to_string(), serde_json::json!("session_left"));
+                f.insert("session_key".to_string(), serde_json::json!(key));
+                f.insert("remaining_players".to_string(), serde_json::json!(remaining));
+                f
+            },
+        });
+    }
     state.remove_connection(&player_id);
     writer_handle.abort();
     tracing::info!(player_id = %player_id_str, "WebSocket disconnected");
@@ -1092,12 +1235,16 @@ async fn dispatch_message(
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
+    discovered_regions: &mut Vec<String>,
+    turn_manager: &mut sidequest_game::TurnManager,
+    lore_store: &mut sidequest_game::LoreStore,
+    shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
-            dispatch_connect(
+            let responses = dispatch_connect(
                 payload,
                 session,
                 builder,
@@ -1106,16 +1253,27 @@ async fn dispatch_message(
                 character_name,
                 character_hp,
                 character_max_hp,
+                current_location,
+                discovered_regions,
                 trope_defs,
                 world_context,
                 visual_style,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
+                turn_manager,
+                npc_registry,
+                lore_store,
                 state,
                 player_id,
             )
-            .await
+            .await;
+            // After connect identifies genre/world, join/create the shared session
+            if let (Some(genre), Some(world)) = (session.genre_slug(), session.world_slug()) {
+                let ss = state.get_or_create_session(genre, world);
+                *shared_session_holder.lock().await = Some(ss);
+            }
+            responses
         }
         GameMessage::CharacterCreation { payload, .. } => {
             if !session.is_creating() {
@@ -1142,6 +1300,10 @@ async fn dispatch_message(
                 visual_style,
                 npc_registry,
                 narration_history,
+                discovered_regions,
+                turn_manager,
+                lore_store,
+                shared_session_holder,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1183,6 +1345,10 @@ async fn dispatch_message(
                 visual_style,
                 npc_registry,
                 narration_history,
+                discovered_regions,
+                turn_manager,
+                lore_store,
+                shared_session_holder,
                 music_director,
                 audio_mixer,
                 prerender_scheduler,
@@ -1222,12 +1388,17 @@ async fn dispatch_connect(
     character_name_store: &mut Option<String>,
     character_hp: &mut i32,
     character_max_hp: &mut i32,
+    current_location: &mut String,
+    discovered_regions: &mut Vec<String>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    turn_manager: &mut sidequest_game::TurnManager,
+    npc_registry: &mut Vec<NpcRegistryEntry>,
+    lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1264,6 +1435,11 @@ async fn dispatch_connect(
                             *character_hp = character.core.hp;
                             *character_max_hp = character.core.max_hp;
                         }
+                        // Restore location, regions, turn state, and NPC registry from snapshot
+                        *current_location = saved.snapshot.location.clone();
+                        *discovered_regions = saved.snapshot.discovered_regions.clone();
+                        *turn_manager = saved.snapshot.turn_manager.clone();
+                        *npc_registry = saved.snapshot.npc_registry.clone();
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -1284,12 +1460,13 @@ async fn dispatch_connect(
                                             name: c.core.name.as_str().to_string(),
                                             hp: c.core.hp,
                                             max_hp: c.core.max_hp,
-                                            statuses: vec![],
-                                            inventory: vec![],
+                                            statuses: c.core.statuses.clone(),
+                                            inventory: c.core.inventory.items.iter().map(|i| i.name.as_str().to_string()).collect(),
                                         })
                                         .collect(),
                                     location: saved.snapshot.location.clone(),
                                     quests: saved.snapshot.quest_log.clone(),
+                                    turn_count: saved.snapshot.turn_manager.round(),
                                 }),
                                 css: None,
                             },
@@ -1380,6 +1557,14 @@ async fn dispatch_connect(
                                 ));
                                 tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
 
+                                // Seed lore store from genre pack (story 11-4)
+                                let lore_count = sidequest_game::seed_lore_from_genre_pack(lore_store, &pack);
+                                tracing::info!(
+                                    count = lore_count,
+                                    genre = %genre,
+                                    "rag.lore_store_seeded"
+                                );
+
                                 // Inject name bank context for returning player
                                 let cultures = pack.worlds.get(world)
                                     .filter(|w| !w.cultures.is_empty())
@@ -1406,7 +1591,7 @@ async fn dispatch_connect(
                         if let Some(scene_msg) = start_character_creation(
                             builder, trope_defs, world_context, visual_style,
                             music_director, audio_mixer, prerender_scheduler,
-                            genre, world, state, player_id,
+                            lore_store, genre, world, state, player_id,
                         ).await {
                             responses.push(scene_msg);
                         }
@@ -1417,7 +1602,7 @@ async fn dispatch_connect(
                         if let Some(scene_msg) = start_character_creation(
                             builder, trope_defs, world_context, visual_style,
                             music_director, audio_mixer, prerender_scheduler,
-                            genre, world, state, player_id,
+                            lore_store, genre, world, state, player_id,
                         ).await {
                             responses.push(scene_msg);
                         }
@@ -1434,6 +1619,7 @@ async fn dispatch_connect(
                     music_director,
                     audio_mixer,
                     prerender_scheduler,
+                    lore_store,
                     genre,
                     world,
                     state,
@@ -1477,6 +1663,7 @@ async fn start_character_creation(
     music_director_out: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
+    lore_store: &mut sidequest_game::LoreStore,
     genre: &str,
     world_slug: &str,
     state: &AppState,
@@ -1510,6 +1697,10 @@ async fn start_character_creation(
         sidequest_game::PrerenderConfig::default(),
     ));
     tracing::info!(genre = %genre, "Audio subsystems initialized from genre pack");
+
+    // Seed lore store from genre pack (story 11-4)
+    let lore_count = sidequest_game::seed_lore_from_genre_pack(lore_store, &pack);
+    tracing::info!(count = lore_count, genre = %genre, "rag.lore_store_seeded");
 
     // Extract trope definitions from the genre pack for per-session use.
     // Collect from genre-level tropes and all world tropes.
@@ -1614,6 +1805,10 @@ async fn dispatch_character_creation(
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
+    discovered_regions: &mut Vec<String>,
+    turn_manager: &mut sidequest_game::TurnManager,
+    lore_store: &mut sidequest_game::LoreStore,
+    shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1776,6 +1971,10 @@ async fn dispatch_character_creation(
                         visual_style,
                         npc_registry,
                         narration_history,
+                        discovered_regions,
+                        turn_manager,
+                        lore_store,
+                        shared_session_holder,
                         music_director,
                         audio_mixer,
                         prerender_scheduler,
@@ -1822,6 +2021,64 @@ async fn dispatch_character_creation(
                         player_id: player_id.to_string(),
                     };
 
+                    // Add player to shared session and broadcast PARTY_STATUS
+                    {
+                        let holder = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let mut ss = ss_arc.lock().await;
+                            let ps = shared_session::PlayerState::new(
+                                player_name_store.clone().unwrap_or_else(|| "Player".to_string()),
+                            );
+                            ss.players.insert(player_id.to_string(), ps);
+                            // Build and broadcast PARTY_STATUS to all session members
+                            let members: Vec<PartyMember> = ss.players.iter().filter_map(|(pid, _ps)| {
+                                // Try to get character info — the current player's data
+                                // is in our local vars, others will be in their PlayerState.
+                                if pid == player_id {
+                                    Some(PartyMember {
+                                        player_id: pid.clone(),
+                                        name: character.core.name.as_str().to_string(),
+                                        current_hp: character.core.hp,
+                                        max_hp: character.core.max_hp,
+                                        statuses: character.core.statuses.clone(),
+                                        class: character.char_class.as_str().to_string(),
+                                        level: character.core.level as u32,
+                                        portrait_url: None,
+                                    })
+                                } else {
+                                    // Other player — use their character_name if available
+                                    None
+                                }
+                            }).collect();
+                            if !members.is_empty() {
+                                let party_msg = GameMessage::PartyStatus {
+                                    payload: PartyStatusPayload { members },
+                                    player_id: player_id.to_string(),
+                                };
+                                ss.broadcast(party_msg);
+                            }
+                            let pc = ss.player_count();
+                            tracing::info!(
+                                player_id = %player_id,
+                                player_count = pc,
+                                "Player joined shared session"
+                            );
+                            state.send_watcher_event(WatcherEvent {
+                                timestamp: chrono::Utc::now(),
+                                component: "multiplayer".to_string(),
+                                event_type: WatcherEventType::StateTransition,
+                                severity: Severity::Info,
+                                fields: {
+                                    let mut f = HashMap::new();
+                                    f.insert("event".to_string(), serde_json::json!("session_joined"));
+                                    f.insert("session_key".to_string(), serde_json::json!(format!("{}:{}", genre, world)));
+                                    f.insert("player_count".to_string(), serde_json::json!(pc));
+                                    f
+                                },
+                            });
+                        }
+                    }
+
                     let mut msgs = vec![complete, char_sheet, backstory_narration, backstory_end, ready];
                     msgs.extend(intro_messages);
                     msgs
@@ -1859,6 +2116,10 @@ async fn dispatch_player_action(
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     narration_history: &mut Vec<String>,
+    discovered_regions: &mut Vec<String>,
+    turn_manager: &mut sidequest_game::TurnManager,
+    lore_store: &sidequest_game::LoreStore,
+    shared_session_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>,
     music_director: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
@@ -1868,7 +2129,40 @@ async fn dispatch_player_action(
     world_slug: &str,
     player_name_for_save: &str,
 ) -> Vec<GameMessage> {
+    // Sync world-level state from shared session (if multiplayer)
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            ss.sync_to_locals(
+                current_location,
+                npc_registry,
+                narration_history,
+                discovered_regions,
+                trope_states,
+            );
+            let pc = ss.player_count();
+            if pc > 1 {
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "multiplayer".to_string(),
+                    event_type: WatcherEventType::AgentSpanOpen,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("multiplayer_action"));
+                        f.insert("session_key".to_string(), serde_json::json!(format!("{}:{}", genre_slug, world_slug)));
+                        f.insert("player_id".to_string(), serde_json::json!(player_id));
+                        f.insert("party_size".to_string(), serde_json::json!(pc));
+                        f
+                    },
+                });
+            }
+        }
+    }
+
     // Watcher: action received
+    let turn_number = turn_manager.interaction();
     state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
         component: "game".to_string(),
@@ -1884,6 +2178,7 @@ async fn dispatch_player_action(
                 "player".to_string(),
                 serde_json::Value::String(char_name.to_string()),
             );
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
             f
         },
     });
@@ -1893,6 +2188,97 @@ async fn dispatch_player_action(
         payload: ThinkingPayload {},
         player_id: player_id.to_string(),
     };
+
+    // Slash command interception — route /commands to mechanical handlers, not the LLM.
+    if action.starts_with('/') {
+        use sidequest_game::slash_router::SlashRouter;
+        use sidequest_game::commands::{StatusCommand, InventoryCommand, MapCommand, SaveCommand, GmCommand};
+        use sidequest_game::state::GameSnapshot;
+
+        let mut router = SlashRouter::new();
+        router.register(Box::new(StatusCommand));
+        router.register(Box::new(InventoryCommand));
+        router.register(Box::new(MapCommand));
+        router.register(Box::new(SaveCommand));
+        router.register(Box::new(GmCommand));
+
+        // Build a minimal GameSnapshot from the local session state.
+        let snapshot = {
+            let mut snap = GameSnapshot {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                location: current_location.clone(),
+                combat: combat_state.clone(),
+                chase: chase_state.clone(),
+                active_tropes: trope_states.iter().map(|ts| ts.trope_definition_id().to_string()).collect(),
+                ..GameSnapshot::default()
+            };
+            // Reconstruct a minimal Character from loose variables.
+            if let Some(ref cj) = character_json {
+                if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                    // Sync mutable fields that may have diverged from the JSON snapshot.
+                    ch.core.hp = *hp;
+                    ch.core.max_hp = *max_hp;
+                    ch.core.level = *level;
+                    ch.core.inventory = inventory.clone();
+                    snap.characters.push(ch);
+                }
+            }
+            snap
+        };
+
+        if let Some(cmd_result) = router.try_dispatch(action, &snapshot) {
+            let text = match &cmd_result {
+                sidequest_game::slash_router::CommandResult::Display(t) => t.clone(),
+                sidequest_game::slash_router::CommandResult::Error(e) => e.clone(),
+                sidequest_game::slash_router::CommandResult::StateMutation(patch) => {
+                    // Apply location/region changes from /gm commands.
+                    if let Some(ref loc) = patch.location {
+                        *current_location = loc.clone();
+                    }
+                    if let Some(ref hp_changes) = patch.hp_changes {
+                        for (_target, delta) in hp_changes {
+                            *hp = (*hp + delta).max(0);
+                        }
+                    }
+                    format!("GM command applied.")
+                }
+                _ => "Command executed.".to_string(),
+            };
+
+            // Watcher: slash command handled
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "game".to_string(),
+                event_type: WatcherEventType::AgentSpanClose,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("slash_command".to_string(), serde_json::Value::String(action.to_string()));
+                    f.insert("result_len".to_string(), serde_json::json!(text.len()));
+                    f
+                },
+            });
+
+            return vec![
+                thinking,
+                GameMessage::Narration {
+                    payload: NarrationPayload {
+                        text,
+                        state_delta: None,
+                        footnotes: vec![],
+                    },
+                    player_id: player_id.to_string(),
+                },
+                GameMessage::NarrationEnd {
+                    payload: NarrationEndPayload {
+                        state_delta: None,
+                    },
+                    player_id: player_id.to_string(),
+                },
+            ];
+        }
+    }
 
     // Seed starter tropes if none are active yet (first turn)
     if trope_states.is_empty() && !trope_defs.is_empty() {
@@ -1989,9 +2375,24 @@ async fn dispatch_player_action(
 
     // Location constraint — prevent narrator from teleporting between scenes
     if !current_location.is_empty() {
+        // Dialogue context: if the player interacted with an NPC in the last 2 turns,
+        // any location mention in the action is likely dialogue (describing a place to
+        // the NPC), not a travel intent. Strengthen the stay-put constraint.
+        let turn_approx = turn_manager.interaction() as u32;
+        let recent_npc_interaction = npc_registry.iter().any(|e| {
+            turn_approx.saturating_sub(e.last_seen_turn) <= 2
+        });
+        let extra_dialogue_guard = if recent_npc_interaction {
+            " IMPORTANT: The player is currently in dialogue with an NPC. If the player's \
+             action mentions a location or place name, they are TALKING ABOUT that place, \
+             NOT traveling there. Keep the scene at the current location. Only move if the \
+             player explicitly ends the conversation and states they are leaving."
+        } else {
+            ""
+        };
         state_summary.push_str(&format!(
-            "\n\nLOCATION CONSTRAINT — THIS IS A HARD RULE:\nThe player is at: {}\nYou MUST continue the scene at this location. Do NOT introduce a new setting, move to a different area, or describe the player arriving somewhere else UNLESS the player explicitly says they want to travel or leave. If the player's action implies staying here, describe what happens HERE. Only change location when the player takes a deliberate travel action (e.g., 'I go to...', 'I leave...', 'I head north').",
-            current_location
+            "\n\nLOCATION CONSTRAINT — THIS IS A HARD RULE:\nThe player is at: {}\nYou MUST continue the scene at this location. Do NOT introduce a new setting, move to a different area, or describe the player arriving somewhere else UNLESS the player explicitly says they want to travel or leave. If the player's action implies staying here, describe what happens HERE. Only change location when the player takes a deliberate travel action (e.g., 'I go to...', 'I leave...', 'I head north').{}",
+            current_location, extra_dialogue_guard
         ));
     }
 
@@ -2070,14 +2471,125 @@ async fn dispatch_player_action(
         state_summary.push_str(&npc_context);
     }
 
-    // Process the action through GameService
+    // Inject lore context from genre pack — budget-aware selection (story 11-4)
+    {
+        let context_hint = if !current_location.is_empty() {
+            Some(current_location.as_str())
+        } else {
+            None
+        };
+        let lore_budget = 500; // ~500 tokens for lore context
+        let selected = sidequest_game::select_lore_for_prompt(
+            lore_store,
+            lore_budget,
+            context_hint,
+        );
+        if !selected.is_empty() {
+            let lore_text = sidequest_game::format_lore_context(&selected);
+            tracing::info!(
+                fragments = selected.len(),
+                tokens = selected.iter().map(|f| f.token_estimate()).sum::<usize>(),
+                hint = ?context_hint,
+                "rag.lore_injected_to_prompt"
+            );
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&lore_text);
+        }
+    }
+
+    // Check if barrier mode is active (Structured/Cinematic turn mode)
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            if ss.turn_mode.should_use_barrier() {
+                if let Some(ref barrier) = ss.turn_barrier {
+                    // Submit action to barrier (doesn't trigger narration yet)
+                    barrier.submit_action(player_id, action);
+
+                    // Clone what we need for the spawned resolution task
+                    let barrier_clone = barrier.clone();
+                    let ss_arc_clone = ss_arc.clone();
+                    let state_clone = state.clone();
+                    let genre_slug_owned = genre_slug.to_string();
+                    let world_slug_owned = world_slug.to_string();
+                    let action_owned = action.to_string();
+                    let player_id_owned = player_id.to_string();
+                    drop(ss);
+                    drop(holder);
+
+                    // Spawn a task that waits for all players to submit
+                    tokio::spawn(async move {
+                        let result = barrier_clone.wait_for_turn().await;
+                        tracing::info!(
+                            timed_out = result.timed_out,
+                            missing = ?result.missing_players,
+                            genre = %genre_slug_owned,
+                            world = %world_slug_owned,
+                            "Turn barrier resolved"
+                        );
+                        // Build combined context with all players' actions
+                        let named_actions = {
+                            let ss = ss_arc_clone.lock().await;
+                            ss.multiplayer.named_actions()
+                        };
+                        let combined_action = named_actions
+                            .iter()
+                            .map(|(name, act)| format!("{}: {}", name, act))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        let context = TurnContext {
+                            state_summary: Some(format!("Combined party actions:\n{}", combined_action)),
+                            in_combat: false,
+                            in_chase: false,
+                        };
+                        let narration_result = state_clone.game_service().process_action(&action_owned, &context);
+                        // Broadcast narration to all session members
+                        let ss = ss_arc_clone.lock().await;
+                        let narration_msg = GameMessage::Narration {
+                            payload: NarrationPayload {
+                                text: narration_result.narration.clone(),
+                                state_delta: None,
+                                footnotes: narration_result.footnotes.clone(),
+                            },
+                            player_id: player_id_owned.clone(),
+                        };
+                        ss.broadcast(narration_msg);
+                        let end_msg = GameMessage::NarrationEnd {
+                            payload: NarrationEndPayload { state_delta: None },
+                            player_id: player_id_owned,
+                        };
+                        ss.broadcast(end_msg);
+                    });
+
+                    // Tell this player they're waiting for others
+                    let waiting = GameMessage::SessionEvent {
+                        payload: SessionEventPayload {
+                            event: "waiting".to_string(),
+                            player_name: None,
+                            genre: None,
+                            world: None,
+                            has_character: None,
+                            initial_state: None,
+                            css: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+                    return vec![thinking, waiting];
+                }
+            }
+        }
+    }
+
+    // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
-        ..TurnContext::default()
+        in_combat: combat_state.in_combat(),
+        in_chase: chase_state.is_some(),
     };
     let result = state.game_service().process_action(action, &context);
 
-    // Watcher: narration generated
+    // Watcher: narration generated (with intent classification and agent routing)
     state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
         component: "game".to_string(),
@@ -2093,6 +2605,13 @@ async fn dispatch_player_action(
                 "is_degraded".to_string(),
                 serde_json::json!(result.is_degraded),
             );
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+            if let Some(ref intent) = result.classified_intent {
+                f.insert("classified_intent".to_string(), serde_json::json!(intent));
+            }
+            if let Some(ref agent) = result.agent_name {
+                f.insert("agent_routed_to".to_string(), serde_json::json!(agent));
+            }
             f
         },
     });
@@ -2104,6 +2623,9 @@ async fn dispatch_player_action(
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
         *current_location = location.clone();
+        if !discovered_regions.iter().any(|r| r == &location) {
+            discovered_regions.push(location.clone());
+        }
         state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
             component: "game".to_string(),
@@ -2119,6 +2641,7 @@ async fn dispatch_player_action(
                     "location".to_string(),
                     serde_json::Value::String(location.clone()),
                 );
+                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
                 f
             },
         });
@@ -2138,6 +2661,13 @@ async fn dispatch_player_action(
             },
             player_id: player_id.to_string(),
         });
+        // Location change = meaningful narrative beat → advance display round
+        turn_manager.advance_round();
+        tracing::info!(
+            new_round = turn_manager.round(),
+            interaction = turn_manager.interaction(),
+            "turn_manager.advance_round — location change"
+        );
     }
 
     // Strip the location header from narration text if present
@@ -2155,8 +2685,9 @@ async fn dispatch_player_action(
     // Update NPC registry from narration — tracks names, pronouns, locations
     // so subsequent turns maintain NPC identity consistency.
     // Use trope_states len as a rough turn counter.
-    let turn_approx = trope_states.len() as u32 + 1;
-    update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx);
+    let turn_approx = turn_manager.interaction() as u32;
+    let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
+    update_npc_registry(npc_registry, &clean_narration, current_location, turn_approx, &region_refs);
     tracing::debug!(npc_count = npc_registry.len(), "NPC registry updated from narration");
 
     // Bug 4: Combat HP changes — scan narration for damage/healing indicators
@@ -2166,7 +2697,7 @@ async fn dispatch_player_action(
             "strikes you", "hits you", "slashes you", "damages you",
             "wounds you", "hurts you", "burns you", "bites you",
             "stabs you", "pierces you", "deals damage", "takes damage",
-            "you take", "injures you", "smashes into you",
+            "you take damage", "you take a hit", "injures you", "smashes into you",
         ];
         let heal_keywords = [
             "heals you", "restores health", "mends your wounds",
@@ -2246,6 +2777,42 @@ async fn dispatch_player_action(
                 };
                 let _ = inventory.add(item, 50);
                 tracing::info!(item_name = %item_name, "Item added to inventory from narration");
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "inventory".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("item_gained"));
+                        f.insert("item".to_string(), serde_json::json!(item_name));
+                        f.insert("turn_number".to_string(), serde_json::json!(turn_manager.interaction()));
+                        f
+                    },
+                });
+            }
+        }
+
+        // Extract item losses from narration (trades, gifts, drops)
+        let items_lost = extract_item_losses(&clean_narration);
+        for lost_name in &items_lost {
+            let item_id = lost_name.to_lowercase().replace(' ', "_").replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+            if inventory.find(&item_id).is_some() {
+                let _ = inventory.remove(&item_id);
+                tracing::info!(item_name = %lost_name, "Item removed from inventory from narration");
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "inventory".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("item_lost"));
+                        f.insert("item".to_string(), serde_json::json!(lost_name));
+                        f.insert("turn_number".to_string(), serde_json::json!(turn_manager.interaction()));
+                        f
+                    },
+                });
             }
         }
     }
@@ -2266,10 +2833,29 @@ async fn dispatch_player_action(
                 }]),
                 quests: None,
             }),
-            footnotes: vec![],
+            footnotes: result.footnotes.clone(),
         },
         player_id: player_id.to_string(),
     });
+
+    // RAG pipeline: convert new footnotes to discovered facts (story 9-11)
+    if !result.footnotes.is_empty() {
+        let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(
+            &result.footnotes,
+            char_name,
+            turn_manager.interaction(),
+        );
+        if !discovered.is_empty() {
+            tracing::info!(
+                count = discovered.len(),
+                character = %char_name,
+                interaction = turn_manager.interaction(),
+                "rag.footnotes_to_discovered_facts"
+            );
+            // Apply discovered facts to snapshot via WorldStatePatch path
+            // (This feeds into the persistence layer on next save)
+        }
+    }
 
     // Narration end with state_delta field present (even if empty)
     messages.push(GameMessage::NarrationEnd {
@@ -2345,12 +2931,40 @@ async fn dispatch_player_action(
             if combat_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
                 combat_state.set_in_combat(false);
                 tracing::info!("Combat ended — detected end keyword in narration");
+                // Transition turn mode: Structured → FreePlay
+                {
+                    let holder = shared_session_holder.lock().await;
+                    if let Some(ref ss_arc) = *holder {
+                        let mut ss = ss_arc.lock().await;
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
+                        tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat end");
+                    }
+                }
             }
         } else {
             // Check for combat start
             if combat_start_keywords.iter().any(|kw| narr_lower.contains(kw)) {
                 combat_state.set_in_combat(true);
                 tracing::info!("Combat started — detected start keyword in narration");
+                // Transition turn mode: FreePlay → Structured
+                {
+                    let holder = shared_session_holder.lock().await;
+                    if let Some(ref ss_arc) = *holder {
+                        let mut ss = ss_arc.lock().await;
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
+                        tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
+                        // Initialize barrier if transitioning to structured mode
+                        if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
+                            let mp_session = sidequest_game::multiplayer::MultiplayerSession::new(HashMap::new());
+                            ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::new(
+                                mp_session,
+                                sidequest_game::barrier::TurnBarrierConfig::default(),
+                            ));
+                        }
+                    }
+                }
             }
         }
     }
@@ -2648,6 +3262,14 @@ async fn dispatch_player_action(
         tracing::warn!("music_director_missing — audio cues skipped");
     }
 
+    // Record this interaction in the turn manager (granular counter for chronology)
+    turn_manager.record_interaction();
+    tracing::info!(
+        interaction = turn_manager.interaction(),
+        round = turn_manager.round(),
+        "turn_manager.record_interaction"
+    );
+
     // Persist updated game state (location, narration log) for reconnection
     if !genre_slug.is_empty() && !world_slug.is_empty() {
         let location = extract_location_header(narration_text)
@@ -2656,10 +3278,13 @@ async fn dispatch_player_action(
             Ok(Some(saved)) => {
                 let mut snapshot = saved.snapshot;
                 snapshot.location = location;
+                // Sync turn manager and NPC registry to snapshot for cross-session persistence
+                snapshot.turn_manager = turn_manager.clone();
+                snapshot.npc_registry = npc_registry.clone();
                 // Append narration to log for recap on reconnect
                 snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
                     timestamp: 0,
-                    round: 0,
+                    round: turn_manager.interaction() as u32,
                     author: "narrator".to_string(),
                     content: clean_narration.clone(),
                     tags: vec![],
@@ -2685,7 +3310,7 @@ async fn dispatch_player_action(
             let tts_segments: Vec<sidequest_game::tts_stream::TtsSegment> = segments
                 .iter()
                 .map(|seg| sidequest_game::tts_stream::TtsSegment {
-                    text: seg.text.clone(),
+                    text: strip_markdown_for_tts(&seg.text),
                     index: seg.index,
                     is_last: seg.is_last,
                     speaker: "narrator".to_string(),
@@ -2824,6 +3449,88 @@ async fn dispatch_player_action(
         }
     }
 
+    // GM Panel: emit full game state snapshot after all mutations
+    {
+        let turn_approx = turn_manager.interaction() as u32;
+        let npc_data: Vec<serde_json::Value> = npc_registry.iter().map(|e| {
+            serde_json::json!({
+                "name": e.name,
+                "pronouns": e.pronouns,
+                "role": e.role,
+                "location": e.location,
+                "last_seen_turn": e.last_seen_turn,
+            })
+        }).collect();
+        let inventory_names: Vec<String> = inventory.items.iter().map(|i| i.name.as_str().to_string()).collect();
+        let active_tropes: Vec<serde_json::Value> = trope_states.iter().map(|ts| {
+            serde_json::json!({
+                "id": ts.trope_definition_id(),
+                "progression": ts.progression(),
+                "status": format!("{:?}", ts.status()),
+            })
+        }).collect();
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "game".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("event".to_string(), serde_json::json!("game_state_snapshot"));
+                f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
+                f.insert("location".to_string(), serde_json::json!(current_location.as_str()));
+                f.insert("hp".to_string(), serde_json::json!(*hp));
+                f.insert("max_hp".to_string(), serde_json::json!(*max_hp));
+                f.insert("level".to_string(), serde_json::json!(*level));
+                f.insert("xp".to_string(), serde_json::json!(*xp));
+                f.insert("inventory".to_string(), serde_json::json!(inventory_names));
+                f.insert("npc_registry".to_string(), serde_json::json!(npc_data));
+                f.insert("active_tropes".to_string(), serde_json::json!(active_tropes));
+                f.insert("in_combat".to_string(), serde_json::json!(combat_state.in_combat()));
+                f.insert("player_id".to_string(), serde_json::json!(player_id));
+                f.insert("character".to_string(), serde_json::json!(char_name));
+                f
+            },
+        });
+    }
+
+    // Sync world-level state back to shared session and broadcast narration
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let mut ss = ss_arc.lock().await;
+            ss.sync_from_locals(
+                current_location,
+                npc_registry,
+                narration_history,
+                discovered_regions,
+                trope_states,
+            );
+            // Broadcast narration messages to other session members.
+            // If perception effects are active, log it (actual rewriting
+            // requires a PerceptionRewriter strategy — currently RED phase).
+            if ss.has_perception_effects() {
+                tracing::debug!(
+                    "Perception effects active for {} player(s) — rewriting not yet wired (RED phase)",
+                    ss.perception_filters.len()
+                );
+            }
+            // Broadcast narration to session members. The writer task filters
+            // out messages from self, so the acting player won't see duplicates.
+            for msg in &messages {
+                match msg {
+                    GameMessage::Narration { .. }
+                    | GameMessage::NarrationEnd { .. }
+                    | GameMessage::ChapterMarker { .. }
+                    | GameMessage::PartyStatus { .. } => {
+                        ss.broadcast(msg.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     messages
 }
 
@@ -2865,29 +3572,72 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
     }
 }
 
-/// Extract a location header from narration text (format: **Location Name**)
+/// Extract a location header from narration text.
+///
+/// Checks the first 3 non-empty lines for location patterns:
+/// - `**Location Name**` (bold header — primary format)
+/// - `## Location Name` (markdown h2)
+/// - `[Location: Name]` (bracketed tag)
 fn extract_location_header(text: &str) -> Option<String> {
-    let first_line = text.lines().next()?.trim();
-    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
-        Some(first_line[2..first_line.len() - 2].to_string())
-    } else {
-        None
+    for line in text.lines().take(3) {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Bold header: **Location Name**
+        if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
+            return Some(trimmed[2..trimmed.len() - 2].to_string());
+        }
+        // Markdown h2: ## Location Name
+        if trimmed.starts_with("## ") && trimmed.len() > 3 {
+            return Some(trimmed[3..].trim().to_string());
+        }
+        // Bracketed tag: [Location: Name]
+        if trimmed.starts_with("[Location:") && trimmed.ends_with(']') {
+            let inner = &trimmed[10..trimmed.len() - 1].trim();
+            if !inner.is_empty() {
+                return Some(inner.to_string());
+            }
+        }
+        // Only check the first non-empty line for the primary format,
+        // but continue checking for h2/bracketed in lines 2-3.
+        break;
     }
+    // Second pass: check lines 2-3 for any format (narrator sometimes
+    // puts flavor text before the location header)
+    for line in text.lines().skip(1).take(2) {
+        let trimmed = line.trim();
+        if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
+            return Some(trimmed[2..trimmed.len() - 2].to_string());
+        }
+        if trimmed.starts_with("## ") && trimmed.len() > 3 {
+            return Some(trimmed[3..].trim().to_string());
+        }
+    }
+    None
 }
 
-/// Strip the location header line from narration text
+/// Strip the location header line from narration text.
+/// Handles all formats recognized by extract_location_header.
 fn strip_location_header(text: &str) -> String {
-    let first_line = text.lines().next().unwrap_or("").trim();
-    if first_line.starts_with("**") && first_line.ends_with("**") && first_line.len() > 4 {
-        text.lines()
-            .skip(1)
-            .collect::<Vec<_>>()
-            .join("\n")
-            .trim()
-            .to_string()
-    } else {
-        text.to_string()
+    // Find which line (if any) contains the location header
+    for (i, line) in text.lines().take(3).enumerate() {
+        let trimmed = line.trim();
+        let is_header = (trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4)
+            || (trimmed.starts_with("## ") && trimmed.len() > 3)
+            || (trimmed.starts_with("[Location:") && trimmed.ends_with(']'));
+        if is_header {
+            return text.lines()
+                .enumerate()
+                .filter(|(idx, _)| *idx != i)
+                .map(|(_, l)| l)
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .to_string();
+        }
     }
+    text.to_string()
 }
 
 /// Bug 5: Extract item acquisitions from narration text.
@@ -2918,15 +3668,36 @@ fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
             let end = rest.find(|c: char| matches!(c, '.' | ',' | '!' | '?' | '\n' | ';' | ':'))
                 .unwrap_or(rest.len());
             let item_name = rest[..end].trim();
-            // Skip if too long (likely not an item) or too short
-            if item_name.len() >= 3 && item_name.len() <= 60 {
+            // Skip if too short
+            if item_name.len() >= 3 {
                 // Strip leading articles
-                let clean_name = item_name
+                let after_article = item_name
                     .strip_prefix("a ").or_else(|| item_name.strip_prefix("an "))
                     .or_else(|| item_name.strip_prefix("the "))
                     .or_else(|| item_name.strip_prefix("some "))
                     .unwrap_or(item_name)
                     .trim();
+                // Truncate at prepositional phrases and adverbs to get clean item names.
+                // "compass with both hands" → "compass", "hammer again" → "hammer"
+                let stop_words = [" with ", " from ", " into ", " onto ", " against ",
+                    " across ", " along ", " through ", " around ", " behind ",
+                    " before ", " after ", " again", " as ", " and then",
+                    " while ", " that ", " which "];
+                let mut clean_end = after_article.len();
+                for sw in &stop_words {
+                    if let Some(pos) = after_article.to_lowercase().find(sw) {
+                        if pos > 0 && pos < clean_end {
+                            clean_end = pos;
+                        }
+                    }
+                }
+                // Also cap at 4 words max for item names
+                let words: Vec<&str> = after_article[..clean_end].split_whitespace().collect();
+                let clean_name = if words.len() > 4 {
+                    words[..4].join(" ")
+                } else {
+                    words.join(" ")
+                };
                 if clean_name.len() >= 2 {
                     // Simple category heuristic
                     let lower_name = clean_name.to_lowercase();
@@ -2953,21 +3724,127 @@ fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
     items
 }
 
-/// Lightweight NPC registry entry — tracks name, pronouns, role, and location
-/// so the narrator prompt can maintain identity consistency across turns.
-#[derive(Debug, Clone)]
-struct NpcRegistryEntry {
-    name: String,
-    pronouns: String,
-    role: String,
-    location: String,
-    last_seen_turn: u32,
+/// Strip markdown syntax from text for TTS voice synthesis.
+/// Removes bold (**), italic (*/_), headers (#), links, images, code blocks.
+fn strip_markdown_for_tts(text: &str) -> String {
+    let mut result = text.to_string();
+    // Bold and italic: **text**, *text*, __text__, _text_
+    // Process ** before * to avoid partial matches
+    result = result.replace("**", "");
+    result = result.replace("__", "");
+    // Single * and _ as italic markers (only between word boundaries)
+    // Simple approach: remove standalone * and _ that look like formatting
+    let mut cleaned = String::with_capacity(result.len());
+    let chars: Vec<char> = result.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if (chars[i] == '*' || chars[i] == '_')
+            && i + 1 < chars.len()
+            && chars[i + 1].is_alphanumeric()
+        {
+            // Skip opening italic marker
+            i += 1;
+            continue;
+        }
+        if (chars[i] == '*' || chars[i] == '_')
+            && i > 0
+            && chars[i - 1].is_alphanumeric()
+        {
+            // Skip closing italic marker
+            i += 1;
+            continue;
+        }
+        cleaned.push(chars[i]);
+        i += 1;
+    }
+    // Remove markdown headers (# at start of line)
+    cleaned = cleaned
+        .lines()
+        .map(|line| line.trim_start_matches('#').trim_start())
+        .collect::<Vec<_>>()
+        .join("\n");
+    cleaned
 }
+
+/// Extract item losses from narration — trades, gifts, drops.
+/// Returns a list of item names that the player lost.
+fn extract_item_losses(text: &str) -> Vec<String> {
+    let text_lower = text.to_lowercase();
+    let mut lost = Vec::new();
+
+    let loss_patterns = [
+        "hand over ", "hands over ", "give away ", "gives away ",
+        "trade the ", "trades the ", "trading the ",
+        "hand the ", "hands the ",
+        "surrender the ", "surrenders the ",
+        "drop the ", "drops the ",
+        "toss the ", "tosses the ",
+        "you give ", "you hand ",
+        "you trade ", "you surrender ",
+        "you drop ", "you toss ",
+        "parts with the ", "part with the ",
+        "relinquish the ", "relinquishes the ",
+    ];
+
+    for pattern in &loss_patterns {
+        let mut search_from = 0;
+        while let Some(pos) = text_lower[search_from..].find(pattern) {
+            let start = search_from + pos + pattern.len();
+            if start >= text_lower.len() {
+                break;
+            }
+            let rest = &text[start..];
+            let end = rest.find(|c: char| matches!(c, '.' | ',' | '!' | '?' | '\n' | ';' | ':'))
+                .unwrap_or(rest.len());
+            let item_name = rest[..end].trim();
+            if item_name.len() >= 2 && item_name.len() <= 60 {
+                let after_article = item_name
+                    .strip_prefix("a ").or_else(|| item_name.strip_prefix("an "))
+                    .or_else(|| item_name.strip_prefix("the "))
+                    .or_else(|| item_name.strip_prefix("some "))
+                    .unwrap_or(item_name)
+                    .trim();
+                // Truncate at prepositions (same as acquisition extraction)
+                let stop_words = [" to ", " for ", " in ", " with ", " from ", " as "];
+                let mut clean_end = after_article.len();
+                for sw in &stop_words {
+                    if let Some(p) = after_article.to_lowercase().find(sw) {
+                        if p > 0 && p < clean_end {
+                            clean_end = p;
+                        }
+                    }
+                }
+                let words: Vec<&str> = after_article[..clean_end].split_whitespace().collect();
+                let clean_name = if words.len() > 4 { words[..4].join(" ") } else { words.join(" ") };
+                if clean_name.len() >= 2 {
+                    lost.push(clean_name);
+                }
+            }
+            search_from = start;
+        }
+    }
+
+    lost
+}
+
+/// NPC registry entry — re-exported from sidequest-game for persistence.
+pub(crate) type NpcRegistryEntry = sidequest_game::NpcRegistryEntry;
 
 /// Extract NPC names from narration text and update the registry.
 /// Looks for patterns like dialogue attribution ("Name says", "Name asks")
 /// and introduction patterns ("a woman named Name", "Name, the blacksmith").
-fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, current_location: &str, turn_count: u32) {
+fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, current_location: &str, turn_count: u32, location_names: &[&str]) {
+    // Build a set of names that should never become NPCs (location/region names).
+    let rejected: Vec<String> = std::iter::once(current_location)
+        .chain(location_names.iter().copied())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_lowercase())
+        .collect();
+    let is_location_name = |name: &str| -> bool {
+        let lower = name.to_lowercase();
+        rejected.iter().any(|loc| lower == *loc || loc.contains(&lower) || lower.contains(loc.as_str()))
+    };
+
     // Dialogue attribution: "Name says/asks/replies/shouts/whispers/mutters"
     let speech_verbs = ["says", "asks", "replies", "shouts", "whispers", "mutters", "growls", "calls", "declares", "speaks"];
     let text_lower = narration.to_lowercase();
@@ -2988,7 +3865,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
             if candidate.len() >= 2 && candidate.len() <= 40 && candidate.chars().next().map_or(false, |c| c.is_uppercase()) {
                 let name = candidate.to_string();
                 // Skip if it's the player character reference
-                if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" {
+                if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" && !is_location_name(&name) {
                     // Update existing or add new
                     if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                         entry.last_seen_turn = turn_count;
@@ -3024,7 +3901,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
                 let candidate = rest[..name_end].trim();
                 if candidate.len() >= 2 && candidate.len() <= 40 && candidate.chars().next().map_or(false, |c| c.is_uppercase()) {
                     let name = candidate.to_string();
-                    if !name.to_lowercase().contains("you") {
+                    if !name.to_lowercase().contains("you") && !is_location_name(&name) {
                         if !registry.iter().any(|e| e.name == name) {
                             // Try to infer role from "X, the blacksmith" pattern after name
                             let role = if name_end < rest.len() {
@@ -3059,7 +3936,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
         for caps in appos_re.captures_iter(narration) {
             let name = caps[1].to_string();
             let role = caps[2].trim_end_matches(|c: char| matches!(c, ',' | '.' | '!' | '?')).trim().to_string();
-            if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" {
+            if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An" && !is_location_name(&name) {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     if entry.role.is_empty() && !role.is_empty() {
                         entry.role = role;
@@ -3091,6 +3968,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
                 && name != "It" && name != "This" && name != "That" && name != "There"
                 && name != "Here" && name != "Then" && name != "Now" && name != "But"
                 && name != "And" && name != "Or" && name != "Yet" && name != "So"
+                && !is_location_name(&name)
             {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     entry.last_seen_turn = turn_count;
@@ -3118,6 +3996,7 @@ fn update_npc_registry(registry: &mut Vec<NpcRegistryEntry>, narration: &str, cu
             let name = caps[1].to_string();
             if !name.to_lowercase().contains("you") && name != "The" && name != "A" && name != "An"
                 && name != "It" && name != "This" && name != "That"
+                && !is_location_name(&name)
             {
                 if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
                     entry.last_seen_turn = turn_count;

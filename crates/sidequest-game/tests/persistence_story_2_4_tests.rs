@@ -102,6 +102,7 @@ fn test_snapshot() -> GameSnapshot {
         total_beats_fired: 0,
         campaign_maturity: sidequest_game::CampaignMaturity::Fresh,
         world_history: vec![],
+        ..GameSnapshot::default()
     }
 }
 

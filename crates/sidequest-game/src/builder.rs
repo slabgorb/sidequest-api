@@ -144,6 +144,8 @@ pub struct AccumulatedChoices {
     /// Rich description text from each creation choice, in scene order.
     /// Used to compose a narrative backstory instead of bare mechanical labels.
     pub backstory_fragments: Vec<String>,
+    /// Accumulated stat bonuses from origin/mutation/artifact choices.
+    pub stat_bonuses: HashMap<String, i32>,
 }
 
 /// Errors from CharacterBuilder operations.
@@ -340,6 +342,10 @@ impl CharacterBuilder {
             if let Some(ref desc) = result.choice_description {
                 acc.backstory_fragments.push(desc.clone());
             }
+            // Accumulate stat bonuses (additive across all scenes)
+            for (stat, bonus) in &eff.stat_bonuses {
+                *acc.stat_bonuses.entry(stat.clone()).or_insert(0) += bonus;
+            }
         }
         acc
     }
@@ -432,6 +438,7 @@ impl CharacterBuilder {
             rig_type_hint: None,
             rig_trait: None,
             catch_phrase: None,
+            stat_bonuses: HashMap::new(),
         };
 
         self.results.push(SceneResult {
@@ -524,7 +531,7 @@ impl CharacterBuilder {
             .unwrap_or("Fighter");
 
         // Stats
-        let stats = self.generate_stats();
+        let stats = self.generate_stats(&acc);
 
         // HP from class base
         let base_hp = self
@@ -763,17 +770,56 @@ impl CharacterBuilder {
         }
     }
 
-    fn generate_stats(&self) -> HashMap<String, i32> {
-        let values = match self.stat_generation.as_str() {
+    fn generate_stats(&self, acc: &AccumulatedChoices) -> HashMap<String, i32> {
+        let base_values = match self.stat_generation.as_str() {
             "standard_array" => vec![15, 14, 13, 12, 10, 8],
             _ => vec![10; self.ability_score_names.len()],
         };
 
-        self.ability_score_names
+        let mut stats: HashMap<String, i32> = self
+            .ability_score_names
             .iter()
-            .zip(values.into_iter())
+            .zip(base_values.into_iter())
             .map(|(name, val)| (name.clone(), val))
-            .collect()
+            .collect();
+
+        // Apply explicit stat bonuses from genre pack choices (origin, mutation, artifact)
+        for (stat, bonus) in &acc.stat_bonuses {
+            if let Some(val) = stats.get_mut(stat) {
+                *val += bonus;
+            }
+        }
+
+        // If no explicit bonuses were set and we're using the flat default,
+        // derive differentiation from the player's accumulated choices so
+        // stats aren't all 10.
+        if acc.stat_bonuses.is_empty() && self.stat_generation != "standard_array" && self.ability_score_names.len() >= 3 {
+            let names = &self.ability_score_names;
+            // Origin/race → boost first stat
+            if acc.race_hint.is_some() {
+                if let Some(val) = stats.get_mut(&names[0]) {
+                    *val += 3;
+                }
+            }
+            // Mutation/affinity → boost second stat, reduce last
+            if acc.mutation_hint.is_some() || acc.affinity_hint.is_some() {
+                if let Some(val) = stats.get_mut(&names[1]) {
+                    *val += 2;
+                }
+                if let Some(val) = stats.get_mut(&names[names.len() - 1]) {
+                    *val -= 1;
+                }
+            }
+            // Class/training → boost third stat
+            if acc.class_hint.is_some() || acc.training_hint.is_some() {
+                let idx = 2.min(names.len() - 1);
+                if let Some(val) = stats.get_mut(&names[idx]) {
+                    *val += 2;
+                }
+            }
+        }
+
+        stats
     }
 }
 

@@ -77,6 +77,7 @@ fn test_npc() -> Npc {
         location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
         pronouns: None,
         appearance: None,
+            age: None,
         ocean: None,
     }
 }
@@ -121,6 +122,7 @@ fn test_snapshot() -> GameSnapshot {
         total_beats_fired: 0,
         campaign_maturity: sidequest_game::CampaignMaturity::Fresh,
         world_history: vec![],
+        ..GameSnapshot::default()
     }
 }
 

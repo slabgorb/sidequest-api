@@ -37,6 +37,9 @@ pub struct Npc {
     /// Physical appearance (identity-locked: set once, never overwritten).
     #[serde(default)]
     pub appearance: Option<String>,
+    /// Age description (identity-locked: set once, never overwritten).
+    #[serde(default)]
+    pub age: Option<String>,
     /// OCEAN personality profile (Story 10-1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ocean: Option<OceanProfile>,
@@ -95,6 +98,11 @@ impl Npc {
                 self.appearance = Some(a.clone());
             }
         }
+        if self.age.is_none() {
+            if let Some(ref a) = patch.age {
+                self.age = Some(a.clone());
+            }
+        }
     }
 }
 
@@ -139,6 +147,7 @@ mod tests {
             location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
             pronouns: Some("she/her".to_string()),
             appearance: Some("Flour-dusted apron".to_string()),
+            age: Some("middle-aged".to_string()),
             ocean: None,
         }
     }
@@ -161,6 +170,7 @@ mod tests {
             location: None, // off-stage
             pronouns: None,
             appearance: None,
+            age: None,
             ocean: None,
         }
     }
@@ -294,4 +304,25 @@ mod tests {
         let result = serde_json::from_str::<Npc>(json);
         assert!(result.is_err(), "blank name should fail deserialization");
     }
+}
+
+/// Lightweight NPC identity entry for the narrator registry.
+///
+/// Tracks name, pronouns, role, and last-seen location so the narrator prompt
+/// can maintain NPC identity consistency across turns. Much lighter than `Npc`
+/// — no combat stats, no inventory, no disposition.
+///
+/// Serializable for persistence in GameSnapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NpcRegistryEntry {
+    /// NPC name (as extracted from narration).
+    pub name: String,
+    /// Pronouns (he/him, she/her, they/them, it).
+    pub pronouns: String,
+    /// Brief role description (e.g., "merchant", "guard captain").
+    pub role: String,
+    /// Last known location.
+    pub location: String,
+    /// Interaction number when this NPC was last seen.
+    pub last_seen_turn: u32,
 }

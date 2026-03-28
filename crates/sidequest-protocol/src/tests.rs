@@ -222,6 +222,7 @@ mod message_type_tests {
                     }],
                     location: "Town Square".into(),
                     quests: std::collections::HashMap::new(),
+                    turn_count: 0,
                 }),
                 css: None,
             },

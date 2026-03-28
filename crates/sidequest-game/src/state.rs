@@ -92,6 +92,10 @@ pub struct GameSnapshot {
     /// Applied history chapters based on campaign maturity (story 6-6).
     #[serde(default)]
     pub world_history: Vec<HistoryChapter>,
+    /// NPC identity registry — lightweight entries for narrator prompt consistency.
+    /// Persisted so NPC identities survive across sessions.
+    #[serde(default)]
+    pub npc_registry: Vec<crate::npc::NpcRegistryEntry>,
 }
 
 impl GameSnapshot {
@@ -203,6 +207,29 @@ impl GameSnapshot {
             changed.push("lore_established");
         }
 
+        // Discovered facts — route each fact to its character's known_facts (story 9-3)
+        if let Some(ref facts) = patch.discovered_facts {
+            for df in facts {
+                if let Some(character) = self.characters.iter_mut().find(|c| c.name() == df.character_name) {
+                    tracing::info!(
+                        character = %df.character_name,
+                        fact = %df.fact.content,
+                        source = ?df.fact.source,
+                        turn = df.fact.learned_turn,
+                        "rag.discovered_fact_applied"
+                    );
+                    character.known_facts.push(df.fact.clone());
+                } else {
+                    tracing::warn!(
+                        character = %df.character_name,
+                        fact = %df.fact.content,
+                        "rag.discovered_fact_orphaned — character not found"
+                    );
+                }
+            }
+            changed.push("discovered_facts");
+        }
+
         // HP changes
         if let Some(ref hp) = patch.hp_changes {
             for (name, delta) in hp {
@@ -262,6 +289,7 @@ impl GameSnapshot {
                             .and_then(|l| NonBlankString::new(l).ok()),
                         pronouns: npc_patch.pronouns.clone(),
                         appearance: npc_patch.appearance.clone(),
+                        age: npc_patch.age.clone(),
                         ocean: None,
                     };
                     self.npcs.push(new_npc);
@@ -431,6 +459,8 @@ pub struct NpcPatch {
     pub pronouns: Option<String>,
     /// Appearance (identity-locked).
     pub appearance: Option<String>,
+    /// Age description (identity-locked).
+    pub age: Option<String>,
     /// Current location.
     pub location: Option<String>,
 }

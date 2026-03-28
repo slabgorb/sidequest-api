@@ -74,6 +74,7 @@ fn test_npc() -> Npc {
         location: Some(NonBlankString::new("The Rusty Nail Inn").unwrap()),
         pronouns: Some("she/her".to_string()),
         appearance: Some("Flour-dusted apron, kind eyes".to_string()),
+            age: None,
         ocean: None,
     }
 }
@@ -96,6 +97,7 @@ fn test_npc_no_identity() -> Npc {
         location: None,
         pronouns: None,
         appearance: None,
+            age: None,
         ocean: None,
     }
 }
@@ -356,6 +358,7 @@ fn world_patch_npcs_present_adds_new_npc() {
         role: Some("bandit".to_string()),
         pronouns: Some("he/him".to_string()),
         appearance: Some("Missing teeth, scar across face".to_string()),
+            age: None,
         location: Some("The Wasteland Highway".to_string()),
     };
 
@@ -379,6 +382,7 @@ fn world_patch_npcs_present_merges_existing_npc() {
         role: Some("innkeeper".to_string()),
         pronouns: None,
         appearance: None,
+            age: None,
         location: None,
     };
 
@@ -409,6 +413,7 @@ fn npc_merge_patch_updates_mutable_fields() {
         role: Some("tavern owner".to_string()),
         pronouns: None,
         appearance: None,
+            age: None,
         location: Some("The Kitchen".to_string()),
     };
 
@@ -429,6 +434,7 @@ fn npc_merge_patch_locks_pronouns_after_first_set() {
         role: None,
         pronouns: Some("they/them".to_string()), // attempt to overwrite
         appearance: None,
+            age: None,
         location: None,
     };
 
@@ -449,6 +455,7 @@ fn npc_merge_patch_locks_appearance_after_first_set() {
         role: None,
         pronouns: None,
         appearance: Some("Completely different look".to_string()),
+            age: None,
         location: None,
     };
 
@@ -472,6 +479,7 @@ fn npc_merge_patch_sets_pronouns_when_empty() {
         role: None,
         pronouns: Some("they/them".to_string()),
         appearance: None,
+            age: None,
         location: None,
     };
 
@@ -491,6 +499,7 @@ fn npc_merge_patch_sets_appearance_when_empty() {
         role: None,
         pronouns: None,
         appearance: Some("Tall, dark cloak".to_string()),
+            age: None,
         location: None,
     };
 

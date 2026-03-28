@@ -282,12 +282,19 @@ impl MusicDirector {
             Mood::Exploration => &["teahouse"],
             _ => &[],
         };
-        let tracks = self.mood_tracks.get(mood_key)
-            .or_else(|| {
-                fallbacks.iter().find_map(|alias| self.mood_tracks.get(*alias))
-            })?;
+        // Track which key the tracks actually came from so the rotator
+        // records history under the correct bucket.
+        let (actual_key, tracks) = if let Some(t) = self.mood_tracks.get(mood_key) {
+            (mood_key, t)
+        } else if let Some((alias, t)) = fallbacks.iter().find_map(|alias| {
+            self.mood_tracks.get(*alias).map(|t| (*alias, t))
+        }) {
+            (alias, t)
+        } else {
+            return None;
+        };
         self.rotator
-            .select(mood_key, tracks, classification.intensity)
+            .select(actual_key, tracks, classification.intensity)
     }
 
     /// Determine the audio transition action based on mood change.

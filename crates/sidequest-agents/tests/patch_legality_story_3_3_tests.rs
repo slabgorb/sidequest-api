@@ -61,6 +61,7 @@ fn mock_game_snapshot() -> GameSnapshot {
         active_stakes: String::new(),
         lore_established: vec![],
         turns_since_meaningful: 0,
+        ..GameSnapshot::default()
     }
 }
 
@@ -104,6 +105,7 @@ fn make_npc(name: &str, hp: i32, max_hp: i32, statuses: Vec<String>) -> Npc {
         disposition: Disposition::new(0),
         pronouns: None,
         appearance: None,
+            age: None,
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
         ocean: None,
     }
