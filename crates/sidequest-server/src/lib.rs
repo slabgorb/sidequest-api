@@ -3009,15 +3009,36 @@ fn extract_items_from_narration(text: &str) -> Vec<(String, String)> {
             let end = rest.find(|c: char| matches!(c, '.' | ',' | '!' | '?' | '\n' | ';' | ':'))
                 .unwrap_or(rest.len());
             let item_name = rest[..end].trim();
-            // Skip if too long (likely not an item) or too short
-            if item_name.len() >= 3 && item_name.len() <= 60 {
+            // Skip if too short
+            if item_name.len() >= 3 {
                 // Strip leading articles
-                let clean_name = item_name
+                let after_article = item_name
                     .strip_prefix("a ").or_else(|| item_name.strip_prefix("an "))
                     .or_else(|| item_name.strip_prefix("the "))
                     .or_else(|| item_name.strip_prefix("some "))
                     .unwrap_or(item_name)
                     .trim();
+                // Truncate at prepositional phrases and adverbs to get clean item names.
+                // "compass with both hands" → "compass", "hammer again" → "hammer"
+                let stop_words = [" with ", " from ", " into ", " onto ", " against ",
+                    " across ", " along ", " through ", " around ", " behind ",
+                    " before ", " after ", " again", " as ", " and then",
+                    " while ", " that ", " which "];
+                let mut clean_end = after_article.len();
+                for sw in &stop_words {
+                    if let Some(pos) = after_article.to_lowercase().find(sw) {
+                        if pos > 0 && pos < clean_end {
+                            clean_end = pos;
+                        }
+                    }
+                }
+                // Also cap at 4 words max for item names
+                let words: Vec<&str> = after_article[..clean_end].split_whitespace().collect();
+                let clean_name = if words.len() > 4 {
+                    words[..4].join(" ")
+                } else {
+                    words.join(" ")
+                };
                 if clean_name.len() >= 2 {
                     // Simple category heuristic
                     let lower_name = clean_name.to_lowercase();
