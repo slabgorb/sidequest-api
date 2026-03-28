@@ -92,6 +92,10 @@ pub struct GameSnapshot {
     /// Applied history chapters based on campaign maturity (story 6-6).
     #[serde(default)]
     pub world_history: Vec<HistoryChapter>,
+    /// NPC identity registry — lightweight entries for narrator prompt consistency.
+    /// Persisted so NPC identities survive across sessions.
+    #[serde(default)]
+    pub npc_registry: Vec<crate::npc::NpcRegistryEntry>,
 }
 
 impl GameSnapshot {

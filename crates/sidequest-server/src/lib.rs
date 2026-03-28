@@ -1259,6 +1259,7 @@ async fn dispatch_message(
                 audio_mixer,
                 prerender_scheduler,
                 turn_manager,
+                npc_registry,
                 state,
                 player_id,
             )
@@ -1390,6 +1391,7 @@ async fn dispatch_connect(
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     turn_manager: &mut sidequest_game::TurnManager,
+    npc_registry: &mut Vec<NpcRegistryEntry>,
     state: &AppState,
     player_id: &str,
 ) -> Vec<GameMessage> {
@@ -1426,10 +1428,11 @@ async fn dispatch_connect(
                             *character_hp = character.core.hp;
                             *character_max_hp = character.core.max_hp;
                         }
-                        // Restore location, regions, and turn state from snapshot
+                        // Restore location, regions, turn state, and NPC registry from snapshot
                         *current_location = saved.snapshot.location.clone();
                         *discovered_regions = saved.snapshot.discovered_regions.clone();
                         *turn_manager = saved.snapshot.turn_manager.clone();
+                        *npc_registry = saved.snapshot.npc_registry.clone();
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -3225,8 +3228,9 @@ async fn dispatch_player_action(
             Ok(Some(saved)) => {
                 let mut snapshot = saved.snapshot;
                 snapshot.location = location;
-                // Sync turn manager to snapshot — preserves both counters across sessions
+                // Sync turn manager and NPC registry to snapshot for cross-session persistence
                 snapshot.turn_manager = turn_manager.clone();
+                snapshot.npc_registry = npc_registry.clone();
                 // Append narration to log for recap on reconnect
                 snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
                     timestamp: 0,
@@ -3773,16 +3777,8 @@ fn extract_item_losses(text: &str) -> Vec<String> {
     lost
 }
 
-/// Lightweight NPC registry entry — tracks name, pronouns, role, and location
-/// so the narrator prompt can maintain identity consistency across turns.
-#[derive(Debug, Clone)]
-pub(crate) struct NpcRegistryEntry {
-    pub(crate) name: String,
-    pub(crate) pronouns: String,
-    pub(crate) role: String,
-    pub(crate) location: String,
-    pub(crate) last_seen_turn: u32,
-}
+/// NPC registry entry — re-exported from sidequest-game for persistence.
+pub(crate) type NpcRegistryEntry = sidequest_game::NpcRegistryEntry;
 
 /// Extract NPC names from narration text and update the registry.
 /// Looks for patterns like dialogue attribution ("Name says", "Name asks")

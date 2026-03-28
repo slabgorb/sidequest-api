@@ -61,6 +61,7 @@ fn mock_game_snapshot() -> GameSnapshot {
         active_stakes: String::new(),
         lore_established: vec![],
         turns_since_meaningful: 0,
+        ..GameSnapshot::default()
     }
 }
 

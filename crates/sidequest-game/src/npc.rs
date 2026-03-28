@@ -305,3 +305,24 @@ mod tests {
         assert!(result.is_err(), "blank name should fail deserialization");
     }
 }
+
+/// Lightweight NPC identity entry for the narrator registry.
+///
+/// Tracks name, pronouns, role, and last-seen location so the narrator prompt
+/// can maintain NPC identity consistency across turns. Much lighter than `Npc`
+/// — no combat stats, no inventory, no disposition.
+///
+/// Serializable for persistence in GameSnapshot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NpcRegistryEntry {
+    /// NPC name (as extracted from narration).
+    pub name: String,
+    /// Pronouns (he/him, she/her, they/them, it).
+    pub pronouns: String,
+    /// Brief role description (e.g., "merchant", "guard captain").
+    pub role: String,
+    /// Last known location.
+    pub location: String,
+    /// Interaction number when this NPC was last seen.
+    pub last_seen_turn: u32,
+}
