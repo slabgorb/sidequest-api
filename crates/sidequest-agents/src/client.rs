@@ -50,24 +50,19 @@ impl std::fmt::Display for ClaudeClientError {
 
 impl std::error::Error for ClaudeClientError {}
 
-/// Default max tokens for narration responses.
-const DEFAULT_MAX_TOKENS: u32 = 1024;
-
 /// Claude CLI subprocess client with configurable timeout and command path.
 #[derive(Debug, Clone)]
 pub struct ClaudeClient {
     timeout: Duration,
     command_path: String,
-    max_tokens: Option<u32>,
 }
 
 impl ClaudeClient {
-    /// Create a new client with default settings (120s timeout, "claude" command, 1024 max tokens).
+    /// Create a new client with default settings (120s timeout, "claude" command).
     pub fn new() -> Self {
         Self {
             timeout: DEFAULT_TIMEOUT,
             command_path: DEFAULT_COMMAND.to_string(),
-            max_tokens: Some(DEFAULT_MAX_TOKENS),
         }
     }
 
@@ -76,7 +71,6 @@ impl ClaudeClient {
         Self {
             timeout,
             command_path: DEFAULT_COMMAND.to_string(),
-            max_tokens: Some(DEFAULT_MAX_TOKENS),
         }
     }
 
@@ -113,13 +107,11 @@ impl ClaudeClient {
             return Err(ClaudeClientError::EmptyResponse);
         }
 
-        let mut cmd = Command::new(&self.command_path);
-        cmd.arg("--model").arg(model);
-        if let Some(max) = self.max_tokens {
-            cmd.arg("--max-tokens").arg(max.to_string());
-        }
-        cmd.arg("-p").arg(prompt);
-        let mut child = cmd
+        let mut child = Command::new(&self.command_path)
+            .arg("--model")
+            .arg(model)
+            .arg("-p")
+            .arg(prompt)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -200,12 +192,9 @@ impl ClaudeClient {
             return Err(ClaudeClientError::EmptyResponse);
         }
 
-        let mut cmd = Command::new(&self.command_path);
-        if let Some(max) = self.max_tokens {
-            cmd.arg("--max-tokens").arg(max.to_string());
-        }
-        cmd.arg("-p").arg(prompt);
-        let mut child = cmd
+        let mut child = Command::new(&self.command_path)
+            .arg("-p")
+            .arg(prompt)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -294,7 +283,6 @@ pub fn parse_json_envelope(input: &str) -> Option<String> {
 pub struct ClaudeClientBuilder {
     timeout: Duration,
     command_path: String,
-    max_tokens: Option<u32>,
 }
 
 impl Default for ClaudeClientBuilder {
@@ -302,7 +290,6 @@ impl Default for ClaudeClientBuilder {
         Self {
             timeout: DEFAULT_TIMEOUT,
             command_path: DEFAULT_COMMAND.to_string(),
-            max_tokens: Some(DEFAULT_MAX_TOKENS),
         }
     }
 }
@@ -320,18 +307,11 @@ impl ClaudeClientBuilder {
         self
     }
 
-    /// Set the max tokens for responses (None = unlimited).
-    pub fn max_tokens(mut self, max: Option<u32>) -> Self {
-        self.max_tokens = max;
-        self
-    }
-
     /// Build the ClaudeClient.
     pub fn build(self) -> ClaudeClient {
         ClaudeClient {
             timeout: self.timeout,
             command_path: self.command_path,
-            max_tokens: self.max_tokens,
         }
     }
 }
