@@ -70,7 +70,7 @@ pub use lore::{
 pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodContext, MusicDirector};
 pub use narrative::NarrativeEntry;
 pub use npc::Npc;
-pub use ocean::OceanProfile;
+pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
 pub use persistence::{
     PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry,
     SavedSession, SessionMeta, SessionStore, SqliteStore,

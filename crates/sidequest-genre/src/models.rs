@@ -167,6 +167,105 @@ impl OceanProfile {
 }
 
 // ═══════════════════════════════════════════════════════════
+// OCEAN dimension enum & shift log (story 10-5)
+// ═══════════════════════════════════════════════════════════
+
+/// One of the Big Five personality dimensions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum OceanDimension {
+    /// Openness to experience.
+    Openness,
+    /// Conscientiousness.
+    Conscientiousness,
+    /// Extraversion.
+    Extraversion,
+    /// Agreeableness.
+    Agreeableness,
+    /// Neuroticism.
+    Neuroticism,
+}
+
+/// A single recorded personality shift.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OceanShift {
+    /// Which OCEAN dimension changed.
+    pub dimension: OceanDimension,
+    /// Value before the shift.
+    pub old_value: f64,
+    /// Value after the shift (clamped to 0.0–10.0).
+    pub new_value: f64,
+    /// Free-text reason for the change.
+    pub cause: String,
+    /// Game turn when the shift occurred.
+    pub turn: u32,
+}
+
+/// Append-only log of personality shifts.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct OceanShiftLog {
+    shifts: Vec<OceanShift>,
+}
+
+impl OceanShiftLog {
+    /// Append a shift entry.
+    pub fn push(&mut self, shift: OceanShift) {
+        self.shifts.push(shift);
+    }
+
+    /// Return all recorded shifts.
+    pub fn shifts(&self) -> &[OceanShift] {
+        &self.shifts
+    }
+
+    /// Return shifts for a specific dimension.
+    pub fn shifts_for(&self, dimension: OceanDimension) -> Vec<&OceanShift> {
+        self.shifts.iter().filter(|s| s.dimension == dimension).collect()
+    }
+}
+
+impl OceanProfile {
+    /// Apply a delta to a single dimension, clamp, log the shift, and return
+    /// the new value.
+    pub fn apply_shift(
+        &mut self,
+        dimension: OceanDimension,
+        delta: f64,
+        cause: String,
+        turn: u32,
+        log: &mut OceanShiftLog,
+    ) -> f64 {
+        let old_value = self.get(dimension);
+        let new_value = (old_value + delta).clamp(0.0, 10.0);
+        match dimension {
+            OceanDimension::Openness => self.openness = new_value,
+            OceanDimension::Conscientiousness => self.conscientiousness = new_value,
+            OceanDimension::Extraversion => self.extraversion = new_value,
+            OceanDimension::Agreeableness => self.agreeableness = new_value,
+            OceanDimension::Neuroticism => self.neuroticism = new_value,
+        }
+        log.push(OceanShift {
+            dimension,
+            old_value,
+            new_value,
+            cause,
+            turn,
+        });
+        new_value
+    }
+
+    /// Read a dimension's current value.
+    pub fn get(&self, dimension: OceanDimension) -> f64 {
+        match dimension {
+            OceanDimension::Openness => self.openness,
+            OceanDimension::Conscientiousness => self.conscientiousness,
+            OceanDimension::Extraversion => self.extraversion,
+            OceanDimension::Agreeableness => self.agreeableness,
+            OceanDimension::Neuroticism => self.neuroticism,
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // Top-level aggregates (assembled by loader, not deserialized directly)
 // ═══════════════════════════════════════════════════════════
 
