@@ -70,6 +70,26 @@ impl LoreStore {
     pub fn is_empty(&self) -> bool {
         self.fragments.is_empty()
     }
+
+    /// Return the top-k fragments most similar to `query_embedding`, sorted by
+    /// descending cosine similarity. Fragments without embeddings are skipped.
+    pub fn query_by_similarity(
+        &self,
+        query_embedding: &[f32],
+        top_k: usize,
+    ) -> Vec<(&LoreFragment, f32)> {
+        let mut scored: Vec<(&LoreFragment, f32)> = self
+            .fragments
+            .values()
+            .filter_map(|f| {
+                f.embedding()
+                    .map(|emb| (f, cosine_similarity(query_embedding, emb)))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        scored.truncate(top_k);
+        scored
+    }
 }
 
 /// Category of a lore fragment.
@@ -118,6 +138,9 @@ pub struct LoreFragment {
     source: LoreSource,
     turn_created: Option<u64>,
     metadata: HashMap<String, String>,
+    /// Optional embedding vector for semantic similarity search (story 11-6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    embedding: Option<Vec<f32>>,
 }
 
 impl LoreFragment {
@@ -139,6 +162,7 @@ impl LoreFragment {
             source,
             turn_created,
             metadata,
+            embedding: None,
         }
     }
 
@@ -176,6 +200,37 @@ impl LoreFragment {
     pub fn metadata(&self) -> &HashMap<String, String> {
         &self.metadata
     }
+
+    /// The optional embedding vector for semantic search.
+    pub fn embedding(&self) -> Option<&[f32]> {
+        self.embedding.as_deref()
+    }
+
+    /// Builder-style setter: attach an embedding vector for semantic search.
+    pub fn with_embedding(mut self, embedding: Vec<f32>) -> Self {
+        self.embedding = Some(embedding);
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Cosine similarity — vector similarity for semantic search (story 11-6)
+// ---------------------------------------------------------------------------
+
+/// Compute cosine similarity between two embedding vectors.
+///
+/// Returns 0.0 for zero-length or zero-magnitude vectors.
+pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let mag_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let mag_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if mag_a == 0.0 || mag_b == 0.0 {
+        return 0.0;
+    }
+    dot / (mag_a * mag_b)
 }
 
 // ---------------------------------------------------------------------------
@@ -2102,5 +2157,211 @@ mod tests {
         let results = accumulate_lore_batch(&mut store, &[]);
         assert!(results.is_empty());
         assert_eq!(store.len(), 0);
+    }
+
+    // ===================================================================
+    // Embedding field on LoreFragment (story 11-6)
+    // ===================================================================
+
+    #[test]
+    fn new_fragment_has_no_embedding() {
+        let frag = sample_fragment();
+        assert!(frag.embedding().is_none());
+    }
+
+    #[test]
+    fn with_embedding_stores_vector() {
+        let frag = sample_fragment().with_embedding(vec![1.0, 2.0, 3.0]);
+        let emb = frag.embedding().expect("should have embedding");
+        assert_eq!(emb, &[1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn with_embedding_preserves_other_fields() {
+        let frag = sample_fragment().with_embedding(vec![0.5]);
+        assert_eq!(frag.id(), "lore-001");
+        assert_eq!(frag.category(), &LoreCategory::History);
+        assert_eq!(frag.content(), "The Flickering Reach was once a thriving trade hub.");
+    }
+
+    #[test]
+    fn serde_round_trip_without_embedding() {
+        let frag = sample_fragment();
+        let json = serde_json::to_string(&frag).expect("serialize");
+        // embedding field should be absent from JSON
+        assert!(!json.contains("embedding"));
+        let restored: LoreFragment = serde_json::from_str(&json).expect("deserialize");
+        assert!(restored.embedding().is_none());
+    }
+
+    #[test]
+    fn serde_round_trip_with_embedding() {
+        let frag = sample_fragment().with_embedding(vec![0.1, 0.2, 0.3]);
+        let json = serde_json::to_string(&frag).expect("serialize");
+        let restored: LoreFragment = serde_json::from_str(&json).expect("deserialize");
+        let emb = restored.embedding().expect("should have embedding");
+        assert_eq!(emb.len(), 3);
+        assert!((emb[0] - 0.1).abs() < 1e-6);
+        assert!((emb[1] - 0.2).abs() < 1e-6);
+        assert!((emb[2] - 0.3).abs() < 1e-6);
+    }
+
+    // ===================================================================
+    // Cosine similarity (story 11-6)
+    // ===================================================================
+
+    #[test]
+    fn cosine_similarity_identical_vectors() {
+        let v = vec![1.0, 2.0, 3.0];
+        let sim = cosine_similarity(&v, &v);
+        assert!((sim - 1.0).abs() < 1e-6, "identical vectors should be 1.0, got {sim}");
+    }
+
+    #[test]
+    fn cosine_similarity_orthogonal_vectors() {
+        let a = vec![1.0, 0.0];
+        let b = vec![0.0, 1.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!(sim.abs() < 1e-6, "orthogonal vectors should be 0.0, got {sim}");
+    }
+
+    #[test]
+    fn cosine_similarity_opposite_vectors() {
+        let a = vec![1.0, 0.0];
+        let b = vec![-1.0, 0.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!((sim - (-1.0)).abs() < 1e-6, "opposite vectors should be -1.0, got {sim}");
+    }
+
+    #[test]
+    fn cosine_similarity_different_lengths_returns_zero() {
+        let a = vec![1.0, 2.0];
+        let b = vec![1.0, 2.0, 3.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!((sim - 0.0).abs() < 1e-6, "mismatched lengths should be 0.0, got {sim}");
+    }
+
+    #[test]
+    fn cosine_similarity_zero_vector_returns_zero() {
+        let a = vec![0.0, 0.0, 0.0];
+        let b = vec![1.0, 2.0, 3.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!((sim - 0.0).abs() < 1e-6, "zero vector should give 0.0, got {sim}");
+    }
+
+    #[test]
+    fn cosine_similarity_empty_vectors_returns_zero() {
+        let sim = cosine_similarity(&[], &[]);
+        assert!((sim - 0.0).abs() < 1e-6, "empty vectors should give 0.0, got {sim}");
+    }
+
+    #[test]
+    fn cosine_similarity_scaled_vectors_are_identical() {
+        let a = vec![1.0, 2.0, 3.0];
+        let b = vec![2.0, 4.0, 6.0];
+        let sim = cosine_similarity(&a, &b);
+        assert!((sim - 1.0).abs() < 1e-6, "scaled vectors should be 1.0, got {sim}");
+    }
+
+    // ===================================================================
+    // query_by_similarity on LoreStore (story 11-6)
+    // ===================================================================
+
+    fn make_fragment_with_embedding(id: &str, embedding: Vec<f32>) -> LoreFragment {
+        LoreFragment::new(
+            id.to_string(),
+            LoreCategory::History,
+            format!("Content for {id}"),
+            LoreSource::GenrePack,
+            None,
+            HashMap::new(),
+        )
+        .with_embedding(embedding)
+    }
+
+    #[test]
+    fn query_by_similarity_empty_store() {
+        let store = LoreStore::new();
+        let results = store.query_by_similarity(&[1.0, 0.0], 5);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn query_by_similarity_no_embeddings_returns_empty() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        store.add(geography_fragment()).unwrap();
+        let results = store.query_by_similarity(&[1.0, 0.0], 5);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn query_by_similarity_returns_sorted_by_score() {
+        let mut store = LoreStore::new();
+        // query is [1,0] — frag_a=[1,0] is perfect match, frag_b=[0,1] is orthogonal
+        store.add(make_fragment_with_embedding("sim-a", vec![1.0, 0.0])).unwrap();
+        store.add(make_fragment_with_embedding("sim-b", vec![0.0, 1.0])).unwrap();
+        store.add(make_fragment_with_embedding("sim-c", vec![0.7, 0.7])).unwrap();
+
+        let results = store.query_by_similarity(&[1.0, 0.0], 10);
+        assert_eq!(results.len(), 3);
+        // First result should be the most similar (sim-a)
+        assert_eq!(results[0].0.id(), "sim-a");
+        // Scores should be descending
+        assert!(results[0].1 >= results[1].1);
+        assert!(results[1].1 >= results[2].1);
+    }
+
+    #[test]
+    fn query_by_similarity_respects_top_k() {
+        let mut store = LoreStore::new();
+        store.add(make_fragment_with_embedding("tk-a", vec![1.0, 0.0])).unwrap();
+        store.add(make_fragment_with_embedding("tk-b", vec![0.5, 0.5])).unwrap();
+        store.add(make_fragment_with_embedding("tk-c", vec![0.0, 1.0])).unwrap();
+
+        let results = store.query_by_similarity(&[1.0, 0.0], 2);
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn query_by_similarity_skips_fragments_without_embeddings() {
+        let mut store = LoreStore::new();
+        // One with embedding, one without
+        store.add(make_fragment_with_embedding("with-emb", vec![1.0, 0.0])).unwrap();
+        store.add(history_fragment()).unwrap(); // no embedding
+
+        let results = store.query_by_similarity(&[1.0, 0.0], 10);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0.id(), "with-emb");
+    }
+
+    #[test]
+    fn query_by_similarity_mixed_embeddings_only_returns_embedded() {
+        let mut store = LoreStore::new();
+        store.add(make_fragment_with_embedding("e1", vec![1.0, 0.0])).unwrap();
+        store.add(geography_fragment()).unwrap(); // no embedding
+        store.add(make_fragment_with_embedding("e2", vec![0.0, 1.0])).unwrap();
+        store.add(faction_fragment()).unwrap(); // no embedding
+
+        let results = store.query_by_similarity(&[0.5, 0.5], 10);
+        assert_eq!(results.len(), 2);
+        // Both returned fragments should have embeddings
+        for (frag, _score) in &results {
+            assert!(frag.embedding().is_some());
+        }
+    }
+
+    // ===================================================================
+    // Graceful fallback — existing behavior unchanged (story 11-6)
+    // ===================================================================
+
+    #[test]
+    fn select_lore_for_prompt_still_works_without_embeddings() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        store.add(geography_fragment()).unwrap();
+        // None of these have embeddings — select_lore_for_prompt should still work
+        let selected = select_lore_for_prompt(&store, 1000, None);
+        assert_eq!(selected.len(), 2);
     }
 }
