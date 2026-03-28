@@ -104,28 +104,14 @@ fn drama_thresholds_implements_serde_deserialize() {
     // AC1: DramaThresholds must derive Deserialize.
     // This is a compile-time trait bound check done at runtime via a generic helper.
     fn assert_deserializable<'de, T: serde::Deserialize<'de>>() {}
-    // FAILS at compile time until `derive(Deserialize)` is added to DramaThresholds.
-    // For now, we check the concept via the YAML shape tests above,
-    // and this test serves as documentation of the requirement.
-    //
-    // Uncomment the line below once Deserialize is derived — it will then compile:
-    // assert_deserializable::<DramaThresholds>();
-
-    // Until then, this test FAILS to signal RED:
-    panic!(
-        "DramaThresholds does not yet derive serde::Deserialize. \
-         Add `#[derive(Serialize, Deserialize)]` and `#[serde(default)]` to DramaThresholds."
-    );
+    assert_deserializable::<DramaThresholds>();
 }
 
 #[test]
 fn drama_thresholds_implements_serde_serialize() {
     // AC1: DramaThresholds must derive Serialize.
-    // Same pattern as above — fails until Serialize is derived.
-    panic!(
-        "DramaThresholds does not yet derive serde::Serialize. \
-         Add `#[derive(Serialize, Deserialize)]` to DramaThresholds."
-    );
+    fn assert_serializable<T: serde::Serialize>() {}
+    assert_serializable::<DramaThresholds>();
 }
 
 // ============================================================================

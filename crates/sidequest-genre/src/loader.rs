@@ -48,6 +48,8 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     let voice_presets: Option<VoicePresets> = load_yaml_optional(&path.join("voice_presets.yaml"))?;
     let power_tiers: HashMap<String, Vec<PowerTier>> =
         load_yaml_optional(&path.join("power_tiers.yaml"))?.unwrap_or_default();
+    let drama_thresholds: Option<DramaThresholds> =
+        load_yaml_optional(&path.join("pacing.yaml"))?;
 
     // Load worlds and scenarios from subdirectories
     let worlds = load_subdirectories(path, "worlds", |p| load_single_world(p, &genre_tropes))?;
@@ -73,6 +75,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         power_tiers,
         worlds,
         scenarios,
+        drama_thresholds,
     })
 }
 
