@@ -134,6 +134,9 @@ fn test_snapshot() -> sidequest_game::GameSnapshot {
         active_stakes: String::new(),
         lore_established: vec![],
         turns_since_meaningful: 0,
+        total_beats_fired: 0,
+        campaign_maturity: sidequest_game::CampaignMaturity::Fresh,
+        world_history: vec![],
     }
 }
 
