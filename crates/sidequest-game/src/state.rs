@@ -20,6 +20,7 @@ use crate::inventory::Inventory;
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
 use crate::turn::TurnManager;
+use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
 use sidequest_protocol::{
     ChapterMarkerPayload, CombatEnemy, CombatEventPayload, ExploredLocation, GameMessage,
@@ -81,6 +82,16 @@ pub struct GameSnapshot {
     /// Drives the engagement multiplier for trope progression pacing.
     #[serde(default)]
     pub turns_since_meaningful: u32,
+    /// Total story beats fired across all tropes (story 6-6).
+    /// Contributes to effective turn count for maturity calculation.
+    #[serde(default)]
+    pub total_beats_fired: u32,
+    /// Campaign maturity level (story 6-6).
+    #[serde(default)]
+    pub campaign_maturity: CampaignMaturity,
+    /// Applied history chapters based on campaign maturity (story 6-6).
+    #[serde(default)]
+    pub world_history: Vec<HistoryChapter>,
 }
 
 impl GameSnapshot {
