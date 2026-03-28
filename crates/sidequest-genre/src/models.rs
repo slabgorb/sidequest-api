@@ -208,8 +208,8 @@ pub struct OceanShiftLog {
 
 impl OceanShiftLog {
     /// Append a shift entry.
-    pub fn push(&mut self, _shift: OceanShift) {
-        // TODO: implement in GREEN phase
+    pub fn push(&mut self, shift: OceanShift) {
+        self.shifts.push(shift);
     }
 
     /// Return all recorded shifts.
@@ -218,9 +218,8 @@ impl OceanShiftLog {
     }
 
     /// Return shifts for a specific dimension.
-    pub fn shifts_for(&self, _dimension: OceanDimension) -> Vec<&OceanShift> {
-        // TODO: implement in GREEN phase
-        Vec::new()
+    pub fn shifts_for(&self, dimension: OceanDimension) -> Vec<&OceanShift> {
+        self.shifts.iter().filter(|s| s.dimension == dimension).collect()
     }
 }
 
@@ -229,14 +228,29 @@ impl OceanProfile {
     /// the new value.
     pub fn apply_shift(
         &mut self,
-        _dimension: OceanDimension,
-        _delta: f64,
-        _cause: String,
-        _turn: u32,
-        _log: &mut OceanShiftLog,
+        dimension: OceanDimension,
+        delta: f64,
+        cause: String,
+        turn: u32,
+        log: &mut OceanShiftLog,
     ) -> f64 {
-        // TODO: implement in GREEN phase
-        0.0
+        let old_value = self.get(dimension);
+        let new_value = (old_value + delta).clamp(0.0, 10.0);
+        match dimension {
+            OceanDimension::Openness => self.openness = new_value,
+            OceanDimension::Conscientiousness => self.conscientiousness = new_value,
+            OceanDimension::Extraversion => self.extraversion = new_value,
+            OceanDimension::Agreeableness => self.agreeableness = new_value,
+            OceanDimension::Neuroticism => self.neuroticism = new_value,
+        }
+        log.push(OceanShift {
+            dimension,
+            old_value,
+            new_value,
+            cause,
+            turn,
+        });
+        new_value
     }
 
     /// Read a dimension's current value.
