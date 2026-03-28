@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 
 pub mod ability;
+pub mod affinity;
 pub mod audio_mixer;
 pub mod axis;
 pub mod barrier;
@@ -57,6 +58,10 @@ pub mod turn_reminder;
 pub mod voice_router;
 pub mod world_materialization;
 
+pub use affinity::{
+    AffinityState, AffinityTierUpEvent, check_affinity_thresholds,
+    increment_affinity_progress, resolve_abilities, MAX_TIER, TIER_NAMES,
+};
 pub use axis::{AxisValue, ToneCommand, format_tone_context};
 pub use audio_mixer::{AudioMixer, DuckConfig};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
