@@ -111,6 +111,43 @@ impl OceanProfile {
         }
     }
 
+    /// Produce a natural-language behavioral summary from OCEAN scores.
+    ///
+    /// Dimensions with extreme scores (low 0–3, high 7–10) contribute
+    /// adjectives; mid-range dimensions are omitted. An all-neutral profile
+    /// returns a fallback phrase.
+    pub fn behavioral_summary(&self) -> String {
+        let dimensions: &[(f64, &str, &str)] = &[
+            (self.openness, "conventional and practical", "curious and imaginative"),
+            (self.conscientiousness, "spontaneous and flexible", "meticulous and disciplined"),
+            (self.extraversion, "reserved and quiet", "outgoing and talkative"),
+            (self.agreeableness, "competitive and blunt", "cooperative and empathetic"),
+            (self.neuroticism, "calm and steady", "anxious and volatile"),
+        ];
+
+        let descriptors: Vec<&str> = dimensions
+            .iter()
+            .filter_map(|&(score, low, high)| {
+                if score <= 3.0 {
+                    Some(low)
+                } else if score >= 7.0 {
+                    Some(high)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        match descriptors.len() {
+            0 => "balanced temperament".to_string(),
+            1 => descriptors[0].to_string(),
+            _ => {
+                let (last, rest) = descriptors.split_last().unwrap();
+                format!("{}, and {last}", rest.join(", "))
+            }
+        }
+    }
+
     /// Return a new profile jittered by up to ±`max_delta` per dimension,
     /// clamped to [0.0, 10.0].
     pub fn with_jitter(&self, max_delta: f64) -> Self {
