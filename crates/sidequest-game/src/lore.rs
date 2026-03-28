@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sidequest_genre::{CharCreationScene, GenrePack};
 
+use crate::conlang::{GeneratedName, Morpheme};
+
 // ---------------------------------------------------------------------------
 // LoreStore — in-memory indexed collection of LoreFragments (story 11-2)
 // ---------------------------------------------------------------------------
@@ -484,6 +486,105 @@ impl std::fmt::Display for LoreCategory {
             LoreCategory::Custom(s) => write!(f, "{s}"),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Language knowledge — bridge between conlang and lore systems (story 11-10)
+// ---------------------------------------------------------------------------
+
+/// Record that a character learned a morpheme during gameplay.
+///
+/// Creates a [`LoreFragment`] with category [`LoreCategory::Language`] and
+/// source [`LoreSource::GameEvent`], storing the morpheme and its meaning
+/// along with character and language metadata.
+///
+/// Returns the fragment id on success.
+pub fn record_language_knowledge(
+    store: &mut LoreStore,
+    morpheme: &Morpheme,
+    character_id: &str,
+    turn: u64,
+) -> Result<String, String> {
+    let id = format!(
+        "lang-{}-{}-{}",
+        character_id, morpheme.language_id, morpheme.morpheme
+    );
+    let content = format!(
+        "Morpheme '{}' means '{}' in language {}",
+        morpheme.morpheme, morpheme.meaning, morpheme.language_id
+    );
+    let mut metadata = HashMap::new();
+    metadata.insert("character_id".to_string(), character_id.to_string());
+    metadata.insert("language_id".to_string(), morpheme.language_id.clone());
+    metadata.insert("morpheme".to_string(), morpheme.morpheme.clone());
+    metadata.insert("meaning".to_string(), morpheme.meaning.clone());
+    let fragment = LoreFragment::new(
+        id.clone(),
+        LoreCategory::Language,
+        content,
+        LoreSource::GameEvent,
+        Some(turn),
+        metadata,
+    );
+    store.add(fragment)?;
+    Ok(id)
+}
+
+/// Record that a character learned a generated name's meaning during gameplay.
+///
+/// Creates a [`LoreFragment`] with category [`LoreCategory::Language`] and
+/// source [`LoreSource::GameEvent`], storing the name and its gloss
+/// along with character and language metadata.
+///
+/// Returns the fragment id on success.
+pub fn record_name_knowledge(
+    store: &mut LoreStore,
+    name: &GeneratedName,
+    character_id: &str,
+    turn: u64,
+) -> Result<String, String> {
+    let id = format!(
+        "name-{}-{}-{}",
+        character_id, name.language_id, name.name
+    );
+    let content = format!(
+        "Name '{}' means '{}' in language {}",
+        name.name, name.gloss, name.language_id
+    );
+    let mut metadata = HashMap::new();
+    metadata.insert("character_id".to_string(), character_id.to_string());
+    metadata.insert("language_id".to_string(), name.language_id.clone());
+    metadata.insert("name".to_string(), name.name.clone());
+    metadata.insert("gloss".to_string(), name.gloss.clone());
+    let fragment = LoreFragment::new(
+        id.clone(),
+        LoreCategory::Language,
+        content,
+        LoreSource::GameEvent,
+        Some(turn),
+        metadata,
+    );
+    store.add(fragment)?;
+    Ok(id)
+}
+
+/// Query what a character knows about a specific language.
+///
+/// Returns all [`LoreFragment`]s with category [`LoreCategory::Language`]
+/// whose metadata matches both `character_id` and `language_id`.
+pub fn query_language_knowledge<'a>(
+    store: &'a LoreStore,
+    character_id: &str,
+    language_id: &str,
+) -> Vec<&'a LoreFragment> {
+    store
+        .query_by_category(&LoreCategory::Language)
+        .into_iter()
+        .filter(|f| {
+            f.metadata().get("character_id").map(|s| s.as_str()) == Some(character_id)
+                && f.metadata().get("language_id").map(|s| s.as_str()) == Some(language_id)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -2363,5 +2464,282 @@ mod tests {
         // None of these have embeddings — select_lore_for_prompt should still work
         let selected = select_lore_for_prompt(&store, 1000, None);
         assert_eq!(selected.len(), 2);
+    }
+
+    // ===================================================================
+    // Language knowledge — bridge conlang ↔ lore (story 11-10)
+    // ===================================================================
+
+    use crate::conlang::{GeneratedName, MorphemeCategory, NamePattern};
+
+    fn sample_morpheme(morpheme: &str, meaning: &str, language_id: &str) -> Morpheme {
+        Morpheme {
+            morpheme: morpheme.to_string(),
+            meaning: meaning.to_string(),
+            pronunciation_hint: None,
+            category: MorphemeCategory::Root,
+            language_id: language_id.to_string(),
+        }
+    }
+
+    fn sample_generated_name() -> GeneratedName {
+        GeneratedName {
+            name: "zar'thi".to_string(),
+            gloss: "fire-one who".to_string(),
+            pronunciation: Some("zahr'thee".to_string()),
+            pattern: NamePattern::RootSuffix,
+            language_id: "draconic".to_string(),
+        }
+    }
+
+    // --- record_language_knowledge ---
+
+    #[test]
+    fn record_language_knowledge_creates_language_category() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        let id = record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags.len(), 1);
+        assert_eq!(frags[0].id(), id);
+        assert_eq!(frags[0].category(), &LoreCategory::Language);
+    }
+
+    #[test]
+    fn record_language_knowledge_source_is_game_event() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        let id = record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        let frag = frags.iter().find(|f| f.id() == id).unwrap();
+        assert_eq!(frag.source(), &LoreSource::GameEvent);
+    }
+
+    #[test]
+    fn record_language_knowledge_sets_turn_created() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 7).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].turn_created(), Some(7));
+    }
+
+    #[test]
+    fn record_language_knowledge_content_includes_morpheme_and_meaning() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        let content = frags[0].content();
+        assert!(content.contains("zar"), "Content should include morpheme string");
+        assert!(content.contains("fire"), "Content should include meaning");
+    }
+
+    #[test]
+    fn record_language_knowledge_metadata_has_character_id() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("character_id").unwrap(), "char-1");
+    }
+
+    #[test]
+    fn record_language_knowledge_metadata_has_language_id() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("language_id").unwrap(), "draconic");
+    }
+
+    #[test]
+    fn record_language_knowledge_metadata_has_morpheme() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("morpheme").unwrap(), "zar");
+    }
+
+    #[test]
+    fn record_language_knowledge_metadata_has_meaning() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("meaning").unwrap(), "fire");
+    }
+
+    #[test]
+    fn record_language_knowledge_adds_fragment_to_store() {
+        let mut store = LoreStore::new();
+        assert_eq!(store.len(), 0);
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn record_language_knowledge_returns_fragment_id() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        let id = record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        assert!(!id.is_empty(), "Returned id should not be empty");
+    }
+
+    // --- record_name_knowledge ---
+
+    #[test]
+    fn record_name_knowledge_creates_language_fragment() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        let id = record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags.len(), 1);
+        assert_eq!(frags[0].id(), id);
+        assert_eq!(frags[0].category(), &LoreCategory::Language);
+    }
+
+    #[test]
+    fn record_name_knowledge_content_includes_name_and_gloss() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        let content = frags[0].content();
+        assert!(content.contains("zar'thi"), "Content should include the name");
+        assert!(content.contains("fire-one who"), "Content should include the gloss");
+    }
+
+    #[test]
+    fn record_name_knowledge_metadata_has_character_id() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("character_id").unwrap(), "char-1");
+    }
+
+    #[test]
+    fn record_name_knowledge_metadata_has_language_id() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("language_id").unwrap(), "draconic");
+    }
+
+    #[test]
+    fn record_name_knowledge_metadata_has_name() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("name").unwrap(), "zar'thi");
+    }
+
+    #[test]
+    fn record_name_knowledge_metadata_has_gloss() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
+        let frags = store.query_by_category(&LoreCategory::Language);
+        assert_eq!(frags[0].metadata().get("gloss").unwrap(), "fire-one who");
+    }
+
+    #[test]
+    fn record_name_knowledge_returns_fragment_id() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        let id = record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
+        assert!(!id.is_empty());
+    }
+
+    // --- query_language_knowledge ---
+
+    #[test]
+    fn query_language_knowledge_returns_matching_fragments() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let results = query_language_knowledge(&store, "char-1", "draconic");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn query_language_knowledge_empty_for_unknown_character() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let results = query_language_knowledge(&store, "char-unknown", "draconic");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn query_language_knowledge_empty_for_unknown_language() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        let results = query_language_knowledge(&store, "char-1", "elvish");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn query_language_knowledge_multiple_words_returned() {
+        let mut store = LoreStore::new();
+        let m1 = sample_morpheme("zar", "fire", "draconic");
+        let m2 = sample_morpheme("dra", "dragon", "draconic");
+        record_language_knowledge(&mut store, &m1, "char-1", 5).unwrap();
+        record_language_knowledge(&mut store, &m2, "char-1", 6).unwrap();
+        let results = query_language_knowledge(&store, "char-1", "draconic");
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn query_language_knowledge_excludes_other_characters() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
+        record_language_knowledge(&mut store, &sample_morpheme("dra", "dragon", "draconic"), "char-2", 6).unwrap();
+        let results = query_language_knowledge(&store, "char-1", "draconic");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn query_language_knowledge_excludes_other_languages() {
+        let mut store = LoreStore::new();
+        let m1 = sample_morpheme("zar", "fire", "draconic");
+        let m2 = sample_morpheme("ael", "star", "elvish");
+        record_language_knowledge(&mut store, &m1, "char-1", 5).unwrap();
+        record_language_knowledge(&mut store, &m2, "char-1", 6).unwrap();
+        let results = query_language_knowledge(&store, "char-1", "draconic");
+        assert_eq!(results.len(), 1);
+    }
+
+    // --- Integration ---
+
+    #[test]
+    fn integration_record_multiple_query_returns_all() {
+        let mut store = LoreStore::new();
+        let m1 = sample_morpheme("zar", "fire", "draconic");
+        let m2 = sample_morpheme("dra", "dragon", "draconic");
+        let m3 = sample_morpheme("kel", "stone", "draconic");
+        record_language_knowledge(&mut store, &m1, "char-1", 1).unwrap();
+        record_language_knowledge(&mut store, &m2, "char-1", 2).unwrap();
+        record_language_knowledge(&mut store, &m3, "char-1", 3).unwrap();
+        let results = query_language_knowledge(&store, "char-1", "draconic");
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn integration_mixed_morpheme_and_name_knowledge_queryable() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        let name = sample_generated_name();
+        record_language_knowledge(&mut store, &m, "char-1", 1).unwrap();
+        record_name_knowledge(&mut store, &name, "char-1", 2).unwrap();
+        let results = query_language_knowledge(&store, "char-1", "draconic");
+        assert_eq!(results.len(), 2);
     }
 }
