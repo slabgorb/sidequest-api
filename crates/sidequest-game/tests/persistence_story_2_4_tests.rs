@@ -78,6 +78,7 @@ fn test_snapshot() -> GameSnapshot {
                 ("CHA".to_string(), 15),
             ]),
             abilities: vec![],
+        known_facts: vec![],
             is_friendly: true,
         }],
         npcs: vec![],

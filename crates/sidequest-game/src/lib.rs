@@ -24,6 +24,7 @@ pub mod faction_agenda;
 pub mod guest_npc;
 pub mod hp;
 pub mod inventory;
+pub mod known_fact;
 pub mod lore;
 pub mod multiplayer;
 pub mod music_director;
@@ -63,6 +64,7 @@ pub use disposition::{Attitude, Disposition};
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
+pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{
     accumulate_lore, accumulate_lore_batch, cosine_similarity, format_lore_context,
     query_language_knowledge, record_language_knowledge, record_name_knowledge,

@@ -12,6 +12,7 @@ use sidequest_protocol::NonBlankString;
 use crate::ability::AbilityDefinition;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
+use crate::known_fact::KnownFact;
 
 /// A player character with unified narrative + mechanical identity.
 ///
@@ -43,6 +44,11 @@ pub struct Character {
     /// Genre-voiced ability definitions with mechanical effects.
     #[serde(default)]
     pub abilities: Vec<AbilityDefinition>,
+
+    // Character knowledge (Story 9-3)
+    /// Facts learned during play — accumulates monotonically.
+    #[serde(default)]
+    pub known_facts: Vec<KnownFact>,
 
     /// Whether this is a player-controlled (friendly) character.
     #[serde(default = "default_friendly")]
@@ -111,6 +117,7 @@ mod tests {
                 ("CHA".to_string(), 6),
             ]),
             abilities: vec![],
+            known_facts: vec![],
             is_friendly: true,
         }
     }

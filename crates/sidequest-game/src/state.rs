@@ -410,6 +410,8 @@ pub struct WorldStatePatch {
     pub active_stakes: Option<String>,
     /// Lore fragments to establish.
     pub lore_established: Option<Vec<String>>,
+    /// Facts discovered this turn (Story 9-3).
+    pub discovered_facts: Option<Vec<crate::known_fact::DiscoveredFact>>,
 }
 
 /// Patch for NPC upsert — used in npcs_present.
