@@ -30,6 +30,7 @@ pub mod music_director;
 pub mod narrative;
 pub mod npc;
 pub mod ocean;
+pub mod ocean_shift_proposals;
 pub mod perception;
 pub mod persistence;
 pub mod prerender;
@@ -71,6 +72,7 @@ pub use music_director::{AudioAction, AudioChannel, AudioCue, Mood, MoodClassifi
 pub use narrative::NarrativeEntry;
 pub use npc::Npc;
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
+pub use ocean_shift_proposals::{OceanShiftProposal, PersonalityEvent, propose_ocean_shifts};
 pub use persistence::{
     PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry,
     SavedSession, SessionMeta, SessionStore, SqliteStore,
