@@ -9,6 +9,68 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+// ---------------------------------------------------------------------------
+// LoreStore — in-memory indexed collection of LoreFragments (story 11-2)
+// ---------------------------------------------------------------------------
+
+/// In-memory indexed collection of [`LoreFragment`]s with category/keyword
+/// queries and token-budget tracking.
+#[derive(Default)]
+pub struct LoreStore {
+    fragments: HashMap<String, LoreFragment>,
+}
+
+impl LoreStore {
+    /// Create an empty store.
+    pub fn new() -> Self {
+        Self {
+            fragments: HashMap::new(),
+        }
+    }
+
+    /// Insert a fragment into the store.
+    /// Returns `Err` if a fragment with the same id already exists.
+    pub fn add(&mut self, fragment: LoreFragment) -> Result<(), String> {
+        if self.fragments.contains_key(fragment.id()) {
+            return Err(format!("duplicate id: {}", fragment.id()));
+        }
+        self.fragments.insert(fragment.id().to_string(), fragment);
+        Ok(())
+    }
+
+    /// Return all fragments matching the given category.
+    pub fn query_by_category(&self, category: &LoreCategory) -> Vec<&LoreFragment> {
+        self.fragments
+            .values()
+            .filter(|f| f.category() == category)
+            .collect()
+    }
+
+    /// Return all fragments whose content contains `keyword` (case-insensitive).
+    pub fn query_by_keyword(&self, keyword: &str) -> Vec<&LoreFragment> {
+        let keyword_lower = keyword.to_lowercase();
+        self.fragments
+            .values()
+            .filter(|f| f.content().to_lowercase().contains(&keyword_lower))
+            .collect()
+    }
+
+    /// Sum of token estimates across all stored fragments.
+    pub fn total_tokens(&self) -> usize {
+        self.fragments.values().map(|f| f.token_estimate()).sum()
+    }
+
+    /// Number of stored fragments.
+    pub fn len(&self) -> usize {
+        self.fragments.len()
+    }
+
+    /// Whether the store is empty.
+    pub fn is_empty(&self) -> bool {
+        self.fragments.is_empty()
+    }
+}
+
 /// Category of a lore fragment.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -388,5 +450,255 @@ mod tests {
         );
         assert_eq!(frag.metadata().len(), 3);
         assert_eq!(frag.metadata().get("number").unwrap(), "42");
+    }
+
+    // ===================================================================
+    // LoreStore tests (story 11-2)
+    // ===================================================================
+
+    fn history_fragment() -> LoreFragment {
+        LoreFragment::new(
+            "lore-hist-001".to_string(),
+            LoreCategory::History,
+            "The Flickering Reach was once a thriving trade hub.".to_string(),
+            LoreSource::GenrePack,
+            Some(1),
+            HashMap::new(),
+        )
+    }
+
+    fn geography_fragment() -> LoreFragment {
+        LoreFragment::new(
+            "lore-geo-001".to_string(),
+            LoreCategory::Geography,
+            "The northern mountains are impassable in winter.".to_string(),
+            LoreSource::GenrePack,
+            Some(2),
+            HashMap::new(),
+        )
+    }
+
+    fn faction_fragment() -> LoreFragment {
+        LoreFragment::new(
+            "lore-fac-001".to_string(),
+            LoreCategory::Faction,
+            "The Merchant Guild controls all trade routes through the Reach.".to_string(),
+            LoreSource::GameEvent,
+            Some(3),
+            HashMap::new(),
+        )
+    }
+
+    // --- Construction ---
+
+    #[test]
+    fn lore_store_new_is_empty() {
+        let store = LoreStore::new();
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn lore_store_new_has_zero_len() {
+        let store = LoreStore::new();
+        assert_eq!(store.len(), 0);
+    }
+
+    #[test]
+    fn lore_store_new_has_zero_tokens() {
+        let store = LoreStore::new();
+        assert_eq!(store.total_tokens(), 0);
+    }
+
+    // --- Add fragment ---
+
+    #[test]
+    fn lore_store_add_increases_len() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        assert_eq!(store.len(), 1);
+    }
+
+    #[test]
+    fn lore_store_add_makes_non_empty() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        assert!(!store.is_empty());
+    }
+
+    #[test]
+    fn lore_store_add_multiple() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        store.add(geography_fragment()).unwrap();
+        store.add(faction_fragment()).unwrap();
+        assert_eq!(store.len(), 3);
+    }
+
+    // --- Query by category ---
+
+    #[test]
+    fn lore_store_query_by_category_returns_matches() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        store.add(geography_fragment()).unwrap();
+        store.add(faction_fragment()).unwrap();
+
+        let results = store.query_by_category(&LoreCategory::History);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id(), "lore-hist-001");
+    }
+
+    #[test]
+    fn lore_store_query_by_category_no_matches() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+
+        let results = store.query_by_category(&LoreCategory::Item);
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn lore_store_query_by_category_multiple_matches() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        store.add(LoreFragment::new(
+            "lore-hist-002".to_string(),
+            LoreCategory::History,
+            "The great war ended five centuries ago.".to_string(),
+            LoreSource::GenrePack,
+            Some(4),
+            HashMap::new(),
+        )).unwrap();
+
+        let results = store.query_by_category(&LoreCategory::History);
+        assert_eq!(results.len(), 2);
+    }
+
+    // --- Query by keyword ---
+
+    #[test]
+    fn lore_store_query_by_keyword_returns_matches() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        store.add(geography_fragment()).unwrap();
+        store.add(faction_fragment()).unwrap();
+
+        // "merchant" appears in faction fragment content
+        let results = store.query_by_keyword("merchant");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id(), "lore-fac-001");
+    }
+
+    #[test]
+    fn lore_store_query_by_keyword_case_insensitive() {
+        let mut store = LoreStore::new();
+        store.add(faction_fragment()).unwrap();
+
+        let results = store.query_by_keyword("MERCHANT");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id(), "lore-fac-001");
+    }
+
+    #[test]
+    fn lore_store_query_by_keyword_no_matches() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+
+        let results = store.query_by_keyword("dragon");
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn lore_store_query_by_keyword_multiple_matches() {
+        let mut store = LoreStore::new();
+        // Both contain "the"
+        store.add(history_fragment()).unwrap();
+        store.add(geography_fragment()).unwrap();
+        store.add(faction_fragment()).unwrap();
+
+        let results = store.query_by_keyword("the");
+        assert_eq!(results.len(), 3);
+    }
+
+    // --- Token budget ---
+
+    #[test]
+    fn lore_store_total_tokens_single() {
+        let mut store = LoreStore::new();
+        let frag = history_fragment();
+        let expected = frag.token_estimate();
+        store.add(frag).unwrap();
+        assert_eq!(store.total_tokens(), expected);
+    }
+
+    #[test]
+    fn lore_store_total_tokens_multiple() {
+        let mut store = LoreStore::new();
+        let h = history_fragment();
+        let g = geography_fragment();
+        let f = faction_fragment();
+        let expected = h.token_estimate() + g.token_estimate() + f.token_estimate();
+        store.add(h).unwrap();
+        store.add(g).unwrap();
+        store.add(f).unwrap();
+        assert_eq!(store.total_tokens(), expected);
+    }
+
+    // --- Duplicate detection ---
+
+    #[test]
+    fn lore_store_duplicate_id_rejected() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+
+        // Same id, different content
+        let dup = LoreFragment::new(
+            "lore-hist-001".to_string(),
+            LoreCategory::History,
+            "Completely different content.".to_string(),
+            LoreSource::GameEvent,
+            None,
+            HashMap::new(),
+        );
+        assert!(store.add(dup).is_err());
+    }
+
+    #[test]
+    fn lore_store_duplicate_rejected_preserves_original() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+
+        let dup = LoreFragment::new(
+            "lore-hist-001".to_string(),
+            LoreCategory::History,
+            "Completely different content.".to_string(),
+            LoreSource::GameEvent,
+            None,
+            HashMap::new(),
+        );
+        let _ = store.add(dup);
+
+        // Original is still there
+        let results = store.query_by_category(&LoreCategory::History);
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].content(),
+            "The Flickering Reach was once a thriving trade hub."
+        );
+    }
+
+    #[test]
+    fn lore_store_duplicate_rejected_len_unchanged() {
+        let mut store = LoreStore::new();
+        store.add(history_fragment()).unwrap();
+        let _ = store.add(LoreFragment::new(
+            "lore-hist-001".to_string(),
+            LoreCategory::Event,
+            "Duplicate id.".to_string(),
+            LoreSource::GameEvent,
+            None,
+            HashMap::new(),
+        ));
+        assert_eq!(store.len(), 1);
     }
 }
