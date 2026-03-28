@@ -1,24 +1,25 @@
 //! Story 9-7: Core slash commands tests
 //!
-//! RED phase — these tests reference command handler types that don't exist yet.
-//! They will fail to compile until Dev implements:
-//!   - StatusCommand
-//!   - InventoryCommand
-//!   - MapCommand
-//!   - SaveCommand
-//!   - Registration and integration in game startup
+//! RED phase — these tests import command types from sidequest_game::commands
+//! which does not exist yet. They will fail to compile until Dev implements:
+//!   - commands/mod.rs with re-exports
+//!   - commands/status.rs (StatusCommand)
+//!   - commands/inventory.rs (InventoryCommand)
+//!   - commands/map.rs (MapCommand)
+//!   - commands/save.rs (SaveCommand)
 //!
 //! ACs:
-//!   1. Status Command — /status displays character HP, level, class, race, location, situation
-//!   2. Inventory Command — /inventory lists equipped items and pack with encumbrance
-//!   3. Map Command — /map shows discovered regions, current location, routes
-//!   4. Save Command — /save persists game state and returns confirmation
+//!   1. Status — /status displays character HP, level, class, race, location, situation
+//!   2. Inventory — /inventory lists equipped items and pack with weight
+//!   3. Map — /map shows discovered regions, current location, routes
+//!   4. Save — /save returns confirmation message
 //!   5. Pure Functions — No LLM calls, instant response, immutable state
 //!   6. Error Handling — Missing data produces clear error messages
-//!   7. Integration — Commands registered at startup and functional in turn loop
+//!   7. Integration — Commands registered via SlashRouter
 
 use std::collections::HashMap;
 
+use sidequest_game::commands::{InventoryCommand, MapCommand, SaveCommand, StatusCommand};
 use sidequest_game::slash_router::{CommandHandler, CommandResult, SlashRouter};
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::character::Character;
@@ -48,8 +49,8 @@ fn test_snapshot() -> GameSnapshot {
             "crumbling_tower".to_string(),
         ],
         discovered_routes: vec![
-            "outer_wastes → scorched_field (dangerous)".to_string(),
-            "scorched_field → crumbling_tower (guarded)".to_string(),
+            "outer_wastes → scorched_field".to_string(),
+            "scorched_field → crumbling_tower".to_string(),
         ],
         quest_log: HashMap::new(),
         notes: vec![],
@@ -72,11 +73,10 @@ fn test_character() -> Character {
     let mut inventory = Inventory::default();
     inventory.gold = 50;
 
-    // Add equipped items
     inventory.items.push(Item {
         id: NonBlankString::new("machete_rusty").unwrap(),
         name: NonBlankString::new("Rusty Machete").unwrap(),
-        description: NonBlankString::new("A worn blade").unwrap(),
+        description: NonBlankString::new("A worn blade that's seen better days").unwrap(),
         category: NonBlankString::new("weapon").unwrap(),
         value: 25,
         weight: 2.0,
@@ -90,7 +90,7 @@ fn test_character() -> Character {
     inventory.items.push(Item {
         id: NonBlankString::new("jacket_leather").unwrap(),
         name: NonBlankString::new("Leather Jacket").unwrap(),
-        description: NonBlankString::new("Weathered armor").unwrap(),
+        description: NonBlankString::new("Weathered armor against the wastes").unwrap(),
         category: NonBlankString::new("armor").unwrap(),
         value: 40,
         weight: 3.0,
@@ -101,31 +101,16 @@ fn test_character() -> Character {
         quantity: 1,
     });
 
-    // Add pack items
     inventory.items.push(Item {
         id: NonBlankString::new("bedroll").unwrap(),
         name: NonBlankString::new("Bedroll").unwrap(),
-        description: NonBlankString::new("Sleeping gear").unwrap(),
+        description: NonBlankString::new("Sleeping gear for the road").unwrap(),
         category: NonBlankString::new("tool").unwrap(),
         value: 5,
         weight: 2.5,
         rarity: NonBlankString::new("common").unwrap(),
         narrative_weight: 0.1,
         tags: vec!["camping".to_string()],
-        equipped: false,
-        quantity: 1,
-    });
-
-    inventory.items.push(Item {
-        id: NonBlankString::new("rope").unwrap(),
-        name: NonBlankString::new("Rope (50 ft)").unwrap(),
-        description: NonBlankString::new("Coiled hemp rope").unwrap(),
-        category: NonBlankString::new("tool").unwrap(),
-        value: 10,
-        weight: 1.5,
-        rarity: NonBlankString::new("common").unwrap(),
-        narrative_weight: 0.1,
-        tags: vec!["utility".to_string()],
         equipped: false,
         quantity: 1,
     });
@@ -164,7 +149,6 @@ fn test_character() -> Character {
         stats: HashMap::from([
             ("STR".to_string(), 12),
             ("DEX".to_string(), 14),
-            ("CON".to_string(), 13),
         ]),
         abilities: vec![],
         known_facts: vec![],
@@ -173,70 +157,78 @@ fn test_character() -> Character {
 }
 
 // ============================================================================
-// AC-1: Status Command — displays HP, level, class, race, location, situation
+// AC-1: Status Command — HP, level, class, race, location, situation
 // ============================================================================
 
 #[test]
-fn status_command_displays_character_info() {
+fn status_displays_character_name_and_hp() {
     let mut router = SlashRouter::new();
-    // FUTURE: will call sidequest_game::commands::StatusCommand
-    router.register(test_status_command());
+    router.register(Box::new(StatusCommand));
     let state = test_snapshot();
 
     let result = router.try_dispatch("/status", &state);
-    assert!(result.is_some(), "Status command must be registered");
+    assert!(result.is_some(), "/status must be intercepted");
 
     match result.unwrap() {
         CommandResult::Display(text) => {
+            assert!(text.contains("Reva Ashwalker"), "Should contain name, got: {}", text);
             assert!(
-                text.contains("Reva Ashwalker"),
-                "/status should include character name, got: {}",
-                text
-            );
-            assert!(
-                text.contains("18/20") || (text.contains("18") && text.contains("20")),
-                "/status should include HP (18/20), got: {}",
-                text
-            );
-            assert!(
-                text.contains("2") || text.contains("Level"),
-                "/status should include level, got: {}",
-                text
-            );
-            assert!(
-                text.contains("Scavenger"),
-                "/status should include class, got: {}",
-                text
-            );
-            assert!(
-                text.contains("Mutant"),
-                "/status should include race, got: {}",
-                text
-            );
-            assert!(
-                text.contains("Rusted Gate") || text.contains("outer_wastes"),
-                "/status should include location, got: {}",
+                text.contains("18") && text.contains("20"),
+                "Should contain HP 18/20, got: {}",
                 text
             );
         }
-        other => panic!("Expected Display from status, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
 #[test]
-fn status_command_with_no_character_returns_error() {
+fn status_displays_level_class_race() {
     let mut router = SlashRouter::new();
-    router.register(test_status_command());
+    router.register(Box::new(StatusCommand));
+    let state = test_snapshot();
+
+    match router.try_dispatch("/status", &state).unwrap() {
+        CommandResult::Display(text) => {
+            assert!(text.contains("Scavenger"), "Should contain class, got: {}", text);
+            assert!(text.contains("Mutant"), "Should contain race, got: {}", text);
+            // Level can be shown as "Level 2", "Lv 2", "2", etc.
+            assert!(text.contains("2"), "Should contain level, got: {}", text);
+        }
+        other => panic!("Expected Display, got {:?}", other),
+    }
+}
+
+#[test]
+fn status_displays_location() {
+    let mut router = SlashRouter::new();
+    router.register(Box::new(StatusCommand));
+    let state = test_snapshot();
+
+    match router.try_dispatch("/status", &state).unwrap() {
+        CommandResult::Display(text) => {
+            assert!(
+                text.contains("Rusted Gate") || text.contains("outer_wastes"),
+                "Should contain location, got: {}",
+                text
+            );
+        }
+        other => panic!("Expected Display, got {:?}", other),
+    }
+}
+
+#[test]
+fn status_with_no_character_returns_error() {
+    let mut router = SlashRouter::new();
+    router.register(Box::new(StatusCommand));
     let mut state = test_snapshot();
     state.characters.clear();
 
-    let result = router.try_dispatch("/status", &state);
-    assert!(result.is_some());
-    match result.unwrap() {
+    match router.try_dispatch("/status", &state).unwrap() {
         CommandResult::Error(msg) => {
             assert!(
                 msg.to_lowercase().contains("character") || msg.to_lowercase().contains("no"),
-                "/status should report missing character, got: {}",
+                "Should report missing character, got: {}",
                 msg
             );
         }
@@ -245,453 +237,336 @@ fn status_command_with_no_character_returns_error() {
 }
 
 #[test]
-fn status_command_is_pure_function() {
-    // Same state should produce same output on multiple calls
+fn status_with_zero_hp_still_displays() {
     let mut router = SlashRouter::new();
-    router.register(test_status_command());
-    let state = test_snapshot();
+    router.register(Box::new(StatusCommand));
+    let mut state = test_snapshot();
+    state.characters[0].core.hp = 0;
 
-    let result1 = router.try_dispatch("/status", &state);
-    let result2 = router.try_dispatch("/status", &state);
-
-    let text1 = match result1.unwrap() {
-        CommandResult::Display(t) => t,
-        other => panic!("Expected Display, got {:?}", other),
-    };
-    let text2 = match result2.unwrap() {
-        CommandResult::Display(t) => t,
-        other => panic!("Expected Display, got {:?}", other),
-    };
-
-    assert_eq!(text1, text2, "Status command must be pure (same input → same output)");
+    match router.try_dispatch("/status", &state).unwrap() {
+        CommandResult::Display(text) => {
+            assert!(text.contains("0"), "Should show 0 HP, got: {}", text);
+        }
+        other => panic!("Expected Display even at 0 HP, got {:?}", other),
+    }
 }
 
 // ============================================================================
-// AC-2: Inventory Command — lists equipped items, pack, encumbrance
+// AC-2: Inventory Command — equipped items, pack contents, weight
 // ============================================================================
 
 #[test]
-fn inventory_command_lists_equipped_items() {
+fn inventory_lists_equipped_items() {
     let mut router = SlashRouter::new();
-    router.register(test_inventory_command());
+    router.register(Box::new(InventoryCommand));
     let state = test_snapshot();
 
-    let result = router.try_dispatch("/inventory", &state);
-    assert!(result.is_some(), "Inventory command must be registered");
-
-    match result.unwrap() {
+    match router.try_dispatch("/inventory", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(
-                text.contains("Rusty Machete"),
-                "/inventory should list equipped items, got: {}",
-                text
-            );
-            assert!(
-                text.contains("Leather Jacket"),
-                "/inventory should list armor, got: {}",
-                text
-            );
+            assert!(text.contains("Rusty Machete"), "Should list machete, got: {}", text);
+            assert!(text.contains("Leather Jacket"), "Should list jacket, got: {}", text);
         }
-        other => panic!("Expected Display from inventory, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
 #[test]
-fn inventory_command_lists_pack_contents() {
+fn inventory_lists_pack_contents() {
     let mut router = SlashRouter::new();
-    router.register(test_inventory_command());
+    router.register(Box::new(InventoryCommand));
     let state = test_snapshot();
 
-    let result = router.try_dispatch("/inventory", &state);
-    assert!(result.is_some());
-
-    match result.unwrap() {
+    match router.try_dispatch("/inventory", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(
-                text.contains("Bedroll"),
-                "/inventory should list pack items, got: {}",
-                text
-            );
-            assert!(
-                text.contains("Rope"),
-                "/inventory should list rope, got: {}",
-                text
-            );
-            assert!(
-                text.contains("Rations"),
-                "/inventory should list rations, got: {}",
-                text
-            );
+            assert!(text.contains("Bedroll"), "Should list pack items, got: {}", text);
+            assert!(text.contains("Rations"), "Should list rations, got: {}", text);
         }
-        other => panic!("Expected Display from inventory, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
 #[test]
-fn inventory_command_shows_encumbrance() {
+fn inventory_separates_equipped_from_pack() {
     let mut router = SlashRouter::new();
-    router.register(test_inventory_command());
+    router.register(Box::new(InventoryCommand));
     let state = test_snapshot();
 
-    let result = router.try_dispatch("/inventory", &state);
-    assert!(result.is_some());
-
-    match result.unwrap() {
+    match router.try_dispatch("/inventory", &state).unwrap() {
         CommandResult::Display(text) => {
-            // Should show total weight and limit
+            // Equipped and pack items should appear in distinct sections
+            let machete_pos = text.find("Rusty Machete").expect("Should contain machete");
+            let bedroll_pos = text.find("Bedroll").expect("Should contain bedroll");
+            // Equipped items should appear before pack items in the output
             assert!(
-                text.contains("10") || text.contains("25") || text.contains("weight") || text.contains("/"),
-                "/inventory should show encumbrance (total/limit), got: {}",
-                text
+                machete_pos < bedroll_pos,
+                "Equipped items should appear before pack items. Machete at {}, Bedroll at {}",
+                machete_pos, bedroll_pos
             );
         }
-        other => panic!("Expected Display from inventory, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
 #[test]
-fn inventory_command_with_empty_inventory() {
+fn inventory_shows_gold() {
     let mut router = SlashRouter::new();
-    router.register(test_inventory_command());
+    router.register(Box::new(InventoryCommand));
+    let state = test_snapshot();
+
+    match router.try_dispatch("/inventory", &state).unwrap() {
+        CommandResult::Display(text) => {
+            assert!(text.contains("50"), "Should show gold amount (50), got: {}", text);
+        }
+        other => panic!("Expected Display, got {:?}", other),
+    }
+}
+
+#[test]
+fn inventory_empty_returns_flavor_text() {
+    let mut router = SlashRouter::new();
+    router.register(Box::new(InventoryCommand));
     let mut state = test_snapshot();
     state.characters[0].core.inventory.items.clear();
+    state.characters[0].core.inventory.gold = 0;
 
-    let result = router.try_dispatch("/inventory", &state);
-    assert!(result.is_some());
-
-    match result.unwrap() {
+    match router.try_dispatch("/inventory", &state).unwrap() {
         CommandResult::Display(text) => {
-            // Should still display, indicating empty inventory
             assert!(
                 !text.is_empty(),
-                "/inventory should handle empty inventory gracefully"
+                "Empty inventory should produce flavor text, not empty string"
+            );
+            // Should NOT just be headers with nothing underneath
+            assert!(
+                text.len() > 10,
+                "Empty inventory text should be meaningful, got: {}",
+                text
             );
         }
         other => panic!("Expected Display for empty inventory, got {:?}", other),
     }
 }
 
+#[test]
+fn inventory_no_character_returns_error() {
+    let mut router = SlashRouter::new();
+    router.register(Box::new(InventoryCommand));
+    let mut state = test_snapshot();
+    state.characters.clear();
+
+    match router.try_dispatch("/inventory", &state).unwrap() {
+        CommandResult::Error(msg) => {
+            assert!(
+                msg.to_lowercase().contains("character") || msg.to_lowercase().contains("no"),
+                "Should report missing character, got: {}",
+                msg
+            );
+        }
+        other => panic!("Expected Error for no character, got {:?}", other),
+    }
+}
+
 // ============================================================================
-// AC-3: Map Command — shows discovered regions, current location, routes
+// AC-3: Map Command — discovered regions, current location, routes
 // ============================================================================
 
 #[test]
-fn map_command_lists_discovered_regions() {
+fn map_lists_all_discovered_regions() {
     let mut router = SlashRouter::new();
-    router.register(test_map_command());
+    router.register(Box::new(MapCommand));
     let state = test_snapshot();
 
-    let result = router.try_dispatch("/map", &state);
-    assert!(result.is_some(), "Map command must be registered");
-
-    match result.unwrap() {
+    match router.try_dispatch("/map", &state).unwrap() {
         CommandResult::Display(text) => {
-            assert!(
-                text.contains("outer_wastes"),
-                "/map should list discovered regions, got: {}",
-                text
-            );
-            assert!(
-                text.contains("scorched_field"),
-                "/map should list discovered regions, got: {}",
-                text
-            );
-            assert!(
-                text.contains("crumbling_tower"),
-                "/map should list discovered regions, got: {}",
-                text
-            );
+            assert!(text.contains("outer_wastes"), "Should list region, got: {}", text);
+            assert!(text.contains("scorched_field"), "Should list region, got: {}", text);
+            assert!(text.contains("crumbling_tower"), "Should list region, got: {}", text);
         }
-        other => panic!("Expected Display from map, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
 #[test]
-fn map_command_marks_current_location() {
+fn map_marks_current_region() {
     let mut router = SlashRouter::new();
-    router.register(test_map_command());
+    router.register(Box::new(MapCommand));
     let state = test_snapshot();
 
-    let result = router.try_dispatch("/map", &state);
-    assert!(result.is_some());
-
-    match result.unwrap() {
+    match router.try_dispatch("/map", &state).unwrap() {
         CommandResult::Display(text) => {
-            // Should indicate current region somehow (marker, indentation, etc.)
+            // Current region should be visually distinct from others
+            // Find the line with outer_wastes and check it has a marker
+            let current_line = text.lines()
+                .find(|l| l.contains("outer_wastes"))
+                .expect("Should contain outer_wastes line");
             assert!(
-                text.contains("outer_wastes"),
-                "/map should show current region, got: {}",
-                text
+                current_line.contains("*") || current_line.contains("current") || current_line.contains("→"),
+                "Current region should be marked, got line: {}",
+                current_line
             );
         }
-        other => panic!("Expected Display from map, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
 #[test]
-fn map_command_lists_discovered_routes() {
+fn map_lists_discovered_routes() {
     let mut router = SlashRouter::new();
-    router.register(test_map_command());
+    router.register(Box::new(MapCommand));
     let state = test_snapshot();
 
-    let result = router.try_dispatch("/map", &state);
-    assert!(result.is_some());
-
-    match result.unwrap() {
+    match router.try_dispatch("/map", &state).unwrap() {
         CommandResult::Display(text) => {
             assert!(
-                text.contains("dangerous") || text.contains("outer_wastes") || text.contains("→"),
-                "/map should list discovered routes, got: {}",
+                text.contains("outer_wastes") && text.contains("scorched_field"),
+                "Should list routes between regions, got: {}",
                 text
             );
         }
-        other => panic!("Expected Display from map, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
 #[test]
-fn map_command_with_no_discovered_regions() {
+fn map_no_regions_returns_meaningful_text() {
     let mut router = SlashRouter::new();
-    router.register(test_map_command());
+    router.register(Box::new(MapCommand));
     let mut state = test_snapshot();
     state.discovered_regions.clear();
+    state.discovered_routes.clear();
 
-    let result = router.try_dispatch("/map", &state);
-    assert!(result.is_some());
-
-    match result.unwrap() {
+    match router.try_dispatch("/map", &state).unwrap() {
         CommandResult::Display(text) => {
-            // Should still produce output, indicating unexplored
             assert!(
-                !text.is_empty(),
-                "/map should handle unexplored world gracefully"
+                !text.is_empty() && text.len() > 5,
+                "Empty map should produce meaningful text, got: {}",
+                text
             );
         }
-        other => panic!("Expected Display for unexplored world, got {:?}", other),
+        other => panic!("Expected Display for empty map, got {:?}", other),
     }
 }
 
 // ============================================================================
-// AC-4: Save Command — persists state and returns confirmation
+// AC-4: Save Command — persistence confirmation
 // ============================================================================
 
 #[test]
-fn save_command_returns_success_message() {
+fn save_returns_confirmation() {
     let mut router = SlashRouter::new();
-    router.register(test_save_command());
+    router.register(Box::new(SaveCommand));
     let state = test_snapshot();
 
-    let result = router.try_dispatch("/save", &state);
-    assert!(result.is_some(), "Save command must be registered");
-
-    match result.unwrap() {
+    match router.try_dispatch("/save", &state).unwrap() {
         CommandResult::Display(text) => {
             assert!(
                 text.to_lowercase().contains("save") || text.to_lowercase().contains("saved"),
-                "/save should confirm save, got: {}",
+                "Should confirm save, got: {}",
                 text
             );
         }
-        other => panic!("Expected Display from save, got {:?}", other),
+        other => panic!("Expected Display from /save, got {:?}", other),
     }
 }
 
 #[test]
-fn save_command_is_deterministic() {
-    // Multiple saves should return identical confirmation
+fn save_is_deterministic() {
     let mut router = SlashRouter::new();
-    router.register(test_save_command());
+    router.register(Box::new(SaveCommand));
     let state = test_snapshot();
 
-    let result1 = router.try_dispatch("/save", &state);
-    let result2 = router.try_dispatch("/save", &state);
-
-    let text1 = match result1.unwrap() {
+    let text1 = match router.try_dispatch("/save", &state).unwrap() {
         CommandResult::Display(t) => t,
         other => panic!("Expected Display, got {:?}", other),
     };
-    let text2 = match result2.unwrap() {
+    let text2 = match router.try_dispatch("/save", &state).unwrap() {
         CommandResult::Display(t) => t,
         other => panic!("Expected Display, got {:?}", other),
     };
 
-    assert_eq!(text1, text2, "Save command must be deterministic");
+    assert_eq!(text1, text2, "Save must be deterministic");
 }
 
 // ============================================================================
-// AC-5 & 6: Pure Functions & Error Handling
+// AC-5: Pure functions — sync, immutable state
 // ============================================================================
 
 #[test]
-fn all_commands_are_sync_and_instantaneous() {
-    // This test documents that CommandResult is NOT async.
-    // If someone changes the handler to be async, this will fail to compile.
+fn all_commands_are_sync() {
     let mut router = SlashRouter::new();
-    router.register(test_status_command());
-    router.register(test_inventory_command());
-    router.register(test_map_command());
-    router.register(test_save_command());
-
+    router.register(Box::new(StatusCommand));
+    router.register(Box::new(InventoryCommand));
+    router.register(Box::new(MapCommand));
+    router.register(Box::new(SaveCommand));
     let state = test_snapshot();
 
-    let result: Option<CommandResult> = router.try_dispatch("/status", &state);
-    assert!(result.is_some()); // compiles only if sync
+    // All of these compile without .await — proves they're sync
+    let r1: Option<CommandResult> = router.try_dispatch("/status", &state);
+    let r2: Option<CommandResult> = router.try_dispatch("/inventory", &state);
+    let r3: Option<CommandResult> = router.try_dispatch("/map", &state);
+    let r4: Option<CommandResult> = router.try_dispatch("/save", &state);
+
+    assert!(r1.is_some());
+    assert!(r2.is_some());
+    assert!(r3.is_some());
+    assert!(r4.is_some());
 }
 
-#[test]
-fn status_with_zero_hp_displays_correctly() {
-    let mut router = SlashRouter::new();
-    router.register(test_status_command());
-    let mut state = test_snapshot();
-    state.characters[0].core.hp = 0;
-
-    let result = router.try_dispatch("/status", &state);
-    assert!(result.is_some());
-
-    match result.unwrap() {
-        CommandResult::Display(text) => {
-            assert!(
-                text.contains("0"),
-                "/status should show 0 HP, got: {}",
-                text
-            );
-        }
-        other => panic!("Expected Display, got {:?}", other),
-    }
-}
+// ============================================================================
+// AC-7: Integration — all commands registered and functional via router
+// ============================================================================
 
 #[test]
-fn commands_receive_immutable_state_reference() {
-    // This is enforced at compile time — handlers take &GameSnapshot,
-    // not &mut GameSnapshot. We test that the fixture allows multiple calls.
+fn all_four_commands_dispatch_through_router() {
     let mut router = SlashRouter::new();
-    router.register(test_status_command());
-
+    router.register(Box::new(StatusCommand));
+    router.register(Box::new(InventoryCommand));
+    router.register(Box::new(MapCommand));
+    router.register(Box::new(SaveCommand));
     let state = test_snapshot();
-    let _result1 = router.try_dispatch("/status", &state);
-    let _result2 = router.try_dispatch("/status", &state);
-    let _result3 = router.try_dispatch("/status", &state);
 
-    // If compile succeeds, state is immutable (enforced by compiler)
+    for cmd in &["/status", "/inventory", "/map", "/save"] {
+        let result = router.try_dispatch(cmd, &state);
+        assert!(
+            result.is_some(),
+            "{} should be dispatched by router",
+            cmd
+        );
+        match result.unwrap() {
+            CommandResult::Display(_) => {} // all should produce Display
+            CommandResult::Error(msg) => panic!("{} returned error: {}", cmd, msg),
+            _ => panic!("{} returned unexpected variant", cmd),
+        }
+    }
 }
 
 // ============================================================================
-// Helper factories for test command implementations
+// CommandHandler trait compliance
 // ============================================================================
 
-#[doc(hidden)]
-pub fn test_status_command() -> Box<dyn CommandHandler> {
-    struct StatusCmd;
-    impl CommandHandler for StatusCmd {
-        fn name(&self) -> &str { "status" }
-        fn description(&self) -> &str { "Shows character status" }
-        fn handle(&self, state: &sidequest_game::state::GameSnapshot, _args: &str) -> CommandResult {
-            if let Some(ch) = state.characters.first() {
-                CommandResult::Display(format!(
-                    "{}: Level {} {} {}\nHP: {}/{}\nLocation: {} ({})\nSituation: {}",
-                    ch.core.name,
-                    ch.core.level,
-                    ch.char_class,
-                    ch.race,
-                    ch.core.hp,
-                    ch.core.max_hp,
-                    state.location,
-                    state.current_region,
-                    ch.narrative_state
-                ))
-            } else {
-                CommandResult::Error("No character found".to_string())
-            }
-        }
-    }
-    Box::new(StatusCmd)
+#[test]
+fn status_command_trait_methods() {
+    let cmd = StatusCommand;
+    assert_eq!(cmd.name(), "status");
+    assert!(!cmd.description().is_empty(), "Description must not be empty");
 }
 
-#[doc(hidden)]
-pub fn test_inventory_command() -> Box<dyn CommandHandler> {
-    struct InventoryCmd;
-    impl CommandHandler for InventoryCmd {
-        fn name(&self) -> &str { "inventory" }
-        fn description(&self) -> &str { "Shows inventory" }
-        fn handle(&self, state: &sidequest_game::state::GameSnapshot, _args: &str) -> CommandResult {
-            if let Some(ch) = state.characters.first() {
-                let inv = &ch.core.inventory;
-                let mut output = String::from("EQUIPPED:\n");
-                let equipped: Vec<_> = inv.items.iter().filter(|i| i.equipped).collect();
-                if equipped.is_empty() {
-                    output.push_str("  (empty)\n");
-                } else {
-                    for item in &equipped {
-                        output.push_str(&format!("  {} ({}lb)\n", item.name, item.weight));
-                    }
-                }
-                output.push_str("\nPACK:\n");
-                let pack: Vec<_> = inv.items.iter().filter(|i| !i.equipped).collect();
-                if pack.is_empty() {
-                    output.push_str("  (empty)\n");
-                } else {
-                    for item in &pack {
-                        output.push_str(&format!("  {} ({}lb)\n", item.name, item.weight));
-                    }
-                }
-                let total_weight: f64 = inv.items.iter().map(|i| i.weight).sum();
-                output.push_str(&format!("\nTotal: {:.1}lb, Gold: {}", total_weight, inv.gold));
-                CommandResult::Display(output)
-            } else {
-                CommandResult::Error("No character found".to_string())
-            }
-        }
-    }
-    Box::new(InventoryCmd)
+#[test]
+fn inventory_command_trait_methods() {
+    let cmd = InventoryCommand;
+    assert_eq!(cmd.name(), "inventory");
+    assert!(!cmd.description().is_empty(), "Description must not be empty");
 }
 
-#[doc(hidden)]
-pub fn test_map_command() -> Box<dyn CommandHandler> {
-    struct MapCmd;
-    impl CommandHandler for MapCmd {
-        fn name(&self) -> &str { "map" }
-        fn description(&self) -> &str { "Shows discovered regions and routes" }
-        fn handle(&self, state: &sidequest_game::state::GameSnapshot, _args: &str) -> CommandResult {
-            let mut output = String::from("DISCOVERED REGIONS:\n");
-            if state.discovered_regions.is_empty() {
-                output.push_str("  (none yet)\n");
-            } else {
-                for region in &state.discovered_regions {
-                    if region == &state.current_region {
-                        output.push_str(&format!("  [*] {} (current)\n", region));
-                    } else {
-                        output.push_str(&format!("  [ ] {}\n", region));
-                    }
-                }
-            }
-            output.push_str("\nDISCOVERED ROUTES:\n");
-            if state.discovered_routes.is_empty() {
-                output.push_str("  (none yet)\n");
-            } else {
-                for route in &state.discovered_routes {
-                    output.push_str(&format!("  {}\n", route));
-                }
-            }
-            CommandResult::Display(output)
-        }
-    }
-    Box::new(MapCmd)
+#[test]
+fn map_command_trait_methods() {
+    let cmd = MapCommand;
+    assert_eq!(cmd.name(), "map");
+    assert!(!cmd.description().is_empty(), "Description must not be empty");
 }
 
-#[doc(hidden)]
-pub fn test_save_command() -> Box<dyn CommandHandler> {
-    struct SaveCmd;
-    impl CommandHandler for SaveCmd {
-        fn name(&self) -> &str { "save" }
-        fn description(&self) -> &str { "Saves game state" }
-        fn handle(&self, state: &sidequest_game::state::GameSnapshot, _args: &str) -> CommandResult {
-            // For now, just confirm. Real implementation would call persistence layer.
-            if let Some(ch) = state.characters.first() {
-                CommandResult::Display(format!("Game saved for {}.", ch.core.name))
-            } else {
-                CommandResult::Display("Game saved.".to_string())
-            }
-        }
-    }
-    Box::new(SaveCmd)
+#[test]
+fn save_command_trait_methods() {
+    let cmd = SaveCommand;
+    assert_eq!(cmd.name(), "save");
+    assert!(!cmd.description().is_empty(), "Description must not be empty");
 }
