@@ -11,6 +11,7 @@ use tokio::sync::broadcast;
 use sidequest_game::barrier::TurnBarrier;
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_game::multiplayer::MultiplayerSession;
+use sidequest_game::perception::{PerceptionFilter, PerceptionRewriter};
 use sidequest_game::turn_mode::TurnMode;
 use sidequest_protocol::GameMessage;
 
@@ -103,6 +104,10 @@ pub struct SharedGameSession {
     pub multiplayer: MultiplayerSession,
     pub turn_mode: TurnMode,
     pub turn_barrier: Option<TurnBarrier>,
+    /// Per-player perception filters (player_id → filter).
+    /// When populated, narration is rewritten per-player based on
+    /// active perceptual effects (blinded, charmed, etc.).
+    pub perception_filters: HashMap<String, PerceptionFilter>,
 
     // --- Per-player state ---
     pub players: HashMap<String, PlayerState>,
@@ -133,6 +138,7 @@ impl SharedGameSession {
             multiplayer,
             turn_mode: TurnMode::default(),
             turn_barrier: None,
+            perception_filters: HashMap::new(),
             players: HashMap::new(),
             session_tx,
         }
@@ -152,6 +158,25 @@ impl SharedGameSession {
     pub fn broadcast(&self, msg: GameMessage) {
         // Ignore send errors (no active receivers is fine)
         let _ = self.session_tx.send(msg);
+    }
+
+    /// Check if any players have active perceptual effects that would
+    /// require narration rewriting.
+    ///
+    /// Returns true if at least one player has effects. The actual
+    /// rewriting requires a `PerceptionRewriter` with a configured
+    /// strategy (currently RED phase / stub — no production strategy yet).
+    pub fn has_perception_effects(&self) -> bool {
+        self.perception_filters.values().any(|f| f.has_effects())
+    }
+
+    /// Describe active perceptual effects for a player (for prompt composition).
+    /// Returns None if the player has no effects.
+    pub fn describe_player_effects(&self, player_id: &str) -> Option<String> {
+        self.perception_filters
+            .get(player_id)
+            .filter(|f| f.has_effects())
+            .map(|f| PerceptionRewriter::describe_effects(f.effects()))
     }
 
     /// Copy world-level state FROM the shared session INTO local variables.

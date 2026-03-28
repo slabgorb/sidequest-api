@@ -3310,7 +3310,15 @@ async fn dispatch_player_action(
                 discovered_regions,
                 trope_states,
             );
-            // Broadcast narration messages to other session members
+            // Broadcast narration messages to other session members.
+            // If perception effects are active, log it (actual rewriting
+            // requires a PerceptionRewriter strategy — currently RED phase).
+            if ss.has_perception_effects() {
+                tracing::debug!(
+                    "Perception effects active for {} player(s) — rewriting not yet wired (RED phase)",
+                    ss.perception_filters.len()
+                );
+            }
             for msg in &messages {
                 match msg {
                     GameMessage::Narration { .. }
