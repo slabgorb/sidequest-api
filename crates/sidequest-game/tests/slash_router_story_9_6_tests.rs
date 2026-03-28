@@ -22,9 +22,7 @@ use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::combat::CombatState;
-use sidequest_game::turn::{TurnManager, TurnPhase};
-use sidequest_game::narrative::NarrativeEntry;
-use sidequest_game::npc::Npc;
+use sidequest_game::turn::TurnManager;
 use sidequest_protocol::NonBlankString;
 
 // ============================================================================
@@ -49,7 +47,7 @@ fn test_snapshot() -> GameSnapshot {
         active_tropes: vec![],
         combat: CombatState::default(),
         chase: None,
-        turn_manager: TurnManager::new(TurnPhase::FreePlay),
+        turn_manager: TurnManager::new(),
         active_stakes: String::new(),
         lore_established: vec![],
         turns_since_meaningful: 0,
