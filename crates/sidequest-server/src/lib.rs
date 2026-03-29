@@ -2711,6 +2711,7 @@ async fn dispatch_player_action(
                 xp,
                 inventory,
                 combat_state,
+                chase_state,
                 character_json,
             );
             let pc = ss.player_count();

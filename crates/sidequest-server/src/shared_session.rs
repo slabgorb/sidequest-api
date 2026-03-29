@@ -296,6 +296,7 @@ impl SharedGameSession {
         xp: &mut u32,
         inventory: &mut sidequest_game::Inventory,
         combat_state: &mut sidequest_game::combat::CombatState,
+        chase_state: &mut Option<sidequest_game::ChaseState>,
         character_json: &mut Option<serde_json::Value>,
     ) {
         if let Some(ps) = self.players.get(player_id) {
@@ -305,6 +306,7 @@ impl SharedGameSession {
             *xp = ps.character_xp;
             *inventory = ps.inventory.clone();
             *combat_state = ps.combat_state.clone();
+            *chase_state = ps.chase_state.clone();
             if let Some(ref cj) = ps.character_json {
                 *character_json = Some(cj.clone());
             }
