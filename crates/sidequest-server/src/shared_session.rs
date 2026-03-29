@@ -58,7 +58,12 @@ pub struct PlayerState {
     pub character_hp: i32,
     pub character_max_hp: i32,
     pub character_level: u32,
+    pub character_class: String,
     pub character_xp: u32,
+    /// Resolved region ID from cartography (used for co-location comparison).
+    pub region_id: String,
+    /// Raw narrator location string (display text for UI).
+    pub display_location: String,
     pub inventory: sidequest_game::Inventory,
     pub combat_state: sidequest_game::combat::CombatState,
     pub chase_state: Option<sidequest_game::ChaseState>,
@@ -76,7 +81,10 @@ impl PlayerState {
             character_hp: 10,
             character_max_hp: 10,
             character_level: 1,
+            character_class: String::new(),
             character_xp: 0,
+            region_id: String::new(),
+            display_location: String::new(),
             inventory: sidequest_game::Inventory::default(),
             combat_state: sidequest_game::combat::CombatState::default(),
             chase_state: None,
@@ -119,6 +127,10 @@ pub struct SharedGameSession {
     /// active perceptual effects (blinded, charmed, etc.).
     pub perception_filters: HashMap<String, PerceptionFilter>,
 
+    // --- Cartography ---
+    /// Region registry from cartography.yaml: region_id → display name (lowercase for matching).
+    pub region_names: Vec<(String, String)>,
+
     // --- Per-player state ---
     pub players: HashMap<String, PlayerState>,
 
@@ -149,6 +161,7 @@ impl SharedGameSession {
             turn_mode: TurnMode::default(),
             turn_barrier: None,
             perception_filters: HashMap::new(),
+            region_names: vec![],
             players: HashMap::new(),
             session_tx,
         }
@@ -180,6 +193,59 @@ impl SharedGameSession {
             msg,
             target_player_id: Some(target),
         });
+    }
+
+    /// Return player IDs of other players in the same cartography region.
+    /// Empty region_id never matches (players with no resolved region are not co-located).
+    pub fn co_located_players(&self, player_id: &str) -> Vec<String> {
+        let my_region = self
+            .players
+            .get(player_id)
+            .map(|p| p.region_id.as_str())
+            .unwrap_or("");
+        if my_region.is_empty() {
+            return vec![];
+        }
+        self.players
+            .iter()
+            .filter(|(pid, ps)| pid.as_str() != player_id && ps.region_id == my_region)
+            .map(|(pid, _)| pid.clone())
+            .collect()
+    }
+
+    /// Resolve a narrator-generated location string to a cartography region_id.
+    /// Uses case-insensitive contains matching against region display names.
+    /// Returns the region_id if a match is found.
+    pub fn resolve_region(&self, location_text: &str) -> Option<String> {
+        if location_text.is_empty() {
+            return None;
+        }
+        let loc_lower = location_text.to_lowercase();
+        // Try exact-ish match first: region name contained in location text
+        // (handles "The Gutter, Coyote Reach Station" matching region "The Gutter")
+        let mut best: Option<(&str, usize)> = None;
+        for (region_id, name_lower) in &self.region_names {
+            if loc_lower.contains(name_lower.as_str()) {
+                // Prefer longest match to avoid "The" matching everything
+                let len = name_lower.len();
+                if best.map_or(true, |(_, prev_len)| len > prev_len) {
+                    best = Some((region_id.as_str(), len));
+                }
+            }
+        }
+        best.map(|(id, _)| id.to_string())
+    }
+
+    /// Load region names from a cartography config for region resolution.
+    pub fn load_cartography(&mut self, regions: &HashMap<String, sidequest_genre::Region>) {
+        self.region_names = regions
+            .iter()
+            .map(|(id, region)| (id.clone(), region.name.to_lowercase()))
+            .collect();
+        tracing::info!(
+            region_count = self.region_names.len(),
+            "Loaded cartography regions for co-location"
+        );
     }
 
     /// Check if any players have active perceptual effects that would
@@ -227,11 +293,19 @@ impl SharedGameSession {
         narration_history: &[String],
         discovered_regions: &[String],
         trope_states: &[sidequest_game::trope::TropeState],
+        player_id: &str,
     ) {
         self.current_location = current_location.to_string();
         self.npc_registry = npc_registry.to_vec();
         self.narration_history = narration_history.to_vec();
         self.discovered_regions = discovered_regions.to_vec();
         self.trope_states = trope_states.to_vec();
+        // Resolve region before mutably borrowing players
+        let resolved = self.resolve_region(current_location).unwrap_or_default();
+        if let Some(ps) = self.players.get_mut(player_id) {
+            ps.display_location = current_location.to_string();
+            ps.region_id = resolved;
+        }
     }
 }
+

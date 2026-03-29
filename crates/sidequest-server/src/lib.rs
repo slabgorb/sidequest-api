@@ -1097,8 +1097,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             GameMessage::Narration { player_id, .. }
                             | GameMessage::NarrationEnd { player_id, .. }
                             | GameMessage::ChapterMarker { player_id, .. }
-                            | GameMessage::PartyStatus { player_id, .. }
                             | GameMessage::SessionEvent { player_id, .. } => Some(player_id.as_str()),
+                            // PartyStatus excluded — targeted messages carry the
+                            // recipient's player_id, so self-skip would drop them.
                             _ => None,
                         };
                         if msg_player_id == Some(writer_player_id.as_str()) {
@@ -1237,7 +1238,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             let sessions = state.inner.sessions.lock().unwrap();
             if let Some(ss_arc) = sessions.get(&key).cloned() {
                 drop(sessions);
-                if let Ok(ss) = ss_arc.try_lock() {
+                if let Ok(mut ss) = ss_arc.try_lock() {
                     let leave_msg = GameMessage::SessionEvent {
                         payload: SessionEventPayload {
                             event: "player_left".to_string(),
@@ -1251,6 +1252,27 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         player_id: player_id_str.clone(),
                     };
                     ss.broadcast(leave_msg);
+
+                    // Transition turn mode when player leaves
+                    let remaining_count = ss.player_count().saturating_sub(1);
+                    let old_mode = std::mem::take(&mut ss.turn_mode);
+                    ss.turn_mode = old_mode.apply(
+                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                            player_count: remaining_count,
+                        },
+                    );
+                    tracing::info!(
+                        new_mode = ?ss.turn_mode,
+                        remaining_players = remaining_count,
+                        "Turn mode transitioned on player leave"
+                    );
+                    // Remove player from barrier roster and tear down if back to FreePlay
+                    if let Some(ref barrier) = ss.turn_barrier {
+                        let _ = barrier.remove_player(&player_id_str);
+                    }
+                    if !ss.turn_mode.should_use_barrier() {
+                        ss.turn_barrier = None;
+                    }
                 }
             }
         }
@@ -1359,7 +1381,132 @@ async fn dispatch_message(
             // After connect identifies genre/world, join/create the shared session
             if let (Some(genre), Some(world)) = (session.genre_slug(), session.world_slug()) {
                 let ss = state.get_or_create_session(genre, world);
-                *shared_session_holder.lock().await = Some(ss);
+                *shared_session_holder.lock().await = Some(ss.clone());
+
+                // Load cartography regions if not already loaded
+                {
+                    let mut ss_guard = ss.lock().await;
+                    if ss_guard.region_names.is_empty() {
+                        if let Ok(genre_code) = GenreCode::new(genre) {
+                            let loader =
+                                GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
+                            if let Ok(pack) = loader.load(&genre_code) {
+                                if let Some(w) = pack.worlds.get(world) {
+                                    ss_guard.load_cartography(&w.cartography.regions);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If this is a returning player (already Playing), add them to
+                // the shared session now. New players get added after character
+                // creation completes in dispatch_character_creation.
+                if session.is_playing() {
+                    let mut ss_guard = ss.lock().await;
+                    let pname = player_name_store
+                        .clone()
+                        .unwrap_or_else(|| "Player".to_string());
+                    let mut ps = shared_session::PlayerState::new(pname);
+                    // Populate character data from locals (set by dispatch_connect)
+                    ps.character_name = character_name.clone();
+                    ps.character_hp = *character_hp;
+                    ps.character_max_hp = *character_max_hp;
+                    ps.display_location = current_location.clone();
+                    ps.region_id = ss_guard
+                        .resolve_region(current_location)
+                        .unwrap_or_default();
+                    // Extract level/class from character_json since dispatch_connect
+                    // doesn't restore them to the scalar locals.
+                    if let Some(ref cj) = *character_json {
+                        ps.character_level = cj
+                            .get("core")
+                            .and_then(|c| c.get("level"))
+                            .and_then(|l| l.as_u64())
+                            .unwrap_or(1) as u32;
+                        ps.character_class = cj
+                            .get("char_class")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        // Also fix the scalar locals so dispatch_player_action has them
+                        *character_level = ps.character_level;
+                    }
+                    ss_guard.players.insert(player_id.to_string(), ps);
+
+                    // Transition turn mode (PlayerJoined)
+                    let pc = ss_guard.player_count();
+                    let old_mode = std::mem::take(&mut ss_guard.turn_mode);
+                    ss_guard.turn_mode = old_mode.apply(
+                        sidequest_game::turn_mode::TurnModeTransition::PlayerJoined {
+                            player_count: pc,
+                        },
+                    );
+                    tracing::info!(
+                        new_mode = ?ss_guard.turn_mode,
+                        player_count = pc,
+                        "Turn mode transitioned on reconnecting player join"
+                    );
+
+                    // Initialize barrier if transitioning to structured mode
+                    if ss_guard.turn_mode.should_use_barrier()
+                        && ss_guard.turn_barrier.is_none()
+                    {
+                        let mp_session =
+                            sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
+                                ss_guard.players.keys().cloned(),
+                            );
+                        let adaptive =
+                            sidequest_game::barrier::AdaptiveTimeout::default();
+                        ss_guard.turn_barrier =
+                            Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
+                                mp_session, adaptive,
+                            ));
+                        tracing::info!(
+                            player_count = pc,
+                            "Initialized turn barrier for reconnecting player"
+                        );
+                    }
+
+                    // Broadcast targeted PARTY_STATUS to all session members
+                    let members: Vec<PartyMember> = ss_guard
+                        .players
+                        .iter()
+                        .map(|(pid, ps)| PartyMember {
+                            player_id: pid.clone(),
+                            name: ps
+                                .character_name
+                                .clone()
+                                .unwrap_or_else(|| ps.player_name.clone()),
+                            current_hp: ps.character_hp,
+                            max_hp: ps.character_max_hp,
+                            statuses: vec![],
+                            class: ps.character_class.clone(),
+                            level: ps.character_level,
+                            portrait_url: None,
+                        })
+                        .collect();
+                    if !members.is_empty() {
+                        let pids: Vec<String> =
+                            ss_guard.players.keys().cloned().collect();
+                        for target_pid in &pids {
+                            let party_msg = GameMessage::PartyStatus {
+                                payload: PartyStatusPayload {
+                                    members: members.clone(),
+                                },
+                                player_id: target_pid.clone(),
+                            };
+                            ss_guard
+                                .send_to_player(party_msg, target_pid.clone());
+                        }
+                    }
+
+                    tracing::info!(
+                        player_id = %player_id,
+                        player_count = pc,
+                        "Reconnecting player joined shared session"
+                    );
+                }
             }
             responses
         }
@@ -2202,7 +2349,48 @@ async fn dispatch_character_creation(
                                     .unwrap_or_else(|| "Player".to_string()),
                             );
                             ss.players.insert(player_id.to_string(), ps);
-                            // Build and broadcast PARTY_STATUS to all session members
+                            // Populate character data on the PlayerState
+                            if let Some(p) = ss.players.get_mut(player_id) {
+                                p.character_name = Some(character.core.name.as_str().to_string());
+                                p.character_hp = character.core.hp;
+                                p.character_max_hp = character.core.max_hp;
+                                p.character_level = character.core.level as u32;
+                                p.character_class = character.char_class.as_str().to_string();
+                            }
+                            // Notify existing players that a new character has arrived
+                            let arrival_text = format!(
+                                "{} has entered the scene.",
+                                character.core.name.as_str()
+                            );
+                            let existing_pids: Vec<String> = ss
+                                .players
+                                .keys()
+                                .filter(|pid| pid.as_str() != player_id)
+                                .cloned()
+                                .collect();
+                            for target_pid in &existing_pids {
+                                ss.send_to_player(
+                                    GameMessage::Narration {
+                                        payload: NarrationPayload {
+                                            text: arrival_text.clone(),
+                                            state_delta: None,
+                                            footnotes: vec![],
+                                        },
+                                        player_id: target_pid.clone(),
+                                    },
+                                    target_pid.clone(),
+                                );
+                                ss.send_to_player(
+                                    GameMessage::NarrationEnd {
+                                        payload: NarrationEndPayload { state_delta: None },
+                                        player_id: target_pid.clone(),
+                                    },
+                                    target_pid.clone(),
+                                );
+                            }
+                            // Build and send targeted PARTY_STATUS to each session member
+                            // Each player gets their own player_id so the client HUD
+                            // shows the correct identity.
                             let members: Vec<PartyMember> = ss
                                 .players
                                 .iter()
@@ -2227,7 +2415,7 @@ async fn dispatch_character_creation(
                                             current_hp: ps.character_hp,
                                             max_hp: ps.character_max_hp,
                                             statuses: vec![],
-                                            class: String::new(),
+                                            class: ps.character_class.clone(),
                                             level: ps.character_level,
                                             portrait_url: None,
                                         }
@@ -2235,11 +2423,14 @@ async fn dispatch_character_creation(
                                 })
                                 .collect();
                             if !members.is_empty() {
-                                let party_msg = GameMessage::PartyStatus {
-                                    payload: PartyStatusPayload { members },
-                                    player_id: player_id.to_string(),
-                                };
-                                ss.broadcast(party_msg);
+                                let player_ids: Vec<String> = ss.players.keys().cloned().collect();
+                                for target_pid in &player_ids {
+                                    let party_msg = GameMessage::PartyStatus {
+                                        payload: PartyStatusPayload { members: members.clone() },
+                                        player_id: target_pid.clone(),
+                                    };
+                                    ss.send_to_player(party_msg, target_pid.clone());
+                                }
                             }
                             let pc = ss.player_count();
                             tracing::info!(
@@ -2267,13 +2458,19 @@ async fn dispatch_character_creation(
                                 },
                             });
 
-                            // Transition TurnMode when multiplayer becomes active
+                            // Transition turn mode when a player joins
                             let old_mode = std::mem::take(&mut ss.turn_mode);
                             ss.turn_mode = old_mode.apply(
                                 sidequest_game::turn_mode::TurnModeTransition::PlayerJoined {
                                     player_count: pc,
                                 },
                             );
+                            tracing::info!(
+                                new_mode = ?ss.turn_mode,
+                                player_count = pc,
+                                "Turn mode transitioned on player join"
+                            );
+                            // Initialize or expand barrier if in structured mode
                             if ss.turn_mode.should_use_barrier() {
                                 if let Some(ref barrier) = ss.turn_barrier {
                                     // Add player to existing barrier roster
@@ -2306,7 +2503,6 @@ async fn dispatch_character_creation(
                                     let _ = barrier.add_player(player_id.to_string(), placeholder_char);
                                     tracing::info!(player_id = %player_id, "Added player to existing barrier");
                                 } else {
-                                    // Initialize barrier from current player roster
                                     let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                         ss.players.keys().cloned(),
                                     );
@@ -2440,13 +2636,24 @@ async fn dispatch_player_action(
         },
     });
 
-    // THINKING indicator — send eagerly BEFORE LLM call so UI shows it immediately
+    // THINKING indicator — send eagerly BEFORE LLM call so UI shows it immediately.
+    // Send only to the acting player via session channel (not global broadcast)
+    // so that other players' input is not blocked by the "narrator thinking" lock.
     let thinking = GameMessage::Thinking {
         payload: ThinkingPayload {},
         player_id: player_id.to_string(),
     };
     tracing::info!(player_id = %player_id, "thinking.sent");
-    let _ = state.broadcast(thinking.clone());
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            ss.send_to_player(thinking.clone(), player_id.to_string());
+        } else {
+            // Single-player fallback: use global broadcast
+            let _ = state.broadcast(thinking.clone());
+        }
+    }
 
     // Slash command interception — route /commands to mechanical handlers, not the LLM.
     if action.starts_with('/') {
@@ -2648,6 +2855,43 @@ async fn dispatch_player_action(
         "Character: {} (HP {}/{}, Level {}, XP {})\nGenre: {}",
         char_name, *hp, *max_hp, *level, *xp, genre_slug,
     );
+
+    // Inject party roster so the narrator knows which characters are player-controlled
+    // and never puppets them (gives them dialogue, actions, or internal state).
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            let other_pcs: Vec<String> = ss
+                .players
+                .iter()
+                .filter(|(pid, _)| pid.as_str() != player_id)
+                .filter_map(|(_, ps)| ps.character_name.clone())
+                .collect();
+            if !other_pcs.is_empty() {
+                state_summary.push_str("\n\nPLAYER-CONTROLLED CHARACTERS IN THE PARTY:\n");
+                state_summary.push_str("The following characters are controlled by OTHER human players:\n");
+                for name in &other_pcs {
+                    state_summary.push_str(&format!("- {}\n", name));
+                }
+                state_summary.push_str(
+                    "You MUST NOT write dialogue, actions, thoughts, feelings, or internal \
+                     state for any of these characters. They are real players — treat them \
+                     like the acting player character. If they haven't acted this turn, they \
+                     are simply present nearby. You may mention their presence but NEVER \
+                     control what they say or do.",
+                );
+                state_summary.push_str(
+                    "\n\nPERSPECTIVE MODE: Third-person omniscient. \
+                     You are narrating for multiple players simultaneously. \
+                     Do NOT use 'you' for any character — including the acting player. \
+                     All characters are named explicitly in third-person. \
+                     Correct: 'Mira surveys the gantry. Kael moves to cover.' \
+                     Wrong: 'You survey the gantry.'"
+                );
+            }
+        }
+    }
 
     // Location constraint — prevent narrator from teleporting between scenes
     if !current_location.is_empty() {
@@ -2857,7 +3101,7 @@ async fn dispatch_player_action(
                             .join("\n");
                         let context = TurnContext {
                             state_summary: Some(format!(
-                                "Combined party actions:\n{}",
+                                "Combined party actions:\n{}\n\nPERSPECTIVE: Write in third-person omniscient. Do NOT use 'you' for any character. Name all characters explicitly: 'Mira does X. Kael does Y.'",
                                 combined_action
                             )),
                             in_combat: false,
@@ -2866,9 +3110,12 @@ async fn dispatch_player_action(
                         let narration_result = state_clone
                             .game_service()
                             .process_action(&action_owned, &context);
-                        // Broadcast narration to all session members
+                        // Send narration to co-located players only (same routing as main path).
+                        // Each player gets their own player_id. Perception filters apply.
                         let ss = ss_arc_clone.lock().await;
-                        let narration_msg = GameMessage::Narration {
+                        let co_located = ss.co_located_players(&player_id_owned);
+                        // Send to acting player
+                        let own_narration = GameMessage::Narration {
                             payload: NarrationPayload {
                                 text: narration_result.narration.clone(),
                                 state_delta: None,
@@ -2876,12 +3123,45 @@ async fn dispatch_player_action(
                             },
                             player_id: player_id_owned.clone(),
                         };
-                        ss.broadcast(narration_msg);
-                        let end_msg = GameMessage::NarrationEnd {
-                            payload: NarrationEndPayload { state_delta: None },
-                            player_id: player_id_owned,
-                        };
-                        ss.broadcast(end_msg);
+                        ss.send_to_player(own_narration, player_id_owned.clone());
+                        // Send to co-located players with perception filtering
+                        for target_id in &co_located {
+                            let text = if let Some(filter) = ss.perception_filters.get(target_id) {
+                                let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
+                                format!(
+                                    "[Your perception is altered: {}]\n\n{}",
+                                    effects_desc, narration_result.narration
+                                )
+                            } else {
+                                narration_result.narration.clone()
+                            };
+                            let narration_msg = GameMessage::Narration {
+                                payload: NarrationPayload {
+                                    text,
+                                    state_delta: None,
+                                    footnotes: narration_result.footnotes.clone(),
+                                },
+                                player_id: target_id.clone(),
+                            };
+                            ss.send_to_player(narration_msg, target_id.clone());
+                        }
+                        // NarrationEnd to acting player + co-located
+                        ss.send_to_player(
+                            GameMessage::NarrationEnd {
+                                payload: NarrationEndPayload { state_delta: None },
+                                player_id: player_id_owned.clone(),
+                            },
+                            player_id_owned.clone(),
+                        );
+                        for target_id in &co_located {
+                            ss.send_to_player(
+                                GameMessage::NarrationEnd {
+                                    payload: NarrationEndPayload { state_delta: None },
+                                    player_id: target_id.clone(),
+                                },
+                                target_id.clone(),
+                            );
+                        }
                     });
 
                     // Tell this player they're waiting for others
@@ -4261,52 +4541,46 @@ async fn dispatch_player_action(
                 narration_history,
                 discovered_regions,
                 trope_states,
+                player_id,
             );
             // Sync acting player's character data to PlayerState for other players' PARTY_STATUS
             if let Some(ps) = ss.players.get_mut(player_id) {
                 ps.character_hp = *hp;
                 ps.character_max_hp = *max_hp;
                 ps.character_level = *level;
+                ps.character_class = char_class.to_string();
                 if ps.character_name.is_none() {
                     ps.character_name = Some(char_name.to_string());
                 }
             }
-            // Broadcast narration messages to other session members.
-            // When perception effects are active, route narration per-player
-            // so each player can receive perception-filtered text.
-            let has_effects = ss.has_perception_effects();
+            // Route messages to session members.
+            // Narration goes ONLY to co-located players (not all players).
+            // The acting player already receives via their direct tx channel.
+            let co_located = ss.co_located_players(player_id);
             for msg in &messages {
                 match msg {
-                    GameMessage::Narration { payload, player_id } if has_effects => {
-                        // Per-player routing: send tailored narration to each affected player.
-                        // Players without perception effects get the base narration.
-                        let filters = &ss.perception_filters;
-                        for (target_id, _player_state) in &ss.players {
-                            if let Some(filter) = filters.get(target_id) {
-                                // Player has active perception effects — annotate narration
+                    GameMessage::Narration { payload, .. } => {
+                        // Send narration (state_delta stripped) to co-located players only.
+                        // Apply perception filters if active.
+                        for target_id in &co_located {
+                            let text = if let Some(filter) = ss.perception_filters.get(target_id) {
                                 let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
-                                let rewritten_text = format!(
+                                format!(
                                     "[Your perception is altered: {}]\n\n{}",
                                     effects_desc, payload.text
-                                );
-                                let rewritten_msg = GameMessage::Narration {
-                                    payload: sidequest_protocol::NarrationPayload {
-                                        text: rewritten_text,
-                                        state_delta: payload.state_delta.clone(),
-                                        footnotes: payload.footnotes.clone(),
-                                    },
-                                    player_id: player_id.clone(),
-                                };
-                                ss.send_to_player(rewritten_msg, target_id.clone());
-                                tracing::debug!(
-                                    target_player = %target_id,
-                                    effects = %effects_desc,
-                                    "Sent perception-filtered narration"
-                                );
+                                )
                             } else {
-                                // No effects — send base narration to this player
-                                ss.send_to_player(msg.clone(), target_id.clone());
-                            }
+                                payload.text.clone()
+                            };
+                            let narration_msg = GameMessage::Narration {
+                                payload: sidequest_protocol::NarrationPayload {
+                                    text,
+                                    state_delta: None,
+                                    footnotes: payload.footnotes.clone(),
+                                },
+                                player_id: target_id.clone(),
+                            };
+                            ss.send_to_player(narration_msg, target_id.clone());
                         }
                     }
                     GameMessage::Narration { ref payload, ref player_id } => {
@@ -4329,10 +4603,52 @@ async fn dispatch_player_action(
                             }
                         }
                     }
-                    GameMessage::NarrationEnd { .. }
-                    | GameMessage::ChapterMarker { .. }
-                    | GameMessage::PartyStatus { .. } => {
-                        ss.broadcast(msg.clone());
+                    GameMessage::NarrationEnd { .. } => {
+                        // Broadcast NarrationEnd to all players so TTS sync works correctly
+                        let player_ids: Vec<String> = ss.players.keys().cloned().collect();
+                        for target_pid in &player_ids {
+                            let end_msg = GameMessage::NarrationEnd {
+                                payload: NarrationEndPayload { state_delta: None },
+                                player_id: target_pid.clone(),
+                            };
+                            ss.send_to_player(end_msg, target_pid.clone());
+                        }
+                    }
+                    GameMessage::ChapterMarker { ref payload, .. } => {
+                        let player_ids: Vec<String> = ss.players.keys().cloned().collect();
+                        for target_pid in &player_ids {
+                            let marker = GameMessage::ChapterMarker {
+                                payload: payload.clone(),
+                                player_id: target_pid.clone(),
+                            };
+                            ss.send_to_player(marker, target_pid.clone());
+                        }
+                    }
+                    GameMessage::PartyStatus { .. } => {
+                        // Build targeted PARTY_STATUS per player so every player's
+                        // player_id is set correctly (client HUD uses this for identity).
+                        let members: Vec<PartyMember> = ss
+                            .players
+                            .iter()
+                            .map(|(pid, ps)| PartyMember {
+                                player_id: pid.clone(),
+                                name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                                current_hp: ps.character_hp,
+                                max_hp: ps.character_max_hp,
+                                statuses: vec![],
+                                class: ps.character_class.clone(),
+                                level: ps.character_level,
+                                portrait_url: None,
+                            })
+                            .collect();
+                        let player_ids: Vec<String> = ss.players.keys().cloned().collect();
+                        for target_pid in &player_ids {
+                            let party_msg = GameMessage::PartyStatus {
+                                payload: PartyStatusPayload { members: members.clone() },
+                                player_id: target_pid.clone(),
+                            };
+                            ss.send_to_player(party_msg, target_pid.clone());
+                        }
                     }
                     _ => {}
                 }
@@ -5011,6 +5327,10 @@ fn update_npc_registry(
             {
                 entry.pronouns = "they/them".to_string();
             }
+        }
+        // Default to they/them if no pronouns could be inferred
+        if entry.pronouns.is_empty() {
+            entry.pronouns = "they/them".to_string();
         }
     }
 }

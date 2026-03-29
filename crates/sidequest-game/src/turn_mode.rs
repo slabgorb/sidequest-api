@@ -41,10 +41,9 @@ impl TurnMode {
                     prompt: Some(prompt),
                 }
             }
-            // Multiplayer: auto-transition to Structured when 2+ players present
-            (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { player_count }) if player_count > 1 => {
-                TurnMode::Structured
-            }
+            // Multiplayer: PlayerJoined stays in FreePlay — exploration is sequential,
+            // each player acts on their own turn. Only CombatStarted triggers Structured.
+            (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { .. }) => TurnMode::FreePlay,
             // Revert to FreePlay when back to solo
             (TurnMode::Structured, TurnModeTransition::PlayerLeft { player_count }) if player_count <= 1 => {
                 TurnMode::FreePlay
