@@ -3419,25 +3419,111 @@ async fn dispatch_player_action(
                             }
                             // 7. HP changes from narration keywords
                             let narr_lower = narration_result.narration.to_lowercase();
-                            let damage_keywords = ["takes damage", "is hit", "wounds", "strikes", "slashes", "cuts into"];
-                            let heal_keywords = ["heals", "mends", "recovery", "bandages"];
+                            let damage_keywords = ["takes damage", "is hit", "wounds", "strikes", "slashes", "cuts into",
+                                "heavy blow", "grievous wound", "crashes into", "tears into", "bites"];
+                            let heavy_damage_keywords = ["devastating", "critical", "heavy blow", "grievous wound"];
+                            let heal_keywords = ["heals", "mends", "recovery", "bandages", "rest", "potion"];
                             if let Some(ch) = saved.snapshot.characters.first_mut() {
-                                if damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
-                                    let delta = -((ch.core.max_hp as f64 * 0.15) as i32).max(2);
-                                    ch.core.hp = sidequest_game::clamp_hp(ch.core.hp, delta, ch.core.max_hp);
-                                    tracing::info!(delta, new_hp = ch.core.hp, "barrier.hp_damage");
+                                if saved.snapshot.combat.in_combat() || damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                                    if heavy_damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                                        let delta = -((ch.core.max_hp as f64 * 0.25) as i32).max(3);
+                                        ch.core.hp = sidequest_game::clamp_hp(ch.core.hp, delta, ch.core.max_hp);
+                                        tracing::info!(delta, new_hp = ch.core.hp, "barrier.hp_heavy_damage");
+                                    } else if damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                                        let delta = -((ch.core.max_hp as f64 * 0.12) as i32).max(1);
+                                        ch.core.hp = sidequest_game::clamp_hp(ch.core.hp, delta, ch.core.max_hp);
+                                        tracing::info!(delta, new_hp = ch.core.hp, "barrier.hp_damage");
+                                    }
                                 }
                                 if heal_keywords.iter().any(|kw| narr_lower.contains(kw)) {
                                     let delta = ((ch.core.max_hp as f64 * 0.2) as i32).max(2);
                                     ch.core.hp = sidequest_game::clamp_hp(ch.core.hp, delta, ch.core.max_hp);
                                     tracing::info!(delta, new_hp = ch.core.hp, "barrier.hp_heal");
                                 }
+                                // 8. XP award
+                                let xp_award: u32 = if saved.snapshot.combat.in_combat() { 25 } else { 10 };
+                                let xp_field = ch.stats.entry("xp".to_string()).or_insert(0);
+                                *xp_field += xp_award as i32;
+                                tracing::info!(xp_award, total_xp = *xp_field, "barrier.xp_awarded");
+                                // 9. Level up check
+                                let current_level = ch.core.level;
+                                let threshold = sidequest_game::xp_for_level(current_level + 1);
+                                if *xp_field >= threshold as i32 {
+                                    ch.core.level += 1;
+                                    let new_max = sidequest_game::level_to_hp(10, ch.core.level);
+                                    let gain = new_max - ch.core.max_hp;
+                                    ch.core.max_hp = new_max;
+                                    ch.core.hp = sidequest_game::clamp_hp(ch.core.hp + gain, 0, new_max);
+                                    tracing::info!(new_level = ch.core.level, new_max_hp = new_max, "barrier.level_up");
+                                }
+                                // 10. Item acquisition from structured data
+                                for item_def in &narration_result.items_gained {
+                                    let item_id = item_def.name.to_lowercase().replace(' ', "_")
+                                        .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+                                    if ch.core.inventory.find(&item_id).is_none() {
+                                        if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
+                                            sidequest_protocol::NonBlankString::new(&item_id),
+                                            sidequest_protocol::NonBlankString::new(&item_def.name),
+                                            sidequest_protocol::NonBlankString::new(&item_def.description),
+                                            sidequest_protocol::NonBlankString::new(&item_def.category),
+                                            sidequest_protocol::NonBlankString::new("common"),
+                                        ) {
+                                            let item = sidequest_game::Item {
+                                                id, name, description: desc, category: cat,
+                                                value: 0, weight: 1.0, rarity,
+                                                narrative_weight: 0.3, tags: vec![],
+                                                equipped: false, quantity: 1,
+                                            };
+                                            let _ = ch.core.inventory.add(item, 50);
+                                            tracing::info!(item_name = %item_def.name, "barrier.item_added");
+                                        }
+                                    }
+                                }
+                            }
+                            // 11. Location change detection
+                            if let Some(location) = extract_location_header(&narration_result.narration) {
+                                saved.snapshot.location = location.clone();
+                                if !saved.snapshot.discovered_regions.iter().any(|r| r == &location) {
+                                    saved.snapshot.discovered_regions.push(location.clone());
+                                }
+                                tracing::info!(location = %location, "barrier.location_changed");
                             }
                             if let Err(e) = state_clone.persistence().save(&genre_slug_owned, &world_slug_owned, &player_name_owned, &saved.snapshot).await {
                                 tracing::warn!(error = %e, "barrier.save_failed");
                             } else {
                                 tracing::info!(player = %player_name_owned, "barrier.session_saved");
                             }
+                        }
+
+                        // 12. PARTY_STATUS broadcast — observers need updated HP/status
+                        {
+                            let ss_for_party = ss_arc_clone.lock().await;
+                            let members: Vec<PartyMember> = ss_for_party
+                                .players
+                                .iter()
+                                .map(|(pid, ps)| PartyMember {
+                                    player_id: pid.clone(),
+                                    name: ps.player_name.clone(),
+                                    character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                                    current_hp: ps.character_hp,
+                                    max_hp: ps.character_max_hp,
+                                    statuses: vec![],
+                                    class: ps.character_class.clone(),
+                                    level: ps.character_level,
+                                    portrait_url: None,
+                                })
+                                .collect();
+                            let player_ids: Vec<String> = ss_for_party.players.keys().cloned().collect();
+                            for target_pid in &player_ids {
+                                ss_for_party.send_to_player(
+                                    GameMessage::PartyStatus {
+                                        payload: PartyStatusPayload { members: members.clone() },
+                                        player_id: target_pid.clone(),
+                                    },
+                                    target_pid.clone(),
+                                );
+                            }
+                            tracing::info!(member_count = members.len(), "barrier.party_status_broadcast");
                         }
 
                         // === END GAME RULES ===
