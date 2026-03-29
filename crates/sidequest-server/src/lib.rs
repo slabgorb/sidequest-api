@@ -2822,6 +2822,7 @@ async fn dispatch_player_action(
         };
 
         if let Some(cmd_result) = router.try_dispatch(action, &snapshot) {
+            tracing::info!(command = %action, result_type = ?std::mem::discriminant(&cmd_result), "slash_command.dispatched");
             let text = match &cmd_result {
                 sidequest_game::slash_router::CommandResult::Display(t) => t.clone(),
                 sidequest_game::slash_router::CommandResult::Error(e) => e.clone(),
@@ -3204,9 +3205,16 @@ async fn dispatch_player_action(
         let holder = shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
+            tracing::debug!(
+                turn_mode = ?ss.turn_mode,
+                player_count = ss.players.len(),
+                has_barrier = ss.turn_barrier.is_some(),
+                "turn_mode.check — evaluating barrier vs freeplay"
+            );
             if ss.turn_mode.should_use_barrier() {
                 if let Some(ref barrier) = ss.turn_barrier {
                     // Submit action to barrier (doesn't trigger narration yet)
+                    tracing::info!(player_id = %player_id, "barrier.submit — action submitted, waiting for other players");
                     barrier.submit_action(player_id, action);
 
                     // Clone what we need for the spawned resolution task
@@ -3393,10 +3401,17 @@ async fn dispatch_player_action(
     // Bug 1: Update current_location so subsequent turns maintain continuity
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
+        let is_new = !discovered_regions.iter().any(|r| r == &location);
         *current_location = location.clone();
-        if !discovered_regions.iter().any(|r| r == &location) {
+        if is_new {
             discovered_regions.push(location.clone());
         }
+        tracing::info!(
+            location = %location,
+            is_new,
+            total_discovered = discovered_regions.len(),
+            "location.changed"
+        );
         state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
             component: "game".to_string(),
@@ -4073,6 +4088,12 @@ async fn dispatch_player_action(
 
     // Combat tick — uses persistent per-session CombatState
     let was_in_combat = combat_state.in_combat();
+    tracing::debug!(
+        in_combat = was_in_combat,
+        round = combat_state.round(),
+        drama_weight = combat_state.drama_weight(),
+        "combat.pre_tick"
+    );
     if combat_state.in_combat() {
         combat_state.tick_effects();
         combat_state.advance_round();
@@ -4149,6 +4170,7 @@ async fn dispatch_player_action(
                 };
                 cs.set_separation(cs.separation() + gain);
                 cs.record_roll(0.5); // placeholder roll
+                tracing::info!(round = cs.round(), separation = cs.separation(), gain, "chase.tick — round advanced");
             }
         } else if chase_start_keywords
             .iter()
@@ -4425,12 +4447,20 @@ async fn dispatch_player_action(
                     speaker: None,
                     entry_type: None,
                 });
-                if let Err(e) = state
+                match state
                     .persistence()
                     .save(genre_slug, world_slug, player_name_for_save, &snapshot)
                     .await
                 {
-                    tracing::warn!(error = %e, "Failed to persist updated game state");
+                    Ok(_) => tracing::info!(
+                        player = %player_name_for_save,
+                        turn = turn_manager.interaction(),
+                        location = %current_location,
+                        hp = *hp,
+                        items = inventory.items.len(),
+                        "session.saved — game state persisted"
+                    ),
+                    Err(e) => tracing::warn!(error = %e, "Failed to persist updated game state"),
                 }
             }
             Ok(None) => {
