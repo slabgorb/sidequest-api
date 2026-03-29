@@ -4441,7 +4441,7 @@ async fn dispatch_player_action(
         tracing::info!("music_director_present — evaluating mood");
         let mood_ctx = sidequest_game::MoodContext {
             in_combat: combat_state.in_combat(),
-            in_chase: false, // chase state not threaded yet
+            in_chase: chase_state.is_some(),
             party_health_pct: if *max_hp > 0 {
                 *hp as f32 / *max_hp as f32
             } else {
@@ -4609,7 +4609,7 @@ async fn dispatch_player_action(
                 in_combat: combat_state.in_combat(),
                 combatant_names: vec![], // TODO: extract from combat state when available
                 pending_destination: extract_location_header(narration_text).map(|s| s.to_string()),
-                active_dialogue_npc: None, // TODO: parse from narration when available
+                active_dialogue_npc: npc_registry.last().map(|e| e.name.clone()),
                 art_style: match visual_style {
                     Some(ref vs) => vs.positive_suffix.clone(),
                     None => "oil_painting".to_string(),
