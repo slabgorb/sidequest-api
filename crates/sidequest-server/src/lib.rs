@@ -2993,13 +2993,19 @@ async fn dispatch_player_action(
                 for name in &other_pcs {
                     state_summary.push_str(&format!("- {}\n", name));
                 }
-                state_summary.push_str(
-                    "You MUST NOT write dialogue, actions, thoughts, feelings, or internal \
-                     state for any of these characters. They are real players — treat them \
-                     like the acting player character. If they haven't acted this turn, they \
-                     are simply present nearby. You may mention their presence but NEVER \
-                     control what they say or do.",
-                );
+                state_summary.push_str(concat!(
+                    "\n\nPLAYER AGENCY — ABSOLUTE RULE (violations break the game):\n",
+                    "You MUST NOT write dialogue, actions, thoughts, feelings, gestures, or internal ",
+                    "state for ANY player character — including the acting player beyond their stated action.\n",
+                    "FORBIDDEN examples:\n",
+                    "- \"Laverne holds up their power glove. 'I've got the strong hand covered.'\" (writing dialogue FOR a player)\n",
+                    "- \"Shirley nudges Laverne with an elbow\" (scripting PC-to-PC physical interaction)\n",
+                    "- \"Kael's heart races as he...\" (writing internal state for a player)\n",
+                    "ALLOWED examples:\n",
+                    "- \"Laverne is nearby, power glove faintly humming.\" (describing presence without action)\n",
+                    "- \"The other party members are within earshot.\" (acknowledging presence)\n",
+                    "Players control their OWN characters. You control the WORLD, NPCs, and narration only.",
+                ));
                 state_summary.push_str(
                     "\n\nPERSPECTIVE MODE: Third-person omniscient. \
                      You are narrating for multiple players simultaneously. \
@@ -5587,7 +5593,7 @@ fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> String {
     if registry.is_empty() {
         return String::new();
     }
-    let mut lines = vec!["\nACTIVE NPCs — you MUST use these exact names, pronouns, roles, and physical descriptions. Do NOT rename, change gender, alter appearance, or contradict established physical details:".to_string()];
+    let mut lines = vec!["\nACTIVE NPCs — CANONICAL IDENTITY (do NOT contradict):\nThese NPCs have been established in this session. Their names, pronouns, gender, physical appearance, and roles are LOCKED. If an NPC was described as male (\"Big man, missing an ear\"), they stay male in ALL future narration. Never flip gender, change names, or alter physical descriptions:".to_string()];
     for entry in registry {
         let mut desc = format!("- {}", entry.name);
         if !entry.pronouns.is_empty() {
