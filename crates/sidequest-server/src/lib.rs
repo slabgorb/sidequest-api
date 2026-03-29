@@ -3128,6 +3128,36 @@ async fn dispatch_player_action(
         state_summary.push('\n');
         state_summary.push_str(world_context);
     }
+
+    // Inject known locations so the narrator uses canonical place names
+    if !discovered_regions.is_empty() {
+        state_summary.push_str("\n\nKNOWN LOCATIONS IN THIS WORLD:\n");
+        state_summary.push_str("Use ONLY these location names when referring to places the party has visited or heard about. Do NOT invent new settlement names.\n");
+        for region in discovered_regions.iter() {
+            state_summary.push_str(&format!("- {}\n", region));
+        }
+    }
+    // Also inject cartography region names from the shared session (if available)
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            if !ss.region_names.is_empty() {
+                if discovered_regions.is_empty() {
+                    state_summary.push_str("\n\nWORLD LOCATIONS (from cartography):\n");
+                    state_summary.push_str("Use these canonical location names. Do NOT invent new ones.\n");
+                } else {
+                    state_summary.push_str("Additional world locations (not yet visited):\n");
+                }
+                for (region_id, _display_name) in &ss.region_names {
+                    if !discovered_regions.iter().any(|r| r.to_lowercase() == *region_id) {
+                        state_summary.push_str(&format!("- {}\n", region_id));
+                    }
+                }
+            }
+        }
+    }
+
     if !trope_context.is_empty() {
         state_summary.push('\n');
         state_summary.push_str(&trope_context);
