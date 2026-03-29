@@ -3600,8 +3600,22 @@ async fn dispatch_player_action(
             }
         }
     }
-    // Regex fallback — catches NPCs the narrator forgot to list in the JSON block
-    let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
+    // Regex fallback — catches NPCs the narrator forgot to list in the JSON block.
+    // Include both discovered regions AND all cartography region names so that
+    // location-derived words (e.g., "Tood" from "Tood's Dome") are never registered as NPCs.
+    let mut all_location_names: Vec<String> = discovered_regions.clone();
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            for (region_id, _name_lower) in &ss.region_names {
+                if !all_location_names.iter().any(|r| r == region_id) {
+                    all_location_names.push(region_id.clone());
+                }
+            }
+        }
+    }
+    let region_refs: Vec<&str> = all_location_names.iter().map(|s| s.as_str()).collect();
     update_npc_registry(
         npc_registry,
         &clean_narration,
