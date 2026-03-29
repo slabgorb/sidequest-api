@@ -2948,22 +2948,32 @@ async fn dispatch_player_action(
         ));
     }
 
-    // Inventory constraint — the narrator must not allow players to use items they don't have
-    state_summary.push_str("\n\nINVENTORY CONSTRAINT — THIS IS A HARD RULE:");
+    // Inventory constraint — the narrator must respect the character sheet
+    state_summary.push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
     if !inventory.items.is_empty() {
-        state_summary.push_str("\nThe player ONLY has these items:");
+        state_summary.push_str("\nThe player currently possesses EXACTLY these items:");
         for item in &inventory.items {
+            let equipped_tag = if item.equipped { " [EQUIPPED]" } else { "" };
+            let qty_tag = if item.quantity > 1 {
+                format!(" (x{})", item.quantity)
+            } else {
+                String::new()
+            };
             state_summary.push_str(&format!(
-                "\n- {}{}",
-                item.name,
-                if item.quantity > 1 {
-                    format!(" (x{})", item.quantity)
-                } else {
-                    String::new()
-                }
+                "\n- {}{}{} — {} ({})",
+                item.name, equipped_tag, qty_tag, item.description, item.category
             ));
         }
-        state_summary.push_str("\nIf the player claims to have or use an item NOT on this list, the narrator MUST reject it. Describe the attempt failing — the item is simply not there. Do NOT invent items the player does not possess.");
+        state_summary.push_str(&format!("\nGold: {}", inventory.gold));
+        state_summary.push_str(concat!(
+            "\n\nINVENTORY RULES (HARD CONSTRAINTS — violations break the game):",
+            "\n1. If the player uses an item on this list, it WORKS. The item is real and present.",
+            "\n2. If the player uses an item NOT on this list, it FAILS — they don't have it.",
+            "\n3. NEVER narrate an item being lost, stolen, broken, or missing unless the game",
+            "\n   engine explicitly removes it. The inventory list above is the TRUTH.",
+            "\n4. [EQUIPPED] items are currently in hand/worn — the player does not need to 'find'",
+            "\n   or 'reach for' them. They are ready to use immediately.",
+        ));
     } else {
         state_summary.push_str("\nThe player has NO items. If the player claims to use any item, the narrator MUST reject it — they have nothing in their possession yet.");
     }
