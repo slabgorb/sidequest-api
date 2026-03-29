@@ -1896,6 +1896,22 @@ async fn dispatch_connect(
                                     Some(sidequest_game::PrerenderScheduler::new(
                                         sidequest_game::PrerenderConfig::default(),
                                     ));
+                                // Load trope definitions for returning player (same logic as start_character_creation)
+                                let mut all_tropes = pack.tropes.clone();
+                                if let Some(w) = pack.worlds.get(world) {
+                                    all_tropes.extend(w.tropes.clone());
+                                }
+                                for trope in &mut all_tropes {
+                                    if trope.id.is_none() {
+                                        let slug = trope.name.as_str().to_lowercase().replace(' ', "-")
+                                            .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+                                        trope.id = Some(slug);
+                                    }
+                                }
+                                all_tropes.retain(|t| !t.is_abstract);
+                                *trope_defs = all_tropes;
+                                tracing::info!(count = trope_defs.len(), genre = %genre, "Loaded trope definitions for returning player");
+
                                 tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
 
                                 // Seed lore store from genre pack (story 11-4)
