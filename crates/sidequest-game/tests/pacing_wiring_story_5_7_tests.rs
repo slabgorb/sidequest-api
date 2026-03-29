@@ -514,7 +514,7 @@ fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -
             hp: current_hp,
             max_hp,
             ac: 10,
-            inventory: Inventory::default(),
+            xp: 0,            inventory: Inventory::default(),
             statuses: vec![],
         },
         backstory: NonBlankString::new("test").unwrap(),

@@ -222,20 +222,36 @@ impl MusicDirector {
 
     /// Evaluate narration text and game context, returning an AudioCue if the mood changed.
     pub fn evaluate(&mut self, narration: &str, ctx: &MoodContext) -> Option<AudioCue> {
-        let classification = self.classify_mood(narration, ctx);
+        let span = tracing::info_span!(
+            "music_evaluate",
+            mood = tracing::field::Empty,
+            track_id = tracing::field::Empty,
+            action = tracing::field::Empty,
+            mood_changed = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let classification = self.classify_mood_inner(narration, ctx);
+        span.record("mood", classification.primary.as_key());
 
         // Only emit a cue if mood actually changed (or intensity is very high)
         if self.current_mood.as_ref() == Some(&classification.primary)
             && classification.intensity <= 0.8
         {
+            span.record("mood_changed", false);
             return None;
         }
+
+        span.record("mood_changed", true);
 
         let track = self.select_track(&classification)?;
         let track_path = track.path.clone();
 
         let action = Self::transition_action(self.current_mood.as_ref(), &classification.primary);
         let volume = Self::intensity_to_volume(classification.intensity);
+
+        span.record("track_id", tracing::field::display(&track_path));
+        span.record("action", tracing::field::display(&action));
 
         let cue = AudioCue {
             channel: AudioChannel::Music,
@@ -251,6 +267,23 @@ impl MusicDirector {
 
     /// Classify the mood from narration text and game state.
     pub fn classify_mood(&self, narration: &str, ctx: &MoodContext) -> MoodClassification {
+        let span = tracing::info_span!(
+            "music_classify_mood",
+            mood = tracing::field::Empty,
+            intensity = tracing::field::Empty,
+            confidence = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let result = self.classify_mood_inner(narration, ctx);
+        span.record("mood", result.primary.as_key());
+        span.record("intensity", result.intensity as f64);
+        span.record("confidence", result.confidence as f64);
+        result
+    }
+
+    /// Inner classification logic (extracted so span wraps the full result).
+    fn classify_mood_inner(&self, narration: &str, ctx: &MoodContext) -> MoodClassification {
         // State-based overrides take priority
         if ctx.in_combat {
             return MoodClassification {

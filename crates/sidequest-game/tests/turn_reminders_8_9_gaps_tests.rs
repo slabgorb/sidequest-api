@@ -38,7 +38,7 @@ fn make_character(name: &str) -> Character {
             hp: 20,
             max_hp: 20,
             ac: 12,
-            inventory: Inventory::default(),
+            xp: 0,            inventory: Inventory::default(),
             statuses: vec![],
         },
         backstory: NonBlankString::new("Grew up on the frontier").unwrap(),

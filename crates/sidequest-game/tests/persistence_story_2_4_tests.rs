@@ -61,6 +61,7 @@ fn test_snapshot() -> GameSnapshot {
                 hp: 10,
                 max_hp: 10,
                 ac: 10,
+                xp: 0,
                 inventory: Inventory::default(),
                 statuses: vec![],
             },

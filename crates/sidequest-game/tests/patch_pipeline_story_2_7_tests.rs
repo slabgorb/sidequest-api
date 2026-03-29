@@ -41,7 +41,7 @@ fn test_character() -> Character {
             hp: 25,
             max_hp: 30,
             ac: 16,
-            inventory: Inventory::default(),
+            xp: 0,            inventory: Inventory::default(),
             statuses: vec![],
         },
         backstory: NonBlankString::new("Raised in the iron mines").unwrap(),
@@ -68,7 +68,7 @@ fn test_npc() -> Npc {
             hp: 12,
             max_hp: 12,
             ac: 10,
-            statuses: vec![],
+            xp: 0,            statuses: vec![],
             inventory: Inventory::default(),
         },
         voice_id: Some(3),
@@ -94,7 +94,7 @@ fn test_npc_no_identity() -> Npc {
             hp: 8,
             max_hp: 8,
             ac: 10,
-            statuses: vec![],
+            xp: 0,            statuses: vec![],
             inventory: Inventory::default(),
         },
         voice_id: None,
@@ -139,6 +139,7 @@ fn test_snapshot() -> GameSnapshot {
         total_beats_fired: 0,
         campaign_maturity: sidequest_game::CampaignMaturity::Fresh,
         world_history: vec![],
+        ..Default::default()
     }
 }
 

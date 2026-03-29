@@ -187,10 +187,22 @@ impl GameSnapshot {
             changed.push("atmosphere");
         }
         if let Some(ref ql) = patch.quest_log {
+            let quest_span = tracing::info_span!(
+                "quest_update",
+                quest_count = ql.len(),
+            );
+            let _quest_guard = quest_span.enter();
             self.quest_log = ql.clone();
             changed.push("quest_log");
         }
         if let Some(ref updates) = patch.quest_updates {
+            let existing_keys: std::collections::HashSet<&String> = self.quest_log.keys().collect();
+            let added = updates.keys().filter(|k| !existing_keys.contains(k)).count();
+            let quest_span = tracing::info_span!(
+                "quest_update",
+                quests_added = added,
+            );
+            let _quest_guard = quest_span.enter();
             for (k, v) in updates {
                 self.quest_log.insert(k.clone(), v.clone());
             }

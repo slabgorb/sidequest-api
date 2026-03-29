@@ -250,7 +250,7 @@ fn character_has_abilities_field() {
             hp: 25,
             max_hp: 30,
             ac: 16,
-            inventory: Inventory::default(),
+            xp: 0,            inventory: Inventory::default(),
             statuses: vec![],
         },
         backstory: NonBlankString::new("Raised in the wastes").unwrap(),
