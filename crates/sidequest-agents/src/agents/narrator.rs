@@ -64,13 +64,25 @@ Each item has:
 - description: one sentence describing the item
 - category: one of \"weapon\", \"armor\", \"tool\", \"consumable\", \"quest\", \"treasure\", \"misc\"
 
+[NPC PROTOCOL]
+When NPCs appear in your narration (speaking, acting, or described), list them
+in npcs_present. Include EVERY NPC who appears — both new introductions and
+recurring characters from earlier turns.
+
+Each NPC has:
+- name: their FULL canonical name as established (e.g., Toggler Copperjaw, NOT just Toggler)
+- pronouns: he/him, she/her, or they/them
+- role: one or two words (e.g., blacksmith, faction leader, merchant)
+- appearance: brief physical description (only needed for first introduction, empty string otherwise)
+- is_new: true ONLY if this NPC appears for the FIRST TIME ever. false if previously mentioned.
+
 [JSON BLOCK]
 After your prose, emit a single fenced JSON block containing any combination of
-footnotes and items_gained. Omit empty arrays.
+footnotes, items_gained, and npcs_present. Omit empty arrays.
 
 Example output:
 ```json
-{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}]}
+{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}]}
 ```
 
 If a turn reveals nothing new, references nothing, and the player gains no items, omit the JSON block entirely.
