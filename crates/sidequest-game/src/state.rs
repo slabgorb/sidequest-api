@@ -23,6 +23,7 @@ use crate::disposition::Disposition;
 use crate::inventory::Inventory;
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
+use crate::trope::TropeState;
 use crate::turn::TurnManager;
 use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
@@ -61,8 +62,11 @@ pub struct GameSnapshot {
     /// Active chase sequence (None if no chase in progress).
     #[serde(default)]
     pub chase: Option<ChaseState>,
-    /// Currently active narrative tropes.
-    pub active_tropes: Vec<String>,
+    /// Currently active narrative tropes (full state for persistence).
+    /// Backward-compatible: old saves with Vec<String> IDs deserialize as empty
+    /// (tropes get re-seeded on first turn).
+    #[serde(default, deserialize_with = "deserialize_trope_states")]
+    pub active_tropes: Vec<TropeState>,
     /// Current atmosphere description.
     pub atmosphere: String,
     /// Current region name.
@@ -110,6 +114,21 @@ pub struct GameSnapshot {
     /// Achievement tracker (story F7).
     #[serde(default)]
     pub achievement_tracker: AchievementTracker,
+}
+
+/// Backward-compatible deserializer for active_tropes.
+/// Old saves stored Vec<String> (just IDs). New saves store Vec<TropeState>.
+/// If deserialization fails (old format), return empty vec — tropes will re-seed.
+fn deserialize_trope_states<'de, D>(deserializer: D) -> Result<Vec<TropeState>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Deserialize;
+    let value = serde_json::Value::deserialize(deserializer)?;
+    match serde_json::from_value::<Vec<TropeState>>(value) {
+        Ok(states) => Ok(states),
+        Err(_) => Ok(vec![]), // Old format — will be re-seeded
+    }
 }
 
 impl GameSnapshot {

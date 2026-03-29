@@ -101,6 +101,64 @@ impl CommandHandler for InventoryCommand {
     }
 }
 
+/// `/quests` — Shows active, completed, and failed quests.
+pub struct QuestsCommand;
+
+impl CommandHandler for QuestsCommand {
+    fn name(&self) -> &str {
+        "quests"
+    }
+
+    fn description(&self) -> &str {
+        "Show your quest log"
+    }
+
+    fn handle(&self, state: &GameSnapshot, _args: &str) -> CommandResult {
+        if state.quest_log.is_empty() {
+            return CommandResult::Display(
+                "No quests recorded yet. The story is just beginning.".to_string(),
+            );
+        }
+
+        let mut active = Vec::new();
+        let mut completed = Vec::new();
+        let mut failed = Vec::new();
+
+        for (name, status) in &state.quest_log {
+            if status.starts_with("completed") {
+                completed.push((name, status));
+            } else if status.starts_with("failed") {
+                failed.push((name, status));
+            } else {
+                active.push((name, status));
+            }
+        }
+
+        let mut output = String::new();
+
+        if !active.is_empty() {
+            output.push_str("ACTIVE QUESTS:\n");
+            for (name, status) in &active {
+                output.push_str(&format!("  {} — {}\n", name, status));
+            }
+        }
+        if !completed.is_empty() {
+            output.push_str("\nCOMPLETED:\n");
+            for (name, status) in &completed {
+                output.push_str(&format!("  {} — {}\n", name, status));
+            }
+        }
+        if !failed.is_empty() {
+            output.push_str("\nFAILED:\n");
+            for (name, status) in &failed {
+                output.push_str(&format!("  {} — {}\n", name, status));
+            }
+        }
+
+        CommandResult::Display(output)
+    }
+}
+
 /// `/map` — Shows discovered regions with current location marked, plus routes.
 pub struct MapCommand;
 

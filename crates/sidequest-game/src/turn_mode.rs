@@ -41,9 +41,9 @@ impl TurnMode {
                     prompt: Some(prompt),
                 }
             }
-            // Multiplayer: 2+ players → Structured (sealed envelope pattern).
-            // All players submit blindly, barrier collects, narrator resolves as one scene.
-            (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { player_count }) if player_count > 1 => TurnMode::Structured,
+            // Multiplayer: stay in FreePlay so each player's action resolves immediately.
+            // Structured (sealed envelope) mode disabled for now — barrier blocks other
+            // players when one submits and the rest haven't yet.
             (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { .. }) => TurnMode::FreePlay,
             // Revert to FreePlay when back to solo
             (TurnMode::Structured, TurnModeTransition::PlayerLeft { player_count }) if player_count <= 1 => {
