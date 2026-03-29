@@ -2639,25 +2639,24 @@ async fn dispatch_player_action(
     });
 
     // TURN_STATUS "active" — tell all players whose turn it is BEFORE the LLM call.
-    // In multiplayer, this gates input on other clients (UI disables input when !isMyTurn).
+    // Sent via GLOBAL broadcast (not session channel) because the session channel
+    // subscriber may not be initialized yet — broadcast::channel drops messages
+    // sent before subscription. Global broadcast reaches all connected clients.
     {
         let holder = shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
             if ss.players.len() > 1 {
-                let player_ids: Vec<String> = ss.players.keys().cloned().collect();
-                for target_pid in &player_ids {
-                    let turn_msg = GameMessage::TurnStatus {
-                        payload: TurnStatusPayload {
-                            player_name: char_name.to_string(),
-                            status: "active".into(),
-                            state_delta: None,
-                        },
-                        player_id: target_pid.clone(),
-                    };
-                    ss.send_to_player(turn_msg, target_pid.clone());
-                }
-                tracing::info!(player_id = %player_id, char_name = %char_name, "turn_status.active sent to all players");
+                let turn_active = GameMessage::TurnStatus {
+                    payload: TurnStatusPayload {
+                        player_name: char_name.to_string(),
+                        status: "active".into(),
+                        state_delta: None,
+                    },
+                    player_id: player_id.to_string(),
+                };
+                let _ = state.broadcast(turn_active);
+                tracing::info!(player_id = %player_id, char_name = %char_name, "turn_status.active broadcast to all clients");
             }
         }
     }
@@ -3188,23 +3187,19 @@ async fn dispatch_player_action(
                                 target_id.clone(),
                             );
                         }
-                        // TURN_STATUS "resolved" — barrier turn complete, unlock all players
+                        // TURN_STATUS "resolved" — barrier turn complete, unlock all players.
+                        // Use global broadcast for reliability.
                         if ss.players.len() > 1 {
-                            let all_pids: Vec<String> = ss.players.keys().cloned().collect();
-                            for target_pid in &all_pids {
-                                ss.send_to_player(
-                                    GameMessage::TurnStatus {
-                                        payload: TurnStatusPayload {
-                                            player_name: player_id_owned.clone(),
-                                            status: "resolved".into(),
-                                            state_delta: None,
-                                        },
-                                        player_id: target_pid.clone(),
-                                    },
-                                    target_pid.clone(),
-                                );
-                            }
-                            tracing::info!("turn_status.resolved sent after barrier resolution");
+                            let resolved_msg = GameMessage::TurnStatus {
+                                payload: TurnStatusPayload {
+                                    player_name: player_id_owned.clone(),
+                                    status: "resolved".into(),
+                                    state_delta: None,
+                                },
+                                player_id: player_id_owned.clone(),
+                            };
+                            let _ = state_clone.broadcast(resolved_msg);
+                            tracing::info!("turn_status.resolved broadcast after barrier resolution");
                         }
                     });
 
@@ -4676,19 +4671,19 @@ async fn dispatch_player_action(
                             ss.send_to_player(end_msg, target_pid.clone());
                         }
                         // TURN_STATUS "resolved" — unlock input for all players after narration completes.
+                        // Use global broadcast (not session channel) for reliability — session
+                        // subscribers may miss messages sent before subscription.
                         if ss.players.len() > 1 {
-                            for target_pid in &player_ids {
-                                let resolved_msg = GameMessage::TurnStatus {
-                                    payload: TurnStatusPayload {
-                                        player_name: char_name.to_string(),
-                                        status: "resolved".into(),
-                                        state_delta: None,
-                                    },
-                                    player_id: target_pid.clone(),
-                                };
-                                ss.send_to_player(resolved_msg, target_pid.clone());
-                            }
-                            tracing::info!(char_name = %char_name, "turn_status.resolved sent to all players");
+                            let resolved_msg = GameMessage::TurnStatus {
+                                payload: TurnStatusPayload {
+                                    player_name: char_name.to_string(),
+                                    status: "resolved".into(),
+                                    state_delta: None,
+                                },
+                                player_id: player_id.to_string(),
+                            };
+                            let _ = state.broadcast(resolved_msg);
+                            tracing::info!(char_name = %char_name, "turn_status.resolved broadcast to all clients");
                         }
                     }
                     GameMessage::ChapterMarker { ref payload, .. } => {
