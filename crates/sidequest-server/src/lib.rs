@@ -3488,6 +3488,183 @@ async fn dispatch_player_action(
                                 }
                                 tracing::info!(location = %location, "barrier.location_changed");
                             }
+                            // 13. Footnotes → known facts (knowledge accumulation)
+                            if !narration_result.footnotes.is_empty() {
+                                if let Some(ch) = saved.snapshot.characters.first_mut() {
+                                    let char_name_for_facts = ch.core.name.as_str().to_string();
+                                    let turn = saved.snapshot.turn_manager.interaction();
+                                    let facts = sidequest_agents::footnotes::footnotes_to_discovered_facts(
+                                        &narration_result.footnotes, &char_name_for_facts, turn,
+                                    );
+                                    for fact in &facts {
+                                        ch.known_facts.push(sidequest_game::known_fact::KnownFact {
+                                            content: fact.fact.content.clone(),
+                                            learned_turn: fact.fact.learned_turn,
+                                            source: fact.fact.source.clone(),
+                                            confidence: fact.fact.confidence.clone(),
+                                        });
+                                    }
+                                    if !facts.is_empty() {
+                                        tracing::info!(count = facts.len(), "barrier.known_facts_added");
+                                    }
+                                }
+                            }
+                            // 14. Chase detection from keywords
+                            {
+                                let chase_start = ["chase begins", "gives chase", "pursues you", "run!", "flee!"];
+                                let chase_end = ["escape", "lost them", "chase ends", "safe now"];
+                                if saved.snapshot.chase.is_some() {
+                                    if chase_end.iter().any(|kw| narr_lower.contains(kw)) {
+                                        saved.snapshot.chase = None;
+                                        tracing::info!("barrier.chase_ended");
+                                    }
+                                } else if chase_start.iter().any(|kw| narr_lower.contains(kw)) {
+                                    saved.snapshot.chase = Some(sidequest_game::ChaseState::new(
+                                        sidequest_game::ChaseType::Footrace, 0.5,
+                                    ));
+                                    tracing::info!("barrier.chase_started");
+                                }
+                            }
+                            // 15. Turn manager advance
+                            saved.snapshot.turn_manager.advance_round();
+                            tracing::info!(round = saved.snapshot.turn_manager.round(), "barrier.turn_advanced");
+
+                            // 16. NPC registry update — regex fallback (catches NPCs not in structured data)
+                            let region_refs: Vec<&str> = saved.snapshot.discovered_regions.iter().map(|s| s.as_str()).collect();
+                            update_npc_registry(
+                                &mut saved.snapshot.npc_registry,
+                                &narration_result.narration,
+                                &saved.snapshot.location,
+                                saved.snapshot.turn_manager.interaction() as u32,
+                                &region_refs,
+                            );
+                            tracing::debug!(npc_count = saved.snapshot.npc_registry.len(), "barrier.npc_registry_regex_updated");
+
+                            // 17. Render subject extraction + beat filter + enqueue
+                            {
+                                let clean_narration = strip_location_header(&narration_result.narration);
+                                let extraction_ctx = sidequest_game::ExtractionContext {
+                                    current_location: extract_location_header(&narration_result.narration).unwrap_or_default(),
+                                    in_combat: saved.snapshot.combat.in_combat(),
+                                    known_npcs: saved.snapshot.npc_registry.iter().map(|e| e.name.clone()).collect(),
+                                    ..Default::default()
+                                };
+                                if let Some(subject) = state_clone.inner.subject_extractor.extract(&clean_narration, &extraction_ctx) {
+                                    let filter_ctx = sidequest_game::FilterContext {
+                                        in_combat: saved.snapshot.combat.in_combat(),
+                                        scene_transition: extract_location_header(&narration_result.narration).is_some(),
+                                        player_requested: false,
+                                    };
+                                    let decision = state_clone.inner.beat_filter.lock().await.evaluate(&subject, &filter_ctx);
+                                    if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
+                                        if let Some(ref queue) = state_clone.inner.render_queue {
+                                            match queue.enqueue(subject, "oil_painting", "flux-schnell").await {
+                                                Ok(r) => tracing::info!(result = ?r, "barrier.render_enqueued"),
+                                                Err(e) => tracing::warn!(error = %e, "barrier.render_failed"),
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 19. Combat tick — advance round, tick effects
+                            if saved.snapshot.combat.in_combat() {
+                                saved.snapshot.combat.tick_effects();
+                                saved.snapshot.combat.advance_round();
+                                tracing::info!(round = saved.snapshot.combat.round(), "barrier.combat_tick");
+                            }
+
+                            // 20. Trope engine tick — use SharedGameSession's trope_states + trope_defs
+                            {
+                                let mut ss_for_tropes = ss_arc_clone.lock().await;
+                                let clean = strip_location_header(&narration_result.narration);
+                                // Clone defs to avoid simultaneous borrow of states + defs on same struct
+                                let defs_clone = ss_for_tropes.trope_defs.clone();
+                                let fired = sidequest_game::trope::TropeEngine::tick(
+                                    &mut ss_for_tropes.trope_states,
+                                    &defs_clone,
+                                );
+                                sidequest_game::trope::TropeEngine::apply_keyword_modifiers(
+                                    &mut ss_for_tropes.trope_states,
+                                    &defs_clone,
+                                    &clean,
+                                );
+                                if !fired.is_empty() {
+                                    tracing::info!(fired = fired.len(), "barrier.trope_tick — beats fired");
+                                    for beat in &fired {
+                                        tracing::info!(trope = %beat.trope_name, "barrier.trope_beat_fired");
+                                    }
+                                }
+                                drop(ss_for_tropes);
+                            }
+
+                            // 21. Affinity progression — check thresholds via the module function
+                            if let Some(ch) = saved.snapshot.characters.first_mut() {
+                                let char_name_for_aff = ch.core.name.as_str().to_string();
+                                let tier_ups = sidequest_game::affinity::check_affinity_thresholds(
+                                    &mut ch.affinities,
+                                    &char_name_for_aff,
+                                    &|_name| Some(vec![5, 15, 30]), // default thresholds
+                                    &|_name, _tier| None,           // no narration hints in barrier
+                                );
+                                for event in &tier_ups {
+                                    tracing::info!(
+                                        affinity = %event.affinity_name,
+                                        new_tier = event.new_tier,
+                                        "barrier.affinity_tier_up"
+                                    );
+                                }
+                            }
+
+                            // 22. Music mood classification + AUDIO_CUE broadcast
+                            {
+                                let clean = strip_location_header(&narration_result.narration);
+                                let mut ss_for_music = ss_arc_clone.lock().await;
+                                if let Some(ref mut md) = ss_for_music.music_director {
+                                    let hp_pct = saved.snapshot.characters.first()
+                                        .map(|ch| if ch.core.max_hp > 0 { ch.core.hp as f32 / ch.core.max_hp as f32 } else { 1.0 })
+                                        .unwrap_or(1.0);
+                                    let mood_ctx = sidequest_game::MoodContext {
+                                        in_combat: saved.snapshot.combat.in_combat(),
+                                        in_chase: saved.snapshot.chase.is_some(),
+                                        party_health_pct: hp_pct,
+                                        quest_completed: false,
+                                        npc_died: false,
+                                    };
+                                    if let Some(cue) = md.evaluate(&clean, &mood_ctx) {
+                                        tracing::info!(
+                                            track = ?cue.track_id,
+                                            action = %cue.action,
+                                            "barrier.music_cue"
+                                        );
+                                        let game_msg = audio_cue_to_game_message(
+                                            &cue,
+                                            &player_id_owned,
+                                            &genre_slug_owned,
+                                            None,
+                                        );
+                                        let _ = state_clone.broadcast(game_msg);
+                                    }
+                                }
+                                drop(ss_for_music);
+                            }
+
+                            // 18. Watcher telemetry — narration generated event
+                            state_clone.send_watcher_event(WatcherEvent {
+                                timestamp: chrono::Utc::now(),
+                                component: "game".to_string(),
+                                event_type: WatcherEventType::AgentSpanClose,
+                                severity: Severity::Info,
+                                fields: {
+                                    let mut f = HashMap::new();
+                                    f.insert("narration_len".to_string(), serde_json::json!(narration_result.narration.len()));
+                                    f.insert("classified_intent".to_string(), serde_json::json!(narration_result.classified_intent));
+                                    f.insert("agent_name".to_string(), serde_json::json!(narration_result.agent_name));
+                                    f.insert("barrier_mode".to_string(), serde_json::json!(true));
+                                    f
+                                },
+                            });
+
                             if let Err(e) = state_clone.persistence().save(&genre_slug_owned, &world_slug_owned, &player_name_owned, &saved.snapshot).await {
                                 tracing::warn!(error = %e, "barrier.save_failed");
                             } else {
