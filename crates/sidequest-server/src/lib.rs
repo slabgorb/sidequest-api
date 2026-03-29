@@ -3142,7 +3142,7 @@ async fn dispatch_player_action(
 
     // Bug 17: Include recent narration history so the narrator maintains continuity
     if !narration_history.is_empty() {
-        state_summary.push_str("\n\nRECENT CONVERSATION HISTORY (most recent last):\n");
+        state_summary.push_str("\n\nRECENT CONVERSATION HISTORY (multiple players, most recent last):\nEntries are tagged with [CharacterName]. Only narrate for the ACTING player — do not continue another player's scene:\n");
         // Include at most the last 10 turns to stay within context limits
         let start = narration_history.len().saturating_sub(10);
         for entry in &narration_history[start..] {
@@ -3480,8 +3480,8 @@ async fn dispatch_player_action(
     // Truncate narrator response to ~300 chars to keep context bounded.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
     narration_history.push(format!(
-        "Player: {}\nNarrator: {}",
-        action, truncated_narration
+        "[{}] Action: {}\nNarrator: {}",
+        char_name, action, truncated_narration
     ));
     // Cap the buffer at 20 entries to prevent unbounded growth
     if narration_history.len() > 20 {
@@ -5331,6 +5331,8 @@ fn update_npc_registry(
         "the", "a", "an", "it", "its", "this", "that", "these", "those",
         "there", "here", "then", "now", "but", "and", "or", "yet", "so",
         "you", "your", "my", "our", "their", "his", "her", "we", "they",
+        "she", "he", "him", "hers", "herself", "himself", "themselves", "itself",
+        "i", "me", "us", "them", "who", "whom", "whose", "what", "which",
         "something", "someone", "somebody", "nothing", "nobody", "anyone",
         "anything", "everything", "everyone", "one", "each", "every",
         "another", "other", "others", "both", "few", "many", "some",
@@ -5386,11 +5388,21 @@ fn update_npc_registry(
                 if !is_common_word(&name)
                     && !is_location_name(&name)
                 {
-                    // Update existing or add new
-                    if let Some(entry) = registry.iter_mut().find(|e| e.name == name) {
+                    // Update existing or add new — also check substring matches
+                    // (e.g., "Toggler" is a substring of "Toggler Copperjaw")
+                    let name_lower = name.to_lowercase();
+                    if let Some(entry) = registry.iter_mut().find(|e| {
+                        e.name == name
+                            || e.name.to_lowercase().contains(&name_lower)
+                            || name_lower.contains(&e.name.to_lowercase())
+                    }) {
                         entry.last_seen_turn = turn_count;
                         if !current_location.is_empty() {
                             entry.location = current_location.to_string();
+                        }
+                        // If the new name is longer (more specific), upgrade
+                        if name.len() > entry.name.len() {
+                            entry.name = name;
                         }
                     } else {
                         registry.push(NpcRegistryEntry {
