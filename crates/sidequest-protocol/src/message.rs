@@ -421,6 +421,10 @@ pub struct CharacterCreationPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TurnStatusPayload {
+    /// Which player this turn status is about.
+    pub player_name: String,
+    /// "active" = this player's turn, "resolved" = turn complete.
+    pub status: String,
     /// Optional state delta.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_delta: Option<StateDelta>,

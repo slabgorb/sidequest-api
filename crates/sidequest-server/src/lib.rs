@@ -32,7 +32,7 @@ use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
     CharacterState, CombatEventPayload, ErrorPayload, GameMessage, InitialState, InventoryPayload,
     MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
-    SessionEventPayload, ThinkingPayload,
+    SessionEventPayload, ThinkingPayload, TurnStatusPayload,
 };
 
 // ---------------------------------------------------------------------------
@@ -2636,6 +2636,30 @@ async fn dispatch_player_action(
         },
     });
 
+    // TURN_STATUS "active" — tell all players whose turn it is BEFORE the LLM call.
+    // In multiplayer, this gates input on other clients (UI disables input when !isMyTurn).
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            if ss.players.len() > 1 {
+                let player_ids: Vec<String> = ss.players.keys().cloned().collect();
+                for target_pid in &player_ids {
+                    let turn_msg = GameMessage::TurnStatus {
+                        payload: TurnStatusPayload {
+                            player_name: char_name.to_string(),
+                            status: "active".into(),
+                            state_delta: None,
+                        },
+                        player_id: target_pid.clone(),
+                    };
+                    ss.send_to_player(turn_msg, target_pid.clone());
+                }
+                tracing::info!(player_id = %player_id, char_name = %char_name, "turn_status.active sent to all players");
+            }
+        }
+    }
+
     // THINKING indicator — send eagerly BEFORE LLM call so UI shows it immediately.
     // Send only to the acting player via session channel (not global broadcast)
     // so that other players' input is not blocked by the "narrator thinking" lock.
@@ -3161,6 +3185,24 @@ async fn dispatch_player_action(
                                 },
                                 target_id.clone(),
                             );
+                        }
+                        // TURN_STATUS "resolved" — barrier turn complete, unlock all players
+                        if ss.players.len() > 1 {
+                            let all_pids: Vec<String> = ss.players.keys().cloned().collect();
+                            for target_pid in &all_pids {
+                                ss.send_to_player(
+                                    GameMessage::TurnStatus {
+                                        payload: TurnStatusPayload {
+                                            player_name: player_id_owned.clone(),
+                                            status: "resolved".into(),
+                                            state_delta: None,
+                                        },
+                                        player_id: target_pid.clone(),
+                                    },
+                                    target_pid.clone(),
+                                );
+                            }
+                            tracing::info!("turn_status.resolved sent after barrier resolution");
                         }
                     });
 
@@ -4612,6 +4654,21 @@ async fn dispatch_player_action(
                                 player_id: target_pid.clone(),
                             };
                             ss.send_to_player(end_msg, target_pid.clone());
+                        }
+                        // TURN_STATUS "resolved" — unlock input for all players after narration completes.
+                        if ss.players.len() > 1 {
+                            for target_pid in &player_ids {
+                                let resolved_msg = GameMessage::TurnStatus {
+                                    payload: TurnStatusPayload {
+                                        player_name: char_name.to_string(),
+                                        status: "resolved".into(),
+                                        state_delta: None,
+                                    },
+                                    player_id: target_pid.clone(),
+                                };
+                                ss.send_to_player(resolved_msg, target_pid.clone());
+                            }
+                            tracing::info!(char_name = %char_name, "turn_status.resolved sent to all players");
                         }
                     }
                     GameMessage::ChapterMarker { ref payload, .. } => {

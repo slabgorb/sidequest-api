@@ -269,7 +269,11 @@ mod message_type_tests {
     #[test]
     fn turn_status_round_trip() {
         let msg = GameMessage::TurnStatus {
-            payload: TurnStatusPayload { state_delta: None },
+            payload: TurnStatusPayload {
+                player_name: "Kael".into(),
+                status: "active".into(),
+                state_delta: None,
+            },
             player_id: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
