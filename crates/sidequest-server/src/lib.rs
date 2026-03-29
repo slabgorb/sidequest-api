@@ -4637,6 +4637,18 @@ async fn dispatch_player_action(
             for msg in &messages {
                 match msg {
                     GameMessage::Narration { payload, .. } => {
+                        // Send the acting player's action to observers FIRST.
+                        // This creates a turn boundary in NarrativeView (PLAYER_ACTION triggers flushChunks).
+                        let observer_action = GameMessage::PlayerAction {
+                            payload: sidequest_protocol::PlayerActionPayload {
+                                action: format!("{}: {}", char_name, action),
+                                aside: false,
+                            },
+                            player_id: player_id.to_string(),
+                        };
+                        for target_id in &other_players {
+                            ss.send_to_player(observer_action.clone(), target_id.clone());
+                        }
                         // Send narration (state_delta stripped) to other players.
                         // Apply perception filters if active.
                         for target_id in &other_players {
