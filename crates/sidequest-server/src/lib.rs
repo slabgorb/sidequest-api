@@ -2702,6 +2702,17 @@ async fn dispatch_player_action(
                 discovered_regions,
                 trope_states,
             );
+            // Sync per-player state from barrier modifications (HP, inventory, combat, etc.)
+            ss.sync_player_to_locals(
+                player_id,
+                hp,
+                max_hp,
+                level,
+                xp,
+                inventory,
+                combat_state,
+                character_json,
+            );
             let pc = ss.player_count();
             if pc > 1 {
                 state.send_watcher_event(WatcherEvent {
@@ -3669,6 +3680,28 @@ async fn dispatch_player_action(
                                 tracing::warn!(error = %e, "barrier.save_failed");
                             } else {
                                 tracing::info!(player = %player_name_owned, "barrier.session_saved");
+                            }
+
+                            // Sync updated character state back to PlayerState so
+                            // sync_player_to_locals picks it up on the next turn.
+                            if let Some(ch) = saved.snapshot.characters.first() {
+                                let mut ss_for_sync = ss_arc_clone.lock().await;
+                                if let Some(ps) = ss_for_sync.players.get_mut(&player_id_owned) {
+                                    ps.character_hp = ch.core.hp;
+                                    ps.character_max_hp = ch.core.max_hp;
+                                    ps.character_level = ch.core.level;
+                                    ps.inventory = ch.core.inventory.clone();
+                                    ps.combat_state = saved.snapshot.combat.clone();
+                                    ps.chase_state = saved.snapshot.chase.clone();
+                                    ps.character_json = Some(serde_json::to_value(ch).unwrap_or_default());
+                                    tracing::info!(
+                                        hp = ch.core.hp,
+                                        level = ch.core.level,
+                                        items = ch.core.inventory.items.len(),
+                                        "barrier.player_state_synced — wrote back to SharedGameSession"
+                                    );
+                                }
+                                drop(ss_for_sync);
                             }
                         }
 

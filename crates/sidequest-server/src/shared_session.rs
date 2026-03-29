@@ -284,6 +284,33 @@ impl SharedGameSession {
         *trope_states = self.trope_states.clone();
     }
 
+    /// Sync per-player state FROM PlayerState INTO per-connection locals.
+    /// Called at the start of dispatch_player_action to pick up changes
+    /// made by the barrier path (which can't access per-connection locals).
+    pub fn sync_player_to_locals(
+        &self,
+        player_id: &str,
+        hp: &mut i32,
+        max_hp: &mut i32,
+        level: &mut u32,
+        xp: &mut u32,
+        inventory: &mut sidequest_game::Inventory,
+        combat_state: &mut sidequest_game::combat::CombatState,
+        character_json: &mut Option<serde_json::Value>,
+    ) {
+        if let Some(ps) = self.players.get(player_id) {
+            *hp = ps.character_hp;
+            *max_hp = ps.character_max_hp;
+            *level = ps.character_level;
+            *xp = ps.character_xp;
+            *inventory = ps.inventory.clone();
+            *combat_state = ps.combat_state.clone();
+            if let Some(ref cj) = ps.character_json {
+                *character_json = Some(cj.clone());
+            }
+        }
+    }
+
     /// Copy world-level state FROM local variables BACK INTO the shared session.
     /// Used at the end of dispatch_player_action after the narrator has run.
     pub fn sync_from_locals(
