@@ -691,6 +691,9 @@ pub struct MechanicalEffects {
     /// Stat bonuses from this choice (e.g. {"Strength": 2, "Agility": -1}).
     #[serde(default)]
     pub stat_bonuses: HashMap<String, i32>,
+    /// Pronoun hint from character creation (e.g. "she/her", "he/him", "they/them").
+    #[serde(default)]
+    pub pronoun_hint: Option<String>,
 }
 
 // ═══════════════════════════════════════════════════════════

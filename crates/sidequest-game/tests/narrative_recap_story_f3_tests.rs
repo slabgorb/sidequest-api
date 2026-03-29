@@ -330,6 +330,7 @@ fn sqlite_load_produces_rich_recap() {
             hooks: vec![],
             char_class: NonBlankString::new("Fighter").unwrap(),
             race: NonBlankString::new("Human").unwrap(),
+        pronouns: String::new(),
             stats: HashMap::from([
                 ("STR".to_string(), 14),
                 ("DEX".to_string(), 12),

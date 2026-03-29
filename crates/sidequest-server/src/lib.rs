@@ -2499,6 +2499,7 @@ async fn dispatch_character_creation(
                                             hooks: vec![],
                                             char_class: NonBlankString::new("barrier").unwrap(),
                                             race: NonBlankString::new("barrier").unwrap(),
+                                            pronouns: String::new(),
                                             stats: HashMap::new(),
                                             abilities: vec![],
                                             known_facts: vec![],
@@ -3001,6 +3002,11 @@ async fn dispatch_player_action(
         }
         if let Some(race) = cj.get("race").and_then(|r| r.as_str()) {
             state_summary.push_str(&format!("\nRace/Origin: {}", race));
+        }
+        if let Some(pronouns) = cj.get("pronouns").and_then(|p| p.as_str()) {
+            if !pronouns.is_empty() {
+                state_summary.push_str(&format!("\nPronouns: {} — ALWAYS use these pronouns for this character.", pronouns));
+            }
         }
     }
 

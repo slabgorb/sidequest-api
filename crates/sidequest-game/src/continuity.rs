@@ -292,6 +292,7 @@ mod tests {
             hooks: vec![],
             char_class: NonBlankString::new("Fighter").unwrap(),
             race: NonBlankString::new("Human").unwrap(),
+            pronouns: String::new(),
             stats: std::collections::HashMap::new(),
             abilities: vec![],
             known_facts: vec![],

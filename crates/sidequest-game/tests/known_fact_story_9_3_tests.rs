@@ -53,6 +53,7 @@ fn make_character(name: &str, facts: Vec<KnownFact>) -> Character {
         hooks: vec![],
         char_class: NonBlankString::new("Ranger").unwrap(),
         race: NonBlankString::new("Elf").unwrap(),
+        pronouns: String::new(),
         stats: HashMap::from([
             ("STR".to_string(), 12),
             ("DEX".to_string(), 16),

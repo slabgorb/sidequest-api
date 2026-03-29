@@ -110,6 +110,7 @@ impl MultiplayerSession {
                     hooks: vec![],
                     char_class: NonBlankString::new("barrier").unwrap(),
                     race: NonBlankString::new("barrier").unwrap(),
+                    pronouns: String::new(),
                     stats: HashMap::new(),
                     abilities: vec![],
                     known_facts: vec![],

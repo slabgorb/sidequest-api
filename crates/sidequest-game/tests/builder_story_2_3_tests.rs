@@ -49,6 +49,8 @@ fn effects_warrior() -> MechanicalEffects {
         rig_type_hint: None,
         rig_trait: None,
         catch_phrase: None,
+        pronoun_hint: None,
+        stat_bonuses: std::collections::HashMap::new(),
     }
 }
 
@@ -69,6 +71,8 @@ fn effects_scholar() -> MechanicalEffects {
         rig_type_hint: None,
         rig_trait: None,
         catch_phrase: None,
+        pronoun_hint: None,
+        stat_bonuses: std::collections::HashMap::new(),
     }
 }
 
@@ -89,6 +93,8 @@ fn effects_empty() -> MechanicalEffects {
         rig_type_hint: None,
         rig_trait: None,
         catch_phrase: None,
+        pronoun_hint: None,
+        stat_bonuses: std::collections::HashMap::new(),
     }
 }
 
