@@ -1091,19 +1091,21 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             }
                         }
                         let msg = targeted.msg;
-                        // Filter: skip messages from self (acting player already gets
-                        // narration via the direct tx channel)
-                        let msg_player_id = match &msg {
-                            GameMessage::Narration { player_id, .. }
-                            | GameMessage::NarrationEnd { player_id, .. }
-                            | GameMessage::ChapterMarker { player_id, .. }
-                            | GameMessage::SessionEvent { player_id, .. } => Some(player_id.as_str()),
-                            // PartyStatus excluded — targeted messages carry the
-                            // recipient's player_id, so self-skip would drop them.
-                            _ => None,
-                        };
-                        if msg_player_id == Some(writer_player_id.as_str()) {
-                            continue;
+                        // Self-skip: only applies to UNTARGETED broadcasts (target_player_id is None).
+                        // Targeted messages already passed the target filter above — the player_id
+                        // field on targeted messages is the RECIPIENT's ID, not the sender's.
+                        // Skipping on player_id match would drop every targeted message.
+                        if targeted.target_player_id.is_none() {
+                            let msg_player_id = match &msg {
+                                GameMessage::Narration { player_id, .. }
+                                | GameMessage::NarrationEnd { player_id, .. }
+                                | GameMessage::ChapterMarker { player_id, .. }
+                                | GameMessage::SessionEvent { player_id, .. } => Some(player_id.as_str()),
+                                _ => None,
+                            };
+                            if msg_player_id == Some(writer_player_id.as_str()) {
+                                continue;
+                            }
                         }
                         let json = match serde_json::to_string(&msg) {
                             Ok(j) => j,
@@ -4349,6 +4351,7 @@ async fn dispatch_player_action(
 
             let player_id_for_tts = player_id.to_string();
             let state_for_tts = state.clone();
+            let ss_holder_for_tts = shared_session_holder.clone();
             let tts_config = sidequest_game::tts_stream::TtsStreamConfig::default();
             let streamer = sidequest_game::tts_stream::TtsStreamer::new(tts_config);
 
@@ -4395,21 +4398,44 @@ async fn dispatch_player_action(
                     }
                 });
 
+                // Helper: send a game message to the acting player only.
+                // In multiplayer, routes via session channel. Single-player falls back to global broadcast.
+                let send_to_acting_player = |msg: GameMessage, ss_holder: &Arc<tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>>, pid: &str, fallback_state: &AppState| {
+                    let ss_holder = ss_holder.clone();
+                    let pid = pid.to_string();
+                    let fallback_state = fallback_state.clone();
+                    let msg = msg.clone();
+                    tokio::spawn(async move {
+                        let holder = ss_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let ss = ss_arc.lock().await;
+                            ss.send_to_player(msg, pid);
+                        } else {
+                            let _ = fallback_state.broadcast(msg);
+                        }
+                    });
+                };
+
                 // Bridge TtsMessage → binary frames (chunks) or GameMessage (start/end)
                 while let Some(tts_msg) = msg_rx.recv().await {
                     match tts_msg {
                         sidequest_game::tts_stream::TtsMessage::Start { total_segments } => {
-                            // Duck audio channels during TTS
+                            // Duck audio channels during TTS — audio cues go to acting player only
                             {
                                 let mut mixer_guard = mixer_for_tts.lock().await;
                                 if let Some(ref mut mixer) = *mixer_guard {
                                     for duck_cue in mixer.on_tts_start() {
-                                        let _ = state_for_tts.broadcast(audio_cue_to_game_message(
-                                            &duck_cue,
+                                        send_to_acting_player(
+                                            audio_cue_to_game_message(
+                                                &duck_cue,
+                                                &player_id_for_tts,
+                                                &genre_slug_for_tts,
+                                                None,
+                                            ),
+                                            &ss_holder_for_tts,
                                             &player_id_for_tts,
-                                            &genre_slug_for_tts,
-                                            None,
-                                        ));
+                                            &state_for_tts,
+                                        );
                                     }
                                 }
                             }
@@ -4436,11 +4462,11 @@ async fn dispatch_player_action(
                                 payload: sidequest_protocol::TtsStartPayload { total_segments },
                                 player_id: player_id_for_tts.clone(),
                             };
-                            let _ = state_for_tts.broadcast(game_msg);
+                            send_to_acting_player(game_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
                         }
                         sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
-                            // Send NARRATION_CHUNK so text reveals sentence-by-sentence
-                            // synchronized with TTS playback (items 2+3).
+                            // Send NARRATION_CHUNK to acting player only (not global broadcast).
+                            // Text reveals sentence-by-sentence synchronized with TTS playback.
                             if let Some(seg) = tts_segments_for_prerender.get(chunk.segment_index) {
                                 let chunk_msg = GameMessage::NarrationChunk {
                                     payload: sidequest_protocol::NarrationChunkPayload {
@@ -4448,12 +4474,14 @@ async fn dispatch_player_action(
                                     },
                                     player_id: player_id_for_tts.clone(),
                                 };
-                                let _ = state_for_tts.broadcast(chunk_msg);
+                                send_to_acting_player(chunk_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
                             }
 
                             // Build binary voice frame: [4-byte header len][JSON header][audio bytes]
                             // The daemon always returns raw PCM s16le — use that format string
                             // so the UI routes to playVoicePCM instead of decodeAudioData.
+                            // NOTE: binary frames still use global broadcast — binary channel
+                            // doesn't support per-player targeting yet.
                             let header = serde_json::json!({
                                 "type": "VOICE_AUDIO",
                                 "segment_id": format!("seg_{}", chunk.segment_index),
@@ -4470,17 +4498,22 @@ async fn dispatch_player_action(
                             state_for_tts.broadcast_binary(frame);
                         }
                         sidequest_game::tts_stream::TtsMessage::End => {
-                            // Restore audio channels after TTS
+                            // Restore audio channels after TTS — acting player only
                             {
                                 let mut mixer_guard = mixer_for_tts.lock().await;
                                 if let Some(ref mut mixer) = *mixer_guard {
                                     for restore_cue in mixer.on_tts_end() {
-                                        let _ = state_for_tts.broadcast(audio_cue_to_game_message(
-                                            &restore_cue,
+                                        send_to_acting_player(
+                                            audio_cue_to_game_message(
+                                                &restore_cue,
+                                                &player_id_for_tts,
+                                                &genre_slug_for_tts,
+                                                None,
+                                            ),
+                                            &ss_holder_for_tts,
                                             &player_id_for_tts,
-                                            &genre_slug_for_tts,
-                                            None,
-                                        ));
+                                            &state_for_tts,
+                                        );
                                     }
                                 }
                             }
@@ -4494,7 +4527,7 @@ async fn dispatch_player_action(
                             let game_msg = GameMessage::TtsEnd {
                                 player_id: player_id_for_tts.clone(),
                             };
-                            let _ = state_for_tts.broadcast(game_msg);
+                            send_to_acting_player(game_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
                         }
                     }
                 }
@@ -4596,15 +4629,22 @@ async fn dispatch_player_action(
                 }
             }
             // Route messages to session members.
-            // Narration goes ONLY to co-located players (not all players).
-            // The acting player already receives via their direct tx channel.
+            // The acting player already receives via their direct tx channel (mpsc).
+            // Other players get narration (without state_delta) via the session broadcast channel.
+            // Fall back to all session members when cartography regions aren't available.
             let co_located = ss.co_located_players(player_id);
+            let other_players: Vec<String> = if co_located.is_empty() {
+                // No region data — fall back to all other session members
+                ss.players.keys().filter(|pid| pid.as_str() != player_id).cloned().collect()
+            } else {
+                co_located
+            };
             for msg in &messages {
                 match msg {
                     GameMessage::Narration { payload, .. } => {
-                        // Send narration (state_delta stripped) to co-located players only.
+                        // Send narration (state_delta stripped) to other players.
                         // Apply perception filters if active.
-                        for target_id in &co_located {
+                        for target_id in &other_players {
                             let text = if let Some(filter) = ss.perception_filters.get(target_id) {
                                 let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
                                 format!(
@@ -4623,26 +4663,6 @@ async fn dispatch_player_action(
                                 player_id: target_id.clone(),
                             };
                             ss.send_to_player(narration_msg, target_id.clone());
-                        }
-                    }
-                    GameMessage::Narration { ref payload, ref player_id } => {
-                        let acting_pid = player_id.clone();
-                        // Send full narration (with state_delta) to acting player
-                        ss.send_to_player(msg.clone(), acting_pid.clone());
-                        // Send narration WITHOUT state_delta to other players
-                        // (their HUD should only reflect their own character state)
-                        let stripped = GameMessage::Narration {
-                            payload: NarrationPayload {
-                                text: payload.text.clone(),
-                                state_delta: None,
-                                footnotes: payload.footnotes.clone(),
-                            },
-                            player_id: acting_pid.clone(),
-                        };
-                        for pid in ss.players.keys() {
-                            if pid != &acting_pid {
-                                ss.send_to_player(stripped.clone(), pid.clone());
-                            }
                         }
                     }
                     GameMessage::NarrationEnd { .. } => {
