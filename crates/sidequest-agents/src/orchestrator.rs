@@ -31,6 +31,8 @@ pub struct ActionResult {
     pub state_delta: Option<HashMap<String, serde_json::Value>>,
     /// Combat events that occurred during this action.
     pub combat_events: Vec<String>,
+    /// Typed combat patch extracted from creature_smith response.
+    pub combat_patch: Option<crate::patches::CombatPatch>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
     /// Which intent was classified (for OTEL telemetry).
@@ -44,6 +46,8 @@ pub struct ActionResult {
     pub items_gained: Vec<sidequest_protocol::ItemGained>,
     /// NPCs present in the narrator's response (extracted from narrator JSON block).
     pub npcs_present: Vec<NpcMention>,
+    /// Quest log updates extracted from narrator JSON block.
+    pub quest_updates: HashMap<String, String>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -186,17 +190,47 @@ impl GameService for Orchestrator {
                         "rag.items_gained_extracted"
                     );
                 }
-                info!(len = extraction.prose.len(), "Claude CLI returned narration");
+                // Extract combat patch from creature_smith responses
+                let combat_patch = if agent_str == "creature_smith" {
+                    match crate::extractor::JsonExtractor::extract::<crate::patches::CombatPatch>(&raw_response) {
+                        Ok(patch) => {
+                            info!(
+                                in_combat = ?patch.in_combat,
+                                hp_changes = ?patch.hp_changes,
+                                drama_weight = ?patch.drama_weight,
+                                "combat.patch_extracted"
+                            );
+                            Some(patch)
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "combat.patch_extraction_failed — creature_smith response had no valid JSON block");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                // Strip the JSON fence block from narration so prose is clean
+                let narration = if combat_patch.is_some() {
+                    strip_json_fence(&extraction.prose)
+                } else {
+                    extraction.prose
+                };
+
+                info!(len = narration.len(), "Claude CLI returned narration");
                 ActionResult {
-                    narration: extraction.prose,
+                    narration,
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
+                    combat_patch,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
                     footnotes: extraction.footnotes,
                     items_gained: extraction.items_gained,
                     npcs_present: extraction.npcs_present,
+                    quest_updates: extraction.quest_updates,
                 }
             }
             Err(e) => {
@@ -208,16 +242,28 @@ impl GameService for Orchestrator {
                     ),
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
-                    is_degraded: true,
+                    combat_patch: None,
+                    is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
                     footnotes: vec![],
                     items_gained: vec![],
                     npcs_present: vec![],
+                    quest_updates: HashMap::new(),
                 }
             }
         }
     }
+}
+
+// ============================================================================
+// Combat patch: strip JSON fence from prose after extraction
+// ============================================================================
+
+/// Remove a ```json ... ``` fenced block from narration so the player sees clean prose.
+fn strip_json_fence(input: &str) -> String {
+    let re = regex::Regex::new(r"(?s)```(?:json)?\s*\n[\s\S]*?\n```").unwrap();
+    re.replace(input, "").trim().to_string()
 }
 
 // ============================================================================
@@ -244,7 +290,7 @@ pub struct NpcMention {
     pub is_new: bool,
 }
 
-/// Contains footnotes, items gained, and NPCs present in the narrator's response.
+/// Contains footnotes, items gained, NPCs present, and quest updates in the narrator's response.
 #[derive(Debug, serde::Deserialize)]
 struct NarratorStructuredBlock {
     #[serde(default)]
@@ -253,6 +299,8 @@ struct NarratorStructuredBlock {
     items_gained: Vec<sidequest_protocol::ItemGained>,
     #[serde(default)]
     npcs_present: Vec<NpcMention>,
+    #[serde(default)]
+    quest_updates: HashMap<String, String>,
 }
 
 /// Extracted structured data from a narrator response.
@@ -261,6 +309,7 @@ pub struct NarratorExtraction {
     pub footnotes: Vec<sidequest_protocol::Footnote>,
     pub items_gained: Vec<sidequest_protocol::ItemGained>,
     pub npcs_present: Vec<NpcMention>,
+    pub quest_updates: HashMap<String, String>,
 }
 
 /// Extract structured data (footnotes, items) from a narrator response.
@@ -284,7 +333,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     strategy = "fenced_json",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present };
+                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates };
             }
             // Try parsing as a bare footnotes array (legacy format)
             if let Ok(footnotes) = serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str) {
@@ -294,7 +343,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     strategy = "fenced_array",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes, items_gained: vec![], npcs_present: vec![] };
+                return NarratorExtraction { prose, footnotes, items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new() };
             }
         }
     }
@@ -310,7 +359,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 strategy = "trailing_json",
                 "rag.structured_parsed"
             );
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present };
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates };
         }
     }
 
@@ -319,13 +368,13 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         let json_str = &raw[idx..];
         if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
             let prose = raw[..idx].trim().to_string();
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present };
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates };
         }
     }
 
     // No structured data found
     tracing::debug!("rag.no_structured_data_found");
-    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![], npcs_present: vec![] }
+    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new() }
 }
 
 // ============================================================================

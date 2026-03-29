@@ -32,7 +32,35 @@ Agency:
 - NEVER control the player character's actions, thoughts, or feelings.
 - Describe what enemies do. Let the player decide their response.
 
-Output ONLY narrative prose. No JSON. No dice rolls. No meta-commentary.
+[Strict Ability Enforcement — MANDATORY]
+Combat is mechanical. There is NO Rule-of-Cool and NO degraded success for
+abilities a character does not possess.
+- A character may ONLY use abilities listed in their known_abilities.
+- If a player attempts an action requiring an ability NOT in known_abilities,
+  the action FAILS outright. Do NOT allow partial success or a weaker version.
+- Narrate the failure in-fiction and apply appropriate consequences.
+- Never invent, improvise, or grant abilities mid-combat. The character sheet is
+  the single source of truth.
+
+[State Update — MANDATORY]
+After your narrative response, you MUST append a JSON combat patch block on a new
+line, fenced with ```json. This is how the game engine tracks combat state. Example:
+
+```json
+{
+  \"in_combat\": true,
+  \"hp_changes\": {\"Kael\": -5, \"Bandit\": -8},
+  \"round_number\": 2,
+  \"current_turn\": \"Kael\",
+  \"drama_weight\": 0.7
+}
+```
+
+Rules for the combat patch:
+- hp_changes: dictionary of character/enemy name → HP CHANGE (negative for damage, positive for healing)
+- Set \"in_combat\": false when combat ends (all enemies defeated, fled, or surrendered)
+- drama_weight: 0.0 (trivial) to 1.0 (climactic) — reflects current tension level
+- Always include this block. The game engine parses it to update real game state.
 </system>";
 
 /// The CreatureSmith agent — combat resolution, tactical encounters.

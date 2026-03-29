@@ -76,16 +76,28 @@ Each NPC has:
 - appearance: brief physical description (only needed for first introduction, empty string otherwise)
 - is_new: true ONLY if this NPC appears for the FIRST TIME ever. false if previously mentioned.
 
+[QUEST PROTOCOL]
+When the narrative introduces a clear objective, updates a quest's status, or completes
+a quest, include quest_updates in the JSON block. Each key is the quest name, each value
+is the current status.
+
+Status values:
+- \"active: <description>\" — new quest or updated objective
+- \"completed: <outcome>\" — quest resolved
+- \"failed: <reason>\" — quest failed
+
+Only include quests that CHANGED this turn. Do not repeat unchanged quests.
+
 [JSON BLOCK]
 After your prose, emit a single fenced JSON block containing any combination of
-footnotes, items_gained, and npcs_present. Omit empty arrays.
+footnotes, items_gained, npcs_present, and quest_updates. Omit empty fields.
 
 Example output:
 ```json
-{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}]}
+{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}],\"quest_updates\":{\"The Corrupted Grove\":\"active: Find the source of corruption in Elder Mirova's grove\"}}
 ```
 
-If a turn reveals nothing new, references nothing, and the player gains no items, omit the JSON block entirely.
+If a turn reveals nothing new, references nothing, the player gains no items, and no quests change, omit the JSON block entirely.
 </system>";
 
 /// The Narrator agent — exploration, description, story progression.
