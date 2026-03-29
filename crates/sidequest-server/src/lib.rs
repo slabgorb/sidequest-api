@@ -1045,12 +1045,14 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
 
         loop {
             // Lazily subscribe to session broadcast if we don't have a receiver yet.
+            // Uses lock().await (not try_lock) to guarantee subscription succeeds.
+            // Without this, session messages (NARRATION, NARRATION_END for observers)
+            // are silently dropped and narration accumulates without separators.
             if session_rx.is_none() {
                 let guard = shared_session_for_writer.lock().await;
                 if let Some(ref ss) = *guard {
-                    if let Ok(ss_lock) = ss.try_lock() {
-                        session_rx = Some(ss_lock.subscribe());
-                    }
+                    let ss_lock = ss.lock().await;
+                    session_rx = Some(ss_lock.subscribe());
                 }
             }
 
@@ -4654,7 +4656,7 @@ async fn dispatch_player_action(
                         // This creates a turn boundary in NarrativeView (PLAYER_ACTION triggers flushChunks).
                         let observer_action = GameMessage::PlayerAction {
                             payload: sidequest_protocol::PlayerActionPayload {
-                                action: format!("{}: {}", char_name, action),
+                                action: format!("{} — {}", char_name, action),
                                 aside: false,
                             },
                             player_id: player_id.to_string(),
