@@ -4057,9 +4057,28 @@ async fn dispatch_player_action(
         player_id: player_id.to_string(),
     });
 
-    // Combat detection — scan narration for combat start/end indicators.
-    // This ensures combat_state.in_combat() is set correctly so the combat
-    // tick runs and CombatState persists across non-combat actions.
+    // Combat detection — intent-based (primary) + keyword scan (fallback).
+    // If the intent classifier routed to creature_smith, that's a combat action.
+    if !combat_state.in_combat() {
+        if let Some(ref intent) = result.classified_intent {
+            if intent == "Combat" {
+                combat_state.set_in_combat(true);
+                tracing::info!(intent = %intent, agent = ?result.agent_name, "combat.started — intent classifier triggered combat state");
+                {
+                    let holder = shared_session_holder.lock().await;
+                    if let Some(ref ss_arc) = *holder {
+                        let mut ss = ss_arc.lock().await;
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode
+                            .apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
+                    }
+                }
+            }
+        }
+    }
+
+    // Keyword-based combat detection — fallback for cases where intent
+    // classification missed but narration clearly describes combat.
     {
         let narr_lower = clean_narration.to_lowercase();
         let combat_start_keywords = [
