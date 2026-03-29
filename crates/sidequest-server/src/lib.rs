@@ -1163,6 +1163,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut chase_state: Option<sidequest_game::ChaseState> = None;
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
+    let mut quest_log: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut world_context: String = String::new();
     let mut axes_config: Option<sidequest_genre::AxesConfig> = None;
     let mut axis_values: Vec<sidequest_game::axis::AxisValue> = vec![];
@@ -1213,6 +1214,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &audio_mixer,
                         &prerender_scheduler,
                         &mut npc_registry,
+                        &mut quest_log,
                         &mut narration_history,
                         &mut discovered_regions,
                         &mut turn_manager,
@@ -1350,6 +1352,7 @@ async fn dispatch_message(
         tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
     >,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
@@ -1386,6 +1389,8 @@ async fn dispatch_message(
                 prerender_scheduler,
                 turn_manager,
                 npc_registry,
+                trope_states,
+                quest_log,
                 lore_store,
                 state,
                 player_id,
@@ -1601,6 +1606,7 @@ async fn dispatch_message(
                 axis_values,
                 visual_style,
                 npc_registry,
+                quest_log,
                 narration_history,
                 discovered_regions,
                 turn_manager,
@@ -1649,6 +1655,7 @@ async fn dispatch_message(
                 axis_values,
                 visual_style,
                 npc_registry,
+                quest_log,
                 narration_history,
                 discovered_regions,
                 turn_manager,
@@ -1710,6 +1717,8 @@ async fn dispatch_connect(
     >,
     turn_manager: &mut sidequest_game::TurnManager,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    trope_states: &mut Vec<sidequest_game::trope::TropeState>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
@@ -1755,6 +1764,15 @@ async fn dispatch_connect(
                         *turn_manager = saved.snapshot.turn_manager.clone();
                         *npc_registry = saved.snapshot.npc_registry.clone();
                         *axis_values = saved.snapshot.axis_values.clone();
+                        // Restore trope progression state from snapshot
+                        *trope_states = saved.snapshot.active_tropes.clone();
+                        // Restore quest log from snapshot
+                        *quest_log = saved.snapshot.quest_log.clone();
+                        tracing::info!(
+                            trope_count = trope_states.len(),
+                            quest_count = quest_log.len(),
+                            "reconnect.state_restored — tropes and quests loaded from save"
+                        );
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -2206,6 +2224,7 @@ async fn dispatch_character_creation(
     axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
@@ -2392,6 +2411,7 @@ async fn dispatch_character_creation(
                         axis_values,
                         visual_style,
                         npc_registry,
+                        quest_log,
                         narration_history,
                         discovered_regions,
                         turn_manager,
@@ -2677,6 +2697,7 @@ async fn dispatch_player_action(
     axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
@@ -2810,7 +2831,7 @@ async fn dispatch_player_action(
     // Slash command interception — route /commands to mechanical handlers, not the LLM.
     if action.starts_with('/') {
         use sidequest_game::commands::{
-            GmCommand, InventoryCommand, MapCommand, SaveCommand, StatusCommand,
+            GmCommand, InventoryCommand, MapCommand, QuestsCommand, SaveCommand, StatusCommand,
         };
         use sidequest_game::slash_router::SlashRouter;
         use sidequest_game::state::GameSnapshot;
@@ -2819,6 +2840,7 @@ async fn dispatch_player_action(
         router.register(Box::new(StatusCommand));
         router.register(Box::new(InventoryCommand));
         router.register(Box::new(MapCommand));
+        router.register(Box::new(QuestsCommand));
         router.register(Box::new(SaveCommand));
         router.register(Box::new(GmCommand));
         if let Some(ref ac) = axes_config {
@@ -2834,10 +2856,8 @@ async fn dispatch_player_action(
                 combat: combat_state.clone(),
                 chase: chase_state.clone(),
                 axis_values: axis_values.clone(),
-                active_tropes: trope_states
-                    .iter()
-                    .map(|ts| ts.trope_definition_id().to_string())
-                    .collect(),
+                active_tropes: trope_states.clone(),
+                quest_log: quest_log.clone(),
                 ..GameSnapshot::default()
             };
             // Reconstruct a minimal Character from loose variables.
@@ -3021,11 +3041,27 @@ async fn dispatch_player_action(
                 .filter(|(pid, _)| pid.as_str() != player_id)
                 .filter_map(|(_, ps)| ps.character_name.clone())
                 .collect();
+            // Check co-location: which other PCs are in the same region?
+            let co_located_names: Vec<String> = ss
+                .co_located_players(player_id)
+                .iter()
+                .filter_map(|pid| ss.players.get(pid.as_str()).and_then(|ps| ps.character_name.clone()))
+                .collect();
+
             if !other_pcs.is_empty() {
                 state_summary.push_str("\n\nPLAYER-CONTROLLED CHARACTERS IN THE PARTY:\n");
                 state_summary.push_str("The following characters are controlled by OTHER human players:\n");
                 for name in &other_pcs {
                     state_summary.push_str(&format!("- {}\n", name));
+                }
+                if !co_located_names.is_empty() {
+                    state_summary.push_str(&format!(
+                        "\nCO-LOCATION — HARD RULE: The following party members are RIGHT HERE with the acting player: {}. \
+                         They are physically present at the SAME location. The narrator MUST acknowledge their presence \
+                         in the scene. Do NOT narrate them as being elsewhere or arriving from somewhere else. \
+                         They are already here.\n",
+                        co_located_names.join(", ")
+                    ));
                 }
                 state_summary.push_str(concat!(
                     "\n\nPLAYER AGENCY — ABSOLUTE RULE (violations break the game):\n",
@@ -3110,6 +3146,15 @@ async fn dispatch_player_action(
         ));
     } else {
         state_summary.push_str("\nThe player has NO items. If the player claims to use any item, the narrator MUST reject it — they have nothing in their possession yet.");
+    }
+
+    // Quest log — inject active quests so narrator can reference them
+    if !quest_log.is_empty() {
+        state_summary.push_str("\n\nACTIVE QUESTS:\n");
+        for (quest_name, status) in quest_log.iter() {
+            state_summary.push_str(&format!("- {}: {}\n", quest_name, status));
+        }
+        state_summary.push_str("Reference active quests when narratively relevant. Update quest status in quest_updates when objectives change.\n");
     }
 
     // Bug 6: Include chase state if active
@@ -3558,8 +3603,22 @@ async fn dispatch_player_action(
             }
         }
     }
-    // Regex fallback — catches NPCs the narrator forgot to list in the JSON block
-    let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
+    // Regex fallback — catches NPCs the narrator forgot to list in the JSON block.
+    // Include both discovered regions AND all cartography region names so that
+    // location-derived words (e.g., "Tood" from "Tood's Dome") are never registered as NPCs.
+    let mut all_location_names: Vec<String> = discovered_regions.clone();
+    {
+        let holder = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let ss = ss_arc.lock().await;
+            for (region_id, _name_lower) in &ss.region_names {
+                if !all_location_names.iter().any(|r| r == region_id) {
+                    all_location_names.push(region_id.clone());
+                }
+            }
+        }
+    }
+    let region_refs: Vec<&str> = all_location_names.iter().map(|s| s.as_str()).collect();
     update_npc_registry(
         npc_registry,
         &clean_narration,
@@ -3608,65 +3667,44 @@ async fn dispatch_player_action(
         }
     }
 
-    // Bug 4: Combat HP changes — scan narration for damage/healing indicators
-    {
-        let narr_lower = clean_narration.to_lowercase();
-        let damage_keywords = [
-            "strikes you",
-            "hits you",
-            "slashes you",
-            "damages you",
-            "wounds you",
-            "hurts you",
-            "burns you",
-            "bites you",
-            "stabs you",
-            "pierces you",
-            "deals damage",
-            "takes damage",
-            "you take damage",
-            "you take a hit",
-            "injures you",
-            "smashes into you",
-        ];
-        let heal_keywords = [
-            "heals you",
-            "restores health",
-            "mends your wounds",
-            "you feel better",
-            "healing energy",
-            "bandage",
-            "drink the potion",
-            "drinks a potion",
-            "health restored",
-        ];
-        let heavy_damage_keywords = [
-            "critical hit",
-            "devastating blow",
-            "massive damage",
-            "nearly kills",
-            "grievous wound",
-        ];
-
-        if combat_state.in_combat() || damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
-            if heavy_damage_keywords
-                .iter()
-                .any(|kw| narr_lower.contains(kw))
-            {
-                let delta = -((*max_hp as f64 * 0.25) as i32).max(3);
-                *hp = sidequest_game::clamp_hp(*hp, delta, *max_hp);
-                tracing::info!(delta = delta, new_hp = *hp, "Heavy combat damage applied");
-            } else if damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
-                let delta = -((*max_hp as f64 * 0.12) as i32).max(1);
-                *hp = sidequest_game::clamp_hp(*hp, delta, *max_hp);
-                tracing::info!(delta = delta, new_hp = *hp, "Combat damage applied");
+    // Combat HP changes — apply typed CombatPatch from creature_smith (replaces keyword heuristic)
+    if let Some(ref combat_patch) = result.combat_patch {
+        // Apply HP changes from the patch
+        if let Some(ref hp_changes) = combat_patch.hp_changes {
+            // Find changes that apply to the acting player's character
+            let char_name_lower = player_name_for_save.to_lowercase();
+            for (target, delta) in hp_changes {
+                let target_lower = target.to_lowercase();
+                if target_lower == char_name_lower
+                    || character_json.as_ref().and_then(|cj| cj.get("name")).and_then(|n| n.as_str()).map(|n| n.to_lowercase() == target_lower).unwrap_or(false)
+                {
+                    *hp = sidequest_game::clamp_hp(*hp, *delta, *max_hp);
+                    tracing::info!(target = %target, delta = delta, new_hp = *hp, "combat.patch.hp_applied — player HP changed");
+                }
             }
         }
-        if heal_keywords.iter().any(|kw| narr_lower.contains(kw)) {
-            let delta = ((*max_hp as f64 * 0.2) as i32).max(2);
-            *hp = sidequest_game::clamp_hp(*hp, delta, *max_hp);
-            tracing::info!(delta = delta, new_hp = *hp, "Healing applied");
+        // Apply combat state transitions
+        if let Some(in_combat) = combat_patch.in_combat {
+            if in_combat && !combat_state.in_combat() {
+                combat_state.set_in_combat(true);
+                tracing::info!("combat.patch.started — CombatPatch set in_combat=true");
+            } else if !in_combat && combat_state.in_combat() {
+                combat_state.set_in_combat(false);
+                tracing::info!("combat.patch.ended — CombatPatch set in_combat=false");
+            }
         }
+        if let Some(dw) = combat_patch.drama_weight {
+            combat_state.set_drama_weight(dw);
+        }
+        if combat_patch.advance_round {
+            combat_state.advance_round();
+        }
+        tracing::info!(
+            in_combat = ?combat_patch.in_combat,
+            hp_changes = ?combat_patch.hp_changes,
+            drama_weight = ?combat_patch.drama_weight,
+            "combat.patch.applied"
+        );
     }
 
     // Bug 3: XP award based on action type
@@ -3937,6 +3975,14 @@ async fn dispatch_player_action(
                     },
                 });
             }
+        }
+    }
+
+    // Quest log updates — merge narrator-extracted quest changes into quest_log
+    if !result.quest_updates.is_empty() {
+        for (quest_name, status) in &result.quest_updates {
+            quest_log.insert(quest_name.clone(), status.clone());
+            tracing::info!(quest = %quest_name, status = %status, "quest.updated");
         }
     }
 
@@ -4537,8 +4583,9 @@ async fn dispatch_player_action(
                 snapshot.axis_values = axis_values.clone();
                 snapshot.combat = combat_state.clone();
                 snapshot.chase = chase_state.clone();
+                snapshot.quest_log = quest_log.clone();
                 snapshot.discovered_regions = discovered_regions.clone();
-                snapshot.active_tropes = trope_states.iter().map(|ts| ts.trope_definition_id().to_string()).collect();
+                snapshot.active_tropes = trope_states.clone();
                 // Sync character state (HP, XP, level, inventory, known_facts, affinities)
                 if let Some(ref cj) = character_json {
                     if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
@@ -4986,8 +5033,9 @@ async fn dispatch_player_action(
                         }
                     }
                     GameMessage::ChapterMarker { ref payload, .. } => {
-                        let player_ids: Vec<String> = ss.players.keys().cloned().collect();
-                        for target_pid in &player_ids {
+                        // Send only to OTHER players — the acting player already
+                        // received this ChapterMarker via the direct response channel.
+                        for target_pid in &other_players {
                             let marker = GameMessage::ChapterMarker {
                                 payload: payload.clone(),
                                 player_id: target_pid.clone(),
