@@ -4447,8 +4447,17 @@ async fn dispatch_player_action(
             } else {
                 1.0
             },
-            quest_completed: false,
-            npc_died: false,
+            quest_completed: {
+                let narr = clean_narration.to_lowercase();
+                narr.contains("quest complete") || narr.contains("mission accomplished")
+                    || narr.contains("task done") || narr.contains("objective achieved")
+            },
+            npc_died: {
+                let narr = clean_narration.to_lowercase();
+                narr.contains("falls dead") || narr.contains("killed")
+                    || narr.contains("dies") || narr.contains("slain")
+                    || narr.contains("collapses lifeless")
+            },
         };
         // Classify mood first so we can include it in the protocol message
         let classification = director.classify_mood(&clean_narration, &mood_ctx);
