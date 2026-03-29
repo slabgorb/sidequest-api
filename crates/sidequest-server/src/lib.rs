@@ -1740,6 +1740,7 @@ async fn dispatch_connect(
                                 payload: CharacterSheetPayload {
                                     name: character.core.name.as_str().to_string(),
                                     class: character.char_class.as_str().to_string(),
+                                    race: character.race.as_str().to_string(),
                                     level: character.core.level as u32,
                                     stats: character
                                         .stats
@@ -1748,6 +1749,15 @@ async fn dispatch_connect(
                                         .collect(),
                                     abilities: character.hooks.clone(),
                                     backstory: character.backstory.as_str().to_string(),
+                                    personality: character.core.personality.as_str().to_string(),
+                                    pronouns: character.pronouns.clone(),
+                                    equipment: character.core.inventory.items.iter().map(|i| {
+                                        if i.equipped {
+                                            format!("{} [equipped]", i.name)
+                                        } else {
+                                            i.name.as_str().to_string()
+                                        }
+                                    }).collect(),
                                     portrait_url: None,
                                 },
                                 player_id: player_id.to_string(),
@@ -2317,6 +2327,7 @@ async fn dispatch_character_creation(
                         payload: CharacterSheetPayload {
                             name: character.core.name.as_str().to_string(),
                             class: character.char_class.as_str().to_string(),
+                            race: character.race.as_str().to_string(),
                             level: character.core.level as u32,
                             stats: character
                                 .stats
@@ -2325,6 +2336,15 @@ async fn dispatch_character_creation(
                                 .collect(),
                             abilities: character.hooks.clone(),
                             backstory: character.backstory.as_str().to_string(),
+                            personality: character.core.personality.as_str().to_string(),
+                            pronouns: character.pronouns.clone(),
+                            equipment: character.core.inventory.items.iter().map(|i| {
+                                if i.equipped {
+                                    format!("{} [equipped]", i.name)
+                                } else {
+                                    i.name.as_str().to_string()
+                                }
+                            }).collect(),
                             portrait_url: None,
                         },
                         player_id: player_id.to_string(),

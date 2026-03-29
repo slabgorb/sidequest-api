@@ -312,6 +312,7 @@ mod message_type_tests {
             payload: CharacterSheetPayload {
                 name: "Grok".into(),
                 class: "Warrior".into(),
+                race: "Orc".into(),
                 level: 3,
                 stats: std::collections::HashMap::from([
                     ("strength".into(), 16),
@@ -319,6 +320,9 @@ mod message_type_tests {
                 ]),
                 abilities: vec!["Power Strike".into()],
                 backstory: "A wandering fighter.".into(),
+                personality: "Gruff".into(),
+                pronouns: "he/him".into(),
+                equipment: vec!["Iron Sword [equipped]".into()],
                 portrait_url: None,
             },
             player_id: String::new(),

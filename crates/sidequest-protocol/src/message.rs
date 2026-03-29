@@ -446,6 +446,9 @@ pub struct CharacterSheetPayload {
     pub name: String,
     /// Character class.
     pub class: String,
+    /// Character race/origin.
+    #[serde(default)]
+    pub race: String,
     /// Character level.
     pub level: u32,
     /// Ability scores / stats.
@@ -454,6 +457,15 @@ pub struct CharacterSheetPayload {
     pub abilities: Vec<String>,
     /// Character backstory.
     pub backstory: String,
+    /// Personality trait.
+    #[serde(default)]
+    pub personality: String,
+    /// Pronouns.
+    #[serde(default)]
+    pub pronouns: String,
+    /// Equipped/carried items.
+    #[serde(default)]
+    pub equipment: Vec<String>,
     /// Portrait image URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
