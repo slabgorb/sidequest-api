@@ -3986,7 +3986,7 @@ async fn dispatch_player_action(
                     statuses: vec![],
                     inventory: inventory_names.clone(),
                 }]),
-                quests: None,
+                quests: if quest_log.is_empty() { None } else { Some(quest_log.clone()) },
                 items_gained: if result.items_gained.is_empty() {
                     None
                 } else {
