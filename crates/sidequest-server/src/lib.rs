@@ -3488,10 +3488,54 @@ async fn dispatch_player_action(
         narration_history.drain(..narration_history.len() - 20);
     }
 
-    // Update NPC registry from narration — tracks names, pronouns, locations
-    // so subsequent turns maintain NPC identity consistency.
-    // Use trope_states len as a rough turn counter.
+    // Update NPC registry from structured narrator output (preferred) + regex fallback.
+    // Structured extraction produces clean data; regex catches NPCs the narrator forgot to list.
     let turn_approx = turn_manager.interaction() as u32;
+    if !result.npcs_present.is_empty() {
+        tracing::info!(count = result.npcs_present.len(), "npc_registry.structured — updating from narrator JSON");
+        for npc in &result.npcs_present {
+            if npc.name.is_empty() { continue; }
+            let name_lower = npc.name.to_lowercase();
+            if let Some(entry) = npc_registry.iter_mut().find(|e| {
+                e.name.to_lowercase() == name_lower
+                    || e.name.to_lowercase().contains(&name_lower)
+                    || name_lower.contains(&e.name.to_lowercase())
+            }) {
+                // Update existing — preserve identity, update last_seen
+                entry.last_seen_turn = turn_approx;
+                if !current_location.is_empty() {
+                    entry.location = current_location.to_string();
+                }
+                // Upgrade name if structured version is more specific
+                if npc.name.len() > entry.name.len() {
+                    entry.name = npc.name.clone();
+                }
+                // Fill in missing fields from structured data
+                if entry.pronouns.is_empty() && !npc.pronouns.is_empty() {
+                    entry.pronouns = npc.pronouns.clone();
+                }
+                if entry.role.is_empty() && !npc.role.is_empty() {
+                    entry.role = npc.role.clone();
+                }
+                if entry.appearance.is_empty() && !npc.appearance.is_empty() {
+                    entry.appearance = npc.appearance.clone();
+                }
+            } else if npc.is_new {
+                // New NPC — create entry
+                npc_registry.push(NpcRegistryEntry {
+                    name: npc.name.clone(),
+                    pronouns: npc.pronouns.clone(),
+                    role: npc.role.clone(),
+                    age: String::new(),
+                    appearance: npc.appearance.clone(),
+                    location: current_location.to_string(),
+                    last_seen_turn: turn_approx,
+                });
+                tracing::info!(name = %npc.name, pronouns = %npc.pronouns, role = %npc.role, "npc_registry.new — created from structured data");
+            }
+        }
+    }
+    // Regex fallback — catches NPCs the narrator forgot to list in the JSON block
     let region_refs: Vec<&str> = discovered_regions.iter().map(|s| s.as_str()).collect();
     update_npc_registry(
         npc_registry,
