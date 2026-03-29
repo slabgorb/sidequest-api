@@ -3270,6 +3270,18 @@ async fn dispatch_player_action(
                     tracing::info!(player_id = %player_id, "barrier.submit — action submitted, waiting for other players");
                     barrier.submit_action(player_id, action);
 
+                    // Broadcast TURN_STATUS "active" so other players' UIs know this player submitted
+                    let turn_submitted = GameMessage::TurnStatus {
+                        payload: TurnStatusPayload {
+                            player_name: player_name_for_save.to_string(),
+                            status: "active".into(),
+                            state_delta: None,
+                        },
+                        player_id: player_id.to_string(),
+                    };
+                    let _ = state.broadcast(turn_submitted);
+                    tracing::info!(player_name = %player_name_for_save, "barrier.turn_status.active — broadcast submission notification");
+
                     // Clone what we need for the spawned resolution task
                     let barrier_clone = barrier.clone();
                     let ss_arc_clone = ss_arc.clone();
