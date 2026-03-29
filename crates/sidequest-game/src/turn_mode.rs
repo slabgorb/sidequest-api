@@ -41,10 +41,10 @@ impl TurnMode {
                     prompt: Some(prompt),
                 }
             }
-            // Multiplayer: auto-transition to Structured when 2+ players present
-            (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { player_count }) if player_count > 1 => {
-                TurnMode::Structured
-            }
+            // Multiplayer: 2+ players → Structured (sealed envelope pattern).
+            // All players submit blindly, barrier collects, narrator resolves as one scene.
+            (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { player_count }) if player_count > 1 => TurnMode::Structured,
+            (TurnMode::FreePlay, TurnModeTransition::PlayerJoined { .. }) => TurnMode::FreePlay,
             // Revert to FreePlay when back to solo
             (TurnMode::Structured, TurnModeTransition::PlayerLeft { player_count }) if player_count <= 1 => {
                 TurnMode::FreePlay

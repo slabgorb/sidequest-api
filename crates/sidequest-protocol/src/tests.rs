@@ -269,7 +269,11 @@ mod message_type_tests {
     #[test]
     fn turn_status_round_trip() {
         let msg = GameMessage::TurnStatus {
-            payload: TurnStatusPayload { state_delta: None },
+            payload: TurnStatusPayload {
+                player_name: "Kael".into(),
+                status: "active".into(),
+                state_delta: None,
+            },
             player_id: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
@@ -284,7 +288,8 @@ mod message_type_tests {
             payload: PartyStatusPayload {
                 members: vec![PartyMember {
                     player_id: "p1".into(),
-                    name: "Grok".into(),
+                    name: "Player1".into(),
+                    character_name: "Grok".into(),
                     current_hp: 20,
                     max_hp: 20,
                     statuses: vec!["blessed".into()],
@@ -307,6 +312,7 @@ mod message_type_tests {
             payload: CharacterSheetPayload {
                 name: "Grok".into(),
                 class: "Warrior".into(),
+                race: "Orc".into(),
                 level: 3,
                 stats: std::collections::HashMap::from([
                     ("strength".into(), 16),
@@ -314,6 +320,9 @@ mod message_type_tests {
                 ]),
                 abilities: vec!["Power Strike".into()],
                 backstory: "A wandering fighter.".into(),
+                personality: "Gruff".into(),
+                pronouns: "he/him".into(),
+                equipment: vec!["Iron Sword [equipped]".into()],
                 portrait_url: None,
             },
             player_id: String::new(),

@@ -52,6 +52,7 @@ fn test_character() -> Character {
         hooks: vec!["nemesis: The Warden".to_string()],
         char_class: NonBlankString::new("Fighter").unwrap(),
         race: NonBlankString::new("Dwarf").unwrap(),
+        pronouns: String::new(),
         stats: HashMap::from([("STR".to_string(), 16), ("DEX".to_string(), 10)]),
         abilities: vec![],
         known_facts: vec![],

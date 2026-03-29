@@ -258,6 +258,7 @@ fn character_has_abilities_field() {
         hooks: vec![],
         char_class: NonBlankString::new("Fighter").unwrap(),
         race: NonBlankString::new("Human").unwrap(),
+        pronouns: String::new(),
         stats: HashMap::new(),
         abilities: vec![root_bonding(), fireball()],
         known_facts: vec![],

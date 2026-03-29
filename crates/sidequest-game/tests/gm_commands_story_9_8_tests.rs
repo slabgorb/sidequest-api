@@ -81,6 +81,7 @@ fn test_character() -> Character {
         hooks: vec![],
         char_class: NonBlankString::new("Scavenger").unwrap(),
         race: NonBlankString::new("Mutant").unwrap(),
+        pronouns: String::new(),
         stats: HashMap::from([("STR".to_string(), 12)]),
         abilities: vec![],
         known_facts: vec![],

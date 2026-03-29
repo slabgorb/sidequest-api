@@ -161,9 +161,59 @@ impl MusicDirector {
             mood_keywords = Self::default_mood_keywords();
         }
 
+        // Start with mood_tracks from the genre pack
+        let mut mood_tracks = audio_config.mood_tracks.clone();
+
+        // Merge themes.variations into mood_tracks — themes contain set-1/set-2
+        // variations (ambient, full, overture, sparse, tension_build, resolution)
+        // that mood_tracks doesn't include.
+        for theme in &audio_config.themes {
+            let mood_key = &theme.mood;
+            let tracks = mood_tracks.entry(mood_key.clone()).or_default();
+            for variation in &theme.variations {
+                // Skip if this path is already in mood_tracks (avoid duplicates)
+                if tracks.iter().any(|t| t.path == variation.path) {
+                    continue;
+                }
+                // Derive energy from variation type
+                let energy = match variation.variation_type.as_str() {
+                    "ambient" => 0.3,
+                    "sparse" => 0.2,
+                    "tension_build" => 0.7,
+                    "overture" => 0.6,
+                    "resolution" => 0.4,
+                    "full" => 0.5,
+                    _ => 0.5,
+                };
+                // Derive title from filename
+                let title = variation
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&variation.path)
+                    .trim_end_matches(".ogg")
+                    .trim_end_matches(".mp3")
+                    .replace('_', " ");
+                tracks.push(MoodTrack {
+                    path: variation.path.clone(),
+                    title,
+                    bpm: theme.variations.first().map_or(100, |_| 100), // BPM not in variations
+                    energy,
+                });
+            }
+        }
+
+        let track_count: usize = mood_tracks.values().map(|v| v.len()).sum();
+        tracing::info!(
+            moods = mood_tracks.len(),
+            tracks = track_count,
+            themes = audio_config.themes.len(),
+            "MusicDirector initialized with merged mood_tracks + themes"
+        );
+
         Self {
             mood_keywords,
-            mood_tracks: audio_config.mood_tracks.clone(),
+            mood_tracks,
             current_mood: None,
             current_track: None,
             rotator: ThemeRotator::new(RotationConfig::default()),

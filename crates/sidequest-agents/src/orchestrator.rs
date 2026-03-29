@@ -42,6 +42,8 @@ pub struct ActionResult {
     pub footnotes: Vec<sidequest_protocol::Footnote>,
     /// Items gained by the player this turn (extracted from narrator JSON block).
     pub items_gained: Vec<sidequest_protocol::ItemGained>,
+    /// NPCs present in the narrator's response (extracted from narrator JSON block).
+    pub npcs_present: Vec<NpcMention>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -194,6 +196,7 @@ impl GameService for Orchestrator {
                     agent_name: Some(agent_str),
                     footnotes: extraction.footnotes,
                     items_gained: extraction.items_gained,
+                    npcs_present: extraction.npcs_present,
                 }
             }
             Err(e) => {
@@ -210,6 +213,7 @@ impl GameService for Orchestrator {
                     agent_name: Some(agent_str),
                     footnotes: vec![],
                     items_gained: vec![],
+                    npcs_present: vec![],
                 }
             }
         }
@@ -221,20 +225,42 @@ impl GameService for Orchestrator {
 // ============================================================================
 
 /// Serde model for the narrator's structured JSON output block.
-/// Contains footnotes and optionally items gained by the player.
+/// An NPC mentioned in the narrator's structured output.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct NpcMention {
+    /// Full canonical name (e.g., "Toggler Copperjaw", not "Toggler").
+    pub name: String,
+    /// Pronouns (e.g., "he/him", "she/her", "they/them").
+    #[serde(default)]
+    pub pronouns: String,
+    /// Role in one or two words (e.g., "blacksmith", "faction leader").
+    #[serde(default)]
+    pub role: String,
+    /// Brief physical description (only for new introductions).
+    #[serde(default)]
+    pub appearance: String,
+    /// True if this NPC appears for the first time this turn.
+    #[serde(default)]
+    pub is_new: bool,
+}
+
+/// Contains footnotes, items gained, and NPCs present in the narrator's response.
 #[derive(Debug, serde::Deserialize)]
 struct NarratorStructuredBlock {
     #[serde(default)]
     footnotes: Vec<sidequest_protocol::Footnote>,
     #[serde(default)]
     items_gained: Vec<sidequest_protocol::ItemGained>,
+    #[serde(default)]
+    npcs_present: Vec<NpcMention>,
 }
 
 /// Extracted structured data from a narrator response.
-struct NarratorExtraction {
-    prose: String,
-    footnotes: Vec<sidequest_protocol::Footnote>,
-    items_gained: Vec<sidequest_protocol::ItemGained>,
+pub struct NarratorExtraction {
+    pub prose: String,
+    pub footnotes: Vec<sidequest_protocol::Footnote>,
+    pub items_gained: Vec<sidequest_protocol::ItemGained>,
+    pub npcs_present: Vec<NpcMention>,
 }
 
 /// Extract structured data (footnotes, items) from a narrator response.
@@ -258,7 +284,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     strategy = "fenced_json",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained };
+                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present };
             }
             // Try parsing as a bare footnotes array (legacy format)
             if let Ok(footnotes) = serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str) {
@@ -268,7 +294,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     strategy = "fenced_array",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes, items_gained: vec![] };
+                return NarratorExtraction { prose, footnotes, items_gained: vec![], npcs_present: vec![] };
             }
         }
     }
@@ -284,7 +310,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 strategy = "trailing_json",
                 "rag.structured_parsed"
             );
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained };
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present };
         }
     }
 
@@ -293,13 +319,13 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         let json_str = &raw[idx..];
         if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
             let prose = raw[..idx].trim().to_string();
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained };
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present };
         }
     }
 
     // No structured data found
     tracing::debug!("rag.no_structured_data_found");
-    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![] }
+    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![], npcs_present: vec![] }
 }
 
 // ============================================================================

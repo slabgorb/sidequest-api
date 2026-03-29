@@ -1252,6 +1252,7 @@ mod tests {
             rig_trait: None,
             catch_phrase: None,
             stat_bonuses: HashMap::new(),
+            pronoun_hint: None,
         }
     }
 

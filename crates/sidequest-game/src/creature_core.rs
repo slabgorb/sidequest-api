@@ -30,6 +30,9 @@ pub struct CreatureCore {
     pub max_hp: i32,
     /// Armor class.
     pub ac: i32,
+    /// Experience points accumulated.
+    #[serde(default)]
+    pub xp: u32,
     /// Inventory of carried items.
     pub inventory: Inventory,
     /// Active status conditions.

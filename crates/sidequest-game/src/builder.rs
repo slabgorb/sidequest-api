@@ -146,6 +146,8 @@ pub struct AccumulatedChoices {
     pub backstory_fragments: Vec<String>,
     /// Accumulated stat bonuses from origin/mutation/artifact choices.
     pub stat_bonuses: HashMap<String, i32>,
+    /// Accumulated pronoun hint (last one wins).
+    pub pronoun_hint: Option<String>,
 }
 
 /// Errors from CharacterBuilder operations.
@@ -344,6 +346,9 @@ impl CharacterBuilder {
             if let Some(ref v) = eff.catch_phrase {
                 acc.catch_phrase = Some(v.clone());
             }
+            if let Some(ref v) = eff.pronoun_hint {
+                acc.pronoun_hint = Some(v.clone());
+            }
             // Collect the rich description text from each choice for backstory
             if let Some(ref desc) = result.choice_description {
                 acc.backstory_fragments.push(desc.clone());
@@ -445,6 +450,7 @@ impl CharacterBuilder {
             rig_trait: None,
             catch_phrase: None,
             stat_bonuses: HashMap::new(),
+            pronoun_hint: None,
         };
 
         self.results.push(SceneResult {
@@ -597,7 +603,7 @@ impl CharacterBuilder {
                     rarity: NonBlankString::new("common").unwrap(),
                     narrative_weight: 0.3,
                     tags: vec![],
-                    equipped: false,
+                    equipped: true,
                     quantity: 1,
                 }
             })
@@ -640,6 +646,7 @@ impl CharacterBuilder {
                 hp: base_hp,
                 max_hp: base_hp,
                 ac,
+                xp: 0,
                 inventory: Inventory { items, gold: 0 },
                 statuses: vec![],
             },
@@ -648,6 +655,7 @@ impl CharacterBuilder {
             hooks,
             char_class: NonBlankString::new(class_str).unwrap(),
             race: NonBlankString::new(race_str).unwrap(),
+            pronouns: acc.pronoun_hint.unwrap_or_default(),
             stats,
             abilities: vec![],
             known_facts: vec![],

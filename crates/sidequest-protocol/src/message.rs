@@ -421,6 +421,10 @@ pub struct CharacterCreationPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TurnStatusPayload {
+    /// Which player this turn status is about.
+    pub player_name: String,
+    /// "active" = this player's turn, "resolved" = turn complete.
+    pub status: String,
     /// Optional state delta.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_delta: Option<StateDelta>,
@@ -442,6 +446,9 @@ pub struct CharacterSheetPayload {
     pub name: String,
     /// Character class.
     pub class: String,
+    /// Character race/origin.
+    #[serde(default)]
+    pub race: String,
     /// Character level.
     pub level: u32,
     /// Ability scores / stats.
@@ -450,6 +457,15 @@ pub struct CharacterSheetPayload {
     pub abilities: Vec<String>,
     /// Character backstory.
     pub backstory: String,
+    /// Personality trait.
+    #[serde(default)]
+    pub personality: String,
+    /// Pronouns.
+    #[serde(default)]
+    pub pronouns: String,
+    /// Equipped/carried items.
+    #[serde(default)]
+    pub equipment: Vec<String>,
     /// Portrait image URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
@@ -719,8 +735,11 @@ pub struct CreationChoice {
 pub struct PartyMember {
     /// Player identifier.
     pub player_id: String,
-    /// Character name.
+    /// Player lobby name (what the user typed at connect — used for identity matching).
     pub name: String,
+    /// In-game character name (for display in party panel).
+    #[serde(default)]
+    pub character_name: String,
     /// Current HP.
     pub current_hp: i32,
     /// Maximum HP.

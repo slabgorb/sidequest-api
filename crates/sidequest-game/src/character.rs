@@ -38,6 +38,9 @@ pub struct Character {
     pub char_class: NonBlankString,
     /// Character race (e.g., "Human", "Dwarf").
     pub race: NonBlankString,
+    /// Player-selected pronouns (e.g., "she/her", "he/him", "they/them").
+    #[serde(default)]
+    pub pronouns: String,
     /// Ability scores (STR, DEX, CON, INT, WIS, CHA).
     pub stats: HashMap<String, i32>,
 
@@ -114,6 +117,7 @@ mod tests {
             hooks: vec!["nemesis: The Warden".to_string()],
             char_class: NonBlankString::new("Fighter").unwrap(),
             race: NonBlankString::new("Dwarf").unwrap(),
+            pronouns: "he/him".to_string(),
             stats: HashMap::from([
                 ("STR".to_string(), 16),
                 ("DEX".to_string(), 10),
