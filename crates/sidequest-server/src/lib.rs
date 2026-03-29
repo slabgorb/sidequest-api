@@ -27,7 +27,7 @@ use tracing_subscriber::{EnvFilter, Registry};
 
 use sidequest_agents::orchestrator::{GameService, TurnContext};
 use sidequest_game::builder::CharacterBuilder;
-use sidequest_genre::{GenreCode, GenreLoader};
+use sidequest_genre::{GenreCache, GenreCode, GenreLoader};
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
     CharacterState, CombatEventPayload, ErrorPayload, GameMessage, InitialState, InventoryPayload,
@@ -3167,8 +3167,13 @@ async fn dispatch_player_action(
         continuity_corrections.clear();
     }
 
-    // Check if barrier mode is active (Structured/Cinematic turn mode)
-    {
+    // Check if barrier mode is active (Structured/Cinematic turn mode).
+    // If active, submit action to barrier, send "waiting" to this player via session
+    // channel, then await barrier resolution inline. After resolution, override the
+    // action with the combined party context and fall through to the normal pipeline.
+    // This ensures ALL post-narration systems (HP, combat, tropes, quests, inventory,
+    // persistence, music, render, etc.) run for barrier turns — not just narration.
+    let barrier_combined_action: Option<String> = {
         let holder = shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
@@ -3176,140 +3181,81 @@ async fn dispatch_player_action(
                 if let Some(ref barrier) = ss.turn_barrier {
                     // Submit action to barrier (doesn't trigger narration yet)
                     barrier.submit_action(player_id, action);
-
-                    // Clone what we need for the spawned resolution task
                     let barrier_clone = barrier.clone();
-                    let ss_arc_clone = ss_arc.clone();
-                    let state_clone = state.clone();
-                    let genre_slug_owned = genre_slug.to_string();
-                    let world_slug_owned = world_slug.to_string();
-                    let action_owned = action.to_string();
-                    let player_id_owned = player_id.to_string();
-                    let player_name_owned = player_name_for_save.to_string();
+
+                    // Send "waiting" to this player via session channel (writer task delivers it)
+                    ss.send_to_player(
+                        GameMessage::SessionEvent {
+                            payload: SessionEventPayload {
+                                event: "waiting".to_string(),
+                                player_name: None,
+                                genre: None,
+                                world: None,
+                                has_character: None,
+                                initial_state: None,
+                                css: None,
+                            },
+                            player_id: player_id.to_string(),
+                        },
+                        player_id.to_string(),
+                    );
+
                     drop(ss);
                     drop(holder);
 
-                    // Spawn a task that waits for all players to submit
-                    tokio::spawn(async move {
-                        let result = barrier_clone.wait_for_turn().await;
-                        tracing::info!(
-                            timed_out = result.timed_out,
-                            missing = ?result.missing_players,
-                            genre = %genre_slug_owned,
-                            world = %world_slug_owned,
-                            "Turn barrier resolved"
-                        );
-                        // Build combined context with all players' actions
-                        let named_actions = {
-                            let ss = ss_arc_clone.lock().await;
-                            ss.multiplayer.named_actions()
-                        };
-                        let combined_action = named_actions
-                            .iter()
-                            .map(|(name, act)| format!("{}: {}", name, act))
-                            .collect::<Vec<_>>()
-                            .join("\n");
-                        let context = TurnContext {
-                            state_summary: Some(format!(
-                                "Combined party actions:\n{}\n\nPERSPECTIVE: Write in third-person omniscient. Do NOT use 'you' for any character. Name all characters explicitly: 'Mira does X. Kael does Y.'",
-                                combined_action
-                            )),
-                            in_combat: false,
-                            in_chase: false,
-                        };
-                        let narration_result = state_clone
-                            .game_service()
-                            .process_action(&action_owned, &context);
-                        // Send narration to co-located players only (same routing as main path).
-                        // Each player gets their own player_id. Perception filters apply.
-                        let ss = ss_arc_clone.lock().await;
-                        let co_located = ss.co_located_players(&player_id_owned);
-                        // Send to acting player
-                        let own_narration = GameMessage::Narration {
-                            payload: NarrationPayload {
-                                text: narration_result.narration.clone(),
-                                state_delta: None,
-                                footnotes: narration_result.footnotes.clone(),
-                            },
-                            player_id: player_id_owned.clone(),
-                        };
-                        ss.send_to_player(own_narration, player_id_owned.clone());
-                        // Send to co-located players with perception filtering
-                        for target_id in &co_located {
-                            let text = if let Some(filter) = ss.perception_filters.get(target_id) {
-                                let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
-                                format!(
-                                    "[Your perception is altered: {}]\n\n{}",
-                                    effects_desc, narration_result.narration
-                                )
-                            } else {
-                                narration_result.narration.clone()
-                            };
-                            let narration_msg = GameMessage::Narration {
-                                payload: NarrationPayload {
-                                    text,
-                                    state_delta: None,
-                                    footnotes: narration_result.footnotes.clone(),
-                                },
-                                player_id: target_id.clone(),
-                            };
-                            ss.send_to_player(narration_msg, target_id.clone());
-                        }
-                        // NarrationEnd to acting player + co-located
-                        ss.send_to_player(
-                            GameMessage::NarrationEnd {
-                                payload: NarrationEndPayload { state_delta: None },
-                                player_id: player_id_owned.clone(),
-                            },
-                            player_id_owned.clone(),
-                        );
-                        for target_id in &co_located {
-                            ss.send_to_player(
-                                GameMessage::NarrationEnd {
-                                    payload: NarrationEndPayload { state_delta: None },
-                                    player_id: target_id.clone(),
-                                },
-                                target_id.clone(),
-                            );
-                        }
-                        // TURN_STATUS "resolved" — barrier turn complete, unlock all players.
-                        // Use global broadcast for reliability.
-                        if ss.players.len() > 1 {
-                            let resolved_msg = GameMessage::TurnStatus {
-                                payload: TurnStatusPayload {
-                                    player_name: player_name_owned.clone(),
-                                    status: "resolved".into(),
-                                    state_delta: None,
-                                },
-                                player_id: player_id_owned.clone(),
-                            };
-                            let _ = state_clone.broadcast(resolved_msg);
-                            tracing::info!(player_name = %player_name_owned, "turn_status.resolved broadcast after barrier resolution");
-                        }
-                    });
+                    // Await barrier resolution inline — player is waiting, handler blocked is fine
+                    let result = barrier_clone.wait_for_turn().await;
+                    tracing::info!(
+                        timed_out = result.timed_out,
+                        missing = ?result.missing_players,
+                        genre = %genre_slug,
+                        world = %world_slug,
+                        "Turn barrier resolved"
+                    );
 
-                    // Tell this player they're waiting for others
-                    let waiting = GameMessage::SessionEvent {
-                        payload: SessionEventPayload {
-                            event: "waiting".to_string(),
-                            player_name: None,
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: None,
-                            css: None,
-                        },
-                        player_id: player_id.to_string(),
+                    // Build combined action context from all players' submissions
+                    let named_actions = {
+                        let holder = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let ss = ss_arc.lock().await;
+                            ss.multiplayer.named_actions()
+                        } else {
+                            HashMap::new()
+                        }
                     };
-                    return vec![waiting];
+                    let combined = named_actions
+                        .iter()
+                        .map(|(name, act)| format!("{}: {}", name, act))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+
+                    // Prepend combined actions + perspective instruction to state_summary
+                    state_summary = format!(
+                        "Combined party actions:\n{}\n\nPERSPECTIVE: Write in third-person omniscient. Do NOT use 'you' for any character. Name all characters explicitly.\n\n{}",
+                        combined, state_summary
+                    );
+
+                    Some(combined)
+                } else {
+                    None
                 }
+            } else {
+                None
             }
+        } else {
+            None
         }
-    }
+    };
+
+    // Use combined action for barrier turns, original action for FreePlay
+    let effective_action: std::borrow::Cow<str> = match &barrier_combined_action {
+        Some(combined) => std::borrow::Cow::Borrowed(combined.as_str()),
+        None => std::borrow::Cow::Borrowed(action),
+    };
 
     // Preprocess raw player input — STT cleanup + three-perspective rewrite.
     // Uses haiku-tier LLM with 15s timeout; falls back to mechanical rewrite on failure.
-    let preprocessed = sidequest_agents::preprocessor::preprocess_action(action, char_name);
+    let preprocessed = sidequest_agents::preprocessor::preprocess_action(&effective_action, char_name);
     tracing::info!(
         raw = %action,
         you = %preprocessed.you,
@@ -3428,7 +3374,7 @@ async fn dispatch_player_action(
     let truncated_narration: String = clean_narration.chars().take(300).collect();
     narration_history.push(format!(
         "Player: {}\nNarrator: {}",
-        action, truncated_narration
+        effective_action, truncated_narration
     ));
     // Cap the buffer at 20 entries to prevent unbounded growth
     if narration_history.len() > 20 {
@@ -3602,7 +3548,7 @@ async fn dispatch_player_action(
 
                     // Increment progress for affinities whose triggers match the action
                     for aff_def in genre_affinities {
-                        let action_lower = action.to_lowercase();
+                        let action_lower = effective_action.to_lowercase();
                         let matches_trigger = aff_def
                             .triggers
                             .iter()
@@ -4728,7 +4674,7 @@ async fn dispatch_player_action(
                         // This creates a turn boundary in NarrativeView (PLAYER_ACTION triggers flushChunks).
                         let observer_action = GameMessage::PlayerAction {
                             payload: sidequest_protocol::PlayerActionPayload {
-                                action: format!("{} — {}", char_name, action),
+                                action: format!("{} — {}", char_name, effective_action),
                                 aside: false,
                             },
                             player_id: player_id.to_string(),
