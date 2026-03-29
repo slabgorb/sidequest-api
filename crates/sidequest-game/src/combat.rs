@@ -55,7 +55,14 @@ impl CombatState {
 
     /// Advance to the next round.
     pub fn advance_round(&mut self) {
+        let span = tracing::info_span!(
+            "combat_advance_round",
+            round_from = self.round,
+            round_to = tracing::field::Empty,
+        );
+        let _guard = span.enter();
         self.round += 1;
+        span.record("round_to", self.round);
     }
 
     /// The ordered log of damage events.
@@ -65,11 +72,26 @@ impl CombatState {
 
     /// Record a damage event.
     pub fn log_damage(&mut self, event: DamageEvent) {
+        let span = tracing::info_span!(
+            "combat_log_damage",
+            attacker = %event.attacker,
+            target = %event.target,
+            damage = event.damage,
+            round = event.round,
+        );
+        let _guard = span.enter();
         self.damage_log.push(event);
     }
 
     /// Add a status effect to a combatant.
     pub fn add_effect(&mut self, target: &str, effect: StatusEffect) {
+        let span = tracing::info_span!(
+            "combat_add_effect",
+            target = target,
+            effect_kind = ?effect.kind(),
+            duration = effect.remaining_rounds(),
+        );
+        let _guard = span.enter();
         self.effects
             .entry(target.to_string())
             .or_default()
@@ -138,12 +160,22 @@ impl CombatState {
 
     /// Tick all effects (decrement durations) and remove expired ones.
     pub fn tick_effects(&mut self) {
+        let span = tracing::info_span!(
+            "combat_tick_effects",
+            effects_expired = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let mut expired_count: u64 = 0;
         for effects in self.effects.values_mut() {
             for effect in effects.iter_mut() {
                 effect.tick();
             }
+            let before = effects.len();
             effects.retain(|e| !e.is_expired());
+            expired_count += (before - effects.len()) as u64;
         }
+        span.record("effects_expired", expired_count);
     }
 }
 

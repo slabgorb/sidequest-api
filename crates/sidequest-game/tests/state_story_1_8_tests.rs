@@ -28,6 +28,7 @@ use sidequest_protocol::NonBlankString;
 use sidequest_game::delta::{compute_delta, snapshot};
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::state::{ChasePatch, CombatPatch, WorldStatePatch};
+use sidequest_game::trope::TropeState;
 use sidequest_game::{SessionStore, SqliteStore};
 
 // ============================================================================
@@ -44,6 +45,7 @@ fn test_character() -> Character {
             hp: 25,
             max_hp: 30,
             ac: 16,
+            xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
         },
@@ -71,6 +73,7 @@ fn test_npc() -> Npc {
             hp: 12,
             max_hp: 12,
             ac: 10,
+            xp: 0,
             statuses: vec![],
             inventory: Inventory::default(),
         },
@@ -360,7 +363,7 @@ fn state_delta_empty_when_nothing_changed() {
 fn state_delta_detects_trope_change() {
     let before = snapshot(&test_snapshot());
     let mut snap = test_snapshot();
-    snap.active_tropes.push("betrayal".to_string());
+    snap.active_tropes.push(TropeState::new("betrayal"));
     let after = snapshot(&snap);
 
     let delta = compute_delta(&before, &after);

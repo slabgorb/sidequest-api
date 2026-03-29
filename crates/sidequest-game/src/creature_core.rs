@@ -77,6 +77,7 @@ mod tests {
             hp: 20,
             max_hp: 30,
             ac: 15,
+            xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
         }

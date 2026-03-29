@@ -114,6 +114,14 @@ impl TropeEngine {
         trope_defs: &[TropeDefinition],
         multiplier: f64,
     ) -> Vec<FiredBeat> {
+        let span = tracing::info_span!(
+            "trope_tick",
+            trope_count = tropes.len(),
+            multiplier = multiplier,
+            beats_fired = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
         let def_map: HashMap<&str, &TropeDefinition> = trope_defs
             .iter()
             .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
@@ -158,6 +166,7 @@ impl TropeEngine {
             }
         }
 
+        span.record("beats_fired", fired.len() as u64);
         fired
     }
 
@@ -167,6 +176,13 @@ impl TropeEngine {
         trope_defs: &[TropeDefinition],
         turn_text: &str,
     ) {
+        let span = tracing::info_span!(
+            "trope_keyword_modifiers",
+            tropes_modified = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+        let mut modified_count: u64 = 0;
+
         let lower = turn_text.to_lowercase();
         let def_map: HashMap<&str, &TropeDefinition> = trope_defs
             .iter()
@@ -184,6 +200,8 @@ impl TropeEngine {
                 continue;
             };
 
+            let before = ts.progression;
+
             // Accelerators
             for keyword in &pp.accelerators {
                 if lower.contains(&keyword.to_lowercase()) {
@@ -198,11 +216,22 @@ impl TropeEngine {
                     break;
                 }
             }
+
+            if (ts.progression - before).abs() > f64::EPSILON {
+                modified_count += 1;
+            }
         }
+        span.record("tropes_modified", modified_count);
     }
 
     /// Activate a trope. Idempotent — returns existing if already active.
     pub fn activate<'a>(tropes: &'a mut Vec<TropeState>, def_id: &str) -> &'a TropeState {
+        let span = tracing::info_span!(
+            "trope_activate",
+            trope_id = def_id,
+        );
+        let _guard = span.enter();
+
         if let Some(idx) = tropes
             .iter()
             .position(|ts| ts.trope_definition_id == def_id)
@@ -215,6 +244,12 @@ impl TropeEngine {
 
     /// Resolve a trope — sets progression to 1.0 and status to Resolved.
     pub fn resolve(tropes: &mut [TropeState], def_id: &str, note: Option<&str>) {
+        let span = tracing::info_span!(
+            "trope_resolve",
+            trope_id = def_id,
+        );
+        let _guard = span.enter();
+
         if let Some(ts) = tropes
             .iter_mut()
             .find(|ts| ts.trope_definition_id == def_id)

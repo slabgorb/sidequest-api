@@ -139,7 +139,7 @@ fn test_character() -> Character {
             hp: 18,
             max_hp: 20,
             ac: 13,
-            inventory,
+            xp: 0,            inventory,
             statuses: vec![],
         },
         backstory: NonBlankString::new("Born in the ash storms").unwrap(),

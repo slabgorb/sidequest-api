@@ -17,6 +17,7 @@ use tracing_subscriber::Registry;
 
 #[derive(Debug, Clone)]
 struct CapturedSpan {
+    id: u64,
     name: String,
     fields: Vec<(String, String)>,
     #[allow(dead_code)]
@@ -43,7 +44,7 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
     fn on_new_span(
         &self,
         attrs: &tracing::span::Attributes<'_>,
-        _id: &tracing::span::Id,
+        id: &tracing::span::Id,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let mut fields = Vec::new();
@@ -51,6 +52,7 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
         attrs.record(&mut visitor);
 
         self.captured.lock().unwrap().push(CapturedSpan {
+            id: id.into_u64(),
             name: attrs.metadata().name().to_string(),
             fields,
             target: attrs.metadata().target().to_string(),
@@ -59,7 +61,7 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
 
     fn on_record(
         &self,
-        _id: &tracing::span::Id,
+        id: &tracing::span::Id,
         values: &tracing::span::Record<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
@@ -67,8 +69,10 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
         let mut visitor = FieldCaptureVisitor(&mut fields);
         values.record(&mut visitor);
 
+        // Match by span ID to handle nested spans correctly
+        let span_id = id.into_u64();
         let mut captured = self.captured.lock().unwrap();
-        if let Some(span) = captured.last_mut() {
+        if let Some(span) = captured.iter_mut().find(|s| s.id == span_id) {
             span.fields.extend(fields);
         }
     }

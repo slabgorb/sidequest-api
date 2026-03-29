@@ -89,44 +89,80 @@ impl Npc {
     /// Merge mutable fields from a patch. Identity fields (pronouns, appearance)
     /// are locked after first set — subsequent patches cannot overwrite them.
     pub fn merge_patch(&mut self, patch: &NpcPatch) {
+        let span = tracing::info_span!(
+            "npc_merge_patch",
+            npc_name = self.core.name.as_str(),
+            fields_changed = tracing::field::Empty,
+            identity_fields_locked = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let mut changed = Vec::new();
+        let mut locked = Vec::new();
+
         if let Some(ref desc) = patch.description {
             self.core.description =
                 NonBlankString::new(desc).unwrap_or_else(|_| self.core.description.clone());
+            changed.push("description");
         }
         if let Some(ref loc) = patch.location {
             self.location = NonBlankString::new(loc).ok();
+            changed.push("location");
         }
 
         // Identity-locked: only write if currently empty
         if self.pronouns.is_none() {
             if let Some(ref p) = patch.pronouns {
                 self.pronouns = Some(p.clone());
+                changed.push("pronouns");
             }
+        } else if patch.pronouns.is_some() {
+            locked.push("pronouns");
         }
         if self.appearance.is_none() {
             if let Some(ref a) = patch.appearance {
                 self.appearance = Some(a.clone());
+                changed.push("appearance");
             }
+        } else if patch.appearance.is_some() {
+            locked.push("appearance");
         }
         if self.age.is_none() {
             if let Some(ref a) = patch.age {
                 self.age = Some(a.clone());
+                changed.push("age");
             }
+        } else if patch.age.is_some() {
+            locked.push("age");
         }
         if self.build.is_none() {
             if let Some(ref b) = patch.build {
                 self.build = Some(b.clone());
+                changed.push("build");
             }
+        } else if patch.build.is_some() {
+            locked.push("build");
         }
         if self.height.is_none() {
             if let Some(ref h) = patch.height {
                 self.height = Some(h.clone());
+                changed.push("height");
             }
+        } else if patch.height.is_some() {
+            locked.push("height");
         }
         if self.distinguishing_features.is_empty() {
             if let Some(ref df) = patch.distinguishing_features {
                 self.distinguishing_features = df.clone();
+                changed.push("distinguishing_features");
             }
+        } else if patch.distinguishing_features.is_some() {
+            locked.push("distinguishing_features");
+        }
+
+        span.record("fields_changed", tracing::field::display(changed.join(",")));
+        if !locked.is_empty() {
+            span.record("identity_fields_locked", tracing::field::display(locked.join(",")));
         }
     }
 }
@@ -164,6 +200,7 @@ mod tests {
                 hp: 12,
                 max_hp: 12,
                 ac: 10,
+                xp: 0,
                 statuses: vec![],
                 inventory: Inventory::default(),
             },
@@ -190,6 +227,7 @@ mod tests {
                 hp: 18,
                 max_hp: 22,
                 ac: 14,
+                xp: 0,
                 statuses: vec!["enraged".to_string()],
                 inventory: Inventory::default(),
             },

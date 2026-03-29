@@ -17,6 +17,7 @@ use tracing_subscriber::Registry;
 
 #[derive(Debug, Clone)]
 struct CapturedSpan {
+    id: u64,
     name: String,
     fields: Vec<(String, String)>,
     target: String,
@@ -42,7 +43,7 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
     fn on_new_span(
         &self,
         attrs: &tracing::span::Attributes<'_>,
-        _id: &tracing::span::Id,
+        id: &tracing::span::Id,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let mut fields = Vec::new();
@@ -50,6 +51,7 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
         attrs.record(&mut visitor);
 
         self.captured.lock().unwrap().push(CapturedSpan {
+            id: id.into_u64(),
             name: attrs.metadata().name().to_string(),
             fields,
             target: attrs.metadata().target().to_string(),
@@ -62,15 +64,14 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
         values: &tracing::span::Record<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        // Capture deferred field recordings too
         let mut fields = Vec::new();
         let mut visitor = FieldCaptureVisitor(&mut fields);
         values.record(&mut visitor);
 
-        // Append to the matching span (by finding the last span, since
-        // on_record doesn't carry the span name)
+        // Match by span ID to handle nested spans correctly
+        let span_id = id.into_u64();
         let mut captured = self.captured.lock().unwrap();
-        if let Some(span) = captured.last_mut() {
+        if let Some(span) = captured.iter_mut().find(|s| s.id == span_id) {
             span.fields.extend(fields);
         }
     }
@@ -110,33 +111,15 @@ fn has_field(span: &CapturedSpan, field_name: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 fn test_snapshot() -> sidequest_game::GameSnapshot {
-    use sidequest_game::*;
-
-    GameSnapshot {
+    sidequest_game::GameSnapshot {
         genre_slug: "mutant_wasteland".to_string(),
         world_slug: "flickering_reach".to_string(),
-        characters: vec![],
-        npcs: vec![],
         location: "The Bazaar".to_string(),
         time_of_day: "dusk".to_string(),
-        quest_log: HashMap::new(),
-        notes: vec![],
-        narrative_log: vec![],
-        combat: CombatState::default(),
-        chase: None,
-        active_tropes: vec![],
         atmosphere: "tense".to_string(),
         current_region: "central".to_string(),
         discovered_regions: vec!["central".to_string()],
-        discovered_routes: vec![],
-        turn_manager: TurnManager::default(),
-        last_saved_at: None,
-        active_stakes: String::new(),
-        lore_established: vec![],
-        turns_since_meaningful: 0,
-        total_beats_fired: 0,
-        campaign_maturity: sidequest_game::CampaignMaturity::Fresh,
-        world_history: vec![],
+        ..Default::default()
     }
 }
 
