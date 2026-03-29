@@ -102,6 +102,7 @@ impl MultiplayerSession {
                         hp: 1,
                         max_hp: 1,
                         ac: 10,
+                        xp: 0,
                         statuses: vec![],
                         inventory: Inventory::default(),
                     },

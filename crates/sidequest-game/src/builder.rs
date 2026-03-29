@@ -646,6 +646,7 @@ impl CharacterBuilder {
                 hp: base_hp,
                 max_hp: base_hp,
                 ac,
+                xp: 0,
                 inventory: Inventory { items, gold: 0 },
                 statuses: vec![],
             },

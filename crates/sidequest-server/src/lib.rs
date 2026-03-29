@@ -1742,6 +1742,8 @@ async fn dispatch_connect(
                             *character_name_store = Some(character.core.name.as_str().to_string());
                             *character_hp = character.core.hp;
                             *character_max_hp = character.core.max_hp;
+                            *character_level = character.core.level;
+                            *character_xp = character.core.xp;
                         }
                         // Restore location, regions, turn state, and NPC registry from snapshot
                         *current_location = saved.snapshot.location.clone();
@@ -4617,7 +4619,11 @@ async fn dispatch_player_action(
             let tts_segments_for_prerender = tts_segments.clone();
             let prerender_ctx = sidequest_game::PrerenderContext {
                 in_combat: combat_state.in_combat(),
-                combatant_names: vec![], // TODO: extract from combat state when available
+                combatant_names: if combat_state.in_combat() {
+                    result.npcs_present.iter().map(|npc| npc.name.clone()).collect()
+                } else {
+                    vec![]
+                },
                 pending_destination: extract_location_header(narration_text).map(|s| s.to_string()),
                 active_dialogue_npc: npc_registry.last().map(|e| e.name.clone()),
                 art_style: match visual_style {

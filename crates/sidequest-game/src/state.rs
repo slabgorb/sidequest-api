@@ -292,6 +292,7 @@ impl GameSnapshot {
                             hp: 10,
                             max_hp: 10,
                             ac: 10,
+                            xp: 0,
                             statuses: vec![],
                             inventory: Inventory::default(),
                         },
