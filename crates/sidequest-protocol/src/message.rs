@@ -759,14 +759,17 @@ pub struct InventoryItem {
 pub struct ExploredLocation {
     /// Location name.
     pub name: String,
-    /// X coordinate on map.
+    /// X coordinate on map (0 when no coordinate data available).
+    #[serde(default)]
     pub x: i32,
-    /// Y coordinate on map.
+    /// Y coordinate on map (0 when no coordinate data available).
+    #[serde(default)]
     pub y: i32,
     /// Location type (dungeon, town, etc.).
-    #[serde(rename = "type")]
+    #[serde(rename = "type", default)]
     pub location_type: String,
     /// Connected location names.
+    #[serde(default)]
     pub connections: Vec<String>,
 }
 
