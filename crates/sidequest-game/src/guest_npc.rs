@@ -31,7 +31,6 @@ impl PlayerRole {
             PlayerRole::GuestNpc {
                 allowed_actions, ..
             } => allowed_actions.contains(action),
-            _ => false,
         }
     }
 

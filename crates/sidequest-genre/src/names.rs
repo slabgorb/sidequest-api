@@ -13,7 +13,7 @@ use std::path::Path;
 use rand::Rng;
 
 use crate::markov::MarkovChain;
-use crate::models::{CorpusRef, Culture, CultureSlot};
+use crate::models::{Culture, CultureSlot};
 
 /// Generates words for a single naming slot.
 ///
@@ -156,7 +156,7 @@ fn titlecase_name(name: &str) -> String {
 pub fn build_from_culture<R: Rng>(
     culture: &Culture,
     corpus_dir: &Path,
-    rng: &mut R,
+    _rng: &mut R,
 ) -> NameGenerator {
     let mut slots = HashMap::new();
 

@@ -140,7 +140,6 @@ impl PerceptionRewriter {
                 PerceptualEffect::Custom { name, description } => {
                     format!("{name} ({description})")
                 }
-                _ => "Unknown effect".to_string(),
             })
             .collect::<Vec<_>>()
             .join("; ")
