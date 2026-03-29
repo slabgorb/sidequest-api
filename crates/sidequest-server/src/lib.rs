@@ -2987,11 +2987,22 @@ async fn dispatch_player_action(
             },
             player_id: player_id.to_string(),
         });
+        // Build explored locations from discovered_regions
+        let explored_locs: Vec<sidequest_protocol::ExploredLocation> = discovered_regions
+            .iter()
+            .map(|name| sidequest_protocol::ExploredLocation {
+                name: name.clone(),
+                x: 0,
+                y: 0,
+                location_type: String::new(),
+                connections: vec![],
+            })
+            .collect();
         messages.push(GameMessage::MapUpdate {
             payload: MapUpdatePayload {
                 current_location: location,
-                region: String::new(),
-                explored: vec![],
+                region: current_location.clone(),
+                explored: explored_locs,
                 fog_bounds: None,
             },
             player_id: player_id.to_string(),
@@ -4298,8 +4309,27 @@ async fn dispatch_player_action(
                             }
                         }
                     }
-                    GameMessage::Narration { .. }
-                    | GameMessage::NarrationEnd { .. }
+                    GameMessage::Narration { ref payload, ref player_id } => {
+                        let acting_pid = player_id.clone();
+                        // Send full narration (with state_delta) to acting player
+                        ss.send_to_player(msg.clone(), acting_pid.clone());
+                        // Send narration WITHOUT state_delta to other players
+                        // (their HUD should only reflect their own character state)
+                        let stripped = GameMessage::Narration {
+                            payload: NarrationPayload {
+                                text: payload.text.clone(),
+                                state_delta: None,
+                                footnotes: payload.footnotes.clone(),
+                            },
+                            player_id: acting_pid.clone(),
+                        };
+                        for pid in ss.players.keys() {
+                            if pid != &acting_pid {
+                                ss.send_to_player(stripped.clone(), pid.clone());
+                            }
+                        }
+                    }
+                    GameMessage::NarrationEnd { .. }
                     | GameMessage::ChapterMarker { .. }
                     | GameMessage::PartyStatus { .. } => {
                         ss.broadcast(msg.clone());
