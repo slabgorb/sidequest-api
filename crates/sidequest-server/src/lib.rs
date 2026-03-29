@@ -3325,6 +3325,123 @@ async fn dispatch_player_action(
                         let narration_result = state_clone
                             .game_service()
                             .process_action(&action_owned, &context);
+
+                        // === GAME RULES (barrier path) ===
+                        // These MUST mirror the FreePlay path. Without them, combat, items,
+                        // NPCs, tropes, and save are all dead in multiplayer.
+
+                        // 1. Combat detection from intent
+                        if let Some(ref intent) = narration_result.classified_intent {
+                            if intent == "Combat" {
+                                tracing::info!(intent = %intent, "barrier.combat_detected — intent classifier triggered");
+                                // Can't set combat_state directly (owned by caller), but we can
+                                // broadcast a CombatEvent so the UI shows the overlay
+                                let _ = state_clone.broadcast(GameMessage::CombatEvent {
+                                    payload: CombatEventPayload {
+                                        in_combat: true,
+                                        enemies: vec![],
+                                        turn_order: vec![],
+                                        current_turn: String::new(),
+                                    },
+                                    player_id: player_id_owned.clone(),
+                                });
+                            }
+                        }
+
+                        // 2. NPC registry update from structured data
+                        if !narration_result.npcs_present.is_empty() {
+                            let mut ss_for_npcs = ss_arc_clone.lock().await;
+                            tracing::info!(count = narration_result.npcs_present.len(), "barrier.npc_registry — updating from structured data");
+                            for npc in &narration_result.npcs_present {
+                                if npc.name.is_empty() { continue; }
+                                let name_lower = npc.name.to_lowercase();
+                                if let Some(entry) = ss_for_npcs.npc_registry.iter_mut().find(|e| {
+                                    e.name.to_lowercase().contains(&name_lower) || name_lower.contains(&e.name.to_lowercase())
+                                }) {
+                                    if npc.name.len() > entry.name.len() { entry.name = npc.name.clone(); }
+                                    if entry.pronouns.is_empty() && !npc.pronouns.is_empty() { entry.pronouns = npc.pronouns.clone(); }
+                                    if entry.role.is_empty() && !npc.role.is_empty() { entry.role = npc.role.clone(); }
+                                } else if npc.is_new {
+                                    ss_for_npcs.npc_registry.push(NpcRegistryEntry {
+                                        name: npc.name.clone(),
+                                        pronouns: npc.pronouns.clone(),
+                                        role: npc.role.clone(),
+                                        age: String::new(),
+                                        appearance: npc.appearance.clone(),
+                                        location: String::new(),
+                                        last_seen_turn: 0,
+                                    });
+                                }
+                            }
+                            drop(ss_for_npcs);
+                        }
+
+                        // 3. Narration history update (shared session)
+                        {
+                            let mut ss_for_hist = ss_arc_clone.lock().await;
+                            let truncated: String = narration_result.narration.chars().take(300).collect();
+                            ss_for_hist.narration_history.push(format!(
+                                "[Party] Action: {}\nNarrator: {}",
+                                combined_action.chars().take(200).collect::<String>(), truncated
+                            ));
+                            let hist_len = ss_for_hist.narration_history.len();
+                            if hist_len > 20 {
+                                ss_for_hist.narration_history.drain(..hist_len - 20);
+                            }
+                            drop(ss_for_hist);
+                        }
+
+                        // 4. Item acquisition from structured data
+                        // NOTE: Can't add to per-player inventory from here (owned by caller).
+                        // Items are logged for now; per-player inventory update happens on their next FreePlay turn.
+                        for item in &narration_result.items_gained {
+                            tracing::info!(item = %item.name, "barrier.item_gained — logged (per-player inventory update deferred)");
+                        }
+
+                        // 5. Save/persist — save the narration to the session
+                        if let Ok(Some(mut saved)) = state_clone.persistence().load(&genre_slug_owned, &world_slug_owned, &player_name_owned).await {
+                            saved.snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
+                                timestamp: 0,
+                                round: saved.snapshot.turn_manager.round(),
+                                author: "narrator".to_string(),
+                                content: narration_result.narration.chars().take(500).collect(),
+                                tags: vec![],
+                                encounter_tags: vec![],
+                                speaker: None,
+                                entry_type: None,
+                            });
+                            // 6. Combat state — update in the saved snapshot so it persists
+                            if let Some(ref intent) = narration_result.classified_intent {
+                                if intent == "Combat" && !saved.snapshot.combat.in_combat() {
+                                    saved.snapshot.combat.set_in_combat(true);
+                                    tracing::info!("barrier.combat — set in_combat=true in snapshot");
+                                }
+                            }
+                            // 7. HP changes from narration keywords
+                            let narr_lower = narration_result.narration.to_lowercase();
+                            let damage_keywords = ["takes damage", "is hit", "wounds", "strikes", "slashes", "cuts into"];
+                            let heal_keywords = ["heals", "mends", "recovery", "bandages"];
+                            if let Some(ch) = saved.snapshot.characters.first_mut() {
+                                if damage_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                                    let delta = -((ch.core.max_hp as f64 * 0.15) as i32).max(2);
+                                    ch.core.hp = sidequest_game::clamp_hp(ch.core.hp, delta, ch.core.max_hp);
+                                    tracing::info!(delta, new_hp = ch.core.hp, "barrier.hp_damage");
+                                }
+                                if heal_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                                    let delta = ((ch.core.max_hp as f64 * 0.2) as i32).max(2);
+                                    ch.core.hp = sidequest_game::clamp_hp(ch.core.hp, delta, ch.core.max_hp);
+                                    tracing::info!(delta, new_hp = ch.core.hp, "barrier.hp_heal");
+                                }
+                            }
+                            if let Err(e) = state_clone.persistence().save(&genre_slug_owned, &world_slug_owned, &player_name_owned, &saved.snapshot).await {
+                                tracing::warn!(error = %e, "barrier.save_failed");
+                            } else {
+                                tracing::info!(player = %player_name_owned, "barrier.session_saved");
+                            }
+                        }
+
+                        // === END GAME RULES ===
+
                         // Send narration to co-located players only (same routing as main path).
                         // Each player gets their own player_id. Perception filters apply.
                         let ss = ss_arc_clone.lock().await;
