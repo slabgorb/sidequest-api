@@ -4871,7 +4871,11 @@ async fn dispatch_player_action(
                 ps.character_hp = *hp;
                 ps.character_max_hp = *max_hp;
                 ps.character_level = *level;
+                ps.character_xp = *xp;
                 ps.character_class = char_class.to_string();
+                ps.inventory = inventory.clone();
+                ps.combat_state = combat_state.clone();
+                ps.chase_state = chase_state.clone();
                 if ps.character_name.is_none() {
                     ps.character_name = Some(char_name.to_string());
                 }
