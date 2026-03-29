@@ -1111,6 +1111,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
     let mut discovered_regions: Vec<String> = vec![];
+    let mut quest_log: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut turn_manager = sidequest_game::TurnManager::new();
     let mut lore_store = sidequest_game::LoreStore::new();
     // Bug 17: In-memory narration history for context accumulation across turns.
@@ -1149,6 +1150,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &audio_mixer,
                         &prerender_scheduler,
                         &mut npc_registry,
+                        &mut quest_log,
                         &mut narration_history,
                         &mut discovered_regions,
                         &mut turn_manager,
@@ -1257,6 +1259,7 @@ async fn dispatch_message(
     audio_mixer: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
@@ -1286,6 +1289,7 @@ async fn dispatch_message(
                 prerender_scheduler,
                 turn_manager,
                 npc_registry,
+                quest_log,
                 lore_store,
                 state,
                 player_id,
@@ -1322,6 +1326,7 @@ async fn dispatch_message(
                 world_context,
                 visual_style,
                 npc_registry,
+                quest_log,
                 narration_history,
                 discovered_regions,
                 turn_manager,
@@ -1367,6 +1372,7 @@ async fn dispatch_message(
                 world_context,
                 visual_style,
                 npc_registry,
+                quest_log,
                 narration_history,
                 discovered_regions,
                 turn_manager,
@@ -1421,6 +1427,7 @@ async fn dispatch_connect(
     prerender_scheduler: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     turn_manager: &mut sidequest_game::TurnManager,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
@@ -1463,6 +1470,7 @@ async fn dispatch_connect(
                         *discovered_regions = saved.snapshot.discovered_regions.clone();
                         *turn_manager = saved.snapshot.turn_manager.clone();
                         *npc_registry = saved.snapshot.npc_registry.clone();
+                        *quest_log = saved.snapshot.quest_log.clone();
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -1827,6 +1835,7 @@ async fn dispatch_character_creation(
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
@@ -1993,6 +2002,7 @@ async fn dispatch_character_creation(
                         world_context,
                         visual_style,
                         npc_registry,
+                        quest_log,
                         narration_history,
                         discovered_regions,
                         turn_manager,
@@ -2138,6 +2148,7 @@ async fn dispatch_player_action(
     world_context: &str,
     visual_style: &Option<sidequest_genre::VisualStyle>,
     npc_registry: &mut Vec<NpcRegistryEntry>,
+    quest_log: &mut std::collections::HashMap<String, String>,
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
@@ -2841,6 +2852,14 @@ async fn dispatch_player_action(
         }
     }
 
+    // Quest log updates — merge narrator-extracted quest changes
+    if !result.quest_updates.is_empty() {
+        for (quest_name, status) in &result.quest_updates {
+            quest_log.insert(quest_name.clone(), status.clone());
+            tracing::info!(quest = %quest_name, status = %status, "quest.updated");
+        }
+    }
+
     // Narration — include character state so the UI state mirror picks it up
     let inventory_names: Vec<String> = inventory.items.iter().map(|i| i.name.as_str().to_string()).collect();
     messages.push(GameMessage::Narration {
@@ -2855,7 +2874,7 @@ async fn dispatch_player_action(
                     statuses: vec![],
                     inventory: inventory_names.clone(),
                 }]),
-                quests: None,
+                quests: if quest_log.is_empty() { None } else { Some(quest_log.clone()) },
             }),
             footnotes: result.footnotes.clone(),
         },
@@ -2876,8 +2895,6 @@ async fn dispatch_player_action(
                 interaction = turn_manager.interaction(),
                 "rag.footnotes_to_discovered_facts"
             );
-            // Apply discovered facts to snapshot via WorldStatePatch path
-            // (This feeds into the persistence layer on next save)
         }
     }
 
@@ -3302,9 +3319,11 @@ async fn dispatch_player_action(
             Ok(Some(saved)) => {
                 let mut snapshot = saved.snapshot;
                 snapshot.location = location;
-                // Sync turn manager and NPC registry to snapshot for cross-session persistence
+                // Sync turn manager, NPC registry, and quest log to snapshot
                 snapshot.turn_manager = turn_manager.clone();
                 snapshot.npc_registry = npc_registry.clone();
+                snapshot.quest_log = quest_log.clone();
+                snapshot.discovered_regions = discovered_regions.clone();
                 // Append narration to log for recap on reconnect
                 snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
                     timestamp: 0,
