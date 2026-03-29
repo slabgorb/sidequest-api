@@ -1053,6 +1053,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                 if let Some(ref ss) = *guard {
                     let ss_lock = ss.lock().await;
                     session_rx = Some(ss_lock.subscribe());
+                    tracing::info!(player_id = %writer_player_id, "session_rx.subscribed — writer now receives session broadcasts");
                 }
             }
 
@@ -1106,9 +1107,16 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                                 _ => None,
                             };
                             if msg_player_id == Some(writer_player_id.as_str()) {
+                                tracing::debug!(player_id = %writer_player_id, msg_type = ?std::mem::discriminant(&msg), "session_rx.self_skip — untargeted broadcast from self");
                                 continue;
                             }
                         }
+                        tracing::debug!(
+                            player_id = %writer_player_id,
+                            targeted = targeted.target_player_id.is_some(),
+                            msg_type = ?std::mem::discriminant(&msg),
+                            "session_rx.delivering message to writer"
+                        );
                         let json = match serde_json::to_string(&msg) {
                             Ok(j) => j,
                             Err(e) => {
@@ -1532,10 +1540,16 @@ async fn dispatch_message(
                             portrait_url: None,
                         })
                         .collect();
+                    let member_count = all_members.len();
                     responses.push(GameMessage::PartyStatus {
                         payload: PartyStatusPayload { members: all_members },
                         player_id: player_id.to_string(),
                     });
+                    tracing::info!(
+                        player_id = %player_id,
+                        member_count,
+                        "reconnect.party_status — sent full party via direct tx"
+                    );
 
                     // Send TURN_STATUS "resolved" so the reconnecting player's input
                     // is enabled. If it's someone else's turn, the next action will
@@ -1551,6 +1565,9 @@ async fn dispatch_message(
                             },
                             player_id: player_id.to_string(),
                         });
+                        tracing::info!(player_id = %player_id, pc, "reconnect.turn_status_resolved — sent via direct tx");
+                    } else {
+                        tracing::info!(player_id = %player_id, pc, "reconnect.solo — no TURN_STATUS needed (single player)");
                     }
                 }
             }
@@ -2270,6 +2287,13 @@ async fn dispatch_character_creation(
                     *character_max_hp = character.core.max_hp;
                     *inventory = character.core.inventory.clone();
                     *character_json_store = Some(char_json.clone());
+                    tracing::info!(
+                        char_name = %character.core.name,
+                        hp = character.core.hp,
+                        items = character.core.inventory.items.len(),
+                        pronouns = %character.pronouns,
+                        "chargen.complete — character built, inventory synced"
+                    );
 
                     // Save to SQLite for reconnection across restarts (keyed by player)
                     let genre = session.genre_slug().unwrap_or("").to_string();
@@ -3011,6 +3035,13 @@ async fn dispatch_player_action(
     }
 
     // Inventory constraint — the narrator must respect the character sheet
+    let equipped_count = inventory.items.iter().filter(|i| i.equipped).count();
+    tracing::debug!(
+        items = inventory.items.len(),
+        equipped = equipped_count,
+        gold = inventory.gold,
+        "narrator_prompt.inventory_constraint — injecting character sheet"
+    );
     state_summary.push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
     if !inventory.items.is_empty() {
         state_summary.push_str("\nThe player currently possesses EXACTLY these items:");
@@ -3080,6 +3111,7 @@ async fn dispatch_player_action(
         if let Some(pronouns) = cj.get("pronouns").and_then(|p| p.as_str()) {
             if !pronouns.is_empty() {
                 state_summary.push_str(&format!("\nPronouns: {} — ALWAYS use these pronouns for this character.", pronouns));
+                tracing::debug!(pronouns = %pronouns, "narrator_prompt.pronouns — injected into state_summary");
             }
         }
     }
@@ -4487,12 +4519,15 @@ async fn dispatch_player_action(
                     let pid = pid.to_string();
                     let fallback_state = fallback_state.clone();
                     let msg = msg.clone();
+                    let msg_type = format!("{:?}", std::mem::discriminant(&msg));
                     tokio::spawn(async move {
                         let holder = ss_holder.lock().await;
                         if let Some(ref ss_arc) = *holder {
                             let ss = ss_arc.lock().await;
+                            tracing::debug!(player_id = %pid, msg_type = %msg_type, "tts.send_to_acting_player — via session channel");
                             ss.send_to_player(msg, pid);
                         } else {
+                            tracing::debug!(player_id = %pid, msg_type = %msg_type, "tts.send_to_acting_player — via global broadcast (single-player)");
                             let _ = fallback_state.broadcast(msg);
                         }
                     });
@@ -4733,6 +4768,11 @@ async fn dispatch_player_action(
                             },
                             player_id: player_id.to_string(),
                         };
+                        tracing::info!(
+                            char_name = %char_name,
+                            observer_count = other_players.len(),
+                            "multiplayer.observer_action — broadcasting PLAYER_ACTION to observers"
+                        );
                         for target_id in &other_players {
                             ss.send_to_player(observer_action.clone(), target_id.clone());
                         }
@@ -4758,6 +4798,11 @@ async fn dispatch_player_action(
                             };
                             ss.send_to_player(narration_msg, target_id.clone());
                         }
+                        tracing::info!(
+                            observer_count = other_players.len(),
+                            text_len = payload.text.len(),
+                            "multiplayer.narration_broadcast — sent to observers via session channel"
+                        );
                     }
                     GameMessage::NarrationEnd { .. } => {
                         // Broadcast NarrationEnd to all players so TTS sync works correctly
