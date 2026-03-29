@@ -9,7 +9,6 @@
 //! callers use `barrier.submit_action()`, not `session_mut()`.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 

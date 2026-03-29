@@ -305,10 +305,15 @@ struct NarratorStructuredBlock {
 
 /// Extracted structured data from a narrator response.
 pub struct NarratorExtraction {
+    /// The cleaned prose text with JSON block removed.
     pub prose: String,
+    /// Lore footnotes extracted from the narrator response.
     pub footnotes: Vec<sidequest_protocol::Footnote>,
+    /// Items the player gained during this turn.
     pub items_gained: Vec<sidequest_protocol::ItemGained>,
+    /// NPCs mentioned or present in the narration.
     pub npcs_present: Vec<NpcMention>,
+    /// Quest state changes keyed by quest name.
     pub quest_updates: HashMap<String, String>,
 }
 

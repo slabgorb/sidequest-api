@@ -27,7 +27,7 @@ use tracing_subscriber::{EnvFilter, Registry};
 
 use sidequest_agents::orchestrator::{GameService, TurnContext};
 use sidequest_game::builder::CharacterBuilder;
-use sidequest_genre::{GenreCache, GenreCode, GenreLoader};
+use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
     CharacterState, CombatEventPayload, ErrorPayload, GameMessage, InitialState, InventoryPayload,
@@ -263,14 +263,6 @@ impl ServerError {
     pub fn connection_closed() -> Self {
         Self::ConnectionClosed
     }
-}
-
-// ---------------------------------------------------------------------------
-// Session key helper
-// ---------------------------------------------------------------------------
-
-fn session_key(player_name: &str, genre: &str, world: &str) -> String {
-    format!("{}:{}:{}", player_name, genre, world)
 }
 
 // ---------------------------------------------------------------------------
@@ -586,11 +578,6 @@ impl AppState {
     /// Subscribe to binary broadcast frames (e.g. TTS audio).
     fn subscribe_binary(&self) -> broadcast::Receiver<Vec<u8>> {
         self.inner.binary_broadcast_tx.subscribe()
-    }
-
-    /// Check if a player is currently processing an action.
-    fn is_processing(&self, player_id: &PlayerId) -> bool {
-        self.inner.processing.lock().unwrap().contains(player_id)
     }
 
     /// Try to mark a player as processing. Returns false if already processing.
@@ -1722,7 +1709,7 @@ async fn dispatch_connect(
     lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
-    continuity_corrections: &mut String,
+    _continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");

@@ -4,7 +4,6 @@
 //! This module handles the runtime: current axis values persisted in GameSnapshot,
 //! the `/tone` slash command, and `format_tone_context()` for narrator prompt injection.
 
-use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 

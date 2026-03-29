@@ -420,7 +420,6 @@ impl RenderQueue {
             SubjectTier::Scene => "scene_illustration",
             SubjectTier::Landscape => "landscape",
             SubjectTier::Abstract => "scene_illustration",
-            _ => "scene_illustration",
         }
         .to_string();
         guard.jobs.insert(
@@ -441,7 +440,6 @@ impl RenderQueue {
             SceneType::Exploration => "exploration",
             SceneType::Discovery => "discovery",
             SceneType::Transition => "transition",
-            _ => "exploration",
         }
         .to_string();
         let job = RenderJob {
