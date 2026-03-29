@@ -4973,10 +4973,28 @@ async fn dispatch_player_action(
             Ok(Some(saved)) => {
                 let mut snapshot = saved.snapshot;
                 snapshot.location = location;
-                // Sync turn manager and NPC registry to snapshot for cross-session persistence
+                // Sync ALL game state to snapshot for persistence
                 snapshot.turn_manager = turn_manager.clone();
                 snapshot.npc_registry = npc_registry.clone();
                 snapshot.axis_values = axis_values.clone();
+                snapshot.combat = combat_state.clone();
+                snapshot.chase = chase_state.clone();
+                snapshot.discovered_regions = discovered_regions.clone();
+                snapshot.active_tropes = trope_states.iter().map(|ts| ts.trope_definition_id().to_string()).collect();
+                // Sync character state (HP, XP, level, inventory, known_facts, affinities)
+                if let Some(ref cj) = character_json {
+                    if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                        if let Some(saved_ch) = snapshot.characters.first_mut() {
+                            saved_ch.core.hp = *hp;
+                            saved_ch.core.max_hp = *max_hp;
+                            saved_ch.core.level = *level;
+                            saved_ch.core.inventory = inventory.clone();
+                            saved_ch.known_facts = ch.known_facts.clone();
+                            saved_ch.affinities = ch.affinities.clone();
+                            saved_ch.narrative_state = ch.narrative_state.clone();
+                        }
+                    }
+                }
                 // Append narration to log for recap on reconnect
                 snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
                     timestamp: 0,
