@@ -2649,14 +2649,14 @@ async fn dispatch_player_action(
             if ss.players.len() > 1 {
                 let turn_active = GameMessage::TurnStatus {
                     payload: TurnStatusPayload {
-                        player_name: char_name.to_string(),
+                        player_name: player_name_for_save.to_string(),
                         status: "active".into(),
                         state_delta: None,
                     },
                     player_id: player_id.to_string(),
                 };
                 let _ = state.broadcast(turn_active);
-                tracing::info!(player_id = %player_id, char_name = %char_name, "turn_status.active broadcast to all clients");
+                tracing::info!(player_id = %player_id, player_name = %player_name_for_save, "turn_status.active broadcast to all clients");
             }
         }
     }
@@ -3101,6 +3101,7 @@ async fn dispatch_player_action(
                     let world_slug_owned = world_slug.to_string();
                     let action_owned = action.to_string();
                     let player_id_owned = player_id.to_string();
+                    let player_name_owned = player_name_for_save.to_string();
                     drop(ss);
                     drop(holder);
 
@@ -3192,14 +3193,14 @@ async fn dispatch_player_action(
                         if ss.players.len() > 1 {
                             let resolved_msg = GameMessage::TurnStatus {
                                 payload: TurnStatusPayload {
-                                    player_name: player_id_owned.clone(),
+                                    player_name: player_name_owned.clone(),
                                     status: "resolved".into(),
                                     state_delta: None,
                                 },
                                 player_id: player_id_owned.clone(),
                             };
                             let _ = state_clone.broadcast(resolved_msg);
-                            tracing::info!("turn_status.resolved broadcast after barrier resolution");
+                            tracing::info!(player_name = %player_name_owned, "turn_status.resolved broadcast after barrier resolution");
                         }
                     });
 
@@ -4688,14 +4689,14 @@ async fn dispatch_player_action(
                         if ss.players.len() > 1 {
                             let resolved_msg = GameMessage::TurnStatus {
                                 payload: TurnStatusPayload {
-                                    player_name: char_name.to_string(),
+                                    player_name: player_name_for_save.to_string(),
                                     status: "resolved".into(),
                                     state_delta: None,
                                 },
                                 player_id: player_id.to_string(),
                             };
                             let _ = state.broadcast(resolved_msg);
-                            tracing::info!(char_name = %char_name, "turn_status.resolved broadcast to all clients");
+                            tracing::info!(player_name = %player_name_for_save, "turn_status.resolved broadcast to all clients");
                         }
                     }
                     GameMessage::ChapterMarker { ref payload, .. } => {
