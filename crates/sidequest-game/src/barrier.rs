@@ -72,6 +72,42 @@ pub struct TurnBarrierResult {
     pub narration: HashMap<String, String>,
 }
 
+impl TurnBarrierResult {
+    /// Format auto-resolved context for injection into the narrator prompt.
+    ///
+    /// Returns a string describing which characters were auto-resolved (timed out)
+    /// so the narrator can condition its narration on intentional vs. auto-resolved
+    /// actions. Returns empty string if no timeout occurred.
+    pub fn format_auto_resolved_context(&self) -> String {
+        if !self.timed_out || self.missing_players.is_empty() {
+            return String::new();
+        }
+
+        // Extract character names from the narration entries for missing players.
+        // Narration values are formatted as "CharName: action text".
+        let missing_names: Vec<String> = self
+            .missing_players
+            .iter()
+            .filter_map(|pid| {
+                self.narration
+                    .get(pid)
+                    .and_then(|n| n.split(':').next())
+                    .map(|name| name.trim().to_string())
+            })
+            .collect();
+
+        if missing_names.is_empty() {
+            return String::new();
+        }
+
+        format!(
+            "The following characters did not act and were auto-resolved (timed out): {}. \
+             They hesitate — narrate their inaction briefly, do not invent actions for them.",
+            missing_names.join(", ")
+        )
+    }
+}
+
 /// Adaptive timeout — scales the collection window by player count.
 ///
 /// Story 8-3: Default tiers are 2-3 players → 3s, 4+ players → 5s.
