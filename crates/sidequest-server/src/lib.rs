@@ -3102,6 +3102,7 @@ async fn dispatch_player_action(
                     state_summary.push_str(&format!("- {}\n", h));
                 }
                 state_summary.push_str("If the player attempts to use an ability NOT listed above, describe the attempt failing or reframe it as a non-supernatural action.\n");
+                state_summary.push_str("PROACTIVE MUTATION NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to be relevant (sensory input, danger, social situations), weave them into the narration subtly. A psychic character might catch stray thoughts; a bioluminescent character's skin might flicker in darkness. Don't force it every turn, but don't ignore mutations either — they define who the character IS.\n");
             }
         }
         // Extract backstory
