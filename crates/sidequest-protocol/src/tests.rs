@@ -288,7 +288,8 @@ mod message_type_tests {
             payload: PartyStatusPayload {
                 members: vec![PartyMember {
                     player_id: "p1".into(),
-                    name: "Grok".into(),
+                    name: "Player1".into(),
+                    character_name: "Grok".into(),
                     current_hp: 20,
                     max_hp: 20,
                     statuses: vec!["blessed".into()],

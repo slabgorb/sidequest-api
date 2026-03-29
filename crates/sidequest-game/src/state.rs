@@ -597,7 +597,8 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         .iter()
         .map(|c| PartyMember {
             player_id: String::new(),
-            name: c.name().to_string(),
+            name: String::new(),
+            character_name: c.name().to_string(),
             current_hp: Combatant::hp(c),
             max_hp: Combatant::max_hp(c),
             statuses: c.core.statuses.clone(),

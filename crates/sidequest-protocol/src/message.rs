@@ -723,8 +723,11 @@ pub struct CreationChoice {
 pub struct PartyMember {
     /// Player identifier.
     pub player_id: String,
-    /// Character name.
+    /// Player lobby name (what the user typed at connect — used for identity matching).
     pub name: String,
+    /// In-game character name (for display in party panel).
+    #[serde(default)]
+    pub character_name: String,
     /// Current HP.
     pub current_hp: i32,
     /// Maximum HP.

@@ -1476,7 +1476,8 @@ async fn dispatch_message(
                         .iter()
                         .map(|(pid, ps)| PartyMember {
                             player_id: pid.clone(),
-                            name: ps
+                            name: ps.player_name.clone(),
+                            character_name: ps
                                 .character_name
                                 .clone()
                                 .unwrap_or_else(|| ps.player_name.clone()),
@@ -1793,7 +1794,8 @@ async fn dispatch_connect(
                                 .iter()
                                 .map(|c| PartyMember {
                                     player_id: player_id.to_string(),
-                                    name: c.core.name.as_str().to_string(),
+                                    name: player_name_store.as_deref().unwrap_or("Player").to_string(),
+                                    character_name: c.core.name.as_str().to_string(),
                                     current_hp: c.core.hp,
                                     max_hp: c.core.max_hp,
                                     statuses: c.core.statuses.clone(),
@@ -2401,7 +2403,8 @@ async fn dispatch_character_creation(
                                         // Current player — use local character data
                                         PartyMember {
                                             player_id: pid.clone(),
-                                            name: character.core.name.as_str().to_string(),
+                                            name: ps.player_name.clone(),
+                                            character_name: character.core.name.as_str().to_string(),
                                             current_hp: character.core.hp,
                                             max_hp: character.core.max_hp,
                                             statuses: character.core.statuses.clone(),
@@ -2413,7 +2416,8 @@ async fn dispatch_character_creation(
                                         // Other player — use PlayerState fields
                                         PartyMember {
                                             player_id: pid.clone(),
-                                            name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                                            name: ps.player_name.clone(),
+                                            character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
                                             current_hp: ps.character_hp,
                                             max_hp: ps.character_max_hp,
                                             statuses: vec![],
@@ -3818,7 +3822,8 @@ async fn dispatch_player_action(
     {
         let mut party_members = vec![PartyMember {
             player_id: player_id.to_string(),
-            name: char_name.to_string(),
+            name: player_name_for_save.to_string(),
+            character_name: char_name.to_string(),
             current_hp: *hp,
             max_hp: *max_hp,
             statuses: vec![],
@@ -3836,7 +3841,8 @@ async fn dispatch_player_action(
                 }
                 party_members.push(PartyMember {
                     player_id: pid.clone(),
-                    name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                    name: ps.player_name.clone(),
+                    character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
                     current_hp: ps.character_hp,
                     max_hp: ps.character_max_hp,
                     statuses: vec![],
@@ -4717,7 +4723,8 @@ async fn dispatch_player_action(
                             .iter()
                             .map(|(pid, ps)| PartyMember {
                                 player_id: pid.clone(),
-                                name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                                name: ps.player_name.clone(),
+                                character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
                                 current_hp: ps.character_hp,
                                 max_hp: ps.character_max_hp,
                                 statuses: vec![],
