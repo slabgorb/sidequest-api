@@ -1355,7 +1355,7 @@ async fn dispatch_message(
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
-            let responses = dispatch_connect(
+            let mut responses = dispatch_connect(
                 payload,
                 session,
                 builder,
@@ -1511,6 +1511,47 @@ async fn dispatch_message(
                         player_count = pc,
                         "Reconnecting player joined shared session"
                     );
+
+                    // Send full multiplayer PARTY_STATUS directly to the reconnecting
+                    // player (via direct tx, not session channel which may not be subscribed).
+                    let all_members: Vec<PartyMember> = ss_guard
+                        .players
+                        .iter()
+                        .map(|(pid, ps)| PartyMember {
+                            player_id: pid.clone(),
+                            name: ps.player_name.clone(),
+                            character_name: ps
+                                .character_name
+                                .clone()
+                                .unwrap_or_else(|| ps.player_name.clone()),
+                            current_hp: ps.character_hp,
+                            max_hp: ps.character_max_hp,
+                            statuses: vec![],
+                            class: ps.character_class.clone(),
+                            level: ps.character_level,
+                            portrait_url: None,
+                        })
+                        .collect();
+                    responses.push(GameMessage::PartyStatus {
+                        payload: PartyStatusPayload { members: all_members },
+                        player_id: player_id.to_string(),
+                    });
+
+                    // Send TURN_STATUS "resolved" so the reconnecting player's input
+                    // is enabled. If it's someone else's turn, the next action will
+                    // send a proper TURN_STATUS "active" via global broadcast.
+                    if pc > 1 {
+                        responses.push(GameMessage::TurnStatus {
+                            payload: TurnStatusPayload {
+                                player_name: player_name_store
+                                    .clone()
+                                    .unwrap_or_else(|| "Player".to_string()),
+                                status: "resolved".into(),
+                                state_delta: None,
+                            },
+                            player_id: player_id.to_string(),
+                        });
+                    }
                 }
             }
             responses
