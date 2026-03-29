@@ -325,7 +325,7 @@ impl AppState {
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
-            |prompt, art_style, tier| async move {
+            |prompt, art_style, tier, negative_prompt: String| async move {
                 // ── OTel: render pipeline start ──────────────────────────
                 tracing::info!(
                     prompt_len = prompt.len(),
@@ -353,7 +353,7 @@ impl AppState {
                                 art_style: art_style.clone(),
                                 tier: tier.clone(),
                                 positive_prompt,
-                                ..Default::default()
+                                negative_prompt: negative_prompt.clone(),
                             })
                             .await
                         {
@@ -4410,7 +4410,7 @@ async fn dispatch_player_action(
                 // Compose the full style string: location tag override + positive_suffix.
                 // This flows through the render queue as "art_style" and gets combined
                 // with the raw prompt fragment in the render closure to build positive_prompt.
-                let (art_style, model) = match visual_style {
+                let (art_style, model, neg_prompt) = match visual_style {
                     Some(ref vs) => {
                         // Match visual_tag_overrides against current location (substring match)
                         let location = extraction_context.current_location.to_lowercase();
@@ -4426,11 +4426,11 @@ async fn dispatch_player_action(
                             Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
                             None => vs.positive_suffix.clone(),
                         };
-                        (style, vs.preferred_model.clone())
+                        (style, vs.preferred_model.clone(), vs.negative_prompt.clone())
                     }
-                    None => ("oil_painting".to_string(), "flux-schnell".to_string()),
+                    None => ("oil_painting".to_string(), "flux-schnell".to_string(), String::new()),
                 };
-                match queue.enqueue(subject, &art_style, &model).await {
+                match queue.enqueue(subject, &art_style, &model, &neg_prompt).await {
                     Ok(result) => tracing::info!(result = ?result, "Render job enqueued"),
                     Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
                 }
@@ -4634,6 +4634,10 @@ async fn dispatch_player_action(
                     Some(ref vs) => vs.positive_suffix.clone(),
                     None => "oil_painting".to_string(),
                 },
+                negative_prompt: match visual_style {
+                    Some(ref vs) => vs.negative_prompt.clone(),
+                    None => String::new(),
+                },
             };
 
             tokio::spawn(async move {
@@ -4720,6 +4724,7 @@ async fn dispatch_player_action(
                                                     subject,
                                                     &prerender_ctx.art_style,
                                                     "flux-schnell",
+                                                    &prerender_ctx.negative_prompt,
                                                 )
                                                 .await;
                                         }

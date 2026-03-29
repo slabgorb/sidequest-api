@@ -45,6 +45,8 @@ pub struct PrerenderContext {
     pub active_dialogue_npc: Option<String>,
     /// Genre art style for render requests.
     pub art_style: String,
+    /// Negative prompt from genre visual_style for render requests.
+    pub negative_prompt: String,
 }
 
 /// Tracks hit/miss rate for speculative renders.
