@@ -1805,7 +1805,7 @@ async fn dispatch_connect(
                                         .collect(),
                                     location: saved.snapshot.location.clone(),
                                     quests: saved.snapshot.quest_log.clone(),
-                                    turn_count: saved.snapshot.turn_manager.round(),
+                                    turn_count: saved.snapshot.turn_manager.interaction().saturating_sub(1) as u32,
                                 }),
                                 css: None,
                             },
@@ -5021,8 +5021,8 @@ async fn dispatch_player_action(
                         }
                     }
                     GameMessage::ChapterMarker { ref payload, .. } => {
-                        let player_ids: Vec<String> = ss.players.keys().cloned().collect();
-                        for target_pid in &player_ids {
+                        // Send to other players only — acting player already received via direct channel
+                        for target_pid in ss.players.keys().filter(|pid| pid.as_str() != player_id) {
                             let marker = GameMessage::ChapterMarker {
                                 payload: payload.clone(),
                                 player_id: target_pid.clone(),
