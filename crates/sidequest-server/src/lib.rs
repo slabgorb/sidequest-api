@@ -2213,10 +2213,11 @@ async fn dispatch_character_creation(
                         },
                     });
 
-                    // Store character data
+                    // Store character data — sync ALL mutable fields from the built character
                     *character_name_store = Some(character.core.name.as_str().to_string());
                     *character_hp = character.core.hp;
                     *character_max_hp = character.core.max_hp;
+                    *inventory = character.core.inventory.clone();
                     *character_json_store = Some(char_json.clone());
 
                     // Save to SQLite for reconnection across restarts (keyed by player)

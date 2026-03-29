@@ -603,7 +603,7 @@ impl CharacterBuilder {
                     rarity: NonBlankString::new("common").unwrap(),
                     narrative_weight: 0.3,
                     tags: vec![],
-                    equipped: false,
+                    equipped: true,
                     quantity: 1,
                 }
             })
