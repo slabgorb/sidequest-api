@@ -94,12 +94,16 @@ impl DaemonClient {
     /// - render_deserialize_failed: LOUD error if JSON doesn't match RenderResult
     /// - render_empty_url: LOUD error if daemon returns empty/blank image path
     pub async fn render(&mut self, params: RenderParams) -> Result<RenderResult, DaemonError> {
-        tracing::info!(
-            prompt_len = params.prompt.len(),
-            art_style = %params.art_style,
+        let span = tracing::info_span!(
+            "daemon.render",
             tier = %params.tier,
-            "render_requested"
+            art_style = %params.art_style,
+            prompt_len = params.prompt.len(),
+            duration_ms = tracing::field::Empty,
         );
+        let _guard = span.enter();
+
+        tracing::info!("render_requested");
 
         let resp = self
             .request("render", &params, self.config.render_timeout)
@@ -141,10 +145,10 @@ impl DaemonClient {
             ));
         }
 
+        span.record("duration_ms", render_result.generation_ms);
         tracing::info!(
             image_url = %render_result.image_url,
             generation_ms = render_result.generation_ms,
-            tier = %params.tier,
             "render_result_received"
         );
 
@@ -164,13 +168,24 @@ impl DaemonClient {
 
     /// Synthesize text to speech audio bytes.
     pub async fn synthesize(&mut self, params: TtsParams) -> Result<TtsResult, DaemonError> {
+        let span = tracing::info_span!(
+            "daemon.synthesize",
+            text_len = params.text.len(),
+            voice_id = %params.voice_id,
+            duration_ms = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
         let resp = self
             .request("render", &params, self.config.render_timeout)
             .await?;
         let result = resp
             .result
             .ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
-        serde_json::from_value(result).map_err(|e| DaemonError::InvalidResponse(e.to_string()))
+        let tts_result: TtsResult = serde_json::from_value(result)
+            .map_err(|e| DaemonError::InvalidResponse(e.to_string()))?;
+        span.record("duration_ms", tts_result.elapsed_ms);
+        Ok(tts_result)
     }
 
     /// Request a graceful daemon shutdown.

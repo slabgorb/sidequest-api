@@ -36,6 +36,7 @@ thiserror = "1.0"
 # Logging and tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-chrome = "0.7"
 
 # CLI arguments
 clap = { version = "4.5", features = ["derive"] }

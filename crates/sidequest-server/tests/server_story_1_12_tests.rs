@@ -259,7 +259,14 @@ async fn server_accepts_mock_game_service() {
                 narration: format!("Mock response to: {}", action),
                 state_delta: None,
                 combat_events: vec![],
+                combat_patch: None,
                 is_degraded: false,
+                classified_intent: None,
+                agent_name: None,
+                footnotes: vec![],
+                items_gained: vec![],
+                npcs_present: vec![],
+                quest_updates: std::collections::HashMap::new(),
             }
         }
     }

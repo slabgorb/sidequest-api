@@ -138,6 +138,56 @@ impl PromptRegistry {
         );
     }
 
+    /// Inject involuntary ability context for characters into the narrator prompt.
+    ///
+    /// Filters to involuntary abilities only, uses genre_description (not mechanical_effect),
+    /// and includes natural triggering instructions. Characters with no involuntary abilities
+    /// are omitted. Does nothing if no characters have involuntary abilities.
+    ///
+    /// Story 9-2: Parallel to `register_knowledge_section()`.
+    pub fn register_ability_context(&mut self, agent_name: &str, characters: &[Character]) {
+        let mut entries: Vec<String> = Vec::new();
+
+        for character in characters {
+            let involuntary: Vec<_> = character
+                .abilities
+                .iter()
+                .filter(|a| a.involuntary)
+                .collect();
+
+            if involuntary.is_empty() {
+                continue;
+            }
+
+            let mut char_block = format!("{}:", character.core.name);
+            for ability in &involuntary {
+                char_block.push_str(&format!("\n  - {}: {}", ability.name, ability.genre_description));
+            }
+            entries.push(char_block);
+        }
+
+        if entries.is_empty() {
+            return;
+        }
+
+        let content = format!(
+            "[CHARACTER ABILITIES]\n\
+             Weave these abilities naturally when relevant. Do not force triggers every turn.\n\n\
+             {}",
+            entries.join("\n\n")
+        );
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "ability_context",
+                content,
+                AttentionZone::Valley,
+                SectionCategory::Context,
+            ),
+        );
+    }
+
     /// Inject a scene directive into the narrator prompt with narrative primacy.
     ///
     /// The directive is placed in the `Early` attention zone — after agent identity

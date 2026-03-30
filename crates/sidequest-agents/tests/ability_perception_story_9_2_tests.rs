@@ -36,6 +36,7 @@ fn make_character(name: &str, abilities: Vec<AbilityDefinition>) -> Character {
             hp: 20,
             max_hp: 20,
             ac: 14,
+            xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
         },
@@ -44,6 +45,7 @@ fn make_character(name: &str, abilities: Vec<AbilityDefinition>) -> Character {
         hooks: vec![],
         char_class: NonBlankString::new("Ranger").unwrap(),
         race: NonBlankString::new("Elf").unwrap(),
+        pronouns: String::new(),
         stats: HashMap::from([
             ("STR".to_string(), 12),
             ("DEX".to_string(), 16),

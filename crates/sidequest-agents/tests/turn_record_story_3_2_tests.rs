@@ -72,6 +72,8 @@ fn mock_state_delta() -> StateDelta {
         "atmosphere": true,
         "regions": false,
         "routes": false,
+        "active_stakes": false,
+        "lore": false,
         "new_location": "The Sulphur Flats"
     }))
     .expect("mock StateDelta should deserialize")

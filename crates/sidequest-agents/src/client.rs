@@ -103,6 +103,15 @@ impl ClaudeClient {
         use std::process::{Command, Stdio};
         use std::time::Instant;
 
+        let span = tracing::info_span!(
+            "agent.call",
+            model = %model,
+            prompt_len = prompt.len(),
+            response_len = tracing::field::Empty,
+            duration_ms = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
         if prompt.trim().is_empty() {
             return Err(ClaudeClientError::EmptyResponse);
         }
@@ -157,6 +166,8 @@ impl ClaudeClient {
                     if trimmed.is_empty() {
                         return Err(ClaudeClientError::EmptyResponse);
                     }
+                    span.record("response_len", trimmed.len());
+                    span.record("duration_ms", start.elapsed().as_millis() as u64);
                     return Ok(trimmed);
                 }
                 Ok(None) => {
@@ -164,6 +175,7 @@ impl ClaudeClient {
                         let _ = child.kill();
                         let _ = child.wait();
                         let elapsed = start.elapsed();
+                        span.record("duration_ms", start.elapsed().as_millis() as u64);
                         tracing::warn!(timeout = ?self.timeout, ?elapsed, model = %model, "Claude CLI subprocess timed out");
                         return Err(ClaudeClientError::Timeout { elapsed });
                     }
@@ -187,6 +199,15 @@ impl ClaudeClient {
         use std::io::Read;
         use std::process::{Command, Stdio};
         use std::time::Instant;
+
+        let span = tracing::info_span!(
+            "agent.call",
+            model = "default",
+            prompt_len = prompt.len(),
+            response_len = tracing::field::Empty,
+            duration_ms = tracing::field::Empty,
+        );
+        let _guard = span.enter();
 
         if prompt.trim().is_empty() {
             return Err(ClaudeClientError::EmptyResponse);
@@ -240,6 +261,8 @@ impl ClaudeClient {
                     if trimmed.is_empty() {
                         return Err(ClaudeClientError::EmptyResponse);
                     }
+                    span.record("response_len", trimmed.len());
+                    span.record("duration_ms", start.elapsed().as_millis() as u64);
                     return Ok(trimmed);
                 }
                 Ok(None) => {
@@ -247,6 +270,7 @@ impl ClaudeClient {
                         let _ = child.kill();
                         let _ = child.wait();
                         let elapsed = start.elapsed();
+                        span.record("duration_ms", start.elapsed().as_millis() as u64);
                         warn!(timeout = ?self.timeout, ?elapsed, "Claude CLI subprocess timed out");
                         return Err(ClaudeClientError::Timeout { elapsed });
                     }

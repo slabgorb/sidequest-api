@@ -29,10 +29,25 @@ pub fn init_tracing() {
         None
     };
 
+    // Chrome trace layer — produces flame-chart JSON loadable in chrome://tracing or Perfetto.
+    // Activate with: SQ_TRACE_CHROME=1 cargo run
+    let chrome_layer = if std::env::var("SQ_TRACE_CHROME").is_ok() {
+        let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
+            .file(format!("trace-{}.json", std::process::id()))
+            .include_args(true)
+            .build();
+        // Guard must outlive the subscriber — intentionally leak it.
+        std::mem::forget(guard);
+        Some(layer)
+    } else {
+        None
+    };
+
     Registry::default()
         .with(env_filter)
         .with(json_layer)
         .with(pretty_layer)
+        .with(chrome_layer)
         .init();
 }
 
