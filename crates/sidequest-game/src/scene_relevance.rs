@@ -154,17 +154,17 @@ impl SceneRelevanceValidator {
             return None; // No entities to validate
         }
 
-        let mismatched: Vec<&String> = entities
+        let mismatched: Vec<&str> = entities
             .iter()
             .filter(|entity| !entity_matches_any(entity, &context.known_npcs))
+            .map(|s| s.as_str())
             .collect();
 
         if mismatched.is_empty() {
             None
         } else {
-            let names: Vec<&str> = mismatched.iter().map(|s| s.as_str()).collect();
             Some(ImagePromptVerdict::Rejected {
-                reason: format!("Entities not in scene: {}", names.join(", ")),
+                reason: format!("Entities not in scene: {}", mismatched.join(", ")),
             })
         }
     }
