@@ -44,10 +44,10 @@ use sidequest_agents::orchestrator::{GameService, TurnContext};
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
+    ActionRevealPayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
     CharacterState, CombatEventPayload, ErrorPayload, GameMessage, InitialState, InventoryPayload,
     MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
-    SessionEventPayload, ThinkingPayload, TurnStatusPayload,
+    PlayerActionEntry, SessionEventPayload, ThinkingPayload, TurnStatusPayload,
 };
 
 // ---------------------------------------------------------------------------
@@ -3433,6 +3433,10 @@ async fn dispatch_player_action(
                         "Turn barrier resolved"
                     );
 
+                    // Extract auto-resolved info before dropping result
+                    let auto_resolved_names = result.auto_resolved_character_names();
+                    let auto_resolved_context = result.format_auto_resolved_context();
+
                     // Build combined action context from all players' submissions
                     let named_actions = {
                         let holder = shared_session_holder.lock().await;
@@ -3449,10 +3453,49 @@ async fn dispatch_player_action(
                         .collect::<Vec<_>>()
                         .join("\n");
 
-                    // Prepend combined actions + perspective instruction to state_summary
+                    // Broadcast ACTION_REVEAL with auto_resolved field populated
+                    let turn_number = barrier_clone.turn_number().saturating_sub(1);
+                    let action_entries: Vec<PlayerActionEntry> = named_actions
+                        .iter()
+                        .map(|(name, action)| PlayerActionEntry {
+                            character_name: name.clone(),
+                            player_id: String::new(),
+                            action: action.clone(),
+                        })
+                        .collect();
+                    let reveal = GameMessage::ActionReveal {
+                        payload: ActionRevealPayload {
+                            actions: action_entries,
+                            turn_number,
+                            auto_resolved: auto_resolved_names.clone(),
+                        },
+                        player_id: "server".to_string(),
+                    };
+                    let _ = state.broadcast(reveal);
+                    tracing::info!(auto_resolved = ?auto_resolved_names, "barrier.action_reveal — broadcast with auto-resolved");
+
+                    // Broadcast TURN_STATUS "auto_resolved" for each timed-out player
+                    for name in &auto_resolved_names {
+                        let turn_auto = GameMessage::TurnStatus {
+                            payload: TurnStatusPayload {
+                                player_name: name.clone(),
+                                status: "auto_resolved".into(),
+                                state_delta: None,
+                            },
+                            player_id: "server".to_string(),
+                        };
+                        let _ = state.broadcast(turn_auto);
+                    }
+
+                    // Prepend combined actions + auto-resolved context + perspective instruction
+                    let auto_ctx = if auto_resolved_context.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n{}\n", auto_resolved_context)
+                    };
                     state_summary = format!(
-                        "Combined party actions:\n{}\n\nPERSPECTIVE: Write in third-person omniscient. Do NOT use 'you' for any character. Name all characters explicitly.\n\n{}",
-                        combined, state_summary
+                        "Combined party actions:\n{}\n{}\nPERSPECTIVE: Write in third-person omniscient. Do NOT use 'you' for any character. Name all characters explicitly.\n\n{}",
+                        combined, auto_ctx, state_summary
                     );
 
                     Some(combined)
