@@ -19,3 +19,7 @@ pub const PROTOCOL_VERSION: &str = "0.1.0";
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "action_reveal_tests.rs"]
+mod action_reveal_tests;
