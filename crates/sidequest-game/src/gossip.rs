@@ -97,10 +97,8 @@ impl GossipEngine {
             if let Some(state) = npcs.get(name) {
                 let contradictions = Self::detect_contradictions(state);
                 contradictions_found += contradictions.len() as u32;
-                // Decay credibility for each contradiction
-                let contradictions_owned: Vec<Contradiction> = contradictions;
                 if let Some(state) = npcs.get_mut(name) {
-                    for c in &contradictions_owned {
+                    for c in &contradictions {
                         Self::decay_credibility(state, c);
                     }
                 }
@@ -158,13 +156,9 @@ impl GossipEngine {
 
     /// Extract the source NPC name from a belief, or "unknown" for Witnessed/Inferred/Overheard.
     fn extract_source_name(belief: &Belief) -> String {
-        match belief {
-            Belief::Fact { source, .. }
-            | Belief::Suspicion { source, .. }
-            | Belief::Claim { source, .. } => match source {
-                BeliefSource::ToldBy(name) => name.clone(),
-                _ => "unknown".to_string(),
-            },
+        match belief.source() {
+            BeliefSource::ToldBy(name) => name.clone(),
+            _ => "unknown".to_string(),
         }
     }
 }
