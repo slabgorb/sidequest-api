@@ -533,7 +533,7 @@ mod wire_compatibility_tests {
         match &msg {
             GameMessage::PlayerAction { payload, player_id } => {
                 assert_eq!(payload.action, "attack the goblin");
-                assert_eq!(payload.aside, false);
+                assert!(!payload.aside);
                 assert_eq!(player_id, "");
             }
             other => panic!("expected PlayerAction, got {:?}", other),
@@ -607,7 +607,7 @@ mod wire_compatibility_tests {
         let msg: GameMessage = serde_json::from_str(json).unwrap();
         match &msg {
             GameMessage::CombatEvent { payload, .. } => {
-                assert_eq!(payload.in_combat, true);
+                assert!(payload.in_combat);
                 assert_eq!(payload.enemies[0].name, "Goblin");
                 assert_eq!(payload.enemies[0].hp, 8);
                 assert_eq!(payload.enemies[0].ac, Some(13));

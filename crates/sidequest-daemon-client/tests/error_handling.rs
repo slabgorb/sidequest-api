@@ -123,7 +123,7 @@ fn from_io_error_produces_socket_error_variant() {
 #[test]
 fn daemon_error_variants_are_matchable() {
     let errors: Vec<DaemonError> = vec![
-        DaemonError::SocketError(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+        DaemonError::SocketError(std::io::Error::other("test")),
         DaemonError::Timeout {
             duration: Duration::from_secs(5),
         },
@@ -155,7 +155,7 @@ fn daemon_error_variants_are_matchable() {
 #[test]
 fn each_variant_has_distinct_display_message() {
     let errors: Vec<DaemonError> = vec![
-        DaemonError::SocketError(std::io::Error::new(std::io::ErrorKind::Other, "io problem")),
+        DaemonError::SocketError(std::io::Error::other("io problem")),
         DaemonError::Timeout {
             duration: Duration::from_secs(5),
         },
