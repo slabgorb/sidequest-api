@@ -3573,7 +3573,28 @@ async fn dispatch_player_action(
                     entry.appearance = npc.appearance.clone();
                 }
             } else if npc.is_new {
-                // New NPC — create entry
+                // New NPC — create entry with OCEAN personality from genre archetype
+                let ocean_summary = {
+                    let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
+                    GenreCode::new(genre_slug).ok()
+                        .and_then(|genre_code| loader.load(&genre_code).ok())
+                        .and_then(|pack| {
+                            let with_ocean: Vec<_> = pack.archetypes.iter()
+                                .filter(|a| a.ocean.is_some())
+                                .collect();
+                            if with_ocean.is_empty() { return None; }
+                            use rand::prelude::IndexedRandom;
+                            let archetype = with_ocean.choose(&mut rand::rng())?;
+                            let profile = archetype.ocean.as_ref()?.with_jitter(1.5);
+                            Some(profile.behavioral_summary())
+                        })
+                        .unwrap_or_else(|| sidequest_genre::OceanProfile::random().behavioral_summary())
+                };
+                tracing::info!(
+                    name = %npc.name, pronouns = %npc.pronouns, role = %npc.role,
+                    ocean = %ocean_summary,
+                    "npc_registry.new — created from structured data with OCEAN personality"
+                );
                 npc_registry.push(NpcRegistryEntry {
                     name: npc.name.clone(),
                     pronouns: npc.pronouns.clone(),
@@ -3582,8 +3603,8 @@ async fn dispatch_player_action(
                     appearance: npc.appearance.clone(),
                     location: current_location.to_string(),
                     last_seen_turn: turn_approx,
+                    ocean_summary,
                 });
-                tracing::info!(name = %npc.name, pronouns = %npc.pronouns, role = %npc.role, "npc_registry.new — created from structured data");
             }
         }
     }
@@ -5559,6 +5580,7 @@ fn update_npc_registry(
                             last_seen_turn: turn_count,
                             age: String::new(),
                             appearance: String::new(),
+                            ocean_summary: String::new(),
                         });
                     }
                 }
@@ -5616,6 +5638,7 @@ fn update_npc_registry(
                                 last_seen_turn: turn_count,
                                 age: String::new(),
                                 appearance: String::new(),
+                                ocean_summary: String::new(),
                             });
                         }
                     }
@@ -5655,6 +5678,7 @@ fn update_npc_registry(
                         last_seen_turn: turn_count,
                         age: String::new(),
                         appearance: String::new(),
+                        ocean_summary: String::new(),
                     });
                 }
             }
@@ -5682,6 +5706,7 @@ fn update_npc_registry(
                         last_seen_turn: turn_count,
                         age: String::new(),
                         appearance: String::new(),
+                        ocean_summary: String::new(),
                     });
                 }
             }
@@ -5709,6 +5734,7 @@ fn update_npc_registry(
                         last_seen_turn: turn_count,
                         age: String::new(),
                         appearance: String::new(),
+                        ocean_summary: String::new(),
                     });
                 }
             }
@@ -5770,6 +5796,9 @@ fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> String {
         }
         if !physical.is_empty() {
             desc.push_str(&format!(" [{}]", physical.join("; ")));
+        }
+        if !entry.ocean_summary.is_empty() {
+            desc.push_str(&format!(" | personality: {}", entry.ocean_summary));
         }
         if !entry.location.is_empty() {
             desc.push_str(&format!(" — at {}", entry.location));
