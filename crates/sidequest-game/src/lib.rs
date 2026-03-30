@@ -82,7 +82,7 @@ pub use chase_depth::{
     terrain_modifiers, BeatDecision, CameraMode, ChaseActor, ChaseBeat, ChaseCinematography,
     ChaseOutcome, ChasePhase, ChaseRole, RigDamageTier, RigStats, RigType, TerrainModifiers,
 };
-pub use combat::{CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
+pub use combat::{CombatOutcome, CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
 pub use combatant::Combatant;
 pub use conlang::{
     format_name_bank_for_prompt, GeneratedName, Morpheme, MorphemeCategory, MorphemeGlossary,

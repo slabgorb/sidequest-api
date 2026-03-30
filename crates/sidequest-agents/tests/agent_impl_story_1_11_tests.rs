@@ -141,12 +141,11 @@ mod agent_types_tests {
     fn combat_patch_deserializes_from_json() {
         let json = r#"{
             "in_combat": true,
-            "round_number": 3,
             "hp_changes": {"Goblin": -12}
         }"#;
         let patch: CombatPatch = serde_json::from_str(json).unwrap();
         assert_eq!(patch.in_combat, Some(true));
-        assert_eq!(patch.round_number, Some(3));
+        assert_eq!(patch.hp_changes.as_ref().unwrap().get("Goblin"), Some(&-12));
     }
 
     #[test]
@@ -211,11 +210,11 @@ The world has been updated."#;
     #[test]
     fn extract_combat_patch_from_prose_with_json() {
         let llm_output = r#"The goblin strikes! Here's the result:
-{"in_combat": true, "hp_changes": {"Gorm": -8}, "round_number": 2}
+{"in_combat": true, "hp_changes": {"Gorm": -8}, "drama_weight": 0.6}
 That was a brutal hit."#;
         let patch: CombatPatch = JsonExtractor::extract(llm_output).unwrap();
         assert_eq!(patch.in_combat, Some(true));
-        assert_eq!(patch.round_number, Some(2));
+        assert_eq!(patch.hp_changes.as_ref().unwrap().get("Gorm"), Some(&-8));
     }
 
     #[test]

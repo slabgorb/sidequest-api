@@ -121,6 +121,44 @@ impl IntentRouter {
     fn classify_keywords_inner(input: &str) -> IntentRoute {
         let lower = input.to_lowercase();
 
+        // Figurative phrases that contain combat keywords but aren't combat.
+        // Checked before combat keywords to prevent false positives (story 15-6).
+        let figurative_exemptions = [
+            "cast my eyes",
+            "cast my gaze",
+            "cast a glance",
+            "cast a shadow",
+            "cast a vote",
+            "cast aside",
+            "cast out",
+            "cast doubt",
+            "charge to the",
+            "in charge of",
+            "charge of",
+            "hit upon",
+            "hit the road",
+            "hit the books",
+            "throw a party",
+            "throw a celebration",
+            "throw a fit",
+            "throw a tantrum",
+            "dodge the question",
+            "dodge the issue",
+            "dodge the topic",
+            "grab their attention",
+            "grab attention",
+            "grab a seat",
+            "grab a bite",
+            "block of text",
+            "block of",
+            "city block",
+            "block out",
+            "swing of opinion",
+            "mood swing",
+            "swing of",
+        ];
+        let is_figurative = figurative_exemptions.iter().any(|phrase| lower.contains(phrase));
+
         // Combat keywords — physical violence, weapon use, ability activation
         let combat_words = [
             "attack",
@@ -162,7 +200,7 @@ impl IntentRouter {
             "choke",
             "headbutt",
         ];
-        if combat_words.iter().any(|w| lower.contains(w)) {
+        if !is_figurative && combat_words.iter().any(|w| lower.contains(w)) {
             return IntentRoute::for_intent(Intent::Combat);
         }
 
