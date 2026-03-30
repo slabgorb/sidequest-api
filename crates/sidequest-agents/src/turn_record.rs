@@ -70,6 +70,9 @@ pub struct TurnRecord {
     pub agent_duration_ms: u64,
     /// Whether this turn used a degraded/fallback response.
     pub is_degraded: bool,
+    /// Per-phase timing spans for flame chart visualization.
+    /// Each entry: (name, start_ms relative to turn start, duration_ms).
+    pub spans: Vec<(String, u64, u64)>,
 }
 
 /// Counter for assigning monotonically increasing turn IDs.

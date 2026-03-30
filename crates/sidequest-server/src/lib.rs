@@ -93,6 +93,10 @@ pub enum WatcherEventType {
     JsonExtractionResult,
     /// A game state machine transition occurred.
     StateTransition,
+    /// A complete turn has been processed — bridges TurnRecord to watcher.
+    TurnComplete,
+    /// Full game state snapshot after a turn — for the State Explorer tab.
+    GameStateSnapshot,
 }
 
 /// Severity levels for watcher telemetry events.
@@ -244,6 +248,8 @@ struct AppStateInner {
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
     watcher_tx: broadcast::Sender<WatcherEvent>,
+    /// Sender for TurnRecords — bridges to WatcherEvent broadcast via the turn_record_bridge.
+    turn_record_tx: Option<tokio::sync::mpsc::Sender<sidequest_agents::turn_record::TurnRecord>>,
     persistence: sidequest_game::PersistenceHandle,
     render_queue: Option<sidequest_game::RenderQueue>,
     subject_extractor: sidequest_game::SubjectExtractor,
@@ -422,6 +428,7 @@ impl AppState {
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
                 watcher_tx,
+                turn_record_tx: None,
                 persistence,
                 render_queue: Some(render_queue),
                 subject_extractor: sidequest_game::SubjectExtractor::new(),
@@ -441,6 +448,21 @@ impl AppState {
             .expect("with_tts_disabled must be called before cloning")
             .tts_disabled = disabled;
         self
+    }
+
+    /// Set the TurnRecord sender for bridging to the watcher broadcast (builder-style).
+    pub fn with_turn_record_tx(mut self, tx: tokio::sync::mpsc::Sender<sidequest_agents::turn_record::TurnRecord>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_turn_record_tx must be called before cloning")
+            .turn_record_tx = Some(tx);
+        self
+    }
+
+    /// Send a TurnRecord through the bridge channel (non-blocking).
+    pub fn send_turn_record(&self, record: sidequest_agents::turn_record::TurnRecord) {
+        if let Some(ref tx) = self.inner.turn_record_tx {
+            sidequest_agents::turn_record::try_send_record(tx, record);
+        }
     }
 
     /// Whether TTS is disabled.
@@ -2782,6 +2804,7 @@ async fn dispatch_player_action(
         intent = tracing::field::Empty,
     );
     let _turn_guard = turn_span.enter();
+    let turn_start = std::time::Instant::now();
 
     // Sync world-level state from shared session (if multiplayer)
     {
@@ -3475,9 +3498,36 @@ async fn dispatch_player_action(
 
     // Preprocess raw player input — STT cleanup + three-perspective rewrite.
     // Uses haiku-tier LLM with 15s timeout; falls back to mechanical rewrite on failure.
+    let preprocess_start = std::time::Instant::now();
+    state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "preprocessor".to_string(),
+        event_type: WatcherEventType::AgentSpanOpen,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+            f.insert("raw_len".to_string(), serde_json::json!(action.len()));
+            f
+        },
+    });
     let preprocess_span = tracing::info_span!("turn.preprocess", raw_len = action.len());
     let _preprocess_guard = preprocess_span.enter();
     let preprocessed = sidequest_agents::preprocessor::preprocess_action(&effective_action, char_name);
+    state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "preprocessor".to_string(),
+        event_type: WatcherEventType::AgentSpanClose,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+            f.insert("intent".to_string(), serde_json::json!(preprocessed.intent));
+            f.insert("is_power_grab".to_string(), serde_json::json!(preprocessed.is_power_grab));
+            f.insert("duration_ms".to_string(), serde_json::json!(preprocess_start.elapsed().as_millis() as u64));
+            f
+        },
+    });
     tracing::info!(
         raw = %action,
         you = %preprocessed.you,
@@ -3504,7 +3554,34 @@ async fn dispatch_player_action(
 
     drop(_preprocess_guard);
 
+    // Build snapshot BEFORE process_action so we capture the pre-turn state for telemetry.
+    let snapshot_before = {
+        use sidequest_game::state::GameSnapshot;
+        let mut snap = GameSnapshot {
+            genre_slug: genre_slug.to_string(),
+            world_slug: world_slug.to_string(),
+            location: current_location.clone(),
+            combat: combat_state.clone(),
+            chase: chase_state.clone(),
+            axis_values: axis_values.clone(),
+            active_tropes: trope_states.clone(),
+            quest_log: quest_log.clone(),
+            ..GameSnapshot::default()
+        };
+        if let Some(ref cj) = character_json {
+            if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                ch.core.hp = *hp;
+                ch.core.max_hp = *max_hp;
+                ch.core.level = *level;
+                ch.core.inventory = inventory.clone();
+                snap.characters.push(ch);
+            }
+        }
+        snap
+    };
+
     // Process the action through GameService (FreePlay mode — immediate resolution)
+    let agent_llm_start = std::time::Instant::now();
     let context = TurnContext {
         state_summary: Some(state_summary),
         in_combat: combat_state.in_combat(),
@@ -3513,6 +3590,8 @@ async fn dispatch_player_action(
     let result = state
         .game_service()
         .process_action(&preprocessed.you, &context);
+    let agent_llm_ms = agent_llm_start.elapsed().as_millis() as u64;
+    let state_patch_start = std::time::Instant::now();
 
     if let Some(ref intent) = result.classified_intent {
         turn_span.record("intent", intent.as_str());
@@ -3731,8 +3810,25 @@ async fn dispatch_player_action(
                     appearance: npc.appearance.clone(),
                     location: current_location.to_string(),
                     last_seen_turn: turn_approx,
-                    ocean_summary,
+                    ocean_summary: ocean_summary.clone(),
                     ocean: Some(ocean_profile),
+                });
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "npc_registry".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("npc_discovered"));
+                        f.insert("name".to_string(), serde_json::json!(npc.name));
+                        f.insert("role".to_string(), serde_json::json!(npc.role));
+                        f.insert("pronouns".to_string(), serde_json::json!(npc.pronouns));
+                        f.insert("ocean_summary".to_string(), serde_json::json!(ocean_summary));
+                        f.insert("archetype_source".to_string(), serde_json::json!(source));
+                        f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
+                        f
+                    },
                 });
             }
         }
@@ -3767,6 +3863,21 @@ async fn dispatch_player_action(
                         cause = %proposal.cause,
                         "ocean_shift.detail"
                     );
+                    state.send_watcher_event(WatcherEvent {
+                        timestamp: chrono::Utc::now(),
+                        component: "ocean_personality".to_string(),
+                        event_type: WatcherEventType::StateTransition,
+                        severity: Severity::Info,
+                        fields: {
+                            let mut f = HashMap::new();
+                            f.insert("npc".to_string(), serde_json::json!(proposal.npc_name));
+                            f.insert("dimension".to_string(), serde_json::json!(format!("{:?}", proposal.dimension)));
+                            f.insert("delta".to_string(), serde_json::json!(proposal.delta));
+                            f.insert("cause".to_string(), serde_json::json!(proposal.cause));
+                            f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
+                            f
+                        },
+                    });
                 }
             }
         }
@@ -3844,6 +3955,19 @@ async fn dispatch_player_action(
         for (quest_name, status) in &result.quest_updates {
             quest_log.insert(quest_name.clone(), status.clone());
             tracing::info!(quest = %quest_name, status = %status, "quest.updated");
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "quest_log".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("quest".to_string(), serde_json::json!(quest_name));
+                    f.insert("status".to_string(), serde_json::json!(status));
+                    f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                    f
+                },
+            });
         }
     }
 
@@ -4169,10 +4293,28 @@ async fn dispatch_player_action(
                 interaction = turn_manager.interaction(),
                 "rag.footnotes_to_discovered_facts"
             );
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "knowledge_pipeline".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("event".to_string(), serde_json::json!("facts_discovered"));
+                    f.insert("count".to_string(), serde_json::json!(discovered.len()));
+                    f.insert("character".to_string(), serde_json::json!(char_name));
+                    f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                    f.insert("footnote_count".to_string(), serde_json::json!(result.footnotes.len()));
+                    f
+                },
+            });
             // Apply discovered facts to snapshot via WorldStatePatch path
             // (This feeds into the persistence layer on next save)
         }
     }
+
+    let state_patch_ms = state_patch_start.elapsed().as_millis() as u64;
+    let broadcast_start = std::time::Instant::now();
 
     // Narration end with state_delta field present (even if empty)
     messages.push(GameMessage::NarrationEnd {
@@ -4435,6 +4577,19 @@ async fn dispatch_player_action(
             // Update active chase
             if chase_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
                 tracing::info!(rounds = cs.round(), "Chase resolved");
+                state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "chase".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("event".to_string(), serde_json::json!("chase_ended"));
+                        f.insert("rounds".to_string(), serde_json::json!(cs.round()));
+                        f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                        f
+                    },
+                });
                 *chase_state = None;
             } else {
                 // Advance chase round, adjust separation based on narration
@@ -4456,6 +4611,18 @@ async fn dispatch_player_action(
             let cs = sidequest_game::ChaseState::new(sidequest_game::ChaseType::Footrace, 0.5);
             tracing::info!("Chase started — detected chase keyword in narration");
             *chase_state = Some(cs);
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "chase".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("event".to_string(), serde_json::json!("chase_started"));
+                    f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                    f
+                },
+            });
         }
     }
 
@@ -4572,6 +4739,18 @@ async fn dispatch_player_action(
     let _media_guard = media_span.enter();
 
     // Render pipeline — extract subject from narration, filter, enqueue
+    let render_start = std::time::Instant::now();
+    state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "render_pipeline".to_string(),
+        event_type: WatcherEventType::AgentSpanOpen,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+            f
+        },
+    });
     let extraction_context = sidequest_game::ExtractionContext {
         current_location: extract_location_header(narration_text).unwrap_or_default(),
         in_combat: combat_state.in_combat(),
@@ -4632,15 +4811,53 @@ async fn dispatch_player_action(
                 }
             }
         }
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "render_pipeline".to_string(),
+            event_type: WatcherEventType::AgentSpanClose,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                f.insert("subject_extracted".to_string(), serde_json::json!(true));
+                f.insert("duration_ms".to_string(), serde_json::json!(render_start.elapsed().as_millis() as u64));
+                f
+            },
+        });
     } else {
         tracing::debug!(
             narration_len = clean_narration.len(),
             "No render subject extracted"
         );
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "render_pipeline".to_string(),
+            event_type: WatcherEventType::AgentSpanClose,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                f.insert("subject_extracted".to_string(), serde_json::json!(false));
+                f.insert("duration_ms".to_string(), serde_json::json!(render_start.elapsed().as_millis() as u64));
+                f
+            },
+        });
     }
 
     // Audio cue — evaluate mood via MusicDirector, route through AudioMixer
     if let Some(ref mut director) = music_director {
+        let music_start = std::time::Instant::now();
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "music_director".to_string(),
+            event_type: WatcherEventType::AgentSpanOpen,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                f
+            },
+        });
         tracing::info!("music_director_present — evaluating mood");
         let mood_ctx = sidequest_game::MoodContext {
             in_combat: combat_state.in_combat(),
@@ -4703,6 +4920,21 @@ async fn dispatch_player_action(
                 "music_evaluate_returned_none — no cue produced"
             );
         }
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "music_director".to_string(),
+            event_type: WatcherEventType::AgentSpanClose,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                f.insert("mood".to_string(), serde_json::json!(mood_key));
+                f.insert("intensity".to_string(), serde_json::json!(classification.intensity));
+                f.insert("confidence".to_string(), serde_json::json!(classification.confidence));
+                f.insert("duration_ms".to_string(), serde_json::json!(music_start.elapsed().as_millis() as u64));
+                f
+            },
+        });
     } else {
         tracing::warn!("music_director_missing — audio cues skipped");
     }
@@ -4790,7 +5022,20 @@ async fn dispatch_player_action(
     }
 
     // TTS streaming — segment narration and spawn background synthesis task
+    let tts_turn_number = turn_number;
     if !clean_narration.is_empty() && !state.tts_disabled() {
+        state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "tts_pipeline".to_string(),
+            event_type: WatcherEventType::AgentSpanOpen,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("turn_number".to_string(), serde_json::json!(tts_turn_number));
+                f.insert("narration_len".to_string(), serde_json::json!(clean_narration.len()));
+                f
+            },
+        });
         let segmenter = sidequest_game::SentenceSegmenter::new();
         let segments = segmenter.segment(&clean_narration);
         tracing::info!(
@@ -4845,7 +5090,10 @@ async fn dispatch_player_action(
                 segment_count = tts_segments.len(),
                 player_id = %player_id_for_tts,
             );
+            let state_for_tts_otel = state_for_tts.clone();
+            let tts_segment_count = tts_segments.len();
             tokio::spawn(async move {
+                let tts_start = std::time::Instant::now();
                 let (msg_tx, mut msg_rx) =
                     tokio::sync::mpsc::channel::<sidequest_game::tts_stream::TtsMessage>(32);
 
@@ -4923,6 +5171,19 @@ async fn dispatch_player_action(
                                     if let Some(subject) = prerender
                                         .on_tts_start(&tts_segments_for_prerender, &prerender_ctx)
                                     {
+                                        state_for_tts_otel.send_watcher_event(WatcherEvent {
+                                            timestamp: chrono::Utc::now(),
+                                            component: "prerender_scheduler".to_string(),
+                                            event_type: WatcherEventType::StateTransition,
+                                            severity: Severity::Info,
+                                            fields: {
+                                                let mut f = std::collections::HashMap::new();
+                                                f.insert("event".to_string(), serde_json::json!("speculative_render"));
+                                                f.insert("subject_tier".to_string(), serde_json::json!(format!("{:?}", subject.tier())));
+                                                f.insert("turn_number".to_string(), serde_json::json!(tts_turn_number));
+                                                f
+                                            },
+                                        });
                                         if let Some(ref queue) = state_for_tts.inner.render_queue {
                                             let _ = queue
                                                 .enqueue(
@@ -5012,6 +5273,19 @@ async fn dispatch_player_action(
 
                 let _ = stream_handle.await;
                 tracing::info!(player_id = %player_id_for_tts, "TTS stream complete");
+                state_for_tts_otel.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "tts_pipeline".to_string(),
+                    event_type: WatcherEventType::AgentSpanClose,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = std::collections::HashMap::new();
+                        f.insert("turn_number".to_string(), serde_json::json!(tts_turn_number));
+                        f.insert("segment_count".to_string(), serde_json::json!(tts_segment_count));
+                        f.insert("duration_ms".to_string(), serde_json::json!(tts_start.elapsed().as_millis() as u64));
+                        f
+                    },
+                });
             }.instrument(tts_span));
         }
     }
@@ -5157,6 +5431,18 @@ async fn dispatch_player_action(
                                                 effects = %sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects()),
                                                 "perception.rewrite — narration rewritten for player"
                                             );
+                                            state.send_watcher_event(WatcherEvent {
+                                                timestamp: chrono::Utc::now(),
+                                                component: "perception_rewriter".to_string(),
+                                                event_type: WatcherEventType::StateTransition,
+                                                severity: Severity::Info,
+                                                fields: {
+                                                    let mut f = HashMap::new();
+                                                    f.insert("target_player".to_string(), serde_json::json!(target_id));
+                                                    f.insert("success".to_string(), serde_json::json!(true));
+                                                    f
+                                                },
+                                            });
                                             rewritten
                                         }
                                         Err(e) => {
@@ -5258,6 +5544,104 @@ async fn dispatch_player_action(
                     _ => {}
                 }
             }
+        }
+    }
+
+    // Bridge: emit TurnRecord with real before/after snapshots for the GM dashboard.
+    {
+        use sidequest_agents::turn_record::TurnRecord;
+        use sidequest_agents::agents::intent_router::Intent;
+        use sidequest_game::state::GameSnapshot;
+
+        let snapshot_after = {
+            let mut snap = GameSnapshot {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                location: current_location.clone(),
+                combat: combat_state.clone(),
+                chase: chase_state.clone(),
+                axis_values: axis_values.clone(),
+                active_tropes: trope_states.clone(),
+                quest_log: quest_log.clone(),
+                ..GameSnapshot::default()
+            };
+            if let Some(ref cj) = character_json {
+                if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                    ch.core.hp = *hp;
+                    ch.core.max_hp = *max_hp;
+                    ch.core.level = *level;
+                    ch.core.inventory = inventory.clone();
+                    snap.characters.push(ch);
+                }
+            }
+            snap
+        };
+
+        let delta = sidequest_game::delta::compute_delta(
+            &sidequest_game::delta::snapshot(&snapshot_before),
+            &sidequest_game::delta::snapshot(&snapshot_after),
+        );
+
+        let intent = match result.classified_intent.as_deref() {
+            Some("Combat") => Intent::Combat,
+            Some("Dialogue") => Intent::Dialogue,
+            Some("Examine") => Intent::Examine,
+            Some("Meta") => Intent::Meta,
+            Some("Chase") => Intent::Chase,
+            _ => Intent::Exploration,
+        };
+
+        let broadcast_ms = broadcast_start.elapsed().as_millis() as u64;
+        let preprocess_ms = preprocess_start.elapsed().as_millis() as u64 - agent_llm_ms - state_patch_ms - broadcast_ms;
+
+        // Assemble per-phase timing spans for flame chart
+        let preprocess_offset = preprocess_start.duration_since(turn_start).as_millis() as u64;
+        let agent_offset = agent_llm_start.duration_since(turn_start).as_millis() as u64;
+        let patch_offset = state_patch_start.duration_since(turn_start).as_millis() as u64;
+        let bcast_offset = broadcast_start.duration_since(turn_start).as_millis() as u64;
+
+        let spans = vec![
+            ("preprocess".to_string(), preprocess_offset, preprocess_ms),
+            ("agent_llm".to_string(), agent_offset, agent_llm_ms),
+            ("state_patch".to_string(), patch_offset, state_patch_ms),
+            ("broadcast".to_string(), bcast_offset, broadcast_ms),
+        ];
+
+        let snapshot_after_clone = snapshot_after.clone();
+        state.send_turn_record(TurnRecord {
+            turn_id: turn_number as u64,
+            timestamp: chrono::Utc::now(),
+            player_input: effective_action.to_string(),
+            classified_intent: intent,
+            agent_name: result.agent_name.clone().unwrap_or_default(),
+            narration: result.narration.clone(),
+            patches_applied: vec![],
+            snapshot_before,
+            snapshot_after,
+            delta,
+            beats_fired: vec![],
+            extraction_tier: result.extraction_tier.unwrap_or(0),
+            token_count_in: result.token_count_in.unwrap_or(0),
+            token_count_out: result.token_count_out.unwrap_or(0),
+            agent_duration_ms: result.agent_duration_ms.unwrap_or(0),
+            is_degraded: result.is_degraded,
+            spans,
+        });
+
+        // Emit full game state snapshot for the State Explorer tab
+        if let Ok(snapshot_json) = serde_json::to_value(&snapshot_after_clone) {
+            state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "server".to_string(),
+                event_type: WatcherEventType::GameStateSnapshot,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("turn_id".to_string(), serde_json::json!(turn_number));
+                    f.insert("snapshot".to_string(), snapshot_json);
+                    f
+                },
+            });
         }
     }
 
