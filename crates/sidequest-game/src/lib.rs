@@ -29,6 +29,7 @@ pub mod delta;
 pub mod disposition;
 pub mod engagement;
 pub mod faction_agenda;
+pub mod gossip;
 pub mod guest_npc;
 pub mod hp;
 pub mod inventory;
@@ -94,6 +95,7 @@ pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};
 pub use disposition::{Attitude, Disposition};
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
+pub use gossip::{GossipEngine, PropagationResult};
 pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
 pub use merchant::{
