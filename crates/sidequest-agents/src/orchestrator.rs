@@ -48,6 +48,14 @@ pub struct ActionResult {
     pub npcs_present: Vec<NpcMention>,
     /// Quest log updates extracted from narrator JSON block.
     pub quest_updates: HashMap<String, String>,
+    /// Wall-clock duration of the agent LLM call in milliseconds (for GM Dashboard).
+    pub agent_duration_ms: Option<u64>,
+    /// Input tokens consumed by the agent LLM call (for GM Dashboard).
+    pub token_count_in: Option<usize>,
+    /// Output tokens produced by the agent LLM call (for GM Dashboard).
+    pub token_count_out: Option<usize>,
+    /// JSON extraction tier used: 1=direct, 2=fenced, 3=regex (for GM Dashboard).
+    pub extraction_tier: Option<u8>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -213,6 +221,7 @@ impl GameService for Orchestrator {
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
 
+        let call_start = std::time::Instant::now();
         match self.client.send(&prompt) {
             Ok(raw_response) => {
                 // Extract structured data from narrator response (footnotes + items)
@@ -258,7 +267,8 @@ impl GameService for Orchestrator {
                     extraction.prose
                 };
 
-                info!(len = narration.len(), "Claude CLI returned narration");
+                let agent_duration_ms = call_start.elapsed().as_millis() as u64;
+                info!(len = narration.len(), duration_ms = agent_duration_ms, "Claude CLI returned narration");
                 span.record("is_degraded", false);
                 ActionResult {
                     narration,
@@ -272,10 +282,15 @@ impl GameService for Orchestrator {
                     items_gained: extraction.items_gained,
                     npcs_present: extraction.npcs_present,
                     quest_updates: extraction.quest_updates,
+                    agent_duration_ms: Some(agent_duration_ms),
+                    token_count_in: None,
+                    token_count_out: None,
+                    extraction_tier: None,
                 }
             }
             Err(e) => {
-                warn!(error = %e, action = %action, "Claude CLI failed, returning degraded response");
+                let agent_duration_ms = call_start.elapsed().as_millis() as u64;
+                warn!(error = %e, action = %action, duration_ms = agent_duration_ms, "Claude CLI failed, returning degraded response");
                 span.record("is_degraded", true);
                 ActionResult {
                     narration: format!(
@@ -285,13 +300,17 @@ impl GameService for Orchestrator {
                     state_delta: Some(HashMap::new()),
                     combat_events: vec![],
                     combat_patch: None,
-                    is_degraded: false,
+                    is_degraded: true,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
                     footnotes: vec![],
                     items_gained: vec![],
                     npcs_present: vec![],
                     quest_updates: HashMap::new(),
+                    agent_duration_ms: Some(agent_duration_ms),
+                    token_count_in: None,
+                    token_count_out: None,
+                    extraction_tier: None,
                 }
             }
         }

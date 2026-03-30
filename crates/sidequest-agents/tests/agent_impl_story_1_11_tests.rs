@@ -174,6 +174,10 @@ mod agent_types_tests {
             items_gained: vec![],
             npcs_present: vec![],
             quest_updates: HashMap::new(),
+            agent_duration_ms: None,
+            token_count_in: None,
+            token_count_out: None,
+            extraction_tier: None,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -347,6 +351,10 @@ mod game_service_tests {
             items_gained: vec![],
             npcs_present: vec![],
             quest_updates: HashMap::new(),
+            agent_duration_ms: None,
+            token_count_in: None,
+            token_count_out: None,
+            extraction_tier: None,
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -384,6 +392,10 @@ mod error_handling_tests {
             items_gained: vec![],
             npcs_present: vec![],
             quest_updates: HashMap::new(),
+            agent_duration_ms: None,
+            token_count_in: None,
+            token_count_out: None,
+            extraction_tier: None,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

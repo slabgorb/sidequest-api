@@ -267,6 +267,10 @@ async fn server_accepts_mock_game_service() {
                 items_gained: vec![],
                 npcs_present: vec![],
                 quest_updates: std::collections::HashMap::new(),
+                agent_duration_ms: None,
+                token_count_in: None,
+                token_count_out: None,
+                extraction_tier: None,
             }
         }
     }
