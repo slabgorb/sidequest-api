@@ -18,7 +18,7 @@ use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::client::ClaudeClient;
 use crate::context_builder::ContextBuilder;
-use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
+use crate::prompt_framework::{parse_soul_md, AttentionZone, PromptSection, SectionCategory};
 use crate::turn_record::{TurnIdCounter, TurnRecord};
 use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTracker};
 
@@ -82,12 +82,30 @@ pub struct Orchestrator {
     drama_thresholds: DramaThresholds,
     /// Trope beat injection agent (ADR-018).
     troper: TroperAgent,
+    /// SOUL.md principles — injected into every prompt in the Early zone.
+    soul_text: Option<String>,
 }
 
 impl Orchestrator {
     /// Create a new orchestrator with a watcher channel sender.
+    ///
+    /// Automatically loads SOUL.md from the current working directory if present.
+    /// SOUL principles are injected into every agent prompt in the Early attention zone.
     pub fn new(watcher_tx: mpsc::Sender<TurnRecord>) -> Self {
         let client = ClaudeClient::new();
+        let soul_path = std::path::Path::new("SOUL.md");
+        let soul_data = parse_soul_md(soul_path);
+        let soul_text = if soul_data.is_empty() {
+            info!("SOUL.md not found or empty — prompts will lack guiding principles");
+            None
+        } else {
+            info!(
+                principles = soul_data.len(),
+                "SOUL.md loaded — {} principles will be injected into every prompt",
+                soul_data.len()
+            );
+            Some(soul_data.as_prompt_text())
+        };
         Self {
             watcher_tx,
             turn_id_counter: TurnIdCounter::new(),
@@ -99,6 +117,7 @@ impl Orchestrator {
             tension_tracker: TensionTracker::new(),
             drama_thresholds: DramaThresholds::default(),
             troper: TroperAgent::new(),
+            soul_text,
         }
     }
 
@@ -147,6 +166,16 @@ impl GameService for Orchestrator {
             "dialectician" => self.dialectician.build_context(&mut builder),
             _ => self.narrator.build_context(&mut builder),
         };
+
+        // SOUL principles (Early zone — high attention, after identity, before state)
+        if let Some(ref soul) = self.soul_text {
+            builder.add_section(PromptSection::new(
+                "soul_principles",
+                format!("## Guiding Principles\n{}", soul),
+                AttentionZone::Early,
+                SectionCategory::Soul,
+            ));
+        }
 
         // Game state section (Valley zone — lower attention, grounding context)
         if let Some(state) = &context.state_summary {
