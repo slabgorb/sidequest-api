@@ -389,3 +389,235 @@ async fn barrier_timeout_fills_missing_with_hesitates() {
         p2_narration.unwrap()
     );
 }
+
+// ===========================================================================
+// RED TESTS — Story 13-8 coordination gaps in dispatch integration
+//
+// These tests expose the real bugs: the barrier primitives above all work,
+// but the dispatch handler pattern fails because:
+//   Bug 1: dispatch reads ss.multiplayer.named_actions() (wrong session)
+//   Bug 2: all N handlers call narrator (no claimed_resolution gating)
+//
+// The fix requires adding a wait mechanism so non-claiming handlers block
+// until the claimer stores the narration result.
+//
+// NOTE: Uses multi_thread runtime + tokio::sync::Barrier to force real
+// concurrency. On single-threaded runtime, cooperative scheduling hides
+// the race because tasks serialize naturally.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Bug 2: Non-claiming handlers cannot reliably retrieve narration
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_handlers_with_narrator_delay_all_receive_narration() {
+    // Simulates the real dispatch pattern: the claiming handler calls the
+    // narrator (which takes time), while non-claiming handlers need the
+    // result immediately. With the current non-blocking get_resolution_narration(),
+    // non-claimers race and get None.
+    //
+    // The tokio::sync::Barrier ensures ALL handlers have returned from
+    // wait_for_turn() before ANY of them proceed to the if/else block.
+    // This guarantees the race window: the claimer starts sleeping (narrator)
+    // while non-claimers simultaneously call get_resolution_narration().
+    //
+    // Fix: TurnBarrier needs a blocking wait_for_resolution_narration() method
+    // (or equivalent signaling mechanism) so non-claimers can wait.
+
+    let session = four_player_session();
+    let barrier = TurnBarrier::new(session, TurnBarrierConfig::new(Duration::from_secs(30)));
+
+    // Pre-submit all actions so barrier_met is true immediately
+    barrier.submit_action("player-1", "I charge forward");
+    barrier.submit_action("player-2", "I cast fireball");
+    barrier.submit_action("player-3", "I flank left");
+    barrier.submit_action("player-4", "I heal the party");
+
+    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    // Sync barrier ensures all 4 handlers return from wait_for_turn() before proceeding
+    let sync_barrier = Arc::new(tokio::sync::Barrier::new(4));
+    let mut handles = vec![];
+
+    for _ in 0..4 {
+        let b = barrier.clone();
+        let recv = received.clone();
+        let sync = sync_barrier.clone();
+        handles.push(tokio::spawn(async move {
+            let result = b.wait_for_turn().await;
+
+            // All handlers synchronize here — guarantees they all returned
+            // from wait_for_turn() before any proceeds to if/else
+            sync.wait().await;
+
+            let narration = if result.claimed_resolution {
+                // Simulate narrator call — this takes real time in production
+                // (Claude CLI subprocess, typically 2-10 seconds)
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                let text = "The party acts in concert.".to_string();
+                b.store_resolution_narration(text.clone());
+                text
+            } else {
+                // Non-claiming handler must retrieve the narration.
+                // Currently get_resolution_narration() is non-blocking and returns
+                // None if the claimer hasn't stored yet. This MUST become blocking
+                // or use a wait mechanism (e.g., wait_for_resolution_narration()).
+                b.get_resolution_narration()
+                    .expect("non-claiming handler must receive stored narration (race condition!)")
+            };
+
+            recv.lock().unwrap().push(narration);
+        }));
+    }
+
+    for h in handles {
+        h.await.expect("handler task should not panic");
+    }
+
+    let all = received.lock().unwrap();
+    assert_eq!(all.len(), 4, "all 4 handlers must receive narration");
+    for n in all.iter() {
+        assert_eq!(
+            n, "The party acts in concert.",
+            "all handlers must receive identical narration text"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bug 2 (multi-turn stress): Narrator called exactly once per turn
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn five_turns_narrator_called_exactly_once_per_turn() {
+    // Over 5 successive barrier turns with 4 concurrent handlers each,
+    // the narrator (simulated by an atomic counter) must be called exactly
+    // once per turn — not 4 times.
+    //
+    // This is AC-1 and AC-4: no duplicate narrator calls, no duplicate
+    // world state writes.
+
+    let session = four_player_session();
+    let barrier = TurnBarrier::new(session, TurnBarrierConfig::new(Duration::from_secs(30)));
+
+    let narrator_calls = Arc::new(AtomicU32::new(0));
+    let all_narrations: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
+    for turn in 0..5u32 {
+        // Submit all 4 actions BEFORE spawning handlers so barrier_met is
+        // true immediately — no notify/timeout dependency
+        barrier.submit_action("player-1", &format!("action-{}-1", turn));
+        barrier.submit_action("player-2", &format!("action-{}-2", turn));
+        barrier.submit_action("player-3", &format!("action-{}-3", turn));
+        barrier.submit_action("player-4", &format!("action-{}-4", turn));
+
+        let sync_barrier = Arc::new(tokio::sync::Barrier::new(4));
+        let mut handles = vec![];
+
+        for handler_id in 0..4 {
+            let b = barrier.clone();
+            let calls = narrator_calls.clone();
+            let narrs = all_narrations.clone();
+            let sync = sync_barrier.clone();
+
+            handles.push(tokio::spawn(async move {
+                let result = b.wait_for_turn().await;
+
+                // Sync all handlers before proceeding
+                sync.wait().await;
+
+                let narration = if result.claimed_resolution {
+                    // "Narrator" — increment counter, simulate delay
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    let text = format!("Turn {} narration", turn);
+                    b.store_resolution_narration(text.clone());
+                    text
+                } else {
+                    // Non-claimer must wait for narration
+                    b.get_resolution_narration()
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "Handler {} in turn {} could not retrieve narration (race condition)",
+                                handler_id, turn
+                            )
+                        })
+                };
+
+                narrs.lock().unwrap().push(narration);
+            }));
+        }
+
+        for h in handles {
+            h.await.expect("handler task should not panic");
+        }
+    }
+
+    let total_calls = narrator_calls.load(Ordering::SeqCst);
+    assert_eq!(
+        total_calls, 5,
+        "narrator must be called exactly once per turn (5 turns), got {}",
+        total_calls
+    );
+
+    let all = all_narrations.lock().unwrap();
+    assert_eq!(
+        all.len(),
+        20,
+        "all 20 handler invocations (4 handlers × 5 turns) must receive narration"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Bug 1: Named actions available after resolution (for combined prompt)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn barrier_named_actions_available_for_prompt_after_resolution() {
+    // After barrier resolves, the claiming handler needs to build the
+    // "PARTY ACTIONS:" block for the narrator prompt. The actions must
+    // come from the barrier's internal session (via named_actions()),
+    // NOT from SharedGameSession.multiplayer (which is a separate empty session).
+    //
+    // This test verifies that named_actions() returns character-keyed data
+    // AFTER resolution — dispatch.rs must use this instead of ss.multiplayer.
+
+    let session = four_player_session();
+    let barrier = TurnBarrier::new(session, TurnBarrierConfig::new(Duration::from_secs(5)));
+
+    barrier.submit_action("player-1", "I charge forward");
+    barrier.submit_action("player-2", "I cast fireball");
+    barrier.submit_action("player-3", "I flank left");
+    barrier.submit_action("player-4", "I heal the party");
+
+    let result = barrier.wait_for_turn().await;
+    assert!(result.claimed_resolution, "single waiter should claim");
+
+    // After resolution, named_actions() must still return the actions
+    // (falls back to last_resolved_actions). This is the data dispatch.rs
+    // should use to build the combined prompt.
+    let named = barrier.named_actions();
+    assert_eq!(named.len(), 4, "should have all 4 character actions after resolution");
+
+    // Verify character name keys (not player IDs)
+    assert!(named.contains_key("Thorn"), "Thorn's action should be present");
+    assert!(named.contains_key("Elara"), "Elara's action should be present");
+    assert!(named.contains_key("Brak"), "Brak's action should be present");
+    assert!(named.contains_key("Lyra"), "Lyra's action should be present");
+
+    // Build combined prompt (same format dispatch.rs uses)
+    let combined: String = {
+        let mut entries: Vec<_> = named.iter().collect();
+        entries.sort_by_key(|(name, _)| name.clone());
+        entries
+            .iter()
+            .map(|(name, act)| format!("{}: {}", name, act))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    assert!(combined.contains("Thorn: I charge forward"), "combined prompt must include Thorn");
+    assert!(combined.contains("Elara: I cast fireball"), "combined prompt must include Elara");
+    assert!(combined.contains("Brak: I flank left"), "combined prompt must include Brak");
+    assert!(combined.contains("Lyra: I heal the party"), "combined prompt must include Lyra");
+}
