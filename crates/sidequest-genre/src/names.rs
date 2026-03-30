@@ -163,7 +163,20 @@ pub fn build_from_culture<R: Rng>(
     for (slot_name, slot_config) in &culture.slots {
         let chain = build_chain_for_slot(slot_config, corpus_dir);
 
-        let word_list = slot_config.word_list.clone().unwrap_or_default();
+        let mut word_list = slot_config.word_list.clone().unwrap_or_default();
+
+        // Load names_file if present — one name per line from corpus/
+        if let Some(ref names_file) = slot_config.names_file {
+            let names_path = corpus_dir.join(names_file);
+            if let Ok(text) = std::fs::read_to_string(&names_path) {
+                let file_names: Vec<String> = text
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect();
+                word_list.extend(file_names);
+            }
+        }
 
         slots.insert(slot_name.clone(), SlotGenerator { chain, word_list });
     }
@@ -230,6 +243,7 @@ mod tests {
                     CultureSlot {
                         corpora: None,
                         lookback: None,
+                        names_file: None,
                         word_list: Some(vec![
                             "Haruki".to_string(),
                             "Sakura".to_string(),
@@ -243,6 +257,7 @@ mod tests {
                     CultureSlot {
                         corpora: None,
                         lookback: None,
+                        names_file: None,
                         word_list: Some(vec![
                             "Forge".to_string(),
                             "Caldera".to_string(),
@@ -256,6 +271,7 @@ mod tests {
                     CultureSlot {
                         corpora: None,
                         lookback: None,
+                        names_file: None,
                         word_list: Some(vec![
                             "burning".to_string(),
                             "iron".to_string(),

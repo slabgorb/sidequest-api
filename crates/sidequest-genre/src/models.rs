@@ -1251,7 +1251,7 @@ pub struct Culture {
     pub place_patterns: Vec<String>,
 }
 
-/// A name-generation slot — either corpus-based or word-list-based.
+/// A name-generation slot — corpus-based, word-list-based, or file-based.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CultureSlot {
     /// Markov corpus references (for generated names).
@@ -1263,6 +1263,10 @@ pub struct CultureSlot {
     /// Fixed word list (for deterministic slots).
     #[serde(default)]
     pub word_list: Option<Vec<String>>,
+    /// Plain text file of names (one per line) in corpus/.
+    /// Used by real-world-name genres (pulp_noir, victoria) instead of Markov.
+    #[serde(default)]
+    pub names_file: Option<String>,
     /// Files containing words to reject from generation.
     #[serde(default)]
     pub reject_files: Vec<String>,
