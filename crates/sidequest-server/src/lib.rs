@@ -137,6 +137,11 @@ pub struct Args {
     /// Write a Chrome trace file (trace-<pid>.json) for flame-chart visualization in Perfetto.
     #[arg(long, default_value = "false")]
     trace: bool,
+
+    /// Headless playtest mode — no daemon, no TTS, no rendering.
+    /// Game loop and narration run normally. OTEL spans still fire for media hooks.
+    #[arg(long, default_value = "false")]
+    headless: bool,
 }
 
 impl Args {
@@ -162,7 +167,12 @@ impl Args {
 
     /// Whether chrome tracing is enabled.
     pub fn trace(&self) -> bool {
-        self.trace
+        self.trace || self.headless
+    }
+
+    /// Whether headless playtest mode is enabled.
+    pub fn headless(&self) -> bool {
+        self.headless
     }
 }
 
@@ -260,12 +270,38 @@ impl AppState {
         genre_packs_path: PathBuf,
         save_dir: PathBuf,
     ) -> Self {
+        Self::new_with_options(game_service, genre_packs_path, save_dir, false)
+    }
+
+    /// Create AppState with explicit headless mode control.
+    pub fn new_with_options(
+        game_service: Box<dyn GameService>,
+        genre_packs_path: PathBuf,
+        save_dir: PathBuf,
+        headless: bool,
+    ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
         let (watcher_tx, _) = broadcast::channel(256);
         let (binary_broadcast_tx, _) = broadcast::channel(64);
 
-        // Render pipeline — daemon client connects lazily on first render
-        let render_queue = sidequest_game::RenderQueue::spawn(
+        // Render pipeline — headless mode skips daemon, emits tracing spans only
+        let render_queue = if headless {
+            sidequest_game::RenderQueue::spawn(
+                sidequest_game::RenderQueueConfig::default(),
+                |prompt, art_style, tier, _negative_prompt: String| async move {
+                    tracing::info!(
+                        prompt_len = prompt.len(),
+                        prompt_preview = %&prompt[..prompt.len().min(120)],
+                        art_style = %art_style,
+                        tier = %tier,
+                        headless = true,
+                        "render_pipeline_headless_skip"
+                    );
+                    Ok(("/api/renders/headless-placeholder.svg".to_string(), 0u64))
+                },
+            )
+        } else {
+            sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
             |prompt, art_style, tier, negative_prompt: String| async move {
                 // ── OTel: render pipeline start ──────────────────────────
@@ -373,7 +409,8 @@ impl AppState {
                     }
                 }
             },
-        );
+        )
+        }; // end if headless / else
 
         let persistence = sidequest_game::PersistenceWorker::spawn(save_dir);
 

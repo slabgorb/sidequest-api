@@ -12,7 +12,13 @@ use sidequest_server::{create_server, AppState, Args};
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
     sidequest_server::init_tracing(args.trace());
-    tracing::info!(port = args.port(), genre_packs = %args.genre_packs_path().display(), no_tts = args.no_tts(), "SideQuest Server starting");
+    tracing::info!(
+        port = args.port(),
+        genre_packs = %args.genre_packs_path().display(),
+        no_tts = args.no_tts(),
+        headless = args.headless(),
+        "SideQuest Server starting"
+    );
 
     let (watcher_tx, watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
@@ -32,12 +38,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .join("saves")
         });
 
-    let state = AppState::new_with_game_service(
+    let state = AppState::new_with_options(
         Box::new(Orchestrator::new(watcher_tx)),
         args.genre_packs_path().to_path_buf(),
         save_dir,
+        args.headless(),
     )
-    .with_tts_disabled(args.no_tts());
+    .with_tts_disabled(args.no_tts() || args.headless());
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
