@@ -134,6 +134,15 @@ impl Belief {
         }
     }
 
+    /// The source of this belief.
+    pub fn source(&self) -> &BeliefSource {
+        match self {
+            Belief::Fact { source, .. } => source,
+            Belief::Suspicion { source, .. } => source,
+            Belief::Claim { source, .. } => source,
+        }
+    }
+
     /// Create a Suspicion with confidence clamped to 0.0..=1.0.
     pub fn suspicion(
         subject: String,
