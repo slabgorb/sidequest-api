@@ -1973,24 +1973,36 @@ async fn dispatch_connect(
                 }
             }
 
-            // Send theme_css SESSION_EVENT if the genre pack has a client_theme.css
-            let css_path = state
-                .genre_packs_path()
-                .join(genre)
-                .join("client_theme.css");
-            if let Ok(css) = tokio::fs::read_to_string(&css_path).await {
-                responses.push(GameMessage::SessionEvent {
-                    payload: SessionEventPayload {
-                        event: "theme_css".to_string(),
-                        player_name: None,
-                        genre: None,
-                        world: None,
-                        has_character: None,
-                        initial_state: None,
-                        css: Some(css),
-                    },
-                    player_id: player_id.to_string(),
-                });
+            // Generate theme CSS from theme.yaml + optional client_theme.css overrides
+            if let Ok(genre_code) = GenreCode::new(genre) {
+                let loader =
+                    GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
+                if let Ok(pack) = loader.load(&genre_code) {
+                    let mut css = pack.theme.generate_css();
+
+                    // Append client_theme.css overrides if present
+                    let css_path = state
+                        .genre_packs_path()
+                        .join(genre)
+                        .join("client_theme.css");
+                    if let Ok(override_css) = tokio::fs::read_to_string(&css_path).await {
+                        css.push('\n');
+                        css.push_str(&override_css);
+                    }
+
+                    responses.push(GameMessage::SessionEvent {
+                        payload: SessionEventPayload {
+                            event: "theme_css".to_string(),
+                            player_name: None,
+                            genre: None,
+                            world: None,
+                            has_character: None,
+                            initial_state: None,
+                            css: Some(css),
+                        },
+                        player_id: player_id.to_string(),
+                    });
+                }
             }
 
             responses
