@@ -3573,8 +3573,19 @@ async fn dispatch_player_action(
                     entry.appearance = npc.appearance.clone();
                 }
             } else if npc.is_new {
+                // ── OTel: OCEAN personality assignment ────────────────────
+                let span = tracing::info_span!(
+                    "npc.ocean_assignment",
+                    npc_name = %npc.name,
+                    npc_role = %npc.role,
+                    ocean_summary = tracing::field::Empty,
+                    archetype_source = tracing::field::Empty,
+                    genre = %genre_slug,
+                );
+                let _guard = span.enter();
+
                 // New NPC — create entry with OCEAN personality from genre archetype
-                let ocean_summary = {
+                let (ocean_summary, source) = {
                     let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
                     GenreCode::new(genre_slug).ok()
                         .and_then(|genre_code| loader.load(&genre_code).ok())
@@ -3586,13 +3597,15 @@ async fn dispatch_player_action(
                             use rand::prelude::IndexedRandom;
                             let archetype = with_ocean.choose(&mut rand::rng())?;
                             let profile = archetype.ocean.as_ref()?.with_jitter(1.5);
-                            Some(profile.behavioral_summary())
+                            Some((profile.behavioral_summary(), archetype.name.as_str().to_string()))
                         })
-                        .unwrap_or_else(|| sidequest_genre::OceanProfile::random().behavioral_summary())
+                        .unwrap_or_else(|| (sidequest_genre::OceanProfile::random().behavioral_summary(), "random".to_string()))
                 };
+                span.record("ocean_summary", &ocean_summary.as_str());
+                span.record("archetype_source", &source.as_str());
                 tracing::info!(
                     name = %npc.name, pronouns = %npc.pronouns, role = %npc.role,
-                    ocean = %ocean_summary,
+                    ocean = %ocean_summary, archetype = %source,
                     "npc_registry.new — created from structured data with OCEAN personality"
                 );
                 npc_registry.push(NpcRegistryEntry {
