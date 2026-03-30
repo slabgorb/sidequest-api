@@ -133,6 +133,10 @@ pub struct Args {
     /// Disable TTS voice synthesis (narration text is still sent, just no audio).
     #[arg(long, default_value = "false")]
     no_tts: bool,
+
+    /// Write a Chrome trace file (trace-<pid>.json) for flame-chart visualization in Perfetto.
+    #[arg(long, default_value = "false")]
+    trace: bool,
 }
 
 impl Args {
@@ -154,6 +158,11 @@ impl Args {
     /// Whether TTS is disabled.
     pub fn no_tts(&self) -> bool {
         self.no_tts
+    }
+
+    /// Whether chrome tracing is enabled.
+    pub fn trace(&self) -> bool {
+        self.trace
     }
 }
 
