@@ -1232,6 +1232,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 }
 
 /// Sync state back to shared session and broadcast messages to other players.
+#[tracing::instrument(name = "turn.sync_session", skip_all)]
 async fn sync_back_to_shared_session(
     ctx: &mut DispatchContext<'_>,
     messages: &[GameMessage],
@@ -1416,6 +1417,7 @@ async fn sync_back_to_shared_session(
 }
 
 /// Audio/music — evaluate mood via MusicDirector, emit audio cue.
+#[tracing::instrument(name = "turn.audio", skip_all)]
 async fn process_audio(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
@@ -1490,6 +1492,7 @@ async fn process_audio(
 }
 
 /// Render pipeline — extract subject from narration, filter, enqueue.
+#[tracing::instrument(name = "turn.render", skip_all)]
 async fn process_render(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
@@ -1565,6 +1568,11 @@ fn process_tropes(
     clean_narration: &str,
     messages: &mut Vec<GameMessage>,
 ) {
+    let _span = tracing::info_span!(
+        "turn.tropes",
+        active_count = ctx.trope_states.len(),
+    ).entered();
+
     let narration_lower = clean_narration.to_lowercase();
     tracing::debug!(
         narration_len = narration_lower.len(),
@@ -1669,6 +1677,7 @@ fn process_tropes(
 }
 
 /// Combat detection, combat tick, combat overlay, chase detection.
+#[tracing::instrument(name = "turn.combat_and_chase", skip_all)]
 async fn process_combat_and_chase(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
@@ -1878,6 +1887,8 @@ fn apply_state_mutations(
     clean_narration: &str,
     effective_action: &str,
 ) {
+    let _span = tracing::info_span!("turn.state_mutations").entered();
+
     // Combat HP changes — apply typed CombatPatch from creature_smith (replaces keyword heuristic)
     if let Some(ref combat_patch) = result.combat_patch {
         if let Some(ref hp_changes) = combat_patch.hp_changes {
@@ -2193,6 +2204,7 @@ fn apply_state_mutations(
 /// Includes trope seeding, party roster, location constraints, inventory, quests,
 /// chase state, abilities, world context, regions, tone, history, NPCs, lore, and
 /// continuity corrections.
+#[tracing::instrument(name = "turn.build_prompt_context", skip_all)]
 async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
     // Seed starter tropes if none are active yet (first turn)
     if ctx.trope_states.is_empty() && !ctx.trope_defs.is_empty() {
@@ -2571,6 +2583,7 @@ fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<GameMessage
     if !ctx.action.starts_with('/') {
         return None;
     }
+    let _span = tracing::info_span!("turn.slash_command", command = %ctx.action).entered();
 
     use sidequest_game::commands::{
         GmCommand, InventoryCommand, MapCommand, QuestsCommand, SaveCommand, StatusCommand,
