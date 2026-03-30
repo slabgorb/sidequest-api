@@ -499,35 +499,47 @@ impl AppState {
     /// Remove a player from a shared session. If the session is empty
     /// afterward, remove it from the registry entirely. Returns the
     /// remaining player count (0 means session was removed).
-    pub fn remove_player_from_session(&self, genre: &str, world: &str, player_id: &str) -> usize {
+    ///
+    /// Uses `.lock().await` on the session mutex to guarantee cleanup
+    /// completes even under contention (fixes ghost player bug from try_lock).
+    pub async fn remove_player_from_session(&self, genre: &str, world: &str, player_id: &str) -> usize {
         let key = shared_session::game_session_key(genre, world);
-        let mut sessions = self.inner.sessions.lock().unwrap();
-        let remaining = if let Some(session_arc) = sessions.get(&key).cloned() {
-            if let Ok(mut session) = session_arc.try_lock() {
-                session.players.remove(player_id);
-                // Remove player from barrier roster if active
-                if let Some(ref barrier) = session.turn_barrier {
-                    let _ = barrier.remove_player(player_id);
-                }
-                let remaining = session.players.len();
-                // Transition TurnMode when dropping back to solo
-                let old_mode = std::mem::take(&mut session.turn_mode);
-                session.turn_mode = old_mode.apply(
-                    sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                        player_count: remaining,
-                    },
-                );
-                if !session.turn_mode.should_use_barrier() {
-                    session.turn_barrier = None;
-                }
-                remaining
-            } else {
-                return 1; // Couldn't lock — conservatively report not empty
+        // Clone the Arc and drop the sessions guard before awaiting the session lock.
+        let session_arc = {
+            let sessions = self.inner.sessions.lock().unwrap();
+            match sessions.get(&key).cloned() {
+                Some(arc) => arc,
+                None => return 0,
             }
-        } else {
-            return 0;
+        };
+        let remaining = {
+            let mut session = session_arc.lock().await;
+            session.players.remove(player_id);
+            // Remove player from barrier roster if active
+            if let Some(ref barrier) = session.turn_barrier {
+                if let Err(e) = barrier.remove_player(player_id) {
+                    tracing::warn!(
+                        player_id = %player_id,
+                        error = %e,
+                        "Failed to remove player from barrier during session cleanup"
+                    );
+                }
+            }
+            let remaining = session.players.len();
+            // Transition TurnMode when dropping back to solo
+            let old_mode = std::mem::take(&mut session.turn_mode);
+            session.turn_mode = old_mode.apply(
+                sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                    player_count: remaining,
+                },
+            );
+            if !session.turn_mode.should_use_barrier() {
+                session.turn_barrier = None;
+            }
+            remaining
         };
         if remaining == 0 {
+            let mut sessions = self.inner.sessions.lock().unwrap();
             sessions.remove(&key);
         }
         remaining
@@ -1224,49 +1236,56 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     if let (Some(genre), Some(world)) = (session.genre_slug(), session.world_slug()) {
         let key = shared_session::game_session_key(genre, world);
         // Broadcast leave before removing, so the broadcast channel still exists
-        {
+        // Scope the std Mutex guard so it's dropped before the tokio .await
+        let ss_arc = {
             let sessions = state.inner.sessions.lock().unwrap();
-            if let Some(ss_arc) = sessions.get(&key).cloned() {
-                drop(sessions);
-                if let Ok(mut ss) = ss_arc.try_lock() {
-                    let leave_msg = GameMessage::SessionEvent {
-                        payload: SessionEventPayload {
-                            event: "player_left".to_string(),
-                            player_name: player_name_for_session.clone(),
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: None,
-                            css: None,
-                        },
-                        player_id: player_id_str.clone(),
-                    };
-                    ss.broadcast(leave_msg);
+            sessions.get(&key).cloned()
+        };
+        if let Some(ss_arc) = ss_arc {
+            // Use .lock().await (not try_lock) to guarantee cleanup completes.
+            let mut ss = ss_arc.lock().await;
+                let leave_msg = GameMessage::SessionEvent {
+                    payload: SessionEventPayload {
+                        event: "player_left".to_string(),
+                        player_name: player_name_for_session.clone(),
+                        genre: None,
+                        world: None,
+                        has_character: None,
+                        initial_state: None,
+                        css: None,
+                    },
+                    player_id: player_id_str.clone(),
+                };
+                ss.broadcast(leave_msg);
 
-                    // Transition turn mode when player leaves
-                    let remaining_count = ss.player_count().saturating_sub(1);
-                    let old_mode = std::mem::take(&mut ss.turn_mode);
-                    ss.turn_mode = old_mode.apply(
-                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                            player_count: remaining_count,
-                        },
-                    );
-                    tracing::info!(
-                        new_mode = ?ss.turn_mode,
-                        remaining_players = remaining_count,
-                        "Turn mode transitioned on player leave"
-                    );
-                    // Remove player from barrier roster and tear down if back to FreePlay
-                    if let Some(ref barrier) = ss.turn_barrier {
-                        let _ = barrier.remove_player(&player_id_str);
-                    }
-                    if !ss.turn_mode.should_use_barrier() {
-                        ss.turn_barrier = None;
+                // Transition turn mode when player leaves
+                let remaining_count = ss.player_count().saturating_sub(1);
+                let old_mode = std::mem::take(&mut ss.turn_mode);
+                ss.turn_mode = old_mode.apply(
+                    sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                        player_count: remaining_count,
+                    },
+                );
+                tracing::info!(
+                    new_mode = ?ss.turn_mode,
+                    remaining_players = remaining_count,
+                    "Turn mode transitioned on player leave"
+                );
+                // Remove player from barrier roster and tear down if back to FreePlay
+                if let Some(ref barrier) = ss.turn_barrier {
+                    if let Err(e) = barrier.remove_player(&player_id_str) {
+                        tracing::warn!(
+                            player_id = %player_id_str,
+                            error = %e,
+                            "Failed to remove player from barrier during disconnect cleanup"
+                        );
                     }
                 }
-            }
+                if !ss.turn_mode.should_use_barrier() {
+                    ss.turn_barrier = None;
+                }
         }
-        let remaining = state.remove_player_from_session(genre, world, &player_id_str);
+        let remaining = state.remove_player_from_session(genre, world, &player_id_str).await;
         tracing::info!(
             player_id = %player_id_str,
             remaining_players = remaining,
@@ -1731,8 +1750,17 @@ async fn dispatch_connect(
 
                         // Extract character data from saved snapshot
                         if let Some(character) = saved.snapshot.characters.first() {
-                            *character_json_store =
-                                Some(serde_json::to_value(character).unwrap_or_default());
+                            match serde_json::to_value(character) {
+                                Ok(json) => {
+                                    *character_json_store = Some(json);
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        error = %e,
+                                        "Failed to serialize character from saved snapshot — skipping character_json sync"
+                                    );
+                                }
+                            }
                             *character_name_store = Some(character.core.name.as_str().to_string());
                             *character_hp = character.core.hp;
                             *character_max_hp = character.core.max_hp;
@@ -2283,7 +2311,21 @@ async fn dispatch_character_creation(
             let pname = player_name_store.as_deref().unwrap_or("Player");
             match b.build(pname) {
                 Ok(character) => {
-                    let char_json = serde_json::to_value(&character).unwrap_or_default();
+                    let char_json = match serde_json::to_value(&character) {
+                        Ok(json) => json,
+                        Err(e) => {
+                            tracing::error!(
+                                error = %e,
+                                char_name = %character.core.name,
+                                "Failed to serialize built character — character_json will not be set"
+                            );
+                            // Return error to player rather than silently producing Null
+                            return vec![error_response(
+                                player_id,
+                                "Character created but state sync failed — please reconnect",
+                            )];
+                        }
+                    };
 
                     state.send_watcher_event(WatcherEvent {
                         timestamp: chrono::Utc::now(),
@@ -2631,8 +2673,27 @@ async fn dispatch_character_creation(
                                             is_friendly: true,
                                         }
                                     };
-                                    let _ = barrier.add_player(player_id.to_string(), placeholder_char);
-                                    tracing::info!(player_id = %player_id, "Added player to existing barrier");
+                                    match barrier.add_player(player_id.to_string(), placeholder_char) {
+                                        Ok(count) => {
+                                            tracing::info!(
+                                                player_id = %player_id,
+                                                barrier_count = count,
+                                                "Added player to existing barrier"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                player_id = %player_id,
+                                                error = %e,
+                                                "Failed to add player to barrier — player will not participate in turn collection"
+                                            );
+                                            // Send error to player so they know their actions won't count
+                                            ss.send_to_player(
+                                                error_response(player_id, &format!("Failed to join turn barrier: {e}")),
+                                                player_id.to_string(),
+                                            );
+                                        }
+                                    }
                                 } else {
                                     let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                         ss.players.keys().cloned(),
