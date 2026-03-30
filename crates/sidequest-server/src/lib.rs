@@ -1390,6 +1390,8 @@ async fn dispatch_message(
                 player_id,
                 continuity_corrections,
                 genie_wishes,
+                combat_state,
+                chase_state,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1721,6 +1723,8 @@ async fn dispatch_connect(
     player_id: &str,
     _continuity_corrections: &mut String,
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
+    combat_state: &mut sidequest_game::combat::CombatState,
+    chase_state: &mut Option<sidequest_game::ChaseState>,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1774,10 +1778,14 @@ async fn dispatch_connect(
                         *axis_values = saved.snapshot.axis_values.clone();
                         *trope_states = saved.snapshot.active_tropes.clone();
                         *quest_log = saved.snapshot.quest_log.clone();
+                        *combat_state = saved.snapshot.combat.clone();
+                        *chase_state = saved.snapshot.chase.clone();
                         tracing::info!(
                             trope_count = trope_states.len(),
                             quest_count = quest_log.len(),
-                            "reconnect.state_restored — tropes and quests loaded from save"
+                            in_combat = combat_state.in_combat(),
+                            combat_round = combat_state.round(),
+                            "reconnect.state_restored — tropes, quests, combat, chase loaded from save"
                         );
 
                         // Transition session to Playing

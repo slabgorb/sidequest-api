@@ -50,17 +50,26 @@ line, fenced with ```json. This is how the game engine tracks combat state. Exam
 {
   \"in_combat\": true,
   \"hp_changes\": {\"Kael\": -5, \"Bandit\": -8},
-  \"round_number\": 2,
+  \"turn_order\": [\"Kael\", \"Bandit\", \"Goblin\"],
   \"current_turn\": \"Kael\",
-  \"drama_weight\": 0.7
+  \"available_actions\": [\"Attack\", \"Defend\", \"Flee\"],
+  \"drama_weight\": 0.7,
+  \"advance_round\": false
 }
 ```
 
-Rules for the combat patch:
-- hp_changes: dictionary of character/enemy name → HP CHANGE (negative for damage, positive for healing)
-- Set \"in_combat\": false when combat ends (all enemies defeated, fled, or surrendered)
-- drama_weight: 0.0 (trivial) to 1.0 (climactic) — reflects current tension level
-- Always include this block. The game engine parses it to update real game state.
+CRITICAL — The JSON block must contain ONLY these fields:
+- in_combat: boolean — true during combat, false when combat ends
+- hp_changes: character/enemy name → HP CHANGE (negative = damage, positive = healing)
+- turn_order: combatant names in initiative order (include on first round or when order changes)
+- current_turn: who is acting now
+- available_actions: actions the player can take this turn
+- drama_weight: 0.0 (trivial) to 1.0 (climactic) — current tension level
+- advance_round: true to end the current combat round, false otherwise
+
+Do NOT include inventory, quest, lore, or any other state changes in this block.
+Those are handled by other agents. Your block is ONLY for combat mechanics.
+Always include this block. The game engine parses it to update real game state.
 </system>";
 
 /// The CreatureSmith agent — combat resolution, tactical encounters.

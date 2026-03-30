@@ -1710,105 +1710,87 @@ async fn process_combat_and_chase(
     messages: &mut Vec<GameMessage>,
 ) {
     // Combat detection — intent-based (primary) + keyword scan (fallback).
-    // If the intent classifier routed to creature_smith, that's a combat action.
+    // Both paths use engage() to properly initialize turn order and current turn.
     if !ctx.combat_state.in_combat() {
-        if let Some(ref intent) = result.classified_intent {
-            if intent == "Combat" {
-                ctx.combat_state.set_in_combat(true);
-                tracing::info!(intent = %intent, agent = ?result.agent_name, "combat.started — intent classifier triggered combat state");
-                {
-                    let holder = ctx.shared_session_holder.lock().await;
-                    if let Some(ref ss_arc) = *holder {
-                        let mut ss = ss_arc.lock().await;
-                        let old_mode = std::mem::take(&mut ss.turn_mode);
-                        ss.turn_mode = old_mode
-                            .apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
-                    }
-                }
-            }
-        }
-    }
+        let should_start = if let Some(ref intent) = result.classified_intent {
+            intent == "Combat"
+        } else {
+            false
+        };
 
-    // Keyword-based combat detection — fallback for cases where intent
-    // classification missed but narration clearly describes combat.
-    {
+        // Keyword fallback — narration clearly describes combat starting
         let narr_lower = clean_narration.to_lowercase();
         let combat_start_keywords = [
-            "initiative",
-            "combat begins",
-            "roll for initiative",
-            "attacks you",
-            "lunges at",
-            "swings at",
-            "draws a weapon",
-            "charges at",
-            "opens fire",
-            "enters combat",
+            "initiative", "combat begins", "roll for initiative",
+            "attacks you", "lunges at", "swings at", "draws a weapon",
+            "charges at", "opens fire", "enters combat",
         ];
-        let combat_end_keywords = [
-            "combat ends",
-            "battle is over",
-            "enemies defeated",
-            "falls unconscious",
-            "retreats",
-            "flees",
-            "surrenders",
-            "combat resolved",
-            "the fight is over",
-        ];
+        let keyword_start = combat_start_keywords.iter().any(|kw| narr_lower.contains(kw));
 
-        if ctx.combat_state.in_combat() {
-            // Check for combat end
-            if combat_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
-                ctx.combat_state.set_in_combat(false);
-                tracing::info!("Combat ended — detected end keyword in narration");
-                // Transition turn mode: Structured → FreePlay
-                {
-                    let holder = ctx.shared_session_holder.lock().await;
-                    if let Some(ref ss_arc) = *holder {
-                        let mut ss = ss_arc.lock().await;
-                        let old_mode = std::mem::take(&mut ss.turn_mode);
-                        ss.turn_mode = old_mode
-                            .apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
-                        tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat end");
-                    }
-                }
+        if should_start || keyword_start {
+            // Build combatant list: player + NPCs from registry
+            let mut combatants: Vec<String> = vec![ctx.char_name.to_string()];
+            for entry in ctx.npc_registry.iter() {
+                combatants.push(entry.name.clone());
             }
-        } else {
-            // Check for combat start
-            if combat_start_keywords
-                .iter()
-                .any(|kw| narr_lower.contains(kw))
+            ctx.combat_state.engage(combatants);
+            tracing::info!(
+                source = if should_start { "intent" } else { "keyword" },
+                turn_order = ?ctx.combat_state.turn_order(),
+                current_turn = ?ctx.combat_state.current_turn(),
+                "combat.engaged"
+            );
+            // Transition turn mode: FreePlay → Structured
             {
-                ctx.combat_state.set_in_combat(true);
-                tracing::info!("Combat started — detected start keyword in narration");
-                // Transition turn mode: FreePlay → Structured
-                {
-                    let holder = ctx.shared_session_holder.lock().await;
-                    if let Some(ref ss_arc) = *holder {
-                        let mut ss = ss_arc.lock().await;
-                        let old_mode = std::mem::take(&mut ss.turn_mode);
-                        ss.turn_mode = old_mode
-                            .apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
-                        tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
-                        // Initialize barrier if transitioning to structured mode
-                        if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
-                            let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
-                                ss.players.keys().cloned(),
-                            );
-                            let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
-                            ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
-                                mp_session,
-                                adaptive,
-                            ));
-                        }
+                let holder = ctx.shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder {
+                    let mut ss = ss_arc.lock().await;
+                    let old_mode = std::mem::take(&mut ss.turn_mode);
+                    ss.turn_mode = old_mode
+                        .apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
+                    tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
+                    // Initialize barrier if transitioning to structured mode
+                    if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
+                        let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
+                            ss.players.keys().cloned(),
+                        );
+                        let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
+                        ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
+                            mp_session,
+                            adaptive,
+                        ));
                     }
                 }
             }
         }
     }
 
-    // Combat tick — uses persistent per-session CombatState
+    // Combat end detection — keyword fallback for narration-driven combat end
+    if ctx.combat_state.in_combat() {
+        let narr_lower = clean_narration.to_lowercase();
+        let combat_end_keywords = [
+            "combat ends", "battle is over", "enemies defeated",
+            "falls unconscious", "retreats", "flees", "surrenders",
+            "combat resolved", "the fight is over",
+        ];
+        if combat_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+            ctx.combat_state.disengage();
+            tracing::info!("combat.disengaged — detected end keyword in narration");
+            // Transition turn mode: Structured → FreePlay
+            {
+                let holder = ctx.shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder {
+                    let mut ss = ss_arc.lock().await;
+                    let old_mode = std::mem::take(&mut ss.turn_mode);
+                    ss.turn_mode = old_mode
+                        .apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
+                    tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat end");
+                }
+            }
+        }
+    }
+
+    // Combat tick — tick status effects (round advancement handled by advance_turn in apply_state_mutations)
     let was_in_combat = ctx.combat_state.in_combat();
     tracing::debug!(
         in_combat = was_in_combat,
@@ -1818,7 +1800,6 @@ async fn process_combat_and_chase(
     );
     if ctx.combat_state.in_combat() {
         ctx.combat_state.tick_effects();
-        ctx.combat_state.advance_round();
         ctx.state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
             component: "combat".to_string(),
@@ -1831,19 +1812,31 @@ async fn process_combat_and_chase(
                     "drama_weight".to_string(),
                     serde_json::json!(ctx.combat_state.drama_weight()),
                 );
+                f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));
+                f.insert("current_turn".to_string(), serde_json::json!(ctx.combat_state.current_turn()));
                 f
             },
         });
     }
 
-    // Combat overlay — send whenever combat state is relevant
+    // Combat overlay — send populated CombatEvent with enemies, turn order, current turn
     if was_in_combat || ctx.combat_state.in_combat() {
+        let enemies: Vec<sidequest_protocol::CombatEnemy> = ctx.npc_registry
+            .iter()
+            .filter(|_| ctx.combat_state.in_combat()) // only show enemies during active combat
+            .map(|entry| sidequest_protocol::CombatEnemy {
+                name: entry.name.clone(),
+                hp: 0, // NPC HP tracked separately via narration
+                max_hp: 0,
+                ac: None,
+            })
+            .collect();
         messages.push(GameMessage::CombatEvent {
             payload: CombatEventPayload {
                 in_combat: ctx.combat_state.in_combat(),
-                enemies: vec![],
-                turn_order: vec![],
-                current_turn: String::new(),
+                enemies,
+                turn_order: ctx.combat_state.turn_order().to_vec(),
+                current_turn: ctx.combat_state.current_turn().unwrap_or("").to_string(),
             },
             player_id: ctx.player_id.to_string(),
         });
@@ -1914,8 +1907,35 @@ fn apply_state_mutations(
 ) {
     let _span = tracing::info_span!("turn.state_mutations").entered();
 
-    // Combat HP changes — apply typed CombatPatch from creature_smith (replaces keyword heuristic)
+    // Combat state — apply typed CombatPatch from creature_smith
     if let Some(ref combat_patch) = result.combat_patch {
+        // Combat start → engage() with player + hostile NPCs
+        if let Some(in_combat) = combat_patch.in_combat {
+            if in_combat && !ctx.combat_state.in_combat() {
+                let mut combatants: Vec<String> = vec![ctx.char_name.to_string()];
+                // Add hostile NPCs from registry as enemies
+                for entry in ctx.npc_registry.iter() {
+                    combatants.push(entry.name.clone());
+                }
+                // Prefer turn_order from patch if provided
+                if let Some(ref order) = combat_patch.turn_order {
+                    if !order.is_empty() {
+                        combatants = order.clone();
+                    }
+                }
+                ctx.combat_state.engage(combatants);
+                tracing::info!(
+                    turn_order = ?ctx.combat_state.turn_order(),
+                    current_turn = ?ctx.combat_state.current_turn(),
+                    "combat.engaged"
+                );
+            } else if !in_combat && ctx.combat_state.in_combat() {
+                ctx.combat_state.disengage();
+                tracing::info!("combat.disengaged");
+            }
+        }
+
+        // Apply HP deltas
         if let Some(ref hp_changes) = combat_patch.hp_changes {
             let char_name_lower = ctx.player_name_for_save.to_lowercase();
             for (target, delta) in hp_changes {
@@ -1928,20 +1948,26 @@ fn apply_state_mutations(
                 }
             }
         }
-        if let Some(in_combat) = combat_patch.in_combat {
-            if in_combat && !ctx.combat_state.in_combat() {
-                ctx.combat_state.set_in_combat(true);
-                tracing::info!("combat.patch.started");
-            } else if !in_combat && ctx.combat_state.in_combat() {
-                ctx.combat_state.set_in_combat(false);
-                tracing::info!("combat.patch.ended");
+
+        // Apply turn_order/current_turn updates (mid-combat changes)
+        if ctx.combat_state.in_combat() {
+            if let Some(ref order) = combat_patch.turn_order {
+                if !order.is_empty() {
+                    ctx.combat_state.set_turn_order(order.clone());
+                }
+            }
+            if let Some(ref turn) = combat_patch.current_turn {
+                ctx.combat_state.set_current_turn(turn.clone());
             }
         }
+
         if let Some(dw) = combat_patch.drama_weight {
             ctx.combat_state.set_drama_weight(dw);
         }
-        if combat_patch.advance_round {
-            ctx.combat_state.advance_round();
+
+        // Advance turn (handles round wrap internally)
+        if combat_patch.advance_round && ctx.combat_state.in_combat() {
+            ctx.combat_state.advance_turn();
         }
     }
 
