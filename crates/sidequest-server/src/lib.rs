@@ -1097,6 +1097,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
+    let mut genie_wishes: Vec<sidequest_game::GenieWish> = vec![];
     let mut discovered_regions: Vec<String> = vec![];
     let mut turn_manager = sidequest_game::TurnManager::new();
     let mut lore_store = sidequest_game::LoreStore::new();
@@ -1150,6 +1151,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &state,
                         &player_id_str,
                         &mut continuity_corrections,
+                        &mut genie_wishes,
                     )
                     .await;
                     for resp in responses {
@@ -1290,6 +1292,7 @@ async fn dispatch_message(
     state: &AppState,
     player_id: &str,
     continuity_corrections: &mut String,
+    genie_wishes: &mut Vec<sidequest_game::GenieWish>,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1322,6 +1325,7 @@ async fn dispatch_message(
                 state,
                 player_id,
                 continuity_corrections,
+                genie_wishes,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1545,6 +1549,7 @@ async fn dispatch_message(
                 state,
                 player_id,
                 continuity_corrections,
+                genie_wishes,
             )
             .await
         }
@@ -1597,6 +1602,7 @@ async fn dispatch_message(
                 session.world_slug().unwrap_or(""),
                 player_name_store.as_deref().unwrap_or("Player"),
                 continuity_corrections,
+                genie_wishes,
             )
             .await
         }
@@ -1650,6 +1656,7 @@ async fn dispatch_connect(
     state: &AppState,
     player_id: &str,
     _continuity_corrections: &mut String,
+    genie_wishes: &mut Vec<sidequest_game::GenieWish>,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1690,6 +1697,7 @@ async fn dispatch_connect(
                         *discovered_regions = saved.snapshot.discovered_regions.clone();
                         *turn_manager = saved.snapshot.turn_manager.clone();
                         *npc_registry = saved.snapshot.npc_registry.clone();
+                        *genie_wishes = saved.snapshot.genie_wishes.clone();
                         *axis_values = saved.snapshot.axis_values.clone();
                         *trope_states = saved.snapshot.active_tropes.clone();
                         *quest_log = saved.snapshot.quest_log.clone();
@@ -2165,6 +2173,7 @@ async fn dispatch_character_creation(
     state: &AppState,
     player_id: &str,
     continuity_corrections: &mut String,
+    genie_wishes: &mut Vec<sidequest_game::GenieWish>,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2351,6 +2360,7 @@ async fn dispatch_character_creation(
                         &world,
                         &pname_for_save,
                         continuity_corrections,
+                        genie_wishes,
                     )
                     .await;
 
@@ -2641,6 +2651,7 @@ async fn dispatch_player_action(
     world_slug: &str,
     player_name_for_save: &str,
     continuity_corrections: &mut String,
+    genie_wishes: &mut Vec<sidequest_game::GenieWish>,
 ) -> Vec<GameMessage> {
     // Sync world-level state from shared session (if multiplayer)
     {
@@ -3214,20 +3225,6 @@ async fn dispatch_player_action(
         }
     }
 
-    // F9: Wish Consequence Engine — detect power-grab actions and inject consequence context
-    {
-        let mut engine = sidequest_game::WishConsequenceEngine::new();
-        if let Some(wish) = engine.evaluate(char_name, action) {
-            let wish_context = sidequest_game::WishConsequenceEngine::build_prompt_context(&wish);
-            tracing::info!(
-                wisher = %wish.wisher_name,
-                category = ?wish.consequence_category,
-                "wish_consequence.power_grab_detected"
-            );
-            state_summary.push_str(&wish_context);
-        }
-    }
-
     // Inject continuity corrections from the previous turn (if any)
     if !continuity_corrections.is_empty() {
         state_summary.push_str("\n\n");
@@ -3355,6 +3352,22 @@ async fn dispatch_player_action(
         intent = %preprocessed.intent,
         "Action preprocessed"
     );
+
+    // F9: Wish Consequence Engine — LLM-classified power-grab on clean input.
+    if preprocessed.is_power_grab {
+        let mut engine = sidequest_game::WishConsequenceEngine::with_counter(genie_wishes.len());
+        if let Some(wish) = engine.evaluate(char_name, &preprocessed.intent, true) {
+            let wish_context = sidequest_game::WishConsequenceEngine::build_prompt_context(&wish);
+            tracing::info!(
+                wisher = %wish.wisher_name,
+                category = ?wish.consequence_category,
+                rotation = genie_wishes.len(),
+                "wish_consequence.power_grab_detected"
+            );
+            state_summary.push_str(&wish_context);
+            genie_wishes.push(wish);
+        }
+    }
 
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
@@ -4506,6 +4519,7 @@ async fn dispatch_player_action(
                 // Sync ALL game state to snapshot for persistence
                 snapshot.turn_manager = turn_manager.clone();
                 snapshot.npc_registry = npc_registry.clone();
+                snapshot.genie_wishes = genie_wishes.clone();
                 snapshot.axis_values = axis_values.clone();
                 snapshot.combat = combat_state.clone();
                 snapshot.chase = chase_state.clone();

@@ -16,4 +16,7 @@ pub struct PreprocessedAction {
     pub named: String,
     /// Neutral intent, no pronouns: "draw sword"
     pub intent: String,
+    /// Whether the LLM classified this action as a power-grab attempt.
+    #[serde(default)]
+    pub is_power_grab: bool,
 }
