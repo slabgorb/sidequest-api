@@ -256,6 +256,7 @@ mod tests {
             height: None,
             distinguishing_features: vec![],
             ocean: None,
+            belief_state: crate::belief_state::BeliefState::default(),
         }
     }
 

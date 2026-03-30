@@ -8,6 +8,7 @@
 pub mod ability;
 pub mod achievement;
 pub mod affinity;
+pub mod belief_state;
 pub mod audio_mixer;
 pub mod axis;
 pub mod barrier;

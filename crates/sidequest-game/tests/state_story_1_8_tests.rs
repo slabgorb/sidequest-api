@@ -87,6 +87,7 @@ fn test_npc() -> Npc {
         height: None,
         distinguishing_features: vec![],
         ocean: None,
+        belief_state: sidequest_game::belief_state::BeliefState::default(),
     }
 }
 

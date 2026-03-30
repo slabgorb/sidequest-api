@@ -90,13 +90,14 @@ fn belief_claim_variant() {
 
 #[test]
 fn belief_suspicion_confidence_clamped_high() {
-    let belief = Belief::Suspicion {
-        subject: "test".to_string(),
-        content: "over-confident".to_string(),
-        turn_learned: 1,
-        source: BeliefSource::Inferred,
-        confidence: 1.5, // should clamp to 1.0
-    };
+    // Uses constructor — Rust enum variant fields can't intercept direct struct construction
+    let belief = Belief::suspicion(
+        "test".to_string(),
+        "over-confident".to_string(),
+        1,
+        BeliefSource::Inferred,
+        1.5, // should clamp to 1.0
+    );
     if let Belief::Suspicion { confidence, .. } = &belief {
         assert!(
             *confidence <= 1.0,
@@ -108,13 +109,14 @@ fn belief_suspicion_confidence_clamped_high() {
 
 #[test]
 fn belief_suspicion_confidence_clamped_low() {
-    let belief = Belief::Suspicion {
-        subject: "test".to_string(),
-        content: "negative confidence".to_string(),
-        turn_learned: 1,
-        source: BeliefSource::Inferred,
-        confidence: -0.3, // should clamp to 0.0
-    };
+    // Uses constructor — Rust enum variant fields can't intercept direct struct construction
+    let belief = Belief::suspicion(
+        "test".to_string(),
+        "negative confidence".to_string(),
+        1,
+        BeliefSource::Inferred,
+        -0.3, // should clamp to 0.0
+    );
     if let Belief::Suspicion { confidence, .. } = &belief {
         assert!(
             *confidence >= 0.0,

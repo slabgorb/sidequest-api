@@ -343,6 +343,7 @@ impl GameSnapshot {
                             .clone()
                             .unwrap_or_default(),
                         ocean: None,
+                        belief_state: crate::belief_state::BeliefState::default(),
                     };
                     self.npcs.push(new_npc);
                 }
