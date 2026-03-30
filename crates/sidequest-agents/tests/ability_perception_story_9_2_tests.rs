@@ -36,6 +36,7 @@ fn make_character(name: &str, abilities: Vec<AbilityDefinition>) -> Character {
             hp: 20,
             max_hp: 20,
             ac: 14,
+            xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
         },

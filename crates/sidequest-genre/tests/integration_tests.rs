@@ -6,8 +6,7 @@
 //! cross-reference validation.
 
 use sidequest_genre::{
-    AssignmentMatrix, AtmosphereMatrix, ClueGraph, GenreError, GenrePack, ScenarioNpc,
-    ScenarioPack, TropeDefinition,
+    GenreError, TropeDefinition,
 };
 use std::path::PathBuf;
 

@@ -250,6 +250,7 @@ fn character_has_abilities_field() {
             hp: 25,
             max_hp: 30,
             ac: 16,
+            xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
         },

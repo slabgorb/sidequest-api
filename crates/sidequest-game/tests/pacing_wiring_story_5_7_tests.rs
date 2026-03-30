@@ -514,6 +514,7 @@ fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -
             hp: current_hp,
             max_hp,
             ac: 10,
+            xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
         },

@@ -49,6 +49,7 @@ fn test_character_with_facts(name: &str, facts: Vec<KnownFact>) -> Character {
             hp: 20,
             max_hp: 20,
             ac: 12,
+            xp: 0,
             statuses: vec![],
             inventory: Inventory::default(),
         },

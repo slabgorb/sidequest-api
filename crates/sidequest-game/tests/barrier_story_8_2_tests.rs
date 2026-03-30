@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
+use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
 use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;

@@ -139,6 +139,7 @@ fn test_character() -> Character {
             hp: 18,
             max_hp: 20,
             ac: 13,
+            xp: 0,
             inventory,
             statuses: vec![],
         },
