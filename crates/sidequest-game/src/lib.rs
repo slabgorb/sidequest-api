@@ -8,6 +8,7 @@
 pub mod ability;
 pub mod achievement;
 pub mod affinity;
+pub mod belief_state;
 pub mod audio_mixer;
 pub mod axis;
 pub mod barrier;
@@ -63,6 +64,7 @@ pub mod voice_router;
 pub mod world_materialization;
 
 pub use achievement::{Achievement, AchievementTracker};
+pub use belief_state::{Belief, BeliefSource, BeliefState, Credibility};
 pub use affinity::{
     AffinityState, AffinityTierUpEvent, check_affinity_thresholds,
     increment_affinity_progress, resolve_abilities, MAX_TIER, TIER_NAMES,

@@ -112,6 +112,7 @@ fn make_npc(name: &str, hp: i32, max_hp: i32, statuses: Vec<String>) -> Npc {
         distinguishing_features: vec![],
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
         ocean: None,
+        belief_state: sidequest_game::belief_state::BeliefState::default(),
     }
 }
 

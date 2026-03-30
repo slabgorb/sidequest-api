@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
+use crate::belief_state::BeliefState;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 use crate::disposition::{Attitude, Disposition};
@@ -53,6 +54,9 @@ pub struct Npc {
     /// OCEAN personality profile (Story 10-1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ocean: Option<OceanProfile>,
+    /// Per-NPC knowledge bubbles for the Scenario System (Story 7-1).
+    #[serde(default)]
+    pub belief_state: BeliefState,
 }
 
 impl Npc {
@@ -214,6 +218,7 @@ mod tests {
             height: Some("short".to_string()),
             distinguishing_features: vec!["flour-dusted hands".to_string()],
             ocean: None,
+            belief_state: BeliefState::default(),
         }
     }
 
@@ -241,6 +246,7 @@ mod tests {
             height: None,
             distinguishing_features: vec![],
             ocean: None,
+            belief_state: BeliefState::default(),
         }
     }
 

@@ -52,6 +52,7 @@ fn npc_with_ocean(name: &str, ocean: OceanProfile) -> Npc {
         height: None,
         distinguishing_features: vec![],
         ocean: Some(ocean),
+        belief_state: sidequest_game::belief_state::BeliefState::default(),
     }
 }
 
@@ -79,6 +80,7 @@ fn npc_without_ocean(name: &str) -> Npc {
         height: None,
         distinguishing_features: vec![],
         ocean: None,
+        belief_state: sidequest_game::belief_state::BeliefState::default(),
     }
 }
 
