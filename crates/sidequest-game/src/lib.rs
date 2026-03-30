@@ -39,6 +39,7 @@ pub mod merchant;
 pub mod multiplayer;
 pub mod music_director;
 pub mod narrative;
+pub mod narrative_sheet;
 pub mod npc;
 pub mod ocean;
 pub mod ocean_shift_proposals;
