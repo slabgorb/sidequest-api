@@ -14,7 +14,7 @@ pub struct DaemonRequest<P: Serialize> {
 }
 
 // ---------------------------------------------------------------------------
-// Method-specific parameter types (stubs — Dev fills in fields)
+// Method-specific parameter types
 // ---------------------------------------------------------------------------
 
 /// Parameters for a `render` request.
@@ -152,7 +152,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Method-specific result types (stubs — Dev fills in fields)
+// Method-specific result types
 // ---------------------------------------------------------------------------
 
 /// Result from a `render` request.
@@ -186,7 +186,7 @@ pub struct StatusResult {
 }
 
 // ---------------------------------------------------------------------------
-// Request builder (stub — Dev implements)
+// Request builder
 // ---------------------------------------------------------------------------
 
 /// Build the JSON-RPC request envelope for a given method and params.
