@@ -86,10 +86,15 @@ Character name: {char_name}
 
 Player input: "{raw_input}"
 
-Respond with JSON having exactly three keys:
+Respond with JSON having exactly four keys:
 - "you": second-person rewrite (e.g., "You draw your sword")
 - "named": third-person with character name (e.g., "{char_name} draws their sword")
-- "intent": neutral, no pronouns (e.g., "draw sword")"#
+- "intent": neutral, no pronouns (e.g., "draw sword")
+- "is_power_grab": true ONLY if the player is genuinely attempting to seize extraordinary power
+  (unlimited resources, godlike abilities, time control, invincibility, summoning weapons from
+  nothing, killing everyone). The test: would a tabletop DM say "you can't just do that"?
+  Casual mention does NOT count: "I wish I hadn't eaten that" = false.
+  "I wish for unlimited gold from the genie" = true."#
     )
 }
 
@@ -134,6 +139,7 @@ pub fn fallback(raw_input: &str, char_name: &str) -> PreprocessedAction {
         you: format!("You {}", action_text),
         named: format!("{} {}", char_name, action_text_to_third_person(action_text)),
         intent: action_text.to_string(),
+        is_power_grab: false,
     }
 }
 
