@@ -166,15 +166,15 @@ struct Inner {
     resolution_claimed: Mutex<bool>,
     /// Narration text stored by the claiming handler for non-claimers to retrieve.
     resolution_narration: Mutex<Option<String>>,
-    /// Turn number tracker — used to detect when we've moved to the next turn
-    /// so we can reset the claim state.
-    last_resolved_turn: Mutex<u32>,
-    /// Track the turn number of the last claim election.
-    /// Only one task per turn should execute the claim election.
-    last_claim_turn: Mutex<u32>,
-    /// Track the turn number at the start of each wait_for_turn() call.
-    /// All tasks that start with the same initial turn should claim together.
-    current_resolution_turn: Mutex<u32>,
+    /// Notifies non-claiming handlers when resolution narration is stored.
+    /// Used by `wait_for_resolution_narration()` to avoid busy-waiting.
+    narration_notify: Notify,
+    /// Whether the current batch of handlers has been resolved.
+    /// Reset to `false` when barrier_met triggers (new batch), set to `true`
+    /// by the first handler to resolve under the resolution_lock.
+    /// Replaces the turn-number-based claim check which was racy on
+    /// multi_thread runtimes (late handlers read an advanced turn number).
+    batch_resolved: Mutex<bool>,
     /// Mutex protecting the resolution process — ensures only one task
     /// actually resolves a turn at a time.
     resolution_lock: Mutex<()>,
@@ -201,9 +201,8 @@ impl TurnBarrier {
                 adaptive: Mutex::new(None),
                 resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
-                last_resolved_turn: Mutex::new(0),
-                last_claim_turn: Mutex::new(0),
-                current_resolution_turn: Mutex::new(0),
+                narration_notify: Notify::new(),
+                batch_resolved: Mutex::new(false),
                 resolution_lock: Mutex::new(()),
             }),
         }
@@ -222,9 +221,8 @@ impl TurnBarrier {
                 adaptive: Mutex::new(Some(adaptive)),
                 resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
-                last_resolved_turn: Mutex::new(0),
-                last_claim_turn: Mutex::new(0),
-                current_resolution_turn: Mutex::new(0),
+                narration_notify: Notify::new(),
+                batch_resolved: Mutex::new(false),
                 resolution_lock: Mutex::new(()),
             }),
         }
@@ -256,6 +254,9 @@ impl TurnBarrier {
         let mut session = self.inner.session.lock().unwrap();
         session.record_action(player_id, action);
         if session.is_barrier_met() {
+            // Reset batch state for the new resolution batch
+            *self.inner.batch_resolved.lock().unwrap() = false;
+            *self.inner.resolution_narration.lock().unwrap() = None;
             self.inner.notify.notify_one();
         }
     }
@@ -301,15 +302,6 @@ impl TurnBarrier {
     /// submitted), the turn resolves immediately. On timeout, missing
     /// players get a "hesitates" action.
     pub async fn wait_for_turn(&self) -> TurnBarrierResult {
-        let initial_turn = self.inner.session.lock().unwrap().turn_number();
-        // Store this as the current resolution turn (if this is the first task for this turn)
-        {
-            let mut current = self.inner.current_resolution_turn.lock().unwrap();
-            if initial_turn > *current {
-                *current = initial_turn;
-            }
-        }
-        
         let (deadline, enabled) = {
             let config = self.inner.config.lock().unwrap();
             if config.enabled {
@@ -370,15 +362,29 @@ impl TurnBarrier {
     }
 
     /// Store the narration result after the claiming handler runs the narrator.
-    /// Non-claiming handlers retrieve this via `get_resolution_narration()`.
+    /// Non-claiming handlers retrieve this via `get_resolution_narration()` or
+    /// `wait_for_resolution_narration()`.
     pub fn store_resolution_narration(&self, narration: String) {
         *self.inner.resolution_narration.lock().unwrap() = Some(narration);
+        self.inner.narration_notify.notify_waiters();
     }
 
     /// Retrieve the stored narration result. Returns `None` if the claiming
-    /// handler hasn't stored it yet.
+    /// handler hasn't stored it yet. Non-blocking.
     pub fn get_resolution_narration(&self) -> Option<String> {
         self.inner.resolution_narration.lock().unwrap().clone()
+    }
+
+    /// Wait for the claiming handler to store the narration result.
+    /// Non-claiming handlers call this instead of `get_resolution_narration()`
+    /// to avoid the race where the claimer hasn't stored yet.
+    pub async fn wait_for_resolution_narration(&self) -> String {
+        loop {
+            if let Some(narration) = self.get_resolution_narration() {
+                return narration;
+            }
+            self.inner.narration_notify.notified().await;
+        }
     }
 
     /// Reconfigure the timeout if adaptive mode is active and the player
@@ -394,51 +400,32 @@ impl TurnBarrier {
     }
 
     /// Resolve the current turn and return the result.
-    /// Attempts to claim resolution atomically during resolution (not after).
-    /// This ensures only one task wins the claim election when multiple tasks
-    /// wake up from wait_for_turn() concurrently.
-    /// Resolve the current turn and return the result.
-    /// Only the first task from a batch (all tasks that entered wait_for_turn() with the same
-    /// initial turn number) actually performs the resolution. Subsequent tasks return the
-    /// already-computed result.
+    ///
+    /// Uses `batch_resolved` flag (set by `submit_action` when barrier_met triggers)
+    /// to elect exactly one handler per batch. The first handler to enter resolve()
+    /// under the resolution_lock claims resolution and calls `force_resolve_turn()`.
+    /// All subsequent handlers get `claimed_resolution = false`.
     fn resolve(&self, timed_out: bool) -> TurnBarrierResult {
-        // Get the initial turn at the start of wait_for_turn() for all tasks in this batch
-        let initial_turn = {
-            let turn = self.inner.current_resolution_turn.lock().unwrap();
-            *turn
-        };
-        
         let mut session = self.inner.session.lock().unwrap();
-        let current_turn = session.turn_number();
-        
-        // Only the FIRST task from a given initial turn should perform the actual resolution.
-        // All tasks for the same initial turn coordinate: only one calls force_resolve_turn(),
-        // the others just return the narration.
-        let (claimed_resolution, missing, narration) = {
-            let mut last_claim = self.inner.last_claim_turn.lock().unwrap();
-            if initial_turn > *last_claim {
-                // This is the first resolve for this initial turn — perform the full resolution
-                *last_claim = initial_turn;
 
-                let missing: Vec<String> = if timed_out {
-                    session.pending_players().into_iter().collect()
-                } else {
-                    vec![]
-                };
-                let narration = session.force_resolve_turn();
-                (true, missing, narration)
+        let mut batch_done = self.inner.batch_resolved.lock().unwrap();
+        let (claimed_resolution, missing, narration) = if !*batch_done {
+            // First handler in this batch — claim resolution
+            *batch_done = true;
+
+            let missing: Vec<String> = if timed_out {
+                session.pending_players().into_iter().collect()
             } else {
-                // This initial turn has already been resolved by a previous task.
-                // Return the same result without modifying state.
-                let missing: Vec<String> = vec![];
-                let narration = session.named_actions();  // Return current state snapshot
-                (false, missing, narration)
-            }
+                vec![]
+            };
+            let narration = session.force_resolve_turn();
+            (true, missing, narration)
+        } else {
+            // Batch already resolved — return snapshot without modifying state
+            let narration = session.named_actions();
+            (false, vec![], narration)
         };
-        
-        // Track this turn as resolved
-        *self.inner.last_resolved_turn.lock().unwrap() = current_turn;
-        
+
         TurnBarrierResult {
             claimed_resolution,
             timed_out,

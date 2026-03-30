@@ -458,12 +458,9 @@ async fn concurrent_handlers_with_narrator_delay_all_receive_narration() {
                 b.store_resolution_narration(text.clone());
                 text
             } else {
-                // Non-claiming handler must retrieve the narration.
-                // Currently get_resolution_narration() is non-blocking and returns
-                // None if the claimer hasn't stored yet. This MUST become blocking
-                // or use a wait mechanism (e.g., wait_for_resolution_narration()).
-                b.get_resolution_narration()
-                    .expect("non-claiming handler must receive stored narration (race condition!)")
+                // Non-claiming handler waits for the claimer to store narration.
+                // wait_for_resolution_narration() blocks on a Notify until available.
+                b.wait_for_resolution_narration().await
             };
 
             recv.lock().unwrap().push(narration);
@@ -534,14 +531,8 @@ async fn five_turns_narrator_called_exactly_once_per_turn() {
                     b.store_resolution_narration(text.clone());
                     text
                 } else {
-                    // Non-claimer must wait for narration
-                    b.get_resolution_narration()
-                        .unwrap_or_else(|| {
-                            panic!(
-                                "Handler {} in turn {} could not retrieve narration (race condition)",
-                                handler_id, turn
-                            )
-                        })
+                    // Non-claimer waits for narration via async Notify
+                    b.wait_for_resolution_narration().await
                 };
 
                 narrs.lock().unwrap().push(narration);
