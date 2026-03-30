@@ -1228,6 +1228,31 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     sync_back_to_shared_session(ctx, &messages, &clean_narration, &char_class, &effective_action).await;
 
+    // Emit TurnComplete event for the OTEL dashboard
+    ctx.state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "game".to_string(),
+        event_type: WatcherEventType::TurnComplete,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("turn_id".to_string(), serde_json::json!(turn_number));
+            if let Some(ref intent) = result.classified_intent {
+                f.insert("classified_intent".to_string(), serde_json::json!(intent));
+            }
+            if let Some(ref agent) = result.agent_name {
+                f.insert("agent_name".to_string(), serde_json::json!(agent));
+            }
+            if let Some(dur) = result.agent_duration_ms {
+                f.insert("agent_duration_ms".to_string(), serde_json::json!(dur));
+            }
+            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
+            f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
+            f.insert("action".to_string(), serde_json::json!(effective_action));
+            f
+        },
+    });
+
     messages
 }
 

@@ -89,6 +89,8 @@ pub enum WatcherEventType {
     JsonExtractionResult,
     /// A game state machine transition occurred.
     StateTransition,
+    /// A complete turn has been processed (all subsystems ran).
+    TurnComplete,
 }
 
 /// Severity levels for watcher telemetry events.
