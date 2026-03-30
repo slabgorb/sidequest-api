@@ -1630,13 +1630,13 @@ async fn dispatch_message(
                 };
                 return vec![err];
             }
-            dispatch::dispatch_player_action(
-                &payload.action,
-                character_name.as_deref().unwrap_or("Unknown"),
-                character_hp,
-                character_max_hp,
-                character_level,
-                character_xp,
+            dispatch::dispatch_player_action(&mut dispatch::DispatchContext {
+                action: &payload.action,
+                char_name: character_name.as_deref().unwrap_or("Unknown"),
+                hp: character_hp,
+                max_hp: character_max_hp,
+                level: character_level,
+                xp: character_xp,
                 current_location,
                 inventory,
                 character_json,
@@ -1660,12 +1660,12 @@ async fn dispatch_message(
                 prerender_scheduler,
                 state,
                 player_id,
-                session.genre_slug().unwrap_or(""),
-                session.world_slug().unwrap_or(""),
-                player_name_store.as_deref().unwrap_or("Player"),
+                genre_slug: session.genre_slug().unwrap_or(""),
+                world_slug: session.world_slug().unwrap_or(""),
+                player_name_for_save: player_name_store.as_deref().unwrap_or("Player"),
                 continuity_corrections,
                 genie_wishes,
-            )
+            })
             .await
         }
         // All other valid message types in wrong state
@@ -2423,16 +2423,16 @@ async fn dispatch_character_creation(
                     };
 
                     // Auto-trigger an introductory narration so the game view isn't empty
-                    let intro_messages = dispatch::dispatch_player_action(
-                        "I look around and take in my surroundings.",
-                        character.core.name.as_str(),
-                        character_hp,
-                        character_max_hp,
-                        character_level,
-                        character_xp,
+                    let intro_messages = dispatch::dispatch_player_action(&mut dispatch::DispatchContext {
+                        action: "I look around and take in my surroundings.",
+                        char_name: character.core.name.as_str(),
+                        hp: character_hp,
+                        max_hp: character_max_hp,
+                        level: character_level,
+                        xp: character_xp,
                         current_location,
                         inventory,
-                        character_json_store,
+                        character_json: character_json_store,
                         combat_state,
                         chase_state,
                         trope_states,
@@ -2453,12 +2453,12 @@ async fn dispatch_character_creation(
                         prerender_scheduler,
                         state,
                         player_id,
-                        &genre,
-                        &world,
-                        &pname_for_save,
+                        genre_slug: &genre,
+                        world_slug: &world,
+                        player_name_for_save: &pname_for_save,
                         continuity_corrections,
                         genie_wishes,
-                    )
+                    })
                     .await;
 
                     // Emit CHARACTER_SHEET for the UI overlay
