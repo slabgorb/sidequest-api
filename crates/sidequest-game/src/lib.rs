@@ -46,6 +46,7 @@ pub mod preprocessor;
 pub mod prerender;
 pub mod progression;
 pub mod render_queue;
+pub mod scene_relevance;
 pub mod scene_directive;
 pub mod segmenter;
 pub mod slash_router;
@@ -123,6 +124,7 @@ pub use render_queue::{
     RenderJobResult, RenderQueue, RenderQueueConfig, RenderStatus, DEFAULT_CACHE_TTL,
     MAX_QUEUE_DEPTH,
 };
+pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
 pub use state::{
     broadcast_state_changes, ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch,
