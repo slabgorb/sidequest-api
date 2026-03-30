@@ -449,6 +449,7 @@ mod tests {
             age: String::new(),
             appearance: String::new(),
             ocean_summary: String::new(),
+            ocean: None,
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "she/her");
@@ -468,6 +469,7 @@ mod tests {
             age: "elderly".to_string(), // pre-existing
             appearance: String::new(), // empty — should be backfilled
             ocean_summary: String::new(),
+            ocean: None,
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "they/them"); // unchanged
@@ -505,6 +507,10 @@ pub struct NpcRegistryEntry {
     /// E.g., "reserved and quiet, meticulous and disciplined".
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub ocean_summary: String,
+    /// Full OCEAN personality profile (Story 15-2).
+    /// Source of truth — `ocean_summary` is derived from this via `behavioral_summary()`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocean: Option<crate::ocean::OceanProfile>,
 }
 
 /// Enrich registry entries with physical description data from full Npc structs.

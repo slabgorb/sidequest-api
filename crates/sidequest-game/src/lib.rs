@@ -111,7 +111,10 @@ pub use music_director::{
 pub use narrative::NarrativeEntry;
 pub use npc::{enrich_registry_from_npcs, Npc, NpcRegistryEntry};
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
-pub use ocean_shift_proposals::{propose_ocean_shifts, OceanShiftProposal, PersonalityEvent};
+pub use ocean_shift_proposals::{
+    apply_ocean_shifts, detect_personality_events, propose_ocean_shifts, OceanShiftProposal,
+    PersonalityEvent,
+};
 pub use persistence::{
     PersistError, PersistenceHandle, PersistenceWorker, SaveListEntry, SavedSession, SessionMeta,
     SessionStore, SqliteStore,
