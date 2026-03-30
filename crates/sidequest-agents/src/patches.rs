@@ -43,8 +43,6 @@ pub struct WorldStatePatch {
 pub struct CombatPatch {
     /// Whether combat is active.
     pub in_combat: Option<bool>,
-    /// Current round number.
-    pub round_number: Option<u32>,
     /// Per-combatant HP deltas.
     pub hp_changes: Option<HashMap<String, i32>>,
     /// Turn order.

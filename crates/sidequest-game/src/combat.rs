@@ -7,6 +7,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::combatant::Combatant;
+use crate::progression::level_to_damage;
+
 /// Tracks the state of an active combat encounter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CombatState {
@@ -158,6 +161,131 @@ impl CombatState {
         self.drama_weight = weight;
     }
 
+    /// Start combat with the given combatant names.
+    ///
+    /// Sets `in_combat`, populates `turn_order`, and sets `current_turn` to
+    /// the first combatant. No-op if `combatants` is empty or combat is
+    /// already active.
+    pub fn engage(&mut self, combatants: Vec<String>) {
+        if combatants.is_empty() || self.in_combat {
+            return;
+        }
+        let span = tracing::info_span!(
+            "combat_engage",
+            combatant_count = combatants.len(),
+        );
+        let _guard = span.enter();
+
+        self.in_combat = true;
+        self.current_turn = Some(combatants[0].clone());
+        self.turn_order = combatants;
+    }
+
+    /// Resolve an attack from `attacker` against `target`.
+    ///
+    /// Uses level-scaled damage (via `level_to_damage`) and checks for
+    /// Stun effects that prevent action. Returns a `RoundResult` with
+    /// the damage events produced.
+    pub fn resolve_attack(
+        &mut self,
+        attacker_name: &str,
+        attacker: &impl Combatant,
+        target_name: &str,
+        _target: &impl Combatant,
+    ) -> RoundResult {
+        let span = tracing::info_span!(
+            "combat_resolve_attack",
+            attacker = attacker_name,
+            target = target_name,
+            round = self.round,
+        );
+        let _guard = span.enter();
+
+        // Stunned combatants cannot act
+        if self
+            .effects_on(attacker_name)
+            .iter()
+            .any(|e| e.kind() == StatusEffectKind::Stun)
+        {
+            return RoundResult {
+                round: self.round,
+                damage_events: vec![],
+                effects_applied: vec![],
+                effects_expired: vec![],
+            };
+        }
+
+        let base_damage = 5;
+        let damage = level_to_damage(base_damage, attacker.level());
+
+        let event = DamageEvent {
+            attacker: attacker_name.to_string(),
+            target: target_name.to_string(),
+            damage,
+            round: self.round,
+        };
+        self.damage_log.push(event.clone());
+
+        RoundResult {
+            round: self.round,
+            damage_events: vec![event],
+            effects_applied: vec![],
+            effects_expired: vec![],
+        }
+    }
+
+    /// Check whether combat should end.
+    ///
+    /// Returns `Some(Victory)` if all enemies are dead, `Some(Defeat)` if
+    /// all players are dead, or `None` if combat continues.
+    pub fn check_victory(
+        &self,
+        players: &[&dyn Combatant],
+        enemies: &[&dyn Combatant],
+    ) -> Option<CombatOutcome> {
+        if enemies.iter().all(|e| !e.is_alive()) {
+            Some(CombatOutcome::Victory)
+        } else if players.iter().all(|p| !p.is_alive()) {
+            Some(CombatOutcome::Defeat)
+        } else {
+            None
+        }
+    }
+
+    /// End combat and reset all state.
+    ///
+    /// Clears turn order, damage log, effects, and resets the round counter.
+    pub fn disengage(&mut self) {
+        let span = tracing::info_span!("combat_disengage", round = self.round);
+        let _guard = span.enter();
+
+        self.in_combat = false;
+        self.round = 1;
+        self.damage_log.clear();
+        self.effects.clear();
+        self.turn_order.clear();
+        self.current_turn = None;
+        self.available_actions.clear();
+        self.drama_weight = 0.0;
+    }
+
+    /// Advance to the next combatant in turn order.
+    ///
+    /// Wraps around to the first combatant when the end is reached,
+    /// advancing the round counter.
+    pub fn advance_turn(&mut self) {
+        if self.turn_order.is_empty() {
+            return;
+        }
+        let current = self.current_turn.as_deref().unwrap_or("");
+        let idx = self.turn_order.iter().position(|n| n == current).unwrap_or(0);
+        let next_idx = (idx + 1) % self.turn_order.len();
+        if next_idx == 0 {
+            self.advance_round();
+        }
+        self.current_turn = Some(self.turn_order[next_idx].clone());
+    }
+
     /// Tick all effects (decrement durations) and remove expired ones.
     pub fn tick_effects(&mut self) {
         let span = tracing::info_span!(
@@ -260,4 +388,14 @@ pub enum StatusEffectKind {
     Bless,
     /// Penalty to rolls.
     Curse,
+}
+
+/// The outcome of a combat encounter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CombatOutcome {
+    /// All enemies defeated.
+    Victory,
+    /// All players defeated.
+    Defeat,
 }

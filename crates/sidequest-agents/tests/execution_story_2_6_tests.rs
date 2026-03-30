@@ -311,12 +311,12 @@ fn prompt_registry_caches_sections_across_composes() {
 
 #[test]
 fn extract_combat_patch_from_json() {
-    let json = r#"{"in_combat": true, "round_number": 3}"#;
+    let json = r#"{"in_combat": true, "drama_weight": 0.8}"#;
     let patch = JsonExtractor::extract::<CombatPatch>(json);
     assert!(patch.is_ok());
     let patch = patch.unwrap();
     assert_eq!(patch.in_combat, Some(true));
-    assert_eq!(patch.round_number, Some(3));
+    assert_eq!(patch.drama_weight, Some(0.8));
 }
 
 // ============================================================================

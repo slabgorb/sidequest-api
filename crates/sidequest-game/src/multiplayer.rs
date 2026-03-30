@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::character::Character;
 use crate::combatant::Combatant;
+use crate::turn_mode::TurnMode;
 
 /// Status of a turn after an action submission.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -319,10 +320,23 @@ impl MultiplayerSession {
     /// Force-resolve the current turn, filling in "hesitates" for missing
     /// players. Used by the turn barrier on timeout.
     pub fn force_resolve_turn(&mut self) -> HashMap<String, String> {
+        self.force_resolve_turn_for_mode(&TurnMode::FreePlay)
+    }
+
+    /// Force-resolve the current turn with a mode-contextual default action
+    /// for missing players.
+    ///
+    /// - Structured / FreePlay → "hesitates, waiting to see what happens"
+    /// - Cinematic → "remains silent"
+    pub fn force_resolve_turn_for_mode(&mut self, mode: &TurnMode) -> HashMap<String, String> {
+        let default_action = match mode {
+            TurnMode::Cinematic { .. } => "remains silent",
+            _ => "hesitates, waiting to see what happens",
+        };
         for pid in self.players.keys().cloned().collect::<Vec<_>>() {
             self.actions
                 .entry(pid)
-                .or_insert_with(|| "hesitates".to_string());
+                .or_insert_with(|| default_action.to_string());
         }
         self.resolve_turn()
     }
