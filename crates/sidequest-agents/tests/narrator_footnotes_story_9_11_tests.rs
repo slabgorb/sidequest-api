@@ -27,7 +27,7 @@ use sidequest_protocol::{FactCategory, Footnote, NarrationPayload};
 
 fn sample_footnote_new(marker: u32, summary: &str, category: FactCategory) -> Footnote {
     Footnote {
-        marker,
+        marker: Some(marker),
         fact_id: None,
         summary: summary.to_string(),
         category,
@@ -37,7 +37,7 @@ fn sample_footnote_new(marker: u32, summary: &str, category: FactCategory) -> Fo
 
 fn sample_footnote_callback(marker: u32, summary: &str, fact_id: &str, category: FactCategory) -> Footnote {
     Footnote {
-        marker,
+        marker: Some(marker),
         fact_id: Some(fact_id.to_string()),
         summary: summary.to_string(),
         category,
@@ -539,7 +539,7 @@ fn footnote_new_discovery_has_no_fact_id() {
 #[test]
 fn footnote_fields_serialize_correctly() {
     let footnote = Footnote {
-        marker: 3,
+        marker: Some(3),
         fact_id: Some("fact-abc".to_string()),
         summary: "The ancient ruins hold a secret".to_string(),
         category: FactCategory::Lore,

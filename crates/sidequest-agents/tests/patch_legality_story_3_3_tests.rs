@@ -98,6 +98,7 @@ fn make_npc(name: &str, hp: i32, max_hp: i32, statuses: Vec<String>) -> Npc {
             hp,
             max_hp,
             ac: 12,
+            xp: 0,
             inventory: Inventory::default(),
             statuses,
         },

@@ -11,6 +11,7 @@ pub mod tracing_setup;
 mod watcher;
 
 pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subscriber_for_test};
+use tracing::Instrument;
 
 use extraction::{
     audio_cue_to_game_message, extract_item_losses, extract_items_from_narration,
@@ -2653,6 +2654,16 @@ async fn dispatch_player_action(
     continuity_corrections: &mut String,
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
 ) -> Vec<GameMessage> {
+    let turn_span = tracing::info_span!(
+        "turn",
+        player_id = %player_id,
+        action = %&action[..action.len().min(80)],
+        turn_number = tracing::field::Empty,
+        agent = tracing::field::Empty,
+        intent = tracing::field::Empty,
+    );
+    let _turn_guard = turn_span.enter();
+
     // Sync world-level state from shared session (if multiplayer)
     {
         let holder = shared_session_holder.lock().await;
@@ -2702,6 +2713,7 @@ async fn dispatch_player_action(
 
     // Watcher: action received
     let turn_number = turn_manager.interaction();
+    turn_span.record("turn_number", turn_number);
     state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
         component: "game".to_string(),
@@ -3344,6 +3356,8 @@ async fn dispatch_player_action(
 
     // Preprocess raw player input — STT cleanup + three-perspective rewrite.
     // Uses haiku-tier LLM with 15s timeout; falls back to mechanical rewrite on failure.
+    let preprocess_span = tracing::info_span!("turn.preprocess", raw_len = action.len());
+    let _preprocess_guard = preprocess_span.enter();
     let preprocessed = sidequest_agents::preprocessor::preprocess_action(&effective_action, char_name);
     tracing::info!(
         raw = %action,
@@ -3369,6 +3383,8 @@ async fn dispatch_player_action(
         }
     }
 
+    drop(_preprocess_guard);
+
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
@@ -3378,6 +3394,13 @@ async fn dispatch_player_action(
     let result = state
         .game_service()
         .process_action(&preprocessed.you, &context);
+
+    if let Some(ref intent) = result.classified_intent {
+        turn_span.record("intent", intent.as_str());
+    }
+    if let Some(ref agent) = result.agent_name {
+        turn_span.record("agent", agent.as_str());
+    }
 
     // Watcher: narration generated (with intent classification and agent routing)
     state.send_watcher_event(WatcherEvent {
@@ -3409,6 +3432,13 @@ async fn dispatch_player_action(
     let mut messages = vec![];
 
     // Extract location header from narration (format: **Location Name**\n\n...)
+    let state_update_span = tracing::info_span!(
+        "turn.state_update",
+        location_changed = tracing::field::Empty,
+        items_gained = tracing::field::Empty,
+    );
+    let _state_update_guard = state_update_span.enter();
+
     // Bug 1: Update current_location so subsequent turns maintain continuity
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
@@ -4062,6 +4092,15 @@ async fn dispatch_player_action(
         player_id: player_id.to_string(),
     });
 
+    drop(_state_update_guard);
+
+    let system_tick_span = tracing::info_span!(
+        "turn.system_tick",
+        combat_changed = tracing::field::Empty,
+        tropes_fired = tracing::field::Empty,
+    );
+    let _system_tick_guard = system_tick_span.enter();
+
     // Combat detection — intent-based (primary) + keyword scan (fallback).
     // If the intent classifier routed to creature_smith, that's a combat action.
     if !combat_state.in_combat() {
@@ -4360,6 +4399,15 @@ async fn dispatch_player_action(
         });
     }
 
+    drop(_system_tick_guard);
+
+    let media_span = tracing::info_span!(
+        "turn.media",
+        render_enqueued = tracing::field::Empty,
+        audio_cue_sent = tracing::field::Empty,
+    );
+    let _media_guard = media_span.enter();
+
     // Render pipeline — extract subject from narration, filter, enqueue
     let extraction_context = sidequest_game::ExtractionContext {
         current_location: extract_location_header(narration_text).unwrap_or_default(),
@@ -4504,6 +4552,8 @@ async fn dispatch_player_action(
         "turn_manager.record_interaction"
     );
 
+    drop(_media_guard);
+
     // Persist updated game state (location, narration log) for reconnection
     if !genre_slug.is_empty() && !world_slug.is_empty() {
         let location =
@@ -4627,6 +4677,11 @@ async fn dispatch_player_action(
                 },
             };
 
+            let tts_span = tracing::info_span!(
+                "tts.pipeline",
+                segment_count = tts_segments.len(),
+                player_id = %player_id_for_tts,
+            );
             tokio::spawn(async move {
                 let (msg_tx, mut msg_rx) =
                     tokio::sync::mpsc::channel::<sidequest_game::tts_stream::TtsMessage>(32);
@@ -4794,7 +4849,7 @@ async fn dispatch_player_action(
 
                 let _ = stream_handle.await;
                 tracing::info!(player_id = %player_id_for_tts, "TTS stream complete");
-            });
+            }.instrument(tts_span));
         }
     }
 

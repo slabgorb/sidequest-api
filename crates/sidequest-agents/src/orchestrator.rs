@@ -148,8 +148,19 @@ impl GameService for Orchestrator {
     }
 
     fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult {
+        let span = tracing::info_span!(
+            "orchestrator.process_action",
+            action_len = action.len(),
+            intent = tracing::field::Empty,
+            agent = tracing::field::Empty,
+            is_degraded = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
         // ADR-032: Two-tier intent classification (state override → keyword fallback)
         let route = IntentRouter::classify_with_state(action, context);
+        span.record("intent", route.intent().to_string().as_str());
+        span.record("agent", route.agent_name());
         info!(
             intent = %route.intent(),
             agent = %route.agent_name(),
@@ -248,6 +259,7 @@ impl GameService for Orchestrator {
                 };
 
                 info!(len = narration.len(), "Claude CLI returned narration");
+                span.record("is_degraded", false);
                 ActionResult {
                     narration,
                     state_delta: Some(HashMap::new()),
@@ -264,6 +276,7 @@ impl GameService for Orchestrator {
             }
             Err(e) => {
                 warn!(error = %e, action = %action, "Claude CLI failed, returning degraded response");
+                span.record("is_degraded", true);
                 ActionResult {
                     narration: format!(
                         "The world shimmers uncertainly... (narrator unavailable: {})",

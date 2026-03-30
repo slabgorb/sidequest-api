@@ -3,6 +3,8 @@
 //! Covers all 8 ACs plus rule-enforcement tests for deferred debt from 1-10.
 //! All tests are expected to FAIL until Dev implements the modules.
 
+use std::collections::HashMap;
+
 // These modules don't exist yet — compilation will fail (RED state).
 use sidequest_agents::agent::{Agent, AgentResponse};
 use sidequest_agents::context_builder::ContextBuilder;
@@ -164,8 +166,14 @@ mod agent_types_tests {
             narration: "You enter the dimly lit tavern.".to_string(),
             state_delta: None,
             combat_events: vec![],
+            combat_patch: None,
             is_degraded: false,
-
+            classified_intent: None,
+            agent_name: None,
+            footnotes: vec![],
+            items_gained: vec![],
+            npcs_present: vec![],
+            quest_updates: HashMap::new(),
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -331,8 +339,14 @@ mod game_service_tests {
             narration: "test".to_string(),
             state_delta: None,
             combat_events: vec![],
+            combat_patch: None,
             is_degraded: false,
-
+            classified_intent: None,
+            agent_name: None,
+            footnotes: vec![],
+            items_gained: vec![],
+            npcs_present: vec![],
+            quest_updates: HashMap::new(),
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -362,8 +376,14 @@ mod error_handling_tests {
             narration: "The narrator pauses, gathering their thoughts...".to_string(),
             state_delta: None,
             combat_events: vec![],
+            combat_patch: None,
             is_degraded: true,
-
+            classified_intent: None,
+            agent_name: None,
+            footnotes: vec![],
+            items_gained: vec![],
+            npcs_present: vec![],
+            quest_updates: HashMap::new(),
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());
