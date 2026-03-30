@@ -5032,14 +5032,37 @@ async fn dispatch_player_action(
                             ss.send_to_player(observer_action.clone(), target_id.clone());
                         }
                         // Send narration (state_delta stripped) to other players.
-                        // Apply perception filters if active.
+                        // Apply perception rewriting if active filters exist (Story 15-4).
                         for target_id in &other_players {
                             let text = if let Some(filter) = ss.perception_filters.get(target_id) {
-                                let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
-                                format!(
-                                    "[Your perception is altered: {}]\n\n{}",
-                                    effects_desc, payload.text
-                                )
+                                if filter.has_effects() {
+                                    // Use Claude-backed perception rewriter for actual narration variant
+                                    let client = sidequest_agents::client::ClaudeClient::new();
+                                    let strategy = sidequest_agents::agents::resonator::ClaudeRewriteStrategy::new(client);
+                                    let rewriter = sidequest_game::perception::PerceptionRewriter::new(Box::new(strategy));
+                                    match rewriter.rewrite(&payload.text, filter, genre_slug) {
+                                        Ok(rewritten) => {
+                                            tracing::info!(
+                                                target_player = %target_id,
+                                                effects = %sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects()),
+                                                "perception.rewrite — narration rewritten for player"
+                                            );
+                                            rewritten
+                                        }
+                                        Err(e) => {
+                                            // Graceful degradation per ADR-006: fall back to annotated narration
+                                            tracing::warn!(
+                                                target_player = %target_id,
+                                                error = %e,
+                                                "perception.rewrite_failed — falling back to base narration"
+                                            );
+                                            let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
+                                            format!("[Your perception is altered: {}]\n\n{}", effects_desc, payload.text)
+                                        }
+                                    }
+                                } else {
+                                    payload.text.clone()
+                                }
                             } else {
                                 payload.text.clone()
                             };
