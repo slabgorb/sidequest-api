@@ -151,7 +151,7 @@ fn resolve_attack_uses_combat_mechanics() {
         let damage = result.damage_events[0].damage;
         assert!(damage > 0, "successful hit should deal positive damage");
         // Damage should be bounded by level-based scaling
-        let max_expected = sidequest_game::level_to_damage(player.level) as i32 * 2;
+        let max_expected = sidequest_game::level_to_damage(5, player.level) * 2;
         assert!(
             damage <= max_expected,
             "damage {} should not exceed level-scaled maximum {}",
