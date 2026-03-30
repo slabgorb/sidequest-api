@@ -91,6 +91,8 @@ pub enum WatcherEventType {
     StateTransition,
     /// A complete turn has been processed (all subsystems ran).
     TurnComplete,
+    /// Full game state snapshot after a turn — for the State Explorer tab.
+    GameStateSnapshot,
 }
 
 /// Severity levels for watcher telemetry events.
