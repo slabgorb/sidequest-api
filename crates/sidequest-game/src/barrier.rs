@@ -16,6 +16,7 @@ use tokio::sync::Notify;
 
 use crate::character::Character;
 use crate::multiplayer::{MultiplayerError, MultiplayerSession};
+use crate::turn_mode::TurnMode;
 
 /// Configuration for the turn barrier timeout.
 #[derive(Debug, Clone)]
@@ -105,6 +106,27 @@ impl TurnBarrierResult {
             missing_names.join(", ")
         )
     }
+
+    /// Extract character names of auto-resolved (timed-out) players.
+    ///
+    /// Returns a `Vec<String>` of character names (not player IDs) suitable
+    /// for populating `ActionRevealPayload.auto_resolved`. Returns empty vec
+    /// if no timeout occurred.
+    pub fn auto_resolved_character_names(&self) -> Vec<String> {
+        if !self.timed_out || self.missing_players.is_empty() {
+            return vec![];
+        }
+
+        self.missing_players
+            .iter()
+            .filter_map(|pid| {
+                self.narration
+                    .get(pid)
+                    .and_then(|n| n.split(':').next())
+                    .map(|name| name.trim().to_string())
+            })
+            .collect()
+    }
 }
 
 /// Adaptive timeout — scales the collection window by player count.
@@ -161,6 +183,8 @@ struct Inner {
     config: Mutex<TurnBarrierConfig>,
     notify: Notify,
     adaptive: Mutex<Option<AdaptiveTimeout>>,
+    /// Current turn mode — determines auto-fill default action on timeout.
+    turn_mode: Mutex<TurnMode>,
     /// Flag for handler election — protected by resolution_lock.
     /// First task to enter resolve() sets this to true; others see it already true.
     resolution_claimed: Mutex<bool>,
@@ -199,6 +223,7 @@ impl TurnBarrier {
                 config: Mutex::new(config),
                 notify: Notify::new(),
                 adaptive: Mutex::new(None),
+                turn_mode: Mutex::new(TurnMode::default()),
                 resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 last_resolved_turn: Mutex::new(0),
@@ -220,6 +245,7 @@ impl TurnBarrier {
                 config: Mutex::new(config),
                 notify: Notify::new(),
                 adaptive: Mutex::new(Some(adaptive)),
+                turn_mode: Mutex::new(TurnMode::default()),
                 resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 last_resolved_turn: Mutex::new(0),
@@ -248,6 +274,15 @@ impl TurnBarrier {
     /// Update the barrier configuration.
     pub fn set_config(&self, config: TurnBarrierConfig) {
         *self.inner.config.lock().unwrap() = config;
+    }
+
+    /// Set the turn mode for mode-aware timeout defaults.
+    ///
+    /// When the barrier times out, the mode determines what default action
+    /// text is used for missing players (e.g., "hesitates" for Structured,
+    /// "remains silent" for Cinematic).
+    pub fn set_turn_mode(&self, mode: TurnMode) {
+        *self.inner.turn_mode.lock().unwrap() = mode;
     }
 
     /// Submit an action for a player. Wakes `wait_for_turn()` if the
@@ -425,7 +460,8 @@ impl TurnBarrier {
                 } else {
                     vec![]
                 };
-                let narration = session.force_resolve_turn();
+                let mode = self.inner.turn_mode.lock().unwrap().clone();
+                let narration = session.force_resolve_turn_for_mode(&mode);
                 (true, missing, narration)
             } else {
                 // This initial turn has already been resolved by a previous task.
