@@ -248,11 +248,12 @@ impl TurnBarrier {
     pub fn submit_action(&self, player_id: &str, action: &str) {
         let mut session = self.inner.session.lock().unwrap();
         session.record_action(player_id, action);
+        // Reset batch_resolved on any submission — prevents stale true from previous
+        // turn causing handlers to skip wait_for_turn() prematurely.
+        *self.inner.batch_resolved.lock().unwrap() = false;
         if session.is_barrier_met() {
-            // Reset batch state for the new resolution batch
-            *self.inner.batch_resolved.lock().unwrap() = false;
             *self.inner.resolution_narration.lock().unwrap() = None;
-            self.inner.notify.notify_one();
+            self.inner.notify.notify_waiters();
         }
     }
 
@@ -297,6 +298,9 @@ impl TurnBarrier {
     /// submitted), the turn resolves immediately. On timeout, missing
     /// players get a "hesitates" action.
     pub async fn wait_for_turn(&self) -> TurnBarrierResult {
+        // Capture turn number at entry — if it changes, another handler already resolved.
+        let initial_turn = self.inner.session.lock().unwrap().turn_number();
+
         let (deadline, enabled) = {
             let config = self.inner.config.lock().unwrap();
             if config.enabled {
@@ -307,12 +311,17 @@ impl TurnBarrier {
         };
 
         loop {
-            // Check if barrier is already met
             {
                 let session = self.inner.session.lock().unwrap();
                 if session.is_barrier_met() {
                     drop(session);
-                    // Acquire the resolution lock to ensure only one task actually resolves
+                    let _res_lock = self.inner.resolution_lock.lock().unwrap();
+                    return self.resolve(false);
+                }
+                // If turn number advanced, another handler already resolved this turn.
+                // Proceed to resolve() which will return not-claimed.
+                if session.turn_number() != initial_turn {
+                    drop(session);
                     let _res_lock = self.inner.resolution_lock.lock().unwrap();
                     return self.resolve(false);
                 }
@@ -323,7 +332,7 @@ impl TurnBarrier {
                 let dl = deadline.unwrap();
                 tokio::select! {
                     _ = self.inner.notify.notified() => {
-                        // Woken by submit/remove — re-check at top of loop
+                        // Woken by submit/remove or by claiming handler's post-resolve notify
                     }
                     _ = tokio::time::sleep_until(dl) => {
                         let _res_lock = self.inner.resolution_lock.lock().unwrap();
@@ -333,7 +342,6 @@ impl TurnBarrier {
             } else {
                 // Disabled — wait only for notify, no timeout
                 self.inner.notify.notified().await;
-                // Re-check at top of loop
             }
         }
     }
@@ -397,6 +405,7 @@ impl TurnBarrier {
         let (claimed_resolution, missing, narration) = if !*batch_done {
             // First handler in this batch — claim resolution
             *batch_done = true;
+            drop(batch_done);
 
             let missing: Vec<String> = if timed_out {
                 session.pending_players().into_iter().collect()
@@ -404,8 +413,13 @@ impl TurnBarrier {
                 vec![]
             };
             let narration = session.force_resolve_turn();
+            drop(session);
+            // Wake handlers that missed barrier_met due to TOCTOU race —
+            // they'll see batch_resolved=true on re-check and enter resolve()
+            self.inner.notify.notify_waiters();
             (true, missing, narration)
         } else {
+            drop(batch_done);
             // Batch already resolved — return snapshot without modifying state
             let narration = session.named_actions();
             (false, vec![], narration)

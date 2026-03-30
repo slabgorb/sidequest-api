@@ -428,17 +428,12 @@ async fn concurrent_handlers_with_narrator_delay_all_receive_narration() {
     let session = four_player_session();
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::new(Duration::from_secs(30)));
 
-    // Pre-submit all actions so barrier_met is true immediately
-    barrier.submit_action("player-1", "I charge forward");
-    barrier.submit_action("player-2", "I cast fireball");
-    barrier.submit_action("player-3", "I flank left");
-    barrier.submit_action("player-4", "I heal the party");
-
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     // Sync barrier ensures all 4 handlers return from wait_for_turn() before proceeding
     let sync_barrier = Arc::new(tokio::sync::Barrier::new(4));
     let mut handles = vec![];
 
+    // Spawn handlers FIRST — they block in wait_for_turn() select! loop
     for _ in 0..4 {
         let b = barrier.clone();
         let recv = received.clone();
@@ -466,6 +461,15 @@ async fn concurrent_handlers_with_narrator_delay_all_receive_narration() {
             recv.lock().unwrap().push(narration);
         }));
     }
+
+    // Give handlers time to enter wait_for_turn() select! loop
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // NOW submit all 4 actions — notify_waiters() wakes all handlers simultaneously
+    barrier.submit_action("player-1", "I charge forward");
+    barrier.submit_action("player-2", "I cast fireball");
+    barrier.submit_action("player-3", "I flank left");
+    barrier.submit_action("player-4", "I heal the party");
 
     for h in handles {
         h.await.expect("handler task should not panic");
@@ -501,16 +505,10 @@ async fn five_turns_narrator_called_exactly_once_per_turn() {
     let all_narrations: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     for turn in 0..5u32 {
-        // Submit all 4 actions BEFORE spawning handlers so barrier_met is
-        // true immediately — no notify/timeout dependency
-        barrier.submit_action("player-1", &format!("action-{}-1", turn));
-        barrier.submit_action("player-2", &format!("action-{}-2", turn));
-        barrier.submit_action("player-3", &format!("action-{}-3", turn));
-        barrier.submit_action("player-4", &format!("action-{}-4", turn));
-
         let sync_barrier = Arc::new(tokio::sync::Barrier::new(4));
         let mut handles = vec![];
 
+        // Spawn handlers FIRST — they block in wait_for_turn() select! loop
         for handler_id in 0..4 {
             let b = barrier.clone();
             let calls = narrator_calls.clone();
@@ -538,6 +536,15 @@ async fn five_turns_narrator_called_exactly_once_per_turn() {
                 narrs.lock().unwrap().push(narration);
             }));
         }
+
+        // Give handlers time to enter wait_for_turn() select! loop
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Submit all 4 actions — notify_waiters() wakes all handlers simultaneously
+        barrier.submit_action("player-1", &format!("action-{}-1", turn));
+        barrier.submit_action("player-2", &format!("action-{}-2", turn));
+        barrier.submit_action("player-3", &format!("action-{}-3", turn));
+        barrier.submit_action("player-4", &format!("action-{}-4", turn));
 
         for h in handles {
             h.await.expect("handler task should not panic");
