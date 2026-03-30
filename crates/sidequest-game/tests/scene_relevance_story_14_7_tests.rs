@@ -5,7 +5,7 @@
 //! DM override bypasses validation. OTEL instrumentation on all paths.
 
 use sidequest_game::subject::{ExtractionContext, RenderSubject, SceneType, SubjectTier};
-use sidequest_game::scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
+use sidequest_game::scene_relevance::{SceneRelevanceValidator};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -141,7 +141,7 @@ fn rejection_includes_mismatched_entities_in_reason() {
         SceneType::Combat,
         "Mutant Beast and Shadow Wraith attack",
     );
-    let context = make_context(vec!["Merchant Talia"], "Marketplace", false);
+    let context = make_context(vec!["Merchant Talia"], "Marketplace", true);
 
     let verdict = validator.evaluate(&subject, &context);
     assert!(verdict.is_rejected());
@@ -194,7 +194,7 @@ fn validates_against_location_context() {
         SceneType::Exploration,
         "Deep in the enchanted forest, ancient trees tower overhead",
     );
-    let mut context = make_context(vec![], "The Rusty Tankard Tavern", false);
+    let context = make_context(vec![], "The Rusty Tankard Tavern", false);
 
     // Location mismatch should be flagged (entities are fine — empty)
     // The validator should check location coherence
