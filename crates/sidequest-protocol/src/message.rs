@@ -240,6 +240,15 @@ pub enum GameMessage {
         /// The player who sent this message.
         player_id: String,
     },
+
+    /// Broadcast of all submitted player actions when a sealed-letter turn resolves.
+    #[serde(rename = "ACTION_REVEAL")]
+    ActionReveal {
+        /// The typed payload for this message.
+        payload: ActionRevealPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +643,33 @@ pub struct ErrorPayload {
     /// (e.g. after a server restart).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reconnect_required: Option<bool>,
+}
+
+/// Action reveal payload — broadcast when a sealed-letter turn resolves.
+///
+/// Story 13-3: Carries each player's submitted action for the full party to see.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionRevealPayload {
+    /// Individual player actions submitted during the turn.
+    pub actions: Vec<PlayerActionEntry>,
+    /// Turn number this reveal belongs to.
+    pub turn_number: u32,
+    /// Character names of players who were auto-resolved (timed out).
+    #[serde(default)]
+    pub auto_resolved: Vec<String>,
+}
+
+/// A single player's submitted action in an action reveal.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerActionEntry {
+    /// Character name (display name, not player ID).
+    pub character_name: String,
+    /// Player identifier.
+    pub player_id: String,
+    /// The action text the player submitted.
+    pub action: String,
 }
 
 // ---------------------------------------------------------------------------
