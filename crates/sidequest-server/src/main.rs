@@ -10,9 +10,8 @@ use sidequest_server::{create_server, AppState, Args};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    sidequest_server::init_tracing();
-
     let args = Args::parse();
+    sidequest_server::init_tracing(args.trace());
     tracing::info!(port = args.port(), genre_packs = %args.genre_packs_path().display(), no_tts = args.no_tts(), "SideQuest Server starting");
 
     let (watcher_tx, watcher_rx) =

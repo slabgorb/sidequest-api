@@ -14,7 +14,7 @@ use tracing_subscriber::{EnvFilter, Registry};
 /// - EnvFilter: respects RUST_LOG (default: `sidequest=debug,tower_http=info`)
 /// - JSON layer: structured output for production (always active)
 /// - Pretty layer: human-readable output in debug builds only
-pub fn init_tracing() {
+pub fn init_tracing(enable_chrome_trace: bool) {
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new("sidequest=debug,tower_http=info"));
 
@@ -30,8 +30,8 @@ pub fn init_tracing() {
     };
 
     // Chrome trace layer — produces flame-chart JSON loadable in chrome://tracing or Perfetto.
-    // Activate with: SQ_TRACE_CHROME=1 cargo run
-    let chrome_layer = if std::env::var("SQ_TRACE_CHROME").is_ok() {
+    // Enabled via --trace flag.
+    let chrome_layer = if enable_chrome_trace {
         let (layer, guard) = tracing_chrome::ChromeLayerBuilder::new()
             .file(format!("trace-{}.json", std::process::id()))
             .include_args(true)
@@ -49,6 +49,10 @@ pub fn init_tracing() {
         .with(pretty_layer)
         .with(chrome_layer)
         .init();
+
+    if enable_chrome_trace {
+        tracing::info!("Chrome trace → trace-{}.json", std::process::id());
+    }
 }
 
 /// Wrapper for writing to a shared buffer (used in tests).
