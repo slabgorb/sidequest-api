@@ -161,9 +161,6 @@ struct Inner {
     config: Mutex<TurnBarrierConfig>,
     notify: Notify,
     adaptive: Mutex<Option<AdaptiveTimeout>>,
-    /// Flag for handler election — protected by resolution_lock.
-    /// First task to enter resolve() sets this to true; others see it already true.
-    resolution_claimed: Mutex<bool>,
     /// Narration text stored by the claiming handler for non-claimers to retrieve.
     resolution_narration: Mutex<Option<String>>,
     /// Notifies non-claiming handlers when resolution narration is stored.
@@ -199,7 +196,6 @@ impl TurnBarrier {
                 config: Mutex::new(config),
                 notify: Notify::new(),
                 adaptive: Mutex::new(None),
-                resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 narration_notify: Notify::new(),
                 batch_resolved: Mutex::new(false),
@@ -219,7 +215,6 @@ impl TurnBarrier {
                 config: Mutex::new(config),
                 notify: Notify::new(),
                 adaptive: Mutex::new(Some(adaptive)),
-                resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 narration_notify: Notify::new(),
                 batch_resolved: Mutex::new(false),
@@ -349,16 +344,6 @@ impl TurnBarrier {
     /// own `MultiplayerSession`, NOT from any external shared session.
     pub fn named_actions(&self) -> HashMap<String, String> {
         self.inner.session.lock().unwrap().named_actions()
-    }
-
-    /// Attempt to claim resolution for this turn. Returns `true` exactly once
-    /// per barrier resolution — the first caller wins and should run the narrator.
-    /// All subsequent callers get `false` and should retrieve the stored result.
-    pub fn try_claim_resolution(&self) -> bool {
-        let mut claimed_flag = self.inner.resolution_claimed.lock().unwrap();
-        let result = !*claimed_flag;
-        *claimed_flag = true;
-        result
     }
 
     /// Store the narration result after the claiming handler runs the narrator.
