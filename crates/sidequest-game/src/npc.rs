@@ -56,9 +56,9 @@ pub struct Npc {
 }
 
 impl Npc {
-    /// Get the NPC's current attitude based on disposition.
+    /// Get the NPC's current attitude based on disposition + OCEAN agreeableness offset.
     pub fn attitude(&self) -> Attitude {
-        self.disposition.attitude()
+        Disposition::new(self.effective_disposition()).attitude()
     }
 
     /// Apply HP damage or healing, clamped to [0, max_hp].
@@ -448,6 +448,7 @@ mod tests {
             last_seen_turn: 1,
             age: String::new(),
             appearance: String::new(),
+            ocean_summary: String::new(),
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "she/her");
@@ -466,6 +467,7 @@ mod tests {
             last_seen_turn: 1,
             age: "elderly".to_string(), // pre-existing
             appearance: String::new(), // empty — should be backfilled
+            ocean_summary: String::new(),
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "they/them"); // unchanged
@@ -499,6 +501,10 @@ pub struct NpcRegistryEntry {
     /// Physical appearance (backfilled from Npc data when available).
     #[serde(default)]
     pub appearance: String,
+    /// OCEAN behavioral summary (generated from archetype baseline with jitter).
+    /// E.g., "reserved and quiet, meticulous and disciplined".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub ocean_summary: String,
 }
 
 /// Enrich registry entries with physical description data from full Npc structs.
