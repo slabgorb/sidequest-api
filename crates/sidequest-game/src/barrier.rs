@@ -79,23 +79,7 @@ impl TurnBarrierResult {
     /// so the narrator can condition its narration on intentional vs. auto-resolved
     /// actions. Returns empty string if no timeout occurred.
     pub fn format_auto_resolved_context(&self) -> String {
-        if !self.timed_out || self.missing_players.is_empty() {
-            return String::new();
-        }
-
-        // Extract character names from the narration entries for missing players.
-        // Narration values are formatted as "CharName: action text".
-        let missing_names: Vec<String> = self
-            .missing_players
-            .iter()
-            .filter_map(|pid| {
-                self.narration
-                    .get(pid)
-                    .and_then(|n| n.split(':').next())
-                    .map(|name| name.trim().to_string())
-            })
-            .collect();
-
+        let missing_names = self.auto_resolved_character_names();
         if missing_names.is_empty() {
             return String::new();
         }
@@ -111,7 +95,8 @@ impl TurnBarrierResult {
     ///
     /// Returns a `Vec<String>` of character names (not player IDs) suitable
     /// for populating `ActionRevealPayload.auto_resolved`. Returns empty vec
-    /// if no timeout occurred.
+    /// if no timeout occurred. Narration values are formatted as
+    /// "CharName: action text" — character name is extracted from before the colon.
     pub fn auto_resolved_character_names(&self) -> Vec<String> {
         if !self.timed_out || self.missing_players.is_empty() {
             return vec![];
