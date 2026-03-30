@@ -1,83 +1,57 @@
 //! Story 15-2: Wire OCEAN shift proposals into game flow — events trigger
 //! personality evolution.
 //!
-//! RED phase: tests for the *wiring* layer that 10-6 left unconnected.
-//! The proposal function itself is tested in 10-6; these tests cover:
+//! Tests for the full pipeline: narration → event detection → proposal →
+//! profile mutation on NpcRegistryEntry → summary regeneration.
 //!   AC-1: PersonalityEvents detected from narration (at least 2 event types)
 //!   AC-2: Proposals generated and applied to NPC OCEAN profiles
-//!   AC-3: OceanShift events logged to shift log
-//!   AC-4: Personality changes persist (applied to Npc in GameSnapshot)
-//!   AC-5: End-to-end: detection → proposal → application
+//!   AC-3: OceanShift log returned (not discarded)
+//!   AC-4: Personality changes persist (mutated on NpcRegistryEntry)
+//!   AC-5: End-to-end: detection → proposal → application → summary update
 
 use sidequest_game::{
-    detect_personality_events, apply_ocean_shifts,
-    Combatant, Disposition, GameSnapshot, Npc, OceanProfile, PersonalityEvent,
-    OceanDimension,
+    apply_ocean_shifts, detect_personality_events, NpcRegistryEntry, OceanDimension, OceanProfile,
+    PersonalityEvent,
 };
-use sidequest_game::creature_core::CreatureCore;
-use sidequest_game::inventory::Inventory;
-use sidequest_protocol::NonBlankString;
 
 // ─── Helpers ───────────────────────────────────────────────
 
-fn make_npc(name: &str, ocean: OceanProfile) -> Npc {
-    Npc {
-        core: CreatureCore {
-            name: NonBlankString::new(name).unwrap(),
-            description: NonBlankString::new("test NPC").unwrap(),
-            personality: NonBlankString::new("test").unwrap(),
-            level: 1,
-            hp: 10,
-            max_hp: 10,
-            ac: 10,
-            xp: 0,
-            statuses: vec![],
-            inventory: Inventory::default(),
-        },
-        voice_id: None,
-        disposition: Disposition::new(0),
-        location: None,
-        pronouns: None,
-        appearance: None,
-        age: None,
-        build: None,
-        height: None,
-        distinguishing_features: vec![],
+fn make_entry(name: &str, ocean: OceanProfile) -> NpcRegistryEntry {
+    let summary = ocean.behavioral_summary();
+    NpcRegistryEntry {
+        name: name.to_string(),
+        pronouns: "they/them".to_string(),
+        role: "test NPC".to_string(),
+        location: "tavern".to_string(),
+        last_seen_turn: 0,
+        age: String::new(),
+        appearance: String::new(),
+        ocean_summary: summary,
         ocean: Some(ocean),
     }
 }
 
-fn make_npc_no_ocean(name: &str) -> Npc {
-    Npc {
-        core: CreatureCore {
-            name: NonBlankString::new(name).unwrap(),
-            description: NonBlankString::new("test NPC").unwrap(),
-            personality: NonBlankString::new("test").unwrap(),
-            level: 1,
-            hp: 10,
-            max_hp: 10,
-            ac: 10,
-            xp: 0,
-            statuses: vec![],
-            inventory: Inventory::default(),
-        },
-        voice_id: None,
-        disposition: Disposition::new(0),
-        location: None,
-        pronouns: None,
-        appearance: None,
-        age: None,
-        build: None,
-        height: None,
-        distinguishing_features: vec![],
+fn make_entry_no_ocean(name: &str) -> NpcRegistryEntry {
+    NpcRegistryEntry {
+        name: name.to_string(),
+        pronouns: "they/them".to_string(),
+        role: "test NPC".to_string(),
+        location: "tavern".to_string(),
+        last_seen_turn: 0,
+        age: String::new(),
+        appearance: String::new(),
+        ocean_summary: String::new(),
         ocean: None,
     }
 }
 
-fn snapshot_with_npcs(npcs: Vec<Npc>) -> GameSnapshot {
-    GameSnapshot {
-        npcs,
-        ..Default::default()
+fn default_profile() -> OceanProfile {
+    OceanProfile {
+        openness: 5.0,
+        conscientiousness: 5.0,
+        extraversion: 5.0,
+        agreeableness: 5.0,
+        neuroticism: 5.0,
     }
 }
 
@@ -90,13 +64,10 @@ fn detects_betrayal_from_narration() {
     let npc_names = vec!["Griselda"];
     let events = detect_personality_events(narration, &npc_names);
 
-    let griselda_events: Vec<_> = events.iter()
-        .filter(|(name, _)| name == "Griselda")
-        .collect();
     assert!(
-        griselda_events.iter().any(|(_, e)| *e == PersonalityEvent::Betrayal),
+        events.iter().any(|(name, e)| name == "Griselda" && *e == PersonalityEvent::Betrayal),
         "should detect Betrayal for Griselda, got: {:?}",
-        griselda_events
+        events
     );
 }
 
@@ -107,13 +78,10 @@ fn detects_near_death_from_narration() {
     let npc_names = vec!["Kael"];
     let events = detect_personality_events(narration, &npc_names);
 
-    let kael_events: Vec<_> = events.iter()
-        .filter(|(name, _)| name == "Kael")
-        .collect();
     assert!(
-        kael_events.iter().any(|(_, e)| *e == PersonalityEvent::NearDeath),
+        events.iter().any(|(name, e)| name == "Kael" && *e == PersonalityEvent::NearDeath),
         "should detect NearDeath for Kael, got: {:?}",
-        kael_events
+        events
     );
 }
 
@@ -165,21 +133,15 @@ fn returns_empty_when_no_events_detected() {
     let npc_names = vec!["Griselda", "Kael"];
     let events = detect_personality_events(narration, &npc_names);
 
-    assert!(
-        events.is_empty(),
-        "should return no events for mundane narration, got: {:?}",
-        events
-    );
+    assert!(events.is_empty(), "should return no events for mundane narration, got: {:?}", events);
 }
 
 #[test]
 fn only_detects_events_for_known_npcs() {
     let narration = "Zephyr betrays the group, stabbing Griselda in the back.";
-    // Only Griselda is a known NPC — Zephyr is not in the list
     let npc_names = vec!["Griselda"];
     let events = detect_personality_events(narration, &npc_names);
 
-    // Should not produce events for Zephyr since they're not a known NPC
     assert!(
         events.iter().all(|(name, _)| name != "Zephyr"),
         "should not detect events for unknown NPC Zephyr, got: {:?}",
@@ -194,13 +156,24 @@ fn detects_multiple_events_in_single_narration() {
     let npc_names = vec!["Griselda", "Kael", "Mira"];
     let events = detect_personality_events(narration, &npc_names);
 
-    // Should find events for multiple NPCs
-    let unique_npcs: std::collections::HashSet<_> = events.iter()
-        .map(|(name, _): &(String, PersonalityEvent)| name.as_str())
-        .collect();
+    let unique_npcs: std::collections::HashSet<_> =
+        events.iter().map(|(name, _)| name.as_str()).collect();
     assert!(
         unique_npcs.len() >= 2,
         "should detect events for at least 2 NPCs, got: {:?}",
+        events
+    );
+}
+
+#[test]
+fn no_false_positive_on_vagabond() {
+    let narration = "The vagabond wanders into town. Griselda greets them warmly.";
+    let npc_names = vec!["Griselda"];
+    let events = detect_personality_events(narration, &npc_names);
+
+    assert!(
+        !events.iter().any(|(_, e)| *e == PersonalityEvent::SocialBonding),
+        "vagabond should not trigger SocialBonding, got: {:?}",
         events
     );
 }
@@ -209,26 +182,14 @@ fn detects_multiple_events_in_single_narration() {
 
 #[test]
 fn apply_shifts_modifies_npc_ocean_profile() {
-    let ocean = OceanProfile {
-        openness: 5.0,
-        conscientiousness: 5.0,
-        extraversion: 5.0,
-        agreeableness: 5.0,
-        neuroticism: 5.0,
-    };
-    let npc = make_npc("Griselda", ocean);
-    let mut snapshot = snapshot_with_npcs(vec![npc]);
+    let mut registry = vec![make_entry("Griselda", default_profile())];
 
-    let events = vec![
-        ("Griselda".to_string(), PersonalityEvent::Betrayal),
-    ];
+    let events = vec![("Griselda".to_string(), PersonalityEvent::Betrayal)];
+    let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
 
-    let applied = apply_ocean_shifts(&mut snapshot, &events, 1);
     assert!(!applied.is_empty(), "should return applied proposals");
 
-    // Griselda's agreeableness should have decreased (betrayal lowers it)
-    let griselda = snapshot.npcs.iter().find(|n| n.name() == "Griselda").unwrap();
-    let profile = griselda.ocean.as_ref().expect("should still have OCEAN profile");
+    let profile = registry[0].ocean.as_ref().expect("should still have OCEAN profile");
     assert!(
         profile.agreeableness < 5.0,
         "Betrayal should lower Agreeableness from 5.0, got {}",
@@ -238,61 +199,40 @@ fn apply_shifts_modifies_npc_ocean_profile() {
 
 #[test]
 fn apply_shifts_skips_npc_without_ocean_profile() {
-    let npc = make_npc_no_ocean("NoOcean");
-    let mut snapshot = snapshot_with_npcs(vec![npc]);
+    let mut registry = vec![make_entry_no_ocean("NoOcean")];
 
-    let events = vec![
-        ("NoOcean".to_string(), PersonalityEvent::Victory),
-    ];
+    let events = vec![("NoOcean".to_string(), PersonalityEvent::Victory)];
+    let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
 
-    let applied = apply_ocean_shifts(&mut snapshot, &events, 1);
-    assert!(
-        applied.is_empty(),
-        "should not apply shifts to NPC without OCEAN profile"
-    );
+    assert!(applied.is_empty(), "should not apply shifts to NPC without OCEAN profile");
 }
 
 #[test]
 fn apply_shifts_skips_unknown_npc() {
-    let ocean = OceanProfile::default();
-    let npc = make_npc("Griselda", ocean);
-    let mut snapshot = snapshot_with_npcs(vec![npc]);
+    let mut registry = vec![make_entry("Griselda", OceanProfile::default())];
 
-    let events = vec![
-        ("UnknownNpc".to_string(), PersonalityEvent::Victory),
-    ];
+    let events = vec![("UnknownNpc".to_string(), PersonalityEvent::Victory)];
+    let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
 
-    let applied = apply_ocean_shifts(&mut snapshot, &events, 1);
-    assert!(
-        applied.is_empty(),
-        "should not apply shifts when NPC is not in snapshot"
-    );
+    assert!(applied.is_empty(), "should not apply shifts when NPC is not in registry");
 }
 
-// ─── AC-3: Shift log records changes ───────────────────────
+// ─── AC-3: Shift log returned ──────────────────────────────
 
 #[test]
-fn apply_shifts_changes_neuroticism_for_near_death() {
-    let ocean = OceanProfile {
-        openness: 5.0,
-        conscientiousness: 5.0,
-        extraversion: 5.0,
-        agreeableness: 5.0,
-        neuroticism: 5.0,
-    };
-    let npc = make_npc("Viktor", ocean);
-    let mut snapshot = snapshot_with_npcs(vec![npc]);
+fn apply_shifts_returns_log_with_entries() {
+    let mut registry = vec![make_entry("Viktor", default_profile())];
 
-    let events = vec![
-        ("Viktor".to_string(), PersonalityEvent::NearDeath),
-    ];
+    let events = vec![("Viktor".to_string(), PersonalityEvent::NearDeath)];
+    let (applied, log) = apply_ocean_shifts(&mut registry, &events, 3);
 
-    let applied = apply_ocean_shifts(&mut snapshot, &events, 3);
     assert!(!applied.is_empty(), "should apply at least one shift");
+    assert!(
+        !log.shifts().is_empty(),
+        "shift log should contain entries, got empty log"
+    );
 
-    // Neuroticism should have increased
-    let viktor = snapshot.npcs.iter().find(|n| n.name() == "Viktor").unwrap();
-    let profile = viktor.ocean.as_ref().unwrap();
+    let profile = registry[0].ocean.as_ref().unwrap();
     assert!(
         profile.neuroticism > 5.0,
         "NearDeath should raise Neuroticism from 5.0, got {}",
@@ -304,30 +244,20 @@ fn apply_shifts_changes_neuroticism_for_near_death() {
 
 #[test]
 fn shifts_accumulate_across_multiple_applications() {
-    let ocean = OceanProfile {
-        openness: 5.0,
-        conscientiousness: 5.0,
-        extraversion: 5.0,
-        agreeableness: 5.0,
-        neuroticism: 5.0,
-    };
-    let npc = make_npc("Mira", ocean);
-    let mut snapshot = snapshot_with_npcs(vec![npc]);
+    let mut registry = vec![make_entry("Mira", default_profile())];
 
     // Turn 1: Victory
     let events_1 = vec![("Mira".to_string(), PersonalityEvent::Victory)];
-    apply_ocean_shifts(&mut snapshot, &events_1, 1);
+    apply_ocean_shifts(&mut registry, &events_1, 1);
 
-    let mira = snapshot.npcs.iter().find(|n| n.name() == "Mira").unwrap();
-    let after_victory = mira.ocean.as_ref().unwrap().conscientiousness;
+    let after_victory = registry[0].ocean.as_ref().unwrap().conscientiousness;
     assert!(after_victory > 5.0, "Victory should raise Conscientiousness");
 
     // Turn 2: Another Victory — should stack
     let events_2 = vec![("Mira".to_string(), PersonalityEvent::Victory)];
-    apply_ocean_shifts(&mut snapshot, &events_2, 2);
+    apply_ocean_shifts(&mut registry, &events_2, 2);
 
-    let mira = snapshot.npcs.iter().find(|n| n.name() == "Mira").unwrap();
-    let after_second = mira.ocean.as_ref().unwrap().conscientiousness;
+    let after_second = registry[0].ocean.as_ref().unwrap().conscientiousness;
     assert!(
         after_second > after_victory,
         "Second Victory should stack: {} should be > {}",
@@ -345,17 +275,14 @@ fn profile_stays_within_bounds_after_many_shifts() {
         agreeableness: 1.0,
         neuroticism: 9.0,
     };
-    let npc = make_npc("Boundary", ocean);
-    let mut snapshot = snapshot_with_npcs(vec![npc]);
+    let mut registry = vec![make_entry("Boundary", ocean)];
 
-    // Hammer the same event 10 times to stress-test clamping
     for turn in 1..=10 {
         let events = vec![("Boundary".to_string(), PersonalityEvent::NearDeath)];
-        apply_ocean_shifts(&mut snapshot, &events, turn);
+        apply_ocean_shifts(&mut registry, &events, turn);
     }
 
-    let npc = snapshot.npcs.iter().find(|n| n.name() == "Boundary").unwrap();
-    let profile = npc.ocean.as_ref().unwrap();
+    let profile = registry[0].ocean.as_ref().unwrap();
     for dim in [
         OceanDimension::Openness,
         OceanDimension::Conscientiousness,
@@ -373,39 +300,22 @@ fn profile_stays_within_bounds_after_many_shifts() {
     }
 }
 
-// ─── AC-5: End-to-end detection → application ──────────────
+// ─── AC-5: End-to-end detection → application → summary ───
 
 #[test]
 fn end_to_end_narration_to_profile_change() {
-    let ocean = OceanProfile {
-        openness: 5.0,
-        conscientiousness: 5.0,
-        extraversion: 5.0,
-        agreeableness: 5.0,
-        neuroticism: 5.0,
-    };
-    let npc = make_npc("Sable", ocean);
-    let mut snapshot = snapshot_with_npcs(vec![npc]);
+    let mut registry = vec![make_entry("Sable", default_profile())];
 
-    // Step 1: Detect events from narration
     let narration = "Sable suffers a crushing defeat at the hands of the warlord.";
-    let npc_names: Vec<&str> = snapshot.npcs.iter().map(|n| n.name()).collect();
+    let npc_names: Vec<&str> = registry.iter().map(|e| e.name.as_str()).collect();
     let events = detect_personality_events(narration, &npc_names);
 
-    assert!(
-        !events.is_empty(),
-        "should detect at least one event from defeat narration"
-    );
+    assert!(!events.is_empty(), "should detect at least one event from defeat narration");
 
-    // Step 2: Apply to game state
-    let applied = apply_ocean_shifts(&mut snapshot, &events, 1);
+    let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
     assert!(!applied.is_empty(), "should apply at least one shift");
 
-    // Step 3: Verify profile changed
-    let sable = snapshot.npcs.iter().find(|n| n.name() == "Sable").unwrap();
-    let profile = sable.ocean.as_ref().unwrap();
-
-    // Defeat should raise Neuroticism and/or lower Extraversion
+    let profile = registry[0].ocean.as_ref().unwrap();
     let neuroticism_changed = profile.neuroticism != 5.0;
     let extraversion_changed = profile.extraversion != 5.0;
     assert!(
@@ -418,23 +328,20 @@ fn end_to_end_narration_to_profile_change() {
 
 #[test]
 fn end_to_end_with_multiple_npcs() {
-    let npcs = vec![
-        make_npc("Griselda", OceanProfile::default()),
-        make_npc("Kael", OceanProfile::default()),
+    let mut registry = vec![
+        make_entry("Griselda", OceanProfile::default()),
+        make_entry("Kael", OceanProfile::default()),
     ];
-    let mut snapshot = snapshot_with_npcs(npcs);
 
     let narration = "Griselda betrays the party while Kael barely survives \
                      the ambush, nearly dying from his wounds.";
-    let npc_names: Vec<&str> = snapshot.npcs.iter().map(|n| n.name()).collect();
+    let npc_names: Vec<&str> = registry.iter().map(|e| e.name.as_str()).collect();
     let events = detect_personality_events(narration, &npc_names);
 
-    let applied = apply_ocean_shifts(&mut snapshot, &events, 1);
+    let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
 
-    // At least one NPC's profile should have changed
-    let any_changed = snapshot.npcs.iter().any(|npc| {
-        if let Some(profile) = &npc.ocean {
-            // Default is 5.0 for all dimensions
+    let any_changed = registry.iter().any(|entry| {
+        if let Some(profile) = &entry.ocean {
             profile.openness != 5.0
                 || profile.conscientiousness != 5.0
                 || profile.extraversion != 5.0
@@ -445,9 +352,28 @@ fn end_to_end_with_multiple_npcs() {
         }
     });
 
-    assert!(
-        any_changed,
-        "at least one NPC profile should change. Applied: {}",
-        applied.len()
+    assert!(any_changed, "at least one NPC profile should change. Applied: {}", applied.len());
+}
+
+#[test]
+fn ocean_summary_regenerated_after_shift() {
+    // Start agreeableness at 4.0 — betrayal shifts it by -1.5 to 2.5, crossing
+    // the ≤3.0 threshold and producing "competitive and blunt" in the summary.
+    let ocean = OceanProfile {
+        openness: 5.0,
+        conscientiousness: 5.0,
+        extraversion: 5.0,
+        agreeableness: 4.0,
+        neuroticism: 5.0,
+    };
+    let mut registry = vec![make_entry("Mira", ocean)];
+    let summary_before = registry[0].ocean_summary.clone();
+
+    let events = vec![("Mira".to_string(), PersonalityEvent::Betrayal)];
+    apply_ocean_shifts(&mut registry, &events, 1);
+
+    assert_ne!(
+        registry[0].ocean_summary, summary_before,
+        "ocean_summary should be regenerated after shift crosses threshold"
     );
 }

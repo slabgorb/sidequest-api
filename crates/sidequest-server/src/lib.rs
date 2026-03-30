@@ -3589,7 +3589,7 @@ async fn dispatch_player_action(
                 let _guard = span.enter();
 
                 // New NPC — create entry with OCEAN personality from genre archetype
-                let (ocean_summary, source) = {
+                let (ocean_profile, source) = {
                     let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
                     GenreCode::new(genre_slug).ok()
                         .and_then(|genre_code| loader.load(&genre_code).ok())
@@ -3601,10 +3601,11 @@ async fn dispatch_player_action(
                             use rand::prelude::IndexedRandom;
                             let archetype = with_ocean.choose(&mut rand::rng())?;
                             let profile = archetype.ocean.as_ref()?.with_jitter(1.5);
-                            Some((profile.behavioral_summary(), archetype.name.as_str().to_string()))
+                            Some((profile, archetype.name.as_str().to_string()))
                         })
-                        .unwrap_or_else(|| (sidequest_genre::OceanProfile::random().behavioral_summary(), "random".to_string()))
+                        .unwrap_or_else(|| (sidequest_genre::OceanProfile::random(), "random".to_string()))
                 };
+                let ocean_summary = ocean_profile.behavioral_summary();
                 span.record("ocean_summary", &ocean_summary.as_str());
                 span.record("archetype_source", &source.as_str());
                 tracing::info!(
@@ -3621,6 +3622,7 @@ async fn dispatch_player_action(
                     location: current_location.to_string(),
                     last_seen_turn: turn_approx,
                     ocean_summary,
+                    ocean: Some(ocean_profile),
                 });
             }
         }
@@ -3629,6 +3631,36 @@ async fn dispatch_player_action(
         npc_count = npc_registry.len(),
         "NPC registry updated from structured extraction"
     );
+
+    // ── OCEAN personality shifts — detect narrative events and evolve NPC personalities ──
+    {
+        let npc_names: Vec<&str> = npc_registry.iter().map(|e| e.name.as_str()).collect();
+        let personality_events = sidequest_game::detect_personality_events(&clean_narration, &npc_names);
+        if !personality_events.is_empty() {
+            let (applied, shift_log) = sidequest_game::apply_ocean_shifts(
+                npc_registry,
+                &personality_events,
+                turn_approx,
+            );
+            if !applied.is_empty() {
+                tracing::info!(
+                    events = personality_events.len(),
+                    shifts_applied = applied.len(),
+                    shift_log_entries = shift_log.shifts().len(),
+                    "ocean_shift.applied — NPC personalities evolved from narrative events"
+                );
+                for proposal in &applied {
+                    tracing::debug!(
+                        npc = %proposal.npc_name,
+                        dimension = ?proposal.dimension,
+                        delta = proposal.delta,
+                        cause = %proposal.cause,
+                        "ocean_shift.detail"
+                    );
+                }
+            }
+        }
+    }
 
     // Continuity validation — check narrator output against game state.
     // Build a minimal snapshot from the local session variables for the validator.

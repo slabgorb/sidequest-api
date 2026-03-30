@@ -5,8 +5,7 @@
 
 use sidequest_genre::{OceanDimension, OceanShiftLog};
 
-use crate::combatant::Combatant;
-use crate::state::GameSnapshot;
+use crate::npc::NpcRegistryEntry;
 
 /// Narrative events that can trigger personality evolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,10 +108,10 @@ pub fn propose_ocean_shifts(event: PersonalityEvent, npc_name: &str) -> Vec<Ocea
 }
 
 /// Keyword patterns for each personality event type.
-/// Each tuple: (event, keywords that indicate this event in narration).
+/// Multi-word phrases are preferred to avoid substring false positives.
 const EVENT_KEYWORDS: &[(PersonalityEvent, &[&str])] = &[
     (PersonalityEvent::Betrayal, &[
-        "betray", "betrays", "betrayed", "betrayal", "treachery", "backstab",
+        "betrayal", "betrays", "betrayed", "betray ", "treachery", "backstab",
         "turns on", "turned on", "double-cross",
     ]),
     (PersonalityEvent::NearDeath, &[
@@ -126,20 +125,20 @@ const EVENT_KEYWORDS: &[(PersonalityEvent, &[&str])] = &[
         "claims victory", "final blow",
     ]),
     (PersonalityEvent::Defeat, &[
-        "defeat", "defeated", "crushing defeat", "utterly defeated", "falls in battle",
-        "vanquished", "overwhelmed", "routed", "suffered a loss",
+        "crushing defeat", "utterly defeated", "falls in battle", "defeated",
+        "vanquished", "overwhelmed", "routed", "suffered a loss", "suffered a defeat",
     ]),
     (PersonalityEvent::SocialBonding, &[
-        "bond", "bonding", "friendship", "deep connection", "trust builds",
-        "grows closer", "warm embrace", "heartfelt", "companionship",
-        "forged a bond", "forming a deep",
+        "bond of friendship", "deep bond", "forged a bond", "forming a deep",
+        "friendship", "deep connection", "trust builds",
+        "grows closer", "warm embrace", "companionship",
     ]),
 ];
 
 /// Scan narration text for personality-relevant events involving known NPCs.
 ///
 /// Returns `(npc_name, event)` pairs. Only NPCs in `npc_names` are considered.
-/// Uses keyword matching against narration sentences.
+/// Uses keyword matching against the full narration text.
 pub fn detect_personality_events(
     narration: &str,
     npc_names: &[&str],
@@ -163,28 +162,30 @@ pub fn detect_personality_events(
     results
 }
 
-/// Apply OCEAN shift proposals to NPCs in a game snapshot.
+/// Apply OCEAN shift proposals to NPCs in the registry.
 ///
 /// For each `(npc_name, event)` pair:
-/// 1. Look up the NPC in `snapshot.npcs`
+/// 1. Look up the NPC in `registry`
 /// 2. Skip if NPC not found or has no OCEAN profile
 /// 3. Generate proposals via `propose_ocean_shifts()`
 /// 4. Apply each proposal's delta to the NPC's OCEAN profile
+/// 5. Regenerate `ocean_summary` from the mutated profile
 ///
-/// Returns all applied proposals.
+/// Returns applied proposals and the shift log for telemetry.
 pub fn apply_ocean_shifts(
-    snapshot: &mut GameSnapshot,
+    registry: &mut [NpcRegistryEntry],
     events: &[(String, PersonalityEvent)],
     turn: u32,
-) -> Vec<OceanShiftProposal> {
+) -> (Vec<OceanShiftProposal>, OceanShiftLog) {
     let mut applied = Vec::new();
     let mut log = OceanShiftLog::default();
 
     for (npc_name, event) in events {
-        let Some(npc) = snapshot.npcs.iter_mut().find(|n| n.name() == npc_name.as_str()) else {
+        let Some(entry) = registry.iter_mut().find(|e| e.name == *npc_name) else {
+            tracing::warn!(npc_name = %npc_name, "ocean_shift: NPC not found in registry, skipping");
             continue;
         };
-        let Some(ref mut profile) = npc.ocean else {
+        let Some(ref mut profile) = entry.ocean else {
             continue;
         };
 
@@ -192,8 +193,10 @@ pub fn apply_ocean_shifts(
         for proposal in &proposals {
             profile.apply_shift(proposal.dimension, proposal.delta, proposal.cause.clone(), turn, &mut log);
         }
+        // Regenerate summary from mutated profile
+        entry.ocean_summary = profile.behavioral_summary();
         applied.extend(proposals);
     }
 
-    applied
+    (applied, log)
 }
