@@ -3446,6 +3446,18 @@ async fn dispatch_player_action(
             if let Some(ref agent) = result.agent_name {
                 f.insert("agent_routed_to".to_string(), serde_json::json!(agent));
             }
+            if let Some(dur) = result.agent_duration_ms {
+                f.insert("agent_duration_ms".to_string(), serde_json::json!(dur));
+            }
+            if let Some(t) = result.token_count_in {
+                f.insert("token_count_in".to_string(), serde_json::json!(t));
+            }
+            if let Some(t) = result.token_count_out {
+                f.insert("token_count_out".to_string(), serde_json::json!(t));
+            }
+            if let Some(tier) = result.extraction_tier {
+                f.insert("extraction_tier".to_string(), serde_json::json!(tier));
+            }
             f
         },
     });
