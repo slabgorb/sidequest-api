@@ -1503,6 +1503,7 @@ async fn dispatch_message(
                             class: ps.character_class.clone(),
                             level: ps.character_level,
                             portrait_url: None,
+                            current_location: ps.display_location.clone(),
                         })
                         .collect();
                     if !members.is_empty() {
@@ -1544,6 +1545,7 @@ async fn dispatch_message(
                             class: ps.character_class.clone(),
                             level: ps.character_level,
                             portrait_url: None,
+                            current_location: ps.display_location.clone(),
                         })
                         .collect();
                     let member_count = all_members.len();
@@ -1857,6 +1859,7 @@ async fn dispatch_connect(
                                         }
                                     }).collect(),
                                     portrait_url: None,
+                                    current_location: saved.snapshot.location.clone(),
                                 },
                                 player_id: player_id.to_string(),
                             });
@@ -1912,6 +1915,7 @@ async fn dispatch_connect(
                                     class: c.char_class.as_str().to_string(),
                                     level: c.core.level as u32,
                                     portrait_url: None,
+                                    current_location: saved.snapshot.location.clone(),
                                 })
                                 .collect();
                             responses.push(GameMessage::PartyStatus {
@@ -2497,6 +2501,7 @@ async fn dispatch_character_creation(
                                 }
                             }).collect(),
                             portrait_url: None,
+                            current_location: current_location.clone(),
                         },
                         player_id: player_id.to_string(),
                     };
@@ -2585,6 +2590,7 @@ async fn dispatch_character_creation(
                                             class: character.char_class.as_str().to_string(),
                                             level: character.core.level as u32,
                                             portrait_url: None,
+                                            current_location: current_location.clone(),
                                         }
                                     } else {
                                         // Other player — use PlayerState fields
@@ -2598,6 +2604,7 @@ async fn dispatch_character_creation(
                                             class: ps.character_class.clone(),
                                             level: ps.character_level,
                                             portrait_url: None,
+                                            current_location: ps.display_location.clone(),
                                         }
                                     }
                                 })

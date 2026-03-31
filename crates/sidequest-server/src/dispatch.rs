@@ -775,6 +775,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             class: char_class.to_string(),
             level: *ctx.level,
             portrait_url: None,
+            current_location: ctx.current_location.clone(),
         }];
         // In multiplayer, include other players from the shared session
         let holder = ctx.shared_session_holder.lock().await;
@@ -794,6 +795,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     class: String::new(),
                     level: ps.character_level,
                     portrait_url: None,
+                    current_location: ps.display_location.clone(),
                 });
             }
         }
@@ -1424,6 +1426,7 @@ async fn sync_back_to_shared_session(
                             class: ps.character_class.clone(),
                             level: ps.character_level,
                             portrait_url: None,
+                            current_location: ps.display_location.clone(),
                         })
                         .collect();
                     let player_ids: Vec<String> = ss.players.keys().cloned().collect();
