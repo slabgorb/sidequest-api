@@ -82,6 +82,10 @@ pub(crate) struct DispatchContext<'a> {
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
+    pub aside: bool,
+    pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
+    pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
+    pub pending_trope_context: &'a mut Option<String>,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -210,6 +214,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         return slash_messages;
     }
 
+    // Aside handling — narrate with flavor but skip ALL state mutations.
+    if ctx.aside {
+        return handle_aside(ctx).await;
+    }
+
     let mut state_summary = prompt::build_prompt_context(ctx).await;
 
     // Check if barrier mode is active (Structured/Cinematic turn mode).
@@ -254,11 +263,58 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     drop(_preprocess_guard);
     let preprocess_done = std::time::Instant::now();
 
+    // Build trope beat directives from previous turn's fired beats (if any)
+    let trope_beat_directives = ctx.pending_trope_context.take();
+
+    // Build active trope summary for background context (all agents)
+    let active_trope_summary = {
+        let active: Vec<_> = ctx
+            .trope_states
+            .iter()
+            .filter(|ts| {
+                matches!(
+                    ts.status(),
+                    sidequest_game::trope::TropeStatus::Active
+                        | sidequest_game::trope::TropeStatus::Progressing
+                )
+            })
+            .collect();
+        if active.is_empty() {
+            None
+        } else {
+            let lines: Vec<String> = active
+                .iter()
+                .map(|ts| {
+                    let name = ctx
+                        .trope_defs
+                        .iter()
+                        .find(|d| d.id.as_deref() == Some(ts.trope_definition_id()))
+                        .map(|d| d.name.as_str())
+                        .unwrap_or(ts.trope_definition_id());
+                    format!(
+                        "- {} [{:?}]: {:.0}% progressed",
+                        name,
+                        ts.status(),
+                        ts.progression() * 100.0,
+                    )
+                })
+                .collect();
+            Some(format!(
+                "[ACTIVE TROPES — BACKGROUND]\n{}",
+                lines.join("\n")
+            ))
+        }
+    };
+
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
         in_combat: ctx.combat_state.in_combat(),
         in_chase: ctx.chase_state.is_some(),
+        narrator_verbosity: ctx.narrator_verbosity,
+        narrator_vocabulary: ctx.narrator_vocabulary,
+        pending_trope_context: trope_beat_directives,
+        active_trope_summary,
     };
     let result = ctx
         .state
@@ -435,7 +491,25 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages).await;
 
-    tropes::process_tropes(ctx, &clean_narration, &mut messages);
+    let fired_beats = tropes::process_tropes(ctx, &clean_narration, &mut messages);
+    system_tick_span.record("tropes_fired", fired_beats.len() as u64);
+
+    // Format beat context for NEXT turn's narrator prompt injection.
+    // Beats fire after narration, so they inform the next turn — same as Python's
+    // _pending_escalation_beats pattern.
+    if !fired_beats.is_empty() {
+        let _inject_span = tracing::info_span!(
+            "trope.inject_context",
+            beats_injected = fired_beats.len(),
+        )
+        .entered();
+
+        let mut troper = sidequest_agents::agents::troper::TroperAgent::new();
+        troper.set_fired_beats(fired_beats);
+        troper.set_trope_definitions(ctx.trope_defs.to_vec());
+        troper.set_trope_states(ctx.trope_states.clone());
+        *ctx.pending_trope_context = troper.build_beats_context();
+    }
 
     drop(_system_tick_guard);
 
@@ -1446,4 +1520,55 @@ fn emit_telemetry(
             f
         },
     });
+}
+
+/// Handle an aside — out-of-character commentary that does not affect the game world.
+///
+/// Calls the narrator with an aside-specific prompt injection, then returns narration
+/// only. Skips ALL state mutation subsystems: no combat, no chase, no tropes, no
+/// renders, no music, no NPC registry, no narration history, no turn barrier.
+async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
+    tracing::info!(player = %ctx.char_name, action = %ctx.action, "aside — out-of-character, skipping state mutations");
+
+    let mut state_summary = prompt::build_prompt_context(ctx).await;
+    state_summary.push_str(concat!(
+        "\n\nASIDE RULES (HARD CONSTRAINTS):",
+        "\nThe player is speaking an aside — an out-of-character thought, whisper, or ",
+        "meta-commentary. This is NOT an in-world action.",
+        "\n1. Respond with a brief inner-monologue, fourth-wall-breaking quip, or flavor acknowledgment.",
+        "\n2. Do NOT advance the story, trigger combat, move NPCs, or change ANY game state.",
+        "\n3. Do NOT describe the character performing any actions or interacting with the world.",
+        "\n4. Keep it short — 1-3 sentences maximum.",
+    ));
+
+    let context = TurnContext {
+        state_summary: Some(state_summary),
+        in_combat: ctx.combat_state.in_combat(),
+        in_chase: ctx.chase_state.is_some(),
+        narrator_verbosity: ctx.narrator_verbosity,
+        narrator_vocabulary: ctx.narrator_vocabulary,
+        pending_trope_context: None,
+        active_trope_summary: None,
+    };
+    let result = ctx
+        .state
+        .game_service()
+        .process_action(&format!("(aside) {}", ctx.action), &context);
+
+    let narration_text = strip_location_header(&result.narration);
+
+    vec![
+        GameMessage::Narration {
+            payload: NarrationPayload {
+                text: narration_text.to_string(),
+                state_delta: None,
+                footnotes: vec![],
+            },
+            player_id: ctx.player_id.to_string(),
+        },
+        GameMessage::NarrationEnd {
+            payload: NarrationEndPayload { state_delta: None },
+            player_id: ctx.player_id.to_string(),
+        },
+    ]
 }

@@ -1209,6 +1209,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // Narrator style settings — per-session, changeable mid-game via SESSION_EVENT{settings}.
     let mut narrator_verbosity = sidequest_protocol::NarratorVerbosity::default();
     let mut narrator_vocabulary = sidequest_protocol::NarratorVocabulary::default();
+    // Pending trope beat context — fired beats from previous turn, injected into next narrator prompt.
+    let mut pending_trope_context: Option<String> = None;
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<
@@ -1259,6 +1261,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut resource_declarations,
                         &mut narrator_verbosity,
                         &mut narrator_vocabulary,
+                        &mut pending_trope_context,
                     )
                     .await;
                     for resp in responses {
@@ -1415,6 +1418,7 @@ async fn dispatch_message(
     resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
     narrator_verbosity: &mut sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
+    pending_trope_context: &mut Option<String>,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1454,6 +1458,7 @@ async fn dispatch_message(
                 resource_declarations,
                 narrator_verbosity,
                 narrator_vocabulary,
+                pending_trope_context,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1735,6 +1740,7 @@ async fn dispatch_message(
                 resource_declarations,
                 narrator_verbosity,
                 narrator_vocabulary,
+                pending_trope_context,
             )
             .await
         }
@@ -1793,6 +1799,7 @@ async fn dispatch_message(
                 resource_declarations,
                 narrator_verbosity: *narrator_verbosity,
                 narrator_vocabulary: *narrator_vocabulary,
+                pending_trope_context,
             })
             .await
         }
@@ -1853,6 +1860,7 @@ async fn dispatch_connect(
     resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
     narrator_verbosity: &mut sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
+    pending_trope_context: &mut Option<String>,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1924,6 +1932,37 @@ async fn dispatch_connect(
                             combat_round = combat_state.round(),
                             "reconnect.state_restored — tropes, quests, combat, chase loaded from save"
                         );
+
+                        // Cross-session trope advancement — "living world" progression
+                        // while the player was away. Uses rate_per_day from genre pack.
+                        if let Some(saved_at) = saved.snapshot.last_saved_at {
+                            let elapsed = chrono::Utc::now() - saved_at;
+                            let elapsed_days = elapsed.num_seconds() as f64 / 86400.0;
+                            if elapsed_days > 0.0 && !trope_states.is_empty() {
+                                let session_beats =
+                                    sidequest_game::trope::TropeEngine::advance_between_sessions(
+                                        trope_states,
+                                        trope_defs,
+                                        elapsed_days,
+                                    );
+                                tracing::info!(
+                                    elapsed_days = elapsed_days,
+                                    tropes_advanced = trope_states.len(),
+                                    beats_fired = session_beats.len(),
+                                    "session.trope_advance — living world progression"
+                                );
+                                // If beats fired during the gap, format them for the
+                                // first turn's narrator prompt.
+                                if !session_beats.is_empty() {
+                                    let mut troper =
+                                        sidequest_agents::agents::troper::TroperAgent::new();
+                                    troper.set_fired_beats(session_beats);
+                                    troper.set_trope_definitions(trope_defs.clone());
+                                    troper.set_trope_states(trope_states.clone());
+                                    *pending_trope_context = troper.build_beats_context();
+                                }
+                            }
+                        }
 
                         // Transition session to Playing
                         let _ = session.complete_character_creation();
@@ -2462,6 +2501,7 @@ async fn dispatch_character_creation(
     resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
     narrator_verbosity: &sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: &sidequest_protocol::NarratorVocabulary,
+    pending_trope_context: &mut Option<String>,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2672,6 +2712,7 @@ async fn dispatch_character_creation(
                             resource_declarations,
                             narrator_verbosity: *narrator_verbosity,
                             narrator_vocabulary: *narrator_vocabulary,
+                            pending_trope_context,
                         })
                         .await;
 
