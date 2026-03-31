@@ -27,6 +27,7 @@ impl GenrePack {
         self.validate_achievements(&mut errors);
         self.validate_cartography(&mut errors);
         self.validate_scenarios(&mut errors);
+        self.validate_confrontations(&mut errors);
         errors.into_result()
     }
 
@@ -135,6 +136,59 @@ impl GenrePack {
                             ),
                         });
                     }
+                }
+            }
+        }
+    }
+
+    fn validate_confrontations(&self, errors: &mut ValidationErrors) {
+        if self.rules.confrontations.is_empty() {
+            return;
+        }
+
+        // Collect valid ability score names (uppercased for comparison)
+        let ability_scores: HashSet<String> = self
+            .rules
+            .ability_score_names
+            .iter()
+            .map(|s| s.to_uppercase())
+            .collect();
+
+        // Collect all confrontation type IDs for escalates_to validation
+        let confrontation_types: HashSet<&str> = self
+            .rules
+            .confrontations
+            .iter()
+            .map(|c| c.confrontation_type.as_str())
+            .collect();
+
+        for confrontation in &self.rules.confrontations {
+            // Validate beat stat_check references
+            for beat in &confrontation.beats {
+                if !ability_scores.contains(&beat.stat_check.to_uppercase()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "confrontation '{}' beat '{}' has stat_check '{}' \
+                             which is not a declared ability score (valid: {:?})",
+                            confrontation.confrontation_type,
+                            beat.id,
+                            beat.stat_check,
+                            self.rules.ability_score_names
+                        ),
+                    });
+                }
+            }
+
+            // Validate escalates_to references
+            if let Some(ref target) = confrontation.escalates_to {
+                if !confrontation_types.contains(target.as_str()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "confrontation '{}' escalates_to '{}' \
+                             which is not a declared confrontation type",
+                            confrontation.confrontation_type, target
+                        ),
+                    });
                 }
             }
         }
