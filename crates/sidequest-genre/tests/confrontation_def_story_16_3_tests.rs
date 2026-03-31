@@ -657,22 +657,11 @@ confrontations:
 
 /// Helper to locate genre packs directory.
 fn genre_packs_path() -> std::path::PathBuf {
-    // Check GENRE_PACKS_PATH env var first, then common relative paths
     if let Ok(path) = std::env::var("GENRE_PACKS_PATH") {
         return std::path::PathBuf::from(path);
     }
-    // From sidequest-api root
-    let candidates = [
-        "../sidequest-content/genre_packs",
-        "../../sidequest-content/genre_packs",
-    ];
-    for candidate in &candidates {
-        let p = std::path::PathBuf::from(candidate);
-        if p.exists() {
-            return p;
-        }
-    }
-    panic!("Cannot find genre_packs directory. Set GENRE_PACKS_PATH env var.");
+    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    manifest.join("../../../sidequest-content/genre_packs")
 }
 
 #[test]
