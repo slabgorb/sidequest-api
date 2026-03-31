@@ -207,11 +207,36 @@ impl GameService for Orchestrator {
             ));
         }
 
+        // Trope beat directives (Early zone — high attention, from previous turn's fired beats)
+        if let Some(ref beats) = context.pending_trope_context {
+            let _trope_span = tracing::info_span!(
+                "orchestrator.trope_beat_injection",
+                beats_injected = 1u64,
+            )
+            .entered();
+            builder.add_section(PromptSection::new(
+                "trope_beat_directives",
+                beats.clone(),
+                AttentionZone::Early,
+                SectionCategory::State,
+            ));
+        }
+
         // Game state section (Valley zone — lower attention, grounding context)
         if let Some(state) = &context.state_summary {
             builder.add_section(PromptSection::new(
                 "game_state",
                 format!("<game_state>\n{}\n</game_state>", state),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ));
+        }
+
+        // Active trope summary (Valley zone — background context for all agents)
+        if let Some(ref trope_summary) = context.active_trope_summary {
+            builder.add_section(PromptSection::new(
+                "active_tropes",
+                trope_summary.clone(),
                 AttentionZone::Valley,
                 SectionCategory::State,
             ));
@@ -666,6 +691,11 @@ pub struct TurnContext {
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     /// Per-session narrator vocabulary setting (accessible/literary/epic).
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
+    /// Trope beat directives from the previous turn's fired beats.
+    /// Injected into the Early attention zone so the narrator weaves them in.
+    pub pending_trope_context: Option<String>,
+    /// Active trope summary for background context (all agents, Valley zone).
+    pub active_trope_summary: Option<String>,
 }
 
 /// Result of processing a player action through the full turn loop.

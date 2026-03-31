@@ -5,7 +5,10 @@
 //! the story naturally. These instructions are injected into the narrator's
 //! context so trope progression feels organic, not mechanical. (ADR-018)
 
+use std::collections::HashSet;
+
 use crate::agent::Agent;
+use crate::client::ClaudeClient;
 use crate::context_builder::ContextBuilder;
 use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
 use sidequest_game::trope::{FiredBeat, TropeState, TropeStatus};
@@ -87,6 +90,146 @@ impl TroperAgent {
     /// Whether there are fired beats pending injection.
     pub fn has_pending_beats(&self) -> bool {
         !self.fired_beats.is_empty()
+    }
+
+    /// Evaluate narration against available tropes using LLM semantic matching.
+    ///
+    /// Replaces keyword substring matching with Claude-based evaluation.
+    /// Returns a list of trope IDs that the LLM determined were triggered
+    /// by this turn's narration. Unknown or already-active IDs are rejected.
+    pub fn evaluate_triggers(
+        client: &ClaudeClient,
+        narration: &str,
+        available_tropes: &[TropeDefinition],
+        active_ids: &HashSet<String>,
+    ) -> Vec<String> {
+        let span = tracing::info_span!(
+            "trope.evaluate_triggers",
+            tropes_evaluated = tracing::field::Empty,
+            narration_len = narration.len(),
+            activations_returned = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        // Filter to dormant tropes with triggers
+        let candidates: Vec<&TropeDefinition> = available_tropes
+            .iter()
+            .filter(|td| {
+                if let Some(ref id) = td.id {
+                    !active_ids.contains(id) && !td.triggers.is_empty()
+                } else {
+                    false
+                }
+            })
+            .collect();
+
+        span.record("tropes_evaluated", candidates.len() as u64);
+
+        if candidates.is_empty() {
+            span.record("activations_returned", 0u64);
+            return Vec::new();
+        }
+
+        // Build prompt listing available tropes and their triggers
+        let mut prompt = String::from(
+            "You evaluate whether narrative events trigger story tropes.\n\n\
+             [AVAILABLE TROPES]\n",
+        );
+        for td in &candidates {
+            let id = td.id.as_deref().unwrap();
+            let triggers = td.triggers.join("; ");
+            prompt.push_str(&format!("- {}: {}\n", id, triggers));
+        }
+        prompt.push_str(&format!(
+            "\n[NARRATIVE THIS TURN]\n{}\n\n\
+             Rules:\n\
+             - Only activate tropes clearly triggered by THIS turn's narrative\n\
+             - Do not speculatively activate tropes that might be triggered later\n\
+             - Use exact trope IDs from the list above\n\n\
+             Respond ONLY with JSON: {{\"trope_activations\": [\"id1\", \"id2\"]}}\n\
+             If nothing triggers, respond: {{\"trope_activations\": []}}\n",
+            narration,
+        ));
+
+        // Use haiku for speed — this is a classification task, not creative work
+        let response = match client.send_with_model(&prompt, "claude-haiku-4-5-20251001") {
+            Ok(resp) => resp.text,
+            Err(e) => {
+                tracing::error!(error = %e, "Trope trigger evaluation LLM call failed");
+                span.record("activations_returned", 0u64);
+                return Vec::new();
+            }
+        };
+
+        // Parse JSON response
+        let activations = Self::parse_trigger_response(&response, available_tropes, active_ids);
+        span.record("activations_returned", activations.len() as u64);
+
+        if !activations.is_empty() {
+            tracing::info!(
+                activations = ?activations,
+                "LLM trope trigger evaluation returned activations"
+            );
+        }
+
+        activations
+    }
+
+    /// Parse the LLM's JSON response for trope_activations, validating IDs.
+    fn parse_trigger_response(
+        response: &str,
+        available_tropes: &[TropeDefinition],
+        active_ids: &HashSet<String>,
+    ) -> Vec<String> {
+        // Try to extract JSON from response (may have markdown fences)
+        let json_str = if let Some(start) = response.find('{') {
+            if let Some(end) = response.rfind('}') {
+                &response[start..=end]
+            } else {
+                response
+            }
+        } else {
+            response
+        };
+
+        #[derive(serde::Deserialize)]
+        struct TriggerResponse {
+            #[serde(default)]
+            trope_activations: Vec<String>,
+        }
+
+        let parsed: TriggerResponse = match serde_json::from_str(json_str) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    raw_response = %response,
+                    "Failed to parse trope trigger evaluation response"
+                );
+                return Vec::new();
+            }
+        };
+
+        let known_ids: HashSet<&str> = available_tropes
+            .iter()
+            .filter_map(|td| td.id.as_deref())
+            .collect();
+
+        parsed
+            .trope_activations
+            .into_iter()
+            .filter(|id| {
+                if !known_ids.contains(id.as_str()) {
+                    tracing::warn!(trope_id = %id, "LLM returned unknown trope ID — skipping");
+                    return false;
+                }
+                if active_ids.contains(id) {
+                    tracing::debug!(trope_id = %id, "LLM returned already-active trope — skipping");
+                    return false;
+                }
+                true
+            })
+            .collect()
     }
 
     /// Format a single fired beat into a context block.
@@ -252,6 +395,7 @@ impl Agent for TroperAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use sidequest_genre::TropeEscalation;
     use sidequest_protocol::NonBlankString;
 
@@ -483,5 +627,102 @@ mod tests {
         // Only identity section, no beats
         assert_eq!(sections.len(), 1);
         assert_eq!(sections[0].zone, AttentionZone::Primacy);
+    }
+
+    // ========================================================================
+    // Trigger evaluation parsing tests
+    // ========================================================================
+
+    fn make_trope_def_with_triggers(id: &str, name: &str, triggers: Vec<&str>) -> TropeDefinition {
+        let mut def = make_trope_def(id, name);
+        def.triggers = triggers.into_iter().map(String::from).collect();
+        def
+    }
+
+    #[test]
+    fn parse_trigger_response_valid_json() {
+        let defs = vec![
+            make_trope_def_with_triggers("inquisition", "Inquisition", vec!["magic"]),
+            make_trope_def_with_triggers("heir", "Heir", vec!["bloodline"]),
+        ];
+        let active: HashSet<String> = HashSet::new();
+
+        let result = TroperAgent::parse_trigger_response(
+            r#"{"trope_activations": ["inquisition"]}"#,
+            &defs,
+            &active,
+        );
+
+        assert_eq!(result, vec!["inquisition"]);
+    }
+
+    #[test]
+    fn parse_trigger_response_empty_activations() {
+        let defs = vec![make_trope_def_with_triggers("x", "X", vec!["y"])];
+        let active: HashSet<String> = HashSet::new();
+
+        let result = TroperAgent::parse_trigger_response(
+            r#"{"trope_activations": []}"#,
+            &defs,
+            &active,
+        );
+
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_trigger_response_rejects_unknown_ids() {
+        let defs = vec![make_trope_def_with_triggers("known", "Known", vec!["test"])];
+        let active: HashSet<String> = HashSet::new();
+
+        let result = TroperAgent::parse_trigger_response(
+            r#"{"trope_activations": ["known", "totally_fake"]}"#,
+            &defs,
+            &active,
+        );
+
+        assert_eq!(result, vec!["known"]);
+    }
+
+    #[test]
+    fn parse_trigger_response_rejects_already_active() {
+        let defs = vec![
+            make_trope_def_with_triggers("a", "A", vec!["x"]),
+            make_trope_def_with_triggers("b", "B", vec!["y"]),
+        ];
+        let active: HashSet<String> = ["a".to_string()].into();
+
+        let result = TroperAgent::parse_trigger_response(
+            r#"{"trope_activations": ["a", "b"]}"#,
+            &defs,
+            &active,
+        );
+
+        assert_eq!(result, vec!["b"]);
+    }
+
+    #[test]
+    fn parse_trigger_response_handles_markdown_fenced_json() {
+        let defs = vec![make_trope_def_with_triggers("x", "X", vec!["y"])];
+        let active: HashSet<String> = HashSet::new();
+
+        let result = TroperAgent::parse_trigger_response(
+            "```json\n{\"trope_activations\": [\"x\"]}\n```",
+            &defs,
+            &active,
+        );
+
+        assert_eq!(result, vec!["x"]);
+    }
+
+    #[test]
+    fn parse_trigger_response_handles_garbage() {
+        let defs = vec![make_trope_def_with_triggers("x", "X", vec!["y"])];
+        let active: HashSet<String> = HashSet::new();
+
+        let result =
+            TroperAgent::parse_trigger_response("I think maybe the tropes...", &defs, &active);
+
+        assert!(result.is_empty());
     }
 }

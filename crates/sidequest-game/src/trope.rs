@@ -87,6 +87,7 @@ impl TropeState {
 }
 
 /// A beat that fired during a tick.
+#[derive(Clone)]
 pub struct FiredBeat {
     /// The trope definition ID.
     pub trope_id: String,
@@ -240,6 +241,90 @@ impl TropeEngine {
         }
         tropes.push(TropeState::new(def_id));
         tropes.last().unwrap()
+    }
+
+    /// Advance all active tropes by elapsed real-time days since last session.
+    ///
+    /// Uses `rate_per_day` from passive progression config. Returns any escalation
+    /// beats that fire due to the advancement — these represent "living world"
+    /// events that happened while the player was away.
+    pub fn advance_between_sessions(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        elapsed_days: f64,
+    ) -> Vec<FiredBeat> {
+        let span = tracing::info_span!(
+            "trope.cross_session",
+            elapsed_days = elapsed_days,
+            tropes_advanced = tracing::field::Empty,
+            beats_fired = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let def_map: HashMap<&str, &TropeDefinition> = trope_defs
+            .iter()
+            .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
+            .collect();
+
+        let mut fired = Vec::new();
+        let mut advanced_count: u64 = 0;
+
+        for ts in tropes.iter_mut() {
+            if matches!(ts.status, TropeStatus::Resolved | TropeStatus::Dormant) {
+                continue;
+            }
+
+            let Some(td) = def_map.get(ts.trope_definition_id.as_str()) else {
+                continue;
+            };
+
+            let Some(pp) = &td.passive_progression else {
+                continue;
+            };
+
+            if pp.rate_per_day <= 0.0 {
+                continue;
+            }
+
+            let before = ts.progression;
+            ts.progression = (ts.progression + pp.rate_per_day * elapsed_days).min(1.0);
+
+            if (ts.progression - before).abs() > f64::EPSILON {
+                advanced_count += 1;
+            }
+
+            // Check escalation beats crossed during the gap
+            for beat in &td.escalation {
+                let threshold = OrderedFloat(beat.at);
+                if beat.at <= ts.progression && !ts.fired_beats.contains(&threshold) {
+                    ts.fired_beats.insert(threshold);
+                    fired.push(FiredBeat {
+                        trope_id: ts.trope_definition_id.clone(),
+                        trope_name: td.name.as_str().to_string(),
+                        beat: beat.clone(),
+                    });
+                }
+            }
+
+            // Status transition: Active → Progressing
+            if ts.status == TropeStatus::Active && ts.progression > 0.0 {
+                ts.status = TropeStatus::Progressing;
+            }
+        }
+
+        span.record("tropes_advanced", advanced_count);
+        span.record("beats_fired", fired.len() as u64);
+
+        if advanced_count > 0 {
+            tracing::info!(
+                advanced = advanced_count,
+                beats = fired.len(),
+                elapsed_days = elapsed_days,
+                "Cross-session trope advancement complete"
+            );
+        }
+
+        fired
     }
 
     /// Resolve a trope — sets progression to 1.0 and status to Resolved.
