@@ -851,9 +851,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     );
     let _media_guard = media_span.enter();
 
-    process_render(ctx, &clean_narration, narration_text).await;
+    process_render(ctx, &clean_narration, narration_text, &result).await;
 
-    process_audio(ctx, &clean_narration, &mut messages).await;
+    process_audio(ctx, &clean_narration, &mut messages, &result).await;
 
     // Record this interaction in the turn manager (granular counter for chronology)
     ctx.turn_manager.record_interaction();
@@ -1448,12 +1448,13 @@ async fn sync_back_to_shared_session(
     }
 }
 
-/// Audio/music — evaluate mood via MusicDirector, emit audio cue.
+/// Audio/music — use narrator's scene_mood, or fall back to MusicDirector classification.
 #[tracing::instrument(name = "turn.audio", skip_all)]
 async fn process_audio(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
     messages: &mut Vec<GameMessage>,
+    result: &sidequest_agents::orchestrator::ActionResult,
 ) {
     if let Some(ref mut director) = ctx.music_director {
         tracing::info!("music_director_present — evaluating mood");
@@ -1465,25 +1466,24 @@ async fn process_audio(
             } else {
                 1.0
             },
-            quest_completed: {
-                let narr = clean_narration.to_lowercase();
-                narr.contains("quest complete") || narr.contains("mission accomplished")
-                    || narr.contains("task done") || narr.contains("objective achieved")
-            },
-            npc_died: {
-                let narr = clean_narration.to_lowercase();
-                narr.contains("falls dead") || narr.contains("killed")
-                    || narr.contains("dies") || narr.contains("slain")
-                    || narr.contains("collapses lifeless")
-            },
+            // Quest completion and NPC death now come from structured quest_updates,
+            // not keyword scanning. Check if any quest was marked "completed:".
+            quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
+            npc_died: false, // TODO: detect from hp_changes when NPC HP reaches 0
         };
-        // Classify mood first so we can include it in the protocol message
-        let classification = director.classify_mood(clean_narration, &mood_ctx);
-        let mood_key = classification.primary.as_key();
+        // Use narrator's scene_mood — it's required every turn.
+        let mood_key = match result.scene_mood.as_deref() {
+            Some(mood) => {
+                tracing::info!(mood = %mood, "music_mood_from_narrator");
+                mood
+            }
+            None => {
+                tracing::error!("narrator did not provide scene_mood — defaulting to exploration");
+                "exploration"
+            }
+        };
         tracing::info!(
             mood = mood_key,
-            intensity = classification.intensity,
-            confidence = classification.confidence,
             in_combat = mood_ctx.in_combat,
             "music_mood_classified"
         );
@@ -1523,102 +1523,91 @@ async fn process_audio(
     }
 }
 
-/// Render pipeline — extract subject from narration, filter, enqueue.
+/// Render pipeline — use narrator's visual_scene for image prompts.
 #[tracing::instrument(name = "turn.render", skip_all)]
 async fn process_render(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
     narration_text: &str,
+    result: &sidequest_agents::orchestrator::ActionResult,
 ) {
-    let extraction_context = sidequest_game::ExtractionContext {
-        current_location: extract_location_header(narration_text).unwrap_or_default(),
-        in_combat: ctx.combat_state.in_combat(),
-        known_npcs: ctx.npc_registry.iter().map(|e| e.name.clone()).collect(),
-        ..Default::default()
+    // Use narrator's visual_scene — the narrator already imagined the scene.
+    let scene = match result.visual_scene {
+        Some(ref vs) => vs,
+        None => {
+            tracing::error!("narrator did not provide visual_scene — skipping render");
+            return;
+        }
     };
-    if let Some(subject) = ctx.state
+
+    // Map narrator tier string to SubjectTier
+    let tier = match scene.tier.as_str() {
+        "portrait" => sidequest_game::SubjectTier::Portrait,
+        "landscape" => sidequest_game::SubjectTier::Landscape,
+        "scene_illustration" => sidequest_game::SubjectTier::Scene,
+        _ => sidequest_game::SubjectTier::Scene,
+    };
+
+    // Build RenderSubject from narrator's visual description
+    let subject = match sidequest_game::RenderSubject::new(
+        vec![], // entities not needed — the subject text is already visual
+        sidequest_game::SceneType::Exploration,
+        tier,
+        scene.subject.clone(),
+        0.6, // default weight — narrator provided, always worth rendering
+    ) {
+        Some(s) => s,
+        None => {
+            tracing::error!(subject = %scene.subject, "invalid visual_scene from narrator");
+            return;
+        }
+    };
+
+    tracing::info!(
+        prompt = %subject.prompt_fragment(),
+        tier = ?subject.tier(),
+        "visual_scene from narrator"
+    );
+
+    let filter_ctx = sidequest_game::FilterContext {
+        in_combat: ctx.combat_state.in_combat(),
+        scene_transition: extract_location_header(narration_text).is_some(),
+        player_requested: false,
+    };
+    let decision = ctx.state
         .inner
-        .subject_extractor
-        .extract(clean_narration, &extraction_context)
-    {
-        // Enrich prompt with NPC physical descriptions so the image generator
-        // anchors on "human" rather than interpreting surreal prose as creatures.
-        let subject = {
-            let mut anchors: Vec<String> = Vec::new();
-            for entity in subject.entities() {
-                if let Some(npc) = ctx.npc_registry.iter().find(|e| e.name == *entity) {
-                    let pronoun_hint = match npc.pronouns.as_str() {
-                        "she/her" => "a woman",
-                        "he/him" => "a man",
-                        "they/them" => "a person",
-                        _ => "a person",
-                    };
-                    let role = if npc.role.is_empty() { "" } else { &npc.role };
-                    if role.is_empty() {
-                        anchors.push(format!("{}, {}", npc.name, pronoun_hint));
+        .beat_filter
+        .lock()
+        .await
+        .evaluate(&subject, &filter_ctx);
+    tracing::info!(decision = ?decision, "BeatFilter decision");
+    if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
+        if let Some(ref queue) = ctx.state.inner.render_queue {
+            let (art_style, model, neg_prompt) = match ctx.visual_style {
+                Some(ref vs) => {
+                    let location = extract_location_header(narration_text).unwrap_or_default().to_lowercase();
+                    let tag_override = if !location.is_empty() {
+                        vs.visual_tag_overrides
+                            .iter()
+                            .find(|(key, _)| location.contains(key.as_str()))
+                            .map(|(_, val)| val.as_str())
                     } else {
-                        anchors.push(format!("{}, {} {}", npc.name, pronoun_hint, role));
-                    }
+                        None
+                    };
+                    let style = match tag_override {
+                        Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
+                        None => vs.positive_suffix.clone(),
+                    };
+                    (style, vs.preferred_model.clone(), vs.negative_prompt.clone())
                 }
-            }
-            if anchors.is_empty() {
-                subject
-            } else {
-                let anchor_prefix = anchors.join("; ");
-                let enriched = format!("{}, {}", anchor_prefix, subject.prompt_fragment());
-                subject.with_prompt_fragment(enriched)
-            }
-        };
-        tracing::info!(
-            prompt = %subject.prompt_fragment(),
-            tier = ?subject.tier(),
-            weight = subject.narrative_weight(),
-            "Subject extracted from narration"
-        );
-        let filter_ctx = sidequest_game::FilterContext {
-            in_combat: ctx.combat_state.in_combat(),
-            scene_transition: extract_location_header(narration_text).is_some(),
-            player_requested: false,
-        };
-        let decision = ctx.state
-            .inner
-            .beat_filter
-            .lock()
-            .await
-            .evaluate(&subject, &filter_ctx);
-        tracing::info!(decision = ?decision, "BeatFilter decision");
-        if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
-            if let Some(ref queue) = ctx.state.inner.render_queue {
-                let (art_style, model, neg_prompt) = match ctx.visual_style {
-                    Some(ref vs) => {
-                        let location = extraction_context.current_location.to_lowercase();
-                        let tag_override = if !location.is_empty() {
-                            vs.visual_tag_overrides
-                                .iter()
-                                .find(|(key, _)| location.contains(key.as_str()))
-                                .map(|(_, val)| val.as_str())
-                        } else {
-                            None
-                        };
-                        let style = match tag_override {
-                            Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
-                            None => vs.positive_suffix.clone(),
-                        };
-                        (style, vs.preferred_model.clone(), vs.negative_prompt.clone())
-                    }
-                    None => ("oil_painting".to_string(), "flux-schnell".to_string(), String::new()),
-                };
-                match queue.enqueue(subject, &art_style, &model, &neg_prompt, clean_narration).await {
-                    Ok(result) => tracing::info!(result = ?result, "Render job enqueued"),
-                    Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
-                }
+                None => ("oil_painting".to_string(), "flux-schnell".to_string(), String::new()),
+            };
+            // Send visual_scene subject as prompt — no narration, daemon skips SubjectExtractor
+            match queue.enqueue(subject, &art_style, &model, &neg_prompt, "").await {
+                Ok(r) => tracing::info!(result = ?r, "Render job enqueued"),
+                Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
             }
         }
-    } else {
-        tracing::debug!(
-            narration_len = clean_narration.len(),
-            "No render subject extracted"
-        );
     }
 }
 

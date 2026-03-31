@@ -177,6 +177,10 @@ mod agent_types_tests {
             token_count_in: None,
             token_count_out: None,
             extraction_tier: None,
+            visual_scene: None,
+            scene_mood: None,
+            personality_events: vec![],
+            scene_intent: None,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -355,6 +359,10 @@ mod game_service_tests {
             token_count_in: None,
             token_count_out: None,
             extraction_tier: None,
+            visual_scene: None,
+            scene_mood: None,
+            personality_events: vec![],
+            scene_intent: None,
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -396,6 +404,10 @@ mod error_handling_tests {
             token_count_in: None,
             token_count_out: None,
             extraction_tier: None,
+            visual_scene: None,
+            scene_mood: None,
+            personality_events: vec![],
+            scene_intent: None,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());
