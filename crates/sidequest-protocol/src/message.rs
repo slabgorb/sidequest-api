@@ -25,6 +25,46 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
+// NarratorVerbosity — per-session narrator verbosity control (story 14-3)
+// ---------------------------------------------------------------------------
+
+/// Controls how verbose the narrator's prose output should be.
+///
+/// Serializes as lowercase strings for wire compatibility with the React UI.
+/// Default is `Standard`. Solo sessions default to `Verbose` via
+/// `default_for_player_count()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NarratorVerbosity {
+    /// Keep descriptions to 1-2 sentences. Prioritize action over atmosphere.
+    Concise,
+    /// Standard descriptive prose — balanced detail and pacing.
+    Standard,
+    /// Elaborate with sensory details, world-building, and atmospheric prose.
+    Verbose,
+}
+
+impl Default for NarratorVerbosity {
+    fn default() -> Self {
+        Self::Standard
+    }
+}
+
+impl NarratorVerbosity {
+    /// Returns the default verbosity for a given player count.
+    ///
+    /// Solo sessions (1 player) default to Verbose for immersive storytelling.
+    /// Multiplayer sessions (2+) default to Standard for pacing.
+    pub fn default_for_player_count(player_count: usize) -> Self {
+        if player_count <= 1 {
+            Self::Verbose
+        } else {
+            Self::Standard
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // GameMessage — the tagged enum
 // ---------------------------------------------------------------------------
 
@@ -383,6 +423,11 @@ pub struct SessionEventPayload {
     /// Genre CSS content (on theme_css event).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub css: Option<String>,
+    /// Narrator verbosity setting (story 14-3).
+    /// Optional for backward compatibility — old clients that don't send it
+    /// deserialize as None, and the server applies a default based on player count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narrator_verbosity: Option<NarratorVerbosity>,
 }
 
 /// Character creation flow payload.

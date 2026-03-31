@@ -17,6 +17,7 @@ use sidequest_game::character::Character;
 use sidequest_game::known_fact::Confidence;
 use sidequest_game::npc::Npc;
 use sidequest_game::scene_directive::SceneDirective;
+use sidequest_protocol::NarratorVerbosity;
 
 /// Render a `SceneDirective` into its prompt text representation.
 ///
@@ -76,6 +77,10 @@ impl Default for PromptRegistry {
 /// Agents that receive pacing guidance in their prompts.
 const PACING_AGENTS: &[&str] = &["narrator", "creature_smith"];
 
+/// Agents that receive narrator verbosity instructions.
+/// Same set as pacing — only agents that produce narrative prose.
+const NARRATING_AGENTS: &[&str] = &["narrator", "creature_smith"];
+
 impl PromptRegistry {
     /// Inject pacing guidance into the prompt for narrating agents.
     /// Non-narrating agents (ensemble, dialectician, etc.) are silently skipped.
@@ -96,6 +101,55 @@ impl PromptRegistry {
         self.register_section(
             agent_name,
             PromptSection::new("pacing", content, AttentionZone::Late, SectionCategory::Context),
+        );
+    }
+
+    /// Inject narrator verbosity instructions into the system prompt.
+    ///
+    /// Only applies to narrating agents (narrator, creature_smith). Non-narrating
+    /// agents are silently skipped. Placed in Late zone, Format category — same
+    /// position as footnote protocol, so the LLM sees it with high recency attention.
+    ///
+    /// Story 14-3: Per-session verbosity control.
+    pub fn register_verbosity_section(
+        &mut self,
+        agent_name: &str,
+        verbosity: NarratorVerbosity,
+    ) {
+        if !NARRATING_AGENTS.contains(&agent_name) {
+            return;
+        }
+
+        let content = match verbosity {
+            NarratorVerbosity::Concise => {
+                "[NARRATION LENGTH]\n\
+                 Keep descriptions to 1-2 sentences. Prioritize action and \
+                 consequence over atmosphere. No extended scene-setting or \
+                 sensory elaboration. Be direct."
+            }
+            NarratorVerbosity::Standard => {
+                "[NARRATION LENGTH]\n\
+                 Use standard descriptive prose — balanced detail and pacing. \
+                 Include enough atmosphere to set the scene without belaboring it. \
+                 2-4 sentences per beat is typical."
+            }
+            NarratorVerbosity::Verbose => {
+                "[NARRATION LENGTH]\n\
+                 Elaborate with sensory details and world-building. Paint the \
+                 scene with sights, sounds, smells, and texture. Take time to \
+                 establish atmosphere and let moments breathe. 4-6+ sentences \
+                 per beat."
+            }
+        };
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "narrator_verbosity",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ),
         );
     }
 
