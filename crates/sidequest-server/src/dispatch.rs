@@ -1540,6 +1540,34 @@ async fn process_render(
         .subject_extractor
         .extract(clean_narration, &extraction_context)
     {
+        // Enrich prompt with NPC physical descriptions so the image generator
+        // anchors on "human" rather than interpreting surreal prose as creatures.
+        let subject = {
+            let mut anchors: Vec<String> = Vec::new();
+            for entity in subject.entities() {
+                if let Some(npc) = ctx.npc_registry.iter().find(|e| e.name == *entity) {
+                    let pronoun_hint = match npc.pronouns.as_str() {
+                        "she/her" => "a woman",
+                        "he/him" => "a man",
+                        "they/them" => "a person",
+                        _ => "a person",
+                    };
+                    let role = if npc.role.is_empty() { "" } else { &npc.role };
+                    if role.is_empty() {
+                        anchors.push(format!("{}, {}", npc.name, pronoun_hint));
+                    } else {
+                        anchors.push(format!("{}, {} {}", npc.name, pronoun_hint, role));
+                    }
+                }
+            }
+            if anchors.is_empty() {
+                subject
+            } else {
+                let anchor_prefix = anchors.join("; ");
+                let enriched = format!("{}, {}", anchor_prefix, subject.prompt_fragment());
+                subject.with_prompt_fragment(enriched)
+            }
+        };
         tracing::info!(
             prompt = %subject.prompt_fragment(),
             tier = ?subject.tier(),
