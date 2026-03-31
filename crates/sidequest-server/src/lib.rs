@@ -253,6 +253,8 @@ struct AppStateInner {
     sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     /// When true, skip TTS synthesis entirely (text narration still sent).
     tts_disabled: bool,
+    /// Image pacing throttle — suppresses rapid image generation (story 14-6).
+    image_throttle: Arc<std::sync::Mutex<render_integration::ImagePacingThrottle>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -431,6 +433,9 @@ impl AppState {
                 binary_broadcast_tx,
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
+                image_throttle: Arc::new(std::sync::Mutex::new(
+                    render_integration::ImagePacingThrottle::default_for_player_count(1),
+                )),
             }),
         }
     }
@@ -461,6 +466,11 @@ impl AppState {
     /// Path to genre packs directory.
     pub fn genre_packs_path(&self) -> &Path {
         &self.inner.genre_packs_path
+    }
+
+    /// Get the image pacing throttle (story 14-6).
+    pub fn image_throttle(&self) -> &Arc<std::sync::Mutex<render_integration::ImagePacingThrottle>> {
+        &self.inner.image_throttle
     }
 
     /// Number of active connections.
@@ -839,9 +849,11 @@ pub fn reconnect_required_response(player_id: &str, message: &str) -> GameMessag
 /// - CORS for React dev server at localhost:5173
 pub fn build_router(state: AppState) -> Router {
     // Spawn image broadcaster — listens for render completions and broadcasts IMAGE messages
+    // Story 14-6: Image pacing throttle — check cooldown before broadcasting
     if let Some(ref queue) = state.inner.render_queue {
         let mut render_rx = queue.subscribe();
         let broadcast_tx = state.inner.broadcast_tx.clone();
+        let image_throttle = state.inner.image_throttle.clone();
         tokio::spawn(async move {
             while let Ok(result) = render_rx.recv().await {
                 if let sidequest_game::RenderJobResult::Success {
@@ -855,6 +867,20 @@ pub fn build_router(state: AppState) -> Router {
                     if image_url.trim().is_empty() {
                         tracing::error!(job_id = %job_id, "render_broadcast_blocked — empty image_url");
                         continue;
+                    }
+
+                    // Story 14-6: Check image pacing throttle
+                    {
+                        let mut throttle = image_throttle.lock().unwrap();
+                        if !throttle.should_allow() {
+                            tracing::info!(
+                                job_id = %job_id,
+                                remaining_cooldown = throttle.remaining_cooldown_seconds(),
+                                "render_throttled — image suppressed by pacing cooldown"
+                            );
+                            continue;
+                        }
+                        throttle.record_render();
                     }
                     // Rewrite absolute file paths to served URLs.
                     let served_url = {
@@ -1472,6 +1498,13 @@ async fn dispatch_message(
                         "Turn mode transitioned on reconnecting player join"
                     );
 
+                    // Story 14-6: Update image throttle default based on player count
+                    {
+                        let mut throttle = state.image_throttle().lock().unwrap();
+                        let new_default = render_integration::ImagePacingThrottle::default_for_player_count(pc);
+                        throttle.set_cooldown(new_default.cooldown_seconds());
+                    }
+
                     // Initialize barrier if transitioning to structured mode
                     if ss_guard.turn_mode.should_use_barrier()
                         && ss_guard.turn_barrier.is_none()
@@ -1585,6 +1618,36 @@ async fn dispatch_message(
                     }
                 }
             }
+            responses
+        }
+        // Story 14-6: Handle session settings updates (image cooldown, verbosity, vocabulary)
+        GameMessage::SessionEvent { payload, .. } if payload.event == "settings" => {
+            let mut responses = Vec::new();
+            if let Some(cooldown) = payload.image_cooldown_seconds {
+                let mut throttle = state.image_throttle().lock().unwrap();
+                throttle.set_cooldown(cooldown);
+                tracing::info!(
+                    cooldown_seconds = cooldown,
+                    player_id = %player_id,
+                    "image_throttle_updated — cooldown changed via session settings"
+                );
+            }
+            // Acknowledge the settings update
+            responses.push(GameMessage::SessionEvent {
+                payload: SessionEventPayload {
+                    event: "settings_updated".to_string(),
+                    player_name: None,
+                    genre: None,
+                    world: None,
+                    has_character: None,
+                    initial_state: None,
+                    css: None,
+                    narrator_verbosity: None,
+                    narrator_vocabulary: None,
+                    image_cooldown_seconds: payload.image_cooldown_seconds,
+                },
+                player_id: player_id.to_string(),
+            });
             responses
         }
         GameMessage::CharacterCreation { payload, .. } => {
@@ -2672,6 +2735,14 @@ async fn dispatch_character_creation(
                                 player_count = pc,
                                 "Turn mode transitioned on player join"
                             );
+
+                            // Story 14-6: Update image throttle default based on player count
+                            {
+                                let mut throttle = state.image_throttle().lock().unwrap();
+                                let new_default = render_integration::ImagePacingThrottle::default_for_player_count(pc);
+                                throttle.set_cooldown(new_default.cooldown_seconds());
+                            }
+
                             // Initialize or expand barrier if in structured mode
                             if ss.turn_mode.should_use_barrier() {
                                 if let Some(ref barrier) = ss.turn_barrier {
