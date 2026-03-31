@@ -55,6 +55,14 @@ pub struct ActionResult {
     pub token_count_out: Option<usize>,
     /// JSON extraction tier used: 1=direct, 2=fenced, 3=regex (for GM Dashboard).
     pub extraction_tier: Option<u8>,
+    /// Visual scene description for image generation (from narrator JSON block).
+    pub visual_scene: Option<VisualScene>,
+    /// Scene mood tag for atmosphere/music selection (from narrator JSON block).
+    pub scene_mood: Option<String>,
+    /// OCEAN personality events for NPCs present this turn (from narrator JSON block).
+    pub personality_events: Vec<PersonalityEvent>,
+    /// High-level narrative intent of this scene (from narrator JSON block).
+    pub scene_intent: Option<String>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -290,6 +298,10 @@ impl GameService for Orchestrator {
                     token_count_in: None,
                     token_count_out: None,
                     extraction_tier: None,
+                    visual_scene: extraction.visual_scene,
+                    scene_mood: extraction.scene_mood,
+                    personality_events: extraction.personality_events,
+                    scene_intent: extraction.scene_intent,
                 }
             }
             Err(e) => {
@@ -338,6 +350,33 @@ pub struct NpcMention {
     pub is_new: bool,
 }
 
+/// Visual scene description extracted from narrator JSON block.
+/// Eliminates the separate LLM call for image subject extraction.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct VisualScene {
+    /// The image subject description for the renderer.
+    pub subject: String,
+    /// Render tier (e.g., "portrait", "scene", "vignette").
+    #[serde(default)]
+    pub tier: String,
+    /// Visual mood keyword (e.g., "tense", "serene", "chaotic").
+    #[serde(default)]
+    pub mood: String,
+    /// Additional style/content tags for the renderer.
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// An OCEAN personality event for an NPC extracted from narrator JSON block.
+/// Eliminates keyword matching for mood/OCEAN detection.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct PersonalityEvent {
+    /// The NPC's canonical name.
+    pub npc: String,
+    /// The personality-relevant event description.
+    pub event: String,
+}
+
 /// Contains footnotes, items gained, NPCs present, and quest updates in the narrator's response.
 #[derive(Debug, serde::Deserialize)]
 struct NarratorStructuredBlock {
@@ -349,6 +388,14 @@ struct NarratorStructuredBlock {
     npcs_present: Vec<NpcMention>,
     #[serde(default)]
     quest_updates: HashMap<String, String>,
+    #[serde(default)]
+    visual_scene: Option<VisualScene>,
+    #[serde(default)]
+    scene_mood: Option<String>,
+    #[serde(default)]
+    personality_events: Vec<PersonalityEvent>,
+    #[serde(default)]
+    scene_intent: Option<String>,
 }
 
 /// Extracted structured data from a narrator response.
@@ -363,6 +410,14 @@ pub struct NarratorExtraction {
     pub npcs_present: Vec<NpcMention>,
     /// Quest state changes keyed by quest name.
     pub quest_updates: HashMap<String, String>,
+    /// Visual scene description for image generation (eliminates separate LLM call).
+    pub visual_scene: Option<VisualScene>,
+    /// Scene mood tag for atmosphere/music selection.
+    pub scene_mood: Option<String>,
+    /// OCEAN personality events for NPCs present this turn.
+    pub personality_events: Vec<PersonalityEvent>,
+    /// High-level narrative intent of this scene.
+    pub scene_intent: Option<String>,
 }
 
 /// Extract structured data (footnotes, items) from a narrator response.
@@ -386,7 +441,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     strategy = "fenced_json",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates };
+                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates, visual_scene: block.visual_scene, scene_mood: block.scene_mood, personality_events: block.personality_events, scene_intent: block.scene_intent };
             }
             // Try parsing as a bare footnotes array (legacy format)
             if let Ok(footnotes) = serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str) {
@@ -396,7 +451,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     strategy = "fenced_array",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes, items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new() };
+                return NarratorExtraction { prose, footnotes, items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new(), visual_scene: None, scene_mood: None, personality_events: vec![], scene_intent: None };
             }
         }
     }
@@ -412,7 +467,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 strategy = "trailing_json",
                 "rag.structured_parsed"
             );
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates };
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates, visual_scene: block.visual_scene, scene_mood: block.scene_mood, personality_events: block.personality_events, scene_intent: block.scene_intent };
         }
     }
 
@@ -421,13 +476,13 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         let json_str = &raw[idx..];
         if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
             let prose = raw[..idx].trim().to_string();
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates };
+            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates, visual_scene: block.visual_scene, scene_mood: block.scene_mood, personality_events: block.personality_events, scene_intent: block.scene_intent };
         }
     }
 
     // No structured data found
     tracing::debug!("rag.no_structured_data_found");
-    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new() }
+    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new(), visual_scene: None, scene_mood: None, personality_events: vec![], scene_intent: None }
 }
 
 // ============================================================================

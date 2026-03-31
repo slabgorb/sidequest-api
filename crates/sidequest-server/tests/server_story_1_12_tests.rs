@@ -271,6 +271,10 @@ async fn server_accepts_mock_game_service() {
                 token_count_in: None,
                 token_count_out: None,
                 extraction_tier: None,
+                visual_scene: None,
+                scene_mood: None,
+                personality_events: vec![],
+                scene_intent: None,
             }
         }
     }
