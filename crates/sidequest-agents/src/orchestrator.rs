@@ -187,172 +187,193 @@ impl GameService for Orchestrator {
         );
 
         // Build prompt via ContextBuilder — zone-ordered, telemetry-instrumented.
-        let mut builder = ContextBuilder::new();
+        let prompt = {
+            let mut builder = ContextBuilder::new();
 
-        // Agent identity section (Primacy zone)
-        match route.agent_name() {
-            "creature_smith" => self.creature_smith.build_context(&mut builder),
-            "ensemble" => self.ensemble.build_context(&mut builder),
-            "dialectician" => self.dialectician.build_context(&mut builder),
-            _ => self.narrator.build_context(&mut builder),
+            // Agent identity section (Primacy zone)
+            match route.agent_name() {
+                "creature_smith" => self.creature_smith.build_context(&mut builder),
+                "ensemble" => self.ensemble.build_context(&mut builder),
+                "dialectician" => self.dialectician.build_context(&mut builder),
+                _ => self.narrator.build_context(&mut builder),
+            };
+
+            // SOUL principles (Early zone — high attention, after identity, before state)
+            if let Some(ref soul) = self.soul_text {
+                builder.add_section(PromptSection::new(
+                    "soul_principles",
+                    format!("## Guiding Principles\n{}", soul),
+                    AttentionZone::Early,
+                    SectionCategory::Soul,
+                ));
+            }
+
+            // Trope beat directives (Early zone — high attention, from previous turn's fired beats)
+            if let Some(ref beats) = context.pending_trope_context {
+                let _trope_span = tracing::info_span!(
+                    "orchestrator.trope_beat_injection",
+                    beats_injected = 1u64,
+                )
+                .entered();
+                builder.add_section(PromptSection::new(
+                    "trope_beat_directives",
+                    beats.clone(),
+                    AttentionZone::Early,
+                    SectionCategory::State,
+                ));
+            }
+
+            // Game state section (Valley zone — lower attention, grounding context)
+            if let Some(state) = &context.state_summary {
+                builder.add_section(PromptSection::new(
+                    "game_state",
+                    format!("<game_state>\n{}\n</game_state>", state),
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+            }
+
+            // Active trope summary (Valley zone — background context for all agents)
+            if let Some(ref trope_summary) = context.active_trope_summary {
+                builder.add_section(PromptSection::new(
+                    "active_tropes",
+                    trope_summary.clone(),
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+            }
+
+            // Backstory capture directive — when the player is building their character's
+            // history, tell the narrator to extract personal details as footnotes so they
+            // persist in the RAG knowledge store.
+            if route.intent() == Intent::Backstory {
+                builder.add_section(PromptSection::new(
+                    "backstory_capture",
+                    "## Backstory Capture Mode\n\
+                     The player is describing their character's history, personality, appearance, \
+                     possessions, or memories. This is character-building, not plot advancement.\n\n\
+                     IMPORTANT: In your JSON footnotes block, extract each personal detail as a \
+                     separate footnote with `is_new: true`. Examples of what to capture:\n\
+                     - Physical description or appearance details\n\
+                     - Personal history or backstory events\n\
+                     - Relationships to people or places from their past\n\
+                     - Emotional traits, habits, or personality quirks\n\
+                     - Meaningful possessions, keepsakes, or mementos\n\
+                     - Skills, training, or formative experiences\n\n\
+                     Each footnote summary should be a concise, third-person statement about the \
+                     character (e.g., \"Served in the Union army\" not \"The player mentioned serving\"). \
+                     These facts will be stored permanently and recalled when relevant."
+                        .to_string(),
+                    AttentionZone::Late,
+                    SectionCategory::Format,
+                ));
+            }
+
+            // Narrator verbosity instruction (Late zone — high recency attention for format guidance)
+            {
+                use sidequest_protocol::NarratorVerbosity;
+                let content = match context.narrator_verbosity {
+                    NarratorVerbosity::Concise => {
+                        "[NARRATION LENGTH]\n\
+                         Keep descriptions to 1-2 sentences. Prioritize action and \
+                         consequence over atmosphere. No extended scene-setting or \
+                         sensory elaboration. Be direct."
+                    }
+                    NarratorVerbosity::Standard => {
+                        "[NARRATION LENGTH]\n\
+                         Use standard descriptive prose — balanced detail and pacing. \
+                         Include enough atmosphere to set the scene without belaboring it. \
+                         2-4 sentences per beat is typical."
+                    }
+                    NarratorVerbosity::Verbose => {
+                        "[NARRATION LENGTH]\n\
+                         Elaborate with sensory details and world-building. Paint the \
+                         scene with sights, sounds, smells, and texture. Take time to \
+                         establish atmosphere and let moments breathe. 4-6+ sentences \
+                         per beat."
+                    }
+                };
+                builder.add_section(PromptSection::new(
+                    "narrator_verbosity",
+                    content,
+                    AttentionZone::Late,
+                    SectionCategory::Format,
+                ));
+            }
+
+            // Narrator vocabulary instruction (Late zone — high recency attention for format guidance)
+            {
+                use sidequest_protocol::NarratorVocabulary;
+                let content = match context.narrator_vocabulary {
+                    NarratorVocabulary::Accessible => {
+                        "[NARRATION VOCABULARY]\n\
+                         Use simple, direct language. Prefer common words over obscure \
+                         ones. Keep sentences short and clear. Aim for approximately \
+                         8th-grade reading level. No archaic constructions or elaborate \
+                         metaphors."
+                    }
+                    NarratorVocabulary::Literary => {
+                        "[NARRATION VOCABULARY]\n\
+                         Use rich but clear prose. Employ varied vocabulary and literary \
+                         devices where they serve the narrative. Balance elegance with \
+                         accessibility — vivid but not purple."
+                    }
+                    NarratorVocabulary::Epic => {
+                        "[NARRATION VOCABULARY]\n\
+                         Use elevated, archaic, or mythic diction. Embrace elaborate \
+                         sentence structures, rare words, and poetic constructions. \
+                         Channel the cadence of sagas, epics, and high fantasy prose. \
+                         Unrestricted complexity."
+                    }
+                };
+                builder.add_section(PromptSection::new(
+                    "narrator_vocabulary",
+                    content,
+                    AttentionZone::Late,
+                    SectionCategory::Format,
+                ));
+            }
+
+            // Player action section (Recency zone — highest attention at prompt end)
+            builder.add_section(PromptSection::new(
+                "player_action",
+                format!("The player says: {}", action),
+                AttentionZone::Recency,
+                SectionCategory::Action,
+            ));
+
+            let section_count = builder.section_count();
+            let _pb_guard = tracing::info_span!(
+                "turn.agent_llm.prompt_build",
+                section_count = section_count as u64,
+            ).entered();
+            builder.compose()
         };
-
-        // SOUL principles (Early zone — high attention, after identity, before state)
-        if let Some(ref soul) = self.soul_text {
-            builder.add_section(PromptSection::new(
-                "soul_principles",
-                format!("## Guiding Principles\n{}", soul),
-                AttentionZone::Early,
-                SectionCategory::Soul,
-            ));
-        }
-
-        // Trope beat directives (Early zone — high attention, from previous turn's fired beats)
-        if let Some(ref beats) = context.pending_trope_context {
-            let _trope_span = tracing::info_span!(
-                "orchestrator.trope_beat_injection",
-                beats_injected = 1u64,
-            )
-            .entered();
-            builder.add_section(PromptSection::new(
-                "trope_beat_directives",
-                beats.clone(),
-                AttentionZone::Early,
-                SectionCategory::State,
-            ));
-        }
-
-        // Game state section (Valley zone — lower attention, grounding context)
-        if let Some(state) = &context.state_summary {
-            builder.add_section(PromptSection::new(
-                "game_state",
-                format!("<game_state>\n{}\n</game_state>", state),
-                AttentionZone::Valley,
-                SectionCategory::State,
-            ));
-        }
-
-        // Active trope summary (Valley zone — background context for all agents)
-        if let Some(ref trope_summary) = context.active_trope_summary {
-            builder.add_section(PromptSection::new(
-                "active_tropes",
-                trope_summary.clone(),
-                AttentionZone::Valley,
-                SectionCategory::State,
-            ));
-        }
-
-        // Backstory capture directive — when the player is building their character's
-        // history, tell the narrator to extract personal details as footnotes so they
-        // persist in the RAG knowledge store.
-        if route.intent() == Intent::Backstory {
-            builder.add_section(PromptSection::new(
-                "backstory_capture",
-                "## Backstory Capture Mode\n\
-                 The player is describing their character's history, personality, appearance, \
-                 possessions, or memories. This is character-building, not plot advancement.\n\n\
-                 IMPORTANT: In your JSON footnotes block, extract each personal detail as a \
-                 separate footnote with `is_new: true`. Examples of what to capture:\n\
-                 - Physical description or appearance details\n\
-                 - Personal history or backstory events\n\
-                 - Relationships to people or places from their past\n\
-                 - Emotional traits, habits, or personality quirks\n\
-                 - Meaningful possessions, keepsakes, or mementos\n\
-                 - Skills, training, or formative experiences\n\n\
-                 Each footnote summary should be a concise, third-person statement about the \
-                 character (e.g., \"Served in the Union army\" not \"The player mentioned serving\"). \
-                 These facts will be stored permanently and recalled when relevant."
-                    .to_string(),
-                AttentionZone::Late,
-                SectionCategory::Format,
-            ));
-        }
-
-        // Narrator verbosity instruction (Late zone — high recency attention for format guidance)
-        {
-            use sidequest_protocol::NarratorVerbosity;
-            let content = match context.narrator_verbosity {
-                NarratorVerbosity::Concise => {
-                    "[NARRATION LENGTH]\n\
-                     Keep descriptions to 1-2 sentences. Prioritize action and \
-                     consequence over atmosphere. No extended scene-setting or \
-                     sensory elaboration. Be direct."
-                }
-                NarratorVerbosity::Standard => {
-                    "[NARRATION LENGTH]\n\
-                     Use standard descriptive prose — balanced detail and pacing. \
-                     Include enough atmosphere to set the scene without belaboring it. \
-                     2-4 sentences per beat is typical."
-                }
-                NarratorVerbosity::Verbose => {
-                    "[NARRATION LENGTH]\n\
-                     Elaborate with sensory details and world-building. Paint the \
-                     scene with sights, sounds, smells, and texture. Take time to \
-                     establish atmosphere and let moments breathe. 4-6+ sentences \
-                     per beat."
-                }
-            };
-            builder.add_section(PromptSection::new(
-                "narrator_verbosity",
-                content,
-                AttentionZone::Late,
-                SectionCategory::Format,
-            ));
-        }
-
-        // Narrator vocabulary instruction (Late zone — high recency attention for format guidance)
-        {
-            use sidequest_protocol::NarratorVocabulary;
-            let content = match context.narrator_vocabulary {
-                NarratorVocabulary::Accessible => {
-                    "[NARRATION VOCABULARY]\n\
-                     Use simple, direct language. Prefer common words over obscure \
-                     ones. Keep sentences short and clear. Aim for approximately \
-                     8th-grade reading level. No archaic constructions or elaborate \
-                     metaphors."
-                }
-                NarratorVocabulary::Literary => {
-                    "[NARRATION VOCABULARY]\n\
-                     Use rich but clear prose. Employ varied vocabulary and literary \
-                     devices where they serve the narrative. Balance elegance with \
-                     accessibility — vivid but not purple."
-                }
-                NarratorVocabulary::Epic => {
-                    "[NARRATION VOCABULARY]\n\
-                     Use elevated, archaic, or mythic diction. Embrace elaborate \
-                     sentence structures, rare words, and poetic constructions. \
-                     Channel the cadence of sagas, epics, and high fantasy prose. \
-                     Unrestricted complexity."
-                }
-            };
-            builder.add_section(PromptSection::new(
-                "narrator_vocabulary",
-                content,
-                AttentionZone::Late,
-                SectionCategory::Format,
-            ));
-        }
-
-        // Player action section (Recency zone — highest attention at prompt end)
-        builder.add_section(PromptSection::new(
-            "player_action",
-            format!("The player says: {}", action),
-            AttentionZone::Recency,
-            SectionCategory::Action,
-        ));
-
-        let prompt = builder.compose();
 
         info!(action = %action, "Invoking Claude CLI for narration");
 
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
 
+        let inference_span = tracing::info_span!(
+            "turn.agent_llm.inference",
+            model = "opus",
+            prompt_len = prompt.len(),
+        );
         let call_start = std::time::Instant::now();
-        match self.client.send(&prompt) {
+        let send_result = {
+            let _inf_guard = inference_span.enter();
+            self.client.send(&prompt)
+        };
+        match send_result {
             Ok(response) => {
                 let raw_response = &response.text;
                 // Extract structured data from narrator response (footnotes + items)
+                let extraction_span = tracing::info_span!(
+                    "turn.agent_llm.extraction",
+                    narration_len = raw_response.len(),
+                );
+                let _ext_guard = extraction_span.enter();
                 let extraction = extract_structured_from_response(raw_response);
                 if !extraction.footnotes.is_empty() {
                     info!(

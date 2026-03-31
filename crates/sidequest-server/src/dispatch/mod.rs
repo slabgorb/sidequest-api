@@ -222,7 +222,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     let mut state_summary = prompt::build_prompt_context(ctx).await;
 
     // Check if barrier mode is active (Structured/Cinematic turn mode).
-    let barrier_combined_action: Option<String> = handle_barrier(ctx, &mut state_summary).await;
+    let barrier_combined_action: Option<String> = handle_barrier(ctx, &mut state_summary)
+        .instrument(tracing::info_span!("turn.barrier", barrier_mode = tracing::field::Empty))
+        .await;
 
     // Use combined action for barrier turns, original action for FreePlay
     let effective_action: std::borrow::Cow<str> = match &barrier_combined_action {
@@ -245,6 +247,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // F9: Wish Consequence Engine — LLM-classified power-grab on clean input.
     if preprocessed.is_power_grab {
+        let _wish_guard = tracing::info_span!("turn.preprocess.wish_check", is_power_grab = true).entered();
         let mut engine =
             sidequest_game::WishConsequenceEngine::with_counter(ctx.genie_wishes.len());
         if let Some(wish) = engine.evaluate(ctx.char_name, &preprocessed.intent, true) {
@@ -489,20 +492,31 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     );
     let _system_tick_guard = system_tick_span.enter();
 
-    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages).await;
+    let combat_active = ctx.combat_state.in_combat();
+    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages)
+        .instrument(tracing::info_span!(
+            "turn.system_tick.combat",
+            in_combat = combat_active,
+        ))
+        .await;
 
-    let fired_beats = tropes::process_tropes(ctx, &clean_narration, &mut messages);
+    let fired_beats = {
+        let _tropes_guard = tracing::info_span!(
+            "turn.system_tick.tropes",
+            active_count = ctx.trope_states.len(),
+        ).entered();
+        tropes::process_tropes(ctx, &clean_narration, &mut messages)
+    };
     system_tick_span.record("tropes_fired", fired_beats.len() as u64);
 
     // Format beat context for NEXT turn's narrator prompt injection.
     // Beats fire after narration, so they inform the next turn — same as Python's
     // _pending_escalation_beats pattern.
     if !fired_beats.is_empty() {
-        let _inject_span = tracing::info_span!(
-            "trope.inject_context",
-            beats_injected = fired_beats.len(),
-        )
-        .entered();
+        let _beat_ctx_guard = tracing::info_span!(
+            "turn.system_tick.beat_context",
+            beats_count = fired_beats.len(),
+        ).entered();
 
         let mut troper = sidequest_agents::agents::troper::TroperAgent::new();
         troper.set_fired_beats(fired_beats);
