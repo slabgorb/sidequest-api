@@ -20,6 +20,7 @@ use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 use crate::delta::StateDelta;
 use crate::disposition::Disposition;
+use crate::encounter::StructuredEncounter;
 use crate::inventory::Inventory;
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
@@ -38,6 +39,7 @@ use sidequest_protocol::{
 /// and WebSocket broadcast. Port lesson #11: captures ALL client-visible fields,
 /// not just characters/location/quest_log like the Python version.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(from = "GameSnapshotRaw")]
 pub struct GameSnapshot {
     /// Genre pack identifier (e.g., "mutant_wasteland").
     pub genre_slug: String,
@@ -60,8 +62,14 @@ pub struct GameSnapshot {
     /// Active combat state.
     pub combat: CombatState,
     /// Active chase sequence (None if no chase in progress).
+    /// Kept for backward compatibility with ChasePatch system.
     #[serde(default)]
     pub chase: Option<ChaseState>,
+    /// Active structured encounter (story 16-2).
+    /// Generalizes ChaseState — supports standoffs, negotiations, ship combat, etc.
+    /// Old saves with a `chase` field are migrated to this field during deserialization.
+    #[serde(default)]
+    pub encounter: Option<StructuredEncounter>,
     /// Currently active narrative tropes (full state for persistence).
     /// Backward-compatible: old saves with Vec<String> IDs deserialize as empty
     /// (tropes get re-seeded on first turn).
@@ -136,6 +144,122 @@ where
     match serde_json::from_value::<Vec<TropeState>>(value) {
         Ok(states) => Ok(states),
         Err(_) => Ok(vec![]), // Old format — will be re-seeded
+    }
+}
+
+/// Raw deserialization helper for GameSnapshot backward compatibility (story 16-2).
+///
+/// Handles migration of old saves that have a `chase` field but no `encounter`
+/// field. The `From<GameSnapshotRaw> for GameSnapshot` impl converts the old
+/// ChaseState into a StructuredEncounter during deserialization.
+#[derive(Deserialize)]
+struct GameSnapshotRaw {
+    #[serde(default)]
+    genre_slug: String,
+    #[serde(default)]
+    world_slug: String,
+    #[serde(default)]
+    characters: Vec<Character>,
+    #[serde(default)]
+    npcs: Vec<Npc>,
+    #[serde(default)]
+    location: String,
+    #[serde(default)]
+    time_of_day: String,
+    #[serde(default)]
+    quest_log: HashMap<String, String>,
+    #[serde(default)]
+    notes: Vec<String>,
+    #[serde(default)]
+    narrative_log: Vec<NarrativeEntry>,
+    #[serde(default)]
+    combat: CombatState,
+    #[serde(default)]
+    chase: Option<ChaseState>,
+    #[serde(default)]
+    encounter: Option<StructuredEncounter>,
+    #[serde(default, deserialize_with = "deserialize_trope_states")]
+    active_tropes: Vec<TropeState>,
+    #[serde(default)]
+    atmosphere: String,
+    #[serde(default)]
+    current_region: String,
+    #[serde(default)]
+    discovered_regions: Vec<String>,
+    #[serde(default)]
+    discovered_routes: Vec<String>,
+    #[serde(default)]
+    turn_manager: TurnManager,
+    #[serde(default)]
+    last_saved_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    active_stakes: String,
+    #[serde(default)]
+    lore_established: Vec<String>,
+    #[serde(default)]
+    turns_since_meaningful: u32,
+    #[serde(default)]
+    total_beats_fired: u32,
+    #[serde(default)]
+    campaign_maturity: CampaignMaturity,
+    #[serde(default)]
+    world_history: Vec<HistoryChapter>,
+    #[serde(default)]
+    npc_registry: Vec<crate::npc::NpcRegistryEntry>,
+    #[serde(default)]
+    genie_wishes: Vec<GenieWish>,
+    #[serde(default)]
+    axis_values: Vec<AxisValue>,
+    #[serde(default)]
+    achievement_tracker: AchievementTracker,
+    #[serde(default)]
+    resource_state: HashMap<String, f64>,
+    #[serde(default)]
+    resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
+}
+
+impl From<GameSnapshotRaw> for GameSnapshot {
+    fn from(raw: GameSnapshotRaw) -> Self {
+        // Migrate: if encounter is absent but chase is present, convert chase → encounter
+        let encounter = raw.encounter.or_else(|| {
+            raw.chase
+                .as_ref()
+                .map(StructuredEncounter::from_chase_state)
+        });
+
+        Self {
+            genre_slug: raw.genre_slug,
+            world_slug: raw.world_slug,
+            characters: raw.characters,
+            npcs: raw.npcs,
+            location: raw.location,
+            time_of_day: raw.time_of_day,
+            quest_log: raw.quest_log,
+            notes: raw.notes,
+            narrative_log: raw.narrative_log,
+            combat: raw.combat,
+            chase: raw.chase,
+            encounter,
+            active_tropes: raw.active_tropes,
+            atmosphere: raw.atmosphere,
+            current_region: raw.current_region,
+            discovered_regions: raw.discovered_regions,
+            discovered_routes: raw.discovered_routes,
+            turn_manager: raw.turn_manager,
+            last_saved_at: raw.last_saved_at,
+            active_stakes: raw.active_stakes,
+            lore_established: raw.lore_established,
+            turns_since_meaningful: raw.turns_since_meaningful,
+            total_beats_fired: raw.total_beats_fired,
+            campaign_maturity: raw.campaign_maturity,
+            world_history: raw.world_history,
+            npc_registry: raw.npc_registry,
+            genie_wishes: raw.genie_wishes,
+            axis_values: raw.axis_values,
+            achievement_tracker: raw.achievement_tracker,
+            resource_state: raw.resource_state,
+            resource_declarations: raw.resource_declarations,
+        }
     }
 }
 

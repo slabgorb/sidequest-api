@@ -28,6 +28,7 @@ pub mod continuity;
 pub mod creature_core;
 pub mod delta;
 pub mod disposition;
+pub mod encounter;
 pub mod engagement;
 pub mod faction_agenda;
 pub mod gossip;
