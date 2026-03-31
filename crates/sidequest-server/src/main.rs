@@ -35,15 +35,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .join("saves")
         });
 
-    let turn_record_tx = watcher_tx.clone();
     let state = AppState::new_with_options(
         Box::new(Orchestrator::new(watcher_tx)),
         args.genre_packs_path().to_path_buf(),
         save_dir,
         args.headless(),
     )
-    .with_tts_disabled(args.no_tts() || args.headless())
-    .with_turn_record_tx(turn_record_tx);
+    .with_tts_disabled(args.no_tts() || args.headless());
 
     // Spawn the turn record bridge — receives TurnRecords from the orchestrator (hot path)
     // and broadcasts them as WatcherEvents to the GM dashboard (cold path).

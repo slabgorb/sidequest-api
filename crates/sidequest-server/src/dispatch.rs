@@ -291,7 +291,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     let turn_number = barrier_clone.turn_number().saturating_sub(1);
                     let action_entries: Vec<PlayerActionEntry> = named_actions
                         .iter()
-                        .map(|(name, action)| PlayerActionEntry {
+                        .map(|(name, _action)| PlayerActionEntry {
                             character_name: name.clone(),
                             player_id: String::new(),
                             action: ctx.action.to_string(),
@@ -1264,7 +1264,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 async fn sync_back_to_shared_session(
     ctx: &mut DispatchContext<'_>,
     messages: &[GameMessage],
-    clean_narration: &str,
+    _clean_narration: &str,
     char_class: &str,
     effective_action: &str,
 ) {
@@ -1595,7 +1595,7 @@ async fn process_render(
 fn process_tropes(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
-    messages: &mut Vec<GameMessage>,
+    _messages: &mut Vec<GameMessage>,
 ) {
     let _span = tracing::info_span!(
         "turn.tropes",
