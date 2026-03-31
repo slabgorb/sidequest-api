@@ -460,6 +460,12 @@ pub struct SessionEventPayload {
     /// deserialize as None, and the server applies a default (Literary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub narrator_vocabulary: Option<NarratorVocabulary>,
+
+    /// Image generation cooldown in seconds (story 14-6).
+    /// Optional for backward compatibility — old clients that don't send it
+    /// deserialize as None, and the server applies a default based on player count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_cooldown_seconds: Option<u32>,
 }
 
 /// Character creation flow payload.

@@ -199,6 +199,7 @@ mod message_type_tests {
                 css: None,
                 narrator_verbosity: None,
                 narrator_vocabulary: None,
+                image_cooldown_seconds: None,
             },
             player_id: String::new(),
         };
@@ -234,6 +235,7 @@ mod message_type_tests {
                 css: None,
                 narrator_verbosity: None,
                 narrator_vocabulary: None,
+                image_cooldown_seconds: None,
             },
             player_id: String::new(),
         };

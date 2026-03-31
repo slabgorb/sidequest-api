@@ -102,6 +102,7 @@ fn session_event_connect_with_vocabulary_round_trip() {
             css: None,
             narrator_verbosity: None,
             narrator_vocabulary: Some(NarratorVocabulary::Epic),
+            image_cooldown_seconds: None,
         },
         player_id: String::new(),
     };
