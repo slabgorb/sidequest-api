@@ -21,7 +21,6 @@
 //!   AC-5: CombatState still works as before (no behavioral changes)
 
 use serde_json;
-use std::collections::HashMap;
 
 use sidequest_game::combat::{
     CombatState, DamageEvent, StatusEffect, StatusEffectKind,
