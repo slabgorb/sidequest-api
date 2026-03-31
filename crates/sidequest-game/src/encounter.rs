@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::chase::ChaseState;
 use crate::chase_depth::{RigStats, RigType};
+use crate::combat::CombatState;
 
 /// Direction a metric moves toward resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -225,6 +226,116 @@ impl StructuredEncounter {
             resolved: false,
             mood_override: None,
             narrator_hints: vec![],
+        }
+    }
+
+    /// Create a combat-type encounter.
+    ///
+    /// Maps combat semantics onto the generic encounter model:
+    /// - HP → Descending metric (threshold_low = 0)
+    /// - combatants → actors with role "combatant"
+    /// - Starts at beat 0 in Setup phase
+    pub fn combat(combatants: Vec<String>, hp: i32) -> Self {
+        let actors = combatants
+            .into_iter()
+            .map(|name| EncounterActor {
+                name,
+                role: "combatant".to_string(),
+            })
+            .collect();
+
+        Self {
+            encounter_type: "combat".to_string(),
+            metric: EncounterMetric {
+                name: "hp".to_string(),
+                current: hp,
+                starting: hp,
+                direction: MetricDirection::Descending,
+                threshold_high: None,
+                threshold_low: Some(0),
+            },
+            beat: 0,
+            structured_phase: Some(EncounterPhase::Setup),
+            secondary_stats: None,
+            actors,
+            outcome: None,
+            resolved: false,
+            mood_override: None,
+            narrator_hints: vec![],
+        }
+    }
+
+    /// Convert an existing CombatState into a StructuredEncounter.
+    ///
+    /// Maps combat fields onto the generic encounter model:
+    /// - round → beat
+    /// - turn_order → actors with role "combatant"
+    /// - in_combat → !resolved
+    /// - damage_log → narrator_hints (human-readable summaries)
+    /// - status effects → narrator_hints
+    pub fn from_combat_state(combat: &CombatState) -> Self {
+        let actors = combat
+            .turn_order()
+            .iter()
+            .map(|name| EncounterActor {
+                name: name.clone(),
+                role: "combatant".to_string(),
+            })
+            .collect();
+
+        let mut narrator_hints: Vec<String> = Vec::new();
+
+        // Preserve damage log as narrator hints
+        for event in combat.damage_log() {
+            narrator_hints.push(format!(
+                "{} dealt {} damage to {} (round {})",
+                event.attacker, event.damage, event.target, event.round
+            ));
+        }
+
+        // Preserve status effects as narrator hints
+        for name in combat.turn_order() {
+            let effects = combat.effects_on(name);
+            for effect in &effects {
+                narrator_hints.push(format!(
+                    "{}: {:?} ({} rounds)",
+                    name,
+                    effect.kind(),
+                    effect.remaining_rounds()
+                ));
+            }
+        }
+
+        // Map combat phase based on round progression
+        let structured_phase = if combat.in_combat() {
+            Some(match combat.round() {
+                1 => EncounterPhase::Opening,
+                2..=3 => EncounterPhase::Escalation,
+                4..=5 => EncounterPhase::Climax,
+                _ => EncounterPhase::Resolution,
+            })
+        } else {
+            None
+        };
+
+        Self {
+            encounter_type: "combat".to_string(),
+            metric: EncounterMetric {
+                name: "hp".to_string(),
+                current: 0,
+                starting: 0,
+                direction: MetricDirection::Descending,
+                threshold_high: None,
+                threshold_low: Some(0),
+            },
+            beat: combat.round(),
+            structured_phase,
+            secondary_stats: None,
+            actors,
+            outcome: None,
+            resolved: !combat.in_combat(),
+            mood_override: Some("combat".to_string()),
+            narrator_hints,
         }
     }
 
