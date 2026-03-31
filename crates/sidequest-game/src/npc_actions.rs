@@ -130,15 +130,10 @@ pub fn available_actions(
         }
         ScenarioRole::Witness => {
             // Witnesses can spread rumors if they have suspicions
-            let has_suspicion = belief.beliefs().iter().any(|b| {
+            let suspicion = belief.beliefs().iter().find(|b| {
                 matches!(b, Belief::Suspicion { confidence, .. } if *confidence > 0.5)
             });
-            if has_suspicion {
-                // Build a rumor from the strongest suspicion
-                let suspicion = belief.beliefs().iter().find(|b| {
-                    matches!(b, Belief::Suspicion { confidence, .. } if *confidence > 0.5)
-                });
-                if let Some(s) = suspicion {
+            if let Some(s) = suspicion {
                     actions.push((
                         NpcAction::SpreadRumor {
                             claim: Belief::Claim {
@@ -152,7 +147,6 @@ pub fn available_actions(
                         },
                         0.3 + tension * 0.2,
                     ));
-                }
             }
         }
         ScenarioRole::Innocent => {
