@@ -26,8 +26,7 @@ use sidequest_game::combat::{
     CombatState, DamageEvent, StatusEffect, StatusEffectKind,
 };
 use sidequest_game::encounter::{
-    EncounterActor, EncounterMetric, EncounterPhase, MetricDirection,
-    SecondaryStats, StatValue, StructuredEncounter,
+    EncounterPhase, MetricDirection, StructuredEncounter,
 };
 
 // ==========================================================================
