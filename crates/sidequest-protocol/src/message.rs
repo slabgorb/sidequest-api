@@ -33,22 +33,19 @@ use std::collections::HashMap;
 /// Serializes as lowercase strings for wire compatibility with the React UI.
 /// Default is `Standard`. Solo sessions default to `Verbose` via
 /// `default_for_player_count()`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NarratorVerbosity {
     /// Keep descriptions to 1-2 sentences. Prioritize action over atmosphere.
     Concise,
     /// Standard descriptive prose — balanced detail and pacing.
+    #[default]
     Standard,
     /// Elaborate with sensory details, world-building, and atmospheric prose.
     Verbose,
 }
 
-impl Default for NarratorVerbosity {
-    fn default() -> Self {
-        Self::Standard
-    }
-}
+
 
 impl NarratorVerbosity {
     /// Returns the default verbosity for a given player count.
@@ -73,22 +70,19 @@ impl NarratorVerbosity {
 /// Works alongside `NarratorVerbosity` (which controls length). Vocabulary
 /// controls word choice and sentence complexity. Serializes as lowercase strings
 /// for wire compatibility with the React UI. Default is `Literary`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NarratorVocabulary {
     /// Simple, direct language. Approximately 8th-grade reading level.
     Accessible,
     /// Rich but clear prose. Varied vocabulary without being obscure.
+    #[default]
     Literary,
     /// Elevated, archaic, or mythic diction. Unrestricted complexity.
     Epic,
 }
 
-impl Default for NarratorVocabulary {
-    fn default() -> Self {
-        Self::Literary
-    }
-}
+
 
 // ---------------------------------------------------------------------------
 // GameMessage — the tagged enum
