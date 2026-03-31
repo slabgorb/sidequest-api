@@ -1,8 +1,7 @@
 //! Story 14-4: Narrator vocabulary — protocol-level tests.
 //!
-//! RED phase — these tests reference types that don't exist yet:
-//!   - `NarratorVocabulary` enum (Accessible, Literary, Epic)
-//!   - `narrator_vocabulary` field on `SessionEventPayload`
+//! Tests for `NarratorVocabulary` enum and the `narrator_vocabulary` field
+//! on `SessionEventPayload`.
 //!
 //! ACs tested:
 //!   AC1: NarratorVocabulary enum exists with three variants

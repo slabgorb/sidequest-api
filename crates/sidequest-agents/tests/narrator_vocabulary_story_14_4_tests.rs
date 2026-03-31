@@ -1,10 +1,8 @@
 //! Story 14-4: Narrator vocabulary — prompt injection tests.
 //!
-//! RED phase — these tests reference a method that doesn't exist yet:
-//!   `PromptRegistry::register_vocabulary_section()`
-//!
-//! The method should inject narrator vocabulary instructions into the system
-//! prompt so the LLM adjusts word choice and sentence complexity.
+//! Tests for `PromptRegistry::register_vocabulary_section()`, which injects
+//! narrator vocabulary instructions into the system prompt so the LLM adjusts
+//! word choice and sentence complexity.
 //!
 //! ACs tested:
 //!   AC4: Narrator system prompt receives vocabulary instruction
@@ -14,7 +12,7 @@
 //!   AC3: Default is Literary
 
 use sidequest_agents::prompt_framework::{
-    AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
+    AttentionZone, PromptComposer, PromptRegistry, SectionCategory,
 };
 use sidequest_protocol::NarratorVocabulary;
 
