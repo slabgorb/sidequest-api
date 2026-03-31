@@ -189,12 +189,10 @@ pub fn spawn_image_broadcaster(
                     let _ = ws_tx.send(msg);
                 }
                 RenderJobResult::Failed { job_id, error } => {
-                    // Error level, not warn — a failed render means the player
-                    // gets no scene illustration. That's visible breakage.
-                    tracing::error!(
-                        job_id = %job_id,
-                        error = %error,
-                        "render_broadcast_failed — render job failed, no IMAGE sent to clients"
+                    panic!(
+                        "RENDER PIPELINE FAILED — job_id={}, error={}. \
+                         No fallback. No silent skip. Fix the pipeline.",
+                        job_id, error
                     );
                 }
                 _ => {
@@ -284,10 +282,10 @@ pub fn spawn_image_broadcaster_with_throttle(
                     let _ = ws_tx.send(msg);
                 }
                 RenderJobResult::Failed { job_id, error } => {
-                    tracing::error!(
-                        job_id = %job_id,
-                        error = %error,
-                        "render_broadcast_failed — render job failed, no IMAGE sent to clients"
+                    panic!(
+                        "RENDER PIPELINE FAILED — job_id={}, error={}. \
+                         No fallback. No silent skip. Fix the pipeline.",
+                        job_id, error
                     );
                 }
                 _ => {

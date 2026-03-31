@@ -290,7 +290,7 @@ impl AppState {
         let render_queue = if headless {
             sidequest_game::RenderQueue::spawn(
                 sidequest_game::RenderQueueConfig::default(),
-                |prompt, art_style, tier, _negative_prompt: String| async move {
+                |prompt, art_style, tier, _negative_prompt: String, _narration: String| async move {
                     tracing::info!(
                         prompt_len = prompt.len(),
                         prompt_preview = %&prompt[..prompt.len().min(120)],
@@ -305,7 +305,7 @@ impl AppState {
         } else {
             sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
-            |prompt, art_style, tier, negative_prompt: String| async move {
+            |prompt, art_style, tier, negative_prompt: String, narration: String| async move {
                 // ── OTel: render pipeline start ──────────────────────────
                 tracing::info!(
                     prompt_len = prompt.len(),
@@ -334,6 +334,7 @@ impl AppState {
                                 tier: tier.clone(),
                                 positive_prompt,
                                 negative_prompt: negative_prompt.clone(),
+                                narration: narration.clone(),
                             })
                             .await
                         {

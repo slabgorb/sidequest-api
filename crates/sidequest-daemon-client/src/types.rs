@@ -35,6 +35,10 @@ pub struct RenderParams {
     /// Flux doesn't use negative prompts natively, but future models (SDXL) will.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub negative_prompt: String,
+    /// Raw narration text — when present, the daemon runs LLM-based SubjectExtractor
+    /// to produce visual image prompts instead of using the raw `prompt` field.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub narration: String,
 }
 
 /// Parameters for a `tts` (text-to-speech) request.

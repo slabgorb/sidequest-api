@@ -19,7 +19,7 @@ use sidequest_protocol::{
 };
 
 use crate::extraction::{
-    audio_cue_to_game_message, extract_item_losses, extract_items_from_narration,
+    audio_cue_to_game_message,
     extract_location_header, strip_location_header, strip_markdown_for_tts,
 };
 use crate::npc_context::build_npc_registry_context;
@@ -533,8 +533,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         ctx.narration_history.drain(..ctx.narration_history.len() - 20);
     }
 
-    // Update NPC registry from structured narrator output (preferred) + regex fallback.
-    // Structured extraction produces clean data; regex catches NPCs the narrator forgot to list.
+    // Update NPC registry from structured narrator output.
+    // If the narrator doesn't emit npcs_present, NPCs are missed. That's the narrator's job.
     let turn_approx = ctx.turn_manager.interaction() as u32;
     if !result.npcs_present.is_empty() {
         tracing::info!(count = result.npcs_present.len(), "npc_registry.structured — updating from narrator JSON");
@@ -1078,6 +1078,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                                     &prerender_ctx.art_style,
                                                     "flux-schnell",
                                                     &prerender_ctx.negative_prompt,
+                                                    "", // prerender — no narration context
                                                 )
                                                 .await;
                                         }
@@ -1607,7 +1608,7 @@ async fn process_render(
                     }
                     None => ("oil_painting".to_string(), "flux-schnell".to_string(), String::new()),
                 };
-                match queue.enqueue(subject, &art_style, &model, &neg_prompt).await {
+                match queue.enqueue(subject, &art_style, &model, &neg_prompt, clean_narration).await {
                     Ok(result) => tracing::info!(result = ?result, "Render job enqueued"),
                     Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
                 }
@@ -2201,91 +2202,6 @@ fn apply_state_mutations(
         }
     }
 
-    // Legacy regex-based extraction disabled — replaced by LLM structured extraction above.
-    if false {
-        let items_found = extract_items_from_narration(clean_narration);
-        for (item_name, item_type) in &items_found {
-            let item_id = item_name
-                .to_lowercase()
-                .replace(' ', "_")
-                .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
-            // Skip if already in inventory
-            if ctx.inventory.find(&item_id).is_some() {
-                continue;
-            }
-            if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
-                sidequest_protocol::NonBlankString::new(&item_id),
-                sidequest_protocol::NonBlankString::new(item_name),
-                sidequest_protocol::NonBlankString::new(&format!(
-                    "A {} found during adventure",
-                    item_type
-                )),
-                sidequest_protocol::NonBlankString::new(item_type),
-                sidequest_protocol::NonBlankString::new("common"),
-            ) {
-                let item = sidequest_game::Item {
-                    id,
-                    name,
-                    description: desc,
-                    category: cat,
-                    value: 0,
-                    weight: 1.0,
-                    rarity,
-                    narrative_weight: 0.3,
-                    tags: vec![],
-                    equipped: false,
-                    quantity: 1,
-                };
-                let _ = ctx.inventory.add(item, 50);
-                tracing::info!(item_name = %item_name, "Item added to inventory from narration");
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "inventory".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("event".to_string(), serde_json::json!("item_gained"));
-                        f.insert("item".to_string(), serde_json::json!(item_name));
-                        f.insert(
-                            "turn_number".to_string(),
-                            serde_json::json!(ctx.turn_manager.interaction()),
-                        );
-                        f
-                    },
-                });
-            }
-        }
-
-        // Extract item losses from narration (trades, gifts, drops)
-        let items_lost = extract_item_losses(clean_narration);
-        for lost_name in &items_lost {
-            let item_id = lost_name
-                .to_lowercase()
-                .replace(' ', "_")
-                .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
-            if ctx.inventory.find(&item_id).is_some() {
-                let _ = ctx.inventory.remove(&item_id);
-                tracing::info!(item_name = %lost_name, "Item removed from inventory from narration");
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "inventory".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("event".to_string(), serde_json::json!("item_lost"));
-                        f.insert("item".to_string(), serde_json::json!(lost_name));
-                        f.insert(
-                            "turn_number".to_string(),
-                            serde_json::json!(ctx.turn_manager.interaction()),
-                        );
-                        f
-                    },
-                });
-            }
-        }
-    }
 }
 
 /// Build the full state_summary string for the narrator prompt.
