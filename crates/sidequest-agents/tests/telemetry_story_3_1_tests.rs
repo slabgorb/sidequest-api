@@ -98,24 +98,33 @@ fn has_field(span: &CapturedSpan, field_name: &str) -> bool {
 // AC: IntentRouter span — classify() must emit semantic fields
 // ===========================================================================
 
-/// IntentRouter::classify_keywords must emit a span with player_input,
-/// classified_intent, agent_routed_to, confidence, and fallback_used.
+/// IntentRouter::classify_with_classifier must emit a span with player_input,
+/// classified_intent, agent_routed_to, confidence.
 #[test]
 fn intent_router_classify_emits_span_with_semantic_fields() {
-    use sidequest_agents::agents::intent_router::IntentRouter;
+    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
+    use sidequest_agents::orchestrator::TurnContext;
+
+    struct MockClassifier;
+    impl IntentClassifier for MockClassifier {
+        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+            IntentRoute::for_intent(Intent::Combat)
+        }
+    }
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        let _route = IntentRouter::classify_keywords("I attack the goblin");
+        let ctx = TurnContext::default();
+        let classifier = MockClassifier;
+        let _route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "classify_keywords")
-        .or_else(|| find_span(&spans, "classify_intent"))
+    let span = find_span(&spans, "classify_intent")
         .or_else(|| find_span(&spans, "classify"))
-        .expect("Expected a 'classify_keywords' span to be emitted");
+        .expect("Expected a 'classify_intent' span to be emitted");
 
     assert!(
         has_field(span, "player_input"),
@@ -138,8 +147,15 @@ fn intent_router_classify_emits_span_with_semantic_fields() {
 /// State override classification must emit a span with classified_intent.
 #[test]
 fn intent_router_state_override_emits_span() {
-    use sidequest_agents::agents::intent_router::IntentRouter;
+    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
     use sidequest_agents::orchestrator::TurnContext;
+
+    struct MockClassifier;
+    impl IntentClassifier for MockClassifier {
+        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+            IntentRoute::for_intent(Intent::Exploration)
+        }
+    }
 
     let ctx = TurnContext {
         in_combat: true,
@@ -151,14 +167,14 @@ fn intent_router_state_override_emits_span() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        let _route = IntentRouter::classify_with_state("I look around", &ctx);
+        let classifier = MockClassifier;
+        let _route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "classify_with_state")
-        .or_else(|| find_span(&spans, "classify_intent"))
+    let span = find_span(&spans, "classify_intent")
         .or_else(|| find_span(&spans, "classify"))
-        .expect("Expected a span from classify_with_state");
+        .expect("Expected a 'classify_intent' span from state override");
 
     assert!(
         has_field(span, "classified_intent"),
@@ -320,7 +336,15 @@ fn context_builder_compose_emits_span_with_metrics() {
 /// the fields ARE populated (not left as Empty) after the function returns.
 #[test]
 fn intent_router_deferred_fields_are_populated_after_classify() {
-    use sidequest_agents::agents::intent_router::IntentRouter;
+    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
+    use sidequest_agents::orchestrator::TurnContext;
+
+    struct MockClassifier;
+    impl IntentClassifier for MockClassifier {
+        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+            IntentRoute::for_intent(Intent::Combat)
+        }
+    }
 
     // We need a layer that captures both span creation AND field recording.
     // The SpanCaptureLayer above only captures on_new_span. For deferred fields,
@@ -337,21 +361,21 @@ fn intent_router_deferred_fields_are_populated_after_classify() {
     let subscriber = Registry::default().with(layer).with(record_layer);
 
     with_default(subscriber, || {
-        use sidequest_agents::agents::intent_router::IntentRouter;
-
-        let _route = IntentRouter::classify_keywords("I attack the goblin");
+        let ctx = TurnContext::default();
+        let classifier = MockClassifier;
+        let _route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
     });
 
-    let recorded = recorded_fields.lock().unwrap();
+    let _recorded = recorded_fields.lock().unwrap();
 
     // After classify returns, the span fields should have been recorded
-    // Note: classify_keywords uses info_span! which records fields at creation,
+    // Note: classify_with_classifier uses info_span! which records fields at creation,
     // not via deferred Span::record(). This test verifies the span was emitted.
     // The actual field values are checked by the span capture test above.
     let spans = captured.lock().unwrap();
     assert!(
         !spans.is_empty(),
-        "classify_keywords must emit at least one span"
+        "classify_with_classifier must emit at least one span"
     );
 }
 

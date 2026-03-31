@@ -303,13 +303,14 @@ mod intent_routing_tests {
     #[test]
     fn intent_route_defaults_to_narrator_on_unknown() {
         // ADR-010: fallback to Narrator if classification fails
-        let route = IntentRoute::fallback();
+        let route = IntentRoute::narrator_fallback();
         assert_eq!(route.agent_name(), "narrator");
     }
 
     #[test]
     fn intent_router_has_classify_method() {
-        let router = IntentRouter::new();
+        use sidequest_agents::client::ClaudeClient;
+        let router = IntentRouter::new(ClaudeClient::new());
         // Verify the type exists and can be constructed
         let _ = &router; // type exists and can be constructed
     }

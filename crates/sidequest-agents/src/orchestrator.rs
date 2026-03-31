@@ -13,7 +13,6 @@ use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
 use crate::agents::intent_router::IntentRouter;
-#[allow(unused_imports)] // classify_with_state is a static method
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::client::ClaudeClient;
@@ -79,6 +78,8 @@ pub struct Orchestrator {
     pub turn_id_counter: TurnIdCounter,
     /// Claude CLI client for LLM invocations.
     client: ClaudeClient,
+    /// Two-tier intent classifier (ADR-032: Haiku → narrator fallback).
+    intent_router: IntentRouter,
     /// Specialist agents — dispatched by intent classification.
     narrator: NarratorAgent,
     creature_smith: CreatureSmithAgent,
@@ -117,6 +118,7 @@ impl Orchestrator {
         Self {
             watcher_tx,
             turn_id_counter: TurnIdCounter::new(),
+            intent_router: IntentRouter::new(client.clone()),
             client,
             narrator: NarratorAgent::new(),
             creature_smith: CreatureSmithAgent::new(),
@@ -165,13 +167,15 @@ impl GameService for Orchestrator {
         );
         let _guard = span.enter();
 
-        // ADR-032: Two-tier intent classification (state override → keyword fallback)
-        let route = IntentRouter::classify_with_state(action, context);
+        // ADR-032: Two-tier intent classification (Haiku → narrator fallback)
+        let route = self.intent_router.classify(action, context);
         span.record("intent", route.intent().to_string().as_str());
         span.record("agent", route.agent_name());
         info!(
             intent = %route.intent(),
             agent = %route.agent_name(),
+            source = %route.source(),
+            confidence = route.confidence(),
             "Intent classified"
         );
 
