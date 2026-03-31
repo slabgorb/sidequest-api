@@ -478,6 +478,9 @@ pub struct CharacterSheetPayload {
     /// Portrait image URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
+    /// Current location name (for character sheet display).
+    #[serde(default)]
+    pub current_location: String,
 }
 
 /// Full inventory snapshot.
@@ -789,6 +792,9 @@ pub struct PartyMember {
     /// Portrait URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
+    /// Current location name (for party panel display).
+    #[serde(default)]
+    pub current_location: String,
 }
 
 /// An inventory item.

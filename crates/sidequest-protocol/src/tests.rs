@@ -296,6 +296,7 @@ mod message_type_tests {
                     class: "Warrior".into(),
                     level: 3,
                     portrait_url: None,
+                    current_location: String::new(),
                 }],
             },
             player_id: String::new(),
@@ -324,6 +325,7 @@ mod message_type_tests {
                 pronouns: "he/him".into(),
                 equipment: vec!["Iron Sword [equipped]".into()],
                 portrait_url: None,
+                current_location: String::new(),
             },
             player_id: String::new(),
         };
@@ -781,3 +783,174 @@ mod sanitization_tests {
 // because it has serde(rename) on every variant (protocol-fixed set).
 // If additional enums are created (e.g., MessageDirection), they need
 // #[non_exhaustive].
+
+// ==========================================================================
+// Story 14-2: Player location on character sheet
+// ==========================================================================
+
+mod player_location_tests {
+    use super::*;
+
+    #[test]
+    fn party_member_includes_current_location() {
+        // PartyMember must carry current_location so the UI can display
+        // where each player is without needing a separate MAP_UPDATE.
+        let member = PartyMember {
+            player_id: "p1".into(),
+            name: "Alice".into(),
+            character_name: "Kael".into(),
+            current_hp: 20,
+            max_hp: 20,
+            statuses: vec![],
+            class: "Ranger".into(),
+            level: 3,
+            portrait_url: None,
+            current_location: "The Rusty Cantina".into(),
+        };
+        assert_eq!(member.current_location, "The Rusty Cantina");
+    }
+
+    #[test]
+    fn party_member_location_serializes_to_json() {
+        let member = PartyMember {
+            player_id: "p1".into(),
+            name: "Alice".into(),
+            character_name: "Kael".into(),
+            current_hp: 20,
+            max_hp: 20,
+            statuses: vec![],
+            class: "Ranger".into(),
+            level: 3,
+            portrait_url: None,
+            current_location: "Market Square".into(),
+        };
+        let json = serde_json::to_string(&member).unwrap();
+        assert!(
+            json.contains(r#""current_location":"Market Square""#),
+            "current_location must appear in serialized JSON"
+        );
+    }
+
+    #[test]
+    fn party_member_location_round_trips_through_json() {
+        let member = PartyMember {
+            player_id: "p1".into(),
+            name: "Alice".into(),
+            character_name: "Kael".into(),
+            current_hp: 20,
+            max_hp: 20,
+            statuses: vec![],
+            class: "Ranger".into(),
+            level: 3,
+            portrait_url: None,
+            current_location: "The Wastes".into(),
+        };
+        let json = serde_json::to_string(&member).unwrap();
+        let decoded: PartyMember = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.current_location, "The Wastes");
+    }
+
+    #[test]
+    fn party_status_with_multiple_locations() {
+        // Multiplayer scenario: two players in different locations.
+        let msg = GameMessage::PartyStatus {
+            payload: PartyStatusPayload {
+                members: vec![
+                    PartyMember {
+                        player_id: "p1".into(),
+                        name: "Alice".into(),
+                        character_name: "Kael".into(),
+                        current_hp: 20,
+                        max_hp: 20,
+                        statuses: vec![],
+                        class: "Ranger".into(),
+                        level: 3,
+                        portrait_url: None,
+                        current_location: "The Rusty Cantina".into(),
+                    },
+                    PartyMember {
+                        player_id: "p2".into(),
+                        name: "Bob".into(),
+                        character_name: "Lyra".into(),
+                        current_hp: 35,
+                        max_hp: 40,
+                        statuses: vec![],
+                        class: "Cleric".into(),
+                        level: 5,
+                        portrait_url: None,
+                        current_location: "Scrapyard Gate".into(),
+                    },
+                ],
+            },
+            player_id: "p1".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(msg, decoded);
+
+        // Verify both locations survive the round trip
+        match &decoded {
+            GameMessage::PartyStatus { payload, .. } => {
+                assert_eq!(payload.members[0].current_location, "The Rusty Cantina");
+                assert_eq!(payload.members[1].current_location, "Scrapyard Gate");
+            }
+            other => panic!("expected PartyStatus, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn character_sheet_includes_current_location() {
+        // CHARACTER_SHEET must carry current_location for the sheet overlay.
+        let msg = GameMessage::CharacterSheet {
+            payload: CharacterSheetPayload {
+                name: "Kael".into(),
+                class: "Ranger".into(),
+                race: "Human".into(),
+                level: 3,
+                stats: std::collections::HashMap::from([("strength".into(), 14)]),
+                abilities: vec!["Tracker".into()],
+                backstory: "Born in the Ashwood.".into(),
+                personality: "Stoic".into(),
+                pronouns: "he/him".into(),
+                equipment: vec!["Longbow".into()],
+                portrait_url: None,
+                current_location: "The Rusty Cantina".into(),
+            },
+            player_id: "p1".into(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""current_location":"The Rusty Cantina""#));
+
+        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn party_status_wire_format_with_location() {
+        // Verify the wire format the React UI will receive includes location.
+        let json = r#"{
+            "type": "PARTY_STATUS",
+            "payload": {
+                "members": [{
+                    "player_id": "p1",
+                    "name": "Alice",
+                    "character_name": "Kael",
+                    "current_hp": 20,
+                    "max_hp": 20,
+                    "statuses": [],
+                    "class": "Ranger",
+                    "level": 3,
+                    "current_location": "Market Square"
+                }]
+            },
+            "player_id": "p1"
+        }"#;
+        let msg: GameMessage = serde_json::from_str(json).unwrap();
+        match &msg {
+            GameMessage::PartyStatus { payload, .. } => {
+                assert_eq!(payload.members[0].current_location, "Market Square");
+            }
+            other => panic!("expected PartyStatus, got {:?}", other),
+        }
+    }
+}

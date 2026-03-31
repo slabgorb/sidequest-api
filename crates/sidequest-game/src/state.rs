@@ -638,6 +638,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
             class: c.char_class.as_str().to_string(),
             level: Combatant::level(c),
             portrait_url: None,
+            current_location: state.location.clone(),
         })
         .collect();
     messages.push(GameMessage::PartyStatus {
