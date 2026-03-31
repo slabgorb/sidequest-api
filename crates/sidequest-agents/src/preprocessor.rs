@@ -28,9 +28,17 @@ pub fn preprocess_action(raw_input: &str, char_name: &str) -> PreprocessedAction
 
     let prompt = build_prompt(raw_input, char_name);
 
-    match client.send_with_model(&prompt, HAIKU_MODEL) {
+    let llm_span = tracing::info_span!("turn.preprocess.llm", model = HAIKU_MODEL);
+    let llm_result = {
+        let _llm_guard = llm_span.enter();
+        client.send_with_model(&prompt, HAIKU_MODEL)
+    };
+
+    match llm_result {
         Ok(resp) => {
             let response = &resp.text;
+            let parse_span = tracing::info_span!("turn.preprocess.parse", response_len = response.len());
+            let _parse_guard = parse_span.enter();
             match parse_response(response) {
                 Some(action) => {
                     // Validate output length constraint: each field <= 2x input length

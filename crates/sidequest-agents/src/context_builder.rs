@@ -25,6 +25,11 @@ impl ContextBuilder {
         self.sections.push(section);
     }
 
+    /// Return the number of sections currently in the builder.
+    pub fn section_count(&self) -> usize {
+        self.sections.len()
+    }
+
     /// Build and return sections sorted by attention zone order.
     pub fn build(&self) -> Vec<PromptSection> {
         let mut sorted = self.sections.clone();
