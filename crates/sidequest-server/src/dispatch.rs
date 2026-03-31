@@ -248,6 +248,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 initial_state: None,
                                 css: None,
                                 narrator_verbosity: None,
+                                narrator_vocabulary: None,
                             },
                             player_id: ctx.player_id.to_string(),
                         },

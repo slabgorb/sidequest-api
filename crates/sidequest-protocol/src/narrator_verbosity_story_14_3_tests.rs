@@ -102,6 +102,7 @@ fn session_event_connect_with_verbosity_round_trip() {
             initial_state: None,
             css: None,
             narrator_verbosity: Some(NarratorVerbosity::Verbose),
+            narrator_vocabulary: None,
         },
         player_id: String::new(),
     };

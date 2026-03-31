@@ -198,6 +198,7 @@ mod message_type_tests {
                 initial_state: None,
                 css: None,
                 narrator_verbosity: None,
+                narrator_vocabulary: None,
             },
             player_id: String::new(),
         };
@@ -232,6 +233,7 @@ mod message_type_tests {
                 }),
                 css: None,
                 narrator_verbosity: None,
+                narrator_vocabulary: None,
             },
             player_id: String::new(),
         };
