@@ -65,6 +65,32 @@ impl NarratorVerbosity {
 }
 
 // ---------------------------------------------------------------------------
+// NarratorVocabulary — per-session narrator vocabulary/complexity control (story 14-4)
+// ---------------------------------------------------------------------------
+
+/// Controls the prose complexity and diction of narrator output.
+///
+/// Works alongside `NarratorVerbosity` (which controls length). Vocabulary
+/// controls word choice and sentence complexity. Serializes as lowercase strings
+/// for wire compatibility with the React UI. Default is `Literary`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NarratorVocabulary {
+    /// Simple, direct language. Approximately 8th-grade reading level.
+    Accessible,
+    /// Rich but clear prose. Varied vocabulary without being obscure.
+    Literary,
+    /// Elevated, archaic, or mythic diction. Unrestricted complexity.
+    Epic,
+}
+
+impl Default for NarratorVocabulary {
+    fn default() -> Self {
+        Self::Literary
+    }
+}
+
+// ---------------------------------------------------------------------------
 // GameMessage — the tagged enum
 // ---------------------------------------------------------------------------
 
@@ -428,6 +454,12 @@ pub struct SessionEventPayload {
     /// deserialize as None, and the server applies a default based on player count.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub narrator_verbosity: Option<NarratorVerbosity>,
+
+    /// Narrator vocabulary/complexity setting (story 14-4).
+    /// Optional for backward compatibility — old clients that don't send it
+    /// deserialize as None, and the server applies a default (Literary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narrator_vocabulary: Option<NarratorVocabulary>,
 }
 
 /// Character creation flow payload.

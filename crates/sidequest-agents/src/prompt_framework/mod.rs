@@ -17,7 +17,7 @@ use sidequest_game::character::Character;
 use sidequest_game::known_fact::Confidence;
 use sidequest_game::npc::Npc;
 use sidequest_game::scene_directive::SceneDirective;
-use sidequest_protocol::NarratorVerbosity;
+use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
 /// Render a `SceneDirective` into its prompt text representation.
 ///
@@ -146,6 +146,57 @@ impl PromptRegistry {
             agent_name,
             PromptSection::new(
                 "narrator_verbosity",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ),
+        );
+    }
+
+    /// Inject narrator vocabulary/complexity instructions into the system prompt.
+    ///
+    /// Only applies to narrating agents (narrator, creature_smith). Non-narrating
+    /// agents are silently skipped. Placed in Late zone, Format category — same
+    /// position as verbosity, so the LLM sees both length and complexity guidance
+    /// with high recency attention.
+    ///
+    /// Story 14-4: Per-session vocabulary control.
+    pub fn register_vocabulary_section(
+        &mut self,
+        agent_name: &str,
+        vocabulary: NarratorVocabulary,
+    ) {
+        if !NARRATING_AGENTS.contains(&agent_name) {
+            return;
+        }
+
+        let content = match vocabulary {
+            NarratorVocabulary::Accessible => {
+                "[NARRATION VOCABULARY]\n\
+                 Use simple, direct language. Prefer common words over obscure \
+                 ones. Keep sentences short and clear. Aim for approximately \
+                 8th-grade reading level. No archaic constructions or elaborate \
+                 metaphors."
+            }
+            NarratorVocabulary::Literary => {
+                "[NARRATION VOCABULARY]\n\
+                 Use rich but clear prose. Employ varied vocabulary and literary \
+                 devices where they serve the narrative. Balance elegance with \
+                 accessibility — vivid but not purple."
+            }
+            NarratorVocabulary::Epic => {
+                "[NARRATION VOCABULARY]\n\
+                 Use elevated, archaic, or mythic diction. Embrace elaborate \
+                 sentence structures, rare words, and poetic constructions. \
+                 Channel the cadence of sagas, epics, and high fantasy prose. \
+                 Unrestricted complexity."
+            }
+        };
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "narrator_vocabulary",
                 content,
                 AttentionZone::Late,
                 SectionCategory::Format,
