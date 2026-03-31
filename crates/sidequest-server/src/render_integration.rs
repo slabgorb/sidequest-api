@@ -125,6 +125,19 @@ fn scene_type_to_string(scene_type: &SceneType) -> String {
     }
 }
 
+/// Determine if an image should be flagged as a journal handout.
+///
+/// Discovery scenes (maps, letters, treasures, secrets) are always handouts.
+/// Dialogue portraits (NPC faces encountered in conversation) are handouts.
+/// Everything else (combat, exploration, transitions) is ambient — not collected.
+fn is_handout(tier: &SubjectTier, scene_type: &SceneType) -> bool {
+    matches!(scene_type, SceneType::Discovery)
+        || matches!(
+            (scene_type, tier),
+            (SceneType::Dialogue, SubjectTier::Portrait)
+        )
+}
+
 /// Spawn the image broadcaster background task.
 ///
 /// Subscribes to the render queue's result channel and forwards completed
@@ -173,7 +186,7 @@ pub fn spawn_image_broadcaster(
                     let payload = ImagePayload {
                         url: image_url,
                         description: ctx.subject.prompt_fragment().to_string(),
-                        handout: false,
+                        handout: is_handout(ctx.subject.tier(), ctx.subject.scene_type()),
                         render_id: Some(job_id.to_string()),
                         tier: Some(tier_str),
                         scene_type: Some(scene_str),
@@ -267,7 +280,7 @@ pub fn spawn_image_broadcaster_with_throttle(
                     let payload = ImagePayload {
                         url: image_url,
                         description: ctx.subject.prompt_fragment().to_string(),
-                        handout: false,
+                        handout: is_handout(ctx.subject.tier(), ctx.subject.scene_type()),
                         render_id: Some(job_id.to_string()),
                         tier: Some(tier_str),
                         scene_type: Some(scene_str),

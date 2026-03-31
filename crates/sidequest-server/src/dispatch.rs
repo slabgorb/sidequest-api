@@ -30,6 +30,7 @@ use crate::{
 /// Mutable per-player state passed through the dispatch pipeline.
 pub(crate) struct DispatchContext<'a> {
     pub action: &'a str,
+    pub aside: bool,
     pub char_name: &'a str,
     pub player_id: &'a str,
     pub genre_slug: &'a str,
@@ -200,6 +201,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Slash command interception — route /commands to mechanical handlers, not the LLM.
     if let Some(slash_messages) = handle_slash_command(ctx) {
         return slash_messages;
+    }
+
+    // Aside handling — narrate with flavor but skip ALL state mutations.
+    // Asides are out-of-character commentary that should not affect the game world.
+    if ctx.aside {
+        return handle_aside(ctx).await;
     }
 
     let mut state_summary = build_prompt_context(ctx).await;
@@ -1474,7 +1481,7 @@ async fn sync_back_to_shared_session(
                     let observer_action = GameMessage::PlayerAction {
                         payload: sidequest_protocol::PlayerActionPayload {
                             action: format!("{} — {}", ctx.char_name, effective_action),
-                            aside: false,
+                            aside: ctx.aside,
                         },
                         player_id: ctx.player_id.to_string(),
                     };
@@ -2929,6 +2936,55 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
     }
 
     state_summary
+}
+
+/// Handle an aside — out-of-character commentary that does not affect the game world.
+///
+/// Calls the narrator with an aside-specific prompt injection, then returns narration
+/// only. Skips ALL state mutation subsystems: no combat, no chase, no tropes, no
+/// renders, no music, no NPC registry, no narration history, no turn barrier.
+async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
+    tracing::info!(player = %ctx.char_name, action = %ctx.action, "aside — out-of-character, skipping state mutations");
+
+    // Build a minimal prompt context with the aside instruction injected.
+    let mut state_summary = build_prompt_context(ctx).await;
+    state_summary.push_str(concat!(
+        "\n\nASIDE RULES (HARD CONSTRAINTS):",
+        "\nThe player is speaking an aside — an out-of-character thought, whisper, or ",
+        "meta-commentary. This is NOT an in-world action.",
+        "\n1. Respond with a brief inner-monologue, fourth-wall-breaking quip, or flavor acknowledgment.",
+        "\n2. Do NOT advance the story, trigger combat, move NPCs, or change ANY game state.",
+        "\n3. Do NOT describe the character performing any actions or interacting with the world.",
+        "\n4. Keep it short — 1-3 sentences maximum.",
+    ));
+
+    let context = TurnContext {
+        state_summary: Some(state_summary),
+        in_combat: ctx.combat_state.in_combat(),
+        in_chase: ctx.chase_state.is_some(),
+    };
+    let result = ctx
+        .state
+        .game_service()
+        .process_action(&format!("(aside) {}", ctx.action), &context);
+
+    let narration_text = strip_location_header(&result.narration);
+
+    // Return narration + end with no state_delta — the aside is ephemeral.
+    vec![
+        GameMessage::Narration {
+            payload: NarrationPayload {
+                text: narration_text.to_string(),
+                state_delta: None,
+                footnotes: vec![],
+            },
+            player_id: ctx.player_id.to_string(),
+        },
+        GameMessage::NarrationEnd {
+            payload: NarrationEndPayload { state_delta: None },
+            player_id: ctx.player_id.to_string(),
+        },
+    ]
 }
 
 /// Slash command interception — route /commands to mechanical handlers, not the LLM.

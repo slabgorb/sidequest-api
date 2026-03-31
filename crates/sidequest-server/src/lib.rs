@@ -918,7 +918,10 @@ pub fn build_router(state: AppState) -> Router {
                         payload: sidequest_protocol::ImagePayload {
                             url: served_url,
                             description: String::new(),
-                            handout: false,
+                            handout: matches!(
+                                (scene_type.as_str(), tier.as_str()),
+                                ("discovery", _) | ("dialogue", "portrait")
+                            ),
                             render_id: Some(job_id.to_string()),
                             tier: if tier.is_empty() { None } else { Some(tier) },
                             scene_type: if scene_type.is_empty() {
@@ -1725,6 +1728,7 @@ async fn dispatch_message(
             }
             dispatch::dispatch_player_action(&mut dispatch::DispatchContext {
                 action: &payload.action,
+                aside: payload.aside,
                 char_name: character_name.as_deref().unwrap_or("Unknown"),
                 hp: character_hp,
                 max_hp: character_max_hp,
@@ -2589,6 +2593,7 @@ async fn dispatch_character_creation(
                     let intro_messages =
                         dispatch::dispatch_player_action(&mut dispatch::DispatchContext {
                             action: "I look around and take in my surroundings.",
+                            aside: false,
                             char_name: character.core.name.as_str(),
                             hp: character_hp,
                             max_hp: character_max_hp,
