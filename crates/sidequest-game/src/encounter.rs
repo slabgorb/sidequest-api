@@ -87,7 +87,14 @@ impl SecondaryStats {
     /// Convenience constructor so chase encounters can express rig stats
     /// in the generic format.
     pub fn rig(rig_type: RigType) -> Self {
-        let rig = RigStats::from_type(rig_type);
+        Self::from_rig_stats(&RigStats::from_type(rig_type))
+    }
+
+    /// Convert a RigStats instance into the generic SecondaryStats format.
+    ///
+    /// Single authority for RigStats → SecondaryStats transformation.
+    /// Used by both the rig() convenience constructor and from_chase_state() migration.
+    pub fn from_rig_stats(rig: &RigStats) -> Self {
         let mut stats = HashMap::new();
         stats.insert(
             "hp".to_string(),
@@ -225,48 +232,7 @@ impl StructuredEncounter {
     ///
     /// Used for backward-compatible deserialization of old save files.
     pub fn from_chase_state(chase: &ChaseState) -> Self {
-        let secondary_stats = chase.rig().map(|rig| {
-            let mut stats = HashMap::new();
-            stats.insert(
-                "hp".to_string(),
-                StatValue {
-                    current: rig.rig_hp,
-                    max: rig.max_rig_hp,
-                },
-            );
-            stats.insert(
-                "speed".to_string(),
-                StatValue {
-                    current: rig.speed,
-                    max: rig.speed,
-                },
-            );
-            stats.insert(
-                "armor".to_string(),
-                StatValue {
-                    current: rig.armor,
-                    max: rig.armor,
-                },
-            );
-            stats.insert(
-                "maneuver".to_string(),
-                StatValue {
-                    current: rig.maneuver,
-                    max: rig.maneuver,
-                },
-            );
-            stats.insert(
-                "fuel".to_string(),
-                StatValue {
-                    current: rig.fuel,
-                    max: rig.max_fuel,
-                },
-            );
-            SecondaryStats {
-                stats,
-                damage_tier: Some(format!("{}", rig.damage_tier())),
-            }
-        });
+        let secondary_stats = chase.rig().map(SecondaryStats::from_rig_stats);
 
         let structured_phase = chase.structured_phase().map(|p| match p {
             crate::chase_depth::ChasePhase::Setup => EncounterPhase::Setup,

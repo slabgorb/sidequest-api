@@ -100,6 +100,10 @@ pub use continuity::{
 pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};
 pub use disposition::{Attitude, Disposition};
+pub use encounter::{
+    EncounterActor, EncounterMetric, EncounterPhase, MetricDirection, SecondaryStats, StatValue,
+    StructuredEncounter,
+};
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use gossip::{GossipEngine, PropagationResult};
 pub use hp::clamp_hp;
