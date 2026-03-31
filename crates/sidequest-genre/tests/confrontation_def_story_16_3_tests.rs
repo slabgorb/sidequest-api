@@ -602,10 +602,24 @@ confrontations:
     assert_eq!(rules.confrontations.len(), 1);
     assert_eq!(rules.confrontations[0].beats[0].stat_check, "NONEXISTENT_STAT");
 
-    // The actual validation happens on GenrePack::validate(), which requires
-    // a full pack. Dev should add validate_confrontations() to validate.rs
-    // that cross-references beats[].stat_check against rules.ability_score_names.
-    // This test documents the expectation.
+    // Now load a real pack and inject the bad confrontation to test validate()
+    let packs_dir = genre_packs_path();
+    let mut pack = sidequest_genre::load_genre_pack(&packs_dir.join("mutant_wasteland"))
+        .expect("mutant_wasteland should load");
+
+    // Inject a confrontation with an invalid stat_check
+    pack.rules.confrontations = rules.confrontations;
+
+    let result = pack.validate();
+    assert!(
+        result.is_err(),
+        "validate() should reject confrontation with invalid stat_check 'NONEXISTENT_STAT'"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("NONEXISTENT_STAT"),
+        "validation error should mention the invalid stat_check, got: {err_msg}"
+    );
 }
 
 // =========================================================================
@@ -647,8 +661,23 @@ confrontations:
         rules.confrontations[0].escalates_to.as_deref(),
         Some("nonexistent_type")
     );
-    // Dev must add validation in validate.rs that checks escalates_to
-    // references either another confrontation type in the same pack or "combat"
+    // Now load a real pack and inject to test validate()
+    let packs_dir = genre_packs_path();
+    let mut pack = sidequest_genre::load_genre_pack(&packs_dir.join("mutant_wasteland"))
+        .expect("mutant_wasteland should load");
+
+    pack.rules.confrontations = rules.confrontations;
+
+    let result = pack.validate();
+    assert!(
+        result.is_err(),
+        "validate() should reject escalates_to referencing nonexistent confrontation type"
+    );
+    let err_msg = format!("{}", result.unwrap_err());
+    assert!(
+        err_msg.contains("nonexistent_type"),
+        "validation error should mention the invalid escalates_to target, got: {err_msg}"
+    );
 }
 
 // =========================================================================
