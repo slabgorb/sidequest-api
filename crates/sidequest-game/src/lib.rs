@@ -17,8 +17,8 @@ pub mod builder;
 pub mod catch_up;
 pub mod character;
 pub mod chase;
-pub mod clue_activation;
 pub mod chase_depth;
+pub mod clue_activation;
 pub mod combat;
 pub mod combatant;
 pub mod commands;
@@ -77,14 +77,14 @@ pub use axis::{format_tone_context, AxisValue, ToneCommand};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
 pub use chase::{ChaseRound, ChaseState, ChaseType};
-pub use clue_activation::{
-    ClueActivation, ClueGraph, ClueNode, ClueType, ClueVisibility, DiscoveryMethod,
-};
 pub use chase_depth::{
     apply_terrain_to_rig, camera_for_phase, check_outcome, cinematography_for_phase,
     danger_for_beat, format_chase_context, phase_for_beat, sentence_range_for_drama,
     terrain_modifiers, BeatDecision, CameraMode, ChaseActor, ChaseBeat, ChaseCinematography,
     ChaseOutcome, ChasePhase, ChaseRole, RigDamageTier, RigStats, RigType, TerrainModifiers,
+};
+pub use clue_activation::{
+    ClueActivation, ClueGraph, ClueNode, ClueType, ClueVisibility, DiscoveryMethod,
 };
 pub use combat::{CombatOutcome, CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
 pub use combatant::Combatant;

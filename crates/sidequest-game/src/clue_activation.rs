@@ -233,10 +233,7 @@ impl<'a> ClueActivation<'a> {
         self.graph
             .nodes
             .iter()
-            .filter(|node| {
-                !discovered.contains(&node.id)
-                    && node.requires.iter().all(|r| discovered.contains(r))
-            })
+            .filter(|node| Self::is_node_discoverable(node, discovered))
             .map(|node| node.id.clone())
             .collect()
     }
@@ -255,23 +252,24 @@ impl<'a> ClueActivation<'a> {
             .nodes
             .iter()
             .filter(|node| {
-                // Not already discovered
-                if discovered.contains(&node.id) {
-                    return false;
-                }
-                // All dependency clues found
-                if !node.requires.iter().all(|r| discovered.contains(r)) {
-                    return false;
-                }
-                // NPC knowledge check (if required)
-                if let Some(subject) = &node.requires_npc_knowledge {
-                    if npc_beliefs.beliefs_about(subject).is_empty() {
-                        return false;
-                    }
-                }
-                true
+                Self::is_node_discoverable(node, discovered)
+                    && Self::npc_knowledge_satisfied(node, npc_beliefs)
             })
             .map(|node| node.id.clone())
             .collect()
+    }
+
+    /// Check base discoverability: not already found + all deps met.
+    fn is_node_discoverable(node: &ClueNode, discovered: &HashSet<String>) -> bool {
+        !discovered.contains(&node.id)
+            && node.requires.iter().all(|r| discovered.contains(r))
+    }
+
+    /// Check NPC knowledge requirement. Returns true if no requirement or if satisfied.
+    fn npc_knowledge_satisfied(node: &ClueNode, npc_beliefs: &BeliefState) -> bool {
+        match &node.requires_npc_knowledge {
+            Some(subject) => !npc_beliefs.beliefs_about(subject).is_empty(),
+            None => true,
+        }
     }
 }
