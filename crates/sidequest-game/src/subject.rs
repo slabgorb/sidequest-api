@@ -102,6 +102,15 @@ impl RenderSubject {
     pub fn narrative_weight(&self) -> f32 {
         self.narrative_weight
     }
+
+    /// Return a new subject with the prompt fragment replaced.
+    ///
+    /// Used by the render pipeline to enrich prompts with NPC physical
+    /// descriptions before sending to the image generator.
+    pub fn with_prompt_fragment(mut self, prompt: String) -> Self {
+        self.prompt_fragment = prompt;
+        self
+    }
 }
 
 /// Game state context for resolving entities during extraction.

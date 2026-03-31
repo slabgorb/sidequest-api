@@ -82,11 +82,19 @@ a quest, include quest_updates in the JSON block. Each key is the quest name, ea
 is the current status.
 
 Status values:
-- \"active: <description>\" — new quest or updated objective
+- \"active: <description> (from: <NPC name>)\" — new quest. ALWAYS note which NPC gave it.
+- \"active: <updated description>\" — updated objective
 - \"completed: <outcome>\" — quest resolved
 - \"failed: <reason>\" — quest failed
 
 Only include quests that CHANGED this turn. Do not repeat unchanged quests.
+
+[REFERRAL RULE]
+When an NPC sends the player to another NPC, note the referral in quest_updates.
+NEVER send the player back to an NPC who originally sent them on this quest.
+Check ACTIVE QUESTS — if a quest says \"(from: Toggler)\" and the player is now
+talking to Patchwork, do NOT have Patchwork send the player back to Toggler for
+the same objective. Advance the quest instead.
 
 [JSON BLOCK]
 After your prose, emit a single fenced JSON block containing any combination of
