@@ -161,6 +161,7 @@ fn intent_router_state_override_emits_span() {
         in_combat: true,
         in_chase: false,
         state_summary: None,
+        ..Default::default()
     };
 
     let (layer, captured) = SpanCaptureLayer::new();

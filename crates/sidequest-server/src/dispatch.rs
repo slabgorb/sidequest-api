@@ -69,6 +69,8 @@ pub(crate) struct DispatchContext<'a> {
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
+    pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
+    pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -401,6 +403,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         state_summary: Some(state_summary),
         in_combat: ctx.combat_state.in_combat(),
         in_chase: ctx.chase_state.is_some(),
+        narrator_verbosity: ctx.narrator_verbosity,
+        narrator_vocabulary: ctx.narrator_vocabulary,
     };
     let result = ctx
         .state
@@ -2962,6 +2966,8 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         state_summary: Some(state_summary),
         in_combat: ctx.combat_state.in_combat(),
         in_chase: ctx.chase_state.is_some(),
+        narrator_verbosity: ctx.narrator_verbosity,
+        narrator_vocabulary: ctx.narrator_vocabulary,
     };
     let result = ctx
         .state

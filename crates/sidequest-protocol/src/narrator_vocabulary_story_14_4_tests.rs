@@ -190,6 +190,7 @@ fn session_event_with_both_verbosity_and_vocabulary() {
             css: None,
             narrator_verbosity: Some(NarratorVerbosity::Concise),
             narrator_vocabulary: Some(NarratorVocabulary::Epic),
+            image_cooldown_seconds: None,
         },
         player_id: String::new(),
     };
