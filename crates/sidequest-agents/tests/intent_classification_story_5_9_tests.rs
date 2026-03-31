@@ -113,6 +113,7 @@ fn state_override_combat() {
         in_combat: true,
         in_chase: false,
         state_summary: None,
+        ..Default::default()
     };
     // Classifier says Exploration, but state override should force Combat
     let classifier = MockClassifier(Intent::Exploration);
@@ -126,6 +127,7 @@ fn state_override_chase() {
         in_combat: false,
         in_chase: true,
         state_summary: None,
+        ..Default::default()
     };
     let classifier = MockClassifier(Intent::Dialogue);
     let route =
@@ -139,6 +141,7 @@ fn chase_takes_priority_over_combat() {
         in_combat: true,
         in_chase: true,
         state_summary: None,
+        ..Default::default()
     };
     let classifier = MockClassifier(Intent::Combat);
     let route = IntentRouter::classify_with_classifier("I attack", &ctx, &classifier);

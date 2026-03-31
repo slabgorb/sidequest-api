@@ -1206,6 +1206,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut narration_history: Vec<String> = vec![];
     // Continuity validator: corrections from the previous turn, injected into the next narrator prompt.
     let mut continuity_corrections = String::new();
+    // Narrator style settings — per-session, changeable mid-game via SESSION_EVENT{settings}.
+    let mut narrator_verbosity = sidequest_protocol::NarratorVerbosity::default();
+    let mut narrator_vocabulary = sidequest_protocol::NarratorVocabulary::default();
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<
@@ -1254,6 +1257,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut genie_wishes,
                         &mut resource_state,
                         &mut resource_declarations,
+                        &mut narrator_verbosity,
+                        &mut narrator_vocabulary,
                     )
                     .await;
                     for resp in responses {
@@ -1408,6 +1413,8 @@ async fn dispatch_message(
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
     resource_state: &mut HashMap<String, f64>,
     resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
+    narrator_verbosity: &mut sidequest_protocol::NarratorVerbosity,
+    narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1445,6 +1452,8 @@ async fn dispatch_message(
                 chase_state,
                 resource_state,
                 resource_declarations,
+                narrator_verbosity,
+                narrator_vocabulary,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1649,7 +1658,23 @@ async fn dispatch_message(
                     "image_throttle_updated — cooldown changed via session settings"
                 );
             }
-            // Acknowledge the settings update
+            if let Some(v) = payload.narrator_verbosity {
+                *narrator_verbosity = v;
+                tracing::info!(
+                    verbosity = ?v,
+                    player_id = %player_id,
+                    "narrator_verbosity_updated via session settings"
+                );
+            }
+            if let Some(v) = payload.narrator_vocabulary {
+                *narrator_vocabulary = v;
+                tracing::info!(
+                    vocabulary = ?v,
+                    player_id = %player_id,
+                    "narrator_vocabulary_updated via session settings"
+                );
+            }
+            // Acknowledge the settings update — echo back all applied values
             responses.push(GameMessage::SessionEvent {
                 payload: SessionEventPayload {
                     event: "settings_updated".to_string(),
@@ -1659,8 +1684,8 @@ async fn dispatch_message(
                     has_character: None,
                     initial_state: None,
                     css: None,
-                    narrator_verbosity: None,
-                    narrator_vocabulary: None,
+                    narrator_verbosity: Some(*narrator_verbosity),
+                    narrator_vocabulary: Some(*narrator_vocabulary),
                     image_cooldown_seconds: payload.image_cooldown_seconds,
                 },
                 player_id: player_id.to_string(),
@@ -1708,6 +1733,8 @@ async fn dispatch_message(
                 genie_wishes,
                 resource_state,
                 resource_declarations,
+                narrator_verbosity,
+                narrator_vocabulary,
             )
             .await
         }
@@ -1764,6 +1791,8 @@ async fn dispatch_message(
                 genie_wishes,
                 resource_state,
                 resource_declarations,
+                narrator_verbosity: *narrator_verbosity,
+                narrator_vocabulary: *narrator_vocabulary,
             })
             .await
         }
@@ -1822,6 +1851,8 @@ async fn dispatch_connect(
     chase_state: &mut Option<sidequest_game::ChaseState>,
     resource_state: &mut HashMap<String, f64>,
     resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
+    narrator_verbosity: &mut sidequest_protocol::NarratorVerbosity,
+    narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1834,6 +1865,14 @@ async fn dispatch_connect(
         Ok(mut connected_msg) => {
             let mut responses = Vec::new();
             *player_name_store = Some(pname.to_string());
+
+            // Initialize narrator settings from connect payload or defaults
+            if let Some(v) = payload.narrator_verbosity {
+                *narrator_verbosity = v;
+            }
+            if let Some(v) = payload.narrator_vocabulary {
+                *narrator_vocabulary = v;
+            }
 
             if returning {
                 // Returning player — load snapshot from SQLite (keyed by player name)
@@ -2421,6 +2460,8 @@ async fn dispatch_character_creation(
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
     resource_state: &mut HashMap<String, f64>,
     resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
+    narrator_verbosity: &sidequest_protocol::NarratorVerbosity,
+    narrator_vocabulary: &sidequest_protocol::NarratorVocabulary,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2629,6 +2670,8 @@ async fn dispatch_character_creation(
                             genie_wishes,
                             resource_state,
                             resource_declarations,
+                            narrator_verbosity: *narrator_verbosity,
+                            narrator_vocabulary: *narrator_vocabulary,
                         })
                         .await;
 

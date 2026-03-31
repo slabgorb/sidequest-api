@@ -215,6 +215,8 @@ fn test_rules() -> RulesConfig {
         encounter_base_tension: HashMap::new(),
         race_label: None,
         class_label: None,
+        confrontations: vec![],
+        resources: vec![],
     }
 }
 

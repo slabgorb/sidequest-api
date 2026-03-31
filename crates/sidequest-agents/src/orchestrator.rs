@@ -243,6 +243,71 @@ impl GameService for Orchestrator {
             ));
         }
 
+        // Narrator verbosity instruction (Late zone — high recency attention for format guidance)
+        {
+            use sidequest_protocol::NarratorVerbosity;
+            let content = match context.narrator_verbosity {
+                NarratorVerbosity::Concise => {
+                    "[NARRATION LENGTH]\n\
+                     Keep descriptions to 1-2 sentences. Prioritize action and \
+                     consequence over atmosphere. No extended scene-setting or \
+                     sensory elaboration. Be direct."
+                }
+                NarratorVerbosity::Standard => {
+                    "[NARRATION LENGTH]\n\
+                     Use standard descriptive prose — balanced detail and pacing. \
+                     Include enough atmosphere to set the scene without belaboring it. \
+                     2-4 sentences per beat is typical."
+                }
+                NarratorVerbosity::Verbose => {
+                    "[NARRATION LENGTH]\n\
+                     Elaborate with sensory details and world-building. Paint the \
+                     scene with sights, sounds, smells, and texture. Take time to \
+                     establish atmosphere and let moments breathe. 4-6+ sentences \
+                     per beat."
+                }
+            };
+            builder.add_section(PromptSection::new(
+                "narrator_verbosity",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ));
+        }
+
+        // Narrator vocabulary instruction (Late zone — high recency attention for format guidance)
+        {
+            use sidequest_protocol::NarratorVocabulary;
+            let content = match context.narrator_vocabulary {
+                NarratorVocabulary::Accessible => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use simple, direct language. Prefer common words over obscure \
+                     ones. Keep sentences short and clear. Aim for approximately \
+                     8th-grade reading level. No archaic constructions or elaborate \
+                     metaphors."
+                }
+                NarratorVocabulary::Literary => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use rich but clear prose. Employ varied vocabulary and literary \
+                     devices where they serve the narrative. Balance elegance with \
+                     accessibility — vivid but not purple."
+                }
+                NarratorVocabulary::Epic => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use elevated, archaic, or mythic diction. Embrace elaborate \
+                     sentence structures, rare words, and poetic constructions. \
+                     Channel the cadence of sagas, epics, and high fantasy prose. \
+                     Unrestricted complexity."
+                }
+            };
+            builder.add_section(PromptSection::new(
+                "narrator_vocabulary",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ));
+        }
+
         // Player action section (Recency zone — highest attention at prompt end)
         builder.add_section(PromptSection::new(
             "player_action",
@@ -597,6 +662,10 @@ pub struct TurnContext {
     pub in_chase: bool,
     /// Serialized game state summary for grounding narration.
     pub state_summary: Option<String>,
+    /// Per-session narrator verbosity setting (concise/standard/verbose).
+    pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
+    /// Per-session narrator vocabulary setting (accessible/literary/epic).
+    pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
 }
 
 /// Result of processing a player action through the full turn loop.
