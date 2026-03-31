@@ -387,6 +387,74 @@ pub struct Inspiration {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Resource declarations (story 16-1)
+// ═══════════════════════════════════════════════════════════
+
+/// Raw representation for deserialization with validation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ResourceDeclarationRaw {
+    name: String,
+    label: String,
+    min: f64,
+    max: f64,
+    starting: f64,
+    voluntary: bool,
+    decay_per_turn: f64,
+}
+
+/// Genre resource declaration (e.g., Luck, Humanity, Heat).
+///
+/// Declares a named resource that the narrator should track and reference.
+/// Lightweight precursor to the formal ResourcePool (story 16-10).
+/// Validates on deserialization: max >= min, starting in [min, max].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "ResourceDeclarationRaw")]
+pub struct ResourceDeclaration {
+    /// Internal name (e.g., "luck", "humanity").
+    pub name: String,
+    /// Display label (e.g., "Luck", "Humanity").
+    pub label: String,
+    /// Minimum value.
+    pub min: f64,
+    /// Maximum value.
+    pub max: f64,
+    /// Starting value for new sessions.
+    pub starting: f64,
+    /// Whether the player can voluntarily spend this resource.
+    pub voluntary: bool,
+    /// Automatic change per turn (e.g., -0.1 for Heat decay). 0.0 = no decay.
+    pub decay_per_turn: f64,
+}
+
+impl TryFrom<ResourceDeclarationRaw> for ResourceDeclaration {
+    type Error = String;
+
+    fn try_from(raw: ResourceDeclarationRaw) -> Result<Self, Self::Error> {
+        if raw.max < raw.min {
+            return Err(format!(
+                "resource '{}': max ({}) must be >= min ({})",
+                raw.name, raw.max, raw.min
+            ));
+        }
+        if raw.starting < raw.min || raw.starting > raw.max {
+            return Err(format!(
+                "resource '{}': starting ({}) must be in [{}, {}]",
+                raw.name, raw.starting, raw.min, raw.max
+            ));
+        }
+        Ok(Self {
+            name: raw.name,
+            label: raw.label,
+            min: raw.min,
+            max: raw.max,
+            starting: raw.starting,
+            voluntary: raw.voluntary,
+            decay_per_turn: raw.decay_per_turn,
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // rules.yaml
 // ═══════════════════════════════════════════════════════════
 
@@ -452,6 +520,9 @@ pub struct RulesConfig {
     /// Base tension values per encounter type.
     #[serde(default)]
     pub encounter_base_tension: HashMap<String, f64>,
+    /// Genre resource declarations (story 16-1). Empty for genres without resources.
+    #[serde(default)]
+    pub resources: Vec<ResourceDeclaration>,
 }
 
 // ═══════════════════════════════════════════════════════════
