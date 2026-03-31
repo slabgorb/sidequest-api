@@ -166,6 +166,7 @@ fn new_footnotes_convert_to_discovered_facts() {
         &footnotes,
         "Reva Thornwood",
         42, // current turn
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     // Only is_new: true footnotes should produce DiscoveredFacts
@@ -186,6 +187,7 @@ fn new_footnote_maps_to_known_fact_fields() {
         &footnotes,
         "Reva Thornwood",
         42,
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     assert_eq!(discovered.len(), 1);
@@ -205,6 +207,7 @@ fn new_footnote_defaults_to_certain_confidence() {
         &footnotes,
         "Reva",
         1,
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     assert_eq!(discovered.len(), 1);
@@ -224,6 +227,7 @@ fn new_footnote_source_is_observation() {
         &footnotes,
         "Reva",
         5,
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     assert_eq!(discovered.len(), 1);
@@ -261,6 +265,7 @@ fn callback_footnotes_are_excluded_from_discovered_facts() {
         &footnotes,
         "Reva",
         10,
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     assert!(
@@ -394,6 +399,7 @@ fn empty_footnotes_produce_no_discovered_facts() {
         &footnotes,
         "Reva",
         1,
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     assert!(
@@ -600,6 +606,7 @@ fn full_pipeline_narrator_json_to_known_facts() {
         &payload.footnotes,
         "Reva Thornwood",
         15, // turn 15
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     // Only is_new: true footnotes become DiscoveredFacts
@@ -697,6 +704,7 @@ fn full_pipeline_prompt_to_response_to_facts() {
         &payload.footnotes,
         "Reva Thornwood",
         16,
+        sidequest_game::known_fact::FactSource::Discovery,
     );
 
     assert_eq!(discovered.len(), 1);

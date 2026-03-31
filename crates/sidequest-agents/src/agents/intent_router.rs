@@ -27,6 +27,9 @@ pub enum Intent {
     Meta,
     /// Chase sequences (pursuit, escape, negotiation while fleeing).
     Chase,
+    /// Backstory — player is describing their character's history, personality,
+    /// possessions, or identity. Should be captured as character-keyed KnownFacts.
+    Backstory,
 }
 
 impl Intent {
@@ -35,7 +38,7 @@ impl Intent {
     /// (the player is actively driving the story). Exploration, Examine, and
     /// Meta are not (idle browsing or system commands).
     pub fn is_meaningful(&self) -> bool {
-        matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase)
+        matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase | Intent::Backstory)
     }
 }
 
@@ -45,6 +48,7 @@ impl std::fmt::Display for Intent {
             Intent::Combat => write!(f, "Combat"),
             Intent::Dialogue => write!(f, "Dialogue"),
             Intent::Exploration => write!(f, "Exploration"),
+            Intent::Backstory => write!(f, "Backstory"),
             Intent::Examine => write!(f, "Examine"),
             Intent::Meta => write!(f, "Meta"),
             Intent::Chase => write!(f, "Chase"),
@@ -94,6 +98,7 @@ impl IntentRoute {
             Intent::Examine => "narrator",
             Intent::Meta => "narrator",
             Intent::Chase => "dialectician",
+            Intent::Backstory => "narrator",
         }
     }
 
@@ -220,9 +225,21 @@ impl HaikuClassifier {
         format!(
             "You classify player actions in a tabletop RPG.\n\
              Given the player's action and current scene context, return a JSON object:\n\
-             {{ \"intent\": \"<Combat|Dialogue|Exploration|Examine|Meta|Chase>\",\n\
+             {{ \"intent\": \"<Combat|Dialogue|Exploration|Examine|Meta|Chase|Backstory>\",\n\
                \"confidence\": <0.0-1.0>,\n\
                \"candidates\": [\"<intent>\", ...] }}\n\n\
+             Intent definitions:\n\
+             - Combat: attacking, defending, using combat abilities\n\
+             - Dialogue: talking to NPCs, asking questions of characters\n\
+             - Exploration: moving to new locations, looking around\n\
+             - Examine: inspecting specific objects or details\n\
+             - Meta: save, help, status, out-of-character commands\n\
+             - Chase: pursuit, escape, fleeing\n\
+             - Backstory: the player describes their character's history, personality,\n\
+               appearance, possessions, memories, or identity. Includes introspection,\n\
+               recalling past events, describing keepsakes, or revealing personal details\n\
+               through dialogue or inner monologue. If the player is telling a story ABOUT\n\
+               their character rather than advancing the plot, it is Backstory.\n\n\
              If the action clearly maps to one intent, return confidence >= 0.8.\n\
              If the action is ambiguous (could be multiple intents), return\n\
                intent set to your best guess, confidence < 0.5, and list the top candidates.\n\n\
@@ -232,9 +249,21 @@ impl HaikuClassifier {
         )
     }
 
+    /// Strip markdown code fences from LLM output (e.g., ```json ... ```).
+    fn strip_fences(raw: &str) -> &str {
+        let trimmed = raw.trim();
+        if let Some(rest) = trimmed.strip_prefix("```") {
+            // Skip optional language tag on first line
+            let after_tag = rest.find('\n').map(|i| &rest[i + 1..]).unwrap_or(rest);
+            after_tag.strip_suffix("```").unwrap_or(after_tag).trim()
+        } else {
+            trimmed
+        }
+    }
+
     /// Parse the JSON response from Haiku into an IntentRoute.
     fn parse_response(raw: &str) -> Option<IntentRoute> {
-        let value: serde_json::Value = serde_json::from_str(raw.trim()).ok()?;
+        let value: serde_json::Value = serde_json::from_str(Self::strip_fences(raw)).ok()?;
 
         let intent_str = value.get("intent")?.as_str()?;
         let intent = match intent_str {
@@ -244,6 +273,7 @@ impl HaikuClassifier {
             "Examine" => Intent::Examine,
             "Meta" => Intent::Meta,
             "Chase" => Intent::Chase,
+            "Backstory" => Intent::Backstory,
             _ => return None,
         };
 
@@ -263,6 +293,7 @@ impl HaikuClassifier {
                         "Examine" => Some(Intent::Examine),
                         "Meta" => Some(Intent::Meta),
                         "Chase" => Some(Intent::Chase),
+                        "Backstory" => Some(Intent::Backstory),
                         _ => None,
                     })
                     .collect()
@@ -278,8 +309,9 @@ impl IntentClassifier for HaikuClassifier {
         let prompt = Self::build_prompt(input, context);
 
         match self.client.send_with_model(&prompt, "haiku") {
-            Ok(raw) => {
-                match Self::parse_response(&raw) {
+            Ok(resp) => {
+                let raw = &resp.text;
+                match Self::parse_response(raw) {
                     Some(route) => route,
                     None => {
                         tracing::warn!(

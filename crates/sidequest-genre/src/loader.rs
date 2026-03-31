@@ -38,16 +38,15 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     let cultures: Vec<Culture> = load_yaml(&path.join("cultures.yaml"))?;
     let prompts: Prompts = load_yaml(&path.join("prompts.yaml"))?;
 
+    // Load required genre-level files
+    let genre_tropes: Vec<TropeDefinition> = load_yaml(&path.join("tropes.yaml"))?;
+    let achievements: Vec<Achievement> = load_yaml(&path.join("achievements.yaml"))?;
+    let power_tiers: HashMap<String, Vec<PowerTier>> = load_yaml(&path.join("power_tiers.yaml"))?;
+
     // Load optional files
-    let genre_tropes: Vec<TropeDefinition> =
-        load_yaml_optional(&path.join("tropes.yaml"))?.unwrap_or_default();
     let beat_vocabulary: Option<BeatVocabulary> =
         load_yaml_optional(&path.join("beat_vocabulary.yaml"))?;
-    let achievements: Vec<Achievement> =
-        load_yaml_optional(&path.join("achievements.yaml"))?.unwrap_or_default();
     let voice_presets: Option<VoicePresets> = load_yaml_optional(&path.join("voice_presets.yaml"))?;
-    let power_tiers: HashMap<String, Vec<PowerTier>> =
-        load_yaml_optional(&path.join("power_tiers.yaml"))?.unwrap_or_default();
     let drama_thresholds: Option<DramaThresholds> =
         load_yaml_optional(&path.join("pacing.yaml"))?;
 

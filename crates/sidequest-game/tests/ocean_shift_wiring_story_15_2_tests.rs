@@ -28,6 +28,8 @@ fn make_entry(name: &str, ocean: OceanProfile) -> NpcRegistryEntry {
         appearance: String::new(),
         ocean_summary: summary,
         ocean: Some(ocean),
+        hp: 0,
+        max_hp: 0,
     }
 }
 
@@ -42,6 +44,8 @@ fn make_entry_no_ocean(name: &str) -> NpcRegistryEntry {
         appearance: String::new(),
         ocean_summary: String::new(),
         ocean: None,
+        hp: 0,
+        max_hp: 0,
     }
 }
 

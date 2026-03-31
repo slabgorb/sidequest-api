@@ -44,9 +44,9 @@ fn client_send_with_echo_returns_stdout() {
     );
     let output = result.unwrap();
     assert!(
-        output.contains("hello"),
+        output.text.contains("hello"),
         "Output should contain the prompt. Got: {}",
-        output
+        output.text
     );
 }
 

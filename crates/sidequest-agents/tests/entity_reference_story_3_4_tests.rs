@@ -183,6 +183,7 @@ fn make_record_with_narration(narration: &str) -> TurnRecord {
         token_count_out: 100,
         agent_duration_ms: 1200,
         is_degraded: false,
+        spans: vec![],
     }
 }
 

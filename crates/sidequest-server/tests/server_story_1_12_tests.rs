@@ -257,8 +257,6 @@ async fn server_accepts_mock_game_service() {
         ) -> sidequest_agents::orchestrator::ActionResult {
             sidequest_agents::orchestrator::ActionResult {
                 narration: format!("Mock response to: {}", action),
-                state_delta: None,
-                combat_events: vec![],
                 combat_patch: None,
                 is_degraded: false,
                 classified_intent: None,

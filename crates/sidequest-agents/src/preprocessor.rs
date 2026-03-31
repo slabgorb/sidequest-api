@@ -15,7 +15,7 @@ use tracing::{info, warn};
 use crate::client::ClaudeClient;
 
 /// Haiku model identifier for fast preprocessing.
-const HAIKU_MODEL: &str = "claude-haiku-4-5-20250514";
+const HAIKU_MODEL: &str = "haiku";
 
 /// Timeout for preprocessing — must be fast to not delay the game loop.
 const PREPROCESS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -29,8 +29,9 @@ pub fn preprocess_action(raw_input: &str, char_name: &str) -> PreprocessedAction
     let prompt = build_prompt(raw_input, char_name);
 
     match client.send_with_model(&prompt, HAIKU_MODEL) {
-        Ok(response) => {
-            match parse_response(&response) {
+        Ok(resp) => {
+            let response = &resp.text;
+            match parse_response(response) {
                 Some(action) => {
                     // Validate output length constraint: each field <= 2x input length
                     let max_len = raw_input.len() * 2;

@@ -32,6 +32,9 @@ pub enum FactSource {
     Dialogue,
     /// Found via investigation or ability use.
     Discovery,
+    /// Player-authored character backstory — history, personality, keepsakes,
+    /// memories, appearance, or identity revealed through roleplay.
+    Backstory,
 }
 
 /// How confident the character is in a fact.

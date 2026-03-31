@@ -174,7 +174,7 @@ impl SqliteStore {
                 };
                 let db_path = world_path.join("save.db");
                 if db_path.exists() {
-                    if let Ok(store) = SqliteStore::open(db_path.to_str().unwrap_or_default()) {
+                    if let Ok(store) = SqliteStore::open(db_path.to_str().expect("Database path contains invalid UTF-8")) {
                         let meta = store.load_meta();
                         saves.push(SaveListEntry {
                             genre_slug: meta.as_ref().map(|m| m.genre_slug.clone()).unwrap_or(genre_slug.clone()),
@@ -306,7 +306,17 @@ impl SessionStore for SqliteStore {
                 let author: String = row.get(1)?;
                 let content: String = row.get(2)?;
                 let tags_json: String = row.get::<_, String>(3).unwrap_or_default();
-                let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
+                let tags: Vec<String> = if tags_json.is_empty() {
+                    vec![]
+                } else {
+                    match serde_json::from_str(&tags_json) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            tracing::warn!(json = %tags_json, error = %e, "Malformed tags JSON in narrative entry — using empty tags");
+                            vec![]
+                        }
+                    }
+                };
                 Ok(NarrativeEntry {
                     timestamp: 0,
                     round,
@@ -549,7 +559,7 @@ impl PersistenceWorker {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| PersistError::Database(format!("mkdir failed: {}", e)))?;
             }
-            let store = SqliteStore::open(db_path.to_str().unwrap_or_default())?;
+            let store = SqliteStore::open(db_path.to_str().expect("Database path contains invalid UTF-8"))?;
             store.init_session(genre_slug, world_slug)?;
             tracing::info!(genre = %genre_slug, world = %world_slug, "Session store opened");
             self.stores.insert(key.clone(), store);

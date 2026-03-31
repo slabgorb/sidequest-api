@@ -200,6 +200,6 @@ pub fn build_request_json(method: &str, params: &impl Serialize) -> serde_json::
     serde_json::json!({
         "id": Uuid::new_v4().to_string(),
         "method": method,
-        "params": serde_json::to_value(params).unwrap_or(serde_json::Value::Object(Default::default())),
+        "params": serde_json::to_value(params).expect("Failed to serialize RPC params"),
     })
 }

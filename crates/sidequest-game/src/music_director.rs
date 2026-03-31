@@ -139,6 +139,29 @@ pub struct MoodContext {
     pub npc_died: bool,
 }
 
+/// OTEL telemetry snapshot for the music director's current state.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MusicTelemetry {
+    pub current_mood: Option<String>,
+    pub current_track: Option<String>,
+    /// Per-mood recently-played track titles (the anti-repetition history).
+    pub rotation_history: HashMap<String, Vec<String>>,
+    /// All mood keys available in the genre pack.
+    pub available_moods: Vec<String>,
+    /// Track titles available per mood.
+    pub tracks_per_mood: HashMap<String, Vec<String>>,
+}
+
+/// Mood classification with human-readable reasoning for OTEL telemetry.
+#[derive(Debug, Clone)]
+pub struct MoodClassificationWithReason {
+    pub classification: MoodClassification,
+    /// Why this mood was chosen (e.g. "state_override: in_combat", "keyword_scoring: tension (score=3.0)").
+    pub reason: String,
+    /// (mood_key, keyword) pairs that matched in narration text.
+    pub keyword_matches: Vec<(String, String)>,
+}
+
 // ───────────────────────────────────────────────────────────────────
 // MusicDirector
 // ───────────────────────────────────────────────────────────────────
@@ -406,6 +429,98 @@ impl MusicDirector {
             "mystery" | "spirit" => Mood::Mystery,
             "calm" | "rest" | "teahouse" => Mood::Calm,
             _ => Mood::Exploration,
+        }
+    }
+
+    /// Return the current mood, current track, and per-mood rotation history
+    /// for OTEL dashboard telemetry.
+    pub fn telemetry_snapshot(&self) -> MusicTelemetry {
+        MusicTelemetry {
+            current_mood: self.current_mood.map(|m| m.as_key().to_string()),
+            current_track: self.current_track.clone(),
+            rotation_history: self.rotator.history_snapshot(),
+            available_moods: self.mood_tracks.keys().cloned().collect(),
+            tracks_per_mood: self.mood_tracks.iter()
+                .map(|(k, v)| (k.clone(), v.iter().map(|t| t.title.clone()).collect()))
+                .collect(),
+        }
+    }
+
+    /// Classify mood and return both the classification result and the keyword matches
+    /// that led to it (for OTEL telemetry).
+    pub fn classify_mood_with_reasoning(&self, narration: &str, ctx: &MoodContext) -> MoodClassificationWithReason {
+        // State-based overrides
+        if ctx.in_combat {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Combat, intensity: 0.8, confidence: 1.0 },
+                reason: "state_override: in_combat".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.in_chase {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Tension, intensity: 0.9, confidence: 1.0 },
+                reason: "state_override: in_chase".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.quest_completed {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Triumph, intensity: 0.7, confidence: 0.9 },
+                reason: "state_override: quest_completed".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.npc_died {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Sorrow, intensity: 0.7, confidence: 0.8 },
+                reason: "state_override: npc_died".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.party_health_pct > 0.0 && ctx.party_health_pct < 0.3 {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Tension, intensity: 0.6, confidence: 0.7 },
+                reason: format!("state_override: low_health ({}%)", (ctx.party_health_pct * 100.0) as u8),
+                keyword_matches: vec![],
+            };
+        }
+
+        // Keyword scoring
+        let lower = narration.to_lowercase();
+        let mut scores: std::collections::HashMap<&str, f32> = std::collections::HashMap::new();
+        let mut all_matches: Vec<(String, String)> = vec![];
+
+        for (mood_key, keywords) in &self.mood_keywords {
+            let matched: Vec<&String> = keywords.iter().filter(|kw| lower.contains(kw.as_str())).collect();
+            if !matched.is_empty() {
+                *scores.entry(mood_key.as_str()).or_default() += matched.len() as f32;
+                for kw in &matched {
+                    all_matches.push((mood_key.clone(), (*kw).clone()));
+                }
+            }
+        }
+
+        if let Some((mood_key, score)) = scores
+            .into_iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        {
+            let primary = Self::key_to_mood(mood_key);
+            return MoodClassificationWithReason {
+                classification: MoodClassification {
+                    primary,
+                    intensity: (score / 5.0).clamp(0.3, 1.0),
+                    confidence: (score / 3.0).clamp(0.0, 1.0),
+                },
+                reason: format!("keyword_scoring: {} (score={:.1})", mood_key, score),
+                keyword_matches: all_matches,
+            };
+        }
+
+        MoodClassificationWithReason {
+            classification: MoodClassification { primary: Mood::Exploration, intensity: 0.4, confidence: 0.2 },
+            reason: "default: no keywords matched".to_string(),
+            keyword_matches: vec![],
         }
     }
 

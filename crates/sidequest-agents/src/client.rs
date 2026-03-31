@@ -50,6 +50,17 @@ impl std::fmt::Display for ClaudeClientError {
 
 impl std::error::Error for ClaudeClientError {}
 
+/// Response from a Claude CLI invocation, including token usage telemetry.
+#[derive(Debug, Clone)]
+pub struct ClaudeResponse {
+    /// The text content of the response.
+    pub text: String,
+    /// Input tokens consumed (from `--output-format json` envelope).
+    pub input_tokens: Option<u64>,
+    /// Output tokens produced (from `--output-format json` envelope).
+    pub output_tokens: Option<u64>,
+}
+
 /// Claude CLI subprocess client with configurable timeout and command path.
 #[derive(Debug, Clone)]
 pub struct ClaudeClient {
@@ -98,11 +109,7 @@ impl ClaudeClient {
         &self,
         prompt: &str,
         model: &str,
-    ) -> Result<String, ClaudeClientError> {
-        use std::io::Read;
-        use std::process::{Command, Stdio};
-        use std::time::Instant;
-
+    ) -> Result<ClaudeResponse, ClaudeClientError> {
         self.send_impl(prompt, Some(model))
     }
 
@@ -115,7 +122,7 @@ impl ClaudeClient {
         &self,
         prompt: &str,
         model: Option<&str>,
-    ) -> Result<String, ClaudeClientError> {
+    ) -> Result<ClaudeResponse, ClaudeClientError> {
         use std::io::Read;
         use std::process::{Command, Stdio};
         use std::time::Instant;
@@ -192,14 +199,18 @@ impl ClaudeClient {
                     }
 
                     // Parse JSON envelope from --output-format json
+                    let mut input_tokens: Option<u64> = None;
+                    let mut output_tokens: Option<u64> = None;
                     let text = if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&trimmed) {
                         // Extract token counts from usage block
                         if let Some(usage) = envelope.get("usage") {
                             if let Some(inp) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
                                 span.record("input_tokens", inp);
+                                input_tokens = Some(inp);
                             }
                             if let Some(out) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
                                 span.record("output_tokens", out);
+                                output_tokens = Some(out);
                             }
                         }
                         if let Some(cost) = envelope.get("total_cost_usd").and_then(|v| v.as_f64()) {
@@ -220,7 +231,7 @@ impl ClaudeClient {
                     }
                     span.record("response_len", text.len());
                     span.record("duration_ms", start.elapsed().as_millis() as u64);
-                    return Ok(text);
+                    return Ok(ClaudeResponse { text, input_tokens, output_tokens });
                 }
                 Ok(None) => {
                     if start.elapsed() > self.timeout {
@@ -245,7 +256,7 @@ impl ClaudeClient {
     }
 
     /// Execute a synchronous subprocess call with the configured command and timeout.
-    pub fn send(&self, prompt: &str) -> Result<String, ClaudeClientError> {
+    pub fn send(&self, prompt: &str) -> Result<ClaudeResponse, ClaudeClientError> {
         self.send_impl(prompt, None)
     }
 }

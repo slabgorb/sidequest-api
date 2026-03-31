@@ -129,6 +129,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // Timing capture for OTEL flame chart spans
+    let turn_start = std::time::Instant::now();
+
     // Watcher: action received
     let turn_number = ctx.turn_manager.interaction();
     turn_span.record("turn_number", turn_number);
@@ -384,6 +387,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     drop(_preprocess_guard);
+    let preprocess_done = std::time::Instant::now();
 
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
@@ -406,7 +410,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Watcher: narration generated (with intent classification and agent routing)
     ctx.state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
-        component: "game".to_string(),
+        component: "agent".to_string(),
         event_type: WatcherEventType::AgentSpanClose,
         severity: Severity::Info,
         fields: {
@@ -442,6 +446,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         },
     });
 
+    let agent_done = std::time::Instant::now();
+
     let mut messages = vec![];
 
     // Extract location header from narration (format: **Location Name**\n\n...)
@@ -468,7 +474,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         );
         ctx.state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
-            component: "game".to_string(),
+            component: "state".to_string(),
             event_type: WatcherEventType::StateTransition,
             severity: Severity::Info,
             fields: {
@@ -590,9 +596,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 // New NPC — create entry with OCEAN personality from genre archetype
                 let (ocean_profile, source) = {
                     let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
-                    GenreCode::new(ctx.genre_slug)
-                        .ok()
-                        .and_then(|genre_code| loader.load(&genre_code).ok())
+                    match GenreCode::new(ctx.genre_slug) {
+                        Ok(genre_code) => match loader.load(&genre_code) {
+                            Ok(pack) => Some(pack),
+                            Err(e) => {
+                                tracing::warn!(genre = %ctx.genre_slug, error = %e, "Failed to load genre pack for NPC OCEAN profile");
+                                None
+                            }
+                        },
+                        Err(e) => {
+                            tracing::warn!(genre = %ctx.genre_slug, error = %e, "Invalid genre code for NPC OCEAN profile");
+                            None
+                        }
+                    }
                         .and_then(|pack| {
                             let with_ocean: Vec<_> = pack
                                 .archetypes
@@ -632,6 +648,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     last_seen_turn: turn_approx,
                     ocean_summary,
                     ocean: Some(ocean_profile),
+                    hp: 0,
+                    max_hp: 0,
                 });
             }
         }
@@ -641,11 +659,40 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         "NPC registry updated from structured extraction"
     );
 
-    // ── OCEAN personality shifts — detect narrative events and evolve NPC personalities ──
+    // ── OCEAN personality shifts — use structured extraction from narrator, merge with regex fallback ──
     {
+        // Convert narrator's structured personality events to typed enum format
+        let mut personality_events: Vec<(String, sidequest_game::PersonalityEvent)> = result
+            .personality_events
+            .iter()
+            .filter_map(|pe| {
+                let event_lower = pe.event.to_lowercase();
+                let typed = if event_lower.contains("betray") || event_lower.contains("treachery") || event_lower.contains("backstab") {
+                    Some(sidequest_game::PersonalityEvent::Betrayal)
+                } else if event_lower.contains("near death") || event_lower.contains("near-death") || event_lower.contains("nearly died") || event_lower.contains("mortally") {
+                    Some(sidequest_game::PersonalityEvent::NearDeath)
+                } else if event_lower.contains("victory") || event_lower.contains("triumph") || event_lower.contains("vanquish") || event_lower.contains("prevail") {
+                    Some(sidequest_game::PersonalityEvent::Victory)
+                } else if event_lower.contains("defeat") || event_lower.contains("vanquished") || event_lower.contains("overwhelmed") || event_lower.contains("routed") {
+                    Some(sidequest_game::PersonalityEvent::Defeat)
+                } else if event_lower.contains("bond") || event_lower.contains("friendship") || event_lower.contains("trust") || event_lower.contains("connection") {
+                    Some(sidequest_game::PersonalityEvent::SocialBonding)
+                } else {
+                    None
+                };
+                typed.map(|t| (pe.npc.clone(), t))
+            })
+            .collect();
+
+        // Merge with regex fallback — catches events the structured extraction may have missed
         let npc_names: Vec<&str> = ctx.npc_registry.iter().map(|e| e.name.as_str()).collect();
-        let personality_events =
-            sidequest_game::detect_personality_events(&clean_narration, &npc_names);
+        let regex_events = sidequest_game::detect_personality_events(&clean_narration, &npc_names);
+        for (npc, event) in regex_events {
+            if !personality_events.iter().any(|(n, _)| *n == npc) {
+                personality_events.push((npc, event));
+            }
+        }
+
         if !personality_events.is_empty() {
             let (applied, shift_log) = sidequest_game::apply_ocean_shifts(
                 ctx.npc_registry,
@@ -708,7 +755,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    apply_state_mutations(ctx, &result, &clean_narration, &effective_action);
+    let tier_events = apply_state_mutations(ctx, &result, &clean_narration, &effective_action);
 
     // Narration — include character state so the UI state mirror picks it up
     let inventory_names: Vec<String> = ctx
@@ -723,6 +770,25 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .and_then(|cj| cj.get("char_class"))
         .and_then(|c| c.as_str())
         .unwrap_or("Adventurer");
+
+    // Merge narrator footnotes with affinity tier-up events
+    let mut footnotes = result.footnotes.clone();
+    for event in &tier_events {
+        footnotes.push(sidequest_protocol::Footnote {
+            marker: None,
+            fact_id: None,
+            summary: format!(
+                "{}'s {} affinity reached tier {} — {}",
+                event.character_name,
+                event.affinity_name,
+                event.new_tier,
+                if event.narration_hint.is_empty() { "a new level of mastery" } else { &event.narration_hint },
+            ),
+            category: sidequest_protocol::FactCategory::Ability,
+            is_new: true,
+        });
+    }
+
     messages.push(GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration.clone(),
@@ -748,17 +814,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     Some(result.items_gained.clone())
                 },
             }),
-            footnotes: result.footnotes.clone(),
+            footnotes,
         },
         player_id: ctx.player_id.to_string(),
     });
 
     // RAG pipeline: convert new footnotes to discovered facts (story 9-11)
     if !result.footnotes.is_empty() {
+        let fact_source = if result.classified_intent.as_deref() == Some("Backstory") {
+            sidequest_game::known_fact::FactSource::Backstory
+        } else {
+            sidequest_game::known_fact::FactSource::Discovery
+        };
         let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(
             &result.footnotes,
             ctx.char_name,
             ctx.turn_manager.interaction(),
+            fact_source,
         );
         if !discovered.is_empty() {
             tracing::info!(
@@ -767,8 +839,21 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 interaction = ctx.turn_manager.interaction(),
                 "rag.footnotes_to_discovered_facts"
             );
-            // Apply discovered facts to snapshot via WorldStatePatch path
-            // (This feeds into the persistence layer on next save)
+            // Wire discovered facts into character JSON for persistence
+            if let Some(ref mut cj) = ctx.character_json {
+                if let Some(facts_arr) = cj.get_mut("known_facts").and_then(|v| v.as_array_mut()) {
+                    for df in &discovered {
+                        if let Ok(fact_val) = serde_json::to_value(&df.fact) {
+                            facts_arr.push(fact_val);
+                        }
+                    }
+                    tracing::info!(
+                        new_facts = discovered.len(),
+                        total_facts = facts_arr.len(),
+                        "rag.discovered_facts_applied_to_character"
+                    );
+                }
+            }
         }
     }
 
@@ -1242,38 +1327,29 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 })
             })
             .collect();
+        let snapshot = serde_json::json!({
+            "turn_number": turn_approx,
+            "location": ctx.current_location.as_str(),
+            "hp": *ctx.hp,
+            "max_hp": *ctx.max_hp,
+            "level": *ctx.level,
+            "xp": *ctx.xp,
+            "inventory": inventory_names,
+            "npc_registry": npc_data,
+            "active_tropes": active_tropes,
+            "in_combat": ctx.combat_state.in_combat(),
+            "player_id": ctx.player_id,
+            "character": ctx.char_name,
+        });
         ctx.state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
             component: "game".to_string(),
-            event_type: WatcherEventType::StateTransition,
+            event_type: WatcherEventType::GameStateSnapshot,
             severity: Severity::Info,
             fields: {
                 let mut f = HashMap::new();
-                f.insert(
-                    "event".to_string(),
-                    serde_json::json!("game_state_snapshot"),
-                );
                 f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
-                f.insert(
-                    "location".to_string(),
-                    serde_json::json!(ctx.current_location.as_str()),
-                );
-                f.insert("hp".to_string(), serde_json::json!(*ctx.hp));
-                f.insert("max_hp".to_string(), serde_json::json!(*ctx.max_hp));
-                f.insert("level".to_string(), serde_json::json!(*ctx.level));
-                f.insert("xp".to_string(), serde_json::json!(*ctx.xp));
-                f.insert("inventory".to_string(), serde_json::json!(inventory_names));
-                f.insert("npc_registry".to_string(), serde_json::json!(npc_data));
-                f.insert(
-                    "active_tropes".to_string(),
-                    serde_json::json!(active_tropes),
-                );
-                f.insert(
-                    "in_combat".to_string(),
-                    serde_json::json!(ctx.combat_state.in_combat()),
-                );
-                f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
-                f.insert("character".to_string(), serde_json::json!(ctx.char_name));
+                f.insert("snapshot".to_string(), snapshot);
                 f
             },
         });
@@ -1288,30 +1364,52 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     )
     .await;
 
+    // Build timing spans for flame chart visualization
+    let state_done = std::time::Instant::now();
+    let preprocess_ms = preprocess_done.duration_since(turn_start).as_millis() as u64;
+    let agent_ms = result.agent_duration_ms.unwrap_or_else(|| agent_done.duration_since(preprocess_done).as_millis() as u64);
+    let agent_start_ms = preprocess_ms;
+    let state_start_ms = agent_start_ms + agent_ms;
+    let state_ms = state_done.duration_since(agent_done).as_millis() as u64;
+    let total_ms = state_done.duration_since(turn_start).as_millis() as u64;
+
+    let spans = serde_json::json!([
+        { "name": "preprocessor", "component": "preprocessor", "start_ms": 0, "duration_ms": preprocess_ms },
+        { "name": "agent_llm", "component": result.agent_name.as_deref().unwrap_or("narrator"), "start_ms": agent_start_ms, "duration_ms": agent_ms },
+        { "name": "state_patch", "component": "state", "start_ms": state_start_ms, "duration_ms": state_ms },
+    ]);
+
     // Emit TurnComplete event for the OTEL dashboard
     ctx.state.send_watcher_event(WatcherEvent {
         timestamp: chrono::Utc::now(),
         component: "game".to_string(),
         event_type: WatcherEventType::TurnComplete,
-        severity: Severity::Info,
+        severity: if result.is_degraded { Severity::Warn } else { Severity::Info },
         fields: {
             let mut f = HashMap::new();
             f.insert("turn_id".to_string(), serde_json::json!(turn_number));
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+            f.insert("player_input".to_string(), serde_json::json!(effective_action));
             if let Some(ref intent) = result.classified_intent {
                 f.insert("classified_intent".to_string(), serde_json::json!(intent));
             }
             if let Some(ref agent) = result.agent_name {
                 f.insert("agent_name".to_string(), serde_json::json!(agent));
             }
-            if let Some(dur) = result.agent_duration_ms {
-                f.insert("agent_duration_ms".to_string(), serde_json::json!(dur));
-            }
-            f.insert(
-                "is_degraded".to_string(),
-                serde_json::json!(result.is_degraded),
-            );
+            f.insert("agent_duration_ms".to_string(), serde_json::json!(agent_ms));
+            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
             f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
-            f.insert("action".to_string(), serde_json::json!(effective_action));
+            if let Some(t) = result.token_count_in {
+                f.insert("token_count_in".to_string(), serde_json::json!(t));
+            }
+            if let Some(t) = result.token_count_out {
+                f.insert("token_count_out".to_string(), serde_json::json!(t));
+            }
+            if let Some(tier) = result.extraction_tier {
+                f.insert("extraction_tier".to_string(), serde_json::json!(tier));
+            }
+            f.insert("spans".to_string(), spans);
+            f.insert("total_duration_ms".to_string(), serde_json::json!(total_ms));
             f
         },
     });
@@ -1546,12 +1644,14 @@ async fn process_audio(
             },
             // Quest completion and NPC death now come from structured quest_updates,
             // not keyword scanning. Check if any quest was marked "completed:".
-            quest_completed: result
-                .quest_updates
-                .values()
-                .any(|v| v.starts_with("completed")),
-            npc_died: false, // TODO: detect from hp_changes when NPC HP reaches 0
+            quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
+            npc_died: ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0),
         };
+
+        // Get telemetry snapshot BEFORE evaluate() changes state
+        let pre_telemetry = director.telemetry_snapshot();
+        let mood_reasoning = director.classify_mood_with_reasoning(clean_narration, &mood_ctx);
+
         // Use narrator's scene_mood — it's required every turn.
         let mood_key = match result.scene_mood.as_deref() {
             Some(mood) => {
@@ -1568,6 +1668,10 @@ async fn process_audio(
             in_combat = mood_ctx.in_combat,
             "music_mood_classified"
         );
+
+        // Get turn_number for watcher event (approximate from turn_manager)
+        let turn_approx = ctx.turn_manager.interaction();
+
         if let Some(cue) = director.evaluate(clean_narration, &mood_ctx) {
             tracing::info!(
                 mood = mood_key,
@@ -1576,6 +1680,39 @@ async fn process_audio(
                 volume = cue.volume,
                 "music_cue_produced"
             );
+
+            // Emit rich music telemetry to watcher
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "music_director".to_string(),
+                event_type: WatcherEventType::AgentSpanClose,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
+                    f.insert("mood_classified".to_string(), serde_json::json!(mood_reasoning.classification.primary.as_key()));
+                    f.insert("mood_reason".to_string(), serde_json::json!(mood_reasoning.reason));
+                    f.insert("narrator_scene_mood".to_string(), serde_json::json!(mood_key));
+                    f.insert("intensity".to_string(), serde_json::json!(mood_reasoning.classification.intensity));
+                    f.insert("confidence".to_string(), serde_json::json!(mood_reasoning.classification.confidence));
+                    if !mood_reasoning.keyword_matches.is_empty() {
+                        f.insert("keyword_matches".to_string(), serde_json::json!(
+                            mood_reasoning.keyword_matches.iter()
+                                .map(|(mood, kw)| format!("{}:{}", mood, kw))
+                                .collect::<Vec<_>>()
+                        ));
+                    }
+                    f.insert("track_selected".to_string(), serde_json::json!(cue.track_id));
+                    f.insert("previous_mood".to_string(), serde_json::json!(pre_telemetry.current_mood));
+                    f.insert("previous_track".to_string(), serde_json::json!(pre_telemetry.current_track));
+                    f.insert("action".to_string(), serde_json::json!(cue.action.to_string()));
+                    f.insert("volume".to_string(), serde_json::json!(cue.volume));
+                    f.insert("rotation_history".to_string(), serde_json::json!(pre_telemetry.rotation_history));
+                    f.insert("tracks_per_mood".to_string(), serde_json::json!(pre_telemetry.tracks_per_mood));
+                    f
+                },
+            });
+
             let mixer_cues = {
                 let mut mixer_guard = ctx.audio_mixer.lock().await;
                 if let Some(ref mut mixer) = *mixer_guard {
@@ -1594,6 +1731,25 @@ async fn process_audio(
                 ));
             }
         } else {
+            // Mood didn't change — still emit telemetry so dashboard shows suppression
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "music_director".to_string(),
+                event_type: WatcherEventType::AgentSpanClose,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
+                    f.insert("mood_classified".to_string(), serde_json::json!(mood_reasoning.classification.primary.as_key()));
+                    f.insert("mood_reason".to_string(), serde_json::json!(mood_reasoning.reason));
+                    f.insert("narrator_scene_mood".to_string(), serde_json::json!(mood_key));
+                    f.insert("suppressed".to_string(), serde_json::json!(true));
+                    f.insert("suppression_reason".to_string(), serde_json::json!("same_mood_low_intensity"));
+                    f.insert("current_mood".to_string(), serde_json::json!(pre_telemetry.current_mood));
+                    f.insert("current_track".to_string(), serde_json::json!(pre_telemetry.current_track));
+                    f
+                },
+            });
             tracing::warn!(
                 mood = mood_key,
                 "music_evaluate_returned_none — no cue produced"
@@ -1964,8 +2120,8 @@ async fn process_combat_and_chase(
             .filter(|_| ctx.combat_state.in_combat()) // only show enemies during active combat
             .map(|entry| sidequest_protocol::CombatEnemy {
                 name: entry.name.clone(),
-                hp: 0, // NPC HP tracked separately via narration
-                max_hp: 0,
+                hp: entry.hp,
+                max_hp: entry.max_hp,
                 ac: None,
             })
             .collect();
@@ -2047,8 +2203,9 @@ fn apply_state_mutations(
     result: &sidequest_agents::orchestrator::ActionResult,
     clean_narration: &str,
     effective_action: &str,
-) {
+) -> Vec<sidequest_game::AffinityTierUpEvent> {
     let _span = tracing::info_span!("turn.state_mutations").entered();
+    let mut all_tier_events = Vec::new();
 
     // Combat state — apply typed CombatPatch from creature_smith
     if let Some(ref combat_patch) = result.combat_patch {
@@ -2102,6 +2259,16 @@ fn apply_state_mutations(
                 {
                     *ctx.hp = sidequest_game::clamp_hp(*ctx.hp, *delta, *ctx.max_hp);
                     tracing::info!(target = %target, delta = delta, new_hp = *ctx.hp, "combat.patch.hp_applied");
+                } else if let Some(npc) = ctx.npc_registry.iter_mut().find(|n| n.name.to_lowercase() == target_lower) {
+                    // Initialize NPC max_hp on first damage if not yet set
+                    if npc.max_hp == 0 {
+                        // Estimate: if the LLM is dealing damage, assume NPC has some HP.
+                        // Set max_hp to a reasonable default so clamp_hp works.
+                        npc.max_hp = 20;
+                        npc.hp = npc.max_hp;
+                    }
+                    npc.hp = sidequest_game::clamp_hp(npc.hp, *delta, npc.max_hp);
+                    tracing::info!(target = %target, delta = delta, new_hp = npc.hp, max_hp = npc.max_hp, "combat.patch.npc_hp_applied");
                 }
             }
         }
@@ -2246,6 +2413,7 @@ fn apply_state_mutations(
                             "Affinity tier up!"
                         );
                     }
+                    all_tier_events.extend(tier_events);
                 }
             } // if let Ok(code)
 
@@ -2342,6 +2510,8 @@ fn apply_state_mutations(
             }
         }
     }
+
+    all_tier_events
 }
 
 /// Build the full state_summary string for the narrator prompt.

@@ -120,6 +120,13 @@ impl ThemeRotator {
 
         Some(selected)
     }
+
+    /// Return a snapshot of per-mood play history for telemetry.
+    pub fn history_snapshot(&self) -> HashMap<String, Vec<String>> {
+        self.history.iter()
+            .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+            .collect()
+    }
 }
 
 impl std::fmt::Debug for ThemeRotator {

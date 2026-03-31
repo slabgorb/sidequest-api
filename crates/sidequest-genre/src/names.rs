@@ -107,8 +107,8 @@ impl NameGenerator {
                         .or_insert_with(|| {
                             self.slots
                                 .get(slot_name)
-                                .map(|gen| gen.generate(rng))
-                                .unwrap_or_else(|| format!("{{{}}}", slot_name))
+                                .unwrap_or_else(|| panic!("Missing name slot '{}' — culture config is incomplete", slot_name))
+                                .generate(rng)
                         })
                         .clone();
                     result = format!("{}{}{}", &result[..s], value, &result[e + 1..]);

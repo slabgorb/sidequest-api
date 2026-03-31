@@ -12,7 +12,7 @@ use crate::agent::Agent;
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
-use crate::agents::intent_router::IntentRouter;
+use crate::agents::intent_router::{Intent, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::client::ClaudeClient;
@@ -26,10 +26,6 @@ use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTrac
 pub struct ActionResult {
     /// The narrative text produced by the agent.
     pub narration: String,
-    /// Optional state delta for the client.
-    pub state_delta: Option<HashMap<String, serde_json::Value>>,
-    /// Combat events that occurred during this action.
-    pub combat_events: Vec<String>,
     /// Typed combat patch extracted from creature_smith response.
     pub combat_patch: Option<crate::patches::CombatPatch>,
     /// Whether this is a degraded response (e.g., from agent timeout).
@@ -221,6 +217,32 @@ impl GameService for Orchestrator {
             ));
         }
 
+        // Backstory capture directive — when the player is building their character's
+        // history, tell the narrator to extract personal details as footnotes so they
+        // persist in the RAG knowledge store.
+        if route.intent() == Intent::Backstory {
+            builder.add_section(PromptSection::new(
+                "backstory_capture",
+                "## Backstory Capture Mode\n\
+                 The player is describing their character's history, personality, appearance, \
+                 possessions, or memories. This is character-building, not plot advancement.\n\n\
+                 IMPORTANT: In your JSON footnotes block, extract each personal detail as a \
+                 separate footnote with `is_new: true`. Examples of what to capture:\n\
+                 - Physical description or appearance details\n\
+                 - Personal history or backstory events\n\
+                 - Relationships to people or places from their past\n\
+                 - Emotional traits, habits, or personality quirks\n\
+                 - Meaningful possessions, keepsakes, or mementos\n\
+                 - Skills, training, or formative experiences\n\n\
+                 Each footnote summary should be a concise, third-person statement about the \
+                 character (e.g., \"Served in the Union army\" not \"The player mentioned serving\"). \
+                 These facts will be stored permanently and recalled when relevant."
+                    .to_string(),
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ));
+        }
+
         // Player action section (Recency zone — highest attention at prompt end)
         builder.add_section(PromptSection::new(
             "player_action",
@@ -238,9 +260,10 @@ impl GameService for Orchestrator {
 
         let call_start = std::time::Instant::now();
         match self.client.send(&prompt) {
-            Ok(raw_response) => {
+            Ok(response) => {
+                let raw_response = &response.text;
                 // Extract structured data from narrator response (footnotes + items)
-                let extraction = extract_structured_from_response(&raw_response);
+                let extraction = extract_structured_from_response(raw_response);
                 if !extraction.footnotes.is_empty() {
                     info!(
                         count = extraction.footnotes.len(),
@@ -293,8 +316,6 @@ impl GameService for Orchestrator {
                 span.record("is_degraded", false);
                 ActionResult {
                     narration,
-                    state_delta: Some(HashMap::new()),
-                    combat_events: vec![],
                     combat_patch,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
@@ -304,9 +325,9 @@ impl GameService for Orchestrator {
                     npcs_present: extraction.npcs_present,
                     quest_updates: extraction.quest_updates,
                     agent_duration_ms: Some(agent_duration_ms),
-                    token_count_in: None,
-                    token_count_out: None,
-                    extraction_tier: None,
+                    token_count_in: response.input_tokens.map(|v| v as usize),
+                    token_count_out: response.output_tokens.map(|v| v as usize),
+                    extraction_tier: Some(extraction.tier),
                     visual_scene: extraction.visual_scene,
                     scene_mood: extraction.scene_mood,
                     personality_events: extraction.personality_events,
@@ -432,6 +453,8 @@ pub struct NarratorExtraction {
     pub scene_intent: Option<String>,
     /// Resource deltas extracted from narrator JSON block (story 16-1).
     pub resource_deltas: HashMap<String, f64>,
+    /// Extraction tier: 1=fenced JSON, 2=legacy array, 3=no structured data.
+    pub tier: u8,
 }
 
 /// Extract structured data (footnotes, items) from a narrator response.
@@ -466,6 +489,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     personality_events: block.personality_events,
                     scene_intent: block.scene_intent,
                     resource_deltas: block.resource_deltas,
+                    tier: 1,
                 };
             }
             // Try parsing as a bare footnotes array (legacy format)
@@ -489,6 +513,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     personality_events: vec![],
                     scene_intent: None,
                     resource_deltas: HashMap::new(),
+                    tier: 2,
                 };
             }
         }
@@ -516,6 +541,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 personality_events: block.personality_events,
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
+                tier: 2,
             };
         }
     }
@@ -536,6 +562,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 personality_events: block.personality_events,
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
+                tier: 2,
             };
         }
     }
@@ -553,6 +580,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         personality_events: vec![],
         scene_intent: None,
         resource_deltas: HashMap::new(),
+        tier: 3,
     }
 }
 

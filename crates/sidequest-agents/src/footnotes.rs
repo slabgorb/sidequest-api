@@ -15,12 +15,13 @@ use sidequest_protocol::Footnote;
 /// - `character_name`: the character who learned this fact
 /// - `fact.content`: the footnote summary
 /// - `fact.learned_turn`: the current game turn
-/// - `fact.source`: `FactSource::Discovery` (narrator-revealed)
+/// - `fact.source`: provided by caller (Discovery for world facts, Backstory for character history)
 /// - `fact.confidence`: `Confidence::Certain` (narrator is authoritative)
 pub fn footnotes_to_discovered_facts(
     footnotes: &[Footnote],
     character_name: &str,
     turn: u64,
+    source: FactSource,
 ) -> Vec<DiscoveredFact> {
     footnotes
         .iter()
@@ -30,7 +31,7 @@ pub fn footnotes_to_discovered_facts(
             fact: KnownFact {
                 content: f.summary.clone(),
                 learned_turn: turn,
-                source: FactSource::Discovery,
+                source: source.clone(),
                 confidence: Confidence::Certain,
             },
         })

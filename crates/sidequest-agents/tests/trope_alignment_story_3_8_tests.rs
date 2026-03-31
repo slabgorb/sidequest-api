@@ -107,6 +107,7 @@ fn make_record(narration: &str, beats_fired: Vec<(String, f32)>) -> TurnRecord {
         token_count_out: 100,
         agent_duration_ms: 1200,
         is_degraded: false,
+        spans: vec![],
     }
 }
 

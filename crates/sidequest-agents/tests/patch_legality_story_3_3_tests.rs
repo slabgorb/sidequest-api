@@ -138,6 +138,7 @@ fn make_mock_record(turn_id: u64) -> TurnRecord {
         token_count_out: 100,
         agent_duration_ms: 1200,
         is_degraded: false,
+        spans: vec![],
     }
 }
 
