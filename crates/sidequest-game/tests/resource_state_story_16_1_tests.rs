@@ -9,6 +9,7 @@
 //!   AC5 (All genres): Works for packs with and without resource declarations
 
 use sidequest_game::state::GameSnapshot;
+use sidequest_genre::ResourceDeclaration;
 use std::collections::HashMap;
 
 // =========================================================================
@@ -61,7 +62,7 @@ fn old_save_without_resource_state_deserializes() {
         "current_region": "town",
         "discovered_regions": [],
         "discovered_routes": [],
-        "turn_manager": { "round": 0, "phase": "input_collection", "barrier": null }
+        "turn_manager": { "round": 0, "phase": "InputCollection", "barrier": null }
     }"#;
 
     let snapshot: GameSnapshot = serde_json::from_str(json).unwrap();
@@ -123,25 +124,24 @@ fn apply_resource_delta_adds_positive() {
 
 #[test]
 fn apply_resource_delta_clamps_to_max() {
-    // This test depends on the implementation knowing about max values.
-    // For 16-1's lightweight approach (HashMap<String, f64> only), clamping
-    // may require resource declarations to be passed alongside deltas.
-    // The test documents the expected behavior — Dev decides the API shape.
     let mut snapshot = GameSnapshot::default();
+    snapshot.resource_declarations.push(ResourceDeclaration {
+        name: "luck".to_string(),
+        label: "Luck".to_string(),
+        min: 0.0,
+        max: 6.0,
+        starting: 3.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+    });
     snapshot
         .resource_state
         .insert("luck".to_string(), 5.0);
 
     // Attempt to exceed max (6.0 for luck)
     let deltas: HashMap<String, f64> = [("luck".to_string(), 3.0)].into();
-
-    // If apply_resource_deltas takes declarations for bounds:
-    // snapshot.apply_resource_deltas(&deltas, &declarations);
-    // For now, test the basic delta path:
     snapshot.apply_resource_deltas(&deltas);
 
-    // Value should be clamped (if declarations available) or 8.0 (if not)
-    // Dev will determine the API — this test documents the expectation
     let luck = snapshot.resource_state["luck"];
     assert!(
         luck <= 6.0,
@@ -152,6 +152,15 @@ fn apply_resource_delta_clamps_to_max() {
 #[test]
 fn apply_resource_delta_clamps_to_min() {
     let mut snapshot = GameSnapshot::default();
+    snapshot.resource_declarations.push(ResourceDeclaration {
+        name: "luck".to_string(),
+        label: "Luck".to_string(),
+        min: 0.0,
+        max: 6.0,
+        starting: 3.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+    });
     snapshot
         .resource_state
         .insert("luck".to_string(), 1.0);

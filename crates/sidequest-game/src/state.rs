@@ -114,6 +114,14 @@ pub struct GameSnapshot {
     /// Achievement tracker (story F7).
     #[serde(default)]
     pub achievement_tracker: AchievementTracker,
+    /// Current resource values keyed by resource name (story 16-1).
+    /// Lightweight tracking — formal ResourcePool comes in story 16-10.
+    #[serde(default)]
+    pub resource_state: HashMap<String, f64>,
+    /// Resource declarations loaded from genre pack (story 16-1).
+    /// Used for bounds clamping during delta application.
+    #[serde(default)]
+    pub resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
 }
 
 /// Backward-compatible deserializer for active_tropes.
@@ -132,6 +140,23 @@ where
 }
 
 impl GameSnapshot {
+    /// Apply resource deltas to tracked state (story 16-1).
+    ///
+    /// Only modifies resources that already exist in `resource_state`.
+    /// Unknown resources in the delta map are silently ignored (not created).
+    /// Values are clamped to [min, max] if a matching `ResourceDeclaration` exists.
+    pub fn apply_resource_deltas(&mut self, deltas: &HashMap<String, f64>) {
+        for (name, delta) in deltas {
+            if let Some(current) = self.resource_state.get_mut(name) {
+                *current += delta;
+                // Clamp to bounds if declaration exists
+                if let Some(decl) = self.resource_declarations.iter().find(|d| d.name == *name) {
+                    *current = current.clamp(decl.min, decl.max);
+                }
+            }
+        }
+    }
+
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {

@@ -396,6 +396,50 @@ If nothing new is revealed and nothing prior is referenced, omit the footnotes a
             ),
         );
     }
+
+    /// Inject genre resource state into the narrator prompt (story 16-1).
+    ///
+    /// Serializes current resource values into a human-readable block in the Valley zone.
+    /// Empty declarations produce no section (genres without resources are unaffected).
+    /// Falls back to `starting` value when resource state is missing.
+    pub fn register_resource_section(
+        &mut self,
+        agent_name: &str,
+        declarations: &[sidequest_genre::ResourceDeclaration],
+        state: &std::collections::HashMap<String, f64>,
+    ) {
+        if declarations.is_empty() {
+            return;
+        }
+
+        let mut lines = vec!["## GENRE RESOURCES — Current State".to_string()];
+        for decl in declarations {
+            let current = state.get(&decl.name).copied().unwrap_or(decl.starting);
+            let vol_label = if decl.voluntary {
+                "voluntary"
+            } else {
+                "involuntary"
+            };
+            let mut line = format!(
+                "{}: {}/{} ({})",
+                decl.label, current, decl.max, vol_label
+            );
+            if decl.decay_per_turn.abs() > f64::EPSILON {
+                line.push_str(&format!(", decay {}/turn", decl.decay_per_turn.abs()));
+            }
+            lines.push(line);
+        }
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "genre_resources",
+                lines.join("\n"),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ),
+        );
+    }
 }
 
 impl PromptComposer for PromptRegistry {
