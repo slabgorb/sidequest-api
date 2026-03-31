@@ -63,6 +63,9 @@ pub struct ActionResult {
     pub personality_events: Vec<PersonalityEvent>,
     /// High-level narrative intent of this scene (from narrator JSON block).
     pub scene_intent: Option<String>,
+    /// Resource deltas extracted from narrator JSON block (story 16-1).
+    /// Keyed by resource name (e.g., "luck", "humanity"), values are signed deltas.
+    pub resource_deltas: HashMap<String, f64>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -253,7 +256,9 @@ impl GameService for Orchestrator {
                 }
                 // Extract combat patch from creature_smith responses
                 let combat_patch = if agent_str == "creature_smith" {
-                    match crate::extractor::JsonExtractor::extract::<crate::patches::CombatPatch>(&raw_response) {
+                    match crate::extractor::JsonExtractor::extract::<crate::patches::CombatPatch>(
+                        &raw_response,
+                    ) {
                         Ok(patch) => {
                             info!(
                                 in_combat = ?patch.in_combat,
@@ -280,7 +285,11 @@ impl GameService for Orchestrator {
                 };
 
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
-                info!(len = narration.len(), duration_ms = agent_duration_ms, "Claude CLI returned narration");
+                info!(
+                    len = narration.len(),
+                    duration_ms = agent_duration_ms,
+                    "Claude CLI returned narration"
+                );
                 span.record("is_degraded", false);
                 ActionResult {
                     narration,
@@ -302,6 +311,7 @@ impl GameService for Orchestrator {
                     scene_mood: extraction.scene_mood,
                     personality_events: extraction.personality_events,
                     scene_intent: extraction.scene_intent,
+                    resource_deltas: extraction.resource_deltas,
                 }
             }
             Err(e) => {
@@ -396,6 +406,8 @@ struct NarratorStructuredBlock {
     personality_events: Vec<PersonalityEvent>,
     #[serde(default)]
     scene_intent: Option<String>,
+    #[serde(default)]
+    resource_deltas: HashMap<String, f64>,
 }
 
 /// Extracted structured data from a narrator response.
@@ -418,6 +430,8 @@ pub struct NarratorExtraction {
     pub personality_events: Vec<PersonalityEvent>,
     /// High-level narrative intent of this scene.
     pub scene_intent: Option<String>,
+    /// Resource deltas extracted from narrator JSON block (story 16-1).
+    pub resource_deltas: HashMap<String, f64>,
 }
 
 /// Extract structured data (footnotes, items) from a narrator response.
@@ -441,17 +455,41 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     strategy = "fenced_json",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates, visual_scene: block.visual_scene, scene_mood: block.scene_mood, personality_events: block.personality_events, scene_intent: block.scene_intent };
+                return NarratorExtraction {
+                    prose,
+                    footnotes: block.footnotes,
+                    items_gained: block.items_gained,
+                    npcs_present: block.npcs_present,
+                    quest_updates: block.quest_updates,
+                    visual_scene: block.visual_scene,
+                    scene_mood: block.scene_mood,
+                    personality_events: block.personality_events,
+                    scene_intent: block.scene_intent,
+                    resource_deltas: block.resource_deltas,
+                };
             }
             // Try parsing as a bare footnotes array (legacy format)
-            if let Ok(footnotes) = serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str) {
+            if let Ok(footnotes) =
+                serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str)
+            {
                 let prose = raw[..start].trim().to_string();
                 tracing::info!(
                     footnotes = footnotes.len(),
                     strategy = "fenced_array",
                     "rag.structured_parsed"
                 );
-                return NarratorExtraction { prose, footnotes, items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new(), visual_scene: None, scene_mood: None, personality_events: vec![], scene_intent: None };
+                return NarratorExtraction {
+                    prose,
+                    footnotes,
+                    items_gained: vec![],
+                    npcs_present: vec![],
+                    quest_updates: HashMap::new(),
+                    visual_scene: None,
+                    scene_mood: None,
+                    personality_events: vec![],
+                    scene_intent: None,
+                    resource_deltas: HashMap::new(),
+                };
             }
         }
     }
@@ -467,7 +505,18 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 strategy = "trailing_json",
                 "rag.structured_parsed"
             );
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates, visual_scene: block.visual_scene, scene_mood: block.scene_mood, personality_events: block.personality_events, scene_intent: block.scene_intent };
+            return NarratorExtraction {
+                prose,
+                footnotes: block.footnotes,
+                items_gained: block.items_gained,
+                npcs_present: block.npcs_present,
+                quest_updates: block.quest_updates,
+                visual_scene: block.visual_scene,
+                scene_mood: block.scene_mood,
+                personality_events: block.personality_events,
+                scene_intent: block.scene_intent,
+                resource_deltas: block.resource_deltas,
+            };
         }
     }
 
@@ -476,13 +525,35 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         let json_str = &raw[idx..];
         if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
             let prose = raw[..idx].trim().to_string();
-            return NarratorExtraction { prose, footnotes: block.footnotes, items_gained: block.items_gained, npcs_present: block.npcs_present, quest_updates: block.quest_updates, visual_scene: block.visual_scene, scene_mood: block.scene_mood, personality_events: block.personality_events, scene_intent: block.scene_intent };
+            return NarratorExtraction {
+                prose,
+                footnotes: block.footnotes,
+                items_gained: block.items_gained,
+                npcs_present: block.npcs_present,
+                quest_updates: block.quest_updates,
+                visual_scene: block.visual_scene,
+                scene_mood: block.scene_mood,
+                personality_events: block.personality_events,
+                scene_intent: block.scene_intent,
+                resource_deltas: block.resource_deltas,
+            };
         }
     }
 
     // No structured data found
     tracing::debug!("rag.no_structured_data_found");
-    NarratorExtraction { prose: raw.to_string(), footnotes: vec![], items_gained: vec![], npcs_present: vec![], quest_updates: HashMap::new(), visual_scene: None, scene_mood: None, personality_events: vec![], scene_intent: None }
+    NarratorExtraction {
+        prose: raw.to_string(),
+        footnotes: vec![],
+        items_gained: vec![],
+        npcs_present: vec![],
+        quest_updates: HashMap::new(),
+        visual_scene: None,
+        scene_mood: None,
+        personality_events: vec![],
+        scene_intent: None,
+        resource_deltas: HashMap::new(),
+    }
 }
 
 // ============================================================================

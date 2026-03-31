@@ -121,6 +121,11 @@ Fields:
   showed_compassion, showed_cruelty, showed_wisdom, showed_recklessness.
 - scene_intent: ALWAYS INCLUDE. What the NEXT player action is likely to be.
   One of: Combat, Dialogue, Exploration, Examine, Chase.
+- resource_deltas: object mapping resource names to signed numeric deltas.
+  Only include resources that CHANGED this turn. Positive = gained, negative = spent/lost.
+  Example: {\"luck\": -1} means the player spent 1 Luck. {\"heat\": 0.5} means Heat rose by 0.5.
+  Resource names must match the genre's declared resource names exactly.
+  Omit if no resources changed.
 
 Example:
 ```json
@@ -142,7 +147,6 @@ impl NarratorAgent {
             system_prompt: NARRATOR_SYSTEM_PROMPT.to_string(),
         }
     }
-
 }
 
 impl Default for NarratorAgent {
