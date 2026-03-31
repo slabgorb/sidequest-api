@@ -690,6 +690,7 @@ impl Session {
                         has_character: Some(false),
                         initial_state: None,
                         css: None,
+                        narrator_verbosity: None,
                     },
                     player_id: String::new(),
                 })
@@ -1253,6 +1254,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         has_character: None,
                         initial_state: None,
                         css: None,
+                        narrator_verbosity: None,
                     },
                     player_id: player_id_str.clone(),
                 };
@@ -1828,6 +1830,7 @@ async fn dispatch_connect(
                                     turn_count: saved.snapshot.turn_manager.interaction().saturating_sub(1) as u32,
                                 }),
                                 css: None,
+                                narrator_verbosity: None,
                             },
                             player_id: player_id.to_string(),
                         };
@@ -2086,6 +2089,7 @@ async fn dispatch_connect(
                             has_character: None,
                             initial_state: None,
                             css: Some(css),
+                            narrator_verbosity: None,
                         },
                         player_id: player_id.to_string(),
                     });
@@ -2434,6 +2438,7 @@ async fn dispatch_character_creation(
                             has_character: None,
                             initial_state: None,
                             css: None,
+                            narrator_verbosity: None,
                         },
                         player_id: player_id.to_string(),
                     };

@@ -197,6 +197,7 @@ mod message_type_tests {
                 has_character: None,
                 initial_state: None,
                 css: None,
+                narrator_verbosity: None,
             },
             player_id: String::new(),
         };
@@ -230,6 +231,7 @@ mod message_type_tests {
                     turn_count: 0,
                 }),
                 css: None,
+                narrator_verbosity: None,
             },
             player_id: String::new(),
         };
