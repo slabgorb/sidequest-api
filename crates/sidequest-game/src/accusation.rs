@@ -184,16 +184,14 @@ fn gather_evidence(
         }
     }
 
-    // Detect contradictions about the accused
-    for (npc_name, beliefs_state) in npc_beliefs {
-        let beliefs_about = beliefs_state.beliefs_about(&accusation.accused_npc_name);
-        for other_npc_name in npc_beliefs.keys() {
-            if npc_name == other_npc_name {
-                continue;
-            }
-            let other_beliefs = npc_beliefs[other_npc_name].beliefs_about(&accusation.accused_npc_name);
-            for belief in beliefs_about.iter() {
-                for other_belief in other_beliefs.iter() {
+    // Detect contradictions about the accused — unique pairs only
+    let npc_names: Vec<&String> = npc_beliefs.keys().collect();
+    for i in 0..npc_names.len() {
+        for j in (i + 1)..npc_names.len() {
+            let beliefs_i = npc_beliefs[npc_names[i]].beliefs_about(&accusation.accused_npc_name);
+            let beliefs_j = npc_beliefs[npc_names[j]].beliefs_about(&accusation.accused_npc_name);
+            for belief in beliefs_i.iter() {
+                for other_belief in beliefs_j.iter() {
                     if belief.content() != other_belief.content()
                         && belief.subject() == other_belief.subject()
                     {
