@@ -294,28 +294,11 @@ impl GameService for Orchestrator {
             }
             Err(e) => {
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
-                warn!(error = %e, action = %action, duration_ms = agent_duration_ms, "Claude CLI failed, returning degraded response");
-                span.record("is_degraded", true);
-                ActionResult {
-                    narration: format!(
-                        "The world shimmers uncertainly... (narrator unavailable: {})",
-                        e
-                    ),
-                    state_delta: Some(HashMap::new()),
-                    combat_events: vec![],
-                    combat_patch: None,
-                    is_degraded: true,
-                    classified_intent: Some(intent_str),
-                    agent_name: Some(agent_str),
-                    footnotes: vec![],
-                    items_gained: vec![],
-                    npcs_present: vec![],
-                    quest_updates: HashMap::new(),
-                    agent_duration_ms: Some(agent_duration_ms),
-                    token_count_in: None,
-                    token_count_out: None,
-                    extraction_tier: None,
-                }
+                panic!(
+                    "CLAUDE CLI FAILED — agent={}, duration={}ms, error={}. \
+                     If the LLM is down, the game is down.",
+                    agent_str, agent_duration_ms, e
+                );
             }
         }
     }

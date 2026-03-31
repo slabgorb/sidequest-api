@@ -274,6 +274,9 @@ struct RenderJob {
     tier: String,
     scene_type: String,
     negative_prompt: String,
+    /// Raw narration text — sent to daemon for LLM-based visual extraction.
+    /// When present, the daemon runs SubjectExtractor instead of using the raw prompt.
+    narration: String,
 }
 
 /// The async render queue.
@@ -297,7 +300,7 @@ impl RenderQueue {
     /// the daemon client. Returns `(image_url, generation_ms)` on success.
     pub fn spawn<F, Fut>(config: RenderQueueConfig, render_fn: F) -> Self
     where
-        F: Fn(String, String, String, String) -> Fut + Send + 'static,
+        F: Fn(String, String, String, String, String) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(String, u64), String>> + Send,
     {
         let state = Arc::new(Mutex::new(QueueState {
@@ -324,7 +327,7 @@ impl RenderQueue {
                 }
 
                 // Call the render function
-                let result = render_fn(job.prompt, job.art_style, job.tier.clone(), job.negative_prompt).await;
+                let result = render_fn(job.prompt, job.art_style, job.tier.clone(), job.negative_prompt, job.narration).await;
 
                 // Update state and broadcast
                 let broadcast_msg = match result {
@@ -401,6 +404,7 @@ impl RenderQueue {
         art_style: &str,
         _image_model: &str,
         negative_prompt: &str,
+        narration: &str,
     ) -> Result<EnqueueResult, QueueError> {
         let content_hash = compute_content_hash(&subject);
         let mut guard = self.state.lock().await;
@@ -451,6 +455,7 @@ impl RenderQueue {
             tier,
             scene_type,
             negative_prompt: negative_prompt.to_string(),
+            narration: narration.to_string(),
         };
         if self.job_tx.send(job).await.is_err() {
             let mut guard = self.state.lock().await;
