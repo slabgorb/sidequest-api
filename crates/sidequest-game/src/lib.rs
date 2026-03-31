@@ -43,6 +43,7 @@ pub mod music_director;
 pub mod narrative;
 pub mod narrative_sheet;
 pub mod npc;
+pub mod npc_actions;
 pub mod ocean;
 pub mod ocean_shift_proposals;
 pub mod perception;
@@ -125,6 +126,7 @@ pub use music_director::{
 };
 pub use narrative::NarrativeEntry;
 pub use npc::{enrich_registry_from_npcs, Npc, NpcRegistryEntry};
+pub use npc_actions::{available_actions, select_npc_action, NpcAction, ScenarioRole};
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
 pub use ocean_shift_proposals::{
     apply_ocean_shifts, detect_personality_events, propose_ocean_shifts, OceanShiftProposal,
