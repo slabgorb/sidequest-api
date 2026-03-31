@@ -12,15 +12,14 @@ use tracing::Instrument;
 use sidequest_agents::orchestrator::TurnContext;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ActionRevealPayload, ChapterMarkerPayload, CombatEventPayload, GameMessage,
-    InventoryPayload, MapUpdatePayload, NarrationEndPayload, NarrationPayload,
-    PartyMember, PartyStatusPayload, PlayerActionEntry, SessionEventPayload,
-    ThinkingPayload, TurnStatusPayload,
+    ActionRevealPayload, ChapterMarkerPayload, CombatEventPayload, GameMessage, InventoryPayload,
+    MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
+    PlayerActionEntry, SessionEventPayload, ThinkingPayload, TurnStatusPayload,
 };
 
 use crate::extraction::{
-    audio_cue_to_game_message,
-    extract_location_header, strip_location_header, strip_markdown_for_tts,
+    audio_cue_to_game_message, extract_location_header, strip_location_header,
+    strip_markdown_for_tts,
 };
 use crate::npc_context::build_npc_registry_context;
 use crate::{
@@ -62,12 +61,13 @@ pub(crate) struct DispatchContext<'a> {
     >,
     pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
     pub audio_mixer: &'a Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
-    pub prerender_scheduler: &'a Arc<
-        tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>,
-    >,
+    pub prerender_scheduler:
+        &'a Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub state: &'a AppState,
     pub continuity_corrections: &'a mut String,
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
+    pub resource_state: &'a mut HashMap<String, f64>,
+    pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -356,7 +356,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Uses haiku-tier LLM with 15s timeout; falls back to mechanical rewrite on failure.
     let preprocess_span = tracing::info_span!("turn.preprocess", raw_len = ctx.action.len());
     let _preprocess_guard = preprocess_span.enter();
-    let preprocessed = sidequest_agents::preprocessor::preprocess_action(&effective_action, ctx.char_name);
+    let preprocessed =
+        sidequest_agents::preprocessor::preprocess_action(&effective_action, ctx.char_name);
     tracing::info!(
         raw = %ctx.action,
         you = %preprocessed.you,
@@ -367,7 +368,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // F9: Wish Consequence Engine — LLM-classified power-grab on clean input.
     if preprocessed.is_power_grab {
-        let mut engine = sidequest_game::WishConsequenceEngine::with_counter(ctx.genie_wishes.len());
+        let mut engine =
+            sidequest_game::WishConsequenceEngine::with_counter(ctx.genie_wishes.len());
         if let Some(wish) = engine.evaluate(ctx.char_name, &preprocessed.intent, true) {
             let wish_context = sidequest_game::WishConsequenceEngine::build_prompt_context(&wish);
             tracing::info!(
@@ -389,7 +391,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         in_combat: ctx.combat_state.in_combat(),
         in_chase: ctx.chase_state.is_some(),
     };
-    let result = ctx.state
+    let result = ctx
+        .state
         .game_service()
         .process_action(&preprocessed.you, &context);
 
@@ -490,7 +493,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             player_id: ctx.player_id.to_string(),
         });
         // Build explored locations from discovered_regions
-        let explored_locs: Vec<sidequest_protocol::ExploredLocation> = ctx.discovered_regions
+        let explored_locs: Vec<sidequest_protocol::ExploredLocation> = ctx
+            .discovered_regions
             .iter()
             .map(|name| sidequest_protocol::ExploredLocation {
                 name: name.clone(),
@@ -530,16 +534,22 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     ));
     // Cap the buffer at 20 entries to prevent unbounded growth
     if ctx.narration_history.len() > 20 {
-        ctx.narration_history.drain(..ctx.narration_history.len() - 20);
+        ctx.narration_history
+            .drain(..ctx.narration_history.len() - 20);
     }
 
     // Update NPC registry from structured narrator output.
     // If the narrator doesn't emit npcs_present, NPCs are missed. That's the narrator's job.
     let turn_approx = ctx.turn_manager.interaction() as u32;
     if !result.npcs_present.is_empty() {
-        tracing::info!(count = result.npcs_present.len(), "npc_registry.structured — updating from narrator JSON");
+        tracing::info!(
+            count = result.npcs_present.len(),
+            "npc_registry.structured — updating from narrator JSON"
+        );
         for npc in &result.npcs_present {
-            if npc.name.is_empty() { continue; }
+            if npc.name.is_empty() {
+                continue;
+            }
             let name_lower = npc.name.to_lowercase();
             if let Some(entry) = ctx.npc_registry.iter_mut().find(|e| {
                 e.name.to_lowercase() == name_lower
@@ -580,19 +590,29 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 // New NPC — create entry with OCEAN personality from genre archetype
                 let (ocean_profile, source) = {
                     let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
-                    GenreCode::new(ctx.genre_slug).ok()
+                    GenreCode::new(ctx.genre_slug)
+                        .ok()
                         .and_then(|genre_code| loader.load(&genre_code).ok())
                         .and_then(|pack| {
-                            let with_ocean: Vec<_> = pack.archetypes.iter()
+                            let with_ocean: Vec<_> = pack
+                                .archetypes
+                                .iter()
                                 .filter(|a| a.ocean.is_some())
                                 .collect();
-                            if with_ocean.is_empty() { return None; }
+                            if with_ocean.is_empty() {
+                                return None;
+                            }
                             use rand::prelude::IndexedRandom;
                             let archetype = with_ocean.choose(&mut rand::rng())?;
                             let profile = archetype.ocean.as_ref()?.with_jitter(1.5);
                             Some((profile, archetype.name.as_str().to_string()))
                         })
-                        .unwrap_or_else(|| (sidequest_genre::OceanProfile::random(), "random".to_string()))
+                        .unwrap_or_else(|| {
+                            (
+                                sidequest_genre::OceanProfile::random(),
+                                "random".to_string(),
+                            )
+                        })
                 };
                 let ocean_summary = ocean_profile.behavioral_summary();
                 span.record("ocean_summary", &ocean_summary.as_str());
@@ -624,7 +644,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // ── OCEAN personality shifts — detect narrative events and evolve NPC personalities ──
     {
         let npc_names: Vec<&str> = ctx.npc_registry.iter().map(|e| e.name.as_str()).collect();
-        let personality_events = sidequest_game::detect_personality_events(&clean_narration, &npc_names);
+        let personality_events =
+            sidequest_game::detect_personality_events(&clean_narration, &npc_names);
         if !personality_events.is_empty() {
             let (applied, shift_log) = sidequest_game::apply_ocean_shifts(
                 ctx.npc_registry,
@@ -690,12 +711,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     apply_state_mutations(ctx, &result, &clean_narration, &effective_action);
 
     // Narration — include character state so the UI state mirror picks it up
-    let inventory_names: Vec<String> = ctx.inventory
+    let inventory_names: Vec<String> = ctx
+        .inventory
         .items
         .iter()
         .map(|i| i.name.as_str().to_string())
         .collect();
-    let char_class_name = ctx.character_json
+    let char_class_name = ctx
+        .character_json
         .as_ref()
         .and_then(|cj| cj.get("char_class"))
         .and_then(|c| c.as_str())
@@ -714,7 +737,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     statuses: vec![],
                     inventory: inventory_names.clone(),
                 }]),
-                quests: if ctx.quest_log.is_empty() { None } else { Some(ctx.quest_log.clone()) },
+                quests: if ctx.quest_log.is_empty() {
+                    None
+                } else {
+                    Some(ctx.quest_log.clone())
+                },
                 items_gained: if result.items_gained.is_empty() {
                     None
                 } else {
@@ -759,7 +786,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     });
 
     // Extract character class from JSON for PartyStatus (owned to avoid borrow conflict)
-    let char_class: String = ctx.character_json
+    let char_class: String = ctx
+        .character_json
         .as_ref()
         .and_then(|cj| cj.get("char_class"))
         .and_then(|c| c.as_str())
@@ -791,7 +819,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 party_members.push(PartyMember {
                     player_id: pid.clone(),
                     name: ps.player_name.clone(),
-                    character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                    character_name: ps
+                        .character_name
+                        .clone()
+                        .unwrap_or_else(|| ps.player_name.clone()),
                     current_hp: ps.character_hp,
                     max_hp: ps.character_max_hp,
                     statuses: vec![],
@@ -813,7 +844,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Bug 5: Inventory — now wired to actual inventory state
     messages.push(GameMessage::Inventory {
         payload: InventoryPayload {
-            items: ctx.inventory
+            items: ctx
+                .inventory
                 .items
                 .iter()
                 .map(|item| sidequest_protocol::InventoryItem {
@@ -869,7 +901,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     if !ctx.genre_slug.is_empty() && !ctx.world_slug.is_empty() {
         let location =
             extract_location_header(narration_text).unwrap_or_else(|| "Starting area".to_string());
-        match ctx.state
+        match ctx
+            .state
             .persistence()
             .load(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save)
             .await
@@ -889,7 +922,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 snapshot.quest_log = ctx.quest_log.clone();
                 // Sync character state (HP, XP, level, inventory, known_facts, affinities)
                 if let Some(ref cj) = ctx.character_json {
-                    if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+                    if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone())
+                    {
                         if let Some(saved_ch) = snapshot.characters.first_mut() {
                             saved_ch.core.hp = *ctx.hp;
                             saved_ch.core.max_hp = *ctx.max_hp;
@@ -912,9 +946,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     speaker: None,
                     entry_type: None,
                 });
-                match ctx.state
+                match ctx
+                    .state
                     .persistence()
-                    .save(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &snapshot)
+                    .save(
+                        ctx.genre_slug,
+                        ctx.world_slug,
+                        ctx.player_name_for_save,
+                        &snapshot,
+                    )
                     .await
                 {
                     Ok(_) => tracing::info!(
@@ -972,7 +1012,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             let prerender_ctx = sidequest_game::PrerenderContext {
                 in_combat: ctx.combat_state.in_combat(),
                 combatant_names: if ctx.combat_state.in_combat() {
-                    result.npcs_present.iter().map(|npc| npc.name.clone()).collect()
+                    result
+                        .npcs_present
+                        .iter()
+                        .map(|npc| npc.name.clone())
+                        .collect()
                 } else {
                     vec![]
                 },
@@ -1168,7 +1212,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // GM Panel: emit full game state snapshot after all mutations
     {
         let turn_approx = ctx.turn_manager.interaction() as u32;
-        let npc_data: Vec<serde_json::Value> = ctx.npc_registry
+        let npc_data: Vec<serde_json::Value> = ctx
+            .npc_registry
             .iter()
             .map(|e| {
                 serde_json::json!({
@@ -1180,12 +1225,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 })
             })
             .collect();
-        let inventory_names: Vec<String> = ctx.inventory
+        let inventory_names: Vec<String> = ctx
+            .inventory
             .items
             .iter()
             .map(|i| i.name.as_str().to_string())
             .collect();
-        let active_tropes: Vec<serde_json::Value> = ctx.trope_states
+        let active_tropes: Vec<serde_json::Value> = ctx
+            .trope_states
             .iter()
             .map(|ts| {
                 serde_json::json!({
@@ -1232,7 +1279,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         });
     }
 
-    sync_back_to_shared_session(ctx, &messages, &clean_narration, &char_class, &effective_action).await;
+    sync_back_to_shared_session(
+        ctx,
+        &messages,
+        &clean_narration,
+        &char_class,
+        &effective_action,
+    )
+    .await;
 
     // Emit TurnComplete event for the OTEL dashboard
     ctx.state.send_watcher_event(WatcherEvent {
@@ -1252,7 +1306,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             if let Some(dur) = result.agent_duration_ms {
                 f.insert("agent_duration_ms".to_string(), serde_json::json!(dur));
             }
-            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
+            f.insert(
+                "is_degraded".to_string(),
+                serde_json::json!(result.is_degraded),
+            );
             f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
             f.insert("action".to_string(), serde_json::json!(effective_action));
             f
@@ -1303,7 +1360,11 @@ async fn sync_back_to_shared_session(
         let co_located = ss.co_located_players(ctx.player_id);
         let other_players: Vec<String> = if co_located.is_empty() {
             // No region data — fall back to all other session members
-            ss.players.keys().filter(|pid| pid.as_str() != ctx.player_id).cloned().collect()
+            ss.players
+                .keys()
+                .filter(|pid| pid.as_str() != ctx.player_id)
+                .cloned()
+                .collect()
         } else {
             co_located
         };
@@ -1334,8 +1395,13 @@ async fn sync_back_to_shared_session(
                             if filter.has_effects() {
                                 // Use Claude-backed perception rewriter for actual narration variant
                                 let client = sidequest_agents::client::ClaudeClient::new();
-                                let strategy = sidequest_agents::agents::resonator::ClaudeRewriteStrategy::new(client);
-                                let rewriter = sidequest_game::perception::PerceptionRewriter::new(Box::new(strategy));
+                                let strategy =
+                                    sidequest_agents::agents::resonator::ClaudeRewriteStrategy::new(
+                                        client,
+                                    );
+                                let rewriter = sidequest_game::perception::PerceptionRewriter::new(
+                                    Box::new(strategy),
+                                );
                                 match rewriter.rewrite(&payload.text, filter, ctx.genre_slug) {
                                     Ok(rewritten) => {
                                         tracing::info!(
@@ -1353,7 +1419,10 @@ async fn sync_back_to_shared_session(
                                             "perception.rewrite_failed — falling back to base narration"
                                         );
                                         let effects_desc = sidequest_game::perception::PerceptionRewriter::describe_effects(filter.effects());
-                                        format!("[Your perception is altered: {}]\n\n{}", effects_desc, payload.text)
+                                        format!(
+                                            "[Your perception is altered: {}]\n\n{}",
+                                            effects_desc, payload.text
+                                        )
                                     }
                                 }
                             } else {
@@ -1406,7 +1475,11 @@ async fn sync_back_to_shared_session(
                 }
                 GameMessage::ChapterMarker { ref payload, .. } => {
                     // Send to other players only — acting player already received via direct channel
-                    for target_pid in ss.players.keys().filter(|pid| pid.as_str() != ctx.player_id) {
+                    for target_pid in ss
+                        .players
+                        .keys()
+                        .filter(|pid| pid.as_str() != ctx.player_id)
+                    {
                         let marker = GameMessage::ChapterMarker {
                             payload: payload.clone(),
                             player_id: target_pid.clone(),
@@ -1423,7 +1496,10 @@ async fn sync_back_to_shared_session(
                         .map(|(pid, ps)| PartyMember {
                             player_id: pid.clone(),
                             name: ps.player_name.clone(),
-                            character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                            character_name: ps
+                                .character_name
+                                .clone()
+                                .unwrap_or_else(|| ps.player_name.clone()),
                             current_hp: ps.character_hp,
                             max_hp: ps.character_max_hp,
                             statuses: vec![],
@@ -1436,7 +1512,9 @@ async fn sync_back_to_shared_session(
                     let player_ids: Vec<String> = ss.players.keys().cloned().collect();
                     for target_pid in &player_ids {
                         let party_msg = GameMessage::PartyStatus {
-                            payload: PartyStatusPayload { members: members.clone() },
+                            payload: PartyStatusPayload {
+                                members: members.clone(),
+                            },
                             player_id: target_pid.clone(),
                         };
                         ss.send_to_player(party_msg, target_pid.clone());
@@ -1468,7 +1546,10 @@ async fn process_audio(
             },
             // Quest completion and NPC death now come from structured quest_updates,
             // not keyword scanning. Check if any quest was marked "completed:".
-            quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
+            quest_completed: result
+                .quest_updates
+                .values()
+                .any(|v| v.starts_with("completed")),
             npc_died: false, // TODO: detect from hp_changes when NPC HP reaches 0
         };
         // Use narrator's scene_mood — it's required every turn.
@@ -1574,7 +1655,8 @@ async fn process_render(
         scene_transition: extract_location_header(narration_text).is_some(),
         player_requested: false,
     };
-    let decision = ctx.state
+    let decision = ctx
+        .state
         .inner
         .beat_filter
         .lock()
@@ -1585,7 +1667,9 @@ async fn process_render(
         if let Some(ref queue) = ctx.state.inner.render_queue {
             let (art_style, model, neg_prompt) = match ctx.visual_style {
                 Some(ref vs) => {
-                    let location = extract_location_header(narration_text).unwrap_or_default().to_lowercase();
+                    let location = extract_location_header(narration_text)
+                        .unwrap_or_default()
+                        .to_lowercase();
                     let tag_override = if !location.is_empty() {
                         vs.visual_tag_overrides
                             .iter()
@@ -1598,12 +1682,23 @@ async fn process_render(
                         Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
                         None => vs.positive_suffix.clone(),
                     };
-                    (style, vs.preferred_model.clone(), vs.negative_prompt.clone())
+                    (
+                        style,
+                        vs.preferred_model.clone(),
+                        vs.negative_prompt.clone(),
+                    )
                 }
-                None => ("oil_painting".to_string(), "flux-schnell".to_string(), String::new()),
+                None => (
+                    "oil_painting".to_string(),
+                    "flux-schnell".to_string(),
+                    String::new(),
+                ),
             };
             // Send visual_scene subject as prompt — no narration, daemon skips SubjectExtractor
-            match queue.enqueue(subject, &art_style, &model, &neg_prompt, "").await {
+            match queue
+                .enqueue(subject, &art_style, &model, &neg_prompt, "")
+                .await
+            {
                 Ok(r) => tracing::info!(result = ?r, "Render job enqueued"),
                 Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
             }
@@ -1617,10 +1712,8 @@ fn process_tropes(
     clean_narration: &str,
     _messages: &mut Vec<GameMessage>,
 ) {
-    let _span = tracing::info_span!(
-        "turn.tropes",
-        active_count = ctx.trope_states.len(),
-    ).entered();
+    let _span =
+        tracing::info_span!("turn.tropes", active_count = ctx.trope_states.len(),).entered();
 
     let narration_lower = clean_narration.to_lowercase();
     tracing::debug!(
@@ -1635,7 +1728,11 @@ fn process_tropes(
             None => continue,
         };
         // Skip already active tropes
-        if ctx.trope_states.iter().any(|ts| ts.trope_definition_id() == id) {
+        if ctx
+            .trope_states
+            .iter()
+            .any(|ts| ts.trope_definition_id() == id)
+        {
             continue;
         }
         // Check if any trigger keyword appears in the narration
@@ -1741,10 +1838,11 @@ async fn process_combat_and_chase(
     // This catches cases where the narrator (not creature_smith) describes combat beginning.
     if !ctx.combat_state.in_combat() {
         let narr_lower = clean_narration.to_lowercase();
-        let combat_start_keywords = [
-            "roll for initiative", "combat begins", "enters combat",
-        ];
-        if combat_start_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+        let combat_start_keywords = ["roll for initiative", "combat begins", "enters combat"];
+        if combat_start_keywords
+            .iter()
+            .any(|kw| narr_lower.contains(kw))
+        {
             // Extract combatant names from hp_changes in combat patch (if present),
             // otherwise use only the player name — don't dump all known NPCs.
             let mut combatants: Vec<String> = vec![ctx.char_name.to_string()];
@@ -1774,14 +1872,15 @@ async fn process_combat_and_chase(
                         .apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
                     tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
                     if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
-                        let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
-                            ss.players.keys().cloned(),
-                        );
+                        let mp_session =
+                            sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
+                                ss.players.keys().cloned(),
+                            );
                         let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
-                        ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
-                            mp_session,
-                            adaptive,
-                        ));
+                        ss.turn_barrier =
+                            Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
+                                mp_session, adaptive,
+                            ));
                     }
                 }
             }
@@ -1792,9 +1891,15 @@ async fn process_combat_and_chase(
     if ctx.combat_state.in_combat() {
         let narr_lower = clean_narration.to_lowercase();
         let combat_end_keywords = [
-            "combat ends", "battle is over", "enemies defeated",
-            "falls unconscious", "retreats", "flees", "surrenders",
-            "combat resolved", "the fight is over",
+            "combat ends",
+            "battle is over",
+            "enemies defeated",
+            "falls unconscious",
+            "retreats",
+            "flees",
+            "surrenders",
+            "combat resolved",
+            "the fight is over",
         ];
         if combat_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
             ctx.combat_state.disengage();
@@ -1805,8 +1910,8 @@ async fn process_combat_and_chase(
                 if let Some(ref ss_arc) = *holder {
                     let mut ss = ss_arc.lock().await;
                     let old_mode = std::mem::take(&mut ss.turn_mode);
-                    ss.turn_mode = old_mode
-                        .apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
+                    ss.turn_mode =
+                        old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
                     tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat end");
                 }
             }
@@ -1830,13 +1935,22 @@ async fn process_combat_and_chase(
             severity: Severity::Info,
             fields: {
                 let mut f = HashMap::new();
-                f.insert("round".to_string(), serde_json::json!(ctx.combat_state.round()));
+                f.insert(
+                    "round".to_string(),
+                    serde_json::json!(ctx.combat_state.round()),
+                );
                 f.insert(
                     "drama_weight".to_string(),
                     serde_json::json!(ctx.combat_state.drama_weight()),
                 );
-                f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));
-                f.insert("current_turn".to_string(), serde_json::json!(ctx.combat_state.current_turn()));
+                f.insert(
+                    "turn_order".to_string(),
+                    serde_json::json!(ctx.combat_state.turn_order()),
+                );
+                f.insert(
+                    "current_turn".to_string(),
+                    serde_json::json!(ctx.combat_state.current_turn()),
+                );
                 f
             },
         });
@@ -1844,7 +1958,8 @@ async fn process_combat_and_chase(
 
     // Combat overlay — send populated CombatEvent with enemies, turn order, current turn
     if was_in_combat || ctx.combat_state.in_combat() {
-        let enemies: Vec<sidequest_protocol::CombatEnemy> = ctx.npc_registry
+        let enemies: Vec<sidequest_protocol::CombatEnemy> = ctx
+            .npc_registry
             .iter()
             .filter(|_| ctx.combat_state.in_combat()) // only show enemies during active combat
             .map(|entry| sidequest_protocol::CombatEnemy {
@@ -1908,7 +2023,12 @@ async fn process_combat_and_chase(
                 };
                 cs.set_separation(cs.separation() + gain);
                 cs.record_roll(0.5); // placeholder roll
-                tracing::info!(round = cs.round(), separation = cs.separation(), gain, "chase.tick — round advanced");
+                tracing::info!(
+                    round = cs.round(),
+                    separation = cs.separation(),
+                    gain,
+                    "chase.tick — round advanced"
+                );
             }
         } else if chase_start_keywords
             .iter()
@@ -1937,7 +2057,11 @@ fn apply_state_mutations(
             if in_combat && !ctx.combat_state.in_combat() {
                 // Build combatant list from the patch, not from npc_registry.
                 // Prefer turn_order if provided; otherwise use hp_changes targets.
-                let combatants = if combat_patch.turn_order.as_ref().map_or(false, |o| !o.is_empty()) {
+                let combatants = if combat_patch
+                    .turn_order
+                    .as_ref()
+                    .map_or(false, |o| !o.is_empty())
+                {
                     combat_patch.turn_order.clone().unwrap()
                 } else {
                     let mut names: Vec<String> = vec![ctx.char_name.to_string()];
@@ -1968,7 +2092,13 @@ fn apply_state_mutations(
             for (target, delta) in hp_changes {
                 let target_lower = target.to_lowercase();
                 if target_lower == char_name_lower
-                    || ctx.character_json.as_ref().and_then(|cj| cj.get("name")).and_then(|n| n.as_str()).map(|n| n.to_lowercase() == target_lower).unwrap_or(false)
+                    || ctx
+                        .character_json
+                        .as_ref()
+                        .and_then(|cj| cj.get("name"))
+                        .and_then(|n| n.as_str())
+                        .map(|n| n.to_lowercase() == target_lower)
+                        .unwrap_or(false)
                 {
                     *ctx.hp = sidequest_game::clamp_hp(*ctx.hp, *delta, *ctx.max_hp);
                     tracing::info!(target = %target, delta = delta, new_hp = *ctx.hp, "combat.patch.hp_applied");
@@ -2130,7 +2260,13 @@ fn apply_state_mutations(
     // The narrator emits items_gained in its JSON block when the player
     // actually acquires something.
     const VALID_ITEM_CATEGORIES: &[&str] = &[
-        "weapon", "armor", "tool", "consumable", "quest", "treasure", "misc",
+        "weapon",
+        "armor",
+        "tool",
+        "consumable",
+        "quest",
+        "treasure",
+        "misc",
     ];
     for item_def in &result.items_gained {
         // Reject prose fragments: item names should be short noun phrases,
@@ -2191,6 +2327,21 @@ fn apply_state_mutations(
         }
     }
 
+    // Resource delta application (story 16-1)
+    if !result.resource_deltas.is_empty() {
+        for (name, delta) in &result.resource_deltas {
+            if let Some(current) = ctx.resource_state.get_mut(name) {
+                *current += delta;
+                // Clamp to bounds if declaration exists
+                if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
+                    *current = current.clamp(decl.min, decl.max);
+                }
+                tracing::info!(resource = %name, delta = %delta, new_value = %current, "resource.delta_applied");
+            } else {
+                tracing::debug!(resource = %name, "resource.delta_ignored — resource not in state");
+            }
+        }
+    }
 }
 
 /// Build the full state_summary string for the narrator prompt.
@@ -2203,7 +2354,8 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
     if ctx.trope_states.is_empty() && !ctx.trope_defs.is_empty() {
         // Prefer tropes with passive_progression so tick() can advance them.
         // Fall back to any trope if none have passive_progression.
-        let mut seedable: Vec<&sidequest_genre::TropeDefinition> = ctx.trope_defs
+        let mut seedable: Vec<&sidequest_genre::TropeDefinition> = ctx
+            .trope_defs
             .iter()
             .filter(|d| d.passive_progression.is_some() && d.id.is_some())
             .collect();
@@ -2213,7 +2365,8 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
         let seed_count = seedable.len().min(3);
         tracing::info!(
             total_defs = ctx.trope_defs.len(),
-            with_progression = ctx.trope_defs
+            with_progression = ctx
+                .trope_defs
                 .iter()
                 .filter(|d| d.passive_progression.is_some())
                 .count(),
@@ -2258,7 +2411,8 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
     } else {
         let mut lines = vec!["Active narrative arcs:".to_string()];
         for ts in ctx.trope_states.iter() {
-            if let Some(def) = ctx.trope_defs
+            if let Some(def) = ctx
+                .trope_defs
                 .iter()
                 .find(|d| d.id.as_deref() == Some(ts.trope_definition_id()))
             {
@@ -2310,12 +2464,17 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
             let co_located_names: Vec<String> = ss
                 .co_located_players(ctx.player_id)
                 .iter()
-                .filter_map(|pid| ss.players.get(pid.as_str()).and_then(|ps| ps.character_name.clone()))
+                .filter_map(|pid| {
+                    ss.players
+                        .get(pid.as_str())
+                        .and_then(|ps| ps.character_name.clone())
+                })
                 .collect();
 
             if !other_pcs.is_empty() {
                 state_summary.push_str("\n\nPLAYER-CONTROLLED CHARACTERS IN THE PARTY:\n");
-                state_summary.push_str("The following characters are controlled by OTHER human players:\n");
+                state_summary
+                    .push_str("The following characters are controlled by OTHER human players:\n");
                 for name in &other_pcs {
                     state_summary.push_str(&format!("- {}\n", name));
                 }
@@ -2347,7 +2506,7 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
                      Do NOT use 'you' for any character — including the acting player. \
                      All characters are named explicitly in third-person. \
                      Correct: 'Mira surveys the gantry. Kael moves to cover.' \
-                     Wrong: 'You survey the gantry.'"
+                     Wrong: 'You survey the gantry.'",
                 );
             }
         }
@@ -2359,7 +2518,8 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
         // any location mention in the action is likely dialogue (describing a place to
         // the NPC), not a travel intent. Strengthen the stay-put constraint.
         let turn_approx = ctx.turn_manager.interaction() as u32;
-        let recent_npc_interaction = ctx.npc_registry
+        let recent_npc_interaction = ctx
+            .npc_registry
             .iter()
             .any(|e| turn_approx.saturating_sub(e.last_seen_turn) <= 2);
         let extra_dialogue_guard = if recent_npc_interaction {
@@ -2422,6 +2582,29 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
         state_summary.push_str("Reference active quests when narratively relevant. Update quest status in quest_updates when objectives change.\n");
     }
 
+    // Resource state injection (story 16-1)
+    if !ctx.resource_declarations.is_empty() {
+        state_summary.push_str("\n\nGENRE RESOURCES — Current State:\n");
+        for decl in ctx.resource_declarations {
+            let current = ctx
+                .resource_state
+                .get(&decl.name)
+                .copied()
+                .unwrap_or(decl.starting);
+            let vol_label = if decl.voluntary {
+                "voluntary"
+            } else {
+                "involuntary"
+            };
+            let mut line = format!("{}: {}/{} ({})", decl.label, current, decl.max, vol_label);
+            if decl.decay_per_turn.abs() > f64::EPSILON {
+                line.push_str(&format!(", decay {}/turn", decl.decay_per_turn.abs()));
+            }
+            state_summary.push_str(&format!("- {}\n", line));
+        }
+        state_summary.push_str("When narrative events affect these resources, include resource_deltas in your JSON block.\n");
+    }
+
     // Bug 6: Include chase state if active
     if let Some(ref cs) = ctx.chase_state {
         state_summary.push_str(&format!(
@@ -2462,7 +2645,10 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
         }
         if let Some(pronouns) = cj.get("pronouns").and_then(|p| p.as_str()) {
             if !pronouns.is_empty() {
-                state_summary.push_str(&format!("\nPronouns: {} — ALWAYS use these pronouns for this character.", pronouns));
+                state_summary.push_str(&format!(
+                    "\nPronouns: {} — ALWAYS use these pronouns for this character.",
+                    pronouns
+                ));
                 tracing::debug!(pronouns = %pronouns, "narrator_prompt.pronouns — injected into state_summary");
             }
         }
@@ -2489,12 +2675,17 @@ async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
             if !ss.region_names.is_empty() {
                 if ctx.discovered_regions.is_empty() {
                     state_summary.push_str("\n\nWORLD LOCATIONS (from cartography):\n");
-                    state_summary.push_str("Use these canonical location names. Do NOT invent new ones.\n");
+                    state_summary
+                        .push_str("Use these canonical location names. Do NOT invent new ones.\n");
                 } else {
                     state_summary.push_str("Additional world locations (not yet visited):\n");
                 }
                 for (region_id, _display_name) in &ss.region_names {
-                    if !ctx.discovered_regions.iter().any(|r| r.to_lowercase() == *region_id) {
+                    if !ctx
+                        .discovered_regions
+                        .iter()
+                        .any(|r| r.to_lowercase() == *region_id)
+                    {
                         state_summary.push_str(&format!("- {}\n", region_id));
                     }
                 }
@@ -2610,8 +2801,7 @@ fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<GameMessage
         };
         // Reconstruct a minimal Character from loose variables.
         if let Some(ref cj) = ctx.character_json {
-            if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone())
-            {
+            if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
                 // Sync mutable fields that may have diverged from the JSON snapshot.
                 ch.core.hp = *ctx.hp;
                 ch.core.max_hp = *ctx.max_hp;

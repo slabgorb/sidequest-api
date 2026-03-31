@@ -275,6 +275,7 @@ async fn server_accepts_mock_game_service() {
                 scene_mood: None,
                 personality_events: vec![],
                 scene_intent: None,
+                resource_deltas: std::collections::HashMap::new(),
             }
         }
     }

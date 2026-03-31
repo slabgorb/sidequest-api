@@ -40,10 +40,9 @@ use sidequest_agents::orchestrator::GameService;
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
-    CharacterState, ErrorPayload, GameMessage, InitialState,
-    NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
-    SessionEventPayload, TurnStatusPayload,
+    ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload, CharacterState,
+    ErrorPayload, GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
+    PartyStatusPayload, SessionEventPayload, TurnStatusPayload,
 };
 
 // ---------------------------------------------------------------------------
@@ -304,115 +303,115 @@ impl AppState {
             )
         } else {
             sidequest_game::RenderQueue::spawn(
-            sidequest_game::RenderQueueConfig::default(),
-            |prompt, art_style, tier, negative_prompt: String, narration: String| async move {
-                // ── OTel: render pipeline start ──────────────────────────
-                tracing::info!(
-                    prompt_len = prompt.len(),
-                    prompt_preview = %&prompt[..prompt.len().min(120)],
-                    art_style = %art_style,
-                    tier = %tier,
-                    "render_pipeline_start — connecting to daemon"
-                );
-                let config = sidequest_daemon_client::DaemonConfig::default();
-                match sidequest_daemon_client::DaemonClient::connect(config).await {
-                    Ok(mut client) => {
-                        tracing::info!(tier = %tier, "render_daemon_connected");
-                        // The art_style field carries the full composed style string
-                        // (positive_suffix + location tag overrides), built at the
-                        // enqueue call site. Combine with the raw prompt fragment to
-                        // produce the positive_prompt the daemon expects.
-                        let positive_prompt = if art_style.is_empty() {
-                            prompt.clone()
-                        } else {
-                            format!("{}, {}", prompt, art_style)
-                        };
-                        match client
-                            .render(sidequest_daemon_client::RenderParams {
-                                prompt: prompt.clone(),
-                                art_style: art_style.clone(),
-                                tier: tier.clone(),
-                                positive_prompt,
-                                negative_prompt: negative_prompt.clone(),
-                                narration: narration.clone(),
-                            })
-                            .await
-                        {
-                            Ok(result) => {
-                                // The daemon returns an absolute file path (e.g. /tmp/sq-flux-xxx/render_abc.png).
-                                // Convert to a servable URL via /api/renders/{filename}.
-                                // First, copy the file to the renders directory so the static server can serve it.
-                                let raw_path = &result.image_url;
-                                let servable_url = if raw_path.starts_with('/')
-                                    || raw_path.starts_with("C:\\")
-                                {
-                                    let src = std::path::Path::new(raw_path);
-                                    if let Some(filename) = src.file_name() {
-                                        let renders_dir = std::env::var("SIDEQUEST_OUTPUT_DIR")
-                                            .map(std::path::PathBuf::from)
-                                            .unwrap_or_else(|_| {
-                                                std::path::PathBuf::from(
-                                                    std::env::var("HOME")
-                                                        .unwrap_or_else(|_| "/tmp".to_string()),
-                                                )
-                                                .join(".sidequest")
-                                                .join("renders")
-                                            });
-                                        let _ = std::fs::create_dir_all(&renders_dir);
-                                        let dest = renders_dir.join(filename);
-                                        if src.exists() {
-                                            if let Err(e) = std::fs::copy(src, &dest) {
-                                                tracing::error!(error = %e, src = %raw_path, "render_file_copy_failed — image won't be servable");
+                sidequest_game::RenderQueueConfig::default(),
+                |prompt, art_style, tier, negative_prompt: String, narration: String| async move {
+                    // ── OTel: render pipeline start ──────────────────────────
+                    tracing::info!(
+                        prompt_len = prompt.len(),
+                        prompt_preview = %&prompt[..prompt.len().min(120)],
+                        art_style = %art_style,
+                        tier = %tier,
+                        "render_pipeline_start — connecting to daemon"
+                    );
+                    let config = sidequest_daemon_client::DaemonConfig::default();
+                    match sidequest_daemon_client::DaemonClient::connect(config).await {
+                        Ok(mut client) => {
+                            tracing::info!(tier = %tier, "render_daemon_connected");
+                            // The art_style field carries the full composed style string
+                            // (positive_suffix + location tag overrides), built at the
+                            // enqueue call site. Combine with the raw prompt fragment to
+                            // produce the positive_prompt the daemon expects.
+                            let positive_prompt = if art_style.is_empty() {
+                                prompt.clone()
+                            } else {
+                                format!("{}, {}", prompt, art_style)
+                            };
+                            match client
+                                .render(sidequest_daemon_client::RenderParams {
+                                    prompt: prompt.clone(),
+                                    art_style: art_style.clone(),
+                                    tier: tier.clone(),
+                                    positive_prompt,
+                                    negative_prompt: negative_prompt.clone(),
+                                    narration: narration.clone(),
+                                })
+                                .await
+                            {
+                                Ok(result) => {
+                                    // The daemon returns an absolute file path (e.g. /tmp/sq-flux-xxx/render_abc.png).
+                                    // Convert to a servable URL via /api/renders/{filename}.
+                                    // First, copy the file to the renders directory so the static server can serve it.
+                                    let raw_path = &result.image_url;
+                                    let servable_url = if raw_path.starts_with('/')
+                                        || raw_path.starts_with("C:\\")
+                                    {
+                                        let src = std::path::Path::new(raw_path);
+                                        if let Some(filename) = src.file_name() {
+                                            let renders_dir = std::env::var("SIDEQUEST_OUTPUT_DIR")
+                                                .map(std::path::PathBuf::from)
+                                                .unwrap_or_else(|_| {
+                                                    std::path::PathBuf::from(
+                                                        std::env::var("HOME")
+                                                            .unwrap_or_else(|_| "/tmp".to_string()),
+                                                    )
+                                                    .join(".sidequest")
+                                                    .join("renders")
+                                                });
+                                            let _ = std::fs::create_dir_all(&renders_dir);
+                                            let dest = renders_dir.join(filename);
+                                            if src.exists() {
+                                                if let Err(e) = std::fs::copy(src, &dest) {
+                                                    tracing::error!(error = %e, src = %raw_path, "render_file_copy_failed — image won't be servable");
+                                                }
+                                            } else {
+                                                // File doesn't exist at the path daemon told us — loud error
+                                                tracing::error!(src = %raw_path, "render_file_missing — daemon returned path that doesn't exist on disk");
                                             }
+                                            format!("/api/renders/{}", filename.to_string_lossy())
                                         } else {
-                                            // File doesn't exist at the path daemon told us — loud error
-                                            tracing::error!(src = %raw_path, "render_file_missing — daemon returned path that doesn't exist on disk");
+                                            raw_path.clone()
                                         }
-                                        format!("/api/renders/{}", filename.to_string_lossy())
-                                    } else {
+                                    } else if raw_path.starts_with("http://")
+                                        || raw_path.starts_with("https://")
+                                        || raw_path.starts_with("/api/")
+                                    {
                                         raw_path.clone()
-                                    }
-                                } else if raw_path.starts_with("http://")
-                                    || raw_path.starts_with("https://")
-                                    || raw_path.starts_with("/api/")
-                                {
-                                    raw_path.clone()
-                                } else {
-                                    // Bare filename — assume it's in the renders dir
-                                    format!("/api/renders/{}", raw_path)
-                                };
-                                // ── OTel: render pipeline success ────────────────────
-                                tracing::info!(
-                                    raw_path = %raw_path,
-                                    servable_url = %servable_url,
-                                    generation_ms = result.generation_ms,
-                                    tier = %tier,
-                                    "render_pipeline_complete"
-                                );
-                                Ok((servable_url, result.generation_ms))
-                            }
-                            Err(e) => {
-                                // ── OTel: render pipeline failure ────────────────────
-                                // Error-level, not warn. A failed render is not a
-                                // recoverable situation — the player sees a broken image.
-                                tracing::error!(
-                                    error = %e,
-                                    prompt_preview = %&prompt[..prompt.len().min(80)],
-                                    tier = %tier,
-                                    "render_pipeline_failed — daemon returned error or deserialization failed"
-                                );
-                                Err(format!("render failed: {e}"))
+                                    } else {
+                                        // Bare filename — assume it's in the renders dir
+                                        format!("/api/renders/{}", raw_path)
+                                    };
+                                    // ── OTel: render pipeline success ────────────────────
+                                    tracing::info!(
+                                        raw_path = %raw_path,
+                                        servable_url = %servable_url,
+                                        generation_ms = result.generation_ms,
+                                        tier = %tier,
+                                        "render_pipeline_complete"
+                                    );
+                                    Ok((servable_url, result.generation_ms))
+                                }
+                                Err(e) => {
+                                    // ── OTel: render pipeline failure ────────────────────
+                                    // Error-level, not warn. A failed render is not a
+                                    // recoverable situation — the player sees a broken image.
+                                    tracing::error!(
+                                        error = %e,
+                                        prompt_preview = %&prompt[..prompt.len().min(80)],
+                                        tier = %tier,
+                                        "render_pipeline_failed — daemon returned error or deserialization failed"
+                                    );
+                                    Err(format!("render failed: {e}"))
+                                }
                             }
                         }
+                        Err(e) => {
+                            // ── OTel: daemon connection failure ──────────────────
+                            tracing::error!(error = %e, tier = %tier, "render_daemon_connect_failed — is the renderer running?");
+                            Err(format!("daemon unavailable: {e}"))
+                        }
                     }
-                    Err(e) => {
-                        // ── OTel: daemon connection failure ──────────────────
-                        tracing::error!(error = %e, tier = %tier, "render_daemon_connect_failed — is the renderer running?");
-                        Err(format!("daemon unavailable: {e}"))
-                    }
-                }
-            },
-        )
+                },
+            )
         }; // end if headless / else
 
         let persistence = sidequest_game::PersistenceWorker::spawn(save_dir);
@@ -470,7 +469,9 @@ impl AppState {
     }
 
     /// Get the image pacing throttle (story 14-6).
-    pub fn image_throttle(&self) -> &Arc<std::sync::Mutex<render_integration::ImagePacingThrottle>> {
+    pub fn image_throttle(
+        &self,
+    ) -> &Arc<std::sync::Mutex<render_integration::ImagePacingThrottle>> {
         &self.inner.image_throttle
     }
 
@@ -513,7 +514,12 @@ impl AppState {
     ///
     /// Uses `.lock().await` on the session mutex to guarantee cleanup
     /// completes even under contention (fixes ghost player bug from try_lock).
-    pub async fn remove_player_from_session(&self, genre: &str, world: &str, player_id: &str) -> usize {
+    pub async fn remove_player_from_session(
+        &self,
+        genre: &str,
+        world: &str,
+        player_id: &str,
+    ) -> usize {
         let key = shared_session::game_session_key(genre, world);
         // Clone the Arc and drop the sessions guard before awaiting the session lock.
         let session_arc = {
@@ -539,11 +545,10 @@ impl AppState {
             let remaining = session.players.len();
             // Transition TurnMode when dropping back to solo
             let old_mode = std::mem::take(&mut session.turn_mode);
-            session.turn_mode = old_mode.apply(
-                sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+            session.turn_mode =
+                old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
                     player_count: remaining,
-                },
-            );
+                });
             if !session.turn_mode.should_use_barrier() {
                 session.turn_barrier = None;
             }
@@ -1057,7 +1062,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let writer_player_id = player_id_str.clone();
     let writer_handle = tokio::spawn(async move {
         // Session broadcast receiver — lazily initialized when shared session is set.
-        let mut session_rx: Option<broadcast::Receiver<crate::shared_session::TargetedMessage>> = None;
+        let mut session_rx: Option<broadcast::Receiver<crate::shared_session::TargetedMessage>> =
+            None;
 
         loop {
             // Lazily subscribe to session broadcast if we don't have a receiver yet.
@@ -1187,6 +1193,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut music_director: Option<sidequest_game::MusicDirector> = None;
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
     let mut genie_wishes: Vec<sidequest_game::GenieWish> = vec![];
+    let mut resource_state: HashMap<String, f64> = HashMap::new();
+    let mut resource_declarations: Vec<sidequest_genre::ResourceDeclaration> = Vec::new();
     let mut discovered_regions: Vec<String> = vec![];
     let mut turn_manager = sidequest_game::TurnManager::new();
     let mut lore_store = sidequest_game::LoreStore::new();
@@ -1241,6 +1249,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &player_id_str,
                         &mut continuity_corrections,
                         &mut genie_wishes,
+                        &mut resource_state,
+                        &mut resource_declarations,
                     )
                     .await;
                     for resp in responses {
@@ -1274,51 +1284,52 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
         if let Some(ss_arc) = ss_arc {
             // Use .lock().await (not try_lock) to guarantee cleanup completes.
             let mut ss = ss_arc.lock().await;
-                let leave_msg = GameMessage::SessionEvent {
-                    payload: SessionEventPayload {
-                        event: "player_left".to_string(),
-                        player_name: player_name_for_session.clone(),
-                        genre: None,
-                        world: None,
-                        has_character: None,
-                        initial_state: None,
-                        css: None,
-                        narrator_verbosity: None,
-                        narrator_vocabulary: None,
-                        image_cooldown_seconds: None,
-                    },
-                    player_id: player_id_str.clone(),
-                };
-                ss.broadcast(leave_msg);
+            let leave_msg = GameMessage::SessionEvent {
+                payload: SessionEventPayload {
+                    event: "player_left".to_string(),
+                    player_name: player_name_for_session.clone(),
+                    genre: None,
+                    world: None,
+                    has_character: None,
+                    initial_state: None,
+                    css: None,
+                    narrator_verbosity: None,
+                    narrator_vocabulary: None,
+                    image_cooldown_seconds: None,
+                },
+                player_id: player_id_str.clone(),
+            };
+            ss.broadcast(leave_msg);
 
-                // Transition turn mode when player leaves
-                let remaining_count = ss.player_count().saturating_sub(1);
-                let old_mode = std::mem::take(&mut ss.turn_mode);
-                ss.turn_mode = old_mode.apply(
-                    sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                        player_count: remaining_count,
-                    },
-                );
-                tracing::info!(
-                    new_mode = ?ss.turn_mode,
-                    remaining_players = remaining_count,
-                    "Turn mode transitioned on player leave"
-                );
-                // Remove player from barrier roster and tear down if back to FreePlay
-                if let Some(ref barrier) = ss.turn_barrier {
-                    if let Err(e) = barrier.remove_player(&player_id_str) {
-                        tracing::warn!(
-                            player_id = %player_id_str,
-                            error = %e,
-                            "Failed to remove player from barrier during disconnect cleanup"
-                        );
-                    }
+            // Transition turn mode when player leaves
+            let remaining_count = ss.player_count().saturating_sub(1);
+            let old_mode = std::mem::take(&mut ss.turn_mode);
+            ss.turn_mode =
+                old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                    player_count: remaining_count,
+                });
+            tracing::info!(
+                new_mode = ?ss.turn_mode,
+                remaining_players = remaining_count,
+                "Turn mode transitioned on player leave"
+            );
+            // Remove player from barrier roster and tear down if back to FreePlay
+            if let Some(ref barrier) = ss.turn_barrier {
+                if let Err(e) = barrier.remove_player(&player_id_str) {
+                    tracing::warn!(
+                        player_id = %player_id_str,
+                        error = %e,
+                        "Failed to remove player from barrier during disconnect cleanup"
+                    );
                 }
-                if !ss.turn_mode.should_use_barrier() {
-                    ss.turn_barrier = None;
-                }
+            }
+            if !ss.turn_mode.should_use_barrier() {
+                ss.turn_barrier = None;
+            }
         }
-        let remaining = state.remove_player_from_session(genre, world, &player_id_str).await;
+        let remaining = state
+            .remove_player_from_session(genre, world, &player_id_str)
+            .await;
         tracing::info!(
             player_id = %player_id_str,
             remaining_players = remaining,
@@ -1392,6 +1403,8 @@ async fn dispatch_message(
     player_id: &str,
     continuity_corrections: &mut String,
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
+    resource_state: &mut HashMap<String, f64>,
+    resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1427,6 +1440,8 @@ async fn dispatch_message(
                 genie_wishes,
                 combat_state,
                 chase_state,
+                resource_state,
+                resource_declarations,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1502,20 +1517,18 @@ async fn dispatch_message(
                     // Story 14-6: Update image throttle default based on player count
                     {
                         let mut throttle = state.image_throttle().lock().unwrap();
-                        let new_default = render_integration::ImagePacingThrottle::default_for_player_count(pc);
+                        let new_default =
+                            render_integration::ImagePacingThrottle::default_for_player_count(pc);
                         throttle.set_cooldown(new_default.cooldown_seconds());
                     }
 
                     // Initialize barrier if transitioning to structured mode
-                    if ss_guard.turn_mode.should_use_barrier()
-                        && ss_guard.turn_barrier.is_none()
-                    {
+                    if ss_guard.turn_mode.should_use_barrier() && ss_guard.turn_barrier.is_none() {
                         let mp_session =
                             sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                 ss_guard.players.keys().cloned(),
                             );
-                        let adaptive =
-                            sidequest_game::barrier::AdaptiveTimeout::default();
+                        let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
                         ss_guard.turn_barrier =
                             Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
                                 mp_session, adaptive,
@@ -1547,8 +1560,7 @@ async fn dispatch_message(
                         })
                         .collect();
                     if !members.is_empty() {
-                        let pids: Vec<String> =
-                            ss_guard.players.keys().cloned().collect();
+                        let pids: Vec<String> = ss_guard.players.keys().cloned().collect();
                         for target_pid in &pids {
                             let party_msg = GameMessage::PartyStatus {
                                 payload: PartyStatusPayload {
@@ -1556,8 +1568,7 @@ async fn dispatch_message(
                                 },
                                 player_id: target_pid.clone(),
                             };
-                            ss_guard
-                                .send_to_player(party_msg, target_pid.clone());
+                            ss_guard.send_to_player(party_msg, target_pid.clone());
                         }
                     }
 
@@ -1590,7 +1601,9 @@ async fn dispatch_message(
                         .collect();
                     let member_count = all_members.len();
                     responses.push(GameMessage::PartyStatus {
-                        payload: PartyStatusPayload { members: all_members },
+                        payload: PartyStatusPayload {
+                            members: all_members,
+                        },
                         player_id: player_id.to_string(),
                     });
                     tracing::info!(
@@ -1690,6 +1703,8 @@ async fn dispatch_message(
                 player_id,
                 continuity_corrections,
                 genie_wishes,
+                resource_state,
+                resource_declarations,
             )
             .await
         }
@@ -1743,6 +1758,8 @@ async fn dispatch_message(
                 player_name_for_save: player_name_store.as_deref().unwrap_or("Player"),
                 continuity_corrections,
                 genie_wishes,
+                resource_state,
+                resource_declarations,
             })
             .await
         }
@@ -1799,6 +1816,8 @@ async fn dispatch_connect(
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
     combat_state: &mut sidequest_game::combat::CombatState,
     chase_state: &mut Option<sidequest_game::ChaseState>,
+    resource_state: &mut HashMap<String, f64>,
+    resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1854,6 +1873,7 @@ async fn dispatch_connect(
                         *quest_log = saved.snapshot.quest_log.clone();
                         *combat_state = saved.snapshot.combat.clone();
                         *chase_state = saved.snapshot.chase.clone();
+                        *resource_state = saved.snapshot.resource_state.clone();
                         tracing::info!(
                             trope_count = trope_states.len(),
                             quest_count = quest_log.len(),
@@ -1895,7 +1915,12 @@ async fn dispatch_connect(
                                         .collect(),
                                     location: saved.snapshot.location.clone(),
                                     quests: saved.snapshot.quest_log.clone(),
-                                    turn_count: saved.snapshot.turn_manager.interaction().saturating_sub(1) as u32,
+                                    turn_count: saved
+                                        .snapshot
+                                        .turn_manager
+                                        .interaction()
+                                        .saturating_sub(1)
+                                        as u32,
                                 }),
                                 css: None,
                                 narrator_verbosity: None,
@@ -1924,13 +1949,19 @@ async fn dispatch_connect(
                                     backstory: character.backstory.as_str().to_string(),
                                     personality: character.core.personality.as_str().to_string(),
                                     pronouns: character.pronouns.clone(),
-                                    equipment: character.core.inventory.items.iter().map(|i| {
-                                        if i.equipped {
-                                            format!("{} [equipped]", i.name)
-                                        } else {
-                                            i.name.as_str().to_string()
-                                        }
-                                    }).collect(),
+                                    equipment: character
+                                        .core
+                                        .inventory
+                                        .items
+                                        .iter()
+                                        .map(|i| {
+                                            if i.equipped {
+                                                format!("{} [equipped]", i.name)
+                                            } else {
+                                                i.name.as_str().to_string()
+                                            }
+                                        })
+                                        .collect(),
                                     portrait_url: None,
                                     current_location: saved.snapshot.location.clone(),
                                 },
@@ -1980,7 +2011,10 @@ async fn dispatch_connect(
                                 .iter()
                                 .map(|c| PartyMember {
                                     player_id: player_id.to_string(),
-                                    name: player_name_store.as_deref().unwrap_or("Player").to_string(),
+                                    name: player_name_store
+                                        .as_deref()
+                                        .unwrap_or("Player")
+                                        .to_string(),
                                     character_name: c.core.name.as_str().to_string(),
                                     current_hp: c.core.hp,
                                     max_hp: c.core.max_hp,
@@ -2020,8 +2054,15 @@ async fn dispatch_connect(
                                 }
                                 for trope in &mut all_tropes {
                                     if trope.id.is_none() {
-                                        let slug = trope.name.as_str().to_lowercase().replace(' ', "-")
-                                            .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+                                        let slug = trope
+                                            .name
+                                            .as_str()
+                                            .to_lowercase()
+                                            .replace(' ', "-")
+                                            .replace(
+                                                |c: char| !c.is_alphanumeric() && c != '-',
+                                                "",
+                                            );
                                         trope.id = Some(slug);
                                     }
                                 }
@@ -2030,6 +2071,15 @@ async fn dispatch_connect(
                                 tracing::info!(count = trope_defs.len(), genre = %genre, "Loaded trope definitions for returning player");
 
                                 tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
+
+                                // Resource declarations (story 16-1)
+                                *resource_declarations = pack.rules.resources.clone();
+                                // Restore resource state from saved snapshot; initialize missing resources
+                                for decl in &pack.rules.resources {
+                                    resource_state
+                                        .entry(decl.name.clone())
+                                        .or_insert(decl.starting);
+                                }
 
                                 // Seed lore store from genre pack (story 11-4)
                                 let lore_count =
@@ -2133,10 +2183,26 @@ async fn dispatch_connect(
                 }
             }
 
+            // Initialize resource declarations for new players (story 16-1).
+            // For returning players, resource_state is already restored from snapshot above;
+            // this just ensures declarations are populated (and fills any new resources).
+            if resource_declarations.is_empty() {
+                if let Ok(genre_code) = GenreCode::new(genre) {
+                    let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
+                    if let Ok(pack) = loader.load(&genre_code) {
+                        *resource_declarations = pack.rules.resources.clone();
+                        for decl in &pack.rules.resources {
+                            resource_state
+                                .entry(decl.name.clone())
+                                .or_insert(decl.starting);
+                        }
+                    }
+                }
+            }
+
             // Generate theme CSS from theme.yaml + optional client_theme.css overrides
             if let Ok(genre_code) = GenreCode::new(genre) {
-                let loader =
-                    GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
+                let loader = GenreLoader::new(vec![state.genre_packs_path().to_path_buf()]);
                 if let Ok(pack) = loader.load(&genre_code) {
                     let mut css = pack.theme.generate_css();
 
@@ -2349,6 +2415,8 @@ async fn dispatch_character_creation(
     player_id: &str,
     continuity_corrections: &mut String,
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
+    resource_state: &mut HashMap<String, f64>,
+    resource_declarations: &mut Vec<sidequest_genre::ResourceDeclaration>,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2518,43 +2586,46 @@ async fn dispatch_character_creation(
                     };
 
                     // Auto-trigger an introductory narration so the game view isn't empty
-                    let intro_messages = dispatch::dispatch_player_action(&mut dispatch::DispatchContext {
-                        action: "I look around and take in my surroundings.",
-                        char_name: character.core.name.as_str(),
-                        hp: character_hp,
-                        max_hp: character_max_hp,
-                        level: character_level,
-                        xp: character_xp,
-                        current_location,
-                        inventory,
-                        character_json: character_json_store,
-                        combat_state,
-                        chase_state,
-                        trope_states,
-                        trope_defs,
-                        world_context,
-                        axes_config,
-                        axis_values,
-                        visual_style,
-                        npc_registry,
-                        quest_log,
-                        narration_history,
-                        discovered_regions,
-                        turn_manager,
-                        lore_store,
-                        shared_session_holder,
-                        music_director,
-                        audio_mixer,
-                        prerender_scheduler,
-                        state,
-                        player_id,
-                        genre_slug: &genre,
-                        world_slug: &world,
-                        player_name_for_save: &pname_for_save,
-                        continuity_corrections,
-                        genie_wishes,
-                    })
-                    .await;
+                    let intro_messages =
+                        dispatch::dispatch_player_action(&mut dispatch::DispatchContext {
+                            action: "I look around and take in my surroundings.",
+                            char_name: character.core.name.as_str(),
+                            hp: character_hp,
+                            max_hp: character_max_hp,
+                            level: character_level,
+                            xp: character_xp,
+                            current_location,
+                            inventory,
+                            character_json: character_json_store,
+                            combat_state,
+                            chase_state,
+                            trope_states,
+                            trope_defs,
+                            world_context,
+                            axes_config,
+                            axis_values,
+                            visual_style,
+                            npc_registry,
+                            quest_log,
+                            narration_history,
+                            discovered_regions,
+                            turn_manager,
+                            lore_store,
+                            shared_session_holder,
+                            music_director,
+                            audio_mixer,
+                            prerender_scheduler,
+                            state,
+                            player_id,
+                            genre_slug: &genre,
+                            world_slug: &world,
+                            player_name_for_save: &pname_for_save,
+                            continuity_corrections,
+                            genie_wishes,
+                            resource_state,
+                            resource_declarations,
+                        })
+                        .await;
 
                     // Emit CHARACTER_SHEET for the UI overlay
                     let char_sheet = GameMessage::CharacterSheet {
@@ -2572,13 +2643,19 @@ async fn dispatch_character_creation(
                             backstory: character.backstory.as_str().to_string(),
                             personality: character.core.personality.as_str().to_string(),
                             pronouns: character.pronouns.clone(),
-                            equipment: character.core.inventory.items.iter().map(|i| {
-                                if i.equipped {
-                                    format!("{} [equipped]", i.name)
-                                } else {
-                                    i.name.as_str().to_string()
-                                }
-                            }).collect(),
+                            equipment: character
+                                .core
+                                .inventory
+                                .items
+                                .iter()
+                                .map(|i| {
+                                    if i.equipped {
+                                        format!("{} [equipped]", i.name)
+                                    } else {
+                                        i.name.as_str().to_string()
+                                    }
+                                })
+                                .collect(),
                             portrait_url: None,
                             current_location: current_location.clone(),
                         },
@@ -2620,10 +2697,8 @@ async fn dispatch_character_creation(
                                 p.character_class = character.char_class.as_str().to_string();
                             }
                             // Notify existing players that a new character has arrived
-                            let arrival_text = format!(
-                                "{} has entered the scene.",
-                                character.core.name.as_str()
-                            );
+                            let arrival_text =
+                                format!("{} has entered the scene.", character.core.name.as_str());
                             let existing_pids: Vec<String> = ss
                                 .players
                                 .keys()
@@ -2662,7 +2737,11 @@ async fn dispatch_character_creation(
                                         PartyMember {
                                             player_id: pid.clone(),
                                             name: ps.player_name.clone(),
-                                            character_name: character.core.name.as_str().to_string(),
+                                            character_name: character
+                                                .core
+                                                .name
+                                                .as_str()
+                                                .to_string(),
                                             current_hp: character.core.hp,
                                             max_hp: character.core.max_hp,
                                             statuses: character.core.statuses.clone(),
@@ -2676,7 +2755,10 @@ async fn dispatch_character_creation(
                                         PartyMember {
                                             player_id: pid.clone(),
                                             name: ps.player_name.clone(),
-                                            character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
+                                            character_name: ps
+                                                .character_name
+                                                .clone()
+                                                .unwrap_or_else(|| ps.player_name.clone()),
                                             current_hp: ps.character_hp,
                                             max_hp: ps.character_max_hp,
                                             statuses: vec![],
@@ -2692,7 +2774,9 @@ async fn dispatch_character_creation(
                                 let player_ids: Vec<String> = ss.players.keys().cloned().collect();
                                 for target_pid in &player_ids {
                                     let party_msg = GameMessage::PartyStatus {
-                                        payload: PartyStatusPayload { members: members.clone() },
+                                        payload: PartyStatusPayload {
+                                            members: members.clone(),
+                                        },
                                         player_id: target_pid.clone(),
                                     };
                                     ss.send_to_player(party_msg, target_pid.clone());
@@ -2756,9 +2840,16 @@ async fn dispatch_character_creation(
                                         Character {
                                             core: CreatureCore {
                                                 name: NonBlankString::new(player_id).unwrap(),
-                                                description: NonBlankString::new("barrier placeholder").unwrap(),
+                                                description: NonBlankString::new(
+                                                    "barrier placeholder",
+                                                )
+                                                .unwrap(),
                                                 personality: NonBlankString::new("n/a").unwrap(),
-                                                level: 1, hp: 1, max_hp: 1, ac: 10, xp: 0,
+                                                level: 1,
+                                                hp: 1,
+                                                max_hp: 1,
+                                                ac: 10,
+                                                xp: 0,
                                                 statuses: vec![],
                                                 inventory: Inventory::default(),
                                             },
@@ -2775,7 +2866,9 @@ async fn dispatch_character_creation(
                                             is_friendly: true,
                                         }
                                     };
-                                    match barrier.add_player(player_id.to_string(), placeholder_char) {
+                                    match barrier
+                                        .add_player(player_id.to_string(), placeholder_char)
+                                    {
                                         Ok(count) => {
                                             tracing::info!(
                                                 player_id = %player_id,
@@ -2791,7 +2884,10 @@ async fn dispatch_character_creation(
                                             );
                                             // Send error to player so they know their actions won't count
                                             ss.send_to_player(
-                                                error_response(player_id, &format!("Failed to join turn barrier: {e}")),
+                                                error_response(
+                                                    player_id,
+                                                    &format!("Failed to join turn barrier: {e}"),
+                                                ),
                                                 player_id.to_string(),
                                             );
                                         }
@@ -2800,11 +2896,16 @@ async fn dispatch_character_creation(
                                     let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                         ss.players.keys().cloned(),
                                     );
-                                    let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
-                                    ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
-                                        mp_session, adaptive,
-                                    ));
-                                    tracing::info!(player_count = pc, "Initialized turn barrier for multiplayer");
+                                    let adaptive =
+                                        sidequest_game::barrier::AdaptiveTimeout::default();
+                                    ss.turn_barrier =
+                                        Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
+                                            mp_session, adaptive,
+                                        ));
+                                    tracing::info!(
+                                        player_count = pc,
+                                        "Initialized turn barrier for multiplayer"
+                                    );
                                 }
                             }
                         }

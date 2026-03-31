@@ -181,6 +181,7 @@ mod agent_types_tests {
             scene_mood: None,
             personality_events: vec![],
             scene_intent: None,
+            resource_deltas: HashMap::new(),
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -240,7 +241,10 @@ mod context_building_tests {
     #[test]
     fn narrator_has_system_prompt() {
         let agent = NarratorAgent::new();
-        assert!(!agent.system_prompt().is_empty(), "Narrator must have a system prompt");
+        assert!(
+            !agent.system_prompt().is_empty(),
+            "Narrator must have a system prompt"
+        );
     }
 
     #[test]
@@ -363,6 +367,7 @@ mod game_service_tests {
             scene_mood: None,
             personality_events: vec![],
             scene_intent: None,
+            resource_deltas: HashMap::new(),
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -408,6 +413,7 @@ mod error_handling_tests {
             scene_mood: None,
             personality_events: vec![],
             scene_intent: None,
+            resource_deltas: HashMap::new(),
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());
