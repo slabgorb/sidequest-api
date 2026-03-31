@@ -117,7 +117,7 @@ pub fn evaluate_accusation(
     let quality = evidence.quality();
     let is_correct = guilty_npc == accusation.accused_npc_name;
 
-    let narrative_prompt = build_narrative_prompt(is_correct, quality, &evidence);
+    let narrative_prompt = build_narrative_prompt(is_correct, quality);
 
     AccusationResult {
         quality,
@@ -245,7 +245,7 @@ fn gather_evidence(
 }
 
 /// Build a narrative prompt for the narrator to dramatize the accusation result.
-fn build_narrative_prompt(is_correct: bool, quality: EvidenceQuality, _evidence: &EvidenceSummary) -> String {
+fn build_narrative_prompt(is_correct: bool, quality: EvidenceQuality) -> String {
     match (is_correct, quality) {
         (true, EvidenceQuality::Airtight) => {
             "The accusation is CORRECT and the evidence is AIRTIGHT. \
