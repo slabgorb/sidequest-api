@@ -86,6 +86,7 @@ pub(crate) struct DispatchContext<'a> {
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,
+    pub achievement_tracker: &'a mut sidequest_game::achievement::AchievementTracker,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -539,7 +540,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         ))
         .await;
 
-    let fired_beats = {
+    let (fired_beats, _earned_achievements) = {
         let _tropes_guard = tracing::info_span!(
             "turn.system_tick.tropes",
             active_count = ctx.trope_states.len(),
@@ -1217,6 +1218,7 @@ async fn persist_game_state(
             }
             snapshot.discovered_regions = ctx.discovered_regions.clone();
             snapshot.active_tropes = ctx.trope_states.clone();
+            snapshot.achievement_tracker = ctx.achievement_tracker.clone();
             snapshot.quest_log = ctx.quest_log.clone();
             if let Some(ref cj) = ctx.character_json {
                 if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
