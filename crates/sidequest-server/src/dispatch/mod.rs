@@ -86,7 +86,8 @@ pub(crate) struct DispatchContext<'a> {
     pub aside: bool,
     /// Opening scenario directive — injected into Early zone on turn 0 only, then consumed.
     pub opening_directive: Option<String>,
-    pub sfx_ids: Vec<String>,
+    /// SFX library from genre pack: ID → list of file paths.
+    pub sfx_library: std::collections::HashMap<String, Vec<String>>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,
@@ -309,7 +310,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         pending_trope_context: trope_beat_directives,
         active_trope_summary,
         genre: Some(ctx.genre_slug.to_string()),
-        available_sfx: ctx.sfx_ids.clone(),
+        available_sfx: ctx.sfx_library.keys().cloned().collect(),
     };
     let result = ctx
         .state
@@ -356,6 +357,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field_opt("token_count_in", &result.token_count_in)
         .field_opt("token_count_out", &result.token_count_out)
         .field_opt("extraction_tier", &result.extraction_tier)
+        .field("sfx_trigger_count", result.sfx_triggers.len())
+        .field("has_new_npcs", result.npcs_present.iter().any(|n| n.is_new))
+        .field("items_gained_count", result.items_gained.len())
         .send(ctx.state);
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
@@ -1725,7 +1729,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         pending_trope_context: None,
         active_trope_summary: None,
         genre: Some(ctx.genre_slug.to_string()),
-        available_sfx: ctx.sfx_ids.clone(),
+        available_sfx: ctx.sfx_library.keys().cloned().collect(),
     };
     let result = ctx
         .state

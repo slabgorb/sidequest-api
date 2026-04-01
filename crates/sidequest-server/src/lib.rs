@@ -1665,12 +1665,12 @@ async fn dispatch_message(
                     genie_wishes,
                     resource_state,
                     resource_declarations,
-                    sfx_ids: {
+                    sfx_library: {
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
                             .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
-                            .map(|pack| pack.audio.sfx_library.keys().cloned().collect())
+                            .map(|pack| pack.audio.sfx_library.clone())
                             .unwrap_or_default()
                     },
                     aside,
