@@ -200,6 +200,7 @@ fn orchestrator_emits_prompt_build_sub_span() {
         narrator_vocabulary: NarratorVocabulary::Literary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: None,
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -234,6 +235,7 @@ fn orchestrator_emits_inference_sub_span() {
         narrator_vocabulary: NarratorVocabulary::Literary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: None,
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -268,6 +270,7 @@ fn orchestrator_emits_extraction_sub_span() {
         narrator_vocabulary: NarratorVocabulary::Literary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: None,
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -301,6 +304,7 @@ fn orchestrator_inference_span_records_diagnostic_field() {
         narrator_vocabulary: NarratorVocabulary::Literary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: None,
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -337,6 +341,7 @@ fn orchestrator_prompt_build_span_records_diagnostic_field() {
         narrator_vocabulary: NarratorVocabulary::Literary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: None,
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -375,6 +380,7 @@ fn orchestrator_extraction_span_records_diagnostic_field() {
         narrator_vocabulary: NarratorVocabulary::Literary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: None,
     };
 
     let (layer, captured) = SpanCaptureLayer::new();

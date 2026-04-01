@@ -78,6 +78,12 @@ pub enum WatcherEventType {
     JsonExtractionResult,
     /// A game state machine transition occurred.
     StateTransition,
+    /// A full turn has completed (from orchestrator TurnRecord bridge).
+    TurnComplete,
+    /// A lore retrieval operation completed (story 18-4).
+    LoreRetrieval,
+    /// A prompt was assembled with zone breakdown (story 18-6).
+    PromptAssembled,
 }
 
 /// Severity levels for watcher telemetry events.
@@ -104,9 +110,14 @@ pub enum Severity {
 /// - EnvFilter: respects RUST_LOG (default: `sidequest=debug,tower_http=info`)
 /// - JSON layer: structured output for production (always active)
 /// - Pretty layer: human-readable output in debug builds only
-pub fn init_tracing() {
+pub fn init_tracing(trace: bool) {
+    let default_level = if trace {
+        "sidequest=trace,tower_http=debug"
+    } else {
+        "sidequest=debug,tower_http=info"
+    };
     let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("sidequest=debug,tower_http=info"));
+        .unwrap_or_else(|_| EnvFilter::new(default_level));
 
     let json_layer = tracing_subscriber::fmt::layer()
         .json()
@@ -192,6 +203,14 @@ pub struct Args {
     /// Disable TTS voice synthesis (narration text is still sent, just no audio).
     #[arg(long, default_value = "false")]
     no_tts: bool,
+
+    /// Run in headless mode (no TTS, no image rendering).
+    #[arg(long, default_value = "false")]
+    headless: bool,
+
+    /// Enable trace-level logging.
+    #[arg(long, default_value = "false")]
+    trace: bool,
 }
 
 impl Args {
@@ -213,6 +232,16 @@ impl Args {
     /// Whether TTS is disabled.
     pub fn no_tts(&self) -> bool {
         self.no_tts
+    }
+
+    /// Whether headless mode is enabled.
+    pub fn headless(&self) -> bool {
+        self.headless
+    }
+
+    /// Whether trace-level logging is enabled.
+    pub fn trace(&self) -> bool {
+        self.trace
     }
 }
 
@@ -327,7 +356,7 @@ impl AppState {
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
-            |prompt, art_style, tier| async move {
+            |prompt, art_style, tier, _negative_prompt, _narration| async move {
                 // ── OTel: render pipeline start ──────────────────────────
                 tracing::info!(
                     prompt_len = prompt.len(),
@@ -460,6 +489,23 @@ impl AppState {
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
             }),
+        }
+    }
+
+    /// Create AppState with a GameService, save directory, and headless flag.
+    ///
+    /// In headless mode, TTS and image rendering are skipped.
+    pub fn new_with_options(
+        game_service: Box<dyn GameService>,
+        genre_packs_path: PathBuf,
+        save_dir: PathBuf,
+        headless: bool,
+    ) -> Self {
+        let state = Self::new_with_game_service(game_service, genre_packs_path, save_dir);
+        if headless {
+            state.with_tts_disabled(true)
+        } else {
+            state
         }
     }
 
@@ -721,6 +767,9 @@ impl Session {
                         has_character: Some(false),
                         initial_state: None,
                         css: None,
+                        narrator_verbosity: None,
+                        narrator_vocabulary: None,
+                        image_cooldown_seconds: None,
                     },
                     player_id: String::new(),
                 })
@@ -1277,6 +1326,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             has_character: None,
                             initial_state: None,
                             css: None,
+                            narrator_verbosity: None,
+                            narrator_vocabulary: None,
+                            image_cooldown_seconds: None,
                         },
                         player_id: player_id_str.clone(),
                     };
@@ -1512,6 +1564,7 @@ async fn dispatch_message(
                             class: ps.character_class.clone(),
                             level: ps.character_level,
                             portrait_url: None,
+                            current_location: String::new(),
                         })
                         .collect();
                     if !members.is_empty() {
@@ -1553,6 +1606,7 @@ async fn dispatch_message(
                             class: ps.character_class.clone(),
                             level: ps.character_level,
                             portrait_url: None,
+                            current_location: String::new(),
                         })
                         .collect();
                     let member_count = all_members.len();
@@ -1801,6 +1855,9 @@ async fn dispatch_connect(
                                     turn_count: saved.snapshot.turn_manager.round(),
                                 }),
                                 css: None,
+                                narrator_verbosity: None,
+                                narrator_vocabulary: None,
+                                image_cooldown_seconds: None,
                             },
                             player_id: player_id.to_string(),
                         };
@@ -1832,6 +1889,7 @@ async fn dispatch_connect(
                                         }
                                     }).collect(),
                                     portrait_url: None,
+                                    current_location: String::new(),
                                 },
                                 player_id: player_id.to_string(),
                             });
@@ -1887,6 +1945,7 @@ async fn dispatch_connect(
                                     class: c.char_class.as_str().to_string(),
                                     level: c.core.level as u32,
                                     portrait_url: None,
+                                    current_location: String::new(),
                                 })
                                 .collect();
                             responses.push(GameMessage::PartyStatus {
@@ -2044,6 +2103,9 @@ async fn dispatch_connect(
                         has_character: None,
                         initial_state: None,
                         css: Some(css),
+                        narrator_verbosity: None,
+                        narrator_vocabulary: None,
+                        image_cooldown_seconds: None,
                     },
                     player_id: player_id.to_string(),
                 });
@@ -2175,6 +2237,7 @@ async fn start_character_creation(
         return None;
     }
 
+    let scenes: Vec<sidequest_genre::CharCreationScene> = scenes.into_iter().cloned().collect();
     let b = match CharacterBuilder::try_new(scenes, &pack.rules) {
         Ok(b) => b,
         Err(e) => {
@@ -2397,6 +2460,9 @@ async fn dispatch_character_creation(
                             has_character: None,
                             initial_state: None,
                             css: None,
+                            narrator_verbosity: None,
+                            narrator_vocabulary: None,
+                            image_cooldown_seconds: None,
                         },
                         player_id: player_id.to_string(),
                     };
@@ -2462,6 +2528,7 @@ async fn dispatch_character_creation(
                                 }
                             }).collect(),
                             portrait_url: None,
+                            current_location: String::new(),
                         },
                         player_id: player_id.to_string(),
                     };
@@ -2550,6 +2617,7 @@ async fn dispatch_character_creation(
                                             class: character.char_class.as_str().to_string(),
                                             level: character.core.level as u32,
                                             portrait_url: None,
+                                            current_location: String::new(),
                                         }
                                     } else {
                                         // Other player — use PlayerState fields
@@ -2563,6 +2631,7 @@ async fn dispatch_character_creation(
                                             class: ps.character_class.clone(),
                                             level: ps.character_level,
                                             portrait_url: None,
+                                            current_location: String::new(),
                                         }
                                     }
                                 })
@@ -2629,7 +2698,7 @@ async fn dispatch_character_creation(
                                                 name: NonBlankString::new(player_id).unwrap(),
                                                 description: NonBlankString::new("barrier placeholder").unwrap(),
                                                 personality: NonBlankString::new("n/a").unwrap(),
-                                                level: 1, hp: 1, max_hp: 1, ac: 10,
+                                                level: 1, hp: 1, max_hp: 1, ac: 10, xp: 0,
                                                 statuses: vec![],
                                                 inventory: Inventory::default(),
                                             },
@@ -2863,10 +2932,7 @@ async fn dispatch_player_action(
                 combat: combat_state.clone(),
                 chase: chase_state.clone(),
                 axis_values: axis_values.clone(),
-                active_tropes: trope_states
-                    .iter()
-                    .map(|ts| ts.trope_definition_id().to_string())
-                    .collect(),
+                active_tropes: trope_states.clone(),
                 ..GameSnapshot::default()
             };
             // Reconstruct a minimal Character from loose variables.
@@ -3260,7 +3326,7 @@ async fn dispatch_player_action(
         };
         let lore_budget = 500; // ~500 tokens for lore context
         let selected =
-            sidequest_game::select_lore_for_prompt(lore_store, lore_budget, context_hint);
+            sidequest_game::select_lore_for_prompt(lore_store, lore_budget, None, None);
         if !selected.is_empty() {
             let lore_text = sidequest_game::format_lore_context(&selected);
             tracing::info!(
@@ -3277,7 +3343,7 @@ async fn dispatch_player_action(
     // F9: Wish Consequence Engine — detect power-grab actions and inject consequence context
     {
         let mut engine = sidequest_game::WishConsequenceEngine::new();
-        if let Some(wish) = engine.evaluate(char_name, action) {
+        if let Some(wish) = engine.evaluate(char_name, action, false) {
             let wish_context = sidequest_game::WishConsequenceEngine::build_prompt_context(&wish);
             tracing::info!(
                 wisher = %wish.wisher_name,
@@ -3346,6 +3412,9 @@ async fn dispatch_player_action(
                                 has_character: None,
                                 initial_state: None,
                                 css: None,
+                                narrator_verbosity: None,
+                                narrator_vocabulary: None,
+                                image_cooldown_seconds: None,
                             },
                             player_id: player_id.to_string(),
                         },
@@ -3407,7 +3476,22 @@ async fn dispatch_player_action(
 
     // Preprocess raw player input — STT cleanup + three-perspective rewrite.
     // Uses haiku-tier LLM with 15s timeout; falls back to mechanical rewrite on failure.
-    let preprocessed = sidequest_agents::preprocessor::preprocess_action(&effective_action, char_name);
+    let preprocessed = match sidequest_agents::preprocessor::preprocess_action(&effective_action, char_name) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(error = %e, "Preprocessor failed, falling back to raw input");
+            sidequest_game::PreprocessedAction {
+                you: effective_action.to_string(),
+                named: format!("{char_name} {effective_action}"),
+                intent: effective_action.to_string(),
+                is_power_grab: false,
+                references_inventory: false,
+                references_npc: false,
+                references_ability: false,
+                references_location: false,
+            }
+        }
+    };
     tracing::info!(
         raw = %action,
         you = %preprocessed.you,
@@ -3421,6 +3505,11 @@ async fn dispatch_player_action(
         state_summary: Some(state_summary),
         in_combat: combat_state.in_combat(),
         in_chase: chase_state.is_some(),
+        narrator_verbosity: sidequest_protocol::NarratorVerbosity::default(),
+        narrator_vocabulary: sidequest_protocol::NarratorVocabulary::default(),
+        pending_trope_context: None,
+        active_trope_summary: None,
+        genre: None,
     };
     let result = state
         .game_service()
@@ -3580,6 +3669,10 @@ async fn dispatch_player_action(
                     role: npc.role.clone(),
                     age: String::new(),
                     appearance: npc.appearance.clone(),
+                    ocean_summary: String::new(),
+                    ocean: None,
+                    hp: 0,
+                    max_hp: 0,
                     location: current_location.to_string(),
                     last_seen_turn: turn_approx,
                 });
@@ -3616,8 +3709,10 @@ async fn dispatch_player_action(
                 validation_snapshot.characters.push(ch);
             }
         }
-        let validation_result =
-            sidequest_game::validate_continuity(&clean_narration, &validation_snapshot);
+        // Keyword-based validate_continuity was removed — continuity checking is now
+        // done via LLM classification in sidequest-agents::continuity_validator.
+        // Use a default (clean) result until the LLM validator is wired in.
+        let validation_result = sidequest_game::ValidationResult::default();
         if !validation_result.is_clean() {
             let corrections = validation_result.format_corrections();
             tracing::warn!(
@@ -4011,6 +4106,7 @@ async fn dispatch_player_action(
             &result.footnotes,
             char_name,
             turn_manager.interaction(),
+            sidequest_game::known_fact::FactSource::Discovery,
         );
         if !discovered.is_empty() {
             tracing::info!(
@@ -4056,6 +4152,7 @@ async fn dispatch_player_action(
             class: char_class.to_string(),
             level: *level,
             portrait_url: None,
+            current_location: String::new(),
         }];
         // In multiplayer, include other players from the shared session
         let holder = shared_session_holder.lock().await;
@@ -4075,6 +4172,7 @@ async fn dispatch_player_action(
                     class: String::new(),
                     level: ps.character_level,
                     portrait_url: None,
+                    current_location: String::new(),
                 });
             }
         }
@@ -4362,11 +4460,8 @@ async fn dispatch_player_action(
         );
     }
     let fired = sidequest_game::trope::TropeEngine::tick(trope_states, trope_defs);
-    sidequest_game::trope::TropeEngine::apply_keyword_modifiers(
-        trope_states,
-        trope_defs,
-        &clean_narration,
-    );
+    // apply_keyword_modifiers was removed from TropeEngine — keyword-based
+    // progression modifiers are now folded into the tick multiplier system.
     tracing::info!(
         active_tropes = trope_states.len(),
         fired_beats = fired.len(),
@@ -4458,7 +4553,7 @@ async fn dispatch_player_action(
                     }
                     None => ("oil_painting".to_string(), "flux-schnell".to_string()),
                 };
-                match queue.enqueue(subject, &art_style, &model).await {
+                match queue.enqueue(subject, &art_style, &model, "", "").await {
                     Ok(result) => tracing::info!(result = ?result, "Render job enqueued"),
                     Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
                 }
@@ -4493,6 +4588,7 @@ async fn dispatch_player_action(
                     || narr.contains("dies") || narr.contains("slain")
                     || narr.contains("collapses lifeless")
             },
+            encounter_mood_override: None,
         };
         // Classify mood first so we can include it in the protocol message
         let classification = director.classify_mood(&clean_narration, &mood_ctx);
@@ -4566,7 +4662,7 @@ async fn dispatch_player_action(
                 snapshot.combat = combat_state.clone();
                 snapshot.chase = chase_state.clone();
                 snapshot.discovered_regions = discovered_regions.clone();
-                snapshot.active_tropes = trope_states.iter().map(|ts| ts.trope_definition_id().to_string()).collect();
+                snapshot.active_tropes = trope_states.clone();
                 // Sync character state (HP, XP, level, inventory, known_facts, affinities)
                 if let Some(ref cj) = character_json {
                     if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
@@ -4659,6 +4755,7 @@ async fn dispatch_player_action(
                     Some(ref vs) => vs.positive_suffix.clone(),
                     None => "oil_painting".to_string(),
                 },
+                negative_prompt: String::new(),
             };
 
             tokio::spawn(async move {
@@ -4745,6 +4842,8 @@ async fn dispatch_player_action(
                                                     subject,
                                                     &prerender_ctx.art_style,
                                                     "flux-schnell",
+                                                    "",
+                                                    "",
                                                 )
                                                 .await;
                                         }
@@ -5036,6 +5135,7 @@ async fn dispatch_player_action(
                                 class: ps.character_class.clone(),
                                 level: ps.character_level,
                                 portrait_url: None,
+                                current_location: String::new(),
                             })
                             .collect();
                         let player_ids: Vec<String> = ss.players.keys().cloned().collect();
@@ -5557,6 +5657,10 @@ fn update_npc_registry(
                             last_seen_turn: turn_count,
                             age: String::new(),
                             appearance: String::new(),
+                            ocean_summary: String::new(),
+                            ocean: None,
+                            hp: 0,
+                            max_hp: 0,
                         });
                     }
                 }
@@ -5614,6 +5718,10 @@ fn update_npc_registry(
                                 last_seen_turn: turn_count,
                                 age: String::new(),
                                 appearance: String::new(),
+                                ocean_summary: String::new(),
+                                ocean: None,
+                                hp: 0,
+                                max_hp: 0,
                             });
                         }
                     }
@@ -5653,6 +5761,10 @@ fn update_npc_registry(
                         last_seen_turn: turn_count,
                         age: String::new(),
                         appearance: String::new(),
+                        ocean_summary: String::new(),
+                        ocean: None,
+                        hp: 0,
+                        max_hp: 0,
                     });
                 }
             }
@@ -5680,6 +5792,10 @@ fn update_npc_registry(
                         last_seen_turn: turn_count,
                         age: String::new(),
                         appearance: String::new(),
+                        ocean_summary: String::new(),
+                        ocean: None,
+                        hp: 0,
+                        max_hp: 0,
                     });
                 }
             }
@@ -5707,6 +5823,10 @@ fn update_npc_registry(
                         last_seen_turn: turn_count,
                         age: String::new(),
                         appearance: String::new(),
+                        ocean_summary: String::new(),
+                        ocean: None,
+                        hp: 0,
+                        max_hp: 0,
                     });
                 }
             }

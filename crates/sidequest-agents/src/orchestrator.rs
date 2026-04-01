@@ -72,6 +72,19 @@ pub struct ActionResult {
     pub lore_established: Option<Vec<String>>,
 }
 
+/// Configuration for a script tool binary (ADR-056).
+///
+/// Each tool is a Rust binary that generates game objects from genre pack data.
+/// The narrator subprocess gets `--allowedTools Bash(...)` to invoke these tools
+/// autonomously during narration.
+#[derive(Debug, Clone)]
+pub struct ScriptToolConfig {
+    /// Absolute path to the tool binary.
+    pub binary_path: String,
+    /// Absolute path to the `genre_packs/` directory.
+    pub genre_packs_path: String,
+}
+
 /// Facade trait for the game engine. Server depends on this, never on internals.
 ///
 /// ADR-005: Graceful degradation — timeout produces a degraded ActionResult, not an error.
@@ -108,6 +121,8 @@ pub struct Orchestrator {
     troper: TroperAgent,
     /// SOUL.md principles — injected into every prompt in the Early zone.
     soul_text: Option<String>,
+    /// Script tool configurations (ADR-056). Keyed by tool name.
+    script_tools: HashMap<String, ScriptToolConfig>,
 }
 
 impl Orchestrator {
@@ -143,7 +158,29 @@ impl Orchestrator {
             drama_thresholds: DramaThresholds::default(),
             troper: TroperAgent::new(),
             soul_text,
+            script_tools: HashMap::new(),
         }
+    }
+
+    /// Register a script tool binary (ADR-056).
+    pub fn register_script_tool(&mut self, name: &str, config: ScriptToolConfig) {
+        info!(
+            tool = %name,
+            binary = %config.binary_path,
+            "Script tool registered"
+        );
+        self.script_tools.insert(name.to_string(), config);
+    }
+
+    /// Build the `--allowedTools` spec for the narrator subprocess.
+    ///
+    /// Returns tool spec strings that let the narrator invoke registered script tools
+    /// via `Bash(...)`. Empty if no tools are configured.
+    fn narrator_allowed_tools(&self) -> Vec<String> {
+        self.script_tools
+            .values()
+            .map(|cfg| format!("Bash({}:*)", cfg.binary_path))
+            .collect()
     }
 
     /// Access the tension tracker (pacing engine).
@@ -229,6 +266,82 @@ impl GameService for Orchestrator {
                     AttentionZone::Early,
                     SectionCategory::State,
                 ));
+            }
+
+            // Script tool instructions (Valley zone — available tools + commands)
+            // Skill-style: clear command reference + checklist for using the result.
+            if let Some(ref genre) = context.genre {
+                for (tool_name, cfg) in &self.script_tools {
+                    let tool_section = match tool_name.as_str() {
+                        "encountergen" => format!(
+                            "[ENCOUNTER GENERATOR]\n\
+                             Generate enemy stat blocks from genre pack data.\n\n\
+                             Command:\n\
+                             ```\n\
+                             {} --genre-packs-path {} --genre {} [options]\n\
+                             ```\n\n\
+                             | Flag | Required | Description |\n\
+                             |------|----------|-------------|\n\
+                             | --tier | No | Power tier 1-4 (default: random 1-3) |\n\
+                             | --count | No | Number of enemies (default: 1) |\n\
+                             | --class | No | Character class (e.g., Mutant, Scavenger) |\n\
+                             | --culture | No | Culture for name generation |\n\
+                             | --archetype | No | Archetype (e.g., \"Wasteland Trader\") |\n\
+                             | --role | No | Role description (e.g., \"ambush predator\") |\n\
+                             | --context | No | Scene context for visual prompt |\n\n\
+                             When to call: any time new enemies enter the scene.\n\
+                             Pick flags based on narrative context — use --culture for the local faction, \
+                             --tier for the threat level, --role for the enemy's purpose in the scene.\n\n\
+                             Output: JSON with enemies[].{{name, class, level, hp, abilities, weaknesses, \
+                             stat_scores, visual_prompt, ...}}\n\n\
+                             Checklist after calling:\n\
+                             - [ ] Use the generated name in your narration\n\
+                             - [ ] Reference abilities from the abilities list (not invented ones)\n\
+                             - [ ] Include the enemy in npcs_present with is_new: true\n\
+                             - [ ] Set hp_changes in combat patch using the generated HP as the baseline\n\
+                             - [ ] The visual_prompt field goes to image generation automatically",
+                            cfg.binary_path, cfg.genre_packs_path, genre,
+                        ),
+                        "namegen" => format!(
+                            "[NPC GENERATOR]\n\
+                             Generate NPC identity from genre pack data.\n\n\
+                             Command:\n\
+                             ```\n\
+                             {} --genre-packs-path {} --genre {} [options]\n\
+                             ```\n\n\
+                             | Flag | Required | Description |\n\
+                             |------|----------|-------------|\n\
+                             | --culture | No | Culture/faction name |\n\
+                             | --archetype | No | Archetype name |\n\
+                             | --gender | No | male, female, nonbinary |\n\
+                             | --role | No | Role override |\n\
+                             | --description | No | Physical description hints |\n\n\
+                             When to call: any time a new NPC appears (is_new: true).\n\
+                             Pick --culture based on where the scene takes place.\n\n\
+                             Output: JSON with {{name, pronouns, culture, role, appearance, personality, \
+                             dialogue_quirks, history, ocean, inventory, trope_connections}}\n\n\
+                             Checklist after calling:\n\
+                             - [ ] Use the generated name exactly\n\
+                             - [ ] Use dialogue_quirks to flavor their speech\n\
+                             - [ ] Include in npcs_present with the generated details\n\
+                             - [ ] Reference their role and appearance in narration",
+                            cfg.binary_path, cfg.genre_packs_path, genre,
+                        ),
+                        unknown => {
+                            warn!(
+                                tool = %unknown,
+                                "Script tool registered but has no prompt section — narrator will not know how to use it"
+                            );
+                            continue;
+                        }
+                    };
+                    builder.add_section(PromptSection::new(
+                        &format!("script_tool_{}", tool_name),
+                        tool_section,
+                        AttentionZone::Valley,
+                        SectionCategory::State,
+                    ));
+                }
             }
 
             // Game state section (Valley zone — lower attention, grounding context)
@@ -370,15 +483,22 @@ impl GameService for Orchestrator {
         // Mechanical consistency enforced by state systems (LoreStore, NPC registry, tropes),
         // not by LLM memory. Structured extraction failures are soft (dropped field, not crash).
         let narrator_model = "sonnet";
+        let allowed_tools = self.narrator_allowed_tools();
+        let has_tools = !allowed_tools.is_empty();
         let inference_span = tracing::info_span!(
             "turn.agent_llm.inference",
             model = narrator_model,
             prompt_len = prompt.len(),
+            tool_use = has_tools,
         );
         let call_start = std::time::Instant::now();
         let send_result = {
             let _inf_guard = inference_span.enter();
-            self.client.send_with_model(&prompt, narrator_model)
+            if has_tools {
+                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools)
+            } else {
+                self.client.send_with_model(&prompt, narrator_model)
+            }
         };
         match send_result {
             Ok(response) => {
@@ -771,6 +891,9 @@ pub struct TurnContext {
     pub pending_trope_context: Option<String>,
     /// Active trope summary for background context (all agents, Valley zone).
     pub active_trope_summary: Option<String>,
+    /// Genre slug for the current session (e.g., "mutant_wasteland").
+    /// Required for script tool prompt injection — tools need the genre to call the binary.
+    pub genre: Option<String>,
 }
 
 /// Result of processing a player action through the full turn loop.

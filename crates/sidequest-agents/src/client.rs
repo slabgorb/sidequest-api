@@ -110,18 +110,34 @@ impl ClaudeClient {
         prompt: &str,
         model: &str,
     ) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, Some(model))
+        self.send_impl(prompt, Some(model), &[])
     }
 
-    /// Core subprocess execution — used by both `send` and `send_with_model`.
+    /// Execute a subprocess call with tool access.
+    ///
+    /// Passes `--allowedTools <tools>` so the Claude CLI can execute tools
+    /// autonomously during the session. The CLI handles tool execution internally
+    /// and returns the final text result.
+    pub fn send_with_tools(
+        &self,
+        prompt: &str,
+        model: &str,
+        allowed_tools: &[String],
+    ) -> Result<ClaudeResponse, ClaudeClientError> {
+        self.send_impl(prompt, Some(model), allowed_tools)
+    }
+
+    /// Core subprocess execution — used by all send methods.
     ///
     /// Calls `claude -p` with `--output-format json` to capture token usage
-    /// and cost alongside the text response. Token counts are recorded on the
-    /// tracing span for OTEL consumption.
+    /// and cost alongside the text response. When `allowed_tools` is non-empty,
+    /// passes `--allowedTools` so the CLI can execute tools autonomously.
+    /// Token counts are recorded on the tracing span for OTEL consumption.
     fn send_impl(
         &self,
         prompt: &str,
         model: Option<&str>,
+        allowed_tools: &[String],
     ) -> Result<ClaudeResponse, ClaudeClientError> {
         use std::io::Read;
         use std::process::{Command, Stdio};
@@ -147,6 +163,12 @@ impl ClaudeClient {
         let mut cmd = Command::new(&self.command_path);
         if let Some(m) = model {
             cmd.arg("--model").arg(m);
+        }
+        if !allowed_tools.is_empty() {
+            cmd.arg("--allowedTools");
+            for tool in allowed_tools {
+                cmd.arg(tool);
+            }
         }
         cmd.arg("-p")
             .arg(prompt)
@@ -257,7 +279,7 @@ impl ClaudeClient {
 
     /// Execute a synchronous subprocess call with the configured command and timeout.
     pub fn send(&self, prompt: &str) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, None)
+        self.send_impl(prompt, None, &[])
     }
 }
 
