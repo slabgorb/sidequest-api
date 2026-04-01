@@ -1434,6 +1434,7 @@ async fn dispatch_message(
                 character_level,
                 character_xp,
                 current_location,
+                inventory,
                 discovered_regions,
                 trope_defs,
                 trope_states,
@@ -1834,6 +1835,7 @@ async fn dispatch_connect(
     character_level: &mut u32,
     character_xp: &mut u32,
     current_location: &mut String,
+    inventory: &mut sidequest_game::Inventory,
     discovered_regions: &mut Vec<String>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
@@ -1894,24 +1896,29 @@ async fn dispatch_connect(
                         }
                         responses.push(connected_msg);
 
-                        // Extract character data from saved snapshot
-                        if let Some(character) = saved.snapshot.characters.first() {
-                            match serde_json::to_value(character) {
-                                Ok(json) => {
-                                    *character_json_store = Some(json);
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        error = %e,
-                                        "Failed to serialize character from saved snapshot — skipping character_json sync"
-                                    );
-                                }
-                            }
-                            *character_name_store = Some(character.core.name.as_str().to_string());
-                            *character_hp = character.core.hp;
-                            *character_max_hp = character.core.max_hp;
-                            *character_level = character.core.level;
-                            *character_xp = character.core.xp;
+                        // Extract full character state from saved snapshot (story 18-9)
+                        if let Some(restored) = sidequest_game::session_restore::extract_character_state(&saved.snapshot) {
+                            *character_name_store = Some(restored.character_name.clone());
+                            *character_hp = restored.hp;
+                            *character_max_hp = restored.max_hp;
+                            *character_level = restored.level;
+                            *character_xp = restored.xp;
+                            *inventory = restored.inventory;
+                            *character_json_store = restored.character_json;
+                            // AC-5: OTEL span for session restore
+                            tracing::info!(
+                                character_name = %restored.character_name,
+                                level = restored.level,
+                                xp = restored.xp,
+                                inventory_count = inventory.items.len(),
+                                facts_count = restored.known_facts.len(),
+                                gold = inventory.gold,
+                                "session_restore.character_state — full character state restored from snapshot"
+                            );
+                        } else {
+                            tracing::warn!(
+                                "session_restore.no_character — snapshot has no characters, cannot restore character state"
+                            );
                         }
                         // Restore location, regions, turn state, and NPC registry from snapshot
                         *current_location = saved.snapshot.location.clone();

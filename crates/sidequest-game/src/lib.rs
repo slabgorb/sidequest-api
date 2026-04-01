@@ -56,6 +56,7 @@ pub mod render_queue;
 pub mod scenario_state;
 pub mod scene_relevance;
 pub mod scene_directive;
+pub mod session_restore;
 pub mod segmenter;
 pub mod slash_router;
 pub mod state;
