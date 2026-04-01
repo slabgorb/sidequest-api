@@ -814,10 +814,25 @@ fn update_npc_registry(
                     appearance: npc.appearance.clone(),
                     location: ctx.current_location.to_string(),
                     last_seen_turn: turn_approx,
-                    ocean_summary,
+                    ocean_summary: ocean_summary.clone(),
                     ocean: Some(ocean_profile),
                     hp: 0,
                     max_hp: 0,
+                });
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "npc_registry".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("action".to_string(), serde_json::json!("npc_registered"));
+                        f.insert("name".to_string(), serde_json::json!(npc.name));
+                        f.insert("role".to_string(), serde_json::json!(npc.role));
+                        f.insert("ocean".to_string(), serde_json::json!(ocean_summary));
+                        f.insert("registry_size".to_string(), serde_json::json!(ctx.npc_registry.len()));
+                        f
+                    },
                 });
             }
         }
@@ -1263,6 +1278,25 @@ fn spawn_tts_pipeline(
             pause_after_ms: if seg.is_last { 0 } else { 200 },
         })
         .collect();
+
+    ctx.state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "tts".to_string(),
+        event_type: WatcherEventType::AgentSpanOpen,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("segment_count".to_string(), serde_json::json!(tts_segments.len()));
+            f.insert("total_chars".to_string(), serde_json::json!(
+                tts_segments.iter().map(|s| s.text.len()).sum::<usize>()
+            ));
+            if let Some(first) = tts_segments.first() {
+                let preview: String = first.text.chars().take(80).collect();
+                f.insert("first_segment".to_string(), serde_json::json!(preview));
+            }
+            f
+        },
+    });
 
     let player_id_for_tts = ctx.player_id.to_string();
     let state_for_tts = ctx.state.clone();

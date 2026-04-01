@@ -196,6 +196,19 @@ pub(crate) async fn process_combat_and_chase(
         if let Some(ref mut cs) = ctx.chase_state {
             // Update active chase
             if chase_end_keywords.iter().any(|kw| narr_lower.contains(kw)) {
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "chase".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("action".to_string(), serde_json::json!("chase_resolved"));
+                        f.insert("rounds".to_string(), serde_json::json!(cs.round()));
+                        f.insert("final_separation".to_string(), serde_json::json!(cs.separation()));
+                        f
+                    },
+                });
                 tracing::info!(rounds = cs.round(), "Chase resolved");
                 *ctx.chase_state = None;
             } else {
@@ -215,6 +228,20 @@ pub(crate) async fn process_combat_and_chase(
                     gain,
                     "chase.tick — round advanced"
                 );
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "chase".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("action".to_string(), serde_json::json!("chase_tick"));
+                        f.insert("round".to_string(), serde_json::json!(cs.round()));
+                        f.insert("separation".to_string(), serde_json::json!(cs.separation()));
+                        f.insert("gain".to_string(), serde_json::json!(gain));
+                        f
+                    },
+                });
             }
         } else if chase_start_keywords
             .iter()
@@ -223,6 +250,18 @@ pub(crate) async fn process_combat_and_chase(
             let cs = sidequest_game::ChaseState::new(sidequest_game::ChaseType::Footrace, 0.5);
             tracing::info!("Chase started — detected chase keyword in narration");
             *ctx.chase_state = Some(cs);
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "chase".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("action".to_string(), serde_json::json!("chase_started"));
+                    f.insert("chase_type".to_string(), serde_json::json!("Footrace"));
+                    f
+                },
+            });
         }
     }
 }
