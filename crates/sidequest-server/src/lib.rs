@@ -1217,6 +1217,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut pending_trope_context: Option<String> = None;
     // Achievement tracker — persisted across turns, tracks earned narrative milestones (story 15-13).
     let mut achievement_tracker = sidequest_game::achievement::AchievementTracker::default();
+    // Canonical game snapshot — carried through the dispatch pipeline (story 15-8).
+    let mut snapshot = sidequest_game::state::GameSnapshot::default();
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<
@@ -1269,6 +1271,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut narrator_vocabulary,
                         &mut pending_trope_context,
                         &mut achievement_tracker,
+                        &mut snapshot,
                     )
                     .await;
                     for resp in responses {
@@ -1427,6 +1430,7 @@ async fn dispatch_message(
     narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
+    snapshot: &mut sidequest_game::state::GameSnapshot,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1469,6 +1473,7 @@ async fn dispatch_message(
                 narrator_vocabulary,
                 pending_trope_context,
                 achievement_tracker,
+                snapshot,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1752,6 +1757,7 @@ async fn dispatch_message(
                 narrator_vocabulary,
                 pending_trope_context,
                 achievement_tracker,
+                snapshot,
             )
             .await
         }
@@ -1812,6 +1818,7 @@ async fn dispatch_message(
                 narrator_vocabulary: *narrator_vocabulary,
                 pending_trope_context,
                 achievement_tracker,
+                snapshot,
             })
             .await
         }
@@ -1875,6 +1882,7 @@ async fn dispatch_connect(
     narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
+    snapshot: &mut sidequest_game::state::GameSnapshot,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1945,6 +1953,8 @@ async fn dispatch_connect(
                         *chase_state = saved.snapshot.chase.clone();
                         *resource_state = saved.snapshot.resource_state.clone();
                         *achievement_tracker = saved.snapshot.achievement_tracker.clone();
+                        // Story 15-8: Store the canonical snapshot for the dispatch pipeline
+                        *snapshot = saved.snapshot.clone();
                         let has_encounter = saved.snapshot.encounter.is_some();
                         tracing::info!(
                             trope_count = trope_states.len(),
@@ -2528,6 +2538,7 @@ async fn dispatch_character_creation(
     narrator_vocabulary: &sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
+    snapshot: &mut sidequest_game::state::GameSnapshot,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2643,7 +2654,8 @@ async fn dispatch_character_creation(
                     let world = session.world_slug().unwrap_or("").to_string();
                     let pname_for_save =
                         player_name_store.as_deref().unwrap_or("Player").to_string();
-                    let snapshot = sidequest_game::GameSnapshot {
+                    // Story 15-8: Populate the canonical snapshot for the dispatch pipeline
+                    *snapshot = sidequest_game::GameSnapshot {
                         genre_slug: genre.clone(),
                         world_slug: world.clone(),
                         characters: vec![character.clone()],
@@ -2652,7 +2664,7 @@ async fn dispatch_character_creation(
                     };
                     if let Err(e) = state
                         .persistence()
-                        .save(&genre, &world, &pname_for_save, &snapshot)
+                        .save(&genre, &world, &pname_for_save, &*snapshot)
                         .await
                     {
                         tracing::warn!(error = %e, genre = %genre, world = %world, player = %pname_for_save, "Failed to persist initial session");
@@ -2766,6 +2778,7 @@ async fn dispatch_character_creation(
                             narrator_vocabulary: *narrator_vocabulary,
                             pending_trope_context,
                             achievement_tracker,
+                            snapshot,
                         })
                         .await;
 
