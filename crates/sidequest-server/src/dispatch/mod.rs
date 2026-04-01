@@ -624,6 +624,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         "turn.system_tick",
         combat_changed = tracing::field::Empty,
         tropes_fired = tracing::field::Empty,
+        achievements_earned = tracing::field::Empty,
     );
     let _system_tick_guard = system_tick_span.enter();
 
@@ -635,7 +636,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         ))
         .await;
 
-    let (fired_beats, _earned_achievements) = {
+    let (fired_beats, earned_achievements) = {
         let _tropes_guard = tracing::info_span!(
             "turn.system_tick.tropes",
             active_count = ctx.trope_states.len(),
@@ -643,6 +644,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         tropes::process_tropes(ctx, &clean_narration, &mut messages)
     };
     system_tick_span.record("tropes_fired", fired_beats.len() as u64);
+    system_tick_span.record("achievements_earned", earned_achievements.len() as u64);
 
     // Format beat context for NEXT turn's narrator prompt injection.
     // Beats fire after narration, so they inform the next turn — same as Python's

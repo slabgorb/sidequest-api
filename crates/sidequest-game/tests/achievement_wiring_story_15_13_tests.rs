@@ -332,6 +332,119 @@ fn resolve_and_check_achievements_fires_subverted() {
 }
 
 // ============================================================================
+// AC-1 (activate path): check_transition called when trope is activated
+// ============================================================================
+
+/// When a new trope is activated (Dormant → Active), the "activated"
+/// trigger achievement should fire.
+#[test]
+fn activate_and_check_achievements_fires_activated() {
+    let mut tropes: Vec<TropeState> = vec![];
+    let mut tracker = AchievementTracker::new(sample_achievements());
+
+    TropeEngine::activate_and_check_achievements(&mut tropes, "betrayal", &mut tracker);
+
+    assert_eq!(tropes.len(), 1);
+    assert_eq!(tropes[0].status(), TropeStatus::Active);
+    assert!(
+        tracker.earned.contains("ach-activated"),
+        "Activating a new trope should earn the 'activated' achievement"
+    );
+}
+
+/// Idempotent activation — re-activating an already-active trope should
+/// NOT re-earn the "activated" achievement.
+#[test]
+fn activate_and_check_achievements_idempotent() {
+    let mut tropes: Vec<TropeState> = vec![];
+    let mut tracker = AchievementTracker::new(sample_achievements());
+
+    TropeEngine::activate_and_check_achievements(&mut tropes, "betrayal", &mut tracker);
+    assert!(tracker.earned.contains("ach-activated"));
+
+    // Second activation — trope already exists, should not re-earn
+    let earned_before = tracker.earned.len();
+    TropeEngine::activate_and_check_achievements(&mut tropes, "betrayal", &mut tracker);
+    assert_eq!(tracker.earned.len(), earned_before);
+}
+
+// ============================================================================
+// AC-1 (cross-session path): check_transition called on between-session advance
+// ============================================================================
+
+/// Cross-session advancement that causes Active → Progressing should
+/// fire the "progressing" achievement.
+#[test]
+fn advance_between_sessions_and_check_achievements_fires() {
+    let mut tropes = vec![TropeState::new("betrayal")];
+    let mut tracker = AchievementTracker::new(sample_achievements());
+
+    // Use a def with rate_per_day > 0 so cross-session advancement actually works
+    let defs = vec![TropeDefinition {
+        passive_progression: Some(PassiveProgression {
+            rate_per_turn: 0.15,
+            rate_per_day: 0.1,
+            accelerators: vec![],
+            decelerators: vec![],
+            accelerator_bonus: 0.0,
+            decelerator_penalty: 0.0,
+        }),
+        ..betrayal_trope_def()
+    }];
+    // 10 days at 0.1/day = 1.0, transitions Active → Progressing
+    let (_fired, earned) =
+        TropeEngine::advance_between_sessions_and_check_achievements(
+            &mut tropes,
+            &defs,
+            10.0,
+            &mut tracker,
+        );
+
+    assert_eq!(tropes[0].status(), TropeStatus::Progressing);
+    assert!(
+        !earned.is_empty(),
+        "Cross-session advancement should fire achievements on transition"
+    );
+    assert_eq!(earned[0].id, "ach-progressing");
+}
+
+/// Cross-session advancement with no transition should not fire achievements.
+#[test]
+fn advance_between_sessions_and_check_achievements_no_transition() {
+    let mut trope = TropeState::new("betrayal");
+    trope.set_status(TropeStatus::Progressing);
+    trope.set_progression(0.5);
+    let mut tropes = vec![trope];
+    let defs = vec![TropeDefinition {
+        passive_progression: Some(PassiveProgression {
+            rate_per_turn: 0.15,
+            rate_per_day: 0.01,
+            accelerators: vec![],
+            decelerators: vec![],
+            accelerator_bonus: 0.0,
+            decelerator_penalty: 0.0,
+        }),
+        ..betrayal_trope_def()
+    }];
+    let mut tracker = AchievementTracker::new(sample_achievements());
+
+    // Small advancement (0.1 days * 0.01/day = 0.001), stays Progressing
+    let (_fired, earned) =
+        TropeEngine::advance_between_sessions_and_check_achievements(
+            &mut tropes,
+            &defs,
+            0.1,
+            &mut tracker,
+        );
+
+    assert_eq!(tropes[0].status(), TropeStatus::Progressing);
+    assert!(
+        earned.is_empty(),
+        "No status transition should mean no achievements"
+    );
+}
+
+// ============================================================================
 // Wiring verification: achievement_tracker must be accessible from dispatch
 // ============================================================================
 

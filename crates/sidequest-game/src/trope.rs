@@ -368,6 +368,57 @@ impl TropeEngine {
         Vec::new()
     }
 
+    /// Activate a trope and check for newly earned achievements.
+    ///
+    /// Captures whether the trope existed before activation. If activation
+    /// creates a new trope (Dormant → Active transition), checks for
+    /// "activated" trigger achievements.
+    pub fn activate_and_check_achievements<'a>(
+        tropes: &'a mut Vec<TropeState>,
+        def_id: &str,
+        tracker: &mut AchievementTracker,
+    ) -> &'a TropeState {
+        // Check if trope already exists (idempotent activation = no transition)
+        let already_exists = tropes.iter().any(|ts| ts.trope_definition_id == def_id);
+
+        let ts = Self::activate(tropes, def_id);
+
+        if !already_exists {
+            // New trope: transition is effectively Dormant → Active
+            let newly_earned = tracker.check_transition(ts, TropeStatus::Dormant);
+            Self::log_earned_achievements(&newly_earned, def_id);
+        }
+
+        // Re-borrow after tracker mutation
+        tropes.iter().find(|ts| ts.trope_definition_id == def_id).unwrap()
+    }
+
+    /// Advance tropes by elapsed days and check for newly earned achievements.
+    ///
+    /// Same as `advance_between_sessions` but captures old statuses and calls
+    /// `check_transition` for any trope whose status changed during the gap.
+    pub fn advance_between_sessions_and_check_achievements(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        elapsed_days: f64,
+        tracker: &mut AchievementTracker,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        let old_statuses: Vec<TropeStatus> = tropes.iter().map(|ts| ts.status()).collect();
+
+        let fired = Self::advance_between_sessions(tropes, trope_defs, elapsed_days);
+
+        let mut earned = Vec::new();
+        for (ts, old_status) in tropes.iter().zip(old_statuses.iter()) {
+            if ts.status() != *old_status {
+                let newly_earned = tracker.check_transition(ts, *old_status);
+                Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
+                earned.extend(newly_earned);
+            }
+        }
+
+        (fired, earned)
+    }
+
     /// Emit OTEL info events for each earned achievement.
     fn log_earned_achievements(achievements: &[Achievement], trope_id: &str) {
         for achievement in achievements {

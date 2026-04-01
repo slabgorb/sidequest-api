@@ -44,7 +44,7 @@ pub(crate) fn process_tropes(
     span.record("activations_from_llm", activations.len() as u64);
 
     for id in &activations {
-        TropeEngine::activate(ctx.trope_states, id);
+        TropeEngine::activate_and_check_achievements(ctx.trope_states, id, ctx.achievement_tracker);
         tracing::info!(trope_id = %id, "Trope activated by LLM evaluation");
         ctx.state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
@@ -149,7 +149,7 @@ pub(crate) fn process_tropes(
                 trigger: achievement.trigger_status.clone(),
                 emoji: achievement.emoji.clone(),
             },
-            player_id: String::new(),
+            player_id: "server".to_string(),
         });
 
         // Emit watcher event for GM panel

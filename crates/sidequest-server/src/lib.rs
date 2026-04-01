@@ -1962,16 +1962,18 @@ async fn dispatch_connect(
                             let elapsed = chrono::Utc::now() - saved_at;
                             let elapsed_days = elapsed.num_seconds() as f64 / 86400.0;
                             if elapsed_days > 0.0 && !trope_states.is_empty() {
-                                let session_beats =
-                                    sidequest_game::trope::TropeEngine::advance_between_sessions(
+                                let (session_beats, session_achievements) =
+                                    sidequest_game::trope::TropeEngine::advance_between_sessions_and_check_achievements(
                                         trope_states,
                                         trope_defs,
                                         elapsed_days,
+                                        achievement_tracker,
                                     );
                                 tracing::info!(
                                     elapsed_days = elapsed_days,
                                     tropes_advanced = trope_states.len(),
                                     beats_fired = session_beats.len(),
+                                    achievements_earned = session_achievements.len(),
                                     "session.trope_advance — living world progression"
                                 );
                                 // If beats fired during the gap, format them for the
