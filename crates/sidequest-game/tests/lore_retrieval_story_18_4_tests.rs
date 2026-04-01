@@ -90,7 +90,7 @@ fn lore_retrieval_summary_struct_exists() {
 fn summarize_captures_selected_and_rejected() {
     let store = build_test_store();
     // Budget of 60 tokens — should select ~2 fragments (each ~25 tokens)
-    let selected = sidequest_game::select_lore_for_prompt(&store, 60, None);
+    let selected = sidequest_game::select_lore_for_prompt(&store, 60, None, None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 60, None);
 
     assert_eq!(summary.budget, 60);
@@ -110,7 +110,7 @@ fn summarize_captures_selected_and_rejected() {
 #[test]
 fn summarize_tokens_used_matches_selected() {
     let store = build_test_store();
-    let selected = sidequest_game::select_lore_for_prompt(&store, 60, None);
+    let selected = sidequest_game::select_lore_for_prompt(&store, 60, None, None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 60, None);
 
     let expected_tokens: usize = summary.selected.iter().map(|f| f.tokens).sum();
@@ -128,7 +128,7 @@ fn summarize_tokens_used_matches_selected() {
 fn summarize_with_priority_categories() {
     let store = build_test_store();
     let cats = [LoreCategory::Geography];
-    let selected = sidequest_game::select_lore_for_prompt(&store, 60, Some(&cats));
+    let selected = sidequest_game::select_lore_for_prompt(&store, 60, Some(&cats), None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(
         &store,
         &selected,
@@ -147,7 +147,7 @@ fn summarize_with_priority_categories() {
 #[test]
 fn summarize_large_budget_selects_all() {
     let store = build_test_store();
-    let selected = sidequest_game::select_lore_for_prompt(&store, 10000, None);
+    let selected = sidequest_game::select_lore_for_prompt(&store, 10000, None, None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 10000, None);
 
     assert_eq!(summary.selected.len(), 5, "should select all fragments");
@@ -161,7 +161,7 @@ fn summarize_large_budget_selects_all() {
 #[test]
 fn summarize_zero_budget_rejects_all() {
     let store = build_test_store();
-    let selected = sidequest_game::select_lore_for_prompt(&store, 0, None);
+    let selected = sidequest_game::select_lore_for_prompt(&store, 0, None, None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 0, None);
 
     assert!(summary.selected.is_empty(), "should select none");
@@ -180,7 +180,7 @@ fn summarize_zero_budget_rejects_all() {
 #[test]
 fn fragment_summary_has_required_fields() {
     let store = build_test_store();
-    let selected = sidequest_game::select_lore_for_prompt(&store, 10000, None);
+    let selected = sidequest_game::select_lore_for_prompt(&store, 10000, None, None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 10000, None);
 
     for frag in &summary.selected {
@@ -201,7 +201,7 @@ fn fragment_summary_has_required_fields() {
 #[test]
 fn summary_serializes_to_json() {
     let store = build_test_store();
-    let selected = sidequest_game::select_lore_for_prompt(&store, 60, None);
+    let selected = sidequest_game::select_lore_for_prompt(&store, 60, None, None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 60, None);
 
     let json = serde_json::to_value(&summary).unwrap();
@@ -226,7 +226,7 @@ fn summary_serializes_to_json() {
 #[test]
 fn empty_store_produces_valid_summary() {
     let store = LoreStore::new();
-    let selected = sidequest_game::select_lore_for_prompt(&store, 500, None);
+    let selected = sidequest_game::select_lore_for_prompt(&store, 500, None, None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 500, None);
 
     assert_eq!(summary.budget, 500);

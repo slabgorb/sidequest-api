@@ -469,8 +469,59 @@ pub(crate) async fn build_prompt_context(
             Some(&priority_cats)
         };
         let lore_budget = 500; // ~500 tokens for lore context
-        let selected =
-            sidequest_game::select_lore_for_prompt(ctx.lore_store, lore_budget, priority_ref);
+        let has_embeddings = ctx.lore_store.fragments_with_embeddings_count() > 0;
+
+        // Generate query embedding for semantic search when fragments have embeddings
+        let query_embedding = if has_embeddings {
+            let hint = if !ctx.current_location.is_empty() {
+                Some(ctx.current_location.as_str())
+            } else {
+                None
+            };
+            if let Some(hint_text) = hint {
+                let config = sidequest_daemon_client::DaemonConfig::default();
+                if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
+                    let params = sidequest_daemon_client::EmbedParams { text: hint_text.to_string() };
+                    match client.embed(params).await {
+                        Ok(result) => Some(result.embedding),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "lore.query_embedding_failed — falling back to category ranking");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let fallback_to_keyword = query_embedding.is_none();
+        let selected = sidequest_game::select_lore_for_prompt(
+            ctx.lore_store,
+            lore_budget,
+            priority_ref,
+            query_embedding.as_deref(),
+        );
+
+        // AC-7: OTEL lore.semantic_retrieval (story 15-7)
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "lore".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("event".to_string(), serde_json::json!("lore.semantic_retrieval"));
+                f.insert("query_hint".to_string(), serde_json::json!(ctx.current_location));
+                f.insert("fallback_to_keyword".to_string(), serde_json::json!(fallback_to_keyword));
+                f.insert("selected_count".to_string(), serde_json::json!(selected.len()));
+                f
+            },
+        });
 
         // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
         let lore_summary = sidequest_game::summarize_lore_retrieval(

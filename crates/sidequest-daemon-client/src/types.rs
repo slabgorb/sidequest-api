@@ -106,6 +106,30 @@ pub struct WarmUpParams {
     pub worker: String,
 }
 
+/// Parameters for an `embed` request (story 15-7).
+///
+/// Sent to the daemon's embed worker to generate sentence embeddings
+/// for semantic lore retrieval.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedParams {
+    /// The text to generate an embedding for.
+    pub text: String,
+}
+
+/// Result from an `embed` request (story 15-7).
+///
+/// Contains the embedding vector and metadata for OTEL telemetry
+/// (`lore.embedding_generated` event needs `model` and `latency_ms`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedResult {
+    /// The embedding vector (e.g. 384-dimensional for all-MiniLM-L6-v2).
+    pub embedding: Vec<f32>,
+    /// Name of the embedding model used.
+    pub model: String,
+    /// Time taken to generate the embedding in milliseconds.
+    pub latency_ms: u64,
+}
+
 // ---------------------------------------------------------------------------
 // Response envelope
 // ---------------------------------------------------------------------------
