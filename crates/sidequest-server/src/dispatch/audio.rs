@@ -31,6 +31,14 @@ pub(crate) async fn process_audio(
             // not keyword scanning. Check if any quest was marked "completed:".
             quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
             npc_died: ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0),
+            // Encounter mood override from StructuredEncounter
+            encounter_mood_override: if ctx.combat_state.in_combat() {
+                Some("combat".to_string())
+            } else if ctx.chase_state.is_some() {
+                Some("tension".to_string())
+            } else {
+                None
+            },
         };
 
         // Get telemetry snapshot BEFORE evaluate() changes state
