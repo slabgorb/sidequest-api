@@ -1778,7 +1778,7 @@ async fn dispatch_connect(
     lore_store: &mut sidequest_game::LoreStore,
     state: &AppState,
     player_id: &str,
-    continuity_corrections: &mut String,
+    _continuity_corrections: &mut String,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");

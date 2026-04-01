@@ -327,6 +327,29 @@ impl GameService for Orchestrator {
                              - [ ] Reference their role and appearance in narration",
                             cfg.binary_path, cfg.genre_packs_path, genre,
                         ),
+                        "loadoutgen" => format!(
+                            "[STARTING LOADOUT GENERATOR]\n\
+                             Generate starting equipment and currency for a character.\n\n\
+                             Command:\n\
+                             ```\n\
+                             {} --genre-packs-path {} --genre {} --class <class_name>\n\
+                             ```\n\n\
+                             | Flag | Required | Description |\n\
+                             |------|----------|-------------|\n\
+                             | --class | Yes | Character class or archetype name |\n\
+                             | --tier | No | Power tier 1-4 (default: 1) |\n\n\
+                             When to call: at character creation completion or session start, \
+                             when introducing the character's starting gear.\n\n\
+                             Output: JSON with {{class, currency_name, starting_gold, equipment[], \
+                             narrative_hook, total_value}}\n\
+                             Each equipment item has: id, name, description, category, value, tags, lore.\n\n\
+                             Checklist after calling:\n\
+                             - [ ] Weave the narrative_hook into the opening scene naturally\n\
+                             - [ ] Reference specific items by name when the character uses them\n\
+                             - [ ] Use the currency_name for all money references\n\
+                             - [ ] Include equipment in the character's inventory state",
+                            cfg.binary_path, cfg.genre_packs_path, genre,
+                        ),
                         unknown => {
                             warn!(
                                 tool = %unknown,

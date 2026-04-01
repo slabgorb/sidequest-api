@@ -51,6 +51,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 );
             }
 
+            // Starting loadout generator
+            let loadoutgen_path = dir.join("sidequest-loadoutgen");
+            if loadoutgen_path.exists() {
+                tracing::info!(
+                    path = %loadoutgen_path.display(),
+                    "sidequest-loadoutgen discovered — narrator will have loadout tool"
+                );
+                orchestrator.register_script_tool("loadoutgen", ScriptToolConfig {
+                    binary_path: loadoutgen_path.to_string_lossy().to_string(),
+                    genre_packs_path: genre_packs_path.clone(),
+                });
+            }
+
             // NPC name generator (when merged from OQ-1)
             let namegen_path = dir.join("sidequest-namegen");
             if namegen_path.exists() {

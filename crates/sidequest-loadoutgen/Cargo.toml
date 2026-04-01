@@ -1,0 +1,17 @@
+[package]
+name = "sidequest-loadoutgen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Starting loadout generator — equipment sets, currency, narrative hooks from genre pack data"
+
+[[bin]]
+name = "sidequest-loadoutgen"
+path = "src/main.rs"
+
+[dependencies]
+sidequest-genre = { path = "../sidequest-genre" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
