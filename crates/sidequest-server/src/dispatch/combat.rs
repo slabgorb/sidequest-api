@@ -24,6 +24,7 @@ pub(crate) async fn process_combat_and_chase(
     _result: &sidequest_agents::orchestrator::ActionResult,
     messages: &mut Vec<GameMessage>,
     combat_just_ended: bool,
+    combat_just_started: bool,
 ) {
     let now_in_combat = ctx.combat_state.in_combat();
 
@@ -46,6 +47,7 @@ pub(crate) async fn process_combat_and_chase(
             f.insert("action".to_string(), serde_json::json!("combat_tick"));
             f.insert("in_combat".to_string(), serde_json::json!(now_in_combat));
             f.insert("combat_just_ended".to_string(), serde_json::json!(combat_just_ended));
+            f.insert("combat_just_started".to_string(), serde_json::json!(combat_just_started));
             f.insert("round".to_string(), serde_json::json!(ctx.combat_state.round()));
             f.insert("drama_weight".to_string(), serde_json::json!(ctx.combat_state.drama_weight()));
             f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));

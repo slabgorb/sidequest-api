@@ -246,14 +246,6 @@ impl ServerError {
 }
 
 // ---------------------------------------------------------------------------
-// Session key helper
-// ---------------------------------------------------------------------------
-
-fn session_key(player_name: &str, genre: &str, world: &str) -> String {
-    format!("{}:{}:{}", player_name, genre, world)
-}
-
-// ---------------------------------------------------------------------------
 // AppState
 // ---------------------------------------------------------------------------
 
@@ -276,7 +268,6 @@ struct AppStateInner {
     watcher_tx: broadcast::Sender<WatcherEvent>,
     persistence: sidequest_game::PersistenceHandle,
     render_queue: Option<sidequest_game::RenderQueue>,
-    subject_extractor: sidequest_game::SubjectExtractor,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
     binary_broadcast_tx: broadcast::Sender<Vec<u8>>,
     /// Shared multiplayer sessions keyed by "genre:world".
@@ -432,7 +423,6 @@ impl AppState {
                 watcher_tx,
                 persistence,
                 render_queue: Some(render_queue),
-                subject_extractor: sidequest_game::SubjectExtractor::new(),
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
                     sidequest_game::BeatFilterConfig::default(),
                 )),
@@ -583,11 +573,6 @@ impl AppState {
     /// Subscribe to binary broadcast frames (e.g. TTS audio).
     fn subscribe_binary(&self) -> broadcast::Receiver<Vec<u8>> {
         self.inner.binary_broadcast_tx.subscribe()
-    }
-
-    /// Check if a player is currently processing an action.
-    fn is_processing(&self, player_id: &PlayerId) -> bool {
-        self.inner.processing.lock().unwrap().contains(player_id)
     }
 
     /// Try to mark a player as processing. Returns false if already processing.
