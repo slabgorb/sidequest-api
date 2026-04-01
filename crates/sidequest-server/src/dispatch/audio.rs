@@ -31,13 +31,14 @@ pub(crate) async fn process_audio(
             // not keyword scanning. Check if any quest was marked "completed:".
             quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
             npc_died: ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0),
-            // Encounter mood override from StructuredEncounter
-            encounter_mood_override: if ctx.combat_state.in_combat() {
-                Some("combat".to_string())
-            } else if ctx.chase_state.is_some() {
-                Some("tension".to_string())
-            } else {
-                None
+            // Encounter mood override — derive from live state, read mood_override if set
+            encounter_mood_override: {
+                let encounter = if ctx.combat_state.in_combat() {
+                    Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+                } else {
+                    ctx.chase_state.as_ref().map(sidequest_game::StructuredEncounter::from_chase_state)
+                };
+                encounter.and_then(|e| e.mood_override)
             },
         };
 
