@@ -355,15 +355,19 @@ impl GameService for Orchestrator {
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
 
+        // Sonnet for narrator: 3x faster than Opus with acceptable quality.
+        // Mechanical consistency enforced by state systems (LoreStore, NPC registry, tropes),
+        // not by LLM memory. Structured extraction failures are soft (dropped field, not crash).
+        let narrator_model = "sonnet";
         let inference_span = tracing::info_span!(
             "turn.agent_llm.inference",
-            model = "opus",
+            model = narrator_model,
             prompt_len = prompt.len(),
         );
         let call_start = std::time::Instant::now();
         let send_result = {
             let _inf_guard = inference_span.enter();
-            self.client.send(&prompt)
+            self.client.send_with_model(&prompt, narrator_model)
         };
         match send_result {
             Ok(response) => {
