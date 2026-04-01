@@ -16,7 +16,7 @@ use crate::agents::intent_router::{Intent, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::client::ClaudeClient;
-use crate::context_builder::ContextBuilder;
+use crate::context_builder::{ContextBuilder, ZoneBreakdown};
 use crate::prompt_framework::{parse_soul_md, AttentionZone, PromptSection, SectionCategory};
 use crate::turn_record::{TurnIdCounter, TurnRecord};
 use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTracker};
@@ -62,6 +62,9 @@ pub struct ActionResult {
     /// Resource deltas extracted from narrator JSON block (story 16-1).
     /// Keyed by resource name (e.g., "luck", "humanity"), values are signed deltas.
     pub resource_deltas: HashMap<String, f64>,
+    /// Zone breakdown of the assembled prompt (story 18-6).
+    /// Used by the Prompt Inspector dashboard tab.
+    pub zone_breakdown: Option<ZoneBreakdown>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -187,7 +190,7 @@ impl GameService for Orchestrator {
         );
 
         // Build prompt via ContextBuilder — zone-ordered, telemetry-instrumented.
-        let prompt = {
+        let (prompt, prompt_zone_breakdown) = {
             let mut builder = ContextBuilder::new();
 
             // Agent identity section (Primacy zone)
@@ -347,7 +350,10 @@ impl GameService for Orchestrator {
                 "turn.agent_llm.prompt_build",
                 section_count = section_count as u64,
             ).entered();
-            builder.compose()
+            // Capture zone breakdown before composing (story 18-6)
+            let zb = builder.zone_breakdown();
+            let prompt_text = builder.compose();
+            (prompt_text, zb)
         };
 
         info!(action = %action, "Invoking Claude CLI for narration");
@@ -444,6 +450,7 @@ impl GameService for Orchestrator {
                     personality_events: extraction.personality_events,
                     scene_intent: extraction.scene_intent,
                     resource_deltas: extraction.resource_deltas,
+                    zone_breakdown: Some(prompt_zone_breakdown),
                 }
             }
             Err(e) => {
