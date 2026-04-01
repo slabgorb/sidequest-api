@@ -16,7 +16,7 @@ use sidequest_protocol::{
 
 use crate::npc_context;
 use crate::session::Session;
-use crate::{error_response, AppState, NpcRegistryEntry, Severity, WatcherEvent, WatcherEventType};
+use crate::{error_response, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 use crate::shared_session;
 
 pub(crate) async fn dispatch_connect(
@@ -591,25 +591,11 @@ pub(crate) async fn dispatch_character_creation(
             let choice_str = payload.choice.as_deref().unwrap_or("1");
             let index = choice_str.parse::<usize>().unwrap_or(1).saturating_sub(1);
 
-            state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "character_creation".to_string(),
-                event_type: WatcherEventType::StateTransition,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert(
-                        "phase".to_string(),
-                        serde_json::Value::String(phase.to_string()),
-                    );
-                    f.insert("choice_index".to_string(), serde_json::json!(index));
-                    f.insert(
-                        "player_id".to_string(),
-                        serde_json::Value::String(player_id.to_string()),
-                    );
-                    f
-                },
-            });
+            WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                .field("phase", phase)
+                .field("choice_index", index)
+                .field("player_id", player_id)
+                .send(state);
 
             if let Err(e) = b.apply_choice(index) {
                 return vec![error_response(
@@ -628,35 +614,13 @@ pub(crate) async fn dispatch_character_creation(
                 Ok(character) => {
                     let char_json = serde_json::to_value(&character).unwrap_or_default();
 
-                    state.send_watcher_event(WatcherEvent {
-                        timestamp: chrono::Utc::now(),
-                        component: "character_creation".to_string(),
-                        event_type: WatcherEventType::StateTransition,
-                        severity: Severity::Info,
-                        fields: {
-                            let mut f = HashMap::new();
-                            f.insert(
-                                "event".to_string(),
-                                serde_json::Value::String("character_built".to_string()),
-                            );
-                            f.insert(
-                                "name".to_string(),
-                                serde_json::Value::String(character.core.name.as_str().to_string()),
-                            );
-                            f.insert(
-                                "class".to_string(),
-                                serde_json::Value::String(
-                                    character.char_class.as_str().to_string(),
-                                ),
-                            );
-                            f.insert(
-                                "race".to_string(),
-                                serde_json::Value::String(character.race.as_str().to_string()),
-                            );
-                            f.insert("hp".to_string(), serde_json::json!(character.core.hp));
-                            f
-                        },
-                    });
+                    WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                        .field("event", "character_built")
+                        .field("name", character.core.name.as_str())
+                        .field("class", character.char_class.as_str())
+                        .field("race", character.race.as_str())
+                        .field("hp", character.core.hp)
+                        .send(state);
 
                     // Store character data — sync ALL mutable fields from the built character
                     *character_name_store = Some(character.core.name.as_str().to_string());
@@ -953,25 +917,11 @@ pub(crate) async fn dispatch_character_creation(
                                 player_count = pc,
                                 "Player joined shared session"
                             );
-                            state.send_watcher_event(WatcherEvent {
-                                timestamp: chrono::Utc::now(),
-                                component: "multiplayer".to_string(),
-                                event_type: WatcherEventType::StateTransition,
-                                severity: Severity::Info,
-                                fields: {
-                                    let mut f = HashMap::new();
-                                    f.insert(
-                                        "event".to_string(),
-                                        serde_json::json!("session_joined"),
-                                    );
-                                    f.insert(
-                                        "session_key".to_string(),
-                                        serde_json::json!(format!("{}:{}", genre, world)),
-                                    );
-                                    f.insert("player_count".to_string(), serde_json::json!(pc));
-                                    f
-                                },
-                            });
+                            WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                                .field("event", "session_joined")
+                                .field("session_key", format!("{}:{}", genre, world))
+                                .field("player_count", pc)
+                                .send(state);
 
                             // Transition turn mode when a player joins
                             let old_mode = std::mem::take(&mut ss.turn_mode);

@@ -38,7 +38,7 @@ use crate::extraction::{
     strip_markdown_for_tts,
 };
 use crate::{
-    shared_session, AppState, DaemonSynthesizer, NpcRegistryEntry, Severity, WatcherEvent,
+    shared_session, AppState, DaemonSynthesizer, NpcRegistryEntry, Severity, WatcherEventBuilder,
     WatcherEventType,
 };
 
@@ -135,23 +135,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             );
             let pc = ss.player_count();
             if pc > 1 {
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "multiplayer".to_string(),
-                    event_type: WatcherEventType::AgentSpanOpen,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("event".to_string(), serde_json::json!("multiplayer_action"));
-                        f.insert(
-                            "session_key".to_string(),
-                            serde_json::json!(format!("{}:{}", ctx.genre_slug, ctx.world_slug)),
-                        );
-                        f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
-                        f.insert("party_size".to_string(), serde_json::json!(pc));
-                        f
-                    },
-                });
+                WatcherEventBuilder::new("multiplayer", WatcherEventType::AgentSpanOpen)
+                    .field("event", "multiplayer_action")
+                    .field("session_key", format!("{}:{}", ctx.genre_slug, ctx.world_slug))
+                    .field("player_id", ctx.player_id)
+                    .field("party_size", pc)
+                    .send(ctx.state);
             }
         }
     }
@@ -162,25 +151,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Watcher: action received
     let turn_number = ctx.turn_manager.interaction();
     turn_span.record("turn_number", turn_number);
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "game".to_string(),
-        event_type: WatcherEventType::AgentSpanOpen,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert(
-                "action".to_string(),
-                serde_json::Value::String(ctx.action.to_string()),
-            );
-            f.insert(
-                "player".to_string(),
-                serde_json::Value::String(ctx.char_name.to_string()),
-            );
-            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-            f
-        },
-    });
+    WatcherEventBuilder::new("game", WatcherEventType::AgentSpanOpen)
+        .field("action", ctx.action)
+        .field("player", ctx.char_name)
+        .field("turn_number", turn_number)
+        .send(ctx.state);
 
     // TURN_STATUS "active" — tell all players whose turn it is BEFORE the LLM call.
     {
@@ -366,66 +341,30 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     };
 
     // Watcher: narration generated (with intent classification and agent routing)
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "agent".to_string(),
-        event_type: WatcherEventType::AgentSpanClose,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert(
-                "narration_len".to_string(),
-                serde_json::json!(result.narration.len()),
-            );
-            f.insert(
-                "is_degraded".to_string(),
-                serde_json::json!(result.is_degraded),
-            );
-            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-            if let Some(ref intent) = result.classified_intent {
-                f.insert("classified_intent".to_string(), serde_json::json!(intent));
-            }
-            if let Some(ref agent) = result.agent_name {
-                f.insert("agent_routed_to".to_string(), serde_json::json!(agent));
-            }
-            if let Some(dur) = result.agent_duration_ms {
-                f.insert("agent_duration_ms".to_string(), serde_json::json!(dur));
-            }
-            if let Some(t) = result.token_count_in {
-                f.insert("token_count_in".to_string(), serde_json::json!(t));
-            }
-            if let Some(t) = result.token_count_out {
-                f.insert("token_count_out".to_string(), serde_json::json!(t));
-            }
-            if let Some(tier) = result.extraction_tier {
-                f.insert("extraction_tier".to_string(), serde_json::json!(tier));
-            }
-            f
-        },
-    });
+    WatcherEventBuilder::new("agent", WatcherEventType::AgentSpanClose)
+        .field("narration_len", result.narration.len())
+        .field("is_degraded", result.is_degraded)
+        .field("turn_number", turn_number)
+        .field_opt("classified_intent", &result.classified_intent)
+        .field_opt("agent_routed_to", &result.agent_name)
+        .field_opt("agent_duration_ms", &result.agent_duration_ms)
+        .field_opt("token_count_in", &result.token_count_in)
+        .field_opt("token_count_out", &result.token_count_out)
+        .field_opt("extraction_tier", &result.extraction_tier)
+        .send(ctx.state);
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
     if let Some(ref zb) = result.zone_breakdown {
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "prompt".to_string(),
-            event_type: WatcherEventType::PromptAssembled,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-                if let Some(ref agent) = result.agent_name {
-                    f.insert("agent".to_string(), serde_json::json!(agent));
-                }
-                let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
-                f.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
-                let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
-                f.insert("section_count".to_string(), serde_json::json!(section_count));
-                f.insert("zones".to_string(), serde_json::json!(zb.zones));
-                f.insert("full_prompt".to_string(), serde_json::json!(zb.full_prompt));
-                f
-            },
-        });
+        let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
+        let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
+        WatcherEventBuilder::new("prompt", WatcherEventType::PromptAssembled)
+            .field("turn_number", turn_number)
+            .field_opt("agent", &result.agent_name)
+            .field("total_tokens", total_tokens)
+            .field("section_count", section_count)
+            .field("zones", &zb.zones)
+            .field("full_prompt", &zb.full_prompt)
+            .send(ctx.state);
     }
 
     let agent_done = std::time::Instant::now();
@@ -453,25 +392,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             total_discovered = ctx.discovered_regions.len(),
             "location.changed"
         );
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "state".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert(
-                    "event".to_string(),
-                    serde_json::Value::String("location_changed".to_string()),
-                );
-                f.insert(
-                    "location".to_string(),
-                    serde_json::Value::String(location.clone()),
-                );
-                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-                f
-            },
-        });
+        WatcherEventBuilder::new("state", WatcherEventType::StateTransition)
+            .field("event", "location_changed")
+            .field("location", &location)
+            .field("turn_number", turn_number)
+            .send(ctx.state);
         messages.push(GameMessage::ChapterMarker {
             payload: ChapterMarkerPayload {
                 title: Some(location.clone()),
@@ -553,21 +478,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     // AC-5: OTEL lore.fragment_accumulated
                     let category = "event";
                     let token_estimate = entry.len().div_ceil(4);
-                    ctx.state.send_watcher_event(WatcherEvent {
-                        timestamp: chrono::Utc::now(),
-                        component: "lore".to_string(),
-                        event_type: WatcherEventType::StateTransition,
-                        severity: Severity::Info,
-                        fields: {
-                            let mut f = HashMap::new();
-                            f.insert("event".to_string(), serde_json::json!("lore.fragment_accumulated"));
-                            f.insert("fragment_id".to_string(), serde_json::json!(fragment_id));
-                            f.insert("category".to_string(), serde_json::json!(category));
-                            f.insert("turn".to_string(), serde_json::json!(turn_number));
-                            f.insert("token_estimate".to_string(), serde_json::json!(token_estimate));
-                            f
-                        },
-                    });
+                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                        .field("event", "lore.fragment_accumulated")
+                        .field("fragment_id", &fragment_id)
+                        .field("category", category)
+                        .field("turn", turn_number)
+                        .field("token_estimate", token_estimate)
+                        .send(ctx.state);
                     tracing::info!(
                         fragment_id = %fragment_id,
                         category = category,
@@ -590,20 +507,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
                                 } else {
                                     // AC-6: OTEL lore.embedding_generated
-                                    ctx.state.send_watcher_event(WatcherEvent {
-                                        timestamp: chrono::Utc::now(),
-                                        component: "lore".to_string(),
-                                        event_type: WatcherEventType::StateTransition,
-                                        severity: Severity::Info,
-                                        fields: {
-                                            let mut f = HashMap::new();
-                                            f.insert("event".to_string(), serde_json::json!("lore.embedding_generated"));
-                                            f.insert("fragment_id".to_string(), serde_json::json!(fragment_id));
-                                            f.insert("latency_ms".to_string(), serde_json::json!(embed_result.latency_ms));
-                                            f.insert("model".to_string(), serde_json::json!(embed_result.model));
-                                            f
-                                        },
-                                    });
+                                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                                        .field("event", "lore.embedding_generated")
+                                        .field("fragment_id", &fragment_id)
+                                        .field("latency_ms", embed_result.latency_ms)
+                                        .field("model", &embed_result.model)
+                                        .send(ctx.state);
                                 }
                             }
                             Err(e) => {
@@ -978,21 +887,13 @@ fn update_npc_registry(
                     hp: 0,
                     max_hp: 0,
                 });
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "npc_registry".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("action".to_string(), serde_json::json!("npc_registered"));
-                        f.insert("name".to_string(), serde_json::json!(npc.name));
-                        f.insert("role".to_string(), serde_json::json!(npc.role));
-                        f.insert("ocean".to_string(), serde_json::json!(ocean_summary));
-                        f.insert("registry_size".to_string(), serde_json::json!(ctx.npc_registry.len()));
-                        f
-                    },
-                });
+                WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
+                    .field("action", "npc_registered")
+                    .field("name", &npc.name)
+                    .field("role", &npc.role)
+                    .field("ocean", &ocean_summary)
+                    .field("registry_size", ctx.npc_registry.len())
+                    .send(ctx.state);
             }
         }
     }
@@ -1356,30 +1257,18 @@ async fn persist_game_state(
 
     // Emit encounter OTEL event if active
     if let Some(ref enc) = ctx.snapshot.encounter {
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "encounter".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("encounter_type".to_string(), serde_json::json!(enc.encounter_type));
-                f.insert("beat".to_string(), serde_json::json!(enc.beat));
-                f.insert("metric_name".to_string(), serde_json::json!(enc.metric.name));
-                f.insert("metric_current".to_string(), serde_json::json!(enc.metric.current));
-                f.insert("metric_threshold".to_string(), serde_json::json!(enc.metric.threshold_high.or(enc.metric.threshold_low)));
-                f.insert("phase".to_string(), serde_json::json!(enc.structured_phase.map(|p| format!("{:?}", p))));
-                f.insert("resolved".to_string(), serde_json::json!(enc.resolved));
-                f.insert("actor_count".to_string(), serde_json::json!(enc.actors.len()));
-                if let Some(ref mood) = enc.mood_override {
-                    f.insert("mood_override".to_string(), serde_json::json!(mood));
-                }
-                if let Some(ref outcome) = enc.outcome {
-                    f.insert("outcome".to_string(), serde_json::json!(outcome));
-                }
-                f
-            },
-        });
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("encounter_type", &enc.encounter_type)
+            .field("beat", enc.beat)
+            .field("metric_name", &enc.metric.name)
+            .field("metric_current", enc.metric.current)
+            .field("metric_threshold", enc.metric.threshold_high.or(enc.metric.threshold_low))
+            .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)))
+            .field("resolved", enc.resolved)
+            .field("actor_count", enc.actors.len())
+            .field_opt("mood_override", &enc.mood_override)
+            .field_opt("outcome", &enc.outcome)
+            .send(ctx.state);
     }
 
     // Save ctx.snapshot directly — no load round-trip needed (story 15-8)
@@ -1407,19 +1296,11 @@ async fn persist_game_state(
                 "session.saved — game state persisted"
             );
             // OTEL: persistence save latency for GM panel verification
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "persistence".to_string(),
-                event_type: WatcherEventType::SubsystemExerciseSummary,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("save_latency_ms".to_string(), serde_json::json!(elapsed_ms));
-                    f.insert("player".to_string(), serde_json::json!(ctx.player_name_for_save));
-                    f.insert("turn".to_string(), serde_json::json!(ctx.turn_manager.interaction()));
-                    f
-                },
-            });
+            WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
+                .field("save_latency_ms", elapsed_ms)
+                .field("player", ctx.player_name_for_save)
+                .field("turn", ctx.turn_manager.interaction())
+                .send(ctx.state);
         }
         Err(e) => tracing::warn!(error = %e, "Failed to persist game state"),
     }
@@ -1458,24 +1339,14 @@ fn spawn_tts_pipeline(
         })
         .collect();
 
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "tts".to_string(),
-        event_type: WatcherEventType::AgentSpanOpen,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert("segment_count".to_string(), serde_json::json!(tts_segments.len()));
-            f.insert("total_chars".to_string(), serde_json::json!(
-                tts_segments.iter().map(|s| s.text.len()).sum::<usize>()
-            ));
-            if let Some(first) = tts_segments.first() {
-                let preview: String = first.text.chars().take(80).collect();
-                f.insert("first_segment".to_string(), serde_json::json!(preview));
-            }
-            f
-        },
-    });
+    {
+        let first_preview = tts_segments.first().map(|f| f.text.chars().take(80).collect::<String>());
+        WatcherEventBuilder::new("tts", WatcherEventType::AgentSpanOpen)
+            .field("segment_count", tts_segments.len())
+            .field("total_chars", tts_segments.iter().map(|s| s.text.len()).sum::<usize>())
+            .field_opt("first_segment", &first_preview)
+            .send(ctx.state);
+    }
 
     let player_id_for_tts = ctx.player_id.to_string();
     let state_for_tts = ctx.state.clone();
@@ -1723,18 +1594,10 @@ fn emit_telemetry(
             "player_id": ctx.player_id,
             "character": ctx.char_name,
         });
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "game".to_string(),
-            event_type: WatcherEventType::GameStateSnapshot,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
-                f.insert("snapshot".to_string(), snapshot);
-                f
-            },
-        });
+        WatcherEventBuilder::new("game", WatcherEventType::GameStateSnapshot)
+            .field("turn_number", turn_approx)
+            .field("snapshot", &snapshot)
+            .send(ctx.state);
     }
 
     // Build timing spans for flame chart visualization
@@ -1752,39 +1615,26 @@ fn emit_telemetry(
         { "name": "state_patch", "component": "state", "start_ms": state_start_ms, "duration_ms": state_ms },
     ]);
 
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "game".to_string(),
-        event_type: WatcherEventType::TurnComplete,
-        severity: if result.is_degraded { Severity::Warn } else { Severity::Info },
-        fields: {
-            let mut f = HashMap::new();
-            f.insert("turn_id".to_string(), serde_json::json!(turn_number));
-            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-            f.insert("player_input".to_string(), serde_json::json!(ctx.action));
-            if let Some(ref intent) = result.classified_intent {
-                f.insert("classified_intent".to_string(), serde_json::json!(intent));
-            }
-            if let Some(ref agent) = result.agent_name {
-                f.insert("agent_name".to_string(), serde_json::json!(agent));
-            }
-            f.insert("agent_duration_ms".to_string(), serde_json::json!(agent_ms));
-            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
-            f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
-            if let Some(t) = result.token_count_in {
-                f.insert("token_count_in".to_string(), serde_json::json!(t));
-            }
-            if let Some(t) = result.token_count_out {
-                f.insert("token_count_out".to_string(), serde_json::json!(t));
-            }
-            if let Some(tier) = result.extraction_tier {
-                f.insert("extraction_tier".to_string(), serde_json::json!(tier));
-            }
-            f.insert("spans".to_string(), spans);
-            f.insert("total_duration_ms".to_string(), serde_json::json!(total_ms));
-            f
-        },
-    });
+    {
+        let mut builder = WatcherEventBuilder::new("game", WatcherEventType::TurnComplete)
+            .field("turn_id", turn_number)
+            .field("turn_number", turn_number)
+            .field("player_input", ctx.action)
+            .field_opt("classified_intent", &result.classified_intent)
+            .field_opt("agent_name", &result.agent_name)
+            .field("agent_duration_ms", agent_ms)
+            .field("is_degraded", result.is_degraded)
+            .field("player_id", ctx.player_id)
+            .field_opt("token_count_in", &result.token_count_in)
+            .field_opt("token_count_out", &result.token_count_out)
+            .field_opt("extraction_tier", &result.extraction_tier)
+            .field("spans", &spans)
+            .field("total_duration_ms", total_ms);
+        if result.is_degraded {
+            builder = builder.severity(Severity::Warn);
+        }
+        builder.send(ctx.state);
+    }
 }
 
 /// Handle an aside — out-of-character commentary that does not affect the game world.
@@ -1833,23 +1683,15 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
 
     // Watcher: prompt assembled for aside (story 18-6)
     if let Some(ref zb) = result.zone_breakdown {
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "prompt".to_string(),
-            event_type: WatcherEventType::PromptAssembled,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("agent".to_string(), serde_json::json!("narrator"));
-                let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
-                f.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
-                let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
-                f.insert("section_count".to_string(), serde_json::json!(section_count));
-                f.insert("zones".to_string(), serde_json::json!(zb.zones));
-                f.insert("full_prompt".to_string(), serde_json::json!(zb.full_prompt));
-                f
-            },
-        });
+        let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
+        let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
+        WatcherEventBuilder::new("prompt", WatcherEventType::PromptAssembled)
+            .field("agent", "narrator")
+            .field("total_tokens", total_tokens)
+            .field("section_count", section_count)
+            .field("zones", &zb.zones)
+            .field("full_prompt", &zb.full_prompt)
+            .send(ctx.state);
     }
 
     let narration_text = strip_location_header(&result.narration);

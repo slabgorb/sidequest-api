@@ -1,11 +1,9 @@
 //! Audio/music processing — mood classification and cue generation.
 
-use std::collections::HashMap;
-
 use sidequest_protocol::GameMessage;
 
 use crate::extraction::audio_cue_to_game_message;
-use crate::{Severity, WatcherEvent, WatcherEventType};
+use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -44,18 +42,10 @@ pub(crate) async fn process_audio(
 
         // OTEL: log encounter mood override if active
         if let Some(ref mood_override) = mood_ctx.encounter_mood_override {
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "encounter".to_string(),
-                event_type: WatcherEventType::StateTransition,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("action".to_string(), serde_json::json!("mood_override"));
-                    f.insert("override_mood".to_string(), serde_json::json!(mood_override));
-                    f
-                },
-            });
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("action", "mood_override")
+                .field("override_mood", mood_override)
+                .send(ctx.state);
         }
 
         // Get telemetry snapshot BEFORE evaluate() changes state
@@ -92,36 +82,30 @@ pub(crate) async fn process_audio(
             );
 
             // Emit rich music telemetry to watcher
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "music_director".to_string(),
-                event_type: WatcherEventType::AgentSpanClose,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
-                    f.insert("mood_classified".to_string(), serde_json::json!(mood_reasoning.classification.primary.as_key()));
-                    f.insert("mood_reason".to_string(), serde_json::json!(mood_reasoning.reason));
-                    f.insert("narrator_scene_mood".to_string(), serde_json::json!(mood_key));
-                    f.insert("intensity".to_string(), serde_json::json!(mood_reasoning.classification.intensity));
-                    f.insert("confidence".to_string(), serde_json::json!(mood_reasoning.classification.confidence));
-                    if !mood_reasoning.keyword_matches.is_empty() {
-                        f.insert("keyword_matches".to_string(), serde_json::json!(
-                            mood_reasoning.keyword_matches.iter()
-                                .map(|(mood, kw)| format!("{}:{}", mood, kw))
-                                .collect::<Vec<_>>()
-                        ));
-                    }
-                    f.insert("track_selected".to_string(), serde_json::json!(cue.track_id));
-                    f.insert("previous_mood".to_string(), serde_json::json!(pre_telemetry.current_mood));
-                    f.insert("previous_track".to_string(), serde_json::json!(pre_telemetry.current_track));
-                    f.insert("action".to_string(), serde_json::json!(cue.action.to_string()));
-                    f.insert("volume".to_string(), serde_json::json!(cue.volume));
-                    f.insert("rotation_history".to_string(), serde_json::json!(pre_telemetry.rotation_history));
-                    f.insert("tracks_per_mood".to_string(), serde_json::json!(pre_telemetry.tracks_per_mood));
-                    f
-                },
-            });
+            {
+                let mut builder = WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
+                    .field("turn_number", turn_approx)
+                    .field("mood_classified", mood_reasoning.classification.primary.as_key())
+                    .field("mood_reason", &mood_reasoning.reason)
+                    .field("narrator_scene_mood", mood_key)
+                    .field("intensity", mood_reasoning.classification.intensity)
+                    .field("confidence", mood_reasoning.classification.confidence);
+                if !mood_reasoning.keyword_matches.is_empty() {
+                    builder = builder.field("keyword_matches",
+                        mood_reasoning.keyword_matches.iter()
+                            .map(|(mood, kw)| format!("{}:{}", mood, kw))
+                            .collect::<Vec<_>>());
+                }
+                builder
+                    .field("track_selected", &cue.track_id)
+                    .field("previous_mood", &pre_telemetry.current_mood)
+                    .field("previous_track", &pre_telemetry.current_track)
+                    .field("action", cue.action.to_string())
+                    .field("volume", cue.volume)
+                    .field("rotation_history", &pre_telemetry.rotation_history)
+                    .field("tracks_per_mood", &pre_telemetry.tracks_per_mood)
+                    .send(ctx.state);
+            }
 
             let mixer_cues = {
                 let mut mixer_guard = ctx.audio_mixer.lock().await;
@@ -142,24 +126,16 @@ pub(crate) async fn process_audio(
             }
         } else {
             // Mood didn't change — still emit telemetry so dashboard shows suppression
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "music_director".to_string(),
-                event_type: WatcherEventType::AgentSpanClose,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
-                    f.insert("mood_classified".to_string(), serde_json::json!(mood_reasoning.classification.primary.as_key()));
-                    f.insert("mood_reason".to_string(), serde_json::json!(mood_reasoning.reason));
-                    f.insert("narrator_scene_mood".to_string(), serde_json::json!(mood_key));
-                    f.insert("suppressed".to_string(), serde_json::json!(true));
-                    f.insert("suppression_reason".to_string(), serde_json::json!("same_mood_low_intensity"));
-                    f.insert("current_mood".to_string(), serde_json::json!(pre_telemetry.current_mood));
-                    f.insert("current_track".to_string(), serde_json::json!(pre_telemetry.current_track));
-                    f
-                },
-            });
+            WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
+                .field("turn_number", turn_approx)
+                .field("mood_classified", mood_reasoning.classification.primary.as_key())
+                .field("mood_reason", &mood_reasoning.reason)
+                .field("narrator_scene_mood", mood_key)
+                .field("suppressed", true)
+                .field("suppression_reason", "same_mood_low_intensity")
+                .field("current_mood", &pre_telemetry.current_mood)
+                .field("current_track", &pre_telemetry.current_track)
+                .send(ctx.state);
             tracing::warn!(
                 mood = mood_key,
                 "music_evaluate_returned_none — no cue produced"

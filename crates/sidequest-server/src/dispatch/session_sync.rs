@@ -1,12 +1,10 @@
 //! Shared session synchronization — sync state back and broadcast to other players.
 
-use std::collections::HashMap;
-
 use sidequest_protocol::{
     GameMessage, NarrationEndPayload, PartyMember, PartyStatusPayload, TurnStatusPayload,
 };
 
-use crate::{Severity, WatcherEvent, WatcherEventType};
+use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -31,21 +29,13 @@ pub(crate) async fn sync_back_to_shared_session(
             ctx.player_id,
         );
 
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "session_sync".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("action".to_string(), serde_json::json!("sync_from_locals"));
-                f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
-                f.insert("player_count".to_string(), serde_json::json!(ss.player_count()));
-                f.insert("npc_count".to_string(), serde_json::json!(ctx.npc_registry.len()));
-                f.insert("location".to_string(), serde_json::json!(ctx.current_location.as_str()));
-                f
-            },
-        });
+        WatcherEventBuilder::new("session_sync", WatcherEventType::StateTransition)
+            .field("action", "sync_from_locals")
+            .field("player_id", ctx.player_id)
+            .field("player_count", ss.player_count())
+            .field("npc_count", ctx.npc_registry.len())
+            .field("location", ctx.current_location.as_str())
+            .send(ctx.state);
 
         // Sync acting player's character data to PlayerState for other players' PARTY_STATUS
         if let Some(ps) = ss.players.get_mut(ctx.player_id) {

@@ -65,19 +65,12 @@ pub(crate) async fn process_render(
             prompt = %subject.prompt_fragment(),
             "scene_relevance.rejected — skipping render"
         );
-        ctx.state.send_watcher_event(crate::WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "render".to_string(),
-            event_type: crate::WatcherEventType::ValidationWarning,
-            severity: crate::Severity::Warn,
-            fields: {
-                let mut f = std::collections::HashMap::new();
-                f.insert("action".to_string(), serde_json::json!("scene_relevance_rejected"));
-                f.insert("reason".to_string(), serde_json::json!(verdict.reason()));
-                f.insert("prompt".to_string(), serde_json::json!(subject.prompt_fragment()));
-                f
-            },
-        });
+        crate::WatcherEventBuilder::new("render", crate::WatcherEventType::ValidationWarning)
+            .severity(crate::Severity::Warn)
+            .field("action", "scene_relevance_rejected")
+            .field("reason", verdict.reason())
+            .field("prompt", subject.prompt_fragment())
+            .send(ctx.state);
         return;
     }
 
