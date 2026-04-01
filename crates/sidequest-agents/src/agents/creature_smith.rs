@@ -2,7 +2,6 @@
 //!
 //! Ported from sq-2/sidequest/agents/combat.py.
 
-use crate::agent::Agent;
 
 /// System prompt for the CreatureSmith agent.
 const CREATURE_SMITH_SYSTEM_PROMPT: &str = "\
@@ -78,32 +77,4 @@ Those are handled by other agents. Your block is ONLY for combat mechanics.
 Always include this block. The game engine parses it to update real game state.
 </system>";
 
-/// The CreatureSmith agent — combat resolution, tactical encounters.
-pub struct CreatureSmithAgent {
-    system_prompt: String,
-}
-
-impl CreatureSmithAgent {
-    /// Create a new CreatureSmith agent.
-    pub fn new() -> Self {
-        Self {
-            system_prompt: CREATURE_SMITH_SYSTEM_PROMPT.to_string(),
-        }
-    }
-}
-
-impl Default for CreatureSmithAgent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Agent for CreatureSmithAgent {
-    fn name(&self) -> &str {
-        "creature_smith"
-    }
-
-    fn system_prompt(&self) -> &str {
-        &self.system_prompt
-    }
-}
+crate::define_agent!(CreatureSmithAgent, "creature_smith", CREATURE_SMITH_SYSTEM_PROMPT);
