@@ -321,6 +321,8 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Character identity — always included (compact)
+    // Explicit PLAYER CHARACTER header prevents narrator from confusing PC/NPC attributes.
+    state_summary.push_str("\n\n=== PLAYER CHARACTER ===\n");
     if let Some(ref cj) = ctx.character_json {
         if let Some(class) = cj.get("char_class").and_then(|c| c.as_str()) {
             state_summary.push_str(&format!("\nClass: {}", class));
@@ -346,7 +348,7 @@ pub(crate) async fn build_prompt_context(
             if !hook_strs.is_empty() {
                 if relevance.references_ability {
                     state_summary.push_str("\n\nABILITY CONSTRAINTS — THIS IS A HARD RULE:\n");
-                    state_summary.push_str("The character can ONLY use the following abilities. Any action that requires a power, mutation, or supernatural ability NOT on this list MUST fail or be reinterpreted as a mundane attempt.\n");
+                    state_summary.push_str("The PLAYER CHARACTER can ONLY use the following abilities. Any action that requires a power, mutation, or supernatural ability NOT on this list MUST fail or be reinterpreted as a mundane attempt. Do NOT apply these abilities to NPCs.\n");
                     state_summary.push_str("Allowed abilities:\n");
                     for h in &hook_strs {
                         state_summary.push_str(&format!("- {}\n", h));
@@ -361,6 +363,8 @@ pub(crate) async fn build_prompt_context(
             }
         }
     }
+
+    state_summary.push_str("\n=== END PLAYER CHARACTER ===\n");
 
     // World context — full for first 5 turns (establishing setting), compressed after
     if !ctx.world_context.is_empty() {
