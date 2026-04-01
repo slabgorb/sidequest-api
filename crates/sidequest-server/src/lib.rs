@@ -1025,7 +1025,14 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // Reader loop: read messages, deserialize, dispatch through session
     while let Some(msg) = ws_stream.next().await {
         match msg {
-            Ok(AxumWsMessage::Text(text)) => match serde_json::from_str::<GameMessage>(&text) {
+            Ok(AxumWsMessage::Text(text)) => {
+                tracing::info!(
+                    player_id = %player_id_str,
+                    text_len = text.len(),
+                    text_preview = %&text[..text.len().min(120)],
+                    "ws.message_received"
+                );
+                match serde_json::from_str::<GameMessage>(&text) {
                 Ok(game_msg) => {
                     let responses = dispatch_message(
                         game_msg,
@@ -1070,6 +1077,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut pending_trope_context,
                     )
                     .await;
+                    tracing::info!(
+                        player_id = %player_id_str,
+                        response_count = responses.len(),
+                        "dispatch_message.returned"
+                    );
                     for resp in responses {
                         if let Err(e) = tx.send(resp).await {
                             tracing::error!(player_id = %player_id_str, error = %e, "Failed to send response to client");
@@ -1077,11 +1089,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(player_id = %player_id_str, error = %e, "Invalid message");
+                    tracing::error!(player_id = %player_id_str, error = %e, text_preview = %&text[..text.len().min(200)], "Invalid message — deserialization failed");
                     let err_msg = error_response(&player_id_str, &format!("Invalid JSON: {}", e));
                     let _ = tx.send(err_msg).await;
                 }
-            },
+            }},
             Ok(AxumWsMessage::Close(_)) => break,
             Ok(_) => {} // ping/pong/binary handled by axum
             Err(e) => {
@@ -1221,6 +1233,12 @@ async fn dispatch_message(
     narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
 ) -> Vec<GameMessage> {
+    tracing::info!(
+        msg_type = ?std::mem::discriminant(&msg),
+        session_state = %session.state_name(),
+        player_id = %player_id,
+        "dispatch_message.entry"
+    );
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
             let mut responses = dispatch::connect::dispatch_connect(
