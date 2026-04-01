@@ -70,6 +70,10 @@ pub struct ActionResult {
     /// Lore fragments established during this turn (story 15-7).
     /// Extracted from narrator structured JSON block, fed to `accumulate_lore()` in dispatch.
     pub lore_established: Option<Vec<String>>,
+    /// Inline preprocessor: action rewrite (eliminates separate Haiku subprocess).
+    pub action_rewrite: Option<ActionRewrite>,
+    /// Inline preprocessor: relevance flags.
+    pub action_flags: Option<ActionFlags>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -485,6 +489,8 @@ impl GameService for Orchestrator {
                     resource_deltas: extraction.resource_deltas,
                     zone_breakdown: Some(prompt_zone_breakdown),
                     lore_established: extraction.lore_established,
+                    action_rewrite: extraction.action_rewrite,
+                    action_flags: extraction.action_flags,
                 }
             }
             Err(e) => {
@@ -587,6 +593,38 @@ struct NarratorStructuredBlock {
     resource_deltas: HashMap<String, f64>,
     #[serde(default)]
     lore_established: Option<Vec<String>>,
+    /// Inline preprocessor: action rewrite (approach A — eliminates separate Haiku call).
+    #[serde(default)]
+    action_rewrite: Option<ActionRewrite>,
+    /// Inline preprocessor: relevance flags.
+    #[serde(default)]
+    action_flags: Option<ActionFlags>,
+}
+
+/// Action rewrite from inline preprocessor (narrator/creature_smith JSON block).
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ActionRewrite {
+    #[serde(default)]
+    pub you: String,
+    #[serde(default)]
+    pub named: String,
+    #[serde(default)]
+    pub intent: String,
+}
+
+/// Relevance flags from inline preprocessor (narrator/creature_smith JSON block).
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct ActionFlags {
+    #[serde(default)]
+    pub is_power_grab: bool,
+    #[serde(default)]
+    pub references_inventory: bool,
+    #[serde(default)]
+    pub references_npc: bool,
+    #[serde(default)]
+    pub references_ability: bool,
+    #[serde(default)]
+    pub references_location: bool,
 }
 
 /// Extracted structured data from a narrator response.
@@ -613,6 +651,10 @@ pub struct NarratorExtraction {
     pub resource_deltas: HashMap<String, f64>,
     /// Lore fragments established this turn (story 15-7).
     pub lore_established: Option<Vec<String>>,
+    /// Inline preprocessor: action rewrite (eliminates separate Haiku call).
+    pub action_rewrite: Option<ActionRewrite>,
+    /// Inline preprocessor: relevance flags.
+    pub action_flags: Option<ActionFlags>,
     /// Extraction tier: 1=fenced JSON, 2=legacy array, 3=no structured data.
     pub tier: u8,
 }
@@ -650,6 +692,8 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: block.scene_intent,
                     resource_deltas: block.resource_deltas,
                     lore_established: block.lore_established,
+                    action_rewrite: block.action_rewrite,
+                    action_flags: block.action_flags,
                     tier: 1,
                 };
             }
@@ -675,6 +719,8 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: None,
                     resource_deltas: HashMap::new(),
                     lore_established: None,
+                    action_rewrite: None,
+                    action_flags: None,
                     tier: 2,
                 };
             }
@@ -704,6 +750,8 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                action_rewrite: block.action_rewrite,
+                action_flags: block.action_flags,
                 tier: 2,
             };
         }
@@ -726,6 +774,8 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                action_rewrite: block.action_rewrite,
+                action_flags: block.action_flags,
                 tier: 2,
             };
         }
@@ -745,6 +795,8 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         scene_intent: None,
         resource_deltas: HashMap::new(),
         lore_established: None,
+        action_rewrite: None,
+        action_flags: None,
         tier: 3,
     }
 }

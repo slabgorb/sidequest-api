@@ -225,48 +225,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         return handle_aside(ctx).await;
     }
 
-    // Skip preprocessor in combat — intent is already known via state override (in_combat),
-    // and the 15s Haiku call adds no value. Use a fast-path with all relevance flags on
-    // so no prompt sections get gated out during combat.
-    let preprocessed = if ctx.combat_state.in_combat() {
-        tracing::info!("Skipping preprocessor — in_combat state override, all relevance flags on");
-        sidequest_game::PreprocessedAction {
-            you: format!("You {}", ctx.action),
-            named: format!("{} {}", ctx.char_name, ctx.action),
-            intent: ctx.action.to_string(),
-            is_power_grab: false,
-            references_inventory: true,
-            references_npc: true,
-            references_ability: true,
-            references_location: false,
-        }
-    } else {
-        let action_for_preprocess = ctx.action.to_string();
-        let char_name_for_preprocess = ctx.char_name.to_string();
-        match sidequest_agents::preprocessor::preprocess_action_async(
-            &action_for_preprocess,
-            &char_name_for_preprocess,
-        ).await {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::error!(error = %e, "Preprocessor failed — cannot process action");
-                return vec![sidequest_protocol::GameMessage::Error {
-                    payload: sidequest_protocol::ErrorPayload {
-                        message: format!("Action preprocessing failed: {e}"),
-                        reconnect_required: None,
-                    },
-                    player_id: ctx.player_id.to_string(),
-                }];
-            }
-        }
+    // Inline preprocessor (approach A): no separate Haiku call. The narrator/creature_smith
+    // produces action_rewrite + action_flags in its JSON block. For prompt building, use
+    // all-flags-on so no sections are gated out — the narrator has full context.
+    let preprocessed = sidequest_game::PreprocessedAction {
+        you: format!("You {}", ctx.action),
+        named: format!("{} {}", ctx.char_name, ctx.action),
+        intent: ctx.action.to_string(),
+        is_power_grab: false,
+        references_inventory: true,
+        references_npc: true,
+        references_ability: true,
+        references_location: true,
     };
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
     tracing::info!(
         raw = %ctx.action,
-        you = %preprocessed.you,
-        named = %preprocessed.named,
-        intent = %preprocessed.intent,
-        "Action preprocessed (parallel with context build)"
+        "Prompt context built (preprocessor inlined into agent call)"
     );
 
     // Check if barrier mode is active (Structured/Cinematic turn mode).
@@ -364,6 +339,28 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     if let Some(ref agent) = result.agent_name {
         turn_span.record("agent", agent.as_str());
     }
+
+    // Update preprocessed from inline agent output (approach A — no separate Haiku call).
+    let preprocessed = if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
+        tracing::info!(
+            you = %rw.you, named = %rw.named, intent = %rw.intent,
+            power_grab = flags.is_power_grab,
+            "Inline preprocessor fields extracted from agent response"
+        );
+        sidequest_game::PreprocessedAction {
+            you: rw.you.clone(),
+            named: rw.named.clone(),
+            intent: rw.intent.clone(),
+            is_power_grab: flags.is_power_grab,
+            references_inventory: flags.references_inventory,
+            references_npc: flags.references_npc,
+            references_ability: flags.references_ability,
+            references_location: flags.references_location,
+        }
+    } else {
+        tracing::debug!("Agent did not produce inline preprocessor fields — using defaults");
+        preprocessed
+    };
 
     // Watcher: narration generated (with intent classification and agent routing)
     ctx.state.send_watcher_event(WatcherEvent {
