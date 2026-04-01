@@ -131,6 +131,16 @@ Fields:
   Example: {\"luck\": -1} means the player spent 1 Luck. {\"heat\": 0.5} means Heat rose by 0.5.
   Resource names must match the genre's declared resource names exactly.
   Omit if no resources changed.
+- action_rewrite: ALWAYS INCLUDE. Rewrite the player's raw input:
+  - you: second-person (\"You draw your sword\")
+  - named: third-person with character name (\"{CharName} draws their sword\")
+  - intent: neutral, no pronouns (\"draw sword\")
+- action_flags: ALWAYS INCLUDE. Boolean classification of the player's action:
+  - is_power_grab: true ONLY if genuinely seizing extraordinary power (godlike abilities, unlimited resources). Casual mention = false.
+  - references_inventory: true if mentioning items, equipment, possessions.
+  - references_npc: true if addressing/mentioning a character by name or role.
+  - references_ability: true if invoking a power, mutation, spell, or skill.
+  - references_location: true if mentioning a place by name or attempting travel.
 
 Example:
 ```json

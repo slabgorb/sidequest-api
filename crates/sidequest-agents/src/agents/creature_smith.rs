@@ -68,6 +68,12 @@ CRITICAL — The JSON block must contain ONLY these fields:
 - advance_round: true to end the current combat round, false otherwise
 
 Do NOT include inventory, quest, lore, or any other state changes in this block.
+
+ALSO include these fields in the SAME JSON block:
+- action_rewrite: {\"you\": \"You ...\", \"named\": \"{CharName} ...\", \"intent\": \"...\"}
+  Rewrite the player's raw action into three perspectives.
+- action_flags: {\"is_power_grab\": false, \"references_inventory\": false, \"references_npc\": true, \"references_ability\": false, \"references_location\": false}
+  Boolean classification of what the player referenced.
 Those are handled by other agents. Your block is ONLY for combat mechanics.
 Always include this block. The game engine parses it to update real game state.
 </system>";
