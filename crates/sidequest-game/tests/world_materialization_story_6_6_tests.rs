@@ -130,6 +130,7 @@ fn make_test_chapters() -> Vec<HistoryChapter> {
             id: "fresh".to_string(),
             label: "The Beginning".to_string(),
             lore: vec!["The world is new.".to_string()],
+            ..Default::default()
         },
         HistoryChapter {
             id: "early".to_string(),
@@ -138,6 +139,7 @@ fn make_test_chapters() -> Vec<HistoryChapter> {
                 "Factions have emerged.".to_string(),
                 "Trade routes established.".to_string(),
             ],
+            ..Default::default()
         },
         HistoryChapter {
             id: "mid".to_string(),
@@ -147,6 +149,7 @@ fn make_test_chapters() -> Vec<HistoryChapter> {
                 "Border conflicts intensify.".to_string(),
                 "A prophecy surfaces.".to_string(),
             ],
+            ..Default::default()
         },
         HistoryChapter {
             id: "veteran".to_string(),
@@ -157,6 +160,7 @@ fn make_test_chapters() -> Vec<HistoryChapter> {
                 "Ancient powers stir beneath the surface.".to_string(),
                 "The final reckoning approaches.".to_string(),
             ],
+            ..Default::default()
         },
     ]
 }
@@ -396,6 +400,7 @@ fn materialize_with_only_veteran_chapter_at_fresh() {
         id: "veteran".to_string(),
         label: "Late Game".to_string(),
         lore: vec!["Deep lore.".to_string()],
+        ..Default::default()
     }];
     materialize_world(&mut snap, &chapters);
     assert!(snap.world_history.is_empty(),
