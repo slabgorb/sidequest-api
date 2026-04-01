@@ -155,6 +155,22 @@ fn dispatch_source() -> String {
         .unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
 }
 
+/// Extract a function body from source code by name.
+/// Returns the text from `fn {name}(` to the next top-level function definition.
+fn extract_fn_body<'a>(src: &'a str, fn_name: &str) -> &'a str {
+    let needle = format!("fn {}(", fn_name);
+    let fn_start = src.find(&needle)
+        .unwrap_or_else(|| panic!("{} function must exist in dispatch/mod.rs", fn_name));
+    let fn_body = &src[fn_start..];
+    let fn_end = fn_body[1..].find("\nfn ")
+        .or_else(|| fn_body[1..].find("\nasync fn "))
+        .or_else(|| fn_body[1..].find("\npub fn "))
+        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
+        .map(|i| i + 1)
+        .unwrap_or(fn_body.len());
+    &fn_body[..fn_end]
+}
+
 // ============================================================================
 // AC-1: persist_game_state() must NOT call persistence().load() on save path
 //
@@ -168,20 +184,7 @@ fn dispatch_source() -> String {
 #[test]
 fn persist_game_state_does_not_load_before_save() {
     let src = dispatch_source();
-
-    // Find the persist_game_state function
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist in dispatch/mod.rs");
-
-    // Find the end of the function (next top-level fn or end of file)
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     // The save path must NOT contain a load() call.
     // The source may span multiple lines (persistence()\n.load()), so strip whitespace.
@@ -197,18 +200,7 @@ fn persist_game_state_does_not_load_before_save() {
 #[test]
 fn persist_game_state_does_not_merge_scattered_locals() {
     let src = dispatch_source();
-
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist");
-
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     // The old code merges ~15 individual fields: snapshot.location = ...,
     // snapshot.turn_manager = ctx.turn_manager.clone(), etc.
@@ -289,17 +281,7 @@ fn dispatch_context_has_snapshot_field() {
 fn persist_game_state_emits_save_latency_otel_event() {
     let src = dispatch_source();
 
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist");
-
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     assert!(
         persist_fn.contains("save_latency_ms"),
@@ -313,17 +295,7 @@ fn persist_game_state_emits_save_latency_otel_event() {
 fn persist_game_state_measures_elapsed_time() {
     let src = dispatch_source();
 
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist");
-
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     // Must use Instant::now() or similar for timing measurement
     assert!(
@@ -341,17 +313,7 @@ fn persist_game_state_measures_elapsed_time() {
 fn persist_game_state_otel_uses_persistence_component() {
     let src = dispatch_source();
 
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist");
-
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     // The WatcherEvent must use component: "persistence"
     assert!(
@@ -575,17 +537,7 @@ fn session_restore_after_multi_save_returns_latest() {
 fn persist_game_state_uses_ctx_snapshot() {
     let src = dispatch_source();
 
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist");
-
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     // Must reference ctx.snapshot (the canonical snapshot carried in DispatchContext)
     assert!(
@@ -604,17 +556,7 @@ fn persist_game_state_uses_ctx_snapshot() {
 fn persist_game_state_has_error_handling_on_save() {
     let src = dispatch_source();
 
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist");
-
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     // Must have error logging on the save path (warn! or error!)
     assert!(
@@ -668,17 +610,7 @@ fn lib_dispatch_context_construction_includes_snapshot() {
 fn persist_game_state_traces_empty_slugs_early_return() {
     let src = dispatch_source();
 
-    let fn_start = src.find("fn persist_game_state(")
-        .expect("persist_game_state function must exist");
-
-    let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
-        .or_else(|| fn_body[1..].find("\nasync fn "))
-        .or_else(|| fn_body[1..].find("\npub fn "))
-        .or_else(|| fn_body[1..].find("\npub(crate) fn "))
-        .map(|i| i + 1)
-        .unwrap_or(fn_body.len());
-    let persist_fn = &fn_body[..fn_end];
+    let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     // The early return for empty genre/world slugs should log, not silently return
     if persist_fn.contains("is_empty()") {
