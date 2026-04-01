@@ -5,11 +5,9 @@
 //! This module handles post-mutation tick effects and UI overlay messages.
 //! No keyword/string matching — all state decisions come from typed patches.
 
-use std::collections::HashMap;
-
 use sidequest_protocol::{CombatEventPayload, GameMessage};
 
-use crate::{Severity, WatcherEvent, WatcherEventType};
+use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -37,30 +35,20 @@ pub(crate) async fn process_combat_and_chase(
     );
 
     // OTEL: combat state on every turn (so dashboard always shows current combat status)
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "combat".to_string(),
-        event_type: WatcherEventType::AgentSpanOpen,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert("action".to_string(), serde_json::json!("combat_tick"));
-            f.insert("in_combat".to_string(), serde_json::json!(now_in_combat));
-            f.insert("combat_just_ended".to_string(), serde_json::json!(combat_just_ended));
-            f.insert("combat_just_started".to_string(), serde_json::json!(combat_just_started));
-            f.insert("round".to_string(), serde_json::json!(ctx.combat_state.round()));
-            f.insert("drama_weight".to_string(), serde_json::json!(ctx.combat_state.drama_weight()));
-            f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));
-            f.insert("current_turn".to_string(), serde_json::json!(ctx.combat_state.current_turn()));
-            f.insert("enemy_count".to_string(), serde_json::json!(
-                ctx.combat_state.turn_order().iter()
-                    .filter(|n| !n.eq_ignore_ascii_case(ctx.char_name))
-                    .count()
-            ));
-            f.insert("damage_log_len".to_string(), serde_json::json!(ctx.combat_state.damage_log().len()));
-            f
-        },
-    });
+    WatcherEventBuilder::new("combat", WatcherEventType::AgentSpanOpen)
+        .field("action", "combat_tick")
+        .field("in_combat", now_in_combat)
+        .field("combat_just_ended", combat_just_ended)
+        .field("combat_just_started", combat_just_started)
+        .field("round", ctx.combat_state.round())
+        .field("drama_weight", ctx.combat_state.drama_weight())
+        .field("turn_order", ctx.combat_state.turn_order())
+        .field("current_turn", ctx.combat_state.current_turn())
+        .field("enemy_count", ctx.combat_state.turn_order().iter()
+            .filter(|n| !n.eq_ignore_ascii_case(ctx.char_name))
+            .count())
+        .field("damage_log_len", ctx.combat_state.damage_log().len())
+        .send(ctx.state);
 
     if now_in_combat {
         ctx.combat_state.tick_effects();
@@ -80,19 +68,11 @@ pub(crate) async fn process_combat_and_chase(
             })
             .collect();
         if !active_effects.is_empty() {
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "combat".to_string(),
-                event_type: WatcherEventType::StateTransition,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("action".to_string(), serde_json::json!("status_effects_active"));
-                    f.insert("effects".to_string(), serde_json::json!(active_effects));
-                    f.insert("effect_count".to_string(), serde_json::json!(active_effects.len()));
-                    f
-                },
-            });
+            WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                .field("action", "status_effects_active")
+                .field("effects", &active_effects)
+                .field("effect_count", active_effects.len())
+                .send(ctx.state);
         }
     }
 

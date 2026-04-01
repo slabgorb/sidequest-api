@@ -1,11 +1,9 @@
 //! Narrator prompt context builder — assembles state summary for the LLM.
 
-use std::collections::HashMap;
-
 use sidequest_game::PreprocessedAction;
 
 use crate::npc_context::build_npc_registry_context_budgeted;
-use crate::{Severity, WatcherEvent, WatcherEventType};
+use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -50,24 +48,10 @@ pub(crate) async fn build_prompt_context(
                     has_progression = def.passive_progression.is_some(),
                     "Seeded starter trope"
                 );
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "trope".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert(
-                            "event".to_string(),
-                            serde_json::Value::String("trope_activated".to_string()),
-                        );
-                        f.insert(
-                            "trope_id".to_string(),
-                            serde_json::Value::String(id.clone()),
-                        );
-                        f
-                    },
-                });
+                WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
+                    .field("event", "trope_activated")
+                    .field("trope_id", id)
+                    .send(ctx.state);
             }
         }
     }
@@ -279,21 +263,13 @@ pub(crate) async fn build_prompt_context(
             ctx.chase_state.as_ref().map(sidequest_game::StructuredEncounter::from_chase_state)
         };
         if let Some(ref enc) = encounter {
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "encounter".to_string(),
-                event_type: WatcherEventType::AgentSpanOpen,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("action".to_string(), serde_json::json!("prompt_injection"));
-                    f.insert("encounter_type".to_string(), serde_json::json!(enc.encounter_type));
-                    f.insert("beat".to_string(), serde_json::json!(enc.beat));
-                    f.insert("metric".to_string(), serde_json::json!(format!("{}: {}", enc.metric.name, enc.metric.current)));
-                    f.insert("hint_count".to_string(), serde_json::json!(enc.narrator_hints.len()));
-                    f
-                },
-            });
+            WatcherEventBuilder::new("encounter", WatcherEventType::AgentSpanOpen)
+                .field("action", "prompt_injection")
+                .field("encounter_type", &enc.encounter_type)
+                .field("beat", enc.beat)
+                .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
+                .field("hint_count", enc.narrator_hints.len())
+                .send(ctx.state);
             state_summary.push_str(&format!(
                 "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
                 enc.encounter_type,
@@ -512,20 +488,12 @@ pub(crate) async fn build_prompt_context(
         );
 
         // AC-7: OTEL lore.semantic_retrieval (story 15-7)
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "lore".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("event".to_string(), serde_json::json!("lore.semantic_retrieval"));
-                f.insert("query_hint".to_string(), serde_json::json!(ctx.current_location));
-                f.insert("fallback_to_keyword".to_string(), serde_json::json!(fallback_to_keyword));
-                f.insert("selected_count".to_string(), serde_json::json!(selected.len()));
-                f
-            },
-        });
+        WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+            .field("event", "lore.semantic_retrieval")
+            .field("query_hint", ctx.current_location.as_str())
+            .field("fallback_to_keyword", fallback_to_keyword)
+            .field("selected_count", selected.len())
+            .send(ctx.state);
 
         // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
         let lore_summary = sidequest_game::summarize_lore_retrieval(
@@ -534,26 +502,16 @@ pub(crate) async fn build_prompt_context(
             lore_budget,
             priority_ref,
         );
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "lore".to_string(),
-            event_type: WatcherEventType::LoreRetrieval,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("budget".to_string(), serde_json::json!(lore_summary.budget));
-                f.insert("tokens_used".to_string(), serde_json::json!(lore_summary.tokens_used));
-                f.insert("selected_count".to_string(), serde_json::json!(lore_summary.selected.len()));
-                f.insert("rejected_count".to_string(), serde_json::json!(lore_summary.rejected.len()));
-                f.insert("selected".to_string(), serde_json::json!(lore_summary.selected));
-                f.insert("rejected".to_string(), serde_json::json!(lore_summary.rejected));
-                f.insert("total_fragments".to_string(), serde_json::json!(lore_summary.total_fragments));
-                if let Some(ref hint) = lore_summary.context_hint {
-                    f.insert("context_hint".to_string(), serde_json::json!(hint));
-                }
-                f
-            },
-        });
+        WatcherEventBuilder::new("lore", WatcherEventType::LoreRetrieval)
+            .field("budget", lore_summary.budget)
+            .field("tokens_used", lore_summary.tokens_used)
+            .field("selected_count", lore_summary.selected.len())
+            .field("rejected_count", lore_summary.rejected.len())
+            .field("selected", &lore_summary.selected)
+            .field("rejected", &lore_summary.rejected)
+            .field("total_fragments", lore_summary.total_fragments)
+            .field_opt("context_hint", &lore_summary.context_hint)
+            .send(ctx.state);
 
         if !selected.is_empty() {
             let lore_text = sidequest_game::format_lore_context(&selected);
@@ -581,22 +539,14 @@ pub(crate) async fn build_prompt_context(
     }
 
     // OTEL: log prompt budget decisions
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "prompt_budget".to_string(),
-        event_type: WatcherEventType::StateTransition,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert("total_chars".to_string(), serde_json::json!(state_summary.len()));
-            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-            f.insert("references_inventory".to_string(), serde_json::json!(relevance.references_inventory));
-            f.insert("references_ability".to_string(), serde_json::json!(relevance.references_ability));
-            f.insert("references_npc".to_string(), serde_json::json!(relevance.references_npc));
-            f.insert("references_location".to_string(), serde_json::json!(relevance.references_location));
-            f
-        },
-    });
+    WatcherEventBuilder::new("prompt_budget", WatcherEventType::StateTransition)
+        .field("total_chars", state_summary.len())
+        .field("turn_number", turn_number)
+        .field("references_inventory", relevance.references_inventory)
+        .field("references_ability", relevance.references_ability)
+        .field("references_npc", relevance.references_npc)
+        .field("references_location", relevance.references_location)
+        .send(ctx.state);
 
     state_summary
 }

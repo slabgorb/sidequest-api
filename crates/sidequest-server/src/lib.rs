@@ -146,6 +146,71 @@ pub enum Severity {
     Error,
 }
 
+/// Builder for WatcherEvent — eliminates hand-built HashMap boilerplate.
+///
+/// Usage:
+/// ```ignore
+/// WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+///     .field("action", "combat_tick")
+///     .field("in_combat", true)
+///     .field("round", ctx.combat_state.round())
+///     .severity(Severity::Warn)  // optional, defaults to Info
+///     .send(&ctx.state);
+/// ```
+pub struct WatcherEventBuilder {
+    component: String,
+    event_type: WatcherEventType,
+    severity: Severity,
+    fields: HashMap<String, serde_json::Value>,
+    timestamp_override: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl WatcherEventBuilder {
+    pub fn new(component: &str, event_type: WatcherEventType) -> Self {
+        Self {
+            component: component.to_string(),
+            event_type,
+            severity: Severity::Info,
+            fields: HashMap::new(),
+            timestamp_override: None,
+        }
+    }
+
+    pub fn field(mut self, key: &str, value: impl serde::Serialize) -> Self {
+        self.fields.insert(key.to_string(), serde_json::json!(value));
+        self
+    }
+
+    /// Add a field only if the Option is Some.
+    pub fn field_opt(mut self, key: &str, value: &Option<impl serde::Serialize>) -> Self {
+        if let Some(v) = value {
+            self.fields.insert(key.to_string(), serde_json::json!(v));
+        }
+        self
+    }
+
+    pub fn severity(mut self, severity: Severity) -> Self {
+        self.severity = severity;
+        self
+    }
+
+    /// Override the auto-generated timestamp (default: `chrono::Utc::now()`).
+    pub fn timestamp(mut self, ts: chrono::DateTime<chrono::Utc>) -> Self {
+        self.timestamp_override = Some(ts);
+        self
+    }
+
+    pub fn send(self, state: &AppState) {
+        state.send_watcher_event(WatcherEvent {
+            timestamp: self.timestamp_override.unwrap_or_else(chrono::Utc::now),
+            component: self.component,
+            event_type: self.event_type,
+            severity: self.severity,
+            fields: self.fields,
+        });
+    }
+}
+
 // Tracing / Telemetry — extracted to tracing_setup.rs
 pub use tracing_setup::{init_tracing, tracing_subscriber_for_test, build_subscriber_with_filter};
 
@@ -1147,22 +1212,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             remaining_players = remaining,
             "Player removed from shared session"
         );
-        state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "multiplayer".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("event".to_string(), serde_json::json!("session_left"));
-                f.insert("session_key".to_string(), serde_json::json!(key));
-                f.insert(
-                    "remaining_players".to_string(),
-                    serde_json::json!(remaining),
-                );
-                f
-            },
-        });
+        WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+            .field("event", "session_left")
+            .field("session_key", &key)
+            .field("remaining_players", remaining)
+            .send(&state);
     }
     state.remove_connection(&player_id);
     writer_handle.abort();

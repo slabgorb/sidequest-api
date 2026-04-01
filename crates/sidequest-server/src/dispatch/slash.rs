@@ -1,10 +1,8 @@
 //! Slash command interception — route /commands to mechanical handlers, not the LLM.
 
-use std::collections::HashMap;
-
 use sidequest_protocol::{GameMessage, NarrationEndPayload, NarrationPayload};
 
-use crate::{Severity, WatcherEvent, WatcherEventType};
+use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -85,21 +83,10 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
         };
 
         // Watcher: slash command handled
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "game".to_string(),
-            event_type: WatcherEventType::AgentSpanClose,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert(
-                    "slash_command".to_string(),
-                    serde_json::Value::String(ctx.action.to_string()),
-                );
-                f.insert("result_len".to_string(), serde_json::json!(text.len()));
-                f
-            },
-        });
+        WatcherEventBuilder::new("game", WatcherEventType::AgentSpanClose)
+            .field("slash_command", ctx.action)
+            .field("result_len", text.len())
+            .send(ctx.state);
 
         return Some(vec![
             GameMessage::Narration {
