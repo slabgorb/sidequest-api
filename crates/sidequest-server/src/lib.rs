@@ -2328,12 +2328,35 @@ async fn dispatch_character_creation(
                     let world = session.world_slug().unwrap_or("").to_string();
                     let pname_for_save =
                         player_name_store.as_deref().unwrap_or("Player").to_string();
-                    let snapshot = sidequest_game::GameSnapshot {
-                        genre_slug: genre.clone(),
-                        world_slug: world.clone(),
-                        characters: vec![character.clone()],
-                        location: "Starting area".to_string(),
-                        ..Default::default()
+
+                    // Materialize world from genre pack history (Story 15-23).
+                    // Load the genre pack (cached) to get World.history, then build
+                    // a snapshot at Fresh maturity with history chapters applied.
+                    let snapshot = {
+                        let history_value = GenreCode::new(&genre)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.worlds.get(&world).map(|w| w.history.clone()))
+                            .flatten()
+                            .unwrap_or(serde_json::Value::Null);
+
+                        let mut snap = sidequest_game::materialize_from_genre_pack(
+                            &history_value,
+                            sidequest_game::CampaignMaturity::Fresh,
+                            &genre,
+                            &world,
+                        ).unwrap_or_else(|e| {
+                            tracing::warn!(error = %e, genre = %genre, world = %world, "Failed to materialize world from genre pack, using default snapshot");
+                            sidequest_game::GameSnapshot {
+                                genre_slug: genre.clone(),
+                                world_slug: world.clone(),
+                                ..Default::default()
+                            }
+                        });
+
+                        // Inject the chargen-produced character into the materialized snapshot
+                        snap.characters = vec![character.clone()];
+                        snap
                     };
                     if let Err(e) = state
                         .persistence()

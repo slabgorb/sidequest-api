@@ -689,3 +689,52 @@ impl Default for WorldBuilder {
         Self::new()
     }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Genre pack integration (Story 15-23)
+// ═══════════════════════════════════════════════════════════════
+
+/// Parse history chapters from raw genre pack JSON (history.yaml loaded as Value).
+///
+/// The genre pack loader stores history.yaml as `Option<serde_json::Value>`.
+/// This function extracts the `"chapters"` array and deserializes each entry
+/// into a typed `HistoryChapter`.
+///
+/// Returns an empty Vec for null/missing data, errors on malformed chapters.
+pub fn parse_history_chapters(value: &serde_json::Value) -> Result<Vec<HistoryChapter>, String> {
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+
+    let chapters_value = match value.get("chapters") {
+        Some(v) => v,
+        None => return Ok(Vec::new()),
+    };
+
+    serde_json::from_value::<Vec<HistoryChapter>>(chapters_value.clone())
+        .map_err(|e| format!("failed to parse history chapters: {e}"))
+}
+
+/// Materialize a GameSnapshot from raw genre pack history at a target maturity.
+///
+/// This is the integration function the server calls during session creation.
+/// Parses history chapters from the raw Value, then uses WorldBuilder to produce
+/// a fully materialized GameSnapshot with genre/world slugs set.
+pub fn materialize_from_genre_pack(
+    history_value: &serde_json::Value,
+    maturity: CampaignMaturity,
+    genre_slug: &str,
+    world_slug: &str,
+) -> Result<GameSnapshot, String> {
+    let chapters = parse_history_chapters(history_value)?;
+
+    let mut snap = WorldBuilder::new()
+        .at_maturity(maturity)
+        .with_chapters(chapters)
+        .build();
+
+    snap.genre_slug = genre_slug.to_string();
+    snap.world_slug = world_slug.to_string();
+
+    Ok(snap)
+}

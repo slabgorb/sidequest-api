@@ -163,6 +163,7 @@ pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
 pub use voice_router::{VoiceAssignment, VoiceRouter};
 pub use world_materialization::{
-    materialize_world, CampaignMaturity, ChapterCharacter, ChapterNarrativeEntry, ChapterNpc,
-    ChapterTrope, HistoryChapter, WorldBuilder,
+    materialize_from_genre_pack, materialize_world, parse_history_chapters, CampaignMaturity,
+    ChapterCharacter, ChapterNarrativeEntry, ChapterNpc, ChapterTrope, HistoryChapter,
+    WorldBuilder,
 };
