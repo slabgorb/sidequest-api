@@ -2,52 +2,34 @@
 
 use sidequest_game::NpcRegistryEntry;
 
-/// Build the NPC registry context string for the narrator prompt.
-pub(crate) fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> String {
-    if registry.is_empty() {
-        return String::new();
-    }
-    let mut lines = vec!["\nACTIVE NPCs — CANONICAL IDENTITY (do NOT contradict):\nThese NPCs have been established in this session. Their names, pronouns, gender, physical appearance, and roles are LOCKED. If an NPC was described as male (\"Big man, missing an ear\"), they stay male in ALL future narration. Never flip gender, change names, or alter physical descriptions:".to_string()];
-    for entry in registry {
-        let mut desc = format!("- {}", entry.name);
-        if !entry.pronouns.is_empty() {
-            desc.push_str(&format!(" ({})", entry.pronouns));
-        }
-        if !entry.role.is_empty() {
-            desc.push_str(&format!(", {}", entry.role));
-        }
-        // Physical description — age and appearance are identity-locked
-        let mut physical: Vec<&str> = Vec::new();
-        if !entry.age.is_empty() {
-            physical.push(&entry.age);
-        }
-        if !entry.appearance.is_empty() {
-            physical.push(&entry.appearance);
-        }
-        if !physical.is_empty() {
-            desc.push_str(&format!(" [{}]", physical.join("; ")));
-        }
-        if !entry.ocean_summary.is_empty() {
-            desc.push_str(&format!(" | personality: {}", entry.ocean_summary));
-        }
-        if !entry.location.is_empty() {
-            desc.push_str(&format!(" — at {}", entry.location));
-        }
-        lines.push(desc);
-    }
-    lines.join("\n")
-}
-
-/// Build budgeted NPC registry context — scene-present NPCs get full entries,
-/// others get name+role only.
+/// Build budgeted NPC registry context.
+///
+/// If `references_npc` is true (player mentioned an NPC), scene-present NPCs
+/// get full entries with appearance, personality, and identity-lock rules.
+/// If false, all NPCs get compact name+role only — the narrator doesn't need
+/// full profiles when the player isn't interacting with anyone.
 pub(crate) fn build_npc_registry_context_budgeted(
     registry: &[NpcRegistryEntry],
     current_turn: u32,
+    references_npc: bool,
 ) -> String {
     if registry.is_empty() {
         return String::new();
     }
 
+    if !references_npc {
+        // Compact: just names so the narrator doesn't invent duplicates
+        let names: Vec<String> = registry.iter()
+            .map(|e| if e.role.is_empty() {
+                e.name.clone()
+            } else {
+                format!("{} ({})", e.name, e.role)
+            })
+            .collect();
+        return format!("\nKnown NPCs: {}", names.join(", "));
+    }
+
+    // Full profiles for scene-present NPCs, name+role for others
     let mut scene_npcs = Vec::new();
     let mut background_names = Vec::new();
 
