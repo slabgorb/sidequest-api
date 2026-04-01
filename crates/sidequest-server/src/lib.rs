@@ -1215,6 +1215,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut narrator_vocabulary = sidequest_protocol::NarratorVocabulary::default();
     // Pending trope beat context — fired beats from previous turn, injected into next narrator prompt.
     let mut pending_trope_context: Option<String> = None;
+    // Achievement tracker — persisted across turns, tracks earned narrative milestones (story 15-13).
+    let mut achievement_tracker = sidequest_game::achievement::AchievementTracker::default();
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
     let prerender_scheduler: std::sync::Arc<
@@ -1266,6 +1268,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut narrator_verbosity,
                         &mut narrator_vocabulary,
                         &mut pending_trope_context,
+                        &mut achievement_tracker,
                     )
                     .await;
                     for resp in responses {
@@ -1423,6 +1426,7 @@ async fn dispatch_message(
     narrator_verbosity: &mut sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
+    achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
 ) -> Vec<GameMessage> {
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -1464,6 +1468,7 @@ async fn dispatch_message(
                 narrator_verbosity,
                 narrator_vocabulary,
                 pending_trope_context,
+                achievement_tracker,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1746,6 +1751,7 @@ async fn dispatch_message(
                 narrator_verbosity,
                 narrator_vocabulary,
                 pending_trope_context,
+                achievement_tracker,
             )
             .await
         }
@@ -1805,6 +1811,7 @@ async fn dispatch_message(
                 narrator_verbosity: *narrator_verbosity,
                 narrator_vocabulary: *narrator_vocabulary,
                 pending_trope_context,
+                achievement_tracker,
             })
             .await
         }
@@ -1867,6 +1874,7 @@ async fn dispatch_connect(
     narrator_verbosity: &mut sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: &mut sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
+    achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -1936,6 +1944,7 @@ async fn dispatch_connect(
                         *combat_state = saved.snapshot.combat.clone();
                         *chase_state = saved.snapshot.chase.clone();
                         *resource_state = saved.snapshot.resource_state.clone();
+                        *achievement_tracker = saved.snapshot.achievement_tracker.clone();
                         let has_encounter = saved.snapshot.encounter.is_some();
                         tracing::info!(
                             trope_count = trope_states.len(),
@@ -2516,6 +2525,7 @@ async fn dispatch_character_creation(
     narrator_verbosity: &sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: &sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
+    achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -2753,6 +2763,7 @@ async fn dispatch_character_creation(
                             narrator_verbosity: *narrator_verbosity,
                             narrator_vocabulary: *narrator_vocabulary,
                             pending_trope_context,
+                            achievement_tracker,
                         })
                         .await;
 
