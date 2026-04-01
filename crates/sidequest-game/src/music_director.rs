@@ -554,6 +554,7 @@ mod tests {
 
         AudioConfig {
             mood_tracks,
+            mood_keywords: HashMap::new(),
             sfx_library: HashMap::new(),
             creature_voice_presets: HashMap::new(),
             mixer: MixerConfig {
