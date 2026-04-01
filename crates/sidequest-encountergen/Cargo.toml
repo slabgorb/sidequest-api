@@ -1,0 +1,17 @@
+[package]
+name = "sidequest-encountergen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Encounter generator — enemy stat blocks, abilities, visual prompts from genre pack data"
+
+[[bin]]
+name = "sidequest-encountergen"
+path = "src/main.rs"
+
+[dependencies]
+sidequest-genre = { path = "../sidequest-genre" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true

@@ -123,12 +123,12 @@ pub enum WatcherEventType {
     JsonExtractionResult,
     /// A game state machine transition occurred.
     StateTransition,
-    /// A complete turn record was processed.
+    /// A full turn has completed (from orchestrator TurnRecord bridge).
     TurnComplete,
-    /// Prompt was assembled for an agent call.
-    PromptAssembled,
-    /// Lore retrieval occurred.
+    /// A lore retrieval operation completed (story 18-4).
     LoreRetrieval,
+    /// A prompt was assembled with zone breakdown (story 18-6).
+    PromptAssembled,
     /// Game state snapshot was captured.
     GameStateSnapshot,
 }
@@ -237,6 +237,14 @@ pub struct Args {
     /// Disable TTS voice synthesis (narration text is still sent, just no audio).
     #[arg(long, default_value = "false")]
     no_tts: bool,
+
+    /// Run in headless mode (no TTS, no image rendering).
+    #[arg(long, default_value = "false")]
+    headless: bool,
+
+    /// Enable trace-level logging.
+    #[arg(long, default_value = "false")]
+    trace: bool,
 }
 
 impl Args {
@@ -258,6 +266,16 @@ impl Args {
     /// Whether TTS is disabled.
     pub fn no_tts(&self) -> bool {
         self.no_tts
+    }
+
+    /// Whether headless mode is enabled.
+    pub fn headless(&self) -> bool {
+        self.headless
+    }
+
+    /// Whether trace-level logging is enabled.
+    pub fn trace(&self) -> bool {
+        self.trace
     }
 }
 
@@ -499,6 +517,23 @@ impl AppState {
                 tts_disabled: false,
                 namegen_binary_path: None,
             }),
+        }
+    }
+
+    /// Create AppState with a GameService, save directory, and headless flag.
+    ///
+    /// In headless mode, TTS and image rendering are skipped.
+    pub fn new_with_options(
+        game_service: Box<dyn GameService>,
+        genre_packs_path: PathBuf,
+        save_dir: PathBuf,
+        headless: bool,
+    ) -> Self {
+        let state = Self::new_with_game_service(game_service, genre_packs_path, save_dir);
+        if headless {
+            state.with_tts_disabled(true)
+        } else {
+            state
         }
     }
 
@@ -1659,8 +1694,6 @@ async fn dispatch_message(
     }
 }
 
-/// Handle SESSION_EVENT{connect}.
-#[allow(clippy::too_many_arguments)]
 // Watcher WebSocket Handler — extracted to watcher.rs
 
 // ---------------------------------------------------------------------------

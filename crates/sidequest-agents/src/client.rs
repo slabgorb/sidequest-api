@@ -4,7 +4,6 @@
 //! consistent error types, and a standard fallback policy.
 
 use std::time::Duration;
-use tracing::{error, warn};
 
 /// Default timeout for Claude CLI invocations (120 seconds).
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);

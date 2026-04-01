@@ -6,6 +6,8 @@ members = [
     "crates/sidequest-agents",
     "crates/sidequest-server",
     "crates/sidequest-daemon-client",
+    "crates/sidequest-encountergen",
+    "crates/sidequest-loadoutgen",
     "crates/sidequest-namegen",
 ]
 resolver = "2"

@@ -131,6 +131,11 @@ Fields:
   Only emit when a SIGNIFICANT personality-shaping event occurs, not routine interactions.
 - scene_intent: ALWAYS INCLUDE. What the NEXT player action is likely to be.
   One of: Combat, Dialogue, Exploration, Examine, Chase.
+- sfx_triggers: list of SFX IDs to play this turn (omit if none).
+  Pick from the available SFX library for this genre. Choose based on what
+  HAPPENED in the narration — actions, impacts, environment. A sword being
+  BOUGHT is commerce (coin_drop), not combat (sword_clash). A door being
+  DESCRIBED is not a door_creak. Match the action, not the noun.
 - resource_deltas: object mapping resource names to signed numeric deltas.
   Only include resources that CHANGED this turn. Positive = gained, negative = spent/lost.
   Example: {\"luck\": -1} means the player spent 1 Luck. {\"heat\": 0.5} means Heat rose by 0.5.

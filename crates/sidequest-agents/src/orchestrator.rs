@@ -76,6 +76,19 @@ pub struct ActionResult {
     pub action_flags: Option<ActionFlags>,
 }
 
+/// Configuration for a script tool binary (ADR-056).
+///
+/// Each tool is a Rust binary that generates game objects from genre pack data.
+/// The narrator subprocess gets `--allowedTools Bash(...)` to invoke these tools
+/// autonomously during narration.
+#[derive(Debug, Clone)]
+pub struct ScriptToolConfig {
+    /// Absolute path to the tool binary.
+    pub binary_path: String,
+    /// Absolute path to the `genre_packs/` directory.
+    pub genre_packs_path: String,
+}
+
 /// Facade trait for the game engine. Server depends on this, never on internals.
 ///
 /// ADR-005: Graceful degradation — timeout produces a degraded ActionResult, not an error.
@@ -90,19 +103,6 @@ pub trait GameService: Send + Sync {
 /// The orchestrator state machine. Implements GameService.
 ///
 /// Routes player input → intent classification → agent dispatch → patch application → delta.
-/// Server-level configuration for the NPC name generator tool.
-///
-/// When set, the narrator subprocess gets `--allowedTools Bash(...)` so it can
-/// invoke `sidequest-namegen` autonomously when introducing new NPCs.
-/// The genre is session-specific and comes from TurnContext.
-#[derive(Debug, Clone)]
-pub struct NamegenConfig {
-    /// Absolute path to the `sidequest-namegen` binary.
-    pub binary_path: String,
-    /// Absolute path to the `genre_packs/` directory.
-    pub genre_packs_path: String,
-}
-
 pub struct Orchestrator {
     /// Sender end of the watcher channel for TurnRecord delivery.
     pub watcher_tx: mpsc::Sender<TurnRecord>,
@@ -125,8 +125,8 @@ pub struct Orchestrator {
     troper: TroperAgent,
     /// SOUL.md principles — injected into every prompt in the Early zone.
     soul_text: Option<String>,
-    /// NPC name generator tool configuration. When Some, narrator gets tool access.
-    namegen_config: Option<NamegenConfig>,
+    /// Script tool configurations (ADR-056). Keyed by tool name.
+    script_tools: HashMap<String, ScriptToolConfig>,
 }
 
 impl Orchestrator {
@@ -162,8 +162,29 @@ impl Orchestrator {
             drama_thresholds: DramaThresholds::default(),
             troper: TroperAgent::new(),
             soul_text,
-            namegen_config: None,
+            script_tools: HashMap::new(),
         }
+    }
+
+    /// Register a script tool binary (ADR-056).
+    pub fn register_script_tool(&mut self, name: &str, config: ScriptToolConfig) {
+        info!(
+            tool = %name,
+            binary = %config.binary_path,
+            "Script tool registered"
+        );
+        self.script_tools.insert(name.to_string(), config);
+    }
+
+    /// Build the `--allowedTools` spec for the narrator subprocess.
+    ///
+    /// Returns tool spec strings that let the narrator invoke registered script tools
+    /// via `Bash(...)`. Empty if no tools are configured.
+    fn narrator_allowed_tools(&self) -> Vec<String> {
+        self.script_tools
+            .values()
+            .map(|cfg| format!("Bash({}:*)", cfg.binary_path))
+            .collect()
     }
 
     /// Access the tension tracker (pacing engine).
@@ -186,27 +207,6 @@ impl Orchestrator {
         &self.troper
     }
 
-    /// Configure the NPC name generator tool for narrator tool use.
-    pub fn set_namegen_config(&mut self, config: NamegenConfig) {
-        self.namegen_config = Some(config);
-    }
-
-    /// Build the `--allowedTools` spec for the narrator subprocess.
-    ///
-    /// Returns the tool spec strings that let the narrator invoke `sidequest-namegen`
-    /// via `Bash(...)`. Empty if namegen is not configured.
-    fn narrator_allowed_tools(&self) -> Vec<String> {
-        match &self.namegen_config {
-            Some(cfg) => {
-                // Allow only exact invocation of the namegen binary
-                vec![format!(
-                    "Bash({}:*)",
-                    cfg.binary_path,
-                )]
-            }
-            None => vec![],
-        }
-    }
 }
 
 impl GameService for Orchestrator {
@@ -273,6 +273,105 @@ impl GameService for Orchestrator {
                 ));
             }
 
+            // Script tool instructions (Valley zone — available tools + commands)
+            // Skill-style: clear command reference + checklist for using the result.
+            if let Some(ref genre) = context.genre {
+                for (tool_name, cfg) in &self.script_tools {
+                    let tool_section = match tool_name.as_str() {
+                        "encountergen" => format!(
+                            "[ENCOUNTER GENERATOR]\n\
+                             Generate enemy stat blocks from genre pack data.\n\n\
+                             Command:\n\
+                             ```\n\
+                             {} --genre-packs-path {} --genre {} [options]\n\
+                             ```\n\n\
+                             | Flag | Required | Description |\n\
+                             |------|----------|-------------|\n\
+                             | --tier | No | Power tier 1-4 (default: random 1-3) |\n\
+                             | --count | No | Number of enemies (default: 1) |\n\
+                             | --class | No | Character class (e.g., Mutant, Scavenger) |\n\
+                             | --culture | No | Culture for name generation |\n\
+                             | --archetype | No | Archetype (e.g., \"Wasteland Trader\") |\n\
+                             | --role | No | Role description (e.g., \"ambush predator\") |\n\
+                             | --context | No | Scene context for visual prompt |\n\n\
+                             When to call: any time new enemies enter the scene.\n\
+                             Pick flags based on narrative context — use --culture for the local faction, \
+                             --tier for the threat level, --role for the enemy's purpose in the scene.\n\n\
+                             Output: JSON with enemies[].{{name, class, level, hp, abilities, weaknesses, \
+                             stat_scores, visual_prompt, ...}}\n\n\
+                             Checklist after calling:\n\
+                             - [ ] Use the generated name in your narration\n\
+                             - [ ] Reference abilities from the abilities list (not invented ones)\n\
+                             - [ ] Include the enemy in npcs_present with is_new: true\n\
+                             - [ ] Set hp_changes in combat patch using the generated HP as the baseline\n\
+                             - [ ] The visual_prompt field goes to image generation automatically",
+                            cfg.binary_path, cfg.genre_packs_path, genre,
+                        ),
+                        "namegen" => format!(
+                            "[NPC GENERATOR]\n\
+                             Generate NPC identity from genre pack data.\n\n\
+                             Command:\n\
+                             ```\n\
+                             {} --genre-packs-path {} --genre {} [options]\n\
+                             ```\n\n\
+                             | Flag | Required | Description |\n\
+                             |------|----------|-------------|\n\
+                             | --culture | No | Culture/faction name |\n\
+                             | --archetype | No | Archetype name |\n\
+                             | --gender | No | male, female, nonbinary |\n\
+                             | --role | No | Role override |\n\
+                             | --description | No | Physical description hints |\n\n\
+                             When to call: any time a new NPC appears (is_new: true).\n\
+                             Pick --culture based on where the scene takes place.\n\n\
+                             Output: JSON with {{name, pronouns, culture, role, appearance, personality, \
+                             dialogue_quirks, history, ocean, inventory, trope_connections}}\n\n\
+                             Checklist after calling:\n\
+                             - [ ] Use the generated name exactly\n\
+                             - [ ] Use dialogue_quirks to flavor their speech\n\
+                             - [ ] Include in npcs_present with the generated details\n\
+                             - [ ] Reference their role and appearance in narration",
+                            cfg.binary_path, cfg.genre_packs_path, genre,
+                        ),
+                        "loadoutgen" => format!(
+                            "[STARTING LOADOUT GENERATOR]\n\
+                             Generate starting equipment and currency for a character.\n\n\
+                             Command:\n\
+                             ```\n\
+                             {} --genre-packs-path {} --genre {} --class <class_name>\n\
+                             ```\n\n\
+                             | Flag | Required | Description |\n\
+                             |------|----------|-------------|\n\
+                             | --class | Yes | Character class or archetype name |\n\
+                             | --tier | No | Power tier 1-4 (default: 1) |\n\n\
+                             When to call: at character creation completion or session start, \
+                             when introducing the character's starting gear.\n\n\
+                             Output: JSON with {{class, currency_name, starting_gold, equipment[], \
+                             narrative_hook, total_value}}\n\
+                             Each equipment item has: id, name, description, category, value, tags, lore.\n\n\
+                             Checklist after calling:\n\
+                             - [ ] Weave the narrative_hook into the opening scene naturally\n\
+                             - [ ] Reference specific items by name when the character uses them\n\
+                             - [ ] Use the currency_name for all money references\n\
+                             - [ ] Include equipment in the character's inventory state",
+                            cfg.binary_path, cfg.genre_packs_path, genre,
+                        ),
+                        unknown => {
+                            warn!(
+                                tool = %unknown,
+                                "Script tool registered but has no prompt section — narrator will not know how to use it"
+                            );
+                            continue;
+                        }
+                    };
+                    builder.add_section(PromptSection::new(
+                        &format!("script_tool_{}", tool_name),
+                        tool_section,
+                        AttentionZone::Valley,
+                        SectionCategory::State,
+                    ));
+                }
+            }
+
             // Game state section (Valley zone — lower attention, grounding context)
             if let Some(state) = &context.state_summary {
                 builder.add_section(PromptSection::new(
@@ -281,31 +380,6 @@ impl GameService for Orchestrator {
                     AttentionZone::Valley,
                     SectionCategory::State,
                 ));
-            }
-
-            // NPC name generator tool instructions (Valley zone — available cultures + command)
-            if let Some(ref cfg) = self.namegen_config {
-                if let Some(ref genre) = context.genre {
-                    let tool_section = format!(
-                        "[NPC NAME GENERATOR TOOL]\n\
-                         When you need to introduce a NEW NPC, call this tool via Bash:\n\
-                         ```\n\
-                         {} --genre-packs-path {} --genre {}\n\
-                         ```\n\
-                         Optional flags: --culture <name>, --archetype <name>, --gender <male|female|nonbinary>, --role <role>\n\
-                         The tool outputs a JSON block with: name, pronouns, culture, faction, archetype, role, \
-                         appearance, personality, dialogue_quirks, history, ocean, inventory, trope_connections.\n\
-                         Use the generated name and details in your narration and npcs_present block.\n\
-                         Pick --culture based on the setting context. Omit it for a random culture.",
-                        cfg.binary_path, cfg.genre_packs_path, genre,
-                    );
-                builder.add_section(PromptSection::new(
-                    "npc_namegen_tool",
-                    tool_section,
-                    AttentionZone::Valley,
-                    SectionCategory::State,
-                ));
-                }
             }
 
             // Active trope summary (Valley zone — background context for all agents)
@@ -894,7 +968,7 @@ pub struct TurnContext {
     /// Active trope summary for background context (all agents, Valley zone).
     pub active_trope_summary: Option<String>,
     /// Genre slug for the current session (e.g., "mutant_wasteland").
-    /// Used to parameterize the NPC name generator tool.
+    /// Required for script tool prompt injection — tools need the genre to call the binary.
     pub genre: Option<String>,
 }
 
