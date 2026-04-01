@@ -260,7 +260,6 @@ routes:
 #[test]
 fn validation_rejects_invalid_exit_target() {
     use sidequest_genre::load_genre_pack;
-    use std::path::Path;
 
     // Build a minimal genre pack with a room that references a nonexistent room
     let dir = tempfile::tempdir().unwrap();
@@ -273,7 +272,10 @@ fn validation_rejects_invalid_exit_target() {
     // World files
     std::fs::write(
         world_dir.join("world.yaml"),
-        "name: Test Dungeon\nslug: test_dungeon\n",
+        "name: Test Dungeon
+slug: test_dungeon
+description: A test world
+",
     )
     .unwrap();
     std::fs::write(
@@ -331,7 +333,10 @@ fn validation_rejects_missing_bidirectional_exit() {
 
     std::fs::write(
         world_dir.join("world.yaml"),
-        "name: Test Dungeon\nslug: test_dungeon\n",
+        "name: Test Dungeon
+slug: test_dungeon
+description: A test world
+",
     )
     .unwrap();
     std::fs::write(
@@ -383,7 +388,10 @@ fn validation_allows_one_way_chute_without_return() {
 
     std::fs::write(
         world_dir.join("world.yaml"),
-        "name: Test Dungeon\nslug: test_dungeon\n",
+        "name: Test Dungeon
+slug: test_dungeon
+description: A test world
+",
     )
     .unwrap();
     std::fs::write(
@@ -437,7 +445,10 @@ fn validation_passes_valid_bidirectional_room_graph() {
 
     std::fs::write(
         world_dir.join("world.yaml"),
-        "name: Test Dungeon\nslug: test_dungeon\n",
+        "name: Test Dungeon
+slug: test_dungeon
+description: A test world
+",
     )
     .unwrap();
     std::fs::write(
@@ -493,7 +504,10 @@ fn validation_rejects_duplicate_room_ids() {
 
     std::fs::write(
         world_dir.join("world.yaml"),
-        "name: Test Dungeon\nslug: test_dungeon\n",
+        "name: Test Dungeon
+slug: test_dungeon
+description: A test world
+",
     )
     .unwrap();
     std::fs::write(
@@ -542,7 +556,10 @@ fn validation_rejects_invalid_starting_region_in_room_graph() {
 
     std::fs::write(
         world_dir.join("world.yaml"),
-        "name: Test Dungeon\nslug: test_dungeon\n",
+        "name: Test Dungeon
+slug: test_dungeon
+description: A test world
+",
     )
     .unwrap();
     std::fs::write(
@@ -613,24 +630,24 @@ fn write_minimal_genre_files(pack_dir: &std::path::Path) {
     .unwrap();
     std::fs::write(
         pack_dir.join("rules.yaml"),
-        "ability_score_names: [STR, DEX, CON, INT, WIS, CHA]\nconfrontations: []\n",
+        "ability_score_names: [STR, DEX, CON, INT, WIS, CHA]\nmagic_level: low\nstat_generation: standard\npoint_buy_budget: 27\nallowed_classes: [Fighter]\nallowed_races: [Human]\nclass_hp_bases:\n  Fighter: 10\nconfrontations: []\n",
     )
     .unwrap();
     std::fs::write(
         pack_dir.join("lore.yaml"),
-        "origin_myth: test\ncentral_conflict: test\n",
+        "world_name: ''\norigin_myth: test\ncentral_conflict: test\nhistory: ''\ngeography: ''\ncosmology: ''\n",
     )
     .unwrap();
     std::fs::write(
         pack_dir.join("theme.yaml"),
-        "genre: test\ntone: dark\nsetting_period: medieval\nadjectives:\n  - grim\nthematic_keywords:\n  - doom\n",
+        "primary: '#000000'\nsecondary: '#111111'\naccent: '#222222'\nbackground: '#FFFFFF'\nsurface: '#F0F0F0'\ntext: '#000000'\nborder_style: light\nweb_font_family: serif\ndinkus:\n  enabled: true\n  cooldown: 2\n  default_weight: medium\n  glyph:\n    light: '*'\n    medium: '⁂'\n    heavy: '✠ ⁂ ✠'\nsession_opener:\n  enabled: true\n  prefix_glyph: '⸙'\n  suffix_glyph: '⸙'\n",
     )
     .unwrap();
     std::fs::write(pack_dir.join("archetypes.yaml"), "[]\n").unwrap();
     std::fs::write(pack_dir.join("char_creation.yaml"), "[]\n").unwrap();
     std::fs::write(
         pack_dir.join("visual_style.yaml"),
-        "art_style: dark fantasy\ncolor_palette:\n  primary: '#000'\nimage_generation:\n  model: flux\n  guidance_scale: 7.5\n  style_prompt: dark fantasy\n  negative_prompt: bright\n",
+        "positive_suffix: 'dark fantasy'\nnegative_prompt: 'bright'\npreferred_model: flux\nbase_seed: 42\n",
     )
     .unwrap();
     std::fs::write(
@@ -640,18 +657,18 @@ fn write_minimal_genre_files(pack_dir: &std::path::Path) {
     .unwrap();
     std::fs::write(
         pack_dir.join("axes.yaml"),
-        "axes: []\n",
+        "definitions: []\n",
     )
     .unwrap();
     std::fs::write(
         pack_dir.join("audio.yaml"),
-        "moods: {}\n",
+        "mood_tracks: {}\nsfx_library: {}\ncreature_voice_presets: {}\nmixer:\n  music_volume: 0.8\n  sfx_volume: 0.9\n  voice_volume: 1.0\n  duck_music_for_voice: true\n  duck_amount_db: 3.0\n  crossfade_default_ms: 500\n",
     )
     .unwrap();
     std::fs::write(pack_dir.join("cultures.yaml"), "[]\n").unwrap();
     std::fs::write(
         pack_dir.join("prompts.yaml"),
-        "system: test\nnarrator: test\n",
+        "narrator: test\ncombat: test\nnpc: test\nworld_state: test\n",
     )
     .unwrap();
     std::fs::write(pack_dir.join("tropes.yaml"), "[]\n").unwrap();
