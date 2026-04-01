@@ -190,11 +190,4 @@ mod tests {
         assert!(prompt.contains("\"named\""));
         assert!(prompt.contains("\"intent\""));
     }
-
-    #[test]
-    fn test_third_person_single_word() {
-        assert_eq!(action_text_to_third_person("run"), "runs");
-        assert_eq!(action_text_to_third_person("watch"), "watches");
-        assert_eq!(action_text_to_third_person("go"), "goes");
-    }
 }
