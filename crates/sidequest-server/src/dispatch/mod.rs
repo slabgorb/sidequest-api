@@ -84,6 +84,8 @@ pub(crate) struct DispatchContext<'a> {
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
     pub aside: bool,
+    /// Opening scenario directive — injected into Early zone on turn 0 only, then consumed.
+    pub opening_directive: Option<String>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,

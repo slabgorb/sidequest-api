@@ -44,6 +44,7 @@ pub(crate) async fn dispatch_connect(
     npc_registry: &mut Vec<NpcRegistryEntry>,
     lore_store: &mut sidequest_game::LoreStore,
     opening_seed: &mut Option<String>,
+    opening_directive: &mut Option<String>,
     state: &AppState,
     player_id: &str,
     continuity_corrections: &mut String,
@@ -308,6 +309,7 @@ pub(crate) async fn dispatch_connect(
                             prerender_scheduler,
                             lore_store,
                             opening_seed,
+                            opening_directive,
                             genre,
                             world,
                             state,
@@ -332,6 +334,7 @@ pub(crate) async fn dispatch_connect(
                             prerender_scheduler,
                             lore_store,
                             opening_seed,
+                            opening_directive,
                             genre,
                             world,
                             state,
@@ -357,6 +360,7 @@ pub(crate) async fn dispatch_connect(
                     prerender_scheduler,
                     lore_store,
                     opening_seed,
+                    opening_directive,
                     genre,
                     world,
                     state,
@@ -411,6 +415,7 @@ pub(crate) async fn start_character_creation(
     prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     lore_store: &mut sidequest_game::LoreStore,
     opening_seed_out: &mut Option<String>,
+    opening_directive_out: &mut Option<String>,
     genre: &str,
     world_slug: &str,
     state: &AppState,
@@ -512,16 +517,16 @@ pub(crate) async fn start_character_creation(
         let idx = rand::thread_rng().gen_range(0..pack.openings.len());
         let hook = &pack.openings[idx];
 
-        // Inject opening directive into world context for the narrator's first turn
+        // Build opening directive — injected into Early zone on turn 0 only via DispatchContext
         let mut directive = format!(
-            "\n\n=== OPENING SCENARIO (first turn ONLY) ===\nArchetype: {}\nSituation: {}\nTone: {}",
+            "=== OPENING SCENARIO ===\nArchetype: {}\nSituation: {}\nTone: {}",
             hook.archetype, hook.situation, hook.tone
         );
         if !hook.avoid.is_empty() {
             directive.push_str(&format!("\nAVOID: {}", hook.avoid.join("; ")));
         }
         directive.push_str("\n=== END OPENING ===");
-        world_context_out.push_str(&directive);
+        *opening_directive_out = Some(directive);
 
         *opening_seed_out = Some(hook.first_turn_seed.clone());
 
@@ -580,6 +585,7 @@ pub(crate) async fn dispatch_character_creation(
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
     opening_seed: &Option<String>,
+    opening_directive: &mut Option<String>,
     axes_config: &Option<sidequest_genre::AxesConfig>,
     axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
@@ -794,6 +800,7 @@ pub(crate) async fn dispatch_character_creation(
                             resource_state,
                             resource_declarations,
                             aside: false,
+                            opening_directive: opening_directive.take(),
                             narrator_verbosity,
                             narrator_vocabulary,
                             pending_trope_context,

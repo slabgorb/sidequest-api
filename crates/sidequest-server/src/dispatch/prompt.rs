@@ -342,6 +342,14 @@ pub(crate) async fn build_prompt_context(
 
     state_summary.push_str("\n=== END PLAYER CHARACTER ===\n");
 
+    // Opening directive — turn 0 only, high-attention position before world context
+    if turn_number == 0 {
+        if let Some(ref directive) = ctx.opening_directive {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(directive);
+        }
+    }
+
     // World context — full for first 5 turns (establishing setting), compressed after
     if !ctx.world_context.is_empty() {
         state_summary.push('\n');
