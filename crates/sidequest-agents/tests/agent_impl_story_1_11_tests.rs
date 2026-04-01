@@ -181,6 +181,7 @@ mod agent_types_tests {
             scene_intent: None,
             resource_deltas: HashMap::new(),
             zone_breakdown: None,
+            lore_established: None,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -366,6 +367,7 @@ mod game_service_tests {
             scene_intent: None,
             resource_deltas: HashMap::new(),
             zone_breakdown: None,
+            lore_established: None,
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -411,6 +413,7 @@ mod error_handling_tests {
             scene_intent: None,
             resource_deltas: HashMap::new(),
             zone_breakdown: None,
+            lore_established: None,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

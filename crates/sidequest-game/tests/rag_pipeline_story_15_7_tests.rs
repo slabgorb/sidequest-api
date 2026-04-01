@@ -233,12 +233,18 @@ fn cosine_similarity_identical_vectors_returns_one() {
 
 #[test]
 fn cosine_similarity_orthogonal_returns_near_zero() {
-    // Two very different embeddings should have low similarity
-    let a = make_embedding(0.0, 384);
-    let b = make_embedding(100.0, 384);
+    // Construct actually orthogonal vectors: one on even indices, one on odd
+    let mut a = vec![0.0f32; 384];
+    let mut b = vec![0.0f32; 384];
+    for i in (0..384).step_by(2) {
+        a[i] = 1.0;
+    }
+    for i in (1..384).step_by(2) {
+        b[i] = 1.0;
+    }
     let sim = cosine_similarity(&a, &b);
     assert!(
-        sim < 0.5,
-        "Orthogonal-ish vectors should have low similarity, got {sim}"
+        sim.abs() < 1e-5,
+        "Orthogonal vectors should have similarity ~0.0, got {sim}"
     );
 }

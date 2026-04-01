@@ -65,6 +65,9 @@ pub struct ActionResult {
     /// Zone breakdown of the assembled prompt (story 18-6).
     /// Used by the Prompt Inspector dashboard tab.
     pub zone_breakdown: Option<ZoneBreakdown>,
+    /// Lore fragments established during this turn (story 15-7).
+    /// Extracted from the narrator's world_patch, fed to `accumulate_lore()` in dispatch.
+    pub lore_established: Option<Vec<String>>,
 }
 
 /// Facade trait for the game engine. Server depends on this, never on internals.
@@ -455,6 +458,7 @@ impl GameService for Orchestrator {
                     scene_intent: extraction.scene_intent,
                     resource_deltas: extraction.resource_deltas,
                     zone_breakdown: Some(prompt_zone_breakdown),
+                    lore_established: extraction.lore_established,
                 }
             }
             Err(e) => {
@@ -551,6 +555,8 @@ struct NarratorStructuredBlock {
     scene_intent: Option<String>,
     #[serde(default)]
     resource_deltas: HashMap<String, f64>,
+    #[serde(default)]
+    lore_established: Option<Vec<String>>,
 }
 
 /// Extracted structured data from a narrator response.
@@ -575,6 +581,8 @@ pub struct NarratorExtraction {
     pub scene_intent: Option<String>,
     /// Resource deltas extracted from narrator JSON block (story 16-1).
     pub resource_deltas: HashMap<String, f64>,
+    /// Lore fragments established this turn (story 15-7).
+    pub lore_established: Option<Vec<String>>,
     /// Extraction tier: 1=fenced JSON, 2=legacy array, 3=no structured data.
     pub tier: u8,
 }
@@ -611,6 +619,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     personality_events: block.personality_events,
                     scene_intent: block.scene_intent,
                     resource_deltas: block.resource_deltas,
+                    lore_established: block.lore_established,
                     tier: 1,
                 };
             }
@@ -635,6 +644,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     personality_events: vec![],
                     scene_intent: None,
                     resource_deltas: HashMap::new(),
+                    lore_established: None,
                     tier: 2,
                 };
             }
@@ -663,6 +673,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 personality_events: block.personality_events,
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
+                lore_established: block.lore_established,
                 tier: 2,
             };
         }
@@ -684,6 +695,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 personality_events: block.personality_events,
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
+                lore_established: block.lore_established,
                 tier: 2,
             };
         }
@@ -702,6 +714,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         personality_events: vec![],
         scene_intent: None,
         resource_deltas: HashMap::new(),
+        lore_established: None,
         tier: 3,
     }
 }

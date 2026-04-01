@@ -462,7 +462,7 @@ pub(crate) async fn build_prompt_context(
         };
         let lore_budget = 500; // ~500 tokens for lore context
         let selected =
-            sidequest_game::select_lore_for_prompt(ctx.lore_store, lore_budget, context_hint);
+            sidequest_game::select_lore_for_prompt(ctx.lore_store, lore_budget, context_hint, None);
 
         // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
         let lore_summary = sidequest_game::summarize_lore_retrieval(

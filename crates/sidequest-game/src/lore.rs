@@ -348,31 +348,67 @@ pub fn seed_lore_from_char_creation(
 
 /// Select lore fragments from the store that fit within the given token budget.
 ///
-/// When `context_hint` is provided, fragments whose content matches the hint
-/// keyword are prioritised. Among equally-prioritised fragments, earlier-added
-/// fragments are preferred. The returned vec never exceeds `budget` total tokens.
+/// When `query_embedding` is provided and fragments have embeddings, fragments
+/// are ranked by semantic similarity (cosine) to the query. Fragments without
+/// embeddings are ranked after those with embeddings.
+///
+/// When no `query_embedding` is given (or no fragments have embeddings),
+/// falls back to keyword matching via `context_hint`. Among equally-prioritised
+/// fragments, earlier-added fragments are preferred.
+///
+/// The returned vec never exceeds `budget` total tokens.
 pub fn select_lore_for_prompt<'a>(
     store: &'a LoreStore,
     budget: usize,
     context_hint: Option<&str>,
+    query_embedding: Option<&[f32]>,
 ) -> Vec<&'a LoreFragment> {
     if store.is_empty() || budget == 0 {
         return Vec::new();
     }
 
-    let hint_lower = context_hint.map(|h| h.to_lowercase());
+    // Check if semantic search is viable: we have a query embedding AND at least
+    // one fragment has an embedding.
+    let use_semantic = query_embedding.is_some()
+        && store
+            .fragments
+            .values()
+            .any(|f| f.embedding().is_some());
 
     let mut fragments: Vec<&LoreFragment> = store.fragments.values().collect();
-    // Stable sort by id first, then partition by hint match
-    fragments.sort_by_key(|f| f.id().to_string());
-    fragments.sort_by_key(|f| {
-        if let Some(ref hint) = hint_lower {
-            if f.content().to_lowercase().contains(hint) {
-                return 0;
+
+    if use_semantic {
+        let qe = query_embedding.unwrap();
+        // Sort by descending cosine similarity. Fragments without embeddings
+        // get similarity -1.0 so they rank last.
+        fragments.sort_by(|a, b| {
+            let sim_a = a
+                .embedding()
+                .map(|e| cosine_similarity(qe, e))
+                .unwrap_or(-1.0);
+            let sim_b = b
+                .embedding()
+                .map(|e| cosine_similarity(qe, e))
+                .unwrap_or(-1.0);
+            sim_b
+                .partial_cmp(&sim_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    } else {
+        // Keyword fallback
+        let hint_lower = context_hint.map(|h| h.to_lowercase());
+
+        // Stable sort by id first, then partition by hint match
+        fragments.sort_by_key(|f| f.id().to_string());
+        fragments.sort_by_key(|f| {
+            if let Some(ref hint) = hint_lower {
+                if f.content().to_lowercase().contains(hint) {
+                    return 0;
+                }
             }
-        }
-        1
-    });
+            1
+        });
+    }
 
     let mut selected = Vec::new();
     let mut remaining = budget;
@@ -1767,21 +1803,21 @@ mod tests {
     #[test]
     fn select_lore_empty_store_returns_empty() {
         let store = LoreStore::new();
-        let result = select_lore_for_prompt(&store, 1000, None);
+        let result = select_lore_for_prompt(&store, 1000, None, None);
         assert!(result.is_empty());
     }
 
     #[test]
     fn select_lore_zero_budget_returns_empty() {
         let store = injection_store();
-        let result = select_lore_for_prompt(&store, 0, None);
+        let result = select_lore_for_prompt(&store, 0, None, None);
         assert!(result.is_empty());
     }
 
     #[test]
     fn select_lore_large_budget_returns_all() {
         let store = injection_store();
-        let result = select_lore_for_prompt(&store, 100_000, None);
+        let result = select_lore_for_prompt(&store, 100_000, None, None);
         assert_eq!(result.len(), 3);
     }
 
@@ -1790,7 +1826,7 @@ mod tests {
         let store = injection_store();
         // Total tokens across all 3 fragments is well above 10.
         // With a budget of 15, we should not get all fragments.
-        let result = select_lore_for_prompt(&store, 15, None);
+        let result = select_lore_for_prompt(&store, 15, None, None);
         let total: usize = result.iter().map(|f| f.token_estimate()).sum();
         assert!(total <= 15, "total tokens {total} exceeds budget 15");
         assert!(
@@ -1802,7 +1838,7 @@ mod tests {
     #[test]
     fn select_lore_no_duplicates() {
         let store = injection_store();
-        let result = select_lore_for_prompt(&store, 100_000, None);
+        let result = select_lore_for_prompt(&store, 100_000, None, None);
         let mut ids: Vec<&str> = result.iter().map(|f| f.id()).collect();
         ids.sort();
         ids.dedup();
@@ -1813,7 +1849,7 @@ mod tests {
     fn select_lore_context_hint_prioritises_matching() {
         let store = injection_store();
         // "caverns" appears only in the geography fragment
-        let result = select_lore_for_prompt(&store, 15, Some("caverns"));
+        let result = select_lore_for_prompt(&store, 15, Some("caverns"), None);
         let ids: Vec<&str> = result.iter().map(|f| f.id()).collect();
         assert!(
             ids.contains(&"inj-geo-001"),
@@ -1847,7 +1883,7 @@ mod tests {
             ))
             .unwrap();
 
-        let result = select_lore_for_prompt(&store, 10, Some("dragons"));
+        let result = select_lore_for_prompt(&store, 10, Some("dragons"), None);
         let total: usize = result.iter().map(|f| f.token_estimate()).sum();
         assert!(total <= 10, "total tokens {total} exceeds budget 10");
     }
@@ -1859,7 +1895,7 @@ mod tests {
         // and stays within budget.
         let store = injection_store();
         let budget = store.total_tokens() / 2;
-        let result = select_lore_for_prompt(&store, budget, None);
+        let result = select_lore_for_prompt(&store, budget, None, None);
         let total: usize = result.iter().map(|f| f.token_estimate()).sum();
         assert!(total <= budget);
         assert!(!result.is_empty());
@@ -2545,7 +2581,7 @@ mod tests {
         store.add(history_fragment()).unwrap();
         store.add(geography_fragment()).unwrap();
         // None of these have embeddings — select_lore_for_prompt should still work
-        let selected = select_lore_for_prompt(&store, 1000, None);
+        let selected = select_lore_for_prompt(&store, 1000, None, None);
         assert_eq!(selected.len(), 2);
     }
 
