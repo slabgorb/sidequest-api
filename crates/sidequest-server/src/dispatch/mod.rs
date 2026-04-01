@@ -84,6 +84,8 @@ pub(crate) struct DispatchContext<'a> {
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
     pub aside: bool,
+    /// Opening scenario directive — injected into Early zone on turn 0 only, then consumed.
+    pub opening_directive: Option<String>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,
@@ -305,6 +307,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: trope_beat_directives,
         active_trope_summary,
+        genre: Some(ctx.genre_slug.to_string()),
     };
     let result = ctx
         .state
@@ -821,58 +824,100 @@ fn update_npc_registry(
                 }
             } else if npc.is_new {
                 let span = tracing::info_span!(
-                    "npc.ocean_assignment",
+                    "npc.registration",
                     npc_name = %npc.name,
                     npc_role = %npc.role,
                     ocean_summary = tracing::field::Empty,
                     archetype_source = tracing::field::Empty,
+                    namegen_validated = tracing::field::Empty,
                     genre = %ctx.genre_slug,
                 );
                 let _guard = span.enter();
 
-                let (ocean_profile, source) = {
-                    let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
-                    match GenreCode::new(ctx.genre_slug) {
-                        Ok(genre_code) => match loader.load(&genre_code) {
-                            Ok(pack) => Some(pack),
-                            Err(e) => {
-                                tracing::warn!(genre = %ctx.genre_slug, error = %e, "Failed to load genre pack for NPC OCEAN profile");
-                                None
-                            }
-                        },
-                        Err(e) => {
-                            tracing::warn!(genre = %ctx.genre_slug, error = %e, "Invalid genre code for NPC OCEAN profile");
-                            None
-                        }
+                // NPC GATE: Run sidequest-namegen server-side to generate an
+                // authoritative identity. This validates the narrator used the tool
+                // AND enriches the registry with culture/faction/archetype data.
+                let namegen_result = ctx.state.namegen_binary_path().and_then(|binary| {
+                    let output = std::process::Command::new(binary)
+                        .arg("--genre-packs-path")
+                        .arg(ctx.state.genre_packs_path())
+                        .arg("--genre")
+                        .arg(ctx.genre_slug)
+                        .arg("--role")
+                        .arg(if npc.role.is_empty() { "unknown" } else { &npc.role })
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .output()
+                        .ok()?;
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        tracing::warn!(
+                            error = %stderr,
+                            "npc_gate.namegen_failed — falling back to narrator-provided identity"
+                        );
+                        return None;
                     }
+                    serde_json::from_slice::<serde_json::Value>(&output.stdout).ok()
+                });
+
+                let (ocean_profile, ocean_summary, source) = if let Some(ref gen) = namegen_result {
+                    // Use the generated identity's OCEAN profile
+                    let profile = gen.get("ocean").and_then(|o| {
+                        Some(sidequest_genre::OceanProfile {
+                            openness: o.get("openness")?.as_f64()?,
+                            conscientiousness: o.get("conscientiousness")?.as_f64()?,
+                            extraversion: o.get("extraversion")?.as_f64()?,
+                            agreeableness: o.get("agreeableness")?.as_f64()?,
+                            neuroticism: o.get("neuroticism")?.as_f64()?,
+                        })
+                    }).unwrap_or_else(sidequest_genre::OceanProfile::random);
+                    let summary = gen.get("ocean_summary")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| profile.behavioral_summary());
+                    let src = gen.get("archetype")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("namegen")
+                        .to_string();
+                    (profile, summary, src)
+                } else {
+                    // Fallback: random archetype OCEAN from genre pack
+                    let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
+                    let from_pack = GenreCode::new(ctx.genre_slug).ok()
+                        .and_then(|code| loader.load(&code).ok())
                         .and_then(|pack| {
-                            let with_ocean: Vec<_> = pack
-                                .archetypes
-                                .iter()
-                                .filter(|a| a.ocean.is_some())
-                                .collect();
-                            if with_ocean.is_empty() {
-                                return None;
-                            }
+                            let with_ocean: Vec<_> = pack.archetypes.iter()
+                                .filter(|a| a.ocean.is_some()).collect();
+                            if with_ocean.is_empty() { return None; }
                             use rand::prelude::IndexedRandom;
-                            let archetype = with_ocean.choose(&mut rand::rng())?;
-                            let profile = archetype.ocean.as_ref()?.with_jitter(1.5);
-                            Some((profile, archetype.name.as_str().to_string()))
+                            let arch = with_ocean.choose(&mut rand::rng())?;
+                            let profile = arch.ocean.as_ref()?.with_jitter(1.5);
+                            Some((profile, arch.name.as_str().to_string()))
                         })
-                        .unwrap_or_else(|| {
-                            (
-                                sidequest_genre::OceanProfile::random(),
-                                "random".to_string(),
-                            )
-                        })
+                        .unwrap_or_else(|| (sidequest_genre::OceanProfile::random(), "random".to_string()));
+                    let summary = from_pack.0.behavioral_summary();
+                    (from_pack.0, summary, from_pack.1)
                 };
-                let ocean_summary = ocean_profile.behavioral_summary();
+
+                // Validation: log whether namegen was used
+                let validated = namegen_result.is_some();
+                span.record("namegen_validated", validated);
                 span.record("ocean_summary", &ocean_summary.as_str());
                 span.record("archetype_source", &source.as_str());
+
+                if !validated && ctx.state.namegen_binary_path().is_some() {
+                    tracing::warn!(
+                        npc_name = %npc.name,
+                        "npc_gate.validation_warning — namegen binary available but generation failed; narrator name accepted without tool verification"
+                    );
+                }
+
                 tracing::info!(
                     name = %npc.name, pronouns = %npc.pronouns, role = %npc.role,
                     ocean = %ocean_summary, archetype = %source,
-                    "npc_registry.new — created from structured data with OCEAN personality"
+                    namegen_validated = validated,
+                    "npc_registry.new — registered with {} identity",
+                    if validated { "namegen-enriched" } else { "fallback" }
                 );
                 ctx.npc_registry.push(NpcRegistryEntry {
                     name: npc.name.clone(),
@@ -892,6 +937,8 @@ fn update_npc_registry(
                     .field("name", &npc.name)
                     .field("role", &npc.role)
                     .field("ocean", &ocean_summary)
+                    .field("namegen_validated", validated)
+                    .field("archetype_source", &source)
                     .field("registry_size", ctx.npc_registry.len())
                     .send(ctx.state);
             }
@@ -1675,6 +1722,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: Some(ctx.genre_slug.to_string()),
     };
     let result = ctx
         .state

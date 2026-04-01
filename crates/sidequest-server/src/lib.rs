@@ -339,6 +339,9 @@ struct AppStateInner {
     sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     /// When true, skip TTS synthesis entirely (text narration still sent).
     tts_disabled: bool,
+    /// Path to the sidequest-namegen binary for server-side NPC identity generation.
+    /// None if the binary was not found at startup.
+    namegen_binary_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -494,6 +497,7 @@ impl AppState {
                 binary_broadcast_tx,
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
+                namegen_binary_path: None,
             }),
         }
     }
@@ -509,6 +513,19 @@ impl AppState {
     /// Whether TTS is disabled.
     pub fn tts_disabled(&self) -> bool {
         self.inner.tts_disabled
+    }
+
+    /// Set the path to the sidequest-namegen binary for server-side NPC validation.
+    pub fn with_namegen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_namegen_binary must be called before cloning")
+            .namegen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-namegen binary, if available.
+    pub fn namegen_binary_path(&self) -> Option<&Path> {
+        self.inner.namegen_binary_path.as_deref()
     }
 
     /// Get the persistence handle for save/load operations.
@@ -1045,6 +1062,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
+    let mut opening_seed: Option<String> = None;
+    let mut opening_directive: Option<String> = None;
     let mut axes_config: Option<sidequest_genre::AxesConfig> = None;
     let mut axis_values: Vec<sidequest_game::axis::AxisValue> = vec![];
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
@@ -1104,6 +1123,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
+                        &mut opening_seed,
+                        &mut opening_directive,
                         &mut axes_config,
                         &mut axis_values,
                         &mut visual_style,
@@ -1248,6 +1269,8 @@ async fn dispatch_message(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    opening_seed: &mut Option<String>,
+    opening_directive: &mut Option<String>,
     axes_config: &mut Option<sidequest_genre::AxesConfig>,
     axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
@@ -1308,6 +1331,8 @@ async fn dispatch_message(
                 turn_manager,
                 npc_registry,
                 lore_store,
+                opening_seed,
+                opening_directive,
                 state,
                 player_id,
                 continuity_corrections,
@@ -1521,6 +1546,8 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                opening_seed,
+                opening_directive,
                 axes_config,
                 axis_values,
                 visual_style,
@@ -1604,6 +1631,7 @@ async fn dispatch_message(
                     resource_state,
                     resource_declarations,
                     aside,
+                    opening_directive: None,
                     narrator_verbosity,
                     narrator_vocabulary,
                     pending_trope_context,

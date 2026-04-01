@@ -51,6 +51,8 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     let voice_presets: Option<VoicePresets> = load_yaml_optional(&path.join("voice_presets.yaml"))?;
     let drama_thresholds: Option<DramaThresholds> =
         load_yaml_optional(&path.join("pacing.yaml"))?;
+    let openings: Vec<OpeningHook> =
+        load_yaml_optional(&path.join("openings.yaml"))?.unwrap_or_default();
 
     // Load worlds and scenarios from subdirectories
     let worlds = load_subdirectories(path, "worlds", |p| load_single_world(p, &genre_tropes))?;
@@ -77,6 +79,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         worlds,
         scenarios,
         drama_thresholds,
+        openings,
     })
 }
 

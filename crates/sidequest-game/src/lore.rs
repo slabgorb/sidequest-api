@@ -1354,6 +1354,7 @@ mod tests {
             worlds: HashMap::new(),
             scenarios: HashMap::new(),
             drama_thresholds: None,
+            openings: vec![],
         }
     }
 
