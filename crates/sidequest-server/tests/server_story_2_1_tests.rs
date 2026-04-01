@@ -543,8 +543,8 @@ fn player_id_new_always_valid() {
 
 /// AppState inner fields must be private. We verify via the public API —
 /// there must be getter methods, not direct field access.
-#[test]
-fn app_state_genre_packs_path_via_getter() {
+#[tokio::test]
+async fn app_state_genre_packs_path_via_getter() {
     let state = test_app_state();
     // This should compile — genre_packs_path() is a getter
     let _path = state.genre_packs_path();

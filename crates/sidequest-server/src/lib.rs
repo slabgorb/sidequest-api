@@ -3156,13 +3156,24 @@ pub fn test_app_state() -> AppState {
     use sidequest_agents::orchestrator::Orchestrator;
     use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 
-    // Use the real genre_packs path if available, otherwise a temp path
-    let genre_packs_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    // Find genre_packs path — check both orchestrator layouts:
+    // oq-2 (sidequest-content/genre_packs/ subrepo) and oq-1 (genre_packs/ at root).
+    let orchestrator_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent() // crates/
         .and_then(|p| p.parent()) // sidequest-api/
-        .and_then(|p| p.parent()) // oq-1/ (orchestrator root)
-        .map(|p| p.join("genre_packs"))
-        .unwrap_or_else(|| PathBuf::from("/tmp/test-genre-packs"));
+        .and_then(|p| p.parent()) // orchestrator root
+        .map(PathBuf::from)
+        .expect("Cannot resolve orchestrator root from CARGO_MANIFEST_DIR");
+    let genre_packs_path = if orchestrator_root.join("sidequest-content/genre_packs").exists() {
+        orchestrator_root.join("sidequest-content/genre_packs")
+    } else if orchestrator_root.join("genre_packs").exists() {
+        orchestrator_root.join("genre_packs")
+    } else {
+        panic!(
+            "genre_packs not found at {:?}/sidequest-content/genre_packs or {:?}/genre_packs",
+            orchestrator_root, orchestrator_root
+        );
+    };
 
     let (watcher_tx, _watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);

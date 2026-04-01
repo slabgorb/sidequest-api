@@ -202,10 +202,10 @@ pub fn spawn_image_broadcaster(
                     let _ = ws_tx.send(msg);
                 }
                 RenderJobResult::Failed { job_id, error } => {
-                    panic!(
-                        "RENDER PIPELINE FAILED — job_id={}, error={}. \
-                         No fallback. No silent skip. Fix the pipeline.",
-                        job_id, error
+                    tracing::error!(
+                        job_id = %job_id,
+                        error = %error,
+                        "RENDER PIPELINE FAILED — no fallback, no silent skip"
                     );
                 }
                 _ => {
@@ -295,10 +295,10 @@ pub fn spawn_image_broadcaster_with_throttle(
                     let _ = ws_tx.send(msg);
                 }
                 RenderJobResult::Failed { job_id, error } => {
-                    panic!(
-                        "RENDER PIPELINE FAILED — job_id={}, error={}. \
-                         No fallback. No silent skip. Fix the pipeline.",
-                        job_id, error
+                    tracing::error!(
+                        job_id = %job_id,
+                        error = %error,
+                        "RENDER PIPELINE FAILED — no fallback, no silent skip"
                     );
                 }
                 _ => {

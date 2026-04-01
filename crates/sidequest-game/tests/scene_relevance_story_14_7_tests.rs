@@ -186,9 +186,11 @@ fn verdict_rejected_has_no_retry_flag() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn validates_against_location_context() {
+fn location_coherence_deferred_to_llm() {
     let validator = SceneRelevanceValidator::new();
-    // Subject describes a forest scene but we're in a tavern
+    // Subject describes a forest scene but we're in a tavern.
+    // Location coherence is handled by the LLM continuity validator,
+    // not the scene relevance validator (check_location returns None).
     let subject = make_subject(
         vec![],
         SceneType::Exploration,
@@ -196,14 +198,10 @@ fn validates_against_location_context() {
     );
     let context = make_context(vec![], "The Rusty Tankard Tavern", false);
 
-    // Location mismatch should be flagged (entities are fine — empty)
-    // The validator should check location coherence
     let verdict = validator.evaluate(&subject, &context);
-    // This is a design decision: location mismatch with no entity mismatch
-    // may still be rejected or flagged. We test that location IS considered.
     assert!(
-        verdict.is_rejected(),
-        "prompt about forest should be rejected when location is a tavern"
+        verdict.is_approved(),
+        "location coherence is deferred to LLM — validator should approve"
     );
 }
 
