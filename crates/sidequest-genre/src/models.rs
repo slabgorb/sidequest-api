@@ -1753,13 +1753,63 @@ pub struct WorldConfig {
 // cartography.yaml
 // ═══════════════════════════════════════════════════════════
 
+/// Navigation mode for a world's cartography.
+///
+/// `Region` (default) uses freeform location strings with region metadata.
+/// `RoomGraph` uses validated room IDs with checked exits — required for
+/// dungeon crawl genre packs where room transitions drive game mechanics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigationMode {
+    /// Freeform region-based navigation (default for all existing genre packs).
+    Region,
+    /// Validated room graph with checked exits (dungeon crawl mode).
+    RoomGraph,
+}
+
+impl Default for NavigationMode {
+    fn default() -> Self {
+        Self::Region
+    }
+}
+
+/// A single exit from a room to another room.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoomExit {
+    /// Target room ID this exit leads to.
+    pub target: String,
+    /// Cardinal or relative direction (north, south, up, down, etc.).
+    pub direction: String,
+    /// Narrative description of the exit.
+    pub description: String,
+    /// If true, this is a one-way passage (chute/drop) — no return path required.
+    #[serde(default)]
+    pub one_way: bool,
+}
+
+/// A room in the dungeon room graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoomDef {
+    /// Unique room identifier (slug).
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Narrative description of the room.
+    pub description: String,
+    /// Exits leading to other rooms.
+    #[serde(default)]
+    pub exits: Vec<RoomExit>,
+}
+
 /// Map and region configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CartographyConfig {
     /// World name.
     #[serde(default)]
     pub world_name: String,
-    /// Starting region slug.
+    /// Starting region slug (or starting room ID in room_graph mode).
     #[serde(default)]
     pub starting_region: String,
     /// Map style prompt for image generation.
@@ -1768,12 +1818,18 @@ pub struct CartographyConfig {
     /// Map resolution in pixels [width, height] (null if not specified).
     #[serde(default)]
     pub map_resolution: Option<[u32; 2]>,
-    /// Regions keyed by slug.
+    /// Navigation mode — Region (default) or RoomGraph.
+    #[serde(default)]
+    pub navigation_mode: NavigationMode,
+    /// Regions keyed by slug (used in Region mode).
     #[serde(default)]
     pub regions: HashMap<String, Region>,
-    /// Routes between regions.
+    /// Routes between regions (used in Region mode).
     #[serde(default)]
     pub routes: Vec<Route>,
+    /// Room definitions (used in RoomGraph mode).
+    #[serde(default)]
+    pub rooms: Vec<RoomDef>,
 }
 
 /// A map region.
