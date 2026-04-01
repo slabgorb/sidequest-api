@@ -179,9 +179,11 @@ pub fn build_from_culture<R: Rng>(
 
         let mut word_list = slot_config.word_list.clone().unwrap_or_default();
 
-        // Load names_file if present — one name per line from corpus/
+        // Load names_file if present — check names/ sibling of corpus/, then corpus/ itself
         if let Some(ref names_file) = slot_config.names_file {
-            let names_path = corpus_dir.join(names_file);
+            let names_dir = corpus_dir.parent().unwrap_or(corpus_dir).join("names").join(names_file);
+            let corpus_fallback = corpus_dir.join(names_file);
+            let names_path = if names_dir.exists() { names_dir } else { corpus_fallback };
             if let Ok(text) = std::fs::read_to_string(&names_path) {
                 let file_names: Vec<String> = text
                     .lines()

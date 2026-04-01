@@ -81,12 +81,17 @@ impl MarkovChain {
             .or_insert(1);
     }
 
-    /// Train on raw text — splits into words, strips non-letters.
+    /// Train on raw text — splits into words, keeps only capitalized words (proper nouns).
+    ///
+    /// Filters out common/function words by requiring the first character to be uppercase.
+    /// This works across all languages: "The", "nosotros", "aber" are filtered out while
+    /// "Friedrich", "Zarathustra", "Montmartre" are kept. Minimum 3 chars to skip
+    /// single-letter words and abbreviations.
     pub fn train(&mut self, text: &str) {
         for line in text.lines() {
             for word in line.split_whitespace() {
                 let cleaned: String = word.chars().filter(|c| c.is_alphabetic()).collect();
-                if !cleaned.is_empty() {
+                if cleaned.len() >= 3 && cleaned.chars().next().is_some_and(|c| c.is_uppercase()) {
                     self.add_word(&cleaned);
                 }
             }
@@ -299,7 +304,7 @@ mod tests {
     #[test]
     fn train_text_splits_words() {
         let mut chain = MarkovChain::new(2);
-        chain.train("hello world foo bar baz");
+        chain.train("Sakura Takeshi Haruki Kazuki Naomi");
         assert!(!chain.is_empty());
         let word = chain.make_word(&mut rand::rng());
         assert!(!word.is_empty());
