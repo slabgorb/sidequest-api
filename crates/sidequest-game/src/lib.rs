@@ -162,4 +162,7 @@ pub use tension_tracker::{CombatEvent, DeliveryMode, DramaThresholds, PacingHint
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
 pub use voice_router::{VoiceAssignment, VoiceRouter};
-pub use world_materialization::{materialize_world, CampaignMaturity, HistoryChapter};
+pub use world_materialization::{
+    materialize_world, CampaignMaturity, ChapterCharacter, ChapterNarrativeEntry, ChapterNpc,
+    ChapterTrope, HistoryChapter, WorldBuilder,
+};
