@@ -280,7 +280,8 @@ pub(crate) async fn dispatch_connect(
                                     .filter(|w| !w.cultures.is_empty())
                                     .map(|w| w.cultures.as_slice())
                                     .unwrap_or(&pack.cultures);
-                                let name_bank = npc_context::build_name_bank_context(cultures);
+                                let corpus_dir = state.genre_packs_path().join(genre).join("corpus");
+                                let name_bank = npc_context::build_name_bank_context(cultures, &corpus_dir);
                                 if !name_bank.is_empty() {
                                     world_context.push_str(&name_bank);
                                 }
@@ -506,7 +507,8 @@ pub(crate) async fn start_character_creation(
         .filter(|w| !w.cultures.is_empty())
         .map(|w| w.cultures.as_slice())
         .unwrap_or(&pack.cultures);
-    let name_bank = npc_context::build_name_bank_context(cultures);
+    let corpus_dir = state.genre_packs_path().join(genre).join("corpus");
+    let name_bank = npc_context::build_name_bank_context(cultures, &corpus_dir);
     if !name_bank.is_empty() {
         world_context_out.push_str(&name_bank);
     }

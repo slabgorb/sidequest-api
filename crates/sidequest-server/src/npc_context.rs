@@ -82,35 +82,46 @@ pub(crate) fn build_npc_registry_context_budgeted(
     lines.join("\n")
 }
 
-/// Build a name bank context string from genre pack cultures for the narrator prompt.
-/// Extracts word lists and person name patterns so the LLM uses culturally appropriate names.
-pub(crate) fn build_name_bank_context(cultures: &[sidequest_genre::Culture]) -> String {
+/// Build a name bank context string with pre-generated names for the narrator prompt.
+///
+/// Uses the Markov chain name generator to produce concrete names from each culture's
+/// person_patterns and slot corpora. The narrator picks from these — no improvisation.
+pub(crate) fn build_name_bank_context(
+    cultures: &[sidequest_genre::Culture],
+    corpus_dir: &std::path::Path,
+) -> String {
     if cultures.is_empty() {
         return String::new();
     }
-    let mut lines = vec!["\n=== NAME BANKS (MANDATORY) ===\nYou MUST NOT invent NPC names. Every NPC name MUST come from the name banks below. Combine slots according to the name patterns. If no suitable name exists, use a title or descriptor (\"the old mechanic\", \"the hooded stranger\") instead of inventing a name. Do NOT use generic Western fantasy names like Maren, Kael, or Ash.".to_string()];
+
+    let mut rng = rand::rng();
+    let names_per_culture = 10;
+
+    let mut lines = vec!["\n=== NPC NAME BANK (MANDATORY) ===\nYou MUST NOT invent NPC names. Pick from the pre-generated names below. If none fit, use a title or descriptor (\"the old mechanic\", \"the hooded stranger\"). Do NOT use generic Western fantasy names.".to_string()];
+
     for culture in cultures {
+        let gen = sidequest_genre::names::build_from_culture(culture, corpus_dir, &mut rng);
+        let mut names: Vec<String> = Vec::with_capacity(names_per_culture);
+        for _ in 0..names_per_culture {
+            let name = gen.generate_person(&mut rng);
+            if !name.is_empty() && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+
+        if names.is_empty() {
+            continue;
+        }
+
         lines.push(format!(
             "\n## {} — {}",
             culture.name.as_str(),
             culture.description
         ));
-        // Show word lists for each slot
-        for (slot_name, slot) in &culture.slots {
-            if let Some(ref words) = slot.word_list {
-                if !words.is_empty() {
-                    let sample: Vec<_> = words.iter().take(10).map(|s| s.as_str()).collect();
-                    lines.push(format!("  {}: {}", slot_name, sample.join(", ")));
-                }
-            }
-        }
-        // Show person name patterns
-        if !culture.person_patterns.is_empty() {
-            lines.push(format!(
-                "  Name patterns: {}",
-                culture.person_patterns.join(", ")
-            ));
+        for name in &names {
+            lines.push(format!("  - {}", name));
         }
     }
+
     lines.join("\n")
 }
