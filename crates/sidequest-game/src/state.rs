@@ -24,6 +24,7 @@ use crate::encounter::StructuredEncounter;
 use crate::inventory::Inventory;
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
+use crate::scenario_state::ScenarioState;
 use crate::trope::TropeState;
 use crate::turn::TurnManager;
 use crate::world_materialization::{CampaignMaturity, HistoryChapter};
@@ -122,6 +123,10 @@ pub struct GameSnapshot {
     /// Achievement tracker (story F7).
     #[serde(default)]
     pub achievement_tracker: AchievementTracker,
+    /// Active scenario state (Epic 7 — whodunit, belief state, clues, accusations).
+    /// None when no scenario is active.
+    #[serde(default)]
+    pub scenario_state: Option<ScenarioState>,
     /// Current resource values keyed by resource name (story 16-1).
     /// Lightweight tracking — formal ResourcePool comes in story 16-10.
     #[serde(default)]
@@ -213,6 +218,8 @@ struct GameSnapshotRaw {
     #[serde(default)]
     achievement_tracker: AchievementTracker,
     #[serde(default)]
+    scenario_state: Option<ScenarioState>,
+    #[serde(default)]
     resource_state: HashMap<String, f64>,
     #[serde(default)]
     resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
@@ -257,6 +264,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             genie_wishes: raw.genie_wishes,
             axis_values: raw.axis_values,
             achievement_tracker: raw.achievement_tracker,
+            scenario_state: raw.scenario_state,
             resource_state: raw.resource_state,
             resource_declarations: raw.resource_declarations,
         }

@@ -309,6 +309,15 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// Scenario system event (Epic 7 — clue discovery, NPC actions, gossip, accusations).
+    #[serde(rename = "SCENARIO_EVENT")]
+    ScenarioEvent {
+        /// The typed payload for this message.
+        payload: ScenarioEventPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -934,4 +943,23 @@ pub struct CombatEnemy {
     /// Armor class (optional for some enemies).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ac: Option<i32>,
+}
+
+// ---------------------------------------------------------------------------
+// Scenario system (Epic 7)
+// ---------------------------------------------------------------------------
+
+/// Payload for scenario system events.
+///
+/// Carries structured scenario data (clue discoveries, NPC actions, gossip
+/// propagation results, accusation outcomes) to the client for UI rendering.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScenarioEventPayload {
+    /// The type of scenario event.
+    pub event_type: String,
+    /// Human-readable description for display or narrator context.
+    pub description: String,
+    /// Structured event details (varies by event_type).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }

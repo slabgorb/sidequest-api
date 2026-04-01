@@ -30,6 +30,8 @@ pub enum Intent {
     /// Backstory — player is describing their character's history, personality,
     /// possessions, or identity. Should be captured as character-keyed KnownFacts.
     Backstory,
+    /// Accusation — player accuses an NPC in a scenario (Epic 7).
+    Accusation,
 }
 
 impl Intent {
@@ -38,7 +40,7 @@ impl Intent {
     /// (the player is actively driving the story). Exploration, Examine, and
     /// Meta are not (idle browsing or system commands).
     pub fn is_meaningful(&self) -> bool {
-        matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase | Intent::Backstory)
+        matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase | Intent::Backstory | Intent::Accusation)
     }
 }
 
@@ -52,6 +54,7 @@ impl std::fmt::Display for Intent {
             Intent::Examine => write!(f, "Examine"),
             Intent::Meta => write!(f, "Meta"),
             Intent::Chase => write!(f, "Chase"),
+            Intent::Accusation => write!(f, "Accusation"),
         }
     }
 }
@@ -99,6 +102,7 @@ impl IntentRoute {
             Intent::Meta => "narrator",
             Intent::Chase => "dialectician",
             Intent::Backstory => "narrator",
+            Intent::Accusation => "narrator",
         }
     }
 
@@ -225,7 +229,7 @@ impl HaikuClassifier {
         format!(
             "You classify player actions in a tabletop RPG.\n\
              Given the player's action and current scene context, return a JSON object:\n\
-             {{ \"intent\": \"<Combat|Dialogue|Exploration|Examine|Meta|Chase|Backstory>\",\n\
+             {{ \"intent\": \"<Combat|Dialogue|Exploration|Examine|Meta|Chase|Backstory|Accusation>\",\n\
                \"confidence\": <0.0-1.0>,\n\
                \"candidates\": [\"<intent>\", ...] }}\n\n\
              Intent definitions:\n\
@@ -239,7 +243,9 @@ impl HaikuClassifier {
                appearance, possessions, memories, or identity. Includes introspection,\n\
                recalling past events, describing keepsakes, or revealing personal details\n\
                through dialogue or inner monologue. If the player is telling a story ABOUT\n\
-               their character rather than advancing the plot, it is Backstory.\n\n\
+               their character rather than advancing the plot, it is Backstory.\n\
+             - Accusation: accusing an NPC of a crime or wrongdoing during a mystery/investigation\n\
+               scenario (e.g., \"I accuse the merchant of murder\")\n\n\
              If the action clearly maps to one intent, return confidence >= 0.8.\n\
              If the action is ambiguous (could be multiple intents), return\n\
                intent set to your best guess, confidence < 0.5, and list the top candidates.\n\n\
@@ -274,6 +280,7 @@ impl HaikuClassifier {
             "Meta" => Intent::Meta,
             "Chase" => Intent::Chase,
             "Backstory" => Intent::Backstory,
+            "Accusation" => Intent::Accusation,
             _ => return None,
         };
 
@@ -294,6 +301,7 @@ impl HaikuClassifier {
                         "Meta" => Some(Intent::Meta),
                         "Chase" => Some(Intent::Chase),
                         "Backstory" => Some(Intent::Backstory),
+                        "Accusation" => Some(Intent::Accusation),
                         _ => None,
                     })
                     .collect()
