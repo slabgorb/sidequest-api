@@ -3,7 +3,43 @@
 //! Port lesson #8: ContextBuilder with composable sections replaces
 //! manual format-helper assembly in each agent.
 
+use serde::{Deserialize, Serialize};
+
 use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
+
+/// Summary of a single prompt section within a zone breakdown.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SectionSummary {
+    /// Section name (e.g., "soul_principles", "game_state").
+    pub name: String,
+    /// Section category.
+    pub category: SectionCategory,
+    /// Approximate token count for this section.
+    pub token_estimate: usize,
+}
+
+/// Per-zone entry in a zone breakdown.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneEntry {
+    /// Which attention zone this entry represents.
+    pub zone: AttentionZone,
+    /// Total estimated tokens across all sections in this zone.
+    pub total_tokens: usize,
+    /// Section summaries within this zone.
+    pub sections: Vec<SectionSummary>,
+}
+
+/// Structured breakdown of an assembled prompt by attention zone.
+///
+/// Used by the Prompt Inspector dashboard tab to display zone labels,
+/// per-zone token counts, and the full assembled prompt text.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneBreakdown {
+    /// Per-zone entries, ordered Primacy → Recency.
+    pub zones: Vec<ZoneEntry>,
+    /// The full composed prompt text.
+    pub full_prompt: String,
+}
 
 /// Builder for assembling agent context from composable sections.
 ///
@@ -94,5 +130,42 @@ impl ContextBuilder {
     /// Estimate total token count across all sections.
     pub fn token_estimate(&self) -> usize {
         self.sections.iter().map(|s| s.token_estimate()).sum()
+    }
+
+    /// Produce a structured zone breakdown for the Prompt Inspector tab.
+    ///
+    /// Returns per-zone token counts, section metadata, and the full
+    /// composed prompt text. Zones are ordered Primacy → Recency.
+    pub fn zone_breakdown(&self) -> ZoneBreakdown {
+        let sorted = self.build();
+        let full_prompt = sorted
+            .iter()
+            .map(|s| s.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        // Group sections by zone, preserving order
+        let mut zones: Vec<ZoneEntry> = Vec::new();
+        for zone in AttentionZone::all_ordered() {
+            let zone_sections: Vec<SectionSummary> = sorted
+                .iter()
+                .filter(|s| s.zone == zone)
+                .map(|s| SectionSummary {
+                    name: s.name.clone(),
+                    category: s.category,
+                    token_estimate: s.token_estimate(),
+                })
+                .collect();
+            if !zone_sections.is_empty() {
+                let total_tokens = zone_sections.iter().map(|s| s.token_estimate).sum();
+                zones.push(ZoneEntry {
+                    zone,
+                    total_tokens,
+                    sections: zone_sections,
+                });
+            }
+        }
+
+        ZoneBreakdown { zones, full_prompt }
     }
 }

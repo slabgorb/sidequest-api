@@ -374,6 +374,30 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         },
     });
 
+    // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
+    if let Some(ref zb) = result.zone_breakdown {
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "prompt".to_string(),
+            event_type: WatcherEventType::PromptAssembled,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+                if let Some(ref agent) = result.agent_name {
+                    f.insert("agent".to_string(), serde_json::json!(agent));
+                }
+                let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
+                f.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
+                let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
+                f.insert("section_count".to_string(), serde_json::json!(section_count));
+                f.insert("zones".to_string(), serde_json::json!(zb.zones));
+                f.insert("full_prompt".to_string(), serde_json::json!(zb.full_prompt));
+                f
+            },
+        });
+    }
+
     let agent_done = std::time::Instant::now();
 
     let mut messages = vec![];
@@ -1640,6 +1664,27 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         .state
         .game_service()
         .process_action(&format!("(aside) {}", ctx.action), &context);
+
+    // Watcher: prompt assembled for aside (story 18-6)
+    if let Some(ref zb) = result.zone_breakdown {
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "prompt".to_string(),
+            event_type: WatcherEventType::PromptAssembled,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("agent".to_string(), serde_json::json!("narrator"));
+                let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
+                f.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
+                let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
+                f.insert("section_count".to_string(), serde_json::json!(section_count));
+                f.insert("zones".to_string(), serde_json::json!(zb.zones));
+                f.insert("full_prompt".to_string(), serde_json::json!(zb.full_prompt));
+                f
+            },
+        });
+    }
 
     let narration_text = strip_location_header(&result.narration);
 

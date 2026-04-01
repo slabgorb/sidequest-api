@@ -92,6 +92,8 @@ pub enum WatcherEventType {
     TurnComplete,
     /// Full game state snapshot after a turn — for the State Explorer tab.
     GameStateSnapshot,
+    /// Full assembled prompt with zone labels and per-zone token counts — for the Prompt Inspector tab.
+    PromptAssembled,
 }
 
 /// Severity levels for watcher telemetry events.
