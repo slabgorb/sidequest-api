@@ -70,6 +70,7 @@ impl std::io::Write for SharedWriter {
 }
 
 /// Build a tracing subscriber that writes JSON to a shared buffer (for tests).
+#[doc(hidden)]
 pub fn tracing_subscriber_for_test(
     writer: Arc<Mutex<Vec<u8>>>,
 ) -> Box<dyn tracing::Subscriber + Send + Sync> {
@@ -84,6 +85,7 @@ pub fn tracing_subscriber_for_test(
 
 /// Build a subscriber with a custom EnvFilter string.
 /// Returns `Some(subscriber)` if the filter parses, `None` otherwise.
+#[doc(hidden)]
 pub fn build_subscriber_with_filter(
     filter: &str,
 ) -> Option<Box<dyn tracing::Subscriber + Send + Sync>> {

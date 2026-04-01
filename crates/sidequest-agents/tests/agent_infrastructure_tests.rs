@@ -404,56 +404,5 @@ mod context_builder {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// Format helpers — ported from Python format_helpers.py
-// ═══════════════════════════════════════════════════════════
-
-mod format_helpers {
-    use sidequest_agents::format_helpers;
-
-    #[test]
-    fn format_character_block_includes_name_and_hp() {
-        let block = format_helpers::character_block("Kira", 42, 50, 5);
-        assert!(block.contains("Kira"));
-        assert!(block.contains("42"));
-        assert!(block.contains("50"));
-    }
-
-    #[test]
-    fn format_character_block_includes_level() {
-        let block = format_helpers::character_block("Kira", 42, 50, 5);
-        assert!(block.contains("5"));
-    }
-
-    #[test]
-    fn format_location_block_includes_region_and_area() {
-        let block = format_helpers::location_block("Flickering Reach", "Tood's Dome");
-        assert!(block.contains("Flickering Reach"));
-        assert!(block.contains("Tood's Dome"));
-    }
-
-    #[test]
-    fn format_npc_block_includes_name_and_attitude() {
-        let block = format_helpers::npc_block("Griztok", "hostile");
-        assert!(block.contains("Griztok"));
-        assert!(block.contains("hostile"));
-    }
-
-    #[test]
-    fn format_inventory_summary_lists_items() {
-        let items = vec!["Rusty Sword".to_string(), "Health Potion".to_string()];
-        let summary = format_helpers::inventory_summary(&items);
-        assert!(summary.contains("Rusty Sword"));
-        assert!(summary.contains("Health Potion"));
-    }
-
-    #[test]
-    fn format_inventory_summary_empty_says_no_items() {
-        let items: Vec<String> = vec![];
-        let summary = format_helpers::inventory_summary(&items);
-        assert!(
-            summary.to_lowercase().contains("no items") || summary.to_lowercase().contains("empty"),
-            "empty inventory should indicate no items"
-        );
-    }
-}
+// Format helpers tests removed — format_helpers.rs deleted (superseded by
+// inline formatting in sidequest-server::dispatch::prompt::build_prompt_context).

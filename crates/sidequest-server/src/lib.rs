@@ -1754,6 +1754,7 @@ pub async fn serve_with_listener(
 /// Create an AppState suitable for testing.
 ///
 /// Uses a default Orchestrator and a temp path for genre packs.
+#[doc(hidden)]
 pub fn test_app_state() -> AppState {
     use sidequest_agents::orchestrator::Orchestrator;
     use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};

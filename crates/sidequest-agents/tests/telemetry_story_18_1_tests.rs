@@ -201,6 +201,7 @@ fn orchestrator_emits_prompt_build_sub_span() {
         pending_trope_context: None,
         active_trope_summary: None,
         genre: None,
+        available_sfx: vec![],
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -236,6 +237,7 @@ fn orchestrator_emits_inference_sub_span() {
         pending_trope_context: None,
         active_trope_summary: None,
         genre: None,
+        available_sfx: vec![],
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -271,6 +273,7 @@ fn orchestrator_emits_extraction_sub_span() {
         pending_trope_context: None,
         active_trope_summary: None,
         genre: None,
+        available_sfx: vec![],
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -305,6 +308,7 @@ fn orchestrator_inference_span_records_diagnostic_field() {
         pending_trope_context: None,
         active_trope_summary: None,
         genre: None,
+        available_sfx: vec![],
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -342,6 +346,7 @@ fn orchestrator_prompt_build_span_records_diagnostic_field() {
         pending_trope_context: None,
         active_trope_summary: None,
         genre: None,
+        available_sfx: vec![],
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
@@ -381,6 +386,7 @@ fn orchestrator_extraction_span_records_diagnostic_field() {
         pending_trope_context: None,
         active_trope_summary: None,
         genre: None,
+        available_sfx: vec![],
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
