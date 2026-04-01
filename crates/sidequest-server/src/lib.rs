@@ -998,6 +998,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut resource_state: HashMap<String, f64> = HashMap::new();
     let resource_declarations: Vec<sidequest_genre::ResourceDeclaration> = vec![];
     let mut achievement_tracker = sidequest_game::achievement::AchievementTracker::default();
+    // Canonical game snapshot — carried through the dispatch pipeline (story 15-8).
+    let mut snapshot = sidequest_game::state::GameSnapshot::default();
     let narrator_verbosity = sidequest_protocol::NarratorVerbosity::default();
     let narrator_vocabulary = sidequest_protocol::NarratorVocabulary::default();
     let mut pending_trope_context: Option<String> = None;
@@ -1057,6 +1059,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut resource_state,
                         &resource_declarations,
                         &mut achievement_tracker,
+                        &mut snapshot,
                         narrator_verbosity,
                         narrator_vocabulary,
                         &mut pending_trope_context,
@@ -1214,6 +1217,7 @@ async fn dispatch_message(
     resource_state: &mut HashMap<String, f64>,
     resource_declarations: &[sidequest_genre::ResourceDeclaration],
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
+    snapshot: &mut sidequest_game::state::GameSnapshot,
     narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
@@ -1251,6 +1255,7 @@ async fn dispatch_message(
                 state,
                 player_id,
                 continuity_corrections,
+                snapshot,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1478,6 +1483,7 @@ async fn dispatch_message(
                 resource_state,
                 resource_declarations,
                 achievement_tracker,
+                snapshot,
                 narrator_verbosity,
                 narrator_vocabulary,
                 pending_trope_context,
@@ -1543,6 +1549,7 @@ async fn dispatch_message(
                     narrator_vocabulary,
                     pending_trope_context,
                     achievement_tracker,
+                    snapshot,
                 };
                 dispatch::dispatch_player_action(&mut ctx).await
             }

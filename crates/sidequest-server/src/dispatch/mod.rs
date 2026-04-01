@@ -88,6 +88,10 @@ pub(crate) struct DispatchContext<'a> {
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,
     pub achievement_tracker: &'a mut sidequest_game::achievement::AchievementTracker,
+    /// Canonical game state snapshot — patched in-place during the turn,
+    /// saved directly by persist_game_state() without re-loading from SQLite.
+    /// Story 15-8: eliminates the load-before-save round-trip on every turn.
+    pub snapshot: &'a mut sidequest_game::state::GameSnapshot,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -686,7 +690,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     drop(_media_guard);
 
-    // Persist game state
+    // Sync scattered locals into the canonical snapshot, then persist (story 15-8)
+    sync_locals_to_snapshot(ctx, narration_text);
     persist_game_state(ctx, narration_text, &clean_narration).await;
 
     // TTS streaming
@@ -1254,121 +1259,145 @@ async fn build_response_messages(
     });
 }
 
-/// Persist game state to snapshot for reconnection.
+/// Sync scattered DispatchContext locals into the canonical GameSnapshot.
+///
+/// Story 15-8: The dispatch pipeline still uses individual locals (ctx.hp,
+/// ctx.inventory, etc.) throughout the turn. Before persisting, we sync those
+/// locals into ctx.snapshot so persist_game_state() can save it directly
+/// without loading from SQLite first.
+fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, narration_text: &str) {
+    let location =
+        extract_location_header(narration_text).unwrap_or_else(|| "Starting area".to_string());
+    ctx.snapshot.location = location;
+    ctx.snapshot.turn_manager = ctx.turn_manager.clone();
+    ctx.snapshot.npc_registry = ctx.npc_registry.clone();
+    ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
+    ctx.snapshot.axis_values = ctx.axis_values.clone();
+    ctx.snapshot.combat = ctx.combat_state.clone();
+    ctx.snapshot.chase = ctx.chase_state.clone();
+    // Sync StructuredEncounter from live combat/chase state
+    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
+        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+    } else if let Some(ref cs) = ctx.chase_state {
+        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
+    } else {
+        None
+    };
+    ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
+    ctx.snapshot.active_tropes = ctx.trope_states.clone();
+    ctx.snapshot.achievement_tracker = ctx.achievement_tracker.clone();
+    ctx.snapshot.quest_log = ctx.quest_log.clone();
+    ctx.snapshot.resource_state = ctx.resource_state.clone();
+    if let Some(ref cj) = ctx.character_json {
+        if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+            if let Some(saved_ch) = ctx.snapshot.characters.first_mut() {
+                saved_ch.core.hp = *ctx.hp;
+                saved_ch.core.max_hp = *ctx.max_hp;
+                saved_ch.core.level = *ctx.level;
+                saved_ch.core.inventory = ctx.inventory.clone();
+                saved_ch.known_facts = ch.known_facts.clone();
+                saved_ch.affinities = ch.affinities.clone();
+                saved_ch.narrative_state = ch.narrative_state.clone();
+            }
+        }
+    }
+}
+
+/// Persist game state — save the canonical snapshot directly (no load round-trip).
+///
+/// Story 15-8: The old implementation loaded from SQLite on every turn just to
+/// merge scattered locals, then saved. Now ctx.snapshot is synced before this
+/// call, so we save directly — one round-trip instead of two.
 async fn persist_game_state(
     ctx: &mut DispatchContext<'_>,
-    narration_text: &str,
+    _narration_text: &str,
     clean_narration: &str,
 ) {
     if ctx.genre_slug.is_empty() || ctx.world_slug.is_empty() {
+        tracing::debug!("persist_game_state skipped — empty genre or world slug");
         return;
     }
-    let location =
-        extract_location_header(narration_text).unwrap_or_else(|| "Starting area".to_string());
+
+    // Append the current narration entry to ctx.snapshot
+    ctx.snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
+        timestamp: 0,
+        round: ctx.turn_manager.interaction() as u32,
+        author: "narrator".to_string(),
+        content: clean_narration.to_string(),
+        tags: vec![],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
+    });
+
+    // Emit encounter OTEL event if active
+    if let Some(ref enc) = ctx.snapshot.encounter {
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "encounter".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("encounter_type".to_string(), serde_json::json!(enc.encounter_type));
+                f.insert("beat".to_string(), serde_json::json!(enc.beat));
+                f.insert("metric_name".to_string(), serde_json::json!(enc.metric.name));
+                f.insert("metric_current".to_string(), serde_json::json!(enc.metric.current));
+                f.insert("metric_threshold".to_string(), serde_json::json!(enc.metric.threshold_high.or(enc.metric.threshold_low)));
+                f.insert("phase".to_string(), serde_json::json!(enc.structured_phase.map(|p| format!("{:?}", p))));
+                f.insert("resolved".to_string(), serde_json::json!(enc.resolved));
+                f.insert("actor_count".to_string(), serde_json::json!(enc.actors.len()));
+                if let Some(ref mood) = enc.mood_override {
+                    f.insert("mood_override".to_string(), serde_json::json!(mood));
+                }
+                if let Some(ref outcome) = enc.outcome {
+                    f.insert("outcome".to_string(), serde_json::json!(outcome));
+                }
+                f
+            },
+        });
+    }
+
+    // Save ctx.snapshot directly — no load round-trip needed (story 15-8)
+    let start = std::time::Instant::now();
     match ctx
         .state
         .persistence()
-        .load(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save)
+        .save(
+            ctx.genre_slug,
+            ctx.world_slug,
+            ctx.player_name_for_save,
+            &ctx.snapshot,
+        )
         .await
     {
-        Ok(Some(saved)) => {
-            let mut snapshot = saved.snapshot;
-            snapshot.location = location;
-            snapshot.turn_manager = ctx.turn_manager.clone();
-            snapshot.npc_registry = ctx.npc_registry.clone();
-            snapshot.genie_wishes = ctx.genie_wishes.clone();
-            snapshot.axis_values = ctx.axis_values.clone();
-            snapshot.combat = ctx.combat_state.clone();
-            snapshot.chase = ctx.chase_state.clone();
-            // Sync StructuredEncounter from live combat/chase state
-            snapshot.encounter = if ctx.combat_state.in_combat() {
-                Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-            } else if let Some(ref cs) = ctx.chase_state {
-                Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-            } else {
-                None
-            };
-            if let Some(ref enc) = snapshot.encounter {
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "encounter".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("encounter_type".to_string(), serde_json::json!(enc.encounter_type));
-                        f.insert("beat".to_string(), serde_json::json!(enc.beat));
-                        f.insert("metric_name".to_string(), serde_json::json!(enc.metric.name));
-                        f.insert("metric_current".to_string(), serde_json::json!(enc.metric.current));
-                        f.insert("metric_threshold".to_string(), serde_json::json!(enc.metric.threshold_high.or(enc.metric.threshold_low)));
-                        f.insert("phase".to_string(), serde_json::json!(enc.structured_phase.map(|p| format!("{:?}", p))));
-                        f.insert("resolved".to_string(), serde_json::json!(enc.resolved));
-                        f.insert("actor_count".to_string(), serde_json::json!(enc.actors.len()));
-                        if let Some(ref mood) = enc.mood_override {
-                            f.insert("mood_override".to_string(), serde_json::json!(mood));
-                        }
-                        if let Some(ref outcome) = enc.outcome {
-                            f.insert("outcome".to_string(), serde_json::json!(outcome));
-                        }
-                        f
-                    },
-                });
-            }
-            snapshot.discovered_regions = ctx.discovered_regions.clone();
-            snapshot.active_tropes = ctx.trope_states.clone();
-            snapshot.achievement_tracker = ctx.achievement_tracker.clone();
-            snapshot.quest_log = ctx.quest_log.clone();
-            if let Some(ref cj) = ctx.character_json {
-                if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
-                    if let Some(saved_ch) = snapshot.characters.first_mut() {
-                        saved_ch.core.hp = *ctx.hp;
-                        saved_ch.core.max_hp = *ctx.max_hp;
-                        saved_ch.core.level = *ctx.level;
-                        saved_ch.core.inventory = ctx.inventory.clone();
-                        saved_ch.known_facts = ch.known_facts.clone();
-                        saved_ch.affinities = ch.affinities.clone();
-                        saved_ch.narrative_state = ch.narrative_state.clone();
-                    }
-                }
-            }
-            snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
-                timestamp: 0,
-                round: ctx.turn_manager.interaction() as u32,
-                author: "narrator".to_string(),
-                content: clean_narration.to_string(),
-                tags: vec![],
-                encounter_tags: vec![],
-                speaker: None,
-                entry_type: None,
+        Ok(_) => {
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                player = %ctx.player_name_for_save,
+                turn = ctx.turn_manager.interaction(),
+                location = %ctx.current_location,
+                ctx.hp = *ctx.hp,
+                items = ctx.inventory.items.len(),
+                save_latency_ms = elapsed_ms,
+                "session.saved — game state persisted"
+            );
+            // OTEL: persistence save latency for GM panel verification
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "persistence".to_string(),
+                event_type: WatcherEventType::SubsystemExerciseSummary,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("save_latency_ms".to_string(), serde_json::json!(elapsed_ms));
+                    f.insert("player".to_string(), serde_json::json!(ctx.player_name_for_save));
+                    f.insert("turn".to_string(), serde_json::json!(ctx.turn_manager.interaction()));
+                    f
+                },
             });
-            match ctx
-                .state
-                .persistence()
-                .save(
-                    ctx.genre_slug,
-                    ctx.world_slug,
-                    ctx.player_name_for_save,
-                    &snapshot,
-                )
-                .await
-            {
-                Ok(_) => tracing::info!(
-                    player = %ctx.player_name_for_save,
-                    turn = ctx.turn_manager.interaction(),
-                    location = %ctx.current_location,
-                    ctx.hp = *ctx.hp,
-                    items = ctx.inventory.items.len(),
-                    "session.saved — game state persisted"
-                ),
-                Err(e) => tracing::warn!(error = %e, "Failed to persist updated game state"),
-            }
         }
-        Ok(None) => {
-            tracing::debug!("No saved session to update");
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to load session for persistence update");
-        }
+        Err(e) => tracing::warn!(error = %e, "Failed to persist game state"),
     }
 }
 

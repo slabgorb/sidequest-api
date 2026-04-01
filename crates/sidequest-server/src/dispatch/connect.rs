@@ -46,6 +46,7 @@ pub(crate) async fn dispatch_connect(
     state: &AppState,
     player_id: &str,
     continuity_corrections: &mut String,
+    snapshot: &mut sidequest_game::state::GameSnapshot,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -85,6 +86,8 @@ pub(crate) async fn dispatch_connect(
                         *turn_manager = saved.snapshot.turn_manager.clone();
                         *npc_registry = saved.snapshot.npc_registry.clone();
                         *axis_values = saved.snapshot.axis_values.clone();
+                        // Restore canonical snapshot for dispatch pipeline (story 15-8)
+                        *snapshot = saved.snapshot.clone();
 
                         // Transition session to Playing
                         if let Err(e) = session.complete_character_creation() {
@@ -565,6 +568,7 @@ pub(crate) async fn dispatch_character_creation(
     resource_state: &mut HashMap<String, f64>,
     resource_declarations: &[sidequest_genre::ResourceDeclaration],
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
+    snapshot: &mut sidequest_game::state::GameSnapshot,
     narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
@@ -673,7 +677,7 @@ pub(crate) async fn dispatch_character_creation(
                     // Materialize world from genre pack history (Story 15-23).
                     // Load the genre pack (cached) to get World.history, then build
                     // a snapshot at Fresh maturity with history chapters applied.
-                    let snapshot = {
+                    let mut snapshot = {
                         let history_value = GenreCode::new(&genre)
                             .ok()
                             .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
@@ -791,6 +795,7 @@ pub(crate) async fn dispatch_character_creation(
                             narrator_vocabulary,
                             pending_trope_context,
                             achievement_tracker,
+                            snapshot: &mut snapshot,
                         };
                         super::dispatch_player_action(&mut ctx).await
                     };
