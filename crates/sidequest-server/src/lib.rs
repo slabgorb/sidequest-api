@@ -2646,6 +2646,32 @@ async fn dispatch_character_creation(
                         tracing::warn!(error = %e, genre = %genre, world = %world, player = %pname_for_save, "Failed to persist initial session");
                     }
 
+                    // Seed lore store with character creation choices
+                    let char_lore_count =
+                        sidequest_game::seed_lore_from_char_creation(lore_store, b.scenes());
+                    tracing::info!(count = char_lore_count, "rag.lore_store_char_creation_seeded");
+
+                    state.send_watcher_event(WatcherEvent {
+                        timestamp: chrono::Utc::now(),
+                        component: "lore_store".to_string(),
+                        event_type: WatcherEventType::StateTransition,
+                        severity: Severity::Info,
+                        fields: {
+                            let mut f = HashMap::new();
+                            f.insert(
+                                "event".to_string(),
+                                serde_json::Value::String(
+                                    "char_creation_lore_seeded".to_string(),
+                                ),
+                            );
+                            f.insert(
+                                "fragments_added".to_string(),
+                                serde_json::json!(char_lore_count),
+                            );
+                            f
+                        },
+                    });
+
                     // Transition session to Playing
                     let _ = session.complete_character_creation();
                     *builder = None;
