@@ -318,6 +318,15 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// Achievement earned — broadcast when a trope transition triggers an achievement (story 15-13).
+    #[serde(rename = "ACHIEVEMENT_EARNED")]
+    AchievementEarned {
+        /// The typed payload for this message.
+        payload: AchievementEarnedPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -962,4 +971,25 @@ pub struct ScenarioEventPayload {
     /// Structured event details (varies by event_type).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+}
+
+/// Payload for achievement earned events (story 15-13).
+///
+/// Broadcast to all session players when a trope status transition
+/// triggers an achievement. The UI can display a toast or achievement panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AchievementEarnedPayload {
+    /// Unique achievement identifier.
+    pub achievement_id: String,
+    /// Display name of the achievement.
+    pub name: String,
+    /// Flavor text shown on unlock.
+    pub description: String,
+    /// The trope that triggered this achievement.
+    pub trope_id: String,
+    /// What triggered it: "activated", "progressing", "resolved", "subverted".
+    pub trigger: String,
+    /// Optional emoji for UI display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
 }
