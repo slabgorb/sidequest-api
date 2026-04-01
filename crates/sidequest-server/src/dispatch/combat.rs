@@ -34,34 +34,32 @@ pub(crate) async fn process_combat_and_chase(
         drama_weight = ctx.combat_state.drama_weight(),
         "combat.pre_tick"
     );
+
+    // OTEL: combat state on every turn (so dashboard always shows current combat status)
+    ctx.state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "combat".to_string(),
+        event_type: WatcherEventType::AgentSpanOpen,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("action".to_string(), serde_json::json!("combat_tick"));
+            f.insert("in_combat".to_string(), serde_json::json!(now_in_combat));
+            f.insert("combat_just_ended".to_string(), serde_json::json!(combat_just_ended));
+            f.insert("round".to_string(), serde_json::json!(ctx.combat_state.round()));
+            f.insert("drama_weight".to_string(), serde_json::json!(ctx.combat_state.drama_weight()));
+            f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));
+            f.insert("current_turn".to_string(), serde_json::json!(ctx.combat_state.current_turn()));
+            f.insert("enemy_count".to_string(), serde_json::json!(
+                ctx.npc_registry.iter().filter(|_| ctx.combat_state.in_combat()).count()
+            ));
+            f.insert("damage_log_len".to_string(), serde_json::json!(ctx.combat_state.damage_log().len()));
+            f
+        },
+    });
+
     if now_in_combat {
         ctx.combat_state.tick_effects();
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "combat".to_string(),
-            event_type: WatcherEventType::AgentSpanOpen,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert(
-                    "round".to_string(),
-                    serde_json::json!(ctx.combat_state.round()),
-                );
-                f.insert(
-                    "drama_weight".to_string(),
-                    serde_json::json!(ctx.combat_state.drama_weight()),
-                );
-                f.insert(
-                    "turn_order".to_string(),
-                    serde_json::json!(ctx.combat_state.turn_order()),
-                );
-                f.insert(
-                    "current_turn".to_string(),
-                    serde_json::json!(ctx.combat_state.current_turn()),
-                );
-                f
-            },
-        });
     }
 
     // Combat overlay — send populated CombatEvent with enemies, turn order, current turn
