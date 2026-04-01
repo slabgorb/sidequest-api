@@ -398,6 +398,7 @@ mod message_type_tests {
                     hp: 8,
                     max_hp: 12,
                     ac: Some(13),
+                    status_effects: vec![],
                 }],
                 turn_order: vec!["Player".into(), "Goblin".into()],
                 current_turn: "Player".into(),

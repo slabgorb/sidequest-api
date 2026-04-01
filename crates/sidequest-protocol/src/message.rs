@@ -939,6 +939,15 @@ pub struct FogBounds {
     pub height: i32,
 }
 
+/// Status effect info for the combat overlay.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StatusEffectInfo {
+    /// Effect kind (e.g. "Poison", "Stun", "Bless", "Curse").
+    pub kind: String,
+    /// Rounds remaining.
+    pub remaining_rounds: u32,
+}
+
 /// An enemy in combat.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -952,6 +961,9 @@ pub struct CombatEnemy {
     /// Armor class (optional for some enemies).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ac: Option<i32>,
+    /// Active status effects on this enemy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub status_effects: Vec<StatusEffectInfo>,
 }
 
 // ---------------------------------------------------------------------------

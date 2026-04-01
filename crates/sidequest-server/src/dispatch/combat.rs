@@ -64,6 +64,36 @@ pub(crate) async fn process_combat_and_chase(
         ctx.combat_state.tick_effects();
     }
 
+    // OTEL: active status effects visibility
+    if now_in_combat {
+        let active_effects: Vec<serde_json::Value> = ctx.combat_state.turn_order().iter()
+            .flat_map(|name| {
+                ctx.combat_state.effects_on(name).into_iter().map(move |e| {
+                    serde_json::json!({
+                        "target": name,
+                        "kind": format!("{:?}", e.kind()),
+                        "remaining_rounds": e.remaining_rounds(),
+                    })
+                })
+            })
+            .collect();
+        if !active_effects.is_empty() {
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "combat".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("action".to_string(), serde_json::json!("status_effects_active"));
+                    f.insert("effects".to_string(), serde_json::json!(active_effects));
+                    f.insert("effect_count".to_string(), serde_json::json!(active_effects.len()));
+                    f
+                },
+            });
+        }
+    }
+
     // Combat overlay — send populated CombatEvent with enemies, turn order, current turn
     if now_in_combat || combat_just_ended {
         let enemies: Vec<sidequest_protocol::CombatEnemy> = ctx
@@ -75,6 +105,13 @@ pub(crate) async fn process_combat_and_chase(
                 hp: entry.hp,
                 max_hp: entry.max_hp,
                 ac: None,
+                status_effects: ctx.combat_state.effects_on(&entry.name)
+                    .iter()
+                    .map(|e| sidequest_protocol::StatusEffectInfo {
+                        kind: format!("{:?}", e.kind()),
+                        remaining_rounds: e.remaining_rounds(),
+                    })
+                    .collect(),
             })
             .collect();
         messages.push(GameMessage::CombatEvent {
