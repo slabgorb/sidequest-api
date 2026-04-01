@@ -598,20 +598,16 @@ impl WorldBuilder {
         let existing = snap.active_tropes.iter_mut()
             .find(|t| t.trope_definition_id() == trope_data.id);
 
-        if let Some(trope) = existing {
-            trope.set_status(status);
-            trope.set_progression(trope_data.progression);
-            for note in &trope_data.notes {
-                trope.add_note(note.clone());
-            }
+        let trope = if let Some(trope) = existing {
+            trope
         } else {
-            let mut trope = TropeState::new(&trope_data.id);
-            trope.set_status(status);
-            trope.set_progression(trope_data.progression);
-            for note in &trope_data.notes {
-                trope.add_note(note.clone());
-            }
-            snap.active_tropes.push(trope);
+            snap.active_tropes.push(TropeState::new(&trope_data.id));
+            snap.active_tropes.last_mut().unwrap()
+        };
+        trope.set_status(status);
+        trope.set_progression(trope_data.progression);
+        for note in &trope_data.notes {
+            trope.add_note(note.clone());
         }
     }
 
@@ -673,11 +669,11 @@ impl WorldBuilder {
             .map(|c| c.core.name.as_str().to_string())
             .collect();
         turn_order.extend(enemy_list.iter().map(|(name, _, _)| name.clone()));
-        snap.combat.set_turn_order(turn_order.clone());
 
         if let Some(first) = turn_order.first() {
             snap.combat.set_current_turn(first.clone());
         }
+        snap.combat.set_turn_order(turn_order);
 
         snap.combat.set_available_actions(vec![
             "attack".to_string(),
