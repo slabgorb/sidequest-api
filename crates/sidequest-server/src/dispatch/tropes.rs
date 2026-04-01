@@ -20,7 +20,7 @@ use super::DispatchContext;
 pub(crate) fn process_tropes(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
-    _messages: &mut Vec<GameMessage>,
+    messages: &mut Vec<GameMessage>,
 ) -> (Vec<FiredBeat>, Vec<Achievement>) {
     let span = tracing::info_span!(
         "turn.tropes",
@@ -137,8 +137,22 @@ pub(crate) fn process_tropes(
         });
     }
 
-    // --- Phase 4: Emit watcher events for earned achievements ---
+    // --- Phase 4: Broadcast earned achievements + emit watcher events ---
     for achievement in &earned {
+        // Broadcast to all session players via GameMessage
+        messages.push(GameMessage::AchievementEarned {
+            payload: sidequest_protocol::AchievementEarnedPayload {
+                achievement_id: achievement.id.clone(),
+                name: achievement.name.clone(),
+                description: achievement.description.clone(),
+                trope_id: achievement.trope_id.clone(),
+                trigger: achievement.trigger_status.clone(),
+                emoji: achievement.emoji.clone(),
+            },
+            player_id: String::new(),
+        });
+
+        // Emit watcher event for GM panel
         ctx.state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
             component: "achievement".to_string(),
