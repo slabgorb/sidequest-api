@@ -9,6 +9,8 @@ use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use sidequest_genre::{TropeDefinition, TropeEscalation};
 
+use crate::achievement::{Achievement, AchievementTracker};
+
 /// Status of an active trope in the game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -291,5 +293,92 @@ impl TropeEngine {
                 ts.add_note(n.to_string());
             }
         }
+    }
+
+    /// Tick all tropes and check for newly earned achievements.
+    ///
+    /// Captures each trope's status before the tick, delegates to `tick()`,
+    /// then calls `AchievementTracker::check_transition` for every trope
+    /// whose status changed. Returns both fired beats and earned achievements.
+    pub fn tick_and_check_achievements(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        tracker: &mut AchievementTracker,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        Self::tick_and_check_achievements_with_multiplier(tropes, trope_defs, tracker, 1.0)
+    }
+
+    /// Tick all tropes with an engagement multiplier and check for achievements.
+    ///
+    /// Same as `tick_and_check_achievements` but applies the given multiplier
+    /// to the passive progression rate.
+    pub fn tick_and_check_achievements_with_multiplier(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        tracker: &mut AchievementTracker,
+        multiplier: f64,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        // Snapshot old statuses before tick
+        let old_statuses: Vec<TropeStatus> = tropes.iter().map(|ts| ts.status()).collect();
+
+        let fired = Self::tick_with_multiplier(tropes, trope_defs, multiplier);
+
+        // Check achievements for every trope that transitioned
+        let mut earned = Vec::new();
+        for (ts, old_status) in tropes.iter().zip(old_statuses.iter()) {
+            if ts.status() != *old_status {
+                let newly_earned = tracker.check_transition(ts, *old_status);
+                for achievement in &newly_earned {
+                    tracing::info!(
+                        achievement_id = %achievement.id,
+                        trope_id = %ts.trope_definition_id(),
+                        trigger_type = %achievement.trigger_status,
+                        "achievement.earned"
+                    );
+                }
+                earned.extend(newly_earned);
+            }
+        }
+
+        (fired, earned)
+    }
+
+    /// Resolve a trope and check for newly earned achievements.
+    ///
+    /// Captures the trope's status before resolving, delegates to `resolve()`,
+    /// then calls `AchievementTracker::check_transition` if the status changed.
+    pub fn resolve_and_check_achievements(
+        tropes: &mut [TropeState],
+        def_id: &str,
+        note: Option<&str>,
+        tracker: &mut AchievementTracker,
+    ) -> Vec<Achievement> {
+        // Snapshot old status for the target trope
+        let old_status = tropes
+            .iter()
+            .find(|ts| ts.trope_definition_id == def_id)
+            .map(|ts| ts.status());
+
+        Self::resolve(tropes, def_id, note);
+
+        // Check achievements if the trope exists and status changed
+        if let Some(old) = old_status {
+            if let Some(ts) = tropes.iter().find(|ts| ts.trope_definition_id == def_id) {
+                if ts.status() != old {
+                    let newly_earned = tracker.check_transition(ts, old);
+                    for achievement in &newly_earned {
+                        tracing::info!(
+                            achievement_id = %achievement.id,
+                            trope_id = %ts.trope_definition_id(),
+                            trigger_type = %achievement.trigger_status,
+                            "achievement.earned"
+                        );
+                    }
+                    return newly_earned;
+                }
+            }
+        }
+
+        Vec::new()
     }
 }
