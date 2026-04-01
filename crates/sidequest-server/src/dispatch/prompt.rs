@@ -447,8 +447,8 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
-    // NPC registry — scene-present NPCs get full entries, others name+role only
-    let npc_context = build_npc_registry_context_budgeted(ctx.npc_registry, turn_number);
+    // NPC registry — full profiles if player references NPCs, compact otherwise
+    let npc_context = build_npc_registry_context_budgeted(ctx.npc_registry, turn_number, relevance.references_npc);
     if !npc_context.is_empty() {
         state_summary.push_str(&npc_context);
     }
