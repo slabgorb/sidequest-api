@@ -328,14 +328,7 @@ impl TropeEngine {
         for (ts, old_status) in tropes.iter().zip(old_statuses.iter()) {
             if ts.status() != *old_status {
                 let newly_earned = tracker.check_transition(ts, *old_status);
-                for achievement in &newly_earned {
-                    tracing::info!(
-                        achievement_id = %achievement.id,
-                        trope_id = %ts.trope_definition_id(),
-                        trigger_type = %achievement.trigger_status,
-                        "achievement.earned"
-                    );
-                }
+                Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
                 earned.extend(newly_earned);
             }
         }
@@ -366,19 +359,24 @@ impl TropeEngine {
             if let Some(ts) = tropes.iter().find(|ts| ts.trope_definition_id == def_id) {
                 if ts.status() != old {
                     let newly_earned = tracker.check_transition(ts, old);
-                    for achievement in &newly_earned {
-                        tracing::info!(
-                            achievement_id = %achievement.id,
-                            trope_id = %ts.trope_definition_id(),
-                            trigger_type = %achievement.trigger_status,
-                            "achievement.earned"
-                        );
-                    }
+                    Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
                     return newly_earned;
                 }
             }
         }
 
         Vec::new()
+    }
+
+    /// Emit OTEL info events for each earned achievement.
+    fn log_earned_achievements(achievements: &[Achievement], trope_id: &str) {
+        for achievement in achievements {
+            tracing::info!(
+                achievement_id = %achievement.id,
+                trope_id = %trope_id,
+                trigger_type = %achievement.trigger_status,
+                "achievement.earned"
+            );
+        }
     }
 }
