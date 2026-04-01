@@ -276,6 +276,21 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
             ctx.chase_state.as_ref().map(sidequest_game::StructuredEncounter::from_chase_state)
         };
         if let Some(ref enc) = encounter {
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "encounter".to_string(),
+                event_type: WatcherEventType::AgentSpanOpen,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("action".to_string(), serde_json::json!("prompt_injection"));
+                    f.insert("encounter_type".to_string(), serde_json::json!(enc.encounter_type));
+                    f.insert("beat".to_string(), serde_json::json!(enc.beat));
+                    f.insert("metric".to_string(), serde_json::json!(format!("{}: {}", enc.metric.name, enc.metric.current)));
+                    f.insert("hint_count".to_string(), serde_json::json!(enc.narrator_hints.len()));
+                    f
+                },
+            });
             state_summary.push_str(&format!(
                 "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
                 enc.encounter_type,

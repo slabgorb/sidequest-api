@@ -42,6 +42,22 @@ pub(crate) async fn process_audio(
             },
         };
 
+        // OTEL: log encounter mood override if active
+        if let Some(ref mood_override) = mood_ctx.encounter_mood_override {
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "encounter".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("action".to_string(), serde_json::json!("mood_override"));
+                    f.insert("override_mood".to_string(), serde_json::json!(mood_override));
+                    f
+                },
+            });
+        }
+
         // Get telemetry snapshot BEFORE evaluate() changes state
         let pre_telemetry = director.telemetry_snapshot();
         let mood_reasoning = director.classify_mood_with_reasoning(clean_narration, &mood_ctx);
