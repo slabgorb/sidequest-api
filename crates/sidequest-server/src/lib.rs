@@ -1063,6 +1063,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         narrator_verbosity,
                         narrator_vocabulary,
                         &mut pending_trope_context,
+                        &tx,
                     )
                     .await;
                     tracing::info!(
@@ -1221,6 +1222,7 @@ async fn dispatch_message(
     narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
+    tx: &mpsc::Sender<GameMessage>,
 ) -> Vec<GameMessage> {
     tracing::info!(
         msg_type = ?std::mem::discriminant(&msg),
@@ -1257,6 +1259,7 @@ async fn dispatch_message(
                 continuity_corrections,
                 inventory,
                 snapshot,
+                &tx,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1488,6 +1491,7 @@ async fn dispatch_message(
                 narrator_verbosity,
                 narrator_vocabulary,
                 pending_trope_context,
+                &tx,
             )
             .await
         }
@@ -1551,6 +1555,7 @@ async fn dispatch_message(
                     pending_trope_context,
                     achievement_tracker,
                     snapshot,
+                    tx: &tx,
                 };
                 dispatch::dispatch_player_action(&mut ctx).await
             }

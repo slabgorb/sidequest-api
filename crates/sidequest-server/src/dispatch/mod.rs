@@ -92,6 +92,9 @@ pub(crate) struct DispatchContext<'a> {
     /// saved directly by persist_game_state() without re-loading from SQLite.
     /// Story 15-8: eliminates the load-before-save round-trip on every turn.
     pub snapshot: &'a mut sidequest_game::state::GameSnapshot,
+    /// Direct sender to the client WebSocket writer — used to emit narration
+    /// immediately before state cleanup completes (approach A streaming).
+    pub tx: &'a tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -1122,7 +1125,9 @@ async fn build_response_messages(
         });
     }
 
-    messages.push(GameMessage::Narration {
+    // Send narration to client IMMEDIATELY — don't wait for state cleanup.
+    // The user sees prose while we update game state in the background.
+    let narration_msg = GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration.to_string(),
             state_delta: Some(sidequest_protocol::StateDelta {
@@ -1150,7 +1155,9 @@ async fn build_response_messages(
             footnotes,
         },
         player_id: ctx.player_id.to_string(),
-    });
+    };
+    let _ = ctx.tx.send(narration_msg).await;
+    tracing::info!("Narration sent to client — state cleanup continues async");
 
     // RAG pipeline: convert new footnotes to discovered facts
     if !result.footnotes.is_empty() {
@@ -1189,7 +1196,7 @@ async fn build_response_messages(
         }
     }
 
-    messages.push(GameMessage::NarrationEnd {
+    let _ = ctx.tx.send(GameMessage::NarrationEnd {
         payload: NarrationEndPayload {
             state_delta: Some(sidequest_protocol::StateDelta {
                 location: None,
@@ -1199,7 +1206,7 @@ async fn build_response_messages(
             }),
         },
         player_id: ctx.player_id.to_string(),
-    });
+    }).await;
 
     // Party status
     {
