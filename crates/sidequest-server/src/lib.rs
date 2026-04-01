@@ -339,6 +339,9 @@ struct AppStateInner {
     sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     /// When true, skip TTS synthesis entirely (text narration still sent).
     tts_disabled: bool,
+    /// Path to the sidequest-namegen binary for server-side NPC identity generation.
+    /// None if the binary was not found at startup.
+    namegen_binary_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -494,6 +497,7 @@ impl AppState {
                 binary_broadcast_tx,
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
+                namegen_binary_path: None,
             }),
         }
     }
@@ -509,6 +513,19 @@ impl AppState {
     /// Whether TTS is disabled.
     pub fn tts_disabled(&self) -> bool {
         self.inner.tts_disabled
+    }
+
+    /// Set the path to the sidequest-namegen binary for server-side NPC validation.
+    pub fn with_namegen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_namegen_binary must be called before cloning")
+            .namegen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-namegen binary, if available.
+    pub fn namegen_binary_path(&self) -> Option<&Path> {
+        self.inner.namegen_binary_path.as_deref()
     }
 
     /// Get the persistence handle for save/load operations.

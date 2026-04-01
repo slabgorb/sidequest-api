@@ -90,6 +90,19 @@ pub trait GameService: Send + Sync {
 /// The orchestrator state machine. Implements GameService.
 ///
 /// Routes player input → intent classification → agent dispatch → patch application → delta.
+/// Server-level configuration for the NPC name generator tool.
+///
+/// When set, the narrator subprocess gets `--allowedTools Bash(...)` so it can
+/// invoke `sidequest-namegen` autonomously when introducing new NPCs.
+/// The genre is session-specific and comes from TurnContext.
+#[derive(Debug, Clone)]
+pub struct NamegenConfig {
+    /// Absolute path to the `sidequest-namegen` binary.
+    pub binary_path: String,
+    /// Absolute path to the `genre_packs/` directory.
+    pub genre_packs_path: String,
+}
+
 pub struct Orchestrator {
     /// Sender end of the watcher channel for TurnRecord delivery.
     pub watcher_tx: mpsc::Sender<TurnRecord>,
@@ -112,6 +125,8 @@ pub struct Orchestrator {
     troper: TroperAgent,
     /// SOUL.md principles — injected into every prompt in the Early zone.
     soul_text: Option<String>,
+    /// NPC name generator tool configuration. When Some, narrator gets tool access.
+    namegen_config: Option<NamegenConfig>,
 }
 
 impl Orchestrator {
@@ -147,6 +162,7 @@ impl Orchestrator {
             drama_thresholds: DramaThresholds::default(),
             troper: TroperAgent::new(),
             soul_text,
+            namegen_config: None,
         }
     }
 
@@ -168,6 +184,28 @@ impl Orchestrator {
     /// Read access to the Troper agent.
     pub fn troper(&self) -> &TroperAgent {
         &self.troper
+    }
+
+    /// Configure the NPC name generator tool for narrator tool use.
+    pub fn set_namegen_config(&mut self, config: NamegenConfig) {
+        self.namegen_config = Some(config);
+    }
+
+    /// Build the `--allowedTools` spec for the narrator subprocess.
+    ///
+    /// Returns the tool spec strings that let the narrator invoke `sidequest-namegen`
+    /// via `Bash(...)`. Empty if namegen is not configured.
+    fn narrator_allowed_tools(&self) -> Vec<String> {
+        match &self.namegen_config {
+            Some(cfg) => {
+                // Allow only exact invocation of the namegen binary
+                vec![format!(
+                    "Bash({}:*)",
+                    cfg.binary_path,
+                )]
+            }
+            None => vec![],
+        }
     }
 }
 
@@ -243,6 +281,31 @@ impl GameService for Orchestrator {
                     AttentionZone::Valley,
                     SectionCategory::State,
                 ));
+            }
+
+            // NPC name generator tool instructions (Valley zone — available cultures + command)
+            if let Some(ref cfg) = self.namegen_config {
+                if let Some(ref genre) = context.genre {
+                    let tool_section = format!(
+                        "[NPC NAME GENERATOR TOOL]\n\
+                         When you need to introduce a NEW NPC, call this tool via Bash:\n\
+                         ```\n\
+                         {} --genre-packs-path {} --genre {}\n\
+                         ```\n\
+                         Optional flags: --culture <name>, --archetype <name>, --gender <male|female|nonbinary>, --role <role>\n\
+                         The tool outputs a JSON block with: name, pronouns, culture, faction, archetype, role, \
+                         appearance, personality, dialogue_quirks, history, ocean, inventory, trope_connections.\n\
+                         Use the generated name and details in your narration and npcs_present block.\n\
+                         Pick --culture based on the setting context. Omit it for a random culture.",
+                        cfg.binary_path, cfg.genre_packs_path, genre,
+                    );
+                builder.add_section(PromptSection::new(
+                    "npc_namegen_tool",
+                    tool_section,
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+                }
             }
 
             // Active trope summary (Valley zone — background context for all agents)
@@ -374,15 +437,22 @@ impl GameService for Orchestrator {
         // Mechanical consistency enforced by state systems (LoreStore, NPC registry, tropes),
         // not by LLM memory. Structured extraction failures are soft (dropped field, not crash).
         let narrator_model = "sonnet";
+        let allowed_tools = self.narrator_allowed_tools();
+        let has_tools = !allowed_tools.is_empty();
         let inference_span = tracing::info_span!(
             "turn.agent_llm.inference",
             model = narrator_model,
             prompt_len = prompt.len(),
+            tool_use = has_tools,
         );
         let call_start = std::time::Instant::now();
         let send_result = {
             let _inf_guard = inference_span.enter();
-            self.client.send_with_model(&prompt, narrator_model)
+            if has_tools {
+                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools)
+            } else {
+                self.client.send_with_model(&prompt, narrator_model)
+            }
         };
         match send_result {
             Ok(response) => {
@@ -823,6 +893,9 @@ pub struct TurnContext {
     pub pending_trope_context: Option<String>,
     /// Active trope summary for background context (all agents, Valley zone).
     pub active_trope_summary: Option<String>,
+    /// Genre slug for the current session (e.g., "mutant_wasteland").
+    /// Used to parameterize the NPC name generator tool.
+    pub genre: Option<String>,
 }
 
 /// Result of processing a player action through the full turn loop.

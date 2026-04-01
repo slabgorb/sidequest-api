@@ -68,6 +68,12 @@ When NPCs appear in your narration (speaking, acting, or described), list them
 in npcs_present. Include EVERY NPC who appears — both new introductions and
 recurring characters from earlier turns.
 
+CRITICAL — NEW NPC NAMES: You MUST NOT invent NPC names. When introducing a new NPC \
+(is_new: true), you MUST call the sidequest-namegen tool via Bash to generate their \
+identity. Use the JSON output for name, pronouns, role, appearance, personality, and \
+all other NPC fields. If the tool is not available, use a descriptor instead of a name \
+(\"the old mechanic\", \"the hooded stranger\"). NEVER freestyle a proper name.
+
 Each NPC has:
 - name: their FULL canonical name as established (e.g., Toggler Copperjaw, NOT just Toggler)
 - pronouns: he/him, she/her, or they/them

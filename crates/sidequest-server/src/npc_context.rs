@@ -82,46 +82,21 @@ pub(crate) fn build_npc_registry_context_budgeted(
     lines.join("\n")
 }
 
-/// Build a name bank context string with pre-generated names for the narrator prompt.
+/// Build a slim culture reference for the narrator prompt.
 ///
-/// Uses the Markov chain name generator to produce concrete names from each culture's
-/// person_patterns and slot corpora. The narrator picks from these — no improvisation.
-pub(crate) fn build_name_bank_context(
+/// Lists available culture names and descriptions so the narrator knows what
+/// `--culture` values to pass to `sidequest-namegen`. No pre-generated names —
+/// the narrator calls the tool at runtime.
+pub(crate) fn build_culture_reference(
     cultures: &[sidequest_genre::Culture],
-    corpus_dir: &std::path::Path,
 ) -> String {
     if cultures.is_empty() {
         return String::new();
     }
 
-    let mut rng = rand::rng();
-    let names_per_culture = 10;
-
-    let mut lines = vec!["\n=== NPC NAME BANK (MANDATORY) ===\nYou MUST NOT invent NPC names. Pick from the pre-generated names below. If none fit, use a title or descriptor (\"the old mechanic\", \"the hooded stranger\"). Do NOT use generic Western fantasy names.".to_string()];
-
+    let mut lines = vec!["\n=== AVAILABLE CULTURES ===".to_string()];
     for culture in cultures {
-        let result = sidequest_genre::names::build_from_culture(culture, corpus_dir, &mut rng);
-        let mut names: Vec<String> = Vec::with_capacity(names_per_culture);
-        for _ in 0..names_per_culture {
-            let name = result.generator.generate_person(&mut rng);
-            if !name.is_empty() && !names.contains(&name) {
-                names.push(name);
-            }
-        }
-
-        if names.is_empty() {
-            continue;
-        }
-
-        lines.push(format!(
-            "\n## {} — {}",
-            culture.name.as_str(),
-            culture.description
-        ));
-        for name in &names {
-            lines.push(format!("  - {}", name));
-        }
+        lines.push(format!("- {} — {}", culture.name.as_str(), culture.description));
     }
-
     lines.join("\n")
 }

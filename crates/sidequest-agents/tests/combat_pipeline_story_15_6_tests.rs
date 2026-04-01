@@ -87,35 +87,43 @@ fn creature_smith_combat_end_patch_extracts() {
 
 #[test]
 fn combat_patch_rejects_inventory_fields() {
-    // This is what the LLM was actually emitting — inventory_updates is NOT
-    // a CombatPatch field, and deny_unknown_fields rejects the entire patch.
-    let bad_json = r#"{
+    // CombatPatch intentionally allows unknown fields because the LLM may include
+    // inline preprocessor fields (action_rewrite, action_flags) in the same JSON block.
+    // Unknown fields like inventory_updates are silently ignored — the known fields
+    // still parse correctly.
+    let json_with_extras = r#"{
         "in_combat": true,
         "hp_changes": {},
         "drama_weight": 0.2,
         "inventory_updates": {"add": [{"name": "hooked_rebar"}]}
     }"#;
-    let patch = JsonExtractor::extract::<CombatPatch>(bad_json);
-    assert!(patch.is_err(), "inventory_updates should be rejected by deny_unknown_fields");
+    let patch = JsonExtractor::extract::<CombatPatch>(json_with_extras);
+    assert!(patch.is_ok(), "CombatPatch allows unknown fields (inline preprocessor support)");
+    let p = patch.unwrap();
+    assert_eq!(p.in_combat, Some(true));
+    assert!(p.drama_weight.is_some());
 }
 
 #[test]
-fn combat_patch_rejects_quest_updates() {
-    let bad_json = r#"{
+fn combat_patch_ignores_quest_updates() {
+    // quest_updates is not a CombatPatch field — silently ignored, known fields parse fine
+    let json = r#"{
         "in_combat": false,
         "hp_changes": {},
         "quest_updates": {"Find the artifact": "in_progress"}
     }"#;
-    let patch = JsonExtractor::extract::<CombatPatch>(bad_json);
-    assert!(patch.is_err(), "quest_updates should be rejected by deny_unknown_fields");
+    let patch = JsonExtractor::extract::<CombatPatch>(json);
+    assert!(patch.is_ok(), "CombatPatch allows unknown fields");
+    assert_eq!(patch.unwrap().in_combat, Some(false));
 }
 
 #[test]
-fn combat_patch_rejects_round_number() {
-    // round_number was in the old struct but has been removed
-    let bad_json = r#"{"in_combat": true, "round_number": 3}"#;
-    let patch = JsonExtractor::extract::<CombatPatch>(bad_json);
-    assert!(patch.is_err(), "round_number should be rejected — field was removed");
+fn combat_patch_ignores_round_number() {
+    // round_number was removed from the struct — silently ignored by serde
+    let json = r#"{"in_combat": true, "round_number": 3}"#;
+    let patch = JsonExtractor::extract::<CombatPatch>(json);
+    assert!(patch.is_ok(), "CombatPatch allows unknown fields");
+    assert_eq!(patch.unwrap().in_combat, Some(true));
 }
 
 // ============================================================================

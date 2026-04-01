@@ -4,7 +4,7 @@
 //! endpoints for the React frontend to interact with the game engine.
 
 use clap::Parser;
-use sidequest_agents::orchestrator::Orchestrator;
+use sidequest_agents::orchestrator::{NamegenConfig, Orchestrator};
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 use sidequest_server::{create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType};
 
@@ -32,12 +32,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .join("saves")
         });
 
-    let state = AppState::new_with_game_service(
-        Box::new(Orchestrator::new(watcher_tx)),
+    let mut orchestrator = Orchestrator::new(watcher_tx);
+
+    // Discover sidequest-namegen binary next to the server binary.
+    // In dev: target/debug/sidequest-namegen alongside target/debug/sidequest-server.
+    // In release: same directory after `cargo install`.
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let namegen_path = dir.join("sidequest-namegen");
+            if namegen_path.exists() {
+                tracing::info!(
+                    path = %namegen_path.display(),
+                    "NPC name generator binary found — enabling narrator tool use"
+                );
+                orchestrator.set_namegen_config(NamegenConfig {
+                    binary_path: namegen_path.to_string_lossy().to_string(),
+                    genre_packs_path: args.genre_packs_path().to_string_lossy().to_string(),
+                });
+            } else {
+                tracing::warn!(
+                    expected = %namegen_path.display(),
+                    "sidequest-namegen binary not found — narrator will not have NPC tool use"
+                );
+            }
+        }
+    }
+
+    // Store discovered namegen path for server-side NPC gate validation
+    let namegen_for_state = if let Ok(exe) = std::env::current_exe() {
+        exe.parent()
+            .map(|dir| dir.join("sidequest-namegen"))
+            .filter(|p| p.exists())
+    } else {
+        None
+    };
+
+    let mut state = AppState::new_with_game_service(
+        Box::new(orchestrator),
         args.genre_packs_path().to_path_buf(),
         save_dir,
     )
     .with_tts_disabled(args.no_tts());
+
+    if let Some(path) = namegen_for_state {
+        state = state.with_namegen_binary(path);
+    }
 
     // Spawn the turn record bridge — receives TurnRecords from the orchestrator (hot path)
     // and broadcasts them as WatcherEvents to the GM dashboard (cold path).
