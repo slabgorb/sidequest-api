@@ -19,4 +19,16 @@ pub struct PreprocessedAction {
     /// Whether the LLM classified this action as a power-grab attempt.
     #[serde(default)]
     pub is_power_grab: bool,
+    /// Whether the player references using/checking/equipping items.
+    #[serde(default)]
+    pub references_inventory: bool,
+    /// Whether the player addresses or mentions an NPC by name.
+    #[serde(default)]
+    pub references_npc: bool,
+    /// Whether the player invokes a power, mutation, or supernatural ability.
+    #[serde(default)]
+    pub references_ability: bool,
+    /// Whether the player mentions a specific place or attempts travel.
+    #[serde(default)]
+    pub references_location: bool,
 }

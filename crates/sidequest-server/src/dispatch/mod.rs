@@ -224,13 +224,26 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // context build assembles the narrator prompt. ~7s saved per turn.
     let action_for_preprocess = ctx.action.to_string();
     let char_name_for_preprocess = ctx.char_name.to_string();
-    let (mut state_summary, preprocessed) = tokio::join!(
+    let (mut state_summary, preprocess_result) = tokio::join!(
         prompt::build_prompt_context(ctx),
         sidequest_agents::preprocessor::preprocess_action_async(
             &action_for_preprocess,
             &char_name_for_preprocess,
         )
     );
+    let preprocessed = match preprocess_result {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::error!(error = %e, "Preprocessor failed — cannot process action");
+            return vec![sidequest_protocol::GameMessage::Error {
+                payload: sidequest_protocol::ErrorPayload {
+                    message: format!("Action preprocessing failed: {e}"),
+                    reconnect_required: None,
+                },
+                player_id: ctx.player_id.to_string(),
+            }];
+        }
+    };
     tracing::info!(
         raw = %ctx.action,
         you = %preprocessed.you,
