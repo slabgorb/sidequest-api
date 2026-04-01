@@ -104,7 +104,7 @@ fn init_tracing_function_exists_and_is_callable() {
     // This test verifies that sidequest_server exposes init_tracing().
     // Currently main.rs uses tracing_subscriber::fmt::init() directly.
     // Story 3-1 requires replacing it with a composable init_tracing().
-    sidequest_server::init_tracing();
+    sidequest_server::init_tracing(false);
 }
 
 // ===========================================================================
