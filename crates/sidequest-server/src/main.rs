@@ -13,12 +13,11 @@ use sidequest_server::{create_server, AppState, Args, Severity, WatcherEvent, Wa
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args = Args::parse();
-    sidequest_server::init_tracing(args.trace());
+    sidequest_server::init_tracing(false);
     tracing::info!(
         port = args.port(),
         genre_packs = %args.genre_packs_path().display(),
         no_tts = args.no_tts(),
-        headless = args.headless(),
         "SideQuest Server starting"
     );
 
@@ -35,13 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .join("saves")
         });
 
-    let state = AppState::new_with_options(
+    let state = AppState::new_with_game_service(
         Box::new(Orchestrator::new(watcher_tx)),
         args.genre_packs_path().to_path_buf(),
         save_dir,
-        args.headless(),
     )
-    .with_tts_disabled(args.no_tts() || args.headless());
+    .with_tts_disabled(args.no_tts());
 
     // Spawn the turn record bridge — receives TurnRecords from the orchestrator (hot path)
     // and broadcasts them as WatcherEvents to the GM dashboard (cold path).

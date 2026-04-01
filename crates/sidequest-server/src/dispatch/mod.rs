@@ -12,6 +12,7 @@
 
 mod audio;
 mod combat;
+pub(crate) mod connect;
 mod prompt;
 mod render;
 mod session_sync;
@@ -633,7 +634,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     let _system_tick_guard = system_tick_span.enter();
 
     let combat_active = ctx.combat_state.in_combat();
-    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages, mutation_result.combat_just_ended)
+    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages, mutation_result.combat_just_ended, mutation_result.combat_just_started)
         .instrument(tracing::info_span!(
             "turn.system_tick.combat",
             in_combat = combat_active,

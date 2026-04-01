@@ -851,6 +851,13 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                         hp: Combatant::hp(n),
                         max_hp: Combatant::max_hp(n),
                         ac: Some(Combatant::ac(n)),
+                        status_effects: state.combat.effects_on(n.name())
+                            .iter()
+                            .map(|e| sidequest_protocol::StatusEffectInfo {
+                                kind: format!("{:?}", e.kind()),
+                                remaining_rounds: e.remaining_rounds(),
+                            })
+                            .collect(),
                     })
                     .collect(),
                 turn_order: state.combat.turn_order().to_vec(),
