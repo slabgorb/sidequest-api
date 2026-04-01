@@ -8,21 +8,32 @@ use crate::{Severity, WatcherEvent, WatcherEventType};
 
 use super::DispatchContext;
 
+/// Result of applying state mutations — includes combat transition info for overlays.
+pub(crate) struct MutationResult {
+    pub tier_events: Vec<sidequest_game::AffinityTierUpEvent>,
+    /// True if combat was active before mutations but is now inactive.
+    pub combat_just_ended: bool,
+    /// True if combat was inactive before mutations but is now active.
+    pub combat_just_started: bool,
+}
+
 /// Apply post-narration state mutations: combat HP, quests, XP, affinity, items.
-pub(crate) fn apply_state_mutations(
+pub(crate) async fn apply_state_mutations(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
     _clean_narration: &str,
     effective_action: &str,
-) -> Vec<sidequest_game::AffinityTierUpEvent> {
-    let _span = tracing::info_span!("turn.state_mutations").entered();
+) -> MutationResult {
     let mut all_tier_events = Vec::new();
+    let combat_before = ctx.combat_state.in_combat();
 
     // Combat state — apply typed CombatPatch from creature_smith
     if let Some(ref combat_patch) = result.combat_patch {
+        let was_in_combat = ctx.combat_state.in_combat();
+
         // Combat start → engage() with player + NPCs from the patch (not all known NPCs)
         if let Some(in_combat) = combat_patch.in_combat {
-            if in_combat && !ctx.combat_state.in_combat() {
+            if in_combat && !was_in_combat {
                 // Build combatant list from the patch, not from npc_registry.
                 // Prefer turn_order if provided; otherwise use hp_changes targets.
                 let combatants = if combat_patch
@@ -48,9 +59,40 @@ pub(crate) fn apply_state_mutations(
                     current_turn = ?ctx.combat_state.current_turn(),
                     "combat.engaged"
                 );
-            } else if !in_combat && ctx.combat_state.in_combat() {
+
+                // Turn mode transition: FreePlay → Structured
+                let holder = ctx.shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder {
+                    let mut ss = ss_arc.lock().await;
+                    let old_mode = std::mem::take(&mut ss.turn_mode);
+                    ss.turn_mode = old_mode
+                        .apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
+                    tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
+                    if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
+                        let mp_session =
+                            sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
+                                ss.players.keys().cloned(),
+                            );
+                        let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
+                        ss.turn_barrier =
+                            Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
+                                mp_session, adaptive,
+                            ));
+                    }
+                }
+            } else if !in_combat && was_in_combat {
                 ctx.combat_state.disengage();
                 tracing::info!("combat.disengaged");
+
+                // Turn mode transition: Structured → FreePlay
+                let holder = ctx.shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder {
+                    let mut ss = ss_arc.lock().await;
+                    let old_mode = std::mem::take(&mut ss.turn_mode);
+                    ss.turn_mode =
+                        old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
+                    tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat end");
+                }
             }
         }
 
@@ -103,6 +145,102 @@ pub(crate) fn apply_state_mutations(
         // Advance turn (handles round wrap internally)
         if combat_patch.advance_round && ctx.combat_state.in_combat() {
             ctx.combat_state.advance_turn();
+        }
+    }
+
+    // Chase state — apply typed ChasePatch from dialectician
+    if let Some(ref chase_patch) = result.chase_patch {
+        if let Some(in_chase) = chase_patch.in_chase {
+            if in_chase && ctx.chase_state.is_none() {
+                // Start chase
+                let chase_type = match chase_patch.chase_type.as_deref() {
+                    Some("stealth") => sidequest_game::ChaseType::Stealth,
+                    Some("negotiation") => sidequest_game::ChaseType::Negotiation,
+                    _ => sidequest_game::ChaseType::Footrace,
+                };
+                let cs = sidequest_game::ChaseState::new(chase_type, 0.5);
+                *ctx.chase_state = Some(cs);
+                tracing::info!(chase_type = ?chase_type, "chase.engaged");
+
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "chase".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("action".to_string(), serde_json::json!("chase_started"));
+                        f.insert("chase_type".to_string(), serde_json::json!(format!("{:?}", chase_type)));
+                        f
+                    },
+                });
+            } else if !in_chase && ctx.chase_state.is_some() {
+                // Resolve chase
+                if let Some(ref cs) = ctx.chase_state {
+                    tracing::info!(rounds = cs.round(), separation = cs.separation(), "chase.resolved");
+                    ctx.state.send_watcher_event(WatcherEvent {
+                        timestamp: chrono::Utc::now(),
+                        component: "chase".to_string(),
+                        event_type: WatcherEventType::StateTransition,
+                        severity: Severity::Info,
+                        fields: {
+                            let mut f = HashMap::new();
+                            f.insert("action".to_string(), serde_json::json!("chase_resolved"));
+                            f.insert("rounds".to_string(), serde_json::json!(cs.round()));
+                            f.insert("final_separation".to_string(), serde_json::json!(cs.separation()));
+                            f
+                        },
+                    });
+                }
+                *ctx.chase_state = None;
+            }
+        }
+
+        // Apply chase tick if chase is active
+        if let Some(ref mut cs) = ctx.chase_state {
+            if let Some(delta) = chase_patch.separation_delta {
+                cs.set_separation(cs.separation() + delta);
+            }
+            if let Some(ref phase) = chase_patch.phase {
+                cs.set_phase(phase.clone());
+            }
+            if let Some(ref event) = chase_patch.event {
+                cs.set_event(event.clone());
+            }
+            if let Some(roll) = chase_patch.roll {
+                cs.record_roll(roll);
+            }
+
+            tracing::info!(
+                round = cs.round(),
+                separation = cs.separation(),
+                phase = ?cs.phase(),
+                resolved = cs.is_resolved(),
+                "chase.tick"
+            );
+
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "chase".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("action".to_string(), serde_json::json!("chase_tick"));
+                    f.insert("round".to_string(), serde_json::json!(cs.round()));
+                    f.insert("separation".to_string(), serde_json::json!(cs.separation()));
+                    if let Some(delta) = chase_patch.separation_delta {
+                        f.insert("separation_delta".to_string(), serde_json::json!(delta));
+                    }
+                    f
+                },
+            });
+
+            // Auto-resolve if chase reports resolved via roll
+            if cs.is_resolved() {
+                tracing::info!("chase.auto_resolved — escape roll exceeded threshold");
+                *ctx.chase_state = None;
+            }
         }
     }
 
@@ -353,5 +491,10 @@ pub(crate) fn apply_state_mutations(
         }
     }
 
-    all_tier_events
+    let combat_after = ctx.combat_state.in_combat();
+    MutationResult {
+        tier_events: all_tier_events,
+        combat_just_ended: combat_before && !combat_after,
+        combat_just_started: !combat_before && combat_after,
+    }
 }

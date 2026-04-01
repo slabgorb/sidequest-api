@@ -89,7 +89,7 @@ fn ac_evidence_gathers_corroborating_claims() {
         content: "suspect_a is guilty of the crime".to_string(),
         turn_learned: 1,
         source: BeliefSource::Witnessed,
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("witness_1".to_string(), witness);
 
@@ -109,7 +109,7 @@ fn ac_evidence_gathers_contradicting_claims() {
         content: "suspect_a is innocent, I saw their alibi".to_string(),
         turn_learned: 2,
         source: BeliefSource::Witnessed,
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Contradicting,
     });
     beliefs.insert("defender".to_string(), defender);
 
@@ -183,7 +183,7 @@ fn ac_quality_boundary_score_3_is_strong() {
         content: "suspect_a is guilty".to_string(),
         turn_learned: 1,
         source: BeliefSource::Inferred,
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("witness".to_string(), w);
 
@@ -306,7 +306,7 @@ fn ac_narrative_all_six_combinations_distinct() {
                 content: "target is guilty".to_string(),
                 turn_learned: 1,
                 source: BeliefSource::Inferred,
-                believed: true,
+                believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
             });
             beliefs.insert("w".to_string(), w);
         }
@@ -358,7 +358,7 @@ fn ac_strong_accusation_clues_plus_claims() {
         content: "suspect_a is guilty of murder".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("informant".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("informant".to_string(), w);
 
@@ -394,7 +394,7 @@ fn ac_airtight_accusation_overwhelming_evidence() {
         content: "suspect_a is guilty beyond doubt".to_string(),
         turn_learned: 5,
         source: BeliefSource::Witnessed,
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("corroborator".to_string(), w);
 

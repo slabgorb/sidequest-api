@@ -440,14 +440,12 @@ impl GameSnapshot {
             changed.push("hp_changes");
         }
 
-        // NPC attitude changes
+        // NPC disposition deltas — numeric values from the LLM, applied directly
         if let Some(ref attitudes) = patch.npc_attitudes {
-            for (name, attitude_str) in attitudes {
-                if let Some(disposition) = Disposition::from_attitude_str(attitude_str) {
-                    for npc in &mut self.npcs {
-                        if npc.name() == name {
-                            npc.disposition = disposition;
-                        }
+            for (name, &delta) in attitudes {
+                for npc in &mut self.npcs {
+                    if npc.name() == name {
+                        npc.disposition.apply_delta(delta);
                     }
                 }
             }
@@ -669,8 +667,8 @@ pub struct WorldStatePatch {
     pub discover_routes: Option<Vec<String>>,
     /// Per-character/NPC HP deltas.
     pub hp_changes: Option<HashMap<String, i32>>,
-    /// NPC attitude string changes.
-    pub npc_attitudes: Option<HashMap<String, String>>,
+    /// NPC disposition deltas (signed integers on the -100 to +100 scale).
+    pub npc_attitudes: Option<HashMap<String, i32>>,
     /// NPC upsert patches.
     pub npcs_present: Option<Vec<NpcPatch>>,
     /// Active narrative stakes.

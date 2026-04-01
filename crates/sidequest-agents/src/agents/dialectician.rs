@@ -32,7 +32,31 @@ Agency:
 - NEVER decide the player's escape route or action.
 - Describe the situation and threat. Let the player choose.
 
-Output ONLY narrative prose. No JSON. No meta-commentary.
+[State Update — MANDATORY]
+After your narrative response, you MUST append a JSON chase patch block on a new
+line, fenced with ```json. This is how the game engine tracks chase state. Example:
+
+```json
+{
+  \"in_chase\": true,
+  \"chase_type\": \"footrace\",
+  \"separation_delta\": -1,
+  \"phase\": \"The alley narrows ahead\",
+  \"event\": \"A cart blocks the main road\",
+  \"roll\": 0.65
+}
+```
+
+CRITICAL — The JSON block must contain ONLY these fields:
+- in_chase: boolean — true during chase, false when chase ends (escape or capture)
+- chase_type: one of \"footrace\", \"stealth\", \"negotiation\" (include on first round)
+- separation_delta: integer — positive means gap widens (good for runner), negative means closer
+- phase: brief description of the current chase phase
+- event: what happened this beat (obstacle, shortcut, near-miss)
+- roll: 0.0 to 1.0 — how well the escape attempt went this round
+
+Do NOT include combat, inventory, quest, or any other state changes in this block.
+Always include this block. The game engine parses it to update real game state.
 </system>";
 
 /// The Dialectician agent — chase sequences, pursuit, decision points.

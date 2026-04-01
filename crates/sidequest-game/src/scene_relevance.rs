@@ -169,47 +169,17 @@ impl SceneRelevanceValidator {
         }
     }
 
-    /// Check that the prompt fragment doesn't reference a location inconsistent
-    /// with the current scene location.
-    ///
-    /// Extracts location-indicative keywords from the prompt and checks if the
-    /// current location shares any of them. Only rejects when the prompt strongly
-    /// implies a different setting.
+    /// Location coherence check placeholder — the hardcoded keyword taxonomy
+    /// has been removed. Location coherence is now checked via LLM classification
+    /// in the dispatch pipeline (see sidequest-agents::continuity_validator).
+    /// The structural checks (scene type, entity matching) remain here.
     fn check_location(
         &self,
-        subject: &RenderSubject,
-        context: &ExtractionContext,
+        _subject: &RenderSubject,
+        _context: &ExtractionContext,
     ) -> Option<ImagePromptVerdict> {
-        let prompt = subject.prompt_fragment().to_lowercase();
-        let location = context.current_location.to_lowercase();
-
-        // Only check if the prompt contains strong location indicators
-        // that clearly conflict with the current location
-        let location_cues: &[(&str, &[&str])] = &[
-            ("forest", &["tavern", "inn", "shop", "market", "city", "town", "arena", "castle", "dungeon"]),
-            ("tavern", &["forest", "desert", "ocean", "mountain", "cave", "wilderness", "field", "meadow"]),
-            ("desert", &["tavern", "inn", "forest", "ocean", "river", "lake", "swamp"]),
-            ("ocean", &["tavern", "inn", "forest", "desert", "mountain", "cave", "dungeon"]),
-            ("cave", &["tavern", "inn", "market", "city", "town", "meadow", "field"]),
-            ("mountain", &["tavern", "inn", "ocean", "desert", "swamp", "market"]),
-            ("dungeon", &["tavern", "inn", "market", "meadow", "field", "forest"]),
-        ];
-
-        for (prompt_cue, conflicting_locations) in location_cues {
-            if prompt.contains(prompt_cue) {
-                for conflict in *conflicting_locations {
-                    if location.contains(conflict) {
-                        return Some(ImagePromptVerdict::Rejected {
-                            reason: format!(
-                                "Prompt references '{}' but current location is '{}'",
-                                prompt_cue, context.current_location
-                            ),
-                        });
-                    }
-                }
-            }
-        }
-
+        // Location coherence handled by LLM continuity validator.
+        // The narrator's visual_scene already accounts for the current setting.
         None
     }
 }

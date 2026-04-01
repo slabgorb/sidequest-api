@@ -151,11 +151,11 @@ mod agent_types_tests {
     #[test]
     fn chase_patch_deserializes_from_json() {
         let json = r#"{
-            "separation": 15,
+            "separation_delta": 15,
             "phase": "pursuit"
         }"#;
         let patch: ChasePatch = serde_json::from_str(json).unwrap();
-        assert_eq!(patch.separation, Some(15));
+        assert_eq!(patch.separation_delta, Some(15));
     }
 
     #[test]
@@ -163,7 +163,7 @@ mod agent_types_tests {
         // ActionResult must carry narration text and optional state changes
         let result = ActionResult {
             narration: "You enter the dimly lit tavern.".to_string(),
-            combat_patch: None,
+            combat_patch: None, chase_patch: None,
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -223,9 +223,9 @@ That was a brutal hit."#;
 
     #[test]
     fn extract_chase_patch_from_direct_json() {
-        let json = r#"{"separation": 20, "phase": "escape"}"#;
+        let json = r#"{"separation_delta": 20, "phase": "escape"}"#;
         let patch: ChasePatch = JsonExtractor::extract(json).unwrap();
-        assert_eq!(patch.separation, Some(20));
+        assert_eq!(patch.separation_delta, Some(20));
     }
 }
 
@@ -348,7 +348,7 @@ mod game_service_tests {
     fn action_result_has_required_fields() {
         let result = ActionResult {
             narration: "test".to_string(),
-            combat_patch: None,
+            combat_patch: None, chase_patch: None,
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -393,7 +393,7 @@ mod error_handling_tests {
         // ADR-005: Timeout → degraded response, not error
         let result = ActionResult {
             narration: "The narrator pauses, gathering their thoughts...".to_string(),
-            combat_patch: None,
+            combat_patch: None, chase_patch: None,
             is_degraded: true,
             classified_intent: None,
             agent_name: None,
@@ -441,7 +441,7 @@ mod deferred_debt_tests {
 
     #[test]
     fn chase_patch_deny_unknown_fields() {
-        let json = r#"{"separation": 10, "bogus_field": "x"}"#;
+        let json = r#"{"separation_delta": 10, "bogus_field": "x"}"#;
         let result = serde_json::from_str::<ChasePatch>(json);
         assert!(result.is_err(), "ChasePatch must deny unknown fields");
     }

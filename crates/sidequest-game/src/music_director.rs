@@ -355,31 +355,10 @@ impl MusicDirector {
             };
         }
 
-        // Keyword scoring
-        let lower = narration.to_lowercase();
-        let mut scores: HashMap<&str, f32> = HashMap::new();
-
-        for (mood_key, keywords) in &self.mood_keywords {
-            let count = keywords.iter().filter(|kw| lower.contains(kw.as_str())).count();
-            if count > 0 {
-                *scores.entry(mood_key.as_str()).or_default() += count as f32;
-            }
-        }
-
-        // Highest scoring mood wins
-        if let Some((mood_key, score)) = scores
-            .into_iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-        {
-            let primary = Self::key_to_mood(mood_key);
-            return MoodClassification {
-                primary,
-                intensity: (score / 5.0).clamp(0.3, 1.0),
-                confidence: (score / 3.0).clamp(0.0, 1.0),
-            };
-        }
-
-        // Default: Exploration
+        // No state-based override matched. The dispatch pipeline uses the narrator's
+        // scene_mood (structured JSON) for track selection. This classification is only
+        // used for OTEL telemetry comparison. Default to Exploration at low confidence
+        // so the telemetry clearly shows "no mechanical mood detected."
         MoodClassification {
             primary: Mood::Exploration,
             intensity: 0.4,
@@ -508,40 +487,11 @@ impl MusicDirector {
             };
         }
 
-        // Keyword scoring
-        let lower = narration.to_lowercase();
-        let mut scores: std::collections::HashMap<&str, f32> = std::collections::HashMap::new();
-        let mut all_matches: Vec<(String, String)> = vec![];
-
-        for (mood_key, keywords) in &self.mood_keywords {
-            let matched: Vec<&String> = keywords.iter().filter(|kw| lower.contains(kw.as_str())).collect();
-            if !matched.is_empty() {
-                *scores.entry(mood_key.as_str()).or_default() += matched.len() as f32;
-                for kw in &matched {
-                    all_matches.push((mood_key.clone(), (*kw).clone()));
-                }
-            }
-        }
-
-        if let Some((mood_key, score)) = scores
-            .into_iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-        {
-            let primary = Self::key_to_mood(mood_key);
-            return MoodClassificationWithReason {
-                classification: MoodClassification {
-                    primary,
-                    intensity: (score / 5.0).clamp(0.3, 1.0),
-                    confidence: (score / 3.0).clamp(0.0, 1.0),
-                },
-                reason: format!("keyword_scoring: {} (score={:.1})", mood_key, score),
-                keyword_matches: all_matches,
-            };
-        }
-
+        // No state-based override. Narrator's scene_mood is used for track selection
+        // in the dispatch pipeline. This telemetry classification defaults to Exploration.
         MoodClassificationWithReason {
             classification: MoodClassification { primary: Mood::Exploration, intensity: 0.4, confidence: 0.2 },
-            reason: "default: no keywords matched".to_string(),
+            reason: "default: no state override, defer to narrator scene_mood".to_string(),
             keyword_matches: vec![],
         }
     }
@@ -726,16 +676,19 @@ mod tests {
     }
 
     #[test]
-    fn keyword_scoring_picks_combat() {
+    fn no_state_override_defaults_to_exploration() {
         let config = test_audio_config();
         let director = MusicDirector::new(&config);
 
+        // Without state overrides (in_combat, in_chase, etc.), mood defaults to
+        // Exploration regardless of narration content. The dispatch pipeline uses
+        // the narrator's scene_mood for track selection, not keyword classification.
         let ctx = MoodContext::default();
         let classification = director.classify_mood(
             "The warrior draws his sword and charges into the fight, clashing blades",
             &ctx,
         );
-        assert_eq!(classification.primary, Mood::Combat);
+        assert_eq!(classification.primary, Mood::Exploration);
     }
 
     #[test]

@@ -1,16 +1,20 @@
 //! Story 15-2: Wire OCEAN shift proposals into game flow — events trigger
 //! personality evolution.
 //!
-//! Tests for the full pipeline: narration → event detection → proposal →
-//! profile mutation on NpcRegistryEntry → summary regeneration.
-//!   AC-1: PersonalityEvents detected from narration (at least 2 event types)
+//! Tests for the full pipeline: typed event → proposal → profile mutation
+//! on NpcRegistryEntry → summary regeneration.
+//!
+//! NOTE: Event detection is now done via structured JSON extraction from
+//! the narrator (typed PersonalityEvent enum), NOT keyword matching.
+//! These tests verify the proposal→application→persistence pipeline.
+//!   AC-1: PersonalityEvent enum deserializes from JSON (typed, not keyword)
 //!   AC-2: Proposals generated and applied to NPC OCEAN profiles
 //!   AC-3: OceanShift log returned (not discarded)
 //!   AC-4: Personality changes persist (mutated on NpcRegistryEntry)
-//!   AC-5: End-to-end: detection → proposal → application → summary update
+//!   AC-5: End-to-end: typed event → proposal → application → summary update
 
 use sidequest_game::{
-    apply_ocean_shifts, detect_personality_events, NpcRegistryEntry, OceanDimension, OceanProfile,
+    apply_ocean_shifts, NpcRegistryEntry, OceanDimension, OceanProfile,
     PersonalityEvent,
 };
 
@@ -59,127 +63,47 @@ fn default_profile() -> OceanProfile {
     }
 }
 
-// ─── AC-1: Event detection from narration ──────────────────
+// ─── AC-1: PersonalityEvent serde round-trip ──────────────
 
 #[test]
-fn detects_betrayal_from_narration() {
-    let narration = "Griselda turns on you, plunging her dagger into your back. \
-                     The betrayal is complete.";
-    let npc_names = vec!["Griselda"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(
-        events.iter().any(|(name, e)| name == "Griselda" && *e == PersonalityEvent::Betrayal),
-        "should detect Betrayal for Griselda, got: {:?}",
-        events
-    );
+fn personality_event_deserializes_from_snake_case() {
+    let json = r#""betrayal""#;
+    let event: PersonalityEvent = serde_json::from_str(json).unwrap();
+    assert_eq!(event, PersonalityEvent::Betrayal);
 }
 
 #[test]
-fn detects_near_death_from_narration() {
-    let narration = "Kael collapses to the ground, barely clinging to life. \
-                     Blood pools beneath him as he nearly dies from the wound.";
-    let npc_names = vec!["Kael"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(
-        events.iter().any(|(name, e)| name == "Kael" && *e == PersonalityEvent::NearDeath),
-        "should detect NearDeath for Kael, got: {:?}",
-        events
-    );
+fn personality_event_deserializes_near_death() {
+    let json = r#""near_death""#;
+    let event: PersonalityEvent = serde_json::from_str(json).unwrap();
+    assert_eq!(event, PersonalityEvent::NearDeath);
 }
 
 #[test]
-fn detects_victory_from_narration() {
-    let narration = "Mira strikes the final blow, vanquishing the beast. \
-                     A triumphant cry rises from the party as victory is theirs.";
-    let npc_names = vec!["Mira"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(
-        events.iter().any(|(name, e)| name == "Mira" && *e == PersonalityEvent::Victory),
-        "should detect Victory for Mira, got: {:?}",
-        events
-    );
+fn personality_event_deserializes_all_variants() {
+    for (json, expected) in [
+        (r#""betrayal""#, PersonalityEvent::Betrayal),
+        (r#""near_death""#, PersonalityEvent::NearDeath),
+        (r#""victory""#, PersonalityEvent::Victory),
+        (r#""defeat""#, PersonalityEvent::Defeat),
+        (r#""social_bonding""#, PersonalityEvent::SocialBonding),
+    ] {
+        let event: PersonalityEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event, expected, "failed to deserialize {json}");
+    }
 }
 
 #[test]
-fn detects_defeat_from_narration() {
-    let narration = "Torval drops his weapon in shame, utterly defeated. \
-                     The loss weighs heavy on his shoulders.";
-    let npc_names = vec!["Torval"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(
-        events.iter().any(|(name, e)| name == "Torval" && *e == PersonalityEvent::Defeat),
-        "should detect Defeat for Torval, got: {:?}",
-        events
-    );
+fn personality_event_rejects_unknown_variant() {
+    let json = r#""showed_courage""#;
+    let result = serde_json::from_str::<PersonalityEvent>(json);
+    assert!(result.is_err(), "should reject unknown variant");
 }
 
 #[test]
-fn detects_social_bonding_from_narration() {
-    let narration = "Anya shares a quiet moment by the fire, forming a deep \
-                     bond of friendship with the party. Trust builds between you.";
-    let npc_names = vec!["Anya"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(
-        events.iter().any(|(name, e)| name == "Anya" && *e == PersonalityEvent::SocialBonding),
-        "should detect SocialBonding for Anya, got: {:?}",
-        events
-    );
-}
-
-#[test]
-fn returns_empty_when_no_events_detected() {
-    let narration = "The sun sets over the quiet village. Nothing of note happens.";
-    let npc_names = vec!["Griselda", "Kael"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(events.is_empty(), "should return no events for mundane narration, got: {:?}", events);
-}
-
-#[test]
-fn only_detects_events_for_known_npcs() {
-    let narration = "Zephyr betrays the group, stabbing Griselda in the back.";
-    let npc_names = vec!["Griselda"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(
-        events.iter().all(|(name, _)| name != "Zephyr"),
-        "should not detect events for unknown NPC Zephyr, got: {:?}",
-        events
-    );
-}
-
-#[test]
-fn detects_multiple_events_in_single_narration() {
-    let narration = "Griselda betrays the party while Kael nearly dies from \
-                     the poison. Mira claims victory over the assassin.";
-    let npc_names = vec!["Griselda", "Kael", "Mira"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    let unique_npcs: std::collections::HashSet<_> =
-        events.iter().map(|(name, _)| name.as_str()).collect();
-    assert!(
-        unique_npcs.len() >= 2,
-        "should detect events for at least 2 NPCs, got: {:?}",
-        events
-    );
-}
-
-#[test]
-fn no_false_positive_on_vagabond() {
-    let narration = "The vagabond wanders into town. Griselda greets them warmly.";
-    let npc_names = vec!["Griselda"];
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(
-        !events.iter().any(|(_, e)| *e == PersonalityEvent::SocialBonding),
-        "vagabond should not trigger SocialBonding, got: {:?}",
-        events
-    );
+fn personality_event_serializes_to_snake_case() {
+    let json = serde_json::to_string(&PersonalityEvent::SocialBonding).unwrap();
+    assert_eq!(json, r#""social_bonding""#);
 }
 
 // ─── AC-2: Proposals applied to NPC OCEAN profiles ─────────
@@ -304,19 +228,16 @@ fn profile_stays_within_bounds_after_many_shifts() {
     }
 }
 
-// ─── AC-5: End-to-end detection → application → summary ───
+// ─── AC-5: End-to-end typed event → application → summary ──
 
 #[test]
-fn end_to_end_narration_to_profile_change() {
+fn end_to_end_typed_event_to_profile_change() {
     let mut registry = vec![make_entry("Sable", default_profile())];
 
-    let narration = "Sable suffers a crushing defeat at the hands of the warlord.";
-    let npc_names: Vec<&str> = registry.iter().map(|e| e.name.as_str()).collect();
-    let events = detect_personality_events(narration, &npc_names);
-
-    assert!(!events.is_empty(), "should detect at least one event from defeat narration");
-
+    // Typed event — no keyword detection, directly from narrator JSON
+    let events = vec![("Sable".to_string(), PersonalityEvent::Defeat)];
     let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
+
     assert!(!applied.is_empty(), "should apply at least one shift");
 
     let profile = registry[0].ocean.as_ref().unwrap();
@@ -337,11 +258,11 @@ fn end_to_end_with_multiple_npcs() {
         make_entry("Kael", OceanProfile::default()),
     ];
 
-    let narration = "Griselda betrays the party while Kael barely survives \
-                     the ambush, nearly dying from his wounds.";
-    let npc_names: Vec<&str> = registry.iter().map(|e| e.name.as_str()).collect();
-    let events = detect_personality_events(narration, &npc_names);
-
+    // Two typed events — from narrator's structured JSON block
+    let events = vec![
+        ("Griselda".to_string(), PersonalityEvent::Betrayal),
+        ("Kael".to_string(), PersonalityEvent::NearDeath),
+    ];
     let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
 
     let any_changed = registry.iter().any(|entry| {
@@ -361,8 +282,6 @@ fn end_to_end_with_multiple_npcs() {
 
 #[test]
 fn ocean_summary_regenerated_after_shift() {
-    // Start agreeableness at 4.0 — betrayal shifts it by -1.5 to 2.5, crossing
-    // the ≤3.0 threshold and producing "competitive and blunt" in the summary.
     let ocean = OceanProfile {
         openness: 5.0,
         conscientiousness: 5.0,

@@ -183,7 +183,7 @@ fn ac_alibi_creates_false_claim_in_belief_state() {
             content: "I was at the tavern all night".to_string(),
             turn_learned: 3,
             source: BeliefSource::Witnessed,
-            believed: true,
+            believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
         },
     };
 
@@ -278,7 +278,7 @@ fn ac_spread_rumor_carries_claim_and_target() {
             content: "I saw them near the crime scene".to_string(),
             turn_learned: 2,
             source: BeliefSource::Inferred,
-            believed: true,
+            believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
         },
         target_npc: "bartender".to_string(),
     };
@@ -352,7 +352,7 @@ fn serde_npc_action_round_trips() {
             content: "I was elsewhere".to_string(),
             turn_learned: 1,
             source: BeliefSource::Witnessed,
-            believed: true,
+            believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
         },
     };
     let json = serde_json::to_string(&action).expect("serialize NpcAction");
