@@ -73,6 +73,11 @@ impl LoreStore {
         self.fragments.is_empty()
     }
 
+    /// Count of fragments that have embedding vectors attached.
+    pub fn fragments_with_embeddings_count(&self) -> usize {
+        self.fragments.values().filter(|f| f.embedding().is_some()).count()
+    }
+
     /// Return the top-k fragments most similar to `query_embedding`, sorted by
     /// descending cosine similarity. Fragments without embeddings are skipped.
     pub fn query_by_similarity(

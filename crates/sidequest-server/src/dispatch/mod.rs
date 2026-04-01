@@ -69,7 +69,7 @@ pub(crate) struct DispatchContext<'a> {
     pub narration_history: &'a mut Vec<String>,
     pub discovered_regions: &'a mut Vec<String>,
     pub turn_manager: &'a mut sidequest_game::TurnManager,
-    pub lore_store: &'a sidequest_game::LoreStore,
+    pub lore_store: &'a mut sidequest_game::LoreStore,
     pub shared_session_holder: &'a Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
@@ -508,6 +508,53 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let tier_events =
         state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action);
+
+    // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
+    if let Some(ref lore_entries) = result.lore_established {
+        for entry in lore_entries {
+            if entry.trim().is_empty() {
+                continue;
+            }
+            match sidequest_game::accumulate_lore(
+                ctx.lore_store,
+                entry,
+                sidequest_game::lore::LoreCategory::Event,
+                turn_number as u64,
+                std::collections::HashMap::new(),
+            ) {
+                Ok(fragment_id) => {
+                    // AC-5: OTEL lore.fragment_accumulated
+                    let category = "event";
+                    let token_estimate = entry.len().div_ceil(4);
+                    ctx.state.send_watcher_event(WatcherEvent {
+                        timestamp: chrono::Utc::now(),
+                        component: "lore".to_string(),
+                        event_type: WatcherEventType::StateTransition,
+                        severity: Severity::Info,
+                        fields: {
+                            let mut f = HashMap::new();
+                            f.insert("event".to_string(), serde_json::json!("lore.fragment_accumulated"));
+                            f.insert("fragment_id".to_string(), serde_json::json!(fragment_id));
+                            f.insert("category".to_string(), serde_json::json!(category));
+                            f.insert("turn".to_string(), serde_json::json!(turn_number));
+                            f.insert("token_estimate".to_string(), serde_json::json!(token_estimate));
+                            f
+                        },
+                    });
+                    tracing::info!(
+                        fragment_id = %fragment_id,
+                        category = category,
+                        turn = turn_number,
+                        token_estimate = token_estimate,
+                        "lore.fragment_accumulated"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "lore.accumulate_failed");
+                }
+            }
+        }
+    }
 
     // Build response messages (narration, party status, inventory)
     build_response_messages(

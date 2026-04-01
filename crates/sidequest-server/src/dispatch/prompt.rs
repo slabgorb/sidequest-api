@@ -461,8 +461,25 @@ pub(crate) async fn build_prompt_context(
             None
         };
         let lore_budget = 500; // ~500 tokens for lore context
+        let has_embeddings = ctx.lore_store.fragments_with_embeddings_count() > 0;
         let selected =
             sidequest_game::select_lore_for_prompt(ctx.lore_store, lore_budget, context_hint, None);
+
+        // AC-7: OTEL lore.semantic_retrieval (story 15-7)
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "lore".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("event".to_string(), serde_json::json!("lore.semantic_retrieval"));
+                f.insert("query_hint".to_string(), serde_json::json!(context_hint));
+                f.insert("fallback_to_keyword".to_string(), serde_json::json!(!has_embeddings));
+                f.insert("selected_count".to_string(), serde_json::json!(selected.len()));
+                f
+            },
+        });
 
         // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
         let lore_summary = sidequest_game::summarize_lore_retrieval(
