@@ -32,7 +32,7 @@ use sidequest_game::chase_depth::{
     RigStats, RigType, RigDamageTier,
     check_outcome, phase_for_beat, danger_for_beat, terrain_modifiers,
     apply_terrain_to_rig, camera_for_phase, cinematography_for_phase,
-    sentence_range_for_drama, format_chase_context, CameraMode,
+    format_chase_context, CameraMode,
 };
 use sidequest_game::encounter::{
     EncounterPhase, MetricDirection, SecondaryStats, StructuredEncounter,
