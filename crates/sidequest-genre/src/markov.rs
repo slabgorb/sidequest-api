@@ -186,6 +186,51 @@ impl MarkovChain {
     }
 }
 
+/// Map each English word to a unique generated fantasy word.
+///
+/// Uses the trained chain to produce a fantasy equivalent for each input word,
+/// ensuring all generated values are unique. The resulting dictionary can be
+/// serialized, groomed, and checked into the content repo.
+pub fn generate_dictionary<R: Rng>(
+    chain: &MarkovChain,
+    english_words: &[String],
+    rng: &mut R,
+) -> HashMap<String, String> {
+    let mut mapping = HashMap::new();
+    let mut used = std::collections::HashSet::new();
+
+    for eng in english_words {
+        let mut found = false;
+        for _ in 0..50 {
+            let fantasy = chain.make_word(rng);
+            if fantasy.len() >= 2
+                && fantasy.len() <= 12
+                && !used.contains(&fantasy)
+                && !chain.reject_words.contains(&fantasy)
+            {
+                used.insert(fantasy.clone());
+                mapping.insert(eng.clone(), fantasy);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            // Fallback: use the original word if generation fails
+            mapping.insert(eng.clone(), eng.clone());
+        }
+    }
+
+    mapping
+}
+
+/// Translate a word list using a dictionary, passing through unknown words.
+pub fn translate_word_list(word_list: &[String], dictionary: &HashMap<String, String>) -> Vec<String> {
+    word_list
+        .iter()
+        .map(|w| dictionary.get(w).cloned().unwrap_or_else(|| w.clone()))
+        .collect()
+}
+
 /// Pick a random character weighted by counts.
 fn weighted_choice<R: Rng>(counts: &HashMap<char, u32>, rng: &mut R) -> char {
     let total: u32 = counts.values().sum();

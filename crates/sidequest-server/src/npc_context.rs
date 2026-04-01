@@ -100,10 +100,10 @@ pub(crate) fn build_name_bank_context(
     let mut lines = vec!["\n=== NPC NAME BANK (MANDATORY) ===\nYou MUST NOT invent NPC names. Pick from the pre-generated names below. If none fit, use a title or descriptor (\"the old mechanic\", \"the hooded stranger\"). Do NOT use generic Western fantasy names.".to_string()];
 
     for culture in cultures {
-        let gen = sidequest_genre::names::build_from_culture(culture, corpus_dir, &mut rng);
+        let result = sidequest_genre::names::build_from_culture(culture, corpus_dir, &mut rng);
         let mut names: Vec<String> = Vec::with_capacity(names_per_culture);
         for _ in 0..names_per_culture {
-            let name = gen.generate_person(&mut rng);
+            let name = result.generator.generate_person(&mut rng);
             if !name.is_empty() && !names.contains(&name) {
                 names.push(name);
             }

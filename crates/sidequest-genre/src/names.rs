@@ -149,16 +149,30 @@ fn titlecase_name(name: &str) -> String {
         .join(" ")
 }
 
+/// Result of building a name generator, including the translation dictionary.
+pub struct NameGeneratorResult {
+    /// The name generator.
+    pub generator: NameGenerator,
+    /// English → fantasy word mappings produced during word list translation.
+    /// Can be serialized and groomed.
+    pub dictionary: HashMap<String, String>,
+}
+
 /// Build a `NameGenerator` from a `Culture` and corpus directory.
 ///
 /// All corpora for a slot are trained into a single `MarkovChain` so that
-/// character transitions blend at the phonemic level.
+/// character transitions blend at the phonemic level. When a slot has both
+/// a word_list and corpora, the word list is translated through the chain
+/// to produce fantasy equivalents (e.g., "Voltkin" → "Kravtik").
 pub fn build_from_culture<R: Rng>(
     culture: &Culture,
     corpus_dir: &Path,
-    _rng: &mut R,
-) -> NameGenerator {
+    rng: &mut R,
+) -> NameGeneratorResult {
+    use crate::markov::{generate_dictionary, translate_word_list};
+
     let mut slots = HashMap::new();
+    let mut dictionary = HashMap::new();
 
     for (slot_name, slot_config) in &culture.slots {
         let chain = build_chain_for_slot(slot_config, corpus_dir);
@@ -178,13 +192,29 @@ pub fn build_from_culture<R: Rng>(
             }
         }
 
+        // If slot has both word_list and corpora, translate the word list into
+        // fantasy equivalents. The original English words map to generated words
+        // so the semantic meaning is preserved but the phonemic flavor matches
+        // the culture's language.
+        if !word_list.is_empty() {
+            if let Some(ref chain) = chain {
+                let slot_dict = generate_dictionary(chain, &word_list, rng);
+                let translated = translate_word_list(&word_list, &slot_dict);
+                dictionary.extend(slot_dict);
+                word_list = translated;
+            }
+        }
+
         slots.insert(slot_name.clone(), SlotGenerator { chain, word_list });
     }
 
-    NameGenerator {
-        slots,
-        person_patterns: culture.person_patterns.clone(),
-        place_patterns: culture.place_patterns.clone(),
+    NameGeneratorResult {
+        generator: NameGenerator {
+            slots,
+            person_patterns: culture.person_patterns.clone(),
+            place_patterns: culture.place_patterns.clone(),
+        },
+        dictionary,
     }
 }
 
@@ -292,7 +322,8 @@ mod tests {
     #[test]
     fn generates_place_name() {
         let culture = test_culture();
-        let gen = build_from_culture(&culture, Path::new("."), &mut rand::rng());
+        let result = build_from_culture(&culture, Path::new("."), &mut rand::rng());
+        let gen = result.generator;
         let name = gen.generate_place(&mut rand::rng());
         assert!(!name.is_empty());
         // Should be title-cased
@@ -302,7 +333,8 @@ mod tests {
     #[test]
     fn generates_person_name() {
         let culture = test_culture();
-        let gen = build_from_culture(&culture, Path::new("."), &mut rand::rng());
+        let result = build_from_culture(&culture, Path::new("."), &mut rand::rng());
+        let gen = result.generator;
         let name = gen.generate_person(&mut rand::rng());
         assert!(!name.is_empty());
     }
@@ -316,7 +348,8 @@ mod tests {
     #[test]
     fn fill_replaces_slots() {
         let culture = test_culture();
-        let gen = build_from_culture(&culture, Path::new("."), &mut rand::rng());
+        let result = build_from_culture(&culture, Path::new("."), &mut rand::rng());
+        let gen = result.generator;
         // Multiple calls should produce valid names
         for _ in 0..10 {
             let name = gen.generate_place(&mut rand::rng());
