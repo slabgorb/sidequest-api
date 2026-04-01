@@ -1868,7 +1868,10 @@ async fn dispatch_connect(
                         *axis_values = saved.snapshot.axis_values.clone();
 
                         // Transition session to Playing
-                        let _ = session.complete_character_creation();
+                        if let Err(e) = session.complete_character_creation() {
+                            tracing::error!(error = %e, state = %session.state_name(), "Failed to transition session to Playing on reconnect");
+                            return vec![error_response(player_id, &format!("Session transition failed: {e}"))];
+                        }
 
                         let ready = GameMessage::SessionEvent {
                             payload: SessionEventPayload {
@@ -2486,7 +2489,10 @@ async fn dispatch_character_creation(
                     }
 
                     // Transition session to Playing
-                    let _ = session.complete_character_creation();
+                    if let Err(e) = session.complete_character_creation() {
+                        tracing::error!(error = %e, state = %session.state_name(), "Failed to transition session to Playing after chargen");
+                        return vec![error_response(player_id, &format!("Session transition failed: {e}"))];
+                    }
                     *builder = None;
 
                     let complete = GameMessage::CharacterCreation {
