@@ -70,6 +70,9 @@ pub struct ActionResult {
     /// Lore fragments established during this turn (story 15-7).
     /// Extracted from narrator structured JSON block, fed to `accumulate_lore()` in dispatch.
     pub lore_established: Option<Vec<String>>,
+    /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
+    /// Passed through to AudioCuePayload.sfx_triggers for client playback.
+    pub sfx_triggers: Vec<String>,
     /// Inline preprocessor: action rewrite (eliminates separate Haiku subprocess).
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
@@ -392,6 +395,23 @@ impl GameService for Orchestrator {
                 ));
             }
 
+            // SFX library (Valley zone — available SFX IDs for narrator to pick from)
+            if !context.available_sfx.is_empty() {
+                let sfx_list = context.available_sfx.join(", ");
+                builder.add_section(PromptSection::new(
+                    "sfx_library",
+                    format!(
+                        "[AVAILABLE SFX]\n\
+                         When your narration describes a sound-producing action, include matching \
+                         SFX IDs in sfx_triggers. Pick based on what HAPPENED, not what was mentioned.\n\
+                         Available: {}",
+                        sfx_list
+                    ),
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+            }
+
             // Backstory capture directive — when the player is building their character's
             // history, tell the narrator to extract personal details as footnotes so they
             // persist in the RAG knowledge store.
@@ -633,6 +653,7 @@ impl GameService for Orchestrator {
                     resource_deltas: extraction.resource_deltas,
                     zone_breakdown: Some(prompt_zone_breakdown),
                     lore_established: extraction.lore_established,
+                    sfx_triggers: extraction.sfx_triggers,
                     action_rewrite: extraction.action_rewrite,
                     action_flags: extraction.action_flags,
                 }
@@ -737,6 +758,9 @@ struct NarratorStructuredBlock {
     resource_deltas: HashMap<String, f64>,
     #[serde(default)]
     lore_established: Option<Vec<String>>,
+    /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
+    #[serde(default)]
+    sfx_triggers: Vec<String>,
     /// Inline preprocessor: action rewrite (approach A — eliminates separate Haiku call).
     #[serde(default)]
     action_rewrite: Option<ActionRewrite>,
@@ -795,6 +819,8 @@ pub struct NarratorExtraction {
     pub resource_deltas: HashMap<String, f64>,
     /// Lore fragments established this turn (story 15-7).
     pub lore_established: Option<Vec<String>>,
+    /// SFX trigger IDs from the narrator's scene analysis.
+    pub sfx_triggers: Vec<String>,
     /// Inline preprocessor: action rewrite (eliminates separate Haiku call).
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
@@ -836,6 +862,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: block.scene_intent,
                     resource_deltas: block.resource_deltas,
                     lore_established: block.lore_established,
+                    sfx_triggers: block.sfx_triggers,
                     action_rewrite: block.action_rewrite,
                     action_flags: block.action_flags,
                     tier: 1,
@@ -863,6 +890,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: None,
                     resource_deltas: HashMap::new(),
                     lore_established: None,
+                    sfx_triggers: vec![],
                     action_rewrite: None,
                     action_flags: None,
                     tier: 2,
@@ -894,6 +922,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                sfx_triggers: block.sfx_triggers,
                 action_rewrite: block.action_rewrite,
                 action_flags: block.action_flags,
                 tier: 2,
@@ -918,6 +947,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                sfx_triggers: block.sfx_triggers,
                 action_rewrite: block.action_rewrite,
                 action_flags: block.action_flags,
                 tier: 2,
@@ -939,6 +969,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         scene_intent: None,
         resource_deltas: HashMap::new(),
         lore_established: None,
+        sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
         tier: 3,
@@ -970,6 +1001,9 @@ pub struct TurnContext {
     /// Genre slug for the current session (e.g., "mutant_wasteland").
     /// Required for script tool prompt injection — tools need the genre to call the binary.
     pub genre: Option<String>,
+    /// Available SFX IDs from the genre pack's sfx_library.
+    /// Injected into the narrator prompt so it knows what SFX to pick from.
+    pub available_sfx: Vec<String>,
 }
 
 /// Result of processing a player action through the full turn loop.

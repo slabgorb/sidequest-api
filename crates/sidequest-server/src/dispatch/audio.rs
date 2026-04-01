@@ -144,4 +144,46 @@ pub(crate) async fn process_audio(
     } else {
         tracing::warn!("music_director_missing — audio cues skipped");
     }
+
+    // SFX triggers from narrator — emitted as a separate AudioCue message.
+    // The narrator picks SFX IDs based on what happened in the scene.
+    if !result.sfx_triggers.is_empty() {
+        // Validate: only emit SFX IDs that exist in the genre pack's sfx_library.
+        let valid_sfx: Vec<String> = result
+            .sfx_triggers
+            .iter()
+            .filter(|id| ctx.sfx_ids.contains(id))
+            .cloned()
+            .collect();
+
+        if valid_sfx.len() < result.sfx_triggers.len() {
+            let invalid: Vec<&String> = result
+                .sfx_triggers
+                .iter()
+                .filter(|id| !ctx.sfx_ids.contains(id))
+                .collect();
+            tracing::warn!(
+                invalid = ?invalid,
+                "sfx.invalid_ids — narrator emitted SFX IDs not in genre pack sfx_library"
+            );
+        }
+
+        if !valid_sfx.is_empty() {
+            tracing::info!(
+                sfx = ?valid_sfx,
+                "sfx.triggers_emitted"
+            );
+            messages.push(GameMessage::AudioCue {
+                payload: sidequest_protocol::AudioCuePayload {
+                    mood: None,
+                    music_track: None,
+                    sfx_triggers: valid_sfx,
+                    channel: Some("sfx".to_string()),
+                    action: Some("play".to_string()),
+                    volume: Some(0.7),
+                },
+                player_id: ctx.player_id.to_string(),
+            });
+        }
+    }
 }
