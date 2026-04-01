@@ -66,7 +66,7 @@ pub struct ActionResult {
     /// Used by the Prompt Inspector dashboard tab.
     pub zone_breakdown: Option<ZoneBreakdown>,
     /// Lore fragments established during this turn (story 15-7).
-    /// Extracted from the narrator's world_patch, fed to `accumulate_lore()` in dispatch.
+    /// Extracted from narrator structured JSON block, fed to `accumulate_lore()` in dispatch.
     pub lore_established: Option<Vec<String>>,
 }
 

@@ -212,6 +212,16 @@ impl DaemonClient {
         let embed_result: crate::types::EmbedResult = serde_json::from_value(result)
             .map_err(|e| DaemonError::InvalidResponse(e.to_string()))?;
         span.record("latency_ms", embed_result.latency_ms);
+
+        // AC-6: OTEL lore.embedding_generated — emitted here so the event fires
+        // whenever embed() is called, regardless of call site.
+        tracing::info!(
+            latency_ms = embed_result.latency_ms,
+            model = %embed_result.model,
+            embedding_dim = embed_result.embedding.len(),
+            "lore.embedding_generated"
+        );
+
         Ok(embed_result)
     }
 
