@@ -1932,12 +1932,15 @@ async fn dispatch_connect(
                         *combat_state = saved.snapshot.combat.clone();
                         *chase_state = saved.snapshot.chase.clone();
                         *resource_state = saved.snapshot.resource_state.clone();
+                        let has_encounter = saved.snapshot.encounter.is_some();
                         tracing::info!(
                             trope_count = trope_states.len(),
                             quest_count = quest_log.len(),
                             in_combat = combat_state.in_combat(),
                             combat_round = combat_state.round(),
-                            "reconnect.state_restored — tropes, quests, combat, chase loaded from save"
+                            has_encounter = has_encounter,
+                            encounter_type = saved.snapshot.encounter.as_ref().map(|e| e.encounter_type.as_str()).unwrap_or("none"),
+                            "reconnect.state_restored — tropes, quests, combat, chase, encounter loaded from save"
                         );
 
                         // Cross-session trope advancement — "living world" progression
