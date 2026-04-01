@@ -205,7 +205,7 @@ impl StructuredEncounter {
     /// - separation_distance → metric with name "separation", Ascending direction
     /// - goal → threshold_high
     /// - rig → SecondaryStats via rig() constructor
-    pub fn chase(escape_threshold: f64, rig_type: Option<RigType>, goal: i32) -> Self {
+    pub fn chase(_escape_threshold: f64, rig_type: Option<RigType>, goal: i32) -> Self {
         let secondary_stats = rig_type.map(SecondaryStats::rig);
 
         Self {

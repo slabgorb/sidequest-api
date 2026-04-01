@@ -308,7 +308,7 @@ impl MusicDirector {
     }
 
     /// Inner classification logic (extracted so span wraps the full result).
-    fn classify_mood_inner(&self, narration: &str, ctx: &MoodContext) -> MoodClassification {
+    fn classify_mood_inner(&self, _narration: &str, ctx: &MoodContext) -> MoodClassification {
         // Encounter mood override takes highest priority
         if let Some(ref mood_key) = ctx.encounter_mood_override {
             return MoodClassification {
@@ -437,7 +437,7 @@ impl MusicDirector {
 
     /// Classify mood and return both the classification result and the keyword matches
     /// that led to it (for OTEL telemetry).
-    pub fn classify_mood_with_reasoning(&self, narration: &str, ctx: &MoodContext) -> MoodClassificationWithReason {
+    pub fn classify_mood_with_reasoning(&self, _narration: &str, ctx: &MoodContext) -> MoodClassificationWithReason {
         // Encounter mood override takes highest priority
         if let Some(ref mood_key) = ctx.encounter_mood_override {
             return MoodClassificationWithReason {

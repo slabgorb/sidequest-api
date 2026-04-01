@@ -10,7 +10,7 @@
 use std::time::Duration;
 
 use sidequest_game::PreprocessedAction;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::client::ClaudeClient;
 
