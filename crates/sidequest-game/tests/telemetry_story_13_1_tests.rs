@@ -442,34 +442,8 @@ fn trope_resolve_emits_span() {
     assert_eq!(field_value(span, "trope_id"), Some("forbidden_knowledge"));
 }
 
-/// apply_keyword_modifiers must emit a span with tropes_modified count.
-#[test]
-fn trope_keyword_modifiers_emits_span() {
-    use sidequest_game::trope::{TropeEngine, TropeState};
-
-    let mut tropes = vec![TropeState::new("forbidden_knowledge")];
-    let defs = vec![test_trope_def()];
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        TropeEngine::apply_keyword_modifiers(
-            &mut tropes,
-            &defs,
-            "You find a forbidden tome in the ruins",
-        );
-    });
-
-    let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "trope_keyword_modifiers")
-        .expect("Expected a 'trope_keyword_modifiers' span");
-
-    assert!(
-        has_field(span, "tropes_modified"),
-        "trope_keyword_modifiers span missing 'tropes_modified' field"
-    );
-}
+// Keyword modifier telemetry test removed — apply_keyword_modifiers was deleted.
+// Trope progression is now driven by LLM evaluation (TroperAgent::evaluate_triggers).
 
 // ===========================================================================
 // QUEST TRACKING — quest_log and quest_updates in apply_world_patch

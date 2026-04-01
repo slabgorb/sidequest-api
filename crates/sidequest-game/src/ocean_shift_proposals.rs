@@ -8,7 +8,11 @@ use sidequest_genre::{OceanDimension, OceanShiftLog};
 use crate::npc::NpcRegistryEntry;
 
 /// Narrative events that can trigger personality evolution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Deserialized directly from the narrator's structured JSON block via
+/// the `event_type` field. The LLM emits the snake_case variant name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PersonalityEvent {
     /// A trusted NPC or ally betrayed the character.
     Betrayal,
@@ -105,61 +109,6 @@ pub fn propose_ocean_shifts(event: PersonalityEvent, npc_name: &str) -> Vec<Ocea
             },
         ],
     }
-}
-
-/// Keyword patterns for each personality event type.
-/// Multi-word phrases are preferred to avoid substring false positives.
-const EVENT_KEYWORDS: &[(PersonalityEvent, &[&str])] = &[
-    (PersonalityEvent::Betrayal, &[
-        "betrayal", "betrays", "betrayed", "betray ", "treachery", "backstab",
-        "turns on", "turned on", "double-cross",
-    ]),
-    (PersonalityEvent::NearDeath, &[
-        "nearly dies", "nearly died", "near death", "near-death", "barely alive",
-        "clinging to life", "brink of death", "mortally wounded", "fatal wound",
-        "almost killed", "barely survives", "barely survived",
-    ]),
-    (PersonalityEvent::Victory, &[
-        "victory", "victorious", "triumphant", "triumph", "vanquish", "vanquishing",
-        "conquers", "conquered", "prevails", "prevailed", "wins the battle",
-        "claims victory", "final blow",
-    ]),
-    (PersonalityEvent::Defeat, &[
-        "crushing defeat", "utterly defeated", "falls in battle", "defeated",
-        "vanquished", "overwhelmed", "routed", "suffered a loss", "suffered a defeat",
-    ]),
-    (PersonalityEvent::SocialBonding, &[
-        "bond of friendship", "deep bond", "forged a bond", "forming a deep",
-        "friendship", "deep connection", "trust builds",
-        "grows closer", "warm embrace", "companionship",
-    ]),
-];
-
-/// Scan narration text for personality-relevant events involving known NPCs.
-///
-/// Returns `(npc_name, event)` pairs. Only NPCs in `npc_names` are considered.
-/// Uses keyword matching against the full narration text.
-pub fn detect_personality_events(
-    narration: &str,
-    npc_names: &[&str],
-) -> Vec<(String, PersonalityEvent)> {
-    let narration_lower = narration.to_lowercase();
-    let mut results = Vec::new();
-
-    for npc_name in npc_names {
-        if !narration_lower.contains(&npc_name.to_lowercase()) {
-            continue;
-        }
-
-        for &(event, keywords) in EVENT_KEYWORDS {
-            if keywords.iter().any(|kw| narration_lower.contains(kw)) {
-                results.push((npc_name.to_string(), event));
-                break; // one event per NPC per narration
-            }
-        }
-    }
-
-    results
 }
 
 /// Apply OCEAN shift proposals to NPCs in the registry.

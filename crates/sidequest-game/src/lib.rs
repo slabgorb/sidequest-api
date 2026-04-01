@@ -101,9 +101,7 @@ pub use conlang::{
     NameBank, NameGenConfig, NamePattern,
 };
 pub use consequence::{ConsequenceCategory, GenieWish, WishConsequenceEngine, WishStatus};
-pub use continuity::{
-    validate as validate_continuity, Contradiction, ContradictionCategory, ValidationResult,
-};
+pub use continuity::{Contradiction, ContradictionCategory, ValidationResult};
 pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};
 pub use disposition::{Attitude, Disposition};
@@ -136,7 +134,7 @@ pub use npc::{enrich_registry_from_npcs, Npc, NpcRegistryEntry};
 pub use npc_actions::{available_actions, select_npc_action, NpcAction, ScenarioRole};
 pub use ocean::{OceanDimension, OceanProfile, OceanShift, OceanShiftLog};
 pub use ocean_shift_proposals::{
-    apply_ocean_shifts, detect_personality_events, propose_ocean_shifts, OceanShiftProposal,
+    apply_ocean_shifts, propose_ocean_shifts, OceanShiftProposal,
     PersonalityEvent,
 };
 pub use persistence::{

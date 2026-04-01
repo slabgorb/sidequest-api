@@ -171,60 +171,6 @@ impl TropeEngine {
         fired
     }
 
-    /// Apply keyword-based acceleration/deceleration from turn text.
-    pub fn apply_keyword_modifiers(
-        tropes: &mut [TropeState],
-        trope_defs: &[TropeDefinition],
-        turn_text: &str,
-    ) {
-        let span = tracing::info_span!(
-            "trope_keyword_modifiers",
-            tropes_modified = tracing::field::Empty,
-        );
-        let _guard = span.enter();
-        let mut modified_count: u64 = 0;
-
-        let lower = turn_text.to_lowercase();
-        let def_map: HashMap<&str, &TropeDefinition> = trope_defs
-            .iter()
-            .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
-            .collect();
-
-        for ts in tropes.iter_mut() {
-            if matches!(ts.status, TropeStatus::Resolved | TropeStatus::Dormant) {
-                continue;
-            }
-            let Some(td) = def_map.get(ts.trope_definition_id.as_str()) else {
-                continue;
-            };
-            let Some(pp) = &td.passive_progression else {
-                continue;
-            };
-
-            let before = ts.progression;
-
-            // Accelerators
-            for keyword in &pp.accelerators {
-                if lower.contains(&keyword.to_lowercase()) {
-                    ts.progression = (ts.progression + pp.accelerator_bonus).min(1.0);
-                    break;
-                }
-            }
-            // Decelerators
-            for keyword in &pp.decelerators {
-                if lower.contains(&keyword.to_lowercase()) {
-                    ts.progression = (ts.progression - pp.decelerator_penalty).max(0.0);
-                    break;
-                }
-            }
-
-            if (ts.progression - before).abs() > f64::EPSILON {
-                modified_count += 1;
-            }
-        }
-        span.record("tropes_modified", modified_count);
-    }
-
     /// Activate a trope. Idempotent — returns existing if already active.
     pub fn activate<'a>(tropes: &'a mut Vec<TropeState>, def_id: &str) -> &'a TropeState {
         let span = tracing::info_span!(

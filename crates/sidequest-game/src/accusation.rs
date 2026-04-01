@@ -159,25 +159,21 @@ fn gather_evidence(
                 Belief::Fact { content, .. } => {
                     facts_about_accused.push(format!("{}: {}", npc_name, content));
                 }
-                Belief::Claim { content, .. } => {
-                    // Heuristic: claims about guilt/innocence
-                    if content.to_lowercase().contains("guilty")
-                        || content.to_lowercase().contains("responsible")
-                        || content.to_lowercase().contains("did it")
-                    {
-                        corroborating_claims.push(format!("{}: {}", npc_name, content));
-                    } else if content.to_lowercase().contains("innocent")
-                        || content.to_lowercase().contains("didn't")
-                        || content.to_lowercase().contains("alibi")
-                    {
-                        contradicting_claims.push(format!("{}: {}", npc_name, content));
-                    }
-                }
-                Belief::Suspicion { content, confidence, .. } => {
-                    if content.to_lowercase().contains(&accusation.accused_npc_name.to_lowercase()) {
-                        if *confidence > 0.6 {
+                Belief::Claim { content, sentiment, .. } => {
+                    use crate::belief_state::ClaimSentiment;
+                    match sentiment {
+                        ClaimSentiment::Corroborating => {
                             corroborating_claims.push(format!("{}: {}", npc_name, content));
                         }
+                        ClaimSentiment::Contradicting => {
+                            contradicting_claims.push(format!("{}: {}", npc_name, content));
+                        }
+                        ClaimSentiment::Neutral => {}
+                    }
+                }
+                Belief::Suspicion { content, confidence, subject, .. } => {
+                    if subject == &accusation.accused_npc_name && *confidence > 0.6 {
+                        corroborating_claims.push(format!("{}: {}", npc_name, content));
                     }
                 }
             }
@@ -331,6 +327,7 @@ mod tests {
             turn_learned: 2,
             source: crate::belief_state::BeliefSource::Inferred,
             believed: true,
+            sentiment: crate::belief_state::ClaimSentiment::Corroborating,
         });
         map.insert("witness".to_string(), witness_beliefs);
         map

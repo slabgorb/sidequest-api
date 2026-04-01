@@ -115,10 +115,15 @@ Fields:
   - tags: list from [combat, magic, special_effect, character, location, atmosphere]
 - scene_mood: ALWAYS INCLUDE. One of: combat, exploration, tension, triumph, sorrow, mystery, calm.
   The overall emotional tone of this scene for music selection.
-- personality_events: list of NPC personality moments (omit if none).
-  Each entry: {\"npc\": \"Name\", \"event\": \"showed_courage\"}.
-  Events: showed_courage, showed_cowardice, betrayed_trust, showed_loyalty,
-  showed_compassion, showed_cruelty, showed_wisdom, showed_recklessness.
+- personality_events: list of NPC personality-changing moments (omit if none).
+  Each entry: {\"npc\": \"Name\", \"event_type\": \"betrayal\", \"description\": \"brief context\"}.
+  event_type MUST be one of exactly these values:
+    betrayal — an NPC betrayed trust or was betrayed
+    near_death — an NPC nearly died or was mortally wounded
+    victory — an NPC achieved a significant triumph
+    defeat — an NPC suffered a crushing loss
+    social_bonding — an NPC formed a meaningful connection
+  Only emit when a SIGNIFICANT personality-shaping event occurs, not routine interactions.
 - scene_intent: ALWAYS INCLUDE. What the NEXT player action is likely to be.
   One of: Combat, Dialogue, Exploration, Examine, Chase.
 - resource_deltas: object mapping resource names to signed numeric deltas.

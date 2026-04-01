@@ -80,7 +80,7 @@ fn belief_claim_variant() {
         content: "The cook says she was in the kitchen all evening".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: false,
+        believed: false, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     };
     assert!(matches!(belief, Belief::Claim { .. }));
     if let Belief::Claim { believed, .. } = &belief {
@@ -254,7 +254,7 @@ fn add_multiple_beliefs_accumulates() {
         content: "Cook says she was in kitchen".to_string(),
         turn_learned: 6,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     assert_eq!(state.beliefs().len(), 3);
 }
@@ -404,7 +404,7 @@ fn belief_claim_serde_round_trip() {
         content: "Was in the kitchen".to_string(),
         turn_learned: 6,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: false,
+        believed: false, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     };
     let json = serde_json::to_string(&belief).expect("serialize claim");
     let restored: Belief = serde_json::from_str(&json).expect("deserialize claim");
@@ -458,7 +458,7 @@ fn belief_state_full_serde_round_trip() {
         content: "Cook claims kitchen".to_string(),
         turn_learned: 6,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.update_credibility("Cook", 0.8);
 

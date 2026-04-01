@@ -259,52 +259,12 @@ fn world_patch_hp_changes_applies_to_npcs_too() {
 }
 
 // ============================================================================
-// AC: NPC attitude — npc_attitudes: {"Merchant": "friendly"} → disposition
+// AC: NPC attitude — npc_attitudes: {"Merchant": -30} → disposition delta
+// Numeric disposition deltas from the LLM, applied directly via apply_delta().
 // ============================================================================
 
 #[test]
-fn disposition_from_attitude_str_friendly() {
-    let disp = Disposition::from_attitude_str("friendly");
-    assert!(disp.is_some(), "friendly should produce a disposition");
-    assert_eq!(disp.unwrap().attitude(), Attitude::Friendly);
-}
-
-#[test]
-fn disposition_from_attitude_str_hostile() {
-    let disp = Disposition::from_attitude_str("hostile");
-    assert!(disp.is_some());
-    assert_eq!(disp.unwrap().attitude(), Attitude::Hostile);
-}
-
-#[test]
-fn disposition_from_attitude_str_neutral() {
-    let disp = Disposition::from_attitude_str("neutral");
-    assert!(disp.is_some());
-    assert_eq!(disp.unwrap().attitude(), Attitude::Neutral);
-}
-
-#[test]
-fn disposition_from_attitude_str_case_insensitive() {
-    let disp = Disposition::from_attitude_str("FRIENDLY");
-    assert!(disp.is_some());
-    assert_eq!(disp.unwrap().attitude(), Attitude::Friendly);
-}
-
-#[test]
-fn disposition_from_attitude_str_deceased_returns_none() {
-    // "deceased" means don't update disposition — return None
-    let disp = Disposition::from_attitude_str("deceased");
-    assert!(disp.is_none(), "deceased should return None (don't update)");
-}
-
-#[test]
-fn disposition_from_attitude_str_dead_returns_none() {
-    let disp = Disposition::from_attitude_str("dead");
-    assert!(disp.is_none(), "dead should return None");
-}
-
-#[test]
-fn world_patch_npc_attitudes_sets_disposition() {
+fn world_patch_npc_attitudes_applies_negative_delta() {
     let mut snap = test_snapshot();
     // Marta starts friendly (disposition 15)
     assert_eq!(snap.npcs[0].attitude(), Attitude::Friendly);
@@ -312,28 +272,47 @@ fn world_patch_npc_attitudes_sets_disposition() {
     let patch = WorldStatePatch {
         npc_attitudes: Some(HashMap::from([(
             "Marta the Innkeeper".to_string(),
-            "hostile".to_string(),
+            -30,
         )])),
         ..Default::default()
     };
     snap.apply_world_patch(&patch);
+    // 15 + (-30) = -15 → hostile
     assert_eq!(snap.npcs[0].attitude(), Attitude::Hostile);
 }
 
 #[test]
-fn world_patch_npc_attitudes_deceased_skips_update() {
+fn world_patch_npc_attitudes_applies_positive_delta() {
+    let mut snap = test_snapshot();
+    // Set Marta to hostile first
+    snap.npcs[0].disposition = Disposition::new(-15);
+    assert_eq!(snap.npcs[0].attitude(), Attitude::Hostile);
+
+    let patch = WorldStatePatch {
+        npc_attitudes: Some(HashMap::from([(
+            "Marta the Innkeeper".to_string(),
+            30,
+        )])),
+        ..Default::default()
+    };
+    snap.apply_world_patch(&patch);
+    // -15 + 30 = 15 → friendly
+    assert_eq!(snap.npcs[0].attitude(), Attitude::Friendly);
+}
+
+#[test]
+fn world_patch_npc_attitudes_zero_delta_no_change() {
     let mut snap = test_snapshot();
     let disp_before = snap.npcs[0].disposition.value();
 
     let patch = WorldStatePatch {
         npc_attitudes: Some(HashMap::from([(
             "Marta the Innkeeper".to_string(),
-            "deceased".to_string(),
+            0,
         )])),
         ..Default::default()
     };
     snap.apply_world_patch(&patch);
-    // Disposition should remain unchanged
     assert_eq!(snap.npcs[0].disposition.value(), disp_before);
 }
 
@@ -345,12 +324,12 @@ fn world_patch_npc_attitudes_ignores_unknown_npc() {
     let patch = WorldStatePatch {
         npc_attitudes: Some(HashMap::from([(
             "Ghost NPC".to_string(),
-            "friendly".to_string(),
+            10,
         )])),
         ..Default::default()
     };
     snap.apply_world_patch(&patch);
-    // Should not panic, existing NPC unchanged
+    // Should not panic, existing NPC unchanged (Ghost NPC doesn't exist)
     assert_eq!(snap.npcs[0].disposition.value(), disp_before);
 }
 
@@ -921,18 +900,21 @@ fn chase_patch_rejects_unknown_fields() {
 }
 
 // ============================================================================
-// Rule #1: Silent error swallowing — from_attitude_str handles unknowns
+// Rule #1: Numeric disposition — deltas use full range, not 3-value collapse
 // ============================================================================
 
 #[test]
-fn disposition_from_attitude_str_unknown_returns_neutral() {
-    // Unknown attitude strings should map to neutral, not panic or silently skip
-    let disp = Disposition::from_attitude_str("ambivalent");
-    assert!(
-        disp.is_some(),
-        "unknown attitude should still produce a disposition"
-    );
-    assert_eq!(disp.unwrap().attitude(), Attitude::Neutral);
+fn disposition_delta_uses_full_range() {
+    let mut disp = Disposition::new(0);
+    disp.apply_delta(5);
+    // 5 is between -10 and 10 → still neutral, but the VALUE is 5
+    assert_eq!(disp.value(), 5);
+    assert_eq!(disp.attitude(), Attitude::Neutral);
+
+    disp.apply_delta(7);
+    // 5 + 7 = 12 → friendly
+    assert_eq!(disp.value(), 12);
+    assert_eq!(disp.attitude(), Attitude::Friendly);
 }
 
 // ============================================================================

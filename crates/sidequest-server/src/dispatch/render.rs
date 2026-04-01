@@ -50,6 +50,37 @@ pub(crate) async fn process_render(
         "visual_scene from narrator"
     );
 
+    // Scene relevance validation — reject prompts that don't match the current scene
+    let relevance_ctx = sidequest_game::ExtractionContext {
+        in_combat: ctx.combat_state.in_combat(),
+        known_npcs: ctx.npc_registry.iter().map(|e| e.name.clone()).collect(),
+        current_location: ctx.current_location.clone(),
+        recent_subjects: vec![],
+    };
+    let validator = sidequest_game::SceneRelevanceValidator::new();
+    let verdict = validator.evaluate(&subject, &relevance_ctx);
+    if verdict.is_rejected() {
+        tracing::warn!(
+            reason = verdict.reason(),
+            prompt = %subject.prompt_fragment(),
+            "scene_relevance.rejected — skipping render"
+        );
+        ctx.state.send_watcher_event(crate::WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "render".to_string(),
+            event_type: crate::WatcherEventType::ValidationWarning,
+            severity: crate::Severity::Warn,
+            fields: {
+                let mut f = std::collections::HashMap::new();
+                f.insert("action".to_string(), serde_json::json!("scene_relevance_rejected"));
+                f.insert("reason".to_string(), serde_json::json!(verdict.reason()));
+                f.insert("prompt".to_string(), serde_json::json!(subject.prompt_fragment()));
+                f
+            },
+        });
+        return;
+    }
+
     let filter_ctx = sidequest_game::FilterContext {
         in_combat: ctx.combat_state.in_combat(),
         scene_transition: extract_location_header(narration_text).is_some(),
