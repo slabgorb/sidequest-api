@@ -1,6 +1,10 @@
 //! Post-narration state mutations: combat HP, quests, XP, affinity, items, resources.
 
+use std::collections::HashMap;
+
 use sidequest_genre::GenreLoader;
+
+use crate::{Severity, WatcherEvent, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -299,6 +303,20 @@ pub(crate) fn apply_state_mutations(
             };
             let _ = ctx.inventory.add(item, 50);
             tracing::info!(item_name = %item_def.name, "Item added to inventory from LLM extraction");
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "inventory".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("action".to_string(), serde_json::json!("item_added"));
+                    f.insert("item_name".to_string(), serde_json::json!(item_def.name));
+                    f.insert("category".to_string(), serde_json::json!(valid_cat));
+                    f.insert("inventory_size".to_string(), serde_json::json!(ctx.inventory.items.len()));
+                    f
+                },
+            });
         }
     }
 
@@ -312,6 +330,23 @@ pub(crate) fn apply_state_mutations(
                     *current = current.clamp(decl.min, decl.max);
                 }
                 tracing::info!(resource = %name, delta = %delta, new_value = %current, "resource.delta_applied");
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "resource".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("resource".to_string(), serde_json::json!(name));
+                        f.insert("delta".to_string(), serde_json::json!(delta));
+                        f.insert("new_value".to_string(), serde_json::json!(*current));
+                        if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
+                            f.insert("max".to_string(), serde_json::json!(decl.max));
+                            f.insert("label".to_string(), serde_json::json!(decl.label));
+                        }
+                        f
+                    },
+                });
             } else {
                 tracing::debug!(resource = %name, "resource.delta_ignored — resource not in state");
             }
