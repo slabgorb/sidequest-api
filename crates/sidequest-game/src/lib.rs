@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 
 pub mod ability;
+pub mod accusation;
 pub mod achievement;
 pub mod affinity;
 pub mod belief_state;
@@ -67,6 +68,9 @@ pub mod turn_reminder;
 pub mod voice_router;
 pub mod world_materialization;
 
+pub use accusation::{
+    Accusation, AccusationResult, EvidenceSummary, EvidenceQuality, evaluate_accusation,
+};
 pub use achievement::{Achievement, AchievementTracker};
 pub use belief_state::{Belief, BeliefSource, BeliefState, Credibility};
 pub use affinity::{
