@@ -48,6 +48,7 @@ pub(crate) async fn dispatch_connect(
     continuity_corrections: &mut String,
     inventory: &mut sidequest_game::Inventory,
     snapshot: &mut sidequest_game::state::GameSnapshot,
+    tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -574,6 +575,7 @@ pub(crate) async fn dispatch_character_creation(
     narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pending_trope_context: &mut Option<String>,
+    tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 ) -> Vec<GameMessage> {
     let b = match builder.as_mut() {
         Some(b) => b,
@@ -798,6 +800,7 @@ pub(crate) async fn dispatch_character_creation(
                             pending_trope_context,
                             achievement_tracker,
                             snapshot: &mut snapshot,
+                            tx,
                         };
                         super::dispatch_player_action(&mut ctx).await
                     };
