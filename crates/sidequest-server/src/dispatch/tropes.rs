@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use sidequest_agents::agents::troper::TroperAgent;
 use sidequest_agents::client::ClaudeClient;
+use sidequest_game::achievement::Achievement;
 use sidequest_game::trope::{FiredBeat, TropeEngine};
 use sidequest_protocol::GameMessage;
 
@@ -19,8 +20,8 @@ use super::DispatchContext;
 pub(crate) fn process_tropes(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
-    _messages: &mut Vec<GameMessage>,
-) -> Vec<FiredBeat> {
+    messages: &mut Vec<GameMessage>,
+) -> (Vec<FiredBeat>, Vec<Achievement>) {
     let span = tracing::info_span!(
         "turn.tropes",
         active_count = ctx.trope_states.len(),
@@ -43,7 +44,7 @@ pub(crate) fn process_tropes(
     span.record("activations_from_llm", activations.len() as u64);
 
     for id in &activations {
-        TropeEngine::activate(ctx.trope_states, id);
+        TropeEngine::activate_and_check_achievements(ctx.trope_states, id, ctx.achievement_tracker);
         tracing::info!(trope_id = %id, "Trope activated by LLM evaluation");
         ctx.state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
@@ -80,11 +81,16 @@ pub(crate) fn process_tropes(
         );
     }
 
-    let fired = TropeEngine::tick(ctx.trope_states, ctx.trope_defs);
+    let (fired, earned) = TropeEngine::tick_and_check_achievements(
+        ctx.trope_states,
+        ctx.trope_defs,
+        ctx.achievement_tracker,
+    );
 
     tracing::info!(
         active_tropes = ctx.trope_states.len(),
         fired_beats = fired.len(),
+        achievements_earned = earned.len(),
         "Trope tick complete"
     );
 
@@ -131,6 +137,54 @@ pub(crate) fn process_tropes(
         });
     }
 
+    // --- Phase 4: Broadcast earned achievements + emit watcher events ---
+    for achievement in &earned {
+        // Broadcast to all session players via GameMessage
+        messages.push(GameMessage::AchievementEarned {
+            payload: sidequest_protocol::AchievementEarnedPayload {
+                achievement_id: achievement.id.clone(),
+                name: achievement.name.clone(),
+                description: achievement.description.clone(),
+                trope_id: achievement.trope_id.clone(),
+                trigger: achievement.trigger_status.clone(),
+                emoji: achievement.emoji.clone(),
+            },
+            player_id: "server".to_string(),
+        });
+
+        // Emit watcher event for GM panel
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "achievement".to_string(),
+            event_type: WatcherEventType::StateTransition,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert(
+                    "event".to_string(),
+                    serde_json::Value::String("achievement_earned".to_string()),
+                );
+                f.insert(
+                    "achievement_id".to_string(),
+                    serde_json::Value::String(achievement.id.clone()),
+                );
+                f.insert(
+                    "achievement_name".to_string(),
+                    serde_json::Value::String(achievement.name.clone()),
+                );
+                f.insert(
+                    "trope_id".to_string(),
+                    serde_json::Value::String(achievement.trope_id.clone()),
+                );
+                f.insert(
+                    "trigger_type".to_string(),
+                    serde_json::Value::String(achievement.trigger_status.clone()),
+                );
+                f
+            },
+        });
+    }
+
     span.record("beats_fired", fired.len() as u64);
-    fired
+    (fired, earned)
 }

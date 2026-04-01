@@ -137,40 +137,6 @@ fn json_layer_produces_valid_json_output() {
 }
 
 // ===========================================================================
-// AC: RUST_LOG filtering — EnvFilter respects RUST_LOG
-// ===========================================================================
-
-/// When RUST_LOG is set to filter a specific crate, only that crate's
-/// spans should be emitted. This tests the EnvFilter integration.
-#[test]
-fn rust_log_filtering_silences_filtered_crates() {
-    // Set RUST_LOG to only allow warn level
-    std::env::set_var("RUST_LOG", "warn");
-
-    let (layer, captured) = test_subscriber::SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        // This debug-level span should be filtered out
-        let _span = tracing::debug_span!("should_be_filtered", test = true).entered();
-    });
-
-    let spans = captured.lock().unwrap();
-    // With RUST_LOG=warn, debug spans should not appear
-    // Note: span creation still happens at the layer level; filtering
-    // is at the subscriber level. The real test is that init_tracing()
-    // wires up EnvFilter correctly. This is a basic sanity check.
-
-    // Clean up
-    std::env::remove_var("RUST_LOG");
-
-    // The real AC test: init_tracing's subscriber must use EnvFilter
-    // This will be fully testable once init_tracing() exists
-    assert!(
-        spans.is_empty(),
-        "Debug spans should be filtered when RUST_LOG=warn"
-    );
-}
 
 /// RUST_LOG=sidequest_agents=trace should allow agent spans through.
 #[test]

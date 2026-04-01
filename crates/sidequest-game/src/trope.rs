@@ -9,6 +9,8 @@ use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use sidequest_genre::{TropeDefinition, TropeEscalation};
 
+use crate::achievement::{Achievement, AchievementTracker};
+
 /// Status of an active trope in the game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -290,6 +292,142 @@ impl TropeEngine {
             if let Some(n) = note {
                 ts.add_note(n.to_string());
             }
+        }
+    }
+
+    /// Tick all tropes and check for newly earned achievements.
+    ///
+    /// Captures each trope's status before the tick, delegates to `tick()`,
+    /// then calls `AchievementTracker::check_transition` for every trope
+    /// whose status changed. Returns both fired beats and earned achievements.
+    pub fn tick_and_check_achievements(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        tracker: &mut AchievementTracker,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        Self::tick_and_check_achievements_with_multiplier(tropes, trope_defs, tracker, 1.0)
+    }
+
+    /// Tick all tropes with an engagement multiplier and check for achievements.
+    ///
+    /// Same as `tick_and_check_achievements` but applies the given multiplier
+    /// to the passive progression rate.
+    pub fn tick_and_check_achievements_with_multiplier(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        tracker: &mut AchievementTracker,
+        multiplier: f64,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        // Snapshot old statuses before tick
+        let old_statuses: Vec<TropeStatus> = tropes.iter().map(|ts| ts.status()).collect();
+
+        let fired = Self::tick_with_multiplier(tropes, trope_defs, multiplier);
+
+        // Check achievements for every trope that transitioned
+        let mut earned = Vec::new();
+        for (ts, old_status) in tropes.iter().zip(old_statuses.iter()) {
+            if ts.status() != *old_status {
+                let newly_earned = tracker.check_transition(ts, *old_status);
+                Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
+                earned.extend(newly_earned);
+            }
+        }
+
+        (fired, earned)
+    }
+
+    /// Resolve a trope and check for newly earned achievements.
+    ///
+    /// Captures the trope's status before resolving, delegates to `resolve()`,
+    /// then calls `AchievementTracker::check_transition` if the status changed.
+    pub fn resolve_and_check_achievements(
+        tropes: &mut [TropeState],
+        def_id: &str,
+        note: Option<&str>,
+        tracker: &mut AchievementTracker,
+    ) -> Vec<Achievement> {
+        // Snapshot old status for the target trope
+        let old_status = tropes
+            .iter()
+            .find(|ts| ts.trope_definition_id == def_id)
+            .map(|ts| ts.status());
+
+        Self::resolve(tropes, def_id, note);
+
+        // Check achievements if the trope exists and status changed
+        if let Some(old) = old_status {
+            if let Some(ts) = tropes.iter().find(|ts| ts.trope_definition_id == def_id) {
+                if ts.status() != old {
+                    let newly_earned = tracker.check_transition(ts, old);
+                    Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
+                    return newly_earned;
+                }
+            }
+        }
+
+        Vec::new()
+    }
+
+    /// Activate a trope and check for newly earned achievements.
+    ///
+    /// Captures whether the trope existed before activation. If activation
+    /// creates a new trope (Dormant → Active transition), checks for
+    /// "activated" trigger achievements.
+    pub fn activate_and_check_achievements<'a>(
+        tropes: &'a mut Vec<TropeState>,
+        def_id: &str,
+        tracker: &mut AchievementTracker,
+    ) -> &'a TropeState {
+        // Check if trope already exists (idempotent activation = no transition)
+        let already_exists = tropes.iter().any(|ts| ts.trope_definition_id == def_id);
+
+        let ts = Self::activate(tropes, def_id);
+
+        if !already_exists {
+            // New trope: transition is effectively Dormant → Active
+            let newly_earned = tracker.check_transition(ts, TropeStatus::Dormant);
+            Self::log_earned_achievements(&newly_earned, def_id);
+        }
+
+        // Re-borrow after tracker mutation
+        tropes.iter().find(|ts| ts.trope_definition_id == def_id).unwrap()
+    }
+
+    /// Advance tropes by elapsed days and check for newly earned achievements.
+    ///
+    /// Same as `advance_between_sessions` but captures old statuses and calls
+    /// `check_transition` for any trope whose status changed during the gap.
+    pub fn advance_between_sessions_and_check_achievements(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        elapsed_days: f64,
+        tracker: &mut AchievementTracker,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        let old_statuses: Vec<TropeStatus> = tropes.iter().map(|ts| ts.status()).collect();
+
+        let fired = Self::advance_between_sessions(tropes, trope_defs, elapsed_days);
+
+        let mut earned = Vec::new();
+        for (ts, old_status) in tropes.iter().zip(old_statuses.iter()) {
+            if ts.status() != *old_status {
+                let newly_earned = tracker.check_transition(ts, *old_status);
+                Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
+                earned.extend(newly_earned);
+            }
+        }
+
+        (fired, earned)
+    }
+
+    /// Emit OTEL info events for each earned achievement.
+    fn log_earned_achievements(achievements: &[Achievement], trope_id: &str) {
+        for achievement in achievements {
+            tracing::info!(
+                achievement_id = %achievement.id,
+                trope_id = %trope_id,
+                trigger_type = %achievement.trigger_status,
+                "achievement.earned"
+            );
         }
     }
 }

@@ -86,6 +86,7 @@ pub(crate) struct DispatchContext<'a> {
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,
+    pub achievement_tracker: &'a mut sidequest_game::achievement::AchievementTracker,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -623,6 +624,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         "turn.system_tick",
         combat_changed = tracing::field::Empty,
         tropes_fired = tracing::field::Empty,
+        achievements_earned = tracing::field::Empty,
     );
     let _system_tick_guard = system_tick_span.enter();
 
@@ -634,7 +636,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         ))
         .await;
 
-    let fired_beats = {
+    let (fired_beats, earned_achievements) = {
         let _tropes_guard = tracing::info_span!(
             "turn.system_tick.tropes",
             active_count = ctx.trope_states.len(),
@@ -642,6 +644,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         tropes::process_tropes(ctx, &clean_narration, &mut messages)
     };
     system_tick_span.record("tropes_fired", fired_beats.len() as u64);
+    system_tick_span.record("achievements_earned", earned_achievements.len() as u64);
 
     // Format beat context for NEXT turn's narrator prompt injection.
     // Beats fire after narration, so they inform the next turn — same as Python's
@@ -1312,6 +1315,7 @@ async fn persist_game_state(
             }
             snapshot.discovered_regions = ctx.discovered_regions.clone();
             snapshot.active_tropes = ctx.trope_states.clone();
+            snapshot.achievement_tracker = ctx.achievement_tracker.clone();
             snapshot.quest_log = ctx.quest_log.clone();
             if let Some(ref cj) = ctx.character_json {
                 if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
