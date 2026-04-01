@@ -28,6 +28,8 @@ pub struct ActionResult {
     pub narration: String,
     /// Typed combat patch extracted from creature_smith response.
     pub combat_patch: Option<crate::patches::CombatPatch>,
+    /// Typed chase patch extracted from dialectician response.
+    pub chase_patch: Option<crate::patches::ChasePatch>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
     /// Which intent was classified (for OTEL telemetry).
@@ -424,8 +426,31 @@ impl GameService for Orchestrator {
                     None
                 };
 
+                // Extract chase patch from dialectician responses
+                let chase_patch = if agent_str == "dialectician" {
+                    match crate::extractor::JsonExtractor::extract::<crate::patches::ChasePatch>(
+                        &raw_response,
+                    ) {
+                        Ok(patch) => {
+                            info!(
+                                in_chase = ?patch.in_chase,
+                                separation_delta = ?patch.separation_delta,
+                                roll = ?patch.roll,
+                                "chase.patch_extracted"
+                            );
+                            Some(patch)
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "chase.patch_extraction_failed — dialectician response had no valid JSON block");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 // Strip the JSON fence block from narration so prose is clean
-                let narration = if combat_patch.is_some() {
+                let narration = if combat_patch.is_some() || chase_patch.is_some() {
                     strip_json_fence(&extraction.prose)
                 } else {
                     extraction.prose
@@ -441,6 +466,7 @@ impl GameService for Orchestrator {
                 ActionResult {
                     narration,
                     combat_patch,
+                    chase_patch,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
@@ -525,13 +551,17 @@ pub struct VisualScene {
 }
 
 /// An OCEAN personality event for an NPC extracted from narrator JSON block.
-/// Eliminates keyword matching for mood/OCEAN detection.
+/// The `event_type` field maps directly to the game's PersonalityEvent enum.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct PersonalityEvent {
     /// The NPC's canonical name.
     pub npc: String,
-    /// The personality-relevant event description.
-    pub event: String,
+    /// Typed event — one of: betrayal, near_death, victory, defeat, social_bonding.
+    /// Deserialized directly from the narrator's JSON block.
+    pub event_type: sidequest_game::PersonalityEvent,
+    /// Optional free-text description (for OTEL telemetry, not for classification).
+    #[serde(default)]
+    pub description: String,
 }
 
 /// Contains footnotes, items gained, NPCs present, and quest updates in the narrator's response.

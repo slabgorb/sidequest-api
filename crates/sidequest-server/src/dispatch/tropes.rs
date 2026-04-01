@@ -81,7 +81,6 @@ pub(crate) fn process_tropes(
     }
 
     let fired = TropeEngine::tick(ctx.trope_states, ctx.trope_defs);
-    TropeEngine::apply_keyword_modifiers(ctx.trope_states, ctx.trope_defs, clean_narration);
 
     tracing::info!(
         active_tropes = ctx.trope_states.len(),

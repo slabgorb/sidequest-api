@@ -103,6 +103,9 @@ pub enum Belief {
         turn_learned: u64,
         source: BeliefSource,
         believed: bool,
+        /// Typed sentiment — set by the LLM when the belief is created.
+        #[serde(default = "default_claim_sentiment")]
+        sentiment: ClaimSentiment,
     },
 }
 
@@ -159,6 +162,22 @@ impl Belief {
             confidence: confidence.clamp(0.0, 1.0),
         }
     }
+}
+
+fn default_claim_sentiment() -> ClaimSentiment {
+    ClaimSentiment::Neutral
+}
+
+/// Sentiment of a claim relative to an accusation — typed at creation, not keyword-parsed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClaimSentiment {
+    /// Claim supports guilt / responsibility.
+    Corroborating,
+    /// Claim supports innocence / provides alibi.
+    Contradicting,
+    /// Claim is neutral / ambiguous regarding guilt.
+    Neutral,
 }
 
 /// How the NPC acquired a belief.

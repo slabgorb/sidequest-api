@@ -156,6 +156,27 @@ fn parse_response(response: &str) -> Option<PreprocessedAction> {
     None
 }
 
+/// Convert a single-word action verb to third-person singular.
+///
+/// Used for the `named` perspective in preprocessing (e.g., "run" → "runs",
+/// "watch" → "watches", "go" → "goes").
+fn action_text_to_third_person(verb: &str) -> String {
+    let v = verb.trim();
+    if v.is_empty() {
+        return v.to_string();
+    }
+    if v.ends_with("ch") || v.ends_with("sh") || v.ends_with("ss") || v.ends_with('x') || v.ends_with('z') || v.ends_with('o') {
+        return format!("{v}es");
+    }
+    if let Some(stem) = v.strip_suffix('y') {
+        let last_stem = stem.chars().last().unwrap_or('a');
+        if !"aeiou".contains(last_stem) {
+            return format!("{stem}ies");
+        }
+    }
+    format!("{v}s")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

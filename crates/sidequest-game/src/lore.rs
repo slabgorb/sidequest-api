@@ -361,19 +361,18 @@ pub fn seed_lore_from_char_creation(
 
 /// Select lore fragments from the store that fit within the given token budget.
 ///
-/// When `query_embedding` is provided and fragments have embeddings, fragments
-/// are ranked by semantic similarity (cosine) to the query. Fragments without
-/// embeddings are ranked after those with embeddings.
+/// Prioritizes by category relevance: Geography and Faction fragments come first
+/// (most universally relevant for scene-setting), then History, then game events
+/// (most recent first by turn_created), then everything else.
 ///
-/// When no `query_embedding` is given (or no fragments have embeddings),
-/// falls back to keyword matching via `context_hint`. Among equally-prioritised
-/// fragments, earlier-added fragments are preferred.
-///
-/// The returned vec never exceeds `budget` total tokens.
+/// The `priority_categories` parameter allows the caller to boost specific
+/// categories (e.g., Event fragments during combat, Character fragments during
+/// dialogue). Fragments in priority categories get sort priority 0, Geography/Faction
+/// get priority 1, and everything else gets priority 2.
 pub fn select_lore_for_prompt<'a>(
     store: &'a LoreStore,
     budget: usize,
-    context_hint: Option<&str>,
+    priority_categories: Option<&[LoreCategory]>,
     query_embedding: Option<&[f32]>,
 ) -> Vec<&'a LoreFragment> {
     if store.is_empty() || budget == 0 {
@@ -408,18 +407,19 @@ pub fn select_lore_for_prompt<'a>(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
     } else {
-        // Keyword fallback
-        let hint_lower = context_hint.map(|h| h.to_lowercase());
-
-        // Stable sort by id first, then partition by hint match
+        // Category-based fallback
+        // Stable sort by id first for determinism
         fragments.sort_by_key(|f| f.id().to_string());
-        fragments.sort_by_key(|f| {
-            if let Some(ref hint) = hint_lower {
-                if f.content().to_lowercase().contains(hint) {
-                    return 0;
-                }
-            }
-            1
+
+        // Priority: caller-specified categories first, then geo/faction, then recency
+        fragments.sort_by(|a, b| {
+            let priority_a = fragment_priority(a, priority_categories);
+            let priority_b = fragment_priority(b, priority_categories);
+            priority_a.cmp(&priority_b)
+                .then_with(|| {
+                    // Within same priority, prefer more recent game events
+                    b.turn_created().unwrap_or(0).cmp(&a.turn_created().unwrap_or(0))
+                })
         });
     }
 
@@ -433,6 +433,22 @@ pub fn select_lore_for_prompt<'a>(
         }
     }
     selected
+}
+
+/// Assign a sort priority to a fragment based on its category.
+fn fragment_priority(frag: &LoreFragment, priority_categories: Option<&[LoreCategory]>) -> u8 {
+    // Caller-specified priority categories get highest priority
+    if let Some(cats) = priority_categories {
+        if cats.contains(frag.category()) {
+            return 0;
+        }
+    }
+    // Geography and Faction are universally relevant for scene-setting
+    match frag.category() {
+        LoreCategory::Geography | LoreCategory::Faction => 1,
+        LoreCategory::History => 2,
+        _ => 3,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -491,7 +507,7 @@ pub fn summarize_lore_retrieval<'a>(
     store: &'a LoreStore,
     selected: &[&'a LoreFragment],
     budget: usize,
-    context_hint: Option<&str>,
+    priority_categories: Option<&[LoreCategory]>,
 ) -> LoreRetrievalSummary {
     let selected_ids: std::collections::HashSet<&str> =
         selected.iter().map(|f| f.id()).collect();
@@ -510,7 +526,9 @@ pub fn summarize_lore_retrieval<'a>(
         tokens_used,
         selected: selected.iter().map(|f| fragment_to_summary(f)).collect(),
         rejected,
-        context_hint: context_hint.map(|s| s.to_string()),
+        context_hint: priority_categories.map(|cats| {
+            cats.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ")
+        }),
         total_fragments: store.len(),
     }
 }
@@ -1859,14 +1877,14 @@ mod tests {
     }
 
     #[test]
-    fn select_lore_context_hint_prioritises_matching() {
+    fn select_lore_priority_categories_boost_geography() {
         let store = injection_store();
-        // "caverns" appears only in the geography fragment
-        let result = select_lore_for_prompt(&store, 15, Some("caverns"), None);
+        let cats = [LoreCategory::Geography];
+        let result = select_lore_for_prompt(&store, 15, Some(&cats), None);
         let ids: Vec<&str> = result.iter().map(|f| f.id()).collect();
         assert!(
             ids.contains(&"inj-geo-001"),
-            "hint-matched fragment should be included"
+            "Geography fragment should be prioritized when Geography is priority category"
         );
     }
 
@@ -1896,7 +1914,8 @@ mod tests {
             ))
             .unwrap();
 
-        let result = select_lore_for_prompt(&store, 10, Some("dragons"), None);
+        let cats = [LoreCategory::History];
+        let result = select_lore_for_prompt(&store, 10, Some(&cats), None);
         let total: usize = result.iter().map(|f| f.token_estimate()).sum();
         assert!(total <= 10, "total tokens {total} exceeds budget 10");
     }

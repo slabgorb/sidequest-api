@@ -503,11 +503,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // NPC registry + OCEAN personality shifts
     update_npc_registry(ctx, &result, &clean_narration);
 
-    // Continuity validation
-    validate_continuity(ctx, &clean_narration);
+    // Continuity validation — LLM-based (Haiku), runs via spawn_blocking
+    validate_continuity(ctx, &clean_narration).await;
 
-    let tier_events =
-        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action);
+    let mutation_result =
+        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
+    let tier_events = mutation_result.tier_events;
 
     // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
     if let Some(ref lore_entries) = result.lore_established {
@@ -626,7 +627,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     let _system_tick_guard = system_tick_span.enter();
 
     let combat_active = ctx.combat_state.in_combat();
-    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages)
+    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages, mutation_result.combat_just_ended)
         .instrument(tracing::info_span!(
             "turn.system_tick.combat",
             in_combat = combat_active,
@@ -971,37 +972,14 @@ fn update_npc_registry(
         "NPC registry updated from structured extraction"
     );
 
-    // OCEAN personality shifts
+    // OCEAN personality shifts — typed directly from narrator's structured JSON block.
+    // No keyword matching. The narrator emits event_type as a typed enum variant.
     {
-        let mut personality_events: Vec<(String, sidequest_game::PersonalityEvent)> = result
+        let personality_events: Vec<(String, sidequest_game::PersonalityEvent)> = result
             .personality_events
             .iter()
-            .filter_map(|pe| {
-                let event_lower = pe.event.to_lowercase();
-                let typed = if event_lower.contains("betray") || event_lower.contains("treachery") || event_lower.contains("backstab") {
-                    Some(sidequest_game::PersonalityEvent::Betrayal)
-                } else if event_lower.contains("near death") || event_lower.contains("near-death") || event_lower.contains("nearly died") || event_lower.contains("mortally") {
-                    Some(sidequest_game::PersonalityEvent::NearDeath)
-                } else if event_lower.contains("victory") || event_lower.contains("triumph") || event_lower.contains("vanquish") || event_lower.contains("prevail") {
-                    Some(sidequest_game::PersonalityEvent::Victory)
-                } else if event_lower.contains("defeat") || event_lower.contains("vanquished") || event_lower.contains("overwhelmed") || event_lower.contains("routed") {
-                    Some(sidequest_game::PersonalityEvent::Defeat)
-                } else if event_lower.contains("bond") || event_lower.contains("friendship") || event_lower.contains("trust") || event_lower.contains("connection") {
-                    Some(sidequest_game::PersonalityEvent::SocialBonding)
-                } else {
-                    None
-                };
-                typed.map(|t| (pe.npc.clone(), t))
-            })
+            .map(|pe| (pe.npc.clone(), pe.event_type))
             .collect();
-
-        let npc_names: Vec<&str> = ctx.npc_registry.iter().map(|e| e.name.as_str()).collect();
-        let regex_events = sidequest_game::detect_personality_events(clean_narration, &npc_names);
-        for (npc, event) in regex_events {
-            if !personality_events.iter().any(|(n, _)| *n == npc) {
-                personality_events.push((npc, event));
-            }
-        }
 
         if !personality_events.is_empty() {
             let (applied, shift_log) = sidequest_game::apply_ocean_shifts(
@@ -1030,21 +1008,35 @@ fn update_npc_registry(
     }
 }
 
-/// Continuity validation — check narrator output against game state.
-fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &str) {
-    let mut validation_snapshot = sidequest_game::GameSnapshot {
-        location: ctx.current_location.clone(),
-        ..sidequest_game::GameSnapshot::default()
-    };
-    if let Some(ref cj) = ctx.character_json {
-        if let Ok(mut ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
-            ch.core.hp = *ctx.hp;
-            ch.core.inventory = ctx.inventory.clone();
-            validation_snapshot.characters.push(ch);
-        }
-    }
+/// Continuity validation — LLM-based check of narrator output against game state.
+///
+/// Uses Haiku classification to detect contradictions rather than keyword matching.
+/// Runs via spawn_blocking so it doesn't block the tokio runtime.
+async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &str) {
+    let dead_npcs: Vec<String> = ctx
+        .npc_registry
+        .iter()
+        .filter(|n| n.max_hp > 0 && n.hp <= 0)
+        .map(|n| n.name.clone())
+        .collect();
+
+    let inventory_items: Vec<String> = ctx
+        .inventory
+        .items
+        .iter()
+        .map(|i| i.name.as_str().to_string())
+        .collect();
+
     let validation_result =
-        sidequest_game::validate_continuity(clean_narration, &validation_snapshot);
+        sidequest_agents::continuity_validator::validate_continuity_llm_async(
+            clean_narration,
+            &ctx.current_location,
+            &dead_npcs,
+            &inventory_items,
+            "", // time_of_day not tracked in dispatch context yet
+        )
+        .await;
+
     if !validation_result.is_clean() {
         let corrections = validation_result.format_corrections();
         tracing::warn!(

@@ -455,24 +455,37 @@ pub(crate) async fn build_prompt_context(
 
     // Inject lore context from genre pack — budget-aware selection (story 11-4)
     {
-        let context_hint = if !ctx.current_location.is_empty() {
-            Some(ctx.current_location.as_str())
+        // Prioritize lore categories based on current game state
+        let priority_cats: Vec<sidequest_game::LoreCategory> = if ctx.combat_state.in_combat() {
+            vec![sidequest_game::LoreCategory::Event, sidequest_game::LoreCategory::Character]
+        } else if ctx.chase_state.is_some() {
+            vec![sidequest_game::LoreCategory::Geography]
         } else {
+            vec![] // default: Geography/Faction prioritized by the selector
+        };
+        let priority_ref: Option<&[sidequest_game::LoreCategory]> = if priority_cats.is_empty() {
             None
+        } else {
+            Some(&priority_cats)
         };
         let lore_budget = 500; // ~500 tokens for lore context
         let has_embeddings = ctx.lore_store.fragments_with_embeddings_count() > 0;
 
         // Generate query embedding for semantic search when fragments have embeddings
         let query_embedding = if has_embeddings {
-            if let Some(hint) = context_hint {
+            let hint = if !ctx.current_location.is_empty() {
+                Some(ctx.current_location.as_str())
+            } else {
+                None
+            };
+            if let Some(hint_text) = hint {
                 let config = sidequest_daemon_client::DaemonConfig::default();
                 if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
-                    let params = sidequest_daemon_client::EmbedParams { text: hint.to_string() };
+                    let params = sidequest_daemon_client::EmbedParams { text: hint_text.to_string() };
                     match client.embed(params).await {
                         Ok(result) => Some(result.embedding),
                         Err(e) => {
-                            tracing::warn!(error = %e, "lore.query_embedding_failed — falling back to keyword");
+                            tracing::warn!(error = %e, "lore.query_embedding_failed — falling back to category ranking");
                             None
                         }
                     }
@@ -490,7 +503,7 @@ pub(crate) async fn build_prompt_context(
         let selected = sidequest_game::select_lore_for_prompt(
             ctx.lore_store,
             lore_budget,
-            context_hint,
+            priority_ref,
             query_embedding.as_deref(),
         );
 
@@ -503,7 +516,7 @@ pub(crate) async fn build_prompt_context(
             fields: {
                 let mut f = HashMap::new();
                 f.insert("event".to_string(), serde_json::json!("lore.semantic_retrieval"));
-                f.insert("query_hint".to_string(), serde_json::json!(context_hint));
+                f.insert("query_hint".to_string(), serde_json::json!(ctx.current_location));
                 f.insert("fallback_to_keyword".to_string(), serde_json::json!(fallback_to_keyword));
                 f.insert("selected_count".to_string(), serde_json::json!(selected.len()));
                 f
@@ -515,7 +528,7 @@ pub(crate) async fn build_prompt_context(
             ctx.lore_store,
             &selected,
             lore_budget,
-            context_hint,
+            priority_ref,
         );
         ctx.state.send_watcher_event(WatcherEvent {
             timestamp: chrono::Utc::now(),
@@ -543,7 +556,7 @@ pub(crate) async fn build_prompt_context(
             tracing::info!(
                 fragments = selected.len(),
                 tokens = selected.iter().map(|f| f.token_estimate()).sum::<usize>(),
-                hint = ?context_hint,
+                priority_categories = ?priority_ref,
                 "rag.lore_injected_to_prompt"
             );
             state_summary.push_str("\n\n");

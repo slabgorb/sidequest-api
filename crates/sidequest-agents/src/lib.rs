@@ -8,6 +8,7 @@
 pub mod agent;
 pub mod agents;
 pub mod client;
+pub mod continuity_validator;
 pub mod context_builder;
 pub mod entity_reference;
 pub mod exercise_tracker;
@@ -19,7 +20,6 @@ pub mod patch_legality;
 pub mod patches;
 pub mod preprocessor;
 pub mod prompt_framework;
-pub mod trope_alignment;
 pub mod turn_record;
 
 pub use sidequest_game;

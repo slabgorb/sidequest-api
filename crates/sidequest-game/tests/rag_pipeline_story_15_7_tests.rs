@@ -80,7 +80,7 @@ fn select_lore_prefers_semantic_when_embeddings_available() {
 
     // When embeddings are available, select_lore_for_prompt should use semantic search
     // and prefer the semantically-close fragment over the keyword match.
-    let selected = select_lore_for_prompt(&store, 500, Some("mountain"), Some(&query_embedding));
+    let selected = select_lore_for_prompt(&store, 500, None, Some(&query_embedding));
 
     // The semantically-close fragment should appear before the keyword-only match
     assert!(
@@ -106,8 +106,8 @@ fn select_lore_prefers_semantic_when_embeddings_available() {
 }
 
 #[test]
-fn select_lore_falls_back_to_keyword_when_no_embeddings() {
-    // When NO fragments have embeddings, keyword matching should still work
+fn select_lore_falls_back_to_category_ranking_when_no_embeddings() {
+    // When NO fragments have embeddings, category-based ranking should work
     let mut store = LoreStore::new();
 
     store
@@ -119,16 +119,16 @@ fn select_lore_falls_back_to_keyword_when_no_embeddings() {
         .unwrap();
     store
         .add(make_fragment(
-            "fac-001",
-            LoreCategory::Faction,
-            "The Iron Collective rules through fear and water rationing.",
+            "hist-001",
+            LoreCategory::History,
+            "The ancient empire fell a thousand years ago in a great cataclysm.",
         ))
         .unwrap();
 
-    let selected = select_lore_for_prompt(&store, 500, Some("mountain"), None);
+    let selected = select_lore_for_prompt(&store, 500, None, None);
 
     assert!(!selected.is_empty());
-    // Keyword match should be first when no embeddings exist
+    // Geography gets priority 1, History gets priority 2 — Geography should be first
     assert_eq!(selected[0].id(), "geo-001");
 }
 

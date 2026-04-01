@@ -64,6 +64,7 @@ impl GossipEngine {
                         turn_learned: turn,
                         source: BeliefSource::ToldBy(gossiper.clone()),
                         believed: true,
+                        sentiment: crate::belief_state::ClaimSentiment::Neutral,
                     };
                     pending.push((neighbor.clone(), propagated));
                 }

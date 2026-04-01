@@ -125,17 +125,23 @@ fn summarize_tokens_used_matches_selected() {
 }
 
 #[test]
-fn summarize_with_context_hint() {
+fn summarize_with_priority_categories() {
     let store = build_test_store();
-    let selected = sidequest_game::select_lore_for_prompt(&store, 60, Some("Flickering"), None);
+    let cats = [LoreCategory::Geography];
+    let selected = sidequest_game::select_lore_for_prompt(&store, 60, Some(&cats), None);
     let summary = sidequest_game::lore::summarize_lore_retrieval(
         &store,
         &selected,
         60,
-        Some("Flickering"),
+        Some(&cats),
     );
 
-    assert_eq!(summary.context_hint, Some("Flickering".to_string()));
+    assert!(summary.context_hint.is_some(), "should have priority category hint");
+    // Geography fragment should be selected first
+    assert!(
+        summary.selected.iter().any(|f| f.category == "geography"),
+        "Geography should be prioritized"
+    );
 }
 
 #[test]

@@ -338,10 +338,10 @@ fn extract_json_from_fenced_block() {
 #[test]
 fn extract_json_from_raw_braces() {
     let response =
-        "The chase continues! {\"separation\": 5, \"phase\": \"pursuit\"} Better run faster!";
+        "The chase continues! {\"separation_delta\": 5, \"phase\": \"pursuit\"} Better run faster!";
     let patch = JsonExtractor::extract::<ChasePatch>(response);
     assert!(patch.is_ok(), "Should extract from raw braces");
-    assert_eq!(patch.unwrap().separation, Some(5));
+    assert_eq!(patch.unwrap().separation_delta, Some(5));
 }
 
 // ============================================================================
