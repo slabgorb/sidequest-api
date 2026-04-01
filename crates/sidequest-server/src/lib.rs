@@ -1673,6 +1673,17 @@ async fn dispatch_message(
                             .map(|pack| pack.audio.sfx_library.clone())
                             .unwrap_or_default()
                     },
+                    rooms: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        let ws = session.world_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.worlds.get(ws).cloned())
+                            .filter(|world| world.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                            .map(|world| world.cartography.rooms.clone())
+                            .unwrap_or_default()
+                    },
                     aside,
                     opening_directive: None,
                     narrator_verbosity,

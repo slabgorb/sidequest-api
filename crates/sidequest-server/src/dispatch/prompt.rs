@@ -402,6 +402,27 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
+    // Room graph navigation — inject current room + available exits
+    if !ctx.rooms.is_empty() {
+        if let Some(current_room) = ctx.rooms.iter().find(|r| r.id == *ctx.current_location || r.name == *ctx.current_location) {
+            state_summary.push_str("\n\nROOM NAVIGATION (room-graph mode):\n");
+            state_summary.push_str(&format!("Current room: {} — {}\n", current_room.name, current_room.description));
+            if !current_room.exits.is_empty() {
+                state_summary.push_str("Exits:\n");
+                for exit in &current_room.exits {
+                    state_summary.push_str(&format!("- {} → {} ({})\n", exit.direction, exit.target, exit.description));
+                }
+            }
+            state_summary.push_str("When the player moves through an exit, update the location header to the target room name.\n");
+
+            WatcherEventBuilder::new("navigation", WatcherEventType::StateTransition)
+                .field("mode", "room_graph")
+                .field("current_room", &current_room.id)
+                .field("exit_count", current_room.exits.len())
+                .send(ctx.state);
+        }
+    }
+
     if !trope_context.is_empty() {
         state_summary.push('\n');
         state_summary.push_str(&trope_context);

@@ -88,6 +88,9 @@ pub(crate) struct DispatchContext<'a> {
     pub opening_directive: Option<String>,
     /// SFX library from genre pack: ID → list of file paths.
     pub sfx_library: std::collections::HashMap<String, Vec<String>>,
+    /// Room definitions for room_graph navigation mode (from cartography.rooms).
+    /// Empty for region-based navigation.
+    pub rooms: Vec<sidequest_genre::RoomDef>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,
