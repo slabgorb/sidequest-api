@@ -254,28 +254,21 @@ routes:
 }
 
 // ═══════════════════════════════════════════════════════════
-// AC-3: Validation — invalid exit targets
+// Helper: load a genre pack with custom cartography for validation tests
 // ═══════════════════════════════════════════════════════════
 
-#[test]
-fn validation_rejects_invalid_exit_target() {
-    use sidequest_genre::load_genre_pack;
-
-    // Build a minimal genre pack with a room that references a nonexistent room
+/// Create a minimal genre pack with a single world whose cartography.yaml
+/// is the provided YAML string. Returns the tempdir (kept alive) and loaded pack.
+fn load_pack_with_cartography(cartography_yaml: &str) -> (tempfile::TempDir, sidequest_genre::GenrePack) {
     let dir = tempfile::tempdir().unwrap();
     let world_dir = dir.path().join("worlds").join("test_dungeon");
     std::fs::create_dir_all(&world_dir).unwrap();
 
-    // Minimal required genre-level files
     write_minimal_genre_files(dir.path());
 
-    // World files
     std::fs::write(
         world_dir.join("world.yaml"),
-        "name: Test Dungeon
-slug: test_dungeon
-description: A test world
-",
+        "name: Test Dungeon\nslug: test_dungeon\ndescription: A test world\n",
     )
     .unwrap();
     std::fs::write(
@@ -283,9 +276,20 @@ description: A test world
         "origin_myth: test\ncentral_conflict: test\n",
     )
     .unwrap();
-    std::fs::write(
-        world_dir.join("cartography.yaml"),
-        r#"
+    std::fs::write(world_dir.join("cartography.yaml"), cartography_yaml).unwrap();
+    std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
+
+    let pack = sidequest_genre::load_genre_pack(dir.path()).unwrap();
+    (dir, pack)
+}
+
+// ═══════════════════════════════════════════════════════════
+// AC-3: Validation — invalid exit targets
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn validation_rejects_invalid_exit_target() {
+    let (_dir, pack) = load_pack_with_cartography(r#"
 world_name: Test Dungeon
 starting_region: entrance
 navigation_mode: room_graph
@@ -297,16 +301,7 @@ rooms:
       - target: nonexistent_room
         direction: north
         description: A door to nowhere
-"#,
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("legends.yaml"),
-        "[]",
-    )
-    .unwrap();
-
-    let pack = load_genre_pack(dir.path()).unwrap();
+"#);
     let result = pack.validate();
     assert!(result.is_err(), "validation should reject exit to nonexistent room");
     let err = result.unwrap_err();
@@ -323,31 +318,8 @@ rooms:
 
 #[test]
 fn validation_rejects_missing_bidirectional_exit() {
-    use sidequest_genre::load_genre_pack;
-
-    let dir = tempfile::tempdir().unwrap();
-    let world_dir = dir.path().join("worlds").join("test_dungeon");
-    std::fs::create_dir_all(&world_dir).unwrap();
-
-    write_minimal_genre_files(dir.path());
-
-    std::fs::write(
-        world_dir.join("world.yaml"),
-        "name: Test Dungeon
-slug: test_dungeon
-description: A test world
-",
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("lore.yaml"),
-        "origin_myth: test\ncentral_conflict: test\n",
-    )
-    .unwrap();
     // Room A → B exists but B → A does NOT, and the exit is NOT one_way
-    std::fs::write(
-        world_dir.join("cartography.yaml"),
-        r#"
+    let (_dir, pack) = load_pack_with_cartography(r#"
 world_name: Test Dungeon
 starting_region: room_a
 navigation_mode: room_graph
@@ -363,12 +335,7 @@ rooms:
     name: Room B
     description: Second room
     exits: []
-"#,
-    )
-    .unwrap();
-    std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
-
-    let pack = load_genre_pack(dir.path()).unwrap();
+"#);
     let result = pack.validate();
     assert!(
         result.is_err(),
@@ -378,31 +345,8 @@ rooms:
 
 #[test]
 fn validation_allows_one_way_chute_without_return() {
-    use sidequest_genre::load_genre_pack;
-
-    let dir = tempfile::tempdir().unwrap();
-    let world_dir = dir.path().join("worlds").join("test_dungeon");
-    std::fs::create_dir_all(&world_dir).unwrap();
-
-    write_minimal_genre_files(dir.path());
-
-    std::fs::write(
-        world_dir.join("world.yaml"),
-        "name: Test Dungeon
-slug: test_dungeon
-description: A test world
-",
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("lore.yaml"),
-        "origin_myth: test\ncentral_conflict: test\n",
-    )
-    .unwrap();
     // Room A → B is one_way (chute), B has no exit back to A — this is VALID
-    std::fs::write(
-        world_dir.join("cartography.yaml"),
-        r#"
+    let (_dir, pack) = load_pack_with_cartography(r#"
 world_name: Test Dungeon
 starting_region: room_a
 navigation_mode: room_graph
@@ -419,12 +363,7 @@ rooms:
     name: Room B
     description: The pit bottom
     exits: []
-"#,
-    )
-    .unwrap();
-    std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
-
-    let pack = load_genre_pack(dir.path()).unwrap();
+"#);
     let result = pack.validate();
     assert!(
         result.is_ok(),
@@ -435,31 +374,8 @@ rooms:
 
 #[test]
 fn validation_passes_valid_bidirectional_room_graph() {
-    use sidequest_genre::load_genre_pack;
-
-    let dir = tempfile::tempdir().unwrap();
-    let world_dir = dir.path().join("worlds").join("test_dungeon");
-    std::fs::create_dir_all(&world_dir).unwrap();
-
-    write_minimal_genre_files(dir.path());
-
-    std::fs::write(
-        world_dir.join("world.yaml"),
-        "name: Test Dungeon
-slug: test_dungeon
-description: A test world
-",
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("lore.yaml"),
-        "origin_myth: test\ncentral_conflict: test\n",
-    )
-    .unwrap();
     // Fully bidirectional: A ↔ B
-    std::fs::write(
-        world_dir.join("cartography.yaml"),
-        r#"
+    let (_dir, pack) = load_pack_with_cartography(r#"
 world_name: Test Dungeon
 starting_region: room_a
 navigation_mode: room_graph
@@ -478,12 +394,7 @@ rooms:
       - target: room_a
         direction: south
         description: A passage south
-"#,
-    )
-    .unwrap();
-    std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
-
-    let pack = load_genre_pack(dir.path()).unwrap();
+"#);
     let result = pack.validate();
     assert!(result.is_ok(), "valid bidirectional room graph should pass validation, got: {:?}", result.unwrap_err());
 }
@@ -494,30 +405,7 @@ rooms:
 
 #[test]
 fn validation_rejects_duplicate_room_ids() {
-    use sidequest_genre::load_genre_pack;
-
-    let dir = tempfile::tempdir().unwrap();
-    let world_dir = dir.path().join("worlds").join("test_dungeon");
-    std::fs::create_dir_all(&world_dir).unwrap();
-
-    write_minimal_genre_files(dir.path());
-
-    std::fs::write(
-        world_dir.join("world.yaml"),
-        "name: Test Dungeon
-slug: test_dungeon
-description: A test world
-",
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("lore.yaml"),
-        "origin_myth: test\ncentral_conflict: test\n",
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("cartography.yaml"),
-        r#"
+    let (_dir, pack) = load_pack_with_cartography(r#"
 world_name: Test Dungeon
 starting_region: room_a
 navigation_mode: room_graph
@@ -530,12 +418,7 @@ rooms:
     name: Room A Again
     description: Duplicate
     exits: []
-"#,
-    )
-    .unwrap();
-    std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
-
-    let pack = load_genre_pack(dir.path()).unwrap();
+"#);
     let result = pack.validate();
     assert!(result.is_err(), "duplicate room IDs should fail validation");
 }
@@ -546,30 +429,7 @@ rooms:
 
 #[test]
 fn validation_rejects_invalid_starting_region_in_room_graph() {
-    use sidequest_genre::load_genre_pack;
-
-    let dir = tempfile::tempdir().unwrap();
-    let world_dir = dir.path().join("worlds").join("test_dungeon");
-    std::fs::create_dir_all(&world_dir).unwrap();
-
-    write_minimal_genre_files(dir.path());
-
-    std::fs::write(
-        world_dir.join("world.yaml"),
-        "name: Test Dungeon
-slug: test_dungeon
-description: A test world
-",
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("lore.yaml"),
-        "origin_myth: test\ncentral_conflict: test\n",
-    )
-    .unwrap();
-    std::fs::write(
-        world_dir.join("cartography.yaml"),
-        r#"
+    let (_dir, pack) = load_pack_with_cartography(r#"
 world_name: Test Dungeon
 starting_region: nonexistent_start
 navigation_mode: room_graph
@@ -578,12 +438,7 @@ rooms:
     name: Room A
     description: A room
     exits: []
-"#,
-    )
-    .unwrap();
-    std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
-
-    let pack = load_genre_pack(dir.path()).unwrap();
+"#);
     let result = pack.validate();
     assert!(
         result.is_err(),
