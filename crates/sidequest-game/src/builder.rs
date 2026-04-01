@@ -286,6 +286,11 @@ impl CharacterBuilder {
         self.scenes.len()
     }
 
+    /// Access the raw scene definitions (used for lore seeding).
+    pub fn scenes(&self) -> &[CharCreationScene] {
+        &self.scenes
+    }
+
     /// The accumulated scene results stack.
     pub fn scene_results(&self) -> &[SceneResult] {
         &self.results
