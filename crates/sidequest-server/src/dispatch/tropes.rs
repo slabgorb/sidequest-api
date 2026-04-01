@@ -1,6 +1,6 @@
 //! Trope engine — LLM trigger evaluation, activation, tick, and escalation.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use sidequest_agents::agents::troper::TroperAgent;
 use sidequest_agents::client::ClaudeClient;
@@ -8,7 +8,7 @@ use sidequest_game::achievement::Achievement;
 use sidequest_game::trope::{FiredBeat, TropeEngine};
 use sidequest_protocol::GameMessage;
 
-use crate::{Severity, WatcherEvent, WatcherEventType};
+use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -46,28 +46,11 @@ pub(crate) fn process_tropes(
     for id in &activations {
         TropeEngine::activate_and_check_achievements(ctx.trope_states, id, ctx.achievement_tracker);
         tracing::info!(trope_id = %id, "Trope activated by LLM evaluation");
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "trope".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert(
-                    "event".to_string(),
-                    serde_json::Value::String("trope_activated".to_string()),
-                );
-                f.insert(
-                    "trope_id".to_string(),
-                    serde_json::Value::String(id.clone()),
-                );
-                f.insert(
-                    "trigger".to_string(),
-                    serde_json::Value::String("llm_evaluation".to_string()),
-                );
-                f
-            },
-        });
+        WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
+            .field("event", "trope_activated")
+            .field("trope_id", id)
+            .field("trigger", "llm_evaluation")
+            .send(ctx.state);
     }
 
     // --- Phase 2: Trope engine tick ---
@@ -111,30 +94,11 @@ pub(crate) fn process_tropes(
             threshold = beat.beat.at,
             "Trope beat fired"
         );
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "trope".to_string(),
-            event_type: WatcherEventType::AgentSpanOpen,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert(
-                    "trope".to_string(),
-                    serde_json::Value::String(beat.trope_name.clone()),
-                );
-                f.insert(
-                    "trope_id".to_string(),
-                    serde_json::Value::String(beat.trope_id.clone()),
-                );
-                f.insert(
-                    "threshold".to_string(),
-                    serde_json::Value::Number(
-                        serde_json::Number::from_f64(beat.beat.at).unwrap_or(serde_json::Number::from(0)),
-                    ),
-                );
-                f
-            },
-        });
+        WatcherEventBuilder::new("trope", WatcherEventType::AgentSpanOpen)
+            .field("trope", &beat.trope_name)
+            .field("trope_id", &beat.trope_id)
+            .field("threshold", beat.beat.at)
+            .send(ctx.state);
     }
 
     // --- Phase 4: Broadcast earned achievements + emit watcher events ---
@@ -153,36 +117,13 @@ pub(crate) fn process_tropes(
         });
 
         // Emit watcher event for GM panel
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "achievement".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert(
-                    "event".to_string(),
-                    serde_json::Value::String("achievement_earned".to_string()),
-                );
-                f.insert(
-                    "achievement_id".to_string(),
-                    serde_json::Value::String(achievement.id.clone()),
-                );
-                f.insert(
-                    "achievement_name".to_string(),
-                    serde_json::Value::String(achievement.name.clone()),
-                );
-                f.insert(
-                    "trope_id".to_string(),
-                    serde_json::Value::String(achievement.trope_id.clone()),
-                );
-                f.insert(
-                    "trigger_type".to_string(),
-                    serde_json::Value::String(achievement.trigger_status.clone()),
-                );
-                f
-            },
-        });
+        WatcherEventBuilder::new("achievement", WatcherEventType::StateTransition)
+            .field("event", "achievement_earned")
+            .field("achievement_id", &achievement.id)
+            .field("achievement_name", &achievement.name)
+            .field("trope_id", &achievement.trope_id)
+            .field("trigger_type", &achievement.trigger_status)
+            .send(ctx.state);
     }
 
     span.record("beats_fired", fired.len() as u64);

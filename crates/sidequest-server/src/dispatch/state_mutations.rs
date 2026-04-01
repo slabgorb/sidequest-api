@@ -1,10 +1,8 @@
 //! Post-narration state mutations: combat HP, quests, XP, affinity, items, resources.
 
-use std::collections::HashMap;
-
 use sidequest_genre::GenreLoader;
 
-use crate::{Severity, WatcherEvent, WatcherEventType};
+use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -29,6 +27,15 @@ pub(crate) async fn apply_state_mutations(
 
     // Combat state — apply typed CombatPatch from creature_smith
     if let Some(ref combat_patch) = result.combat_patch {
+        WatcherEventBuilder::new("combat", WatcherEventType::AgentSpanOpen)
+            .field("action", "combat_patch_received")
+            .field("in_combat", &combat_patch.in_combat)
+            .field("hp_changes", &combat_patch.hp_changes)
+            .field("turn_order", &combat_patch.turn_order)
+            .field("current_turn", &combat_patch.current_turn)
+            .field("drama_weight", &combat_patch.drama_weight)
+            .field("advance_round", combat_patch.advance_round)
+            .send(ctx.state);
         let was_in_combat = ctx.combat_state.in_combat();
 
         // Combat start → engage() with player + NPCs from the patch (not all known NPCs)
@@ -59,6 +66,12 @@ pub(crate) async fn apply_state_mutations(
                     current_turn = ?ctx.combat_state.current_turn(),
                     "combat.engaged"
                 );
+                WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                    .field("action", "combat_started")
+                    .field("turn_order", ctx.combat_state.turn_order())
+                    .field("current_turn", ctx.combat_state.current_turn())
+                    .field("combatant_count", ctx.combat_state.turn_order().len())
+                    .send(ctx.state);
 
                 // Turn mode transition: FreePlay → Structured
                 let holder = ctx.shared_session_holder.lock().await;
@@ -83,6 +96,9 @@ pub(crate) async fn apply_state_mutations(
             } else if !in_combat && was_in_combat {
                 ctx.combat_state.disengage();
                 tracing::info!("combat.disengaged");
+                WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                    .field("action", "combat_ended")
+                    .send(ctx.state);
 
                 // Turn mode transition: Structured → FreePlay
                 let holder = ctx.shared_session_holder.lock().await;
@@ -110,8 +126,18 @@ pub(crate) async fn apply_state_mutations(
                         .map(|n| n.to_lowercase() == target_lower)
                         .unwrap_or(false)
                 {
+                    let old_hp = *ctx.hp;
                     *ctx.hp = sidequest_game::clamp_hp(*ctx.hp, *delta, *ctx.max_hp);
                     tracing::info!(target = %target, delta = delta, new_hp = *ctx.hp, "combat.patch.hp_applied");
+                    WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                        .field("action", "hp_change")
+                        .field("target", target)
+                        .field("target_type", "player")
+                        .field("delta", delta)
+                        .field("old_hp", old_hp)
+                        .field("new_hp", *ctx.hp)
+                        .field("max_hp", *ctx.max_hp)
+                        .send(ctx.state);
                 } else if let Some(npc) = ctx.npc_registry.iter_mut().find(|n| n.name.to_lowercase() == target_lower) {
                     // Initialize NPC max_hp on first damage if not yet set
                     if npc.max_hp == 0 {
@@ -120,8 +146,18 @@ pub(crate) async fn apply_state_mutations(
                         npc.max_hp = 20;
                         npc.hp = npc.max_hp;
                     }
+                    let old_npc_hp = npc.hp;
                     npc.hp = sidequest_game::clamp_hp(npc.hp, *delta, npc.max_hp);
                     tracing::info!(target = %target, delta = delta, new_hp = npc.hp, max_hp = npc.max_hp, "combat.patch.npc_hp_applied");
+                    WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                        .field("action", "hp_change")
+                        .field("target", target)
+                        .field("target_type", "npc")
+                        .field("delta", delta)
+                        .field("old_hp", old_npc_hp)
+                        .field("new_hp", npc.hp)
+                        .field("max_hp", npc.max_hp)
+                        .send(ctx.state);
                 }
             }
         }
@@ -145,6 +181,12 @@ pub(crate) async fn apply_state_mutations(
         // Advance turn (handles round wrap internally)
         if combat_patch.advance_round && ctx.combat_state.in_combat() {
             ctx.combat_state.advance_turn();
+            WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                .field("action", "turn_advanced")
+                .field("round", ctx.combat_state.round())
+                .field("current_turn", ctx.combat_state.current_turn())
+                .field("turn_order", ctx.combat_state.turn_order())
+                .send(ctx.state);
         }
     }
 
@@ -162,35 +204,19 @@ pub(crate) async fn apply_state_mutations(
                 *ctx.chase_state = Some(cs);
                 tracing::info!(chase_type = ?chase_type, "chase.engaged");
 
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "chase".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("action".to_string(), serde_json::json!("chase_started"));
-                        f.insert("chase_type".to_string(), serde_json::json!(format!("{:?}", chase_type)));
-                        f
-                    },
-                });
+                WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
+                    .field("action", "chase_started")
+                    .field("chase_type", format!("{:?}", chase_type))
+                    .send(ctx.state);
             } else if !in_chase && ctx.chase_state.is_some() {
                 // Resolve chase
                 if let Some(ref cs) = ctx.chase_state {
                     tracing::info!(rounds = cs.round(), separation = cs.separation(), "chase.resolved");
-                    ctx.state.send_watcher_event(WatcherEvent {
-                        timestamp: chrono::Utc::now(),
-                        component: "chase".to_string(),
-                        event_type: WatcherEventType::StateTransition,
-                        severity: Severity::Info,
-                        fields: {
-                            let mut f = HashMap::new();
-                            f.insert("action".to_string(), serde_json::json!("chase_resolved"));
-                            f.insert("rounds".to_string(), serde_json::json!(cs.round()));
-                            f.insert("final_separation".to_string(), serde_json::json!(cs.separation()));
-                            f
-                        },
-                    });
+                    WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
+                        .field("action", "chase_resolved")
+                        .field("rounds", cs.round())
+                        .field("final_separation", cs.separation())
+                        .send(ctx.state);
                 }
                 *ctx.chase_state = None;
             }
@@ -219,22 +245,12 @@ pub(crate) async fn apply_state_mutations(
                 "chase.tick"
             );
 
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "chase".to_string(),
-                event_type: WatcherEventType::StateTransition,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("action".to_string(), serde_json::json!("chase_tick"));
-                    f.insert("round".to_string(), serde_json::json!(cs.round()));
-                    f.insert("separation".to_string(), serde_json::json!(cs.separation()));
-                    if let Some(delta) = chase_patch.separation_delta {
-                        f.insert("separation_delta".to_string(), serde_json::json!(delta));
-                    }
-                    f
-                },
-            });
+            WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
+                .field("action", "chase_tick")
+                .field("round", cs.round())
+                .field("separation", cs.separation())
+                .field_opt("separation_delta", &chase_patch.separation_delta)
+                .send(ctx.state);
 
             // Auto-resolve if chase reports resolved via roll
             if cs.is_resolved() {
@@ -441,20 +457,12 @@ pub(crate) async fn apply_state_mutations(
             };
             let _ = ctx.inventory.add(item, 50);
             tracing::info!(item_name = %item_def.name, "Item added to inventory from LLM extraction");
-            ctx.state.send_watcher_event(WatcherEvent {
-                timestamp: chrono::Utc::now(),
-                component: "inventory".to_string(),
-                event_type: WatcherEventType::StateTransition,
-                severity: Severity::Info,
-                fields: {
-                    let mut f = HashMap::new();
-                    f.insert("action".to_string(), serde_json::json!("item_added"));
-                    f.insert("item_name".to_string(), serde_json::json!(item_def.name));
-                    f.insert("category".to_string(), serde_json::json!(valid_cat));
-                    f.insert("inventory_size".to_string(), serde_json::json!(ctx.inventory.items.len()));
-                    f
-                },
-            });
+            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                .field("action", "item_added")
+                .field("item_name", &item_def.name)
+                .field("category", &valid_cat)
+                .field("inventory_size", ctx.inventory.items.len())
+                .send(ctx.state);
         }
     }
 
@@ -468,23 +476,17 @@ pub(crate) async fn apply_state_mutations(
                     *current = current.clamp(decl.min, decl.max);
                 }
                 tracing::info!(resource = %name, delta = %delta, new_value = %current, "resource.delta_applied");
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "resource".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("resource".to_string(), serde_json::json!(name));
-                        f.insert("delta".to_string(), serde_json::json!(delta));
-                        f.insert("new_value".to_string(), serde_json::json!(*current));
-                        if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
-                            f.insert("max".to_string(), serde_json::json!(decl.max));
-                            f.insert("label".to_string(), serde_json::json!(decl.label));
-                        }
-                        f
-                    },
-                });
+                {
+                    let decl = ctx.resource_declarations.iter().find(|d| d.name == *name);
+                    let mut builder = WatcherEventBuilder::new("resource", WatcherEventType::StateTransition)
+                        .field("resource", name)
+                        .field("delta", delta)
+                        .field("new_value", *current);
+                    if let Some(decl) = decl {
+                        builder = builder.field("max", decl.max).field("label", &decl.label);
+                    }
+                    builder.send(ctx.state);
+                }
             } else {
                 tracing::debug!(resource = %name, "resource.delta_ignored — resource not in state");
             }

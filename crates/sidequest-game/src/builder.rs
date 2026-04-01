@@ -325,7 +325,9 @@ impl CharacterBuilder {
                 acc.background = Some(v.clone());
             }
             if let Some(ref v) = eff.item_hint {
-                acc.item_hints.push(v.clone());
+                if !v.is_empty() && v != "none" {
+                    acc.item_hints.push(v.clone());
+                }
             }
             if let Some(ref v) = eff.mutation_hint {
                 acc.mutation_hint = Some(v.clone());

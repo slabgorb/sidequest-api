@@ -12,6 +12,7 @@
 
 mod audio;
 mod combat;
+pub(crate) mod connect;
 mod prompt;
 mod render;
 mod session_sync;
@@ -37,7 +38,7 @@ use crate::extraction::{
     strip_markdown_for_tts,
 };
 use crate::{
-    shared_session, AppState, DaemonSynthesizer, NpcRegistryEntry, Severity, WatcherEvent,
+    shared_session, AppState, DaemonSynthesizer, NpcRegistryEntry, Severity, WatcherEventBuilder,
     WatcherEventType,
 };
 
@@ -83,10 +84,19 @@ pub(crate) struct DispatchContext<'a> {
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
     pub aside: bool,
+    /// Opening scenario directive — injected into Early zone on turn 0 only, then consumed.
+    pub opening_directive: Option<String>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     pub pending_trope_context: &'a mut Option<String>,
     pub achievement_tracker: &'a mut sidequest_game::achievement::AchievementTracker,
+    /// Canonical game state snapshot — patched in-place during the turn,
+    /// saved directly by persist_game_state() without re-loading from SQLite.
+    /// Story 15-8: eliminates the load-before-save round-trip on every turn.
+    pub snapshot: &'a mut sidequest_game::state::GameSnapshot,
+    /// Direct sender to the client WebSocket writer — used to emit narration
+    /// immediately before state cleanup completes (approach A streaming).
+    pub tx: &'a tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -127,23 +137,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             );
             let pc = ss.player_count();
             if pc > 1 {
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "multiplayer".to_string(),
-                    event_type: WatcherEventType::AgentSpanOpen,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("event".to_string(), serde_json::json!("multiplayer_action"));
-                        f.insert(
-                            "session_key".to_string(),
-                            serde_json::json!(format!("{}:{}", ctx.genre_slug, ctx.world_slug)),
-                        );
-                        f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
-                        f.insert("party_size".to_string(), serde_json::json!(pc));
-                        f
-                    },
-                });
+                WatcherEventBuilder::new("multiplayer", WatcherEventType::AgentSpanOpen)
+                    .field("event", "multiplayer_action")
+                    .field("session_key", format!("{}:{}", ctx.genre_slug, ctx.world_slug))
+                    .field("player_id", ctx.player_id)
+                    .field("party_size", pc)
+                    .send(ctx.state);
             }
         }
     }
@@ -154,25 +153,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Watcher: action received
     let turn_number = ctx.turn_manager.interaction();
     turn_span.record("turn_number", turn_number);
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "game".to_string(),
-        event_type: WatcherEventType::AgentSpanOpen,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert(
-                "action".to_string(),
-                serde_json::Value::String(ctx.action.to_string()),
-            );
-            f.insert(
-                "player".to_string(),
-                serde_json::Value::String(ctx.char_name.to_string()),
-            );
-            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-            f
-        },
-    });
+    WatcherEventBuilder::new("game", WatcherEventType::AgentSpanOpen)
+        .field("action", ctx.action)
+        .field("player", ctx.char_name)
+        .field("turn_number", turn_number)
+        .send(ctx.state);
 
     // TURN_STATUS "active" — tell all players whose turn it is BEFORE the LLM call.
     {
@@ -220,34 +205,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         return handle_aside(ctx).await;
     }
 
-    // Story 18-3: Parallelize prompt context build and preprocess via tokio::join!
-    // Preprocessor FIRST — its relevance flags gate prompt section budgeting.
-    // Sequential by design: prompt build needs the flags to know what to include.
-    let action_for_preprocess = ctx.action.to_string();
-    let char_name_for_preprocess = ctx.char_name.to_string();
-    let preprocessed = match sidequest_agents::preprocessor::preprocess_action_async(
-        &action_for_preprocess,
-        &char_name_for_preprocess,
-    ).await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!(error = %e, "Preprocessor failed — cannot process action");
-            return vec![sidequest_protocol::GameMessage::Error {
-                payload: sidequest_protocol::ErrorPayload {
-                    message: format!("Action preprocessing failed: {e}"),
-                    reconnect_required: None,
-                },
-                player_id: ctx.player_id.to_string(),
-            }];
-        }
+    // Inline preprocessor (approach A): no separate Haiku call. The narrator/creature_smith
+    // produces action_rewrite + action_flags in its JSON block. For prompt building, use
+    // all-flags-on so no sections are gated out — the narrator has full context.
+    let preprocessed = sidequest_game::PreprocessedAction {
+        you: format!("You {}", ctx.action),
+        named: format!("{} {}", ctx.char_name, ctx.action),
+        intent: ctx.action.to_string(),
+        is_power_grab: false,
+        references_inventory: true,
+        references_npc: true,
+        references_ability: true,
+        references_location: true,
     };
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
     tracing::info!(
         raw = %ctx.action,
-        you = %preprocessed.you,
-        named = %preprocessed.named,
-        intent = %preprocessed.intent,
-        "Action preprocessed (parallel with context build)"
+        "Prompt context built (preprocessor inlined into agent call)"
     );
 
     // Check if barrier mode is active (Structured/Cinematic turn mode).
@@ -333,6 +307,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: trope_beat_directives,
         active_trope_summary,
+        genre: Some(ctx.genre_slug.to_string()),
     };
     let result = ctx
         .state
@@ -346,67 +321,53 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         turn_span.record("agent", agent.as_str());
     }
 
+    // Update preprocessed from inline agent output (approach A — no separate Haiku call).
+    let preprocessed = if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
+        tracing::info!(
+            you = %rw.you, named = %rw.named, intent = %rw.intent,
+            power_grab = flags.is_power_grab,
+            "Inline preprocessor fields extracted from agent response"
+        );
+        sidequest_game::PreprocessedAction {
+            you: rw.you.clone(),
+            named: rw.named.clone(),
+            intent: rw.intent.clone(),
+            is_power_grab: flags.is_power_grab,
+            references_inventory: flags.references_inventory,
+            references_npc: flags.references_npc,
+            references_ability: flags.references_ability,
+            references_location: flags.references_location,
+        }
+    } else {
+        tracing::debug!("Agent did not produce inline preprocessor fields — using defaults");
+        preprocessed
+    };
+
     // Watcher: narration generated (with intent classification and agent routing)
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "agent".to_string(),
-        event_type: WatcherEventType::AgentSpanClose,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert(
-                "narration_len".to_string(),
-                serde_json::json!(result.narration.len()),
-            );
-            f.insert(
-                "is_degraded".to_string(),
-                serde_json::json!(result.is_degraded),
-            );
-            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-            if let Some(ref intent) = result.classified_intent {
-                f.insert("classified_intent".to_string(), serde_json::json!(intent));
-            }
-            if let Some(ref agent) = result.agent_name {
-                f.insert("agent_routed_to".to_string(), serde_json::json!(agent));
-            }
-            if let Some(dur) = result.agent_duration_ms {
-                f.insert("agent_duration_ms".to_string(), serde_json::json!(dur));
-            }
-            if let Some(t) = result.token_count_in {
-                f.insert("token_count_in".to_string(), serde_json::json!(t));
-            }
-            if let Some(t) = result.token_count_out {
-                f.insert("token_count_out".to_string(), serde_json::json!(t));
-            }
-            if let Some(tier) = result.extraction_tier {
-                f.insert("extraction_tier".to_string(), serde_json::json!(tier));
-            }
-            f
-        },
-    });
+    WatcherEventBuilder::new("agent", WatcherEventType::AgentSpanClose)
+        .field("narration_len", result.narration.len())
+        .field("is_degraded", result.is_degraded)
+        .field("turn_number", turn_number)
+        .field_opt("classified_intent", &result.classified_intent)
+        .field_opt("agent_routed_to", &result.agent_name)
+        .field_opt("agent_duration_ms", &result.agent_duration_ms)
+        .field_opt("token_count_in", &result.token_count_in)
+        .field_opt("token_count_out", &result.token_count_out)
+        .field_opt("extraction_tier", &result.extraction_tier)
+        .send(ctx.state);
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
     if let Some(ref zb) = result.zone_breakdown {
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "prompt".to_string(),
-            event_type: WatcherEventType::PromptAssembled,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-                if let Some(ref agent) = result.agent_name {
-                    f.insert("agent".to_string(), serde_json::json!(agent));
-                }
-                let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
-                f.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
-                let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
-                f.insert("section_count".to_string(), serde_json::json!(section_count));
-                f.insert("zones".to_string(), serde_json::json!(zb.zones));
-                f.insert("full_prompt".to_string(), serde_json::json!(zb.full_prompt));
-                f
-            },
-        });
+        let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
+        let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
+        WatcherEventBuilder::new("prompt", WatcherEventType::PromptAssembled)
+            .field("turn_number", turn_number)
+            .field_opt("agent", &result.agent_name)
+            .field("total_tokens", total_tokens)
+            .field("section_count", section_count)
+            .field("zones", &zb.zones)
+            .field("full_prompt", &zb.full_prompt)
+            .send(ctx.state);
     }
 
     let agent_done = std::time::Instant::now();
@@ -434,25 +395,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             total_discovered = ctx.discovered_regions.len(),
             "location.changed"
         );
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "state".to_string(),
-            event_type: WatcherEventType::StateTransition,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert(
-                    "event".to_string(),
-                    serde_json::Value::String("location_changed".to_string()),
-                );
-                f.insert(
-                    "location".to_string(),
-                    serde_json::Value::String(location.clone()),
-                );
-                f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-                f
-            },
-        });
+        WatcherEventBuilder::new("state", WatcherEventType::StateTransition)
+            .field("event", "location_changed")
+            .field("location", &location)
+            .field("turn_number", turn_number)
+            .send(ctx.state);
         messages.push(GameMessage::ChapterMarker {
             payload: ChapterMarkerPayload {
                 title: Some(location.clone()),
@@ -504,8 +451,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // NPC registry + OCEAN personality shifts
     update_npc_registry(ctx, &result, &clean_narration);
 
-    // Continuity validation — LLM-based (Haiku), runs via spawn_blocking
-    validate_continuity(ctx, &clean_narration).await;
+    // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
+    // Skip in combat — creature_smith output is structured, and the 18s Haiku call
+    // doubles combat turn latency for marginal value.
+    if !ctx.combat_state.in_combat() {
+        validate_continuity(ctx, &clean_narration).await;
+    } else {
+        tracing::info!("Skipping continuity validation — in_combat, creature_smith output is structured");
+    }
 
     let mutation_result =
         state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
@@ -528,21 +481,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     // AC-5: OTEL lore.fragment_accumulated
                     let category = "event";
                     let token_estimate = entry.len().div_ceil(4);
-                    ctx.state.send_watcher_event(WatcherEvent {
-                        timestamp: chrono::Utc::now(),
-                        component: "lore".to_string(),
-                        event_type: WatcherEventType::StateTransition,
-                        severity: Severity::Info,
-                        fields: {
-                            let mut f = HashMap::new();
-                            f.insert("event".to_string(), serde_json::json!("lore.fragment_accumulated"));
-                            f.insert("fragment_id".to_string(), serde_json::json!(fragment_id));
-                            f.insert("category".to_string(), serde_json::json!(category));
-                            f.insert("turn".to_string(), serde_json::json!(turn_number));
-                            f.insert("token_estimate".to_string(), serde_json::json!(token_estimate));
-                            f
-                        },
-                    });
+                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                        .field("event", "lore.fragment_accumulated")
+                        .field("fragment_id", &fragment_id)
+                        .field("category", category)
+                        .field("turn", turn_number)
+                        .field("token_estimate", token_estimate)
+                        .send(ctx.state);
                     tracing::info!(
                         fragment_id = %fragment_id,
                         category = category,
@@ -565,20 +510,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
                                 } else {
                                     // AC-6: OTEL lore.embedding_generated
-                                    ctx.state.send_watcher_event(WatcherEvent {
-                                        timestamp: chrono::Utc::now(),
-                                        component: "lore".to_string(),
-                                        event_type: WatcherEventType::StateTransition,
-                                        severity: Severity::Info,
-                                        fields: {
-                                            let mut f = HashMap::new();
-                                            f.insert("event".to_string(), serde_json::json!("lore.embedding_generated"));
-                                            f.insert("fragment_id".to_string(), serde_json::json!(fragment_id));
-                                            f.insert("latency_ms".to_string(), serde_json::json!(embed_result.latency_ms));
-                                            f.insert("model".to_string(), serde_json::json!(embed_result.model));
-                                            f
-                                        },
-                                    });
+                                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                                        .field("event", "lore.embedding_generated")
+                                        .field("fragment_id", &fragment_id)
+                                        .field("latency_ms", embed_result.latency_ms)
+                                        .field("model", &embed_result.model)
+                                        .send(ctx.state);
                                 }
                             }
                             Err(e) => {
@@ -629,7 +566,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     let _system_tick_guard = system_tick_span.enter();
 
     let combat_active = ctx.combat_state.in_combat();
-    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages, mutation_result.combat_just_ended)
+    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages, mutation_result.combat_just_ended, mutation_result.combat_just_started)
         .instrument(tracing::info_span!(
             "turn.system_tick.combat",
             in_combat = combat_active,
@@ -685,7 +622,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     drop(_media_guard);
 
-    // Persist game state
+    // Sync scattered locals into the canonical snapshot, then persist (story 15-8)
+    sync_locals_to_snapshot(ctx, narration_text);
     persist_game_state(ctx, narration_text, &clean_narration).await;
 
     // TTS streaming
@@ -886,58 +824,100 @@ fn update_npc_registry(
                 }
             } else if npc.is_new {
                 let span = tracing::info_span!(
-                    "npc.ocean_assignment",
+                    "npc.registration",
                     npc_name = %npc.name,
                     npc_role = %npc.role,
                     ocean_summary = tracing::field::Empty,
                     archetype_source = tracing::field::Empty,
+                    namegen_validated = tracing::field::Empty,
                     genre = %ctx.genre_slug,
                 );
                 let _guard = span.enter();
 
-                let (ocean_profile, source) = {
-                    let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
-                    match GenreCode::new(ctx.genre_slug) {
-                        Ok(genre_code) => match loader.load(&genre_code) {
-                            Ok(pack) => Some(pack),
-                            Err(e) => {
-                                tracing::warn!(genre = %ctx.genre_slug, error = %e, "Failed to load genre pack for NPC OCEAN profile");
-                                None
-                            }
-                        },
-                        Err(e) => {
-                            tracing::warn!(genre = %ctx.genre_slug, error = %e, "Invalid genre code for NPC OCEAN profile");
-                            None
-                        }
+                // NPC GATE: Run sidequest-namegen server-side to generate an
+                // authoritative identity. This validates the narrator used the tool
+                // AND enriches the registry with culture/faction/archetype data.
+                let namegen_result = ctx.state.namegen_binary_path().and_then(|binary| {
+                    let output = std::process::Command::new(binary)
+                        .arg("--genre-packs-path")
+                        .arg(ctx.state.genre_packs_path())
+                        .arg("--genre")
+                        .arg(ctx.genre_slug)
+                        .arg("--role")
+                        .arg(if npc.role.is_empty() { "unknown" } else { &npc.role })
+                        .stdout(std::process::Stdio::piped())
+                        .stderr(std::process::Stdio::piped())
+                        .output()
+                        .ok()?;
+                    if !output.status.success() {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        tracing::warn!(
+                            error = %stderr,
+                            "npc_gate.namegen_failed — falling back to narrator-provided identity"
+                        );
+                        return None;
                     }
+                    serde_json::from_slice::<serde_json::Value>(&output.stdout).ok()
+                });
+
+                let (ocean_profile, ocean_summary, source) = if let Some(ref gen) = namegen_result {
+                    // Use the generated identity's OCEAN profile
+                    let profile = gen.get("ocean").and_then(|o| {
+                        Some(sidequest_genre::OceanProfile {
+                            openness: o.get("openness")?.as_f64()?,
+                            conscientiousness: o.get("conscientiousness")?.as_f64()?,
+                            extraversion: o.get("extraversion")?.as_f64()?,
+                            agreeableness: o.get("agreeableness")?.as_f64()?,
+                            neuroticism: o.get("neuroticism")?.as_f64()?,
+                        })
+                    }).unwrap_or_else(sidequest_genre::OceanProfile::random);
+                    let summary = gen.get("ocean_summary")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| profile.behavioral_summary());
+                    let src = gen.get("archetype")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("namegen")
+                        .to_string();
+                    (profile, summary, src)
+                } else {
+                    // Fallback: random archetype OCEAN from genre pack
+                    let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
+                    let from_pack = GenreCode::new(ctx.genre_slug).ok()
+                        .and_then(|code| loader.load(&code).ok())
                         .and_then(|pack| {
-                            let with_ocean: Vec<_> = pack
-                                .archetypes
-                                .iter()
-                                .filter(|a| a.ocean.is_some())
-                                .collect();
-                            if with_ocean.is_empty() {
-                                return None;
-                            }
+                            let with_ocean: Vec<_> = pack.archetypes.iter()
+                                .filter(|a| a.ocean.is_some()).collect();
+                            if with_ocean.is_empty() { return None; }
                             use rand::prelude::IndexedRandom;
-                            let archetype = with_ocean.choose(&mut rand::rng())?;
-                            let profile = archetype.ocean.as_ref()?.with_jitter(1.5);
-                            Some((profile, archetype.name.as_str().to_string()))
+                            let arch = with_ocean.choose(&mut rand::rng())?;
+                            let profile = arch.ocean.as_ref()?.with_jitter(1.5);
+                            Some((profile, arch.name.as_str().to_string()))
                         })
-                        .unwrap_or_else(|| {
-                            (
-                                sidequest_genre::OceanProfile::random(),
-                                "random".to_string(),
-                            )
-                        })
+                        .unwrap_or_else(|| (sidequest_genre::OceanProfile::random(), "random".to_string()));
+                    let summary = from_pack.0.behavioral_summary();
+                    (from_pack.0, summary, from_pack.1)
                 };
-                let ocean_summary = ocean_profile.behavioral_summary();
+
+                // Validation: log whether namegen was used
+                let validated = namegen_result.is_some();
+                span.record("namegen_validated", validated);
                 span.record("ocean_summary", &ocean_summary.as_str());
                 span.record("archetype_source", &source.as_str());
+
+                if !validated && ctx.state.namegen_binary_path().is_some() {
+                    tracing::warn!(
+                        npc_name = %npc.name,
+                        "npc_gate.validation_warning — namegen binary available but generation failed; narrator name accepted without tool verification"
+                    );
+                }
+
                 tracing::info!(
                     name = %npc.name, pronouns = %npc.pronouns, role = %npc.role,
                     ocean = %ocean_summary, archetype = %source,
-                    "npc_registry.new — created from structured data with OCEAN personality"
+                    namegen_validated = validated,
+                    "npc_registry.new — registered with {} identity",
+                    if validated { "namegen-enriched" } else { "fallback" }
                 );
                 ctx.npc_registry.push(NpcRegistryEntry {
                     name: npc.name.clone(),
@@ -952,21 +932,15 @@ fn update_npc_registry(
                     hp: 0,
                     max_hp: 0,
                 });
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "npc_registry".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("action".to_string(), serde_json::json!("npc_registered"));
-                        f.insert("name".to_string(), serde_json::json!(npc.name));
-                        f.insert("role".to_string(), serde_json::json!(npc.role));
-                        f.insert("ocean".to_string(), serde_json::json!(ocean_summary));
-                        f.insert("registry_size".to_string(), serde_json::json!(ctx.npc_registry.len()));
-                        f
-                    },
-                });
+                WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
+                    .field("action", "npc_registered")
+                    .field("name", &npc.name)
+                    .field("role", &npc.role)
+                    .field("ocean", &ocean_summary)
+                    .field("namegen_validated", validated)
+                    .field("archetype_source", &source)
+                    .field("registry_size", ctx.npc_registry.len())
+                    .send(ctx.state);
             }
         }
     }
@@ -1099,7 +1073,9 @@ async fn build_response_messages(
         });
     }
 
-    messages.push(GameMessage::Narration {
+    // Send narration to client IMMEDIATELY — don't wait for state cleanup.
+    // The user sees prose while we update game state in the background.
+    let narration_msg = GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration.to_string(),
             state_delta: Some(sidequest_protocol::StateDelta {
@@ -1127,7 +1103,9 @@ async fn build_response_messages(
             footnotes,
         },
         player_id: ctx.player_id.to_string(),
-    });
+    };
+    let _ = ctx.tx.send(narration_msg).await;
+    tracing::info!("Narration sent to client — state cleanup continues async");
 
     // RAG pipeline: convert new footnotes to discovered facts
     if !result.footnotes.is_empty() {
@@ -1166,7 +1144,7 @@ async fn build_response_messages(
         }
     }
 
-    messages.push(GameMessage::NarrationEnd {
+    let _ = ctx.tx.send(GameMessage::NarrationEnd {
         payload: NarrationEndPayload {
             state_delta: Some(sidequest_protocol::StateDelta {
                 location: None,
@@ -1176,7 +1154,7 @@ async fn build_response_messages(
             }),
         },
         player_id: ctx.player_id.to_string(),
-    });
+    }).await;
 
     // Party status
     {
@@ -1253,121 +1231,125 @@ async fn build_response_messages(
     });
 }
 
-/// Persist game state to snapshot for reconnection.
+/// Sync scattered DispatchContext locals into the canonical GameSnapshot.
+///
+/// Story 15-8: The dispatch pipeline still uses individual locals (ctx.hp,
+/// ctx.inventory, etc.) throughout the turn. Before persisting, we sync those
+/// locals into ctx.snapshot so persist_game_state() can save it directly
+/// without loading from SQLite first.
+fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, narration_text: &str) {
+    let location =
+        extract_location_header(narration_text).unwrap_or_else(|| "Starting area".to_string());
+    ctx.snapshot.location = location;
+    ctx.snapshot.turn_manager = ctx.turn_manager.clone();
+    ctx.snapshot.npc_registry = ctx.npc_registry.clone();
+    ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
+    ctx.snapshot.axis_values = ctx.axis_values.clone();
+    ctx.snapshot.combat = ctx.combat_state.clone();
+    ctx.snapshot.chase = ctx.chase_state.clone();
+    // Sync StructuredEncounter from live combat/chase state
+    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
+        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+    } else if let Some(ref cs) = ctx.chase_state {
+        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
+    } else {
+        None
+    };
+    ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
+    ctx.snapshot.active_tropes = ctx.trope_states.clone();
+    ctx.snapshot.achievement_tracker = ctx.achievement_tracker.clone();
+    ctx.snapshot.quest_log = ctx.quest_log.clone();
+    ctx.snapshot.resource_state = ctx.resource_state.clone();
+    if let Some(ref cj) = ctx.character_json {
+        if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
+            if let Some(saved_ch) = ctx.snapshot.characters.first_mut() {
+                saved_ch.core.hp = *ctx.hp;
+                saved_ch.core.max_hp = *ctx.max_hp;
+                saved_ch.core.level = *ctx.level;
+                saved_ch.core.inventory = ctx.inventory.clone();
+                saved_ch.known_facts = ch.known_facts.clone();
+                saved_ch.affinities = ch.affinities.clone();
+                saved_ch.narrative_state = ch.narrative_state.clone();
+            }
+        }
+    }
+}
+
+/// Persist game state — save the canonical snapshot directly (no load round-trip).
+///
+/// Story 15-8: The old implementation loaded from SQLite on every turn just to
+/// merge scattered locals, then saved. Now ctx.snapshot is synced before this
+/// call, so we save directly — one round-trip instead of two.
 async fn persist_game_state(
     ctx: &mut DispatchContext<'_>,
-    narration_text: &str,
+    _narration_text: &str,
     clean_narration: &str,
 ) {
     if ctx.genre_slug.is_empty() || ctx.world_slug.is_empty() {
+        tracing::debug!("persist_game_state skipped — empty genre or world slug");
         return;
     }
-    let location =
-        extract_location_header(narration_text).unwrap_or_else(|| "Starting area".to_string());
+
+    // Append the current narration entry to ctx.snapshot
+    ctx.snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
+        timestamp: 0,
+        round: ctx.turn_manager.interaction() as u32,
+        author: "narrator".to_string(),
+        content: clean_narration.to_string(),
+        tags: vec![],
+        encounter_tags: vec![],
+        speaker: None,
+        entry_type: None,
+    });
+
+    // Emit encounter OTEL event if active
+    if let Some(ref enc) = ctx.snapshot.encounter {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("encounter_type", &enc.encounter_type)
+            .field("beat", enc.beat)
+            .field("metric_name", &enc.metric.name)
+            .field("metric_current", enc.metric.current)
+            .field("metric_threshold", enc.metric.threshold_high.or(enc.metric.threshold_low))
+            .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)))
+            .field("resolved", enc.resolved)
+            .field("actor_count", enc.actors.len())
+            .field_opt("mood_override", &enc.mood_override)
+            .field_opt("outcome", &enc.outcome)
+            .send(ctx.state);
+    }
+
+    // Save ctx.snapshot directly — no load round-trip needed (story 15-8)
+    let start = std::time::Instant::now();
     match ctx
         .state
         .persistence()
-        .load(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save)
+        .save(
+            ctx.genre_slug,
+            ctx.world_slug,
+            ctx.player_name_for_save,
+            &ctx.snapshot,
+        )
         .await
     {
-        Ok(Some(saved)) => {
-            let mut snapshot = saved.snapshot;
-            snapshot.location = location;
-            snapshot.turn_manager = ctx.turn_manager.clone();
-            snapshot.npc_registry = ctx.npc_registry.clone();
-            snapshot.genie_wishes = ctx.genie_wishes.clone();
-            snapshot.axis_values = ctx.axis_values.clone();
-            snapshot.combat = ctx.combat_state.clone();
-            snapshot.chase = ctx.chase_state.clone();
-            // Sync StructuredEncounter from live combat/chase state
-            snapshot.encounter = if ctx.combat_state.in_combat() {
-                Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-            } else if let Some(ref cs) = ctx.chase_state {
-                Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-            } else {
-                None
-            };
-            if let Some(ref enc) = snapshot.encounter {
-                ctx.state.send_watcher_event(WatcherEvent {
-                    timestamp: chrono::Utc::now(),
-                    component: "encounter".to_string(),
-                    event_type: WatcherEventType::StateTransition,
-                    severity: Severity::Info,
-                    fields: {
-                        let mut f = HashMap::new();
-                        f.insert("encounter_type".to_string(), serde_json::json!(enc.encounter_type));
-                        f.insert("beat".to_string(), serde_json::json!(enc.beat));
-                        f.insert("metric_name".to_string(), serde_json::json!(enc.metric.name));
-                        f.insert("metric_current".to_string(), serde_json::json!(enc.metric.current));
-                        f.insert("metric_threshold".to_string(), serde_json::json!(enc.metric.threshold_high.or(enc.metric.threshold_low)));
-                        f.insert("phase".to_string(), serde_json::json!(enc.structured_phase.map(|p| format!("{:?}", p))));
-                        f.insert("resolved".to_string(), serde_json::json!(enc.resolved));
-                        f.insert("actor_count".to_string(), serde_json::json!(enc.actors.len()));
-                        if let Some(ref mood) = enc.mood_override {
-                            f.insert("mood_override".to_string(), serde_json::json!(mood));
-                        }
-                        if let Some(ref outcome) = enc.outcome {
-                            f.insert("outcome".to_string(), serde_json::json!(outcome));
-                        }
-                        f
-                    },
-                });
-            }
-            snapshot.discovered_regions = ctx.discovered_regions.clone();
-            snapshot.active_tropes = ctx.trope_states.clone();
-            snapshot.achievement_tracker = ctx.achievement_tracker.clone();
-            snapshot.quest_log = ctx.quest_log.clone();
-            if let Some(ref cj) = ctx.character_json {
-                if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
-                    if let Some(saved_ch) = snapshot.characters.first_mut() {
-                        saved_ch.core.hp = *ctx.hp;
-                        saved_ch.core.max_hp = *ctx.max_hp;
-                        saved_ch.core.level = *ctx.level;
-                        saved_ch.core.inventory = ctx.inventory.clone();
-                        saved_ch.known_facts = ch.known_facts.clone();
-                        saved_ch.affinities = ch.affinities.clone();
-                        saved_ch.narrative_state = ch.narrative_state.clone();
-                    }
-                }
-            }
-            snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
-                timestamp: 0,
-                round: ctx.turn_manager.interaction() as u32,
-                author: "narrator".to_string(),
-                content: clean_narration.to_string(),
-                tags: vec![],
-                encounter_tags: vec![],
-                speaker: None,
-                entry_type: None,
-            });
-            match ctx
-                .state
-                .persistence()
-                .save(
-                    ctx.genre_slug,
-                    ctx.world_slug,
-                    ctx.player_name_for_save,
-                    &snapshot,
-                )
-                .await
-            {
-                Ok(_) => tracing::info!(
-                    player = %ctx.player_name_for_save,
-                    turn = ctx.turn_manager.interaction(),
-                    location = %ctx.current_location,
-                    ctx.hp = *ctx.hp,
-                    items = ctx.inventory.items.len(),
-                    "session.saved — game state persisted"
-                ),
-                Err(e) => tracing::warn!(error = %e, "Failed to persist updated game state"),
-            }
+        Ok(_) => {
+            let elapsed_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                player = %ctx.player_name_for_save,
+                turn = ctx.turn_manager.interaction(),
+                location = %ctx.current_location,
+                ctx.hp = *ctx.hp,
+                items = ctx.inventory.items.len(),
+                save_latency_ms = elapsed_ms,
+                "session.saved — game state persisted"
+            );
+            // OTEL: persistence save latency for GM panel verification
+            WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
+                .field("save_latency_ms", elapsed_ms)
+                .field("player", ctx.player_name_for_save)
+                .field("turn", ctx.turn_manager.interaction())
+                .send(ctx.state);
         }
-        Ok(None) => {
-            tracing::debug!("No saved session to update");
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to load session for persistence update");
-        }
+        Err(e) => tracing::warn!(error = %e, "Failed to persist game state"),
     }
 }
 
@@ -1404,24 +1386,14 @@ fn spawn_tts_pipeline(
         })
         .collect();
 
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "tts".to_string(),
-        event_type: WatcherEventType::AgentSpanOpen,
-        severity: Severity::Info,
-        fields: {
-            let mut f = HashMap::new();
-            f.insert("segment_count".to_string(), serde_json::json!(tts_segments.len()));
-            f.insert("total_chars".to_string(), serde_json::json!(
-                tts_segments.iter().map(|s| s.text.len()).sum::<usize>()
-            ));
-            if let Some(first) = tts_segments.first() {
-                let preview: String = first.text.chars().take(80).collect();
-                f.insert("first_segment".to_string(), serde_json::json!(preview));
-            }
-            f
-        },
-    });
+    {
+        let first_preview = tts_segments.first().map(|f| f.text.chars().take(80).collect::<String>());
+        WatcherEventBuilder::new("tts", WatcherEventType::AgentSpanOpen)
+            .field("segment_count", tts_segments.len())
+            .field("total_chars", tts_segments.iter().map(|s| s.text.len()).sum::<usize>())
+            .field_opt("first_segment", &first_preview)
+            .send(ctx.state);
+    }
 
     let player_id_for_tts = ctx.player_id.to_string();
     let state_for_tts = ctx.state.clone();
@@ -1669,18 +1641,10 @@ fn emit_telemetry(
             "player_id": ctx.player_id,
             "character": ctx.char_name,
         });
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "game".to_string(),
-            event_type: WatcherEventType::GameStateSnapshot,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("turn_number".to_string(), serde_json::json!(turn_approx));
-                f.insert("snapshot".to_string(), snapshot);
-                f
-            },
-        });
+        WatcherEventBuilder::new("game", WatcherEventType::GameStateSnapshot)
+            .field("turn_number", turn_approx)
+            .field("snapshot", &snapshot)
+            .send(ctx.state);
     }
 
     // Build timing spans for flame chart visualization
@@ -1698,39 +1662,26 @@ fn emit_telemetry(
         { "name": "state_patch", "component": "state", "start_ms": state_start_ms, "duration_ms": state_ms },
     ]);
 
-    ctx.state.send_watcher_event(WatcherEvent {
-        timestamp: chrono::Utc::now(),
-        component: "game".to_string(),
-        event_type: WatcherEventType::TurnComplete,
-        severity: if result.is_degraded { Severity::Warn } else { Severity::Info },
-        fields: {
-            let mut f = HashMap::new();
-            f.insert("turn_id".to_string(), serde_json::json!(turn_number));
-            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
-            f.insert("player_input".to_string(), serde_json::json!(ctx.action));
-            if let Some(ref intent) = result.classified_intent {
-                f.insert("classified_intent".to_string(), serde_json::json!(intent));
-            }
-            if let Some(ref agent) = result.agent_name {
-                f.insert("agent_name".to_string(), serde_json::json!(agent));
-            }
-            f.insert("agent_duration_ms".to_string(), serde_json::json!(agent_ms));
-            f.insert("is_degraded".to_string(), serde_json::json!(result.is_degraded));
-            f.insert("player_id".to_string(), serde_json::json!(ctx.player_id));
-            if let Some(t) = result.token_count_in {
-                f.insert("token_count_in".to_string(), serde_json::json!(t));
-            }
-            if let Some(t) = result.token_count_out {
-                f.insert("token_count_out".to_string(), serde_json::json!(t));
-            }
-            if let Some(tier) = result.extraction_tier {
-                f.insert("extraction_tier".to_string(), serde_json::json!(tier));
-            }
-            f.insert("spans".to_string(), spans);
-            f.insert("total_duration_ms".to_string(), serde_json::json!(total_ms));
-            f
-        },
-    });
+    {
+        let mut builder = WatcherEventBuilder::new("game", WatcherEventType::TurnComplete)
+            .field("turn_id", turn_number)
+            .field("turn_number", turn_number)
+            .field("player_input", ctx.action)
+            .field_opt("classified_intent", &result.classified_intent)
+            .field_opt("agent_name", &result.agent_name)
+            .field("agent_duration_ms", agent_ms)
+            .field("is_degraded", result.is_degraded)
+            .field("player_id", ctx.player_id)
+            .field_opt("token_count_in", &result.token_count_in)
+            .field_opt("token_count_out", &result.token_count_out)
+            .field_opt("extraction_tier", &result.extraction_tier)
+            .field("spans", &spans)
+            .field("total_duration_ms", total_ms);
+        if result.is_degraded {
+            builder = builder.severity(Severity::Warn);
+        }
+        builder.send(ctx.state);
+    }
 }
 
 /// Handle an aside — out-of-character commentary that does not affect the game world.
@@ -1771,6 +1722,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: None,
         active_trope_summary: None,
+        genre: Some(ctx.genre_slug.to_string()),
     };
     let result = ctx
         .state
@@ -1779,23 +1731,15 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
 
     // Watcher: prompt assembled for aside (story 18-6)
     if let Some(ref zb) = result.zone_breakdown {
-        ctx.state.send_watcher_event(WatcherEvent {
-            timestamp: chrono::Utc::now(),
-            component: "prompt".to_string(),
-            event_type: WatcherEventType::PromptAssembled,
-            severity: Severity::Info,
-            fields: {
-                let mut f = HashMap::new();
-                f.insert("agent".to_string(), serde_json::json!("narrator"));
-                let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
-                f.insert("total_tokens".to_string(), serde_json::json!(total_tokens));
-                let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
-                f.insert("section_count".to_string(), serde_json::json!(section_count));
-                f.insert("zones".to_string(), serde_json::json!(zb.zones));
-                f.insert("full_prompt".to_string(), serde_json::json!(zb.full_prompt));
-                f
-            },
-        });
+        let total_tokens: usize = zb.zones.iter().map(|z| z.total_tokens).sum();
+        let section_count: usize = zb.zones.iter().map(|z| z.sections.len()).sum();
+        WatcherEventBuilder::new("prompt", WatcherEventType::PromptAssembled)
+            .field("agent", "narrator")
+            .field("total_tokens", total_tokens)
+            .field("section_count", section_count)
+            .field("zones", &zb.zones)
+            .field("full_prompt", &zb.full_prompt)
+            .send(ctx.state);
     }
 
     let narration_text = strip_location_header(&result.narration);

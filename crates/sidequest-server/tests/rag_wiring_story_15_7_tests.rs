@@ -42,6 +42,8 @@ fn action_result_has_lore_established_field() {
             "The ancient ruins predate the current civilization by millennia.".to_string(),
             "Strange crystalline formations grow from the temple walls.".to_string(),
         ]),
+        action_rewrite: None,
+        action_flags: None,
     };
 
     let lore = result.lore_established.as_ref().unwrap();
@@ -75,6 +77,8 @@ fn action_result_lore_established_defaults_to_none() {
         resource_deltas: HashMap::new(),
         zone_breakdown: None,
         lore_established: None,
+        action_rewrite: None,
+        action_flags: None,
     };
 
     assert!(result.lore_established.is_none());

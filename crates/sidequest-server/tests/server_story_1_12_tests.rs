@@ -277,6 +277,8 @@ async fn server_accepts_mock_game_service() {
                 resource_deltas: std::collections::HashMap::new(),
                 zone_breakdown: None,
                 lore_established: None,
+                action_rewrite: None,
+                action_flags: None,
             }
         }
     }

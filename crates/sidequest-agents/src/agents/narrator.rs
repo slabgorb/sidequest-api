@@ -2,7 +2,6 @@
 //!
 //! Ported from sq-2/sidequest/agents/narrator.py.
 
-use crate::agent::Agent;
 
 /// System prompt for the Narrator agent.
 const NARRATOR_SYSTEM_PROMPT: &str = "\
@@ -69,6 +68,12 @@ When NPCs appear in your narration (speaking, acting, or described), list them
 in npcs_present. Include EVERY NPC who appears — both new introductions and
 recurring characters from earlier turns.
 
+CRITICAL — NEW NPC NAMES: You MUST NOT invent NPC names. When introducing a new NPC \
+(is_new: true), you MUST call the sidequest-namegen tool via Bash to generate their \
+identity. Use the JSON output for name, pronouns, role, appearance, personality, and \
+all other NPC fields. If the tool is not available, use a descriptor instead of a name \
+(\"the old mechanic\", \"the hooded stranger\"). NEVER freestyle a proper name.
+
 Each NPC has:
 - name: their FULL canonical name as established (e.g., Toggler Copperjaw, NOT just Toggler)
 - pronouns: he/him, she/her, or they/them
@@ -126,11 +131,26 @@ Fields:
   Only emit when a SIGNIFICANT personality-shaping event occurs, not routine interactions.
 - scene_intent: ALWAYS INCLUDE. What the NEXT player action is likely to be.
   One of: Combat, Dialogue, Exploration, Examine, Chase.
+- sfx_triggers: list of SFX IDs to play this turn (omit if none).
+  Pick from the available SFX library for this genre. Choose based on what
+  HAPPENED in the narration — actions, impacts, environment. A sword being
+  BOUGHT is commerce (coin_drop), not combat (sword_clash). A door being
+  DESCRIBED is not a door_creak. Match the action, not the noun.
 - resource_deltas: object mapping resource names to signed numeric deltas.
   Only include resources that CHANGED this turn. Positive = gained, negative = spent/lost.
   Example: {\"luck\": -1} means the player spent 1 Luck. {\"heat\": 0.5} means Heat rose by 0.5.
   Resource names must match the genre's declared resource names exactly.
   Omit if no resources changed.
+- action_rewrite: ALWAYS INCLUDE. Rewrite the player's raw input:
+  - you: second-person (\"You draw your sword\")
+  - named: third-person with character name (\"{CharName} draws their sword\")
+  - intent: neutral, no pronouns (\"draw sword\")
+- action_flags: ALWAYS INCLUDE. Boolean classification of the player's action:
+  - is_power_grab: true ONLY if genuinely seizing extraordinary power (godlike abilities, unlimited resources). Casual mention = false.
+  - references_inventory: true if mentioning items, equipment, possessions.
+  - references_npc: true if addressing/mentioning a character by name or role.
+  - references_ability: true if invoking a power, mutation, spell, or skill.
+  - references_location: true if mentioning a place by name or attempting travel.
 
 Example:
 ```json
@@ -140,32 +160,4 @@ Example:
 visual_scene, scene_mood, and scene_intent are REQUIRED every turn. The rest are optional.
 </system>";
 
-/// The Narrator agent — exploration, description, story progression.
-pub struct NarratorAgent {
-    system_prompt: String,
-}
-
-impl NarratorAgent {
-    /// Create a new Narrator agent.
-    pub fn new() -> Self {
-        Self {
-            system_prompt: NARRATOR_SYSTEM_PROMPT.to_string(),
-        }
-    }
-}
-
-impl Default for NarratorAgent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Agent for NarratorAgent {
-    fn name(&self) -> &str {
-        "narrator"
-    }
-
-    fn system_prompt(&self) -> &str {
-        &self.system_prompt
-    }
-}
+crate::define_agent!(NarratorAgent, "narrator", NARRATOR_SYSTEM_PROMPT);

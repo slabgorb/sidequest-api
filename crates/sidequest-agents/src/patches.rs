@@ -39,8 +39,9 @@ pub struct WorldStatePatch {
 }
 
 /// Patch produced by the CreatureSmith agent for combat state mutations.
+/// Note: no deny_unknown_fields — creature_smith may include inline preprocessor
+/// fields (action_rewrite, action_flags) in the same JSON block.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CombatPatch {
     /// Whether combat is active.
     pub in_combat: Option<bool>,
@@ -60,8 +61,8 @@ pub struct CombatPatch {
 }
 
 /// Patch produced by the Dialectician agent for chase state mutations.
+/// Note: no deny_unknown_fields — same reason as CombatPatch.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ChasePatch {
     /// Whether a chase is active. true to start, false to resolve.
     pub in_chase: Option<bool>,

@@ -229,7 +229,7 @@ fn generate_enemy(
     let generator = sidequest_genre::names::build_from_culture(culture, &corpus_dir, rng);
     let mut name = String::new();
     for _ in 0..10 {
-        let candidate = generator.generate_person(rng);
+        let candidate = generator.generator.generate_person(rng);
         if !candidate.is_empty()
             && !candidate.to_lowercase().starts_with("of ")
             && !candidate.to_lowercase().starts_with("the ")
@@ -239,7 +239,7 @@ fn generate_enemy(
         }
     }
     if name.is_empty() {
-        name = generator.generate_person(rng);
+        name = generator.generator.generate_person(rng);
     }
 
     // Role

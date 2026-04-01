@@ -182,6 +182,8 @@ mod agent_types_tests {
             resource_deltas: HashMap::new(),
             zone_breakdown: None,
             lore_established: None,
+            action_rewrite: None,
+            action_flags: None,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -368,6 +370,8 @@ mod game_service_tests {
             resource_deltas: HashMap::new(),
             zone_breakdown: None,
             lore_established: None,
+            action_rewrite: None,
+            action_flags: None,
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -414,6 +418,8 @@ mod error_handling_tests {
             resource_deltas: HashMap::new(),
             zone_breakdown: None,
             lore_established: None,
+            action_rewrite: None,
+            action_flags: None,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());
@@ -436,17 +442,21 @@ mod deferred_debt_tests {
     }
 
     #[test]
-    fn combat_patch_deny_unknown_fields() {
+    fn combat_patch_allows_unknown_fields() {
+        // CombatPatch intentionally omits deny_unknown_fields because creature_smith
+        // may include inline preprocessor fields (action_rewrite, action_flags) in
+        // the same JSON block.
         let json = r#"{"in_combat": true, "bogus_field": 42}"#;
         let result = serde_json::from_str::<CombatPatch>(json);
-        assert!(result.is_err(), "CombatPatch must deny unknown fields");
+        assert!(result.is_ok(), "CombatPatch must accept unknown fields (inline preprocessor)");
     }
 
     #[test]
-    fn chase_patch_deny_unknown_fields() {
+    fn chase_patch_allows_unknown_fields() {
+        // ChasePatch intentionally omits deny_unknown_fields — same reason as CombatPatch.
         let json = r#"{"separation_delta": 10, "bogus_field": "x"}"#;
         let result = serde_json::from_str::<ChasePatch>(json);
-        assert!(result.is_err(), "ChasePatch must deny unknown fields");
+        assert!(result.is_ok(), "ChasePatch must accept unknown fields (inline preprocessor)");
     }
 
     #[test]

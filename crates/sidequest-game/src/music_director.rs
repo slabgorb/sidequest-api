@@ -170,7 +170,6 @@ pub struct MoodClassificationWithReason {
 
 /// Evaluates narration and game state to produce mood-based music cues.
 pub struct MusicDirector {
-    mood_keywords: HashMap<String, Vec<String>>,
     mood_tracks: HashMap<String, Vec<MoodTrack>>,
     current_mood: Option<Mood>,
     current_track: Option<String>,
@@ -180,12 +179,6 @@ pub struct MusicDirector {
 impl MusicDirector {
     /// Create a new MusicDirector from genre pack audio configuration.
     pub fn new(audio_config: &AudioConfig) -> Self {
-        let mut mood_keywords = audio_config.mood_keywords.clone();
-        // Provide sensible defaults if genre pack omits mood_keywords
-        if mood_keywords.is_empty() {
-            mood_keywords = Self::default_mood_keywords();
-        }
-
         // Start with mood_tracks from the genre pack
         let mut mood_tracks = audio_config.mood_tracks.clone();
 
@@ -237,7 +230,6 @@ impl MusicDirector {
         );
 
         Self {
-            mood_keywords,
             mood_tracks,
             current_mood: None,
             current_track: None,
@@ -496,81 +488,6 @@ impl MusicDirector {
         }
     }
 
-    /// Default mood keywords when genre pack doesn't provide them.
-    fn default_mood_keywords() -> HashMap<String, Vec<String>> {
-        let mut kw = HashMap::new();
-        kw.insert(
-            "combat".to_string(),
-            vec![
-                "attack", "sword", "strike", "fight", "battle", "clash", "slash",
-                "punch", "blood", "wound", "damage", "charge", "parry", "dodge",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "tension".to_string(),
-            vec![
-                "danger", "lurk", "shadow", "creep", "ominous", "threat", "dread",
-                "suspense", "trap", "ambush", "stalk", "menace",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "triumph".to_string(),
-            vec![
-                "victory", "triumph", "celebrate", "succeed", "glory", "champion",
-                "conquer", "reward", "treasure",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "sorrow".to_string(),
-            vec![
-                "death", "mourn", "grief", "loss", "weep", "fallen", "farewell",
-                "tragic", "bury",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "mystery".to_string(),
-            vec![
-                "strange", "mystery", "puzzle", "riddle", "hidden", "secret",
-                "ancient", "rune", "arcane", "whisper",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "calm".to_string(),
-            vec![
-                "rest", "sleep", "peaceful", "tavern", "inn", "campfire", "heal",
-                "quiet", "serene", "safe",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "exploration".to_string(),
-            vec![
-                "walk", "travel", "road", "path", "forest", "mountain", "river",
-                "village", "arrive", "discover", "enter",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw
-    }
 }
 
 impl std::fmt::Debug for MusicDirector {
@@ -637,6 +554,7 @@ mod tests {
 
         AudioConfig {
             mood_tracks,
+            mood_keywords: HashMap::new(),
             sfx_library: HashMap::new(),
             creature_voice_presets: HashMap::new(),
             mixer: MixerConfig {
@@ -649,7 +567,6 @@ mod tests {
             },
             themes: vec![],
             ai_generation: None,
-            mood_keywords: HashMap::new(), // Use defaults
             mixer_defaults: None,
         }
     }

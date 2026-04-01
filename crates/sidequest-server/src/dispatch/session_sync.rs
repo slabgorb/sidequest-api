@@ -4,6 +4,8 @@ use sidequest_protocol::{
     GameMessage, NarrationEndPayload, PartyMember, PartyStatusPayload, TurnStatusPayload,
 };
 
+use crate::{WatcherEventBuilder, WatcherEventType};
+
 use super::DispatchContext;
 
 /// Sync state back to shared session and broadcast messages to other players.
@@ -26,6 +28,15 @@ pub(crate) async fn sync_back_to_shared_session(
             ctx.trope_states,
             ctx.player_id,
         );
+
+        WatcherEventBuilder::new("session_sync", WatcherEventType::StateTransition)
+            .field("action", "sync_from_locals")
+            .field("player_id", ctx.player_id)
+            .field("player_count", ss.player_count())
+            .field("npc_count", ctx.npc_registry.len())
+            .field("location", ctx.current_location.as_str())
+            .send(ctx.state);
+
         // Sync acting player's character data to PlayerState for other players' PARTY_STATUS
         if let Some(ps) = ss.players.get_mut(ctx.player_id) {
             ps.character_hp = *ctx.hp;
