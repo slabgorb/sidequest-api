@@ -78,6 +78,23 @@ pub fn preprocess_action(raw_input: &str, char_name: &str) -> PreprocessedAction
     }
 }
 
+/// Async wrapper around [`preprocess_action`] for use with `tokio::join!`.
+///
+/// Runs the sync preprocessor on a blocking thread via `spawn_blocking` so it
+/// doesn't block the tokio runtime. Falls back to mechanical preprocessing if
+/// the blocking task panics.
+pub async fn preprocess_action_async(raw_input: &str, char_name: &str) -> PreprocessedAction {
+    let raw = raw_input.to_string();
+    let name = char_name.to_string();
+    match tokio::task::spawn_blocking(move || preprocess_action(&raw, &name)).await {
+        Ok(result) => result,
+        Err(e) => {
+            warn!(error = %e, "spawn_blocking panicked in preprocess_action_async — using fallback");
+            fallback(raw_input, char_name)
+        }
+    }
+}
+
 /// Build the LLM prompt for action preprocessing.
 fn build_prompt(raw_input: &str, char_name: &str) -> String {
     format!(

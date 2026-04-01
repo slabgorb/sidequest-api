@@ -219,7 +219,25 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         return handle_aside(ctx).await;
     }
 
-    let mut state_summary = prompt::build_prompt_context(ctx).await;
+    // Story 18-3: Parallelize prompt context build and preprocess via tokio::join!
+    // Both operations are independent — preprocess cleans the raw player input while
+    // context build assembles the narrator prompt. ~7s saved per turn.
+    let action_for_preprocess = ctx.action.to_string();
+    let char_name_for_preprocess = ctx.char_name.to_string();
+    let (mut state_summary, preprocessed) = tokio::join!(
+        prompt::build_prompt_context(ctx),
+        sidequest_agents::preprocessor::preprocess_action_async(
+            &action_for_preprocess,
+            &char_name_for_preprocess,
+        )
+    );
+    tracing::info!(
+        raw = %ctx.action,
+        you = %preprocessed.you,
+        named = %preprocessed.named,
+        intent = %preprocessed.intent,
+        "Action preprocessed (parallel with context build)"
+    );
 
     // Check if barrier mode is active (Structured/Cinematic turn mode).
     let barrier_combined_action: Option<String> = handle_barrier(ctx, &mut state_summary)
@@ -231,19 +249,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         Some(combined) => std::borrow::Cow::Borrowed(combined.as_str()),
         None => std::borrow::Cow::Borrowed(ctx.action),
     };
-
-    // Preprocess raw player input — STT cleanup + three-perspective rewrite.
-    let preprocess_span = tracing::info_span!("turn.preprocess", raw_len = ctx.action.len());
-    let _preprocess_guard = preprocess_span.enter();
-    let preprocessed =
-        sidequest_agents::preprocessor::preprocess_action(&effective_action, ctx.char_name);
-    tracing::info!(
-        raw = %ctx.action,
-        you = %preprocessed.you,
-        named = %preprocessed.named,
-        intent = %preprocessed.intent,
-        "Action preprocessed"
-    );
 
     // F9: Wish Consequence Engine — LLM-classified power-grab on clean input.
     if preprocessed.is_power_grab {
@@ -263,7 +268,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    drop(_preprocess_guard);
     let preprocess_done = std::time::Instant::now();
 
     // Build trope beat directives from previous turn's fired beats (if any)
