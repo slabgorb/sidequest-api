@@ -462,8 +462,37 @@ pub(crate) async fn build_prompt_context(
         };
         let lore_budget = 500; // ~500 tokens for lore context
         let has_embeddings = ctx.lore_store.fragments_with_embeddings_count() > 0;
-        let selected =
-            sidequest_game::select_lore_for_prompt(ctx.lore_store, lore_budget, context_hint, None);
+
+        // Generate query embedding for semantic search when fragments have embeddings
+        let query_embedding = if has_embeddings {
+            if let Some(hint) = context_hint {
+                let config = sidequest_daemon_client::DaemonConfig::default();
+                if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
+                    let params = sidequest_daemon_client::EmbedParams { text: hint.to_string() };
+                    match client.embed(params).await {
+                        Ok(result) => Some(result.embedding),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "lore.query_embedding_failed — falling back to keyword");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let fallback_to_keyword = query_embedding.is_none();
+        let selected = sidequest_game::select_lore_for_prompt(
+            ctx.lore_store,
+            lore_budget,
+            context_hint,
+            query_embedding.as_deref(),
+        );
 
         // AC-7: OTEL lore.semantic_retrieval (story 15-7)
         ctx.state.send_watcher_event(WatcherEvent {
@@ -475,7 +504,7 @@ pub(crate) async fn build_prompt_context(
                 let mut f = HashMap::new();
                 f.insert("event".to_string(), serde_json::json!("lore.semantic_retrieval"));
                 f.insert("query_hint".to_string(), serde_json::json!(context_hint));
-                f.insert("fallback_to_keyword".to_string(), serde_json::json!(!has_embeddings));
+                f.insert("fallback_to_keyword".to_string(), serde_json::json!(fallback_to_keyword));
                 f.insert("selected_count".to_string(), serde_json::json!(selected.len()));
                 f
             },

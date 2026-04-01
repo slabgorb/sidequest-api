@@ -548,6 +548,54 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         token_estimate = token_estimate,
                         "lore.fragment_accumulated"
                     );
+
+                    // AC-3: Call daemon embed() to generate embedding for the new fragment.
+                    // AC-6: Emit lore.embedding_generated with fragment_id at call site.
+                    let config = sidequest_daemon_client::DaemonConfig::default();
+                    if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
+                        let embed_params = sidequest_daemon_client::EmbedParams {
+                            text: entry.clone(),
+                        };
+                        match client.embed(embed_params).await {
+                            Ok(embed_result) => {
+                                // Attach embedding to fragment in store
+                                if let Err(e) = ctx.lore_store.set_embedding(&fragment_id, embed_result.embedding) {
+                                    tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
+                                } else {
+                                    // AC-6: OTEL lore.embedding_generated
+                                    ctx.state.send_watcher_event(WatcherEvent {
+                                        timestamp: chrono::Utc::now(),
+                                        component: "lore".to_string(),
+                                        event_type: WatcherEventType::StateTransition,
+                                        severity: Severity::Info,
+                                        fields: {
+                                            let mut f = HashMap::new();
+                                            f.insert("event".to_string(), serde_json::json!("lore.embedding_generated"));
+                                            f.insert("fragment_id".to_string(), serde_json::json!(fragment_id));
+                                            f.insert("latency_ms".to_string(), serde_json::json!(embed_result.latency_ms));
+                                            f.insert("model".to_string(), serde_json::json!(embed_result.model));
+                                            f
+                                        },
+                                    });
+                                }
+                            }
+                            Err(e) => {
+                                // Daemon unavailable — fragment stored without embedding.
+                                // Semantic search degrades to keyword fallback. Not silent:
+                                // we log it loudly.
+                                tracing::warn!(
+                                    error = %e,
+                                    fragment_id = %fragment_id,
+                                    "lore.embedding_generation_failed — fragment stored without embedding"
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            fragment_id = %fragment_id,
+                            "lore.daemon_connect_failed — fragment stored without embedding"
+                        );
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(error = %e, "lore.accumulate_failed");
