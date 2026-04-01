@@ -8,15 +8,13 @@
 //! ACs tested:
 //!   1. Preprocess and prompt context build run concurrently via tokio::join!
 //!   2. Async preprocessor produces identical output to sync version
-//!   3. Fallback behavior preserved in async context (LLM failure → mechanical fallback)
+//!   3. LLM failure propagates as error (no silent fallback)
 //!   4. Sub-spans from 18-1 remain valid in parallel context
 //!   5. Turn time reduced (preprocess + context build overlap in flame chart)
 
 use sidequest_game::PreprocessedAction;
-// RED: This async function does not exist yet. Dev must create it.
 use sidequest_agents::preprocessor::preprocess_action_async;
-// Existing sync function for comparison
-use sidequest_agents::preprocessor::{fallback, preprocess_action};
+use sidequest_agents::preprocessor::preprocess_action;
 
 // ============================================================================
 // AC-2: Async preprocessor produces identical output to sync fallback
@@ -30,11 +28,9 @@ async fn async_preprocess_matches_sync_structure() {
     let raw = "I draw my sword and look around";
     let char_name = "Kael";
 
-    // Sync version (may hit LLM or fallback depending on env)
-    let sync_result = preprocess_action(raw, char_name);
-
-    // Async version wraps the same sync function
-    let async_result = preprocess_action_async(raw, char_name).await;
+    // Both return Result — if Haiku is down, they fail. No silent fallback.
+    let sync_result = preprocess_action(raw, char_name).expect("Sync preprocess failed — Haiku unavailable");
+    let async_result = preprocess_action_async(raw, char_name).await.expect("Async preprocess failed — Haiku unavailable");
 
     // Both must produce populated fields
     assert!(!async_result.you.is_empty(), "Async you must be populated");
@@ -57,9 +53,9 @@ async fn async_preprocess_matches_sync_structure() {
 
 #[tokio::test]
 async fn async_preprocess_returns_preprocessed_action() {
-    let result = preprocess_action_async("I look around the room", "Thorn").await;
+    let result = preprocess_action_async("I look around the room", "Thorn").await
+        .expect("Preprocess failed — Haiku unavailable");
 
-    // Must return a valid PreprocessedAction with all fields populated
     assert!(!result.you.is_empty(), "you field must not be empty");
     assert!(!result.named.is_empty(), "named field must not be empty");
     assert!(!result.intent.is_empty(), "intent field must not be empty");
@@ -71,13 +67,21 @@ async fn async_preprocess_returns_preprocessed_action() {
 
 #[tokio::test]
 async fn async_preprocess_handles_empty_input() {
+    // Empty input should produce an error or a valid result — no silent garbage
     let result = preprocess_action_async("", "Kael").await;
-
-    // Empty input should still return a PreprocessedAction — async must match sync
     let sync_result = preprocess_action("", "Kael");
-    assert_eq!(result.you, sync_result.you, "Empty input: async must match sync");
-    assert_eq!(result.named, sync_result.named);
-    assert_eq!(result.intent, sync_result.intent);
+    // Both should either succeed or fail consistently
+    match (result, sync_result) {
+        (Ok(a), Ok(s)) => {
+            assert_eq!(a.you, s.you, "Empty input: async must match sync");
+            assert_eq!(a.named, s.named);
+            assert_eq!(a.intent, s.intent);
+        }
+        (Err(_), Err(_)) => {} // Both failed — consistent
+        (Ok(_), Err(_)) | (Err(_), Ok(_)) => {
+            panic!("Async and sync must fail/succeed consistently for empty input");
+        }
+    }
 }
 
 // ============================================================================
@@ -86,13 +90,13 @@ async fn async_preprocess_handles_empty_input() {
 
 #[tokio::test]
 async fn async_preprocess_strips_first_person_prefix() {
-    let result = preprocess_action_async("I search the chest for traps", "Kael").await;
+    let result = preprocess_action_async("I search the chest for traps", "Kael").await
+        .expect("Preprocess failed — Haiku unavailable");
 
-    // Fallback strips "I " prefix: intent should be "search the chest for traps"
     assert!(
         result.intent.contains("search the chest for traps")
             || result.intent.contains("search"),
-        "Intent should contain the action without first-person prefix, got: '{}'",
+        "Intent should contain the action, got: '{}'",
         result.intent
     );
     assert!(
@@ -117,8 +121,8 @@ async fn async_preprocess_power_grab_matches_sync() {
     let raw = "I wish for unlimited gold";
     let char_name = "Kael";
 
-    let sync_result = preprocess_action(raw, char_name);
-    let async_result = preprocess_action_async(raw, char_name).await;
+    let sync_result = preprocess_action(raw, char_name).expect("Sync preprocess failed");
+    let async_result = preprocess_action_async(raw, char_name).await.expect("Async preprocess failed");
 
     assert_eq!(
         async_result.is_power_grab, sync_result.is_power_grab,
@@ -137,7 +141,7 @@ async fn async_preprocess_future_is_send() {
     // This test verifies at compile time that the async function returns a Send future.
     // If preprocess_action_async returns a non-Send future, this won't compile.
     let future = preprocess_action_async("test action", "Thorn");
-    assert_send(future).await;
+    let _ = assert_send(future).await;
 }
 
 fn assert_send<T: Send>(t: T) -> T {
@@ -156,13 +160,14 @@ async fn async_preprocess_works_with_tokio_join() {
         preprocess_action_async("I cast fireball", "Mira"),
     );
 
-    // Both should complete successfully
-    assert!(!result_a.you.is_empty(), "First join branch must produce output");
-    assert!(!result_b.you.is_empty(), "Second join branch must produce output");
+    let a = result_a.expect("First preprocess failed");
+    let b = result_b.expect("Second preprocess failed");
 
-    // Results should be different (different inputs)
+    assert!(!a.you.is_empty(), "First join branch must produce output");
+    assert!(!b.you.is_empty(), "Second join branch must produce output");
+
     assert_ne!(
-        result_a.intent, result_b.intent,
+        a.intent, b.intent,
         "Different inputs must produce different intents"
     );
 }
@@ -176,14 +181,12 @@ async fn async_preprocess_produces_structurally_valid_output() {
     let input = "I pick up the ancient tome";
     let char_name = "Kael";
 
-    let result = preprocess_action_async(input, char_name).await;
+    let result = preprocess_action_async(input, char_name).await
+        .expect("Preprocess failed — Haiku unavailable");
 
-    // Structural checks: all fields populated, second-person starts with "You",
-    // named starts with character name
     assert!(result.you.starts_with("You "), "you must start with 'You ', got: '{}'", result.you);
     assert!(result.named.starts_with("Kael "), "named must start with char name, got: '{}'", result.named);
     assert!(!result.intent.is_empty(), "intent must not be empty");
-    // Intent should relate to the action (contains key verb)
     assert!(
         result.intent.contains("pick") || result.intent.contains("tome"),
         "intent must relate to the action, got: '{}'",
@@ -198,7 +201,8 @@ async fn async_preprocess_produces_structurally_valid_output() {
 #[tokio::test]
 async fn async_preprocess_completes_within_timeout() {
     let start = std::time::Instant::now();
-    let _result = preprocess_action_async("I draw my sword", "Kael").await;
+    let _result = preprocess_action_async("I draw my sword", "Kael").await
+        .expect("Preprocess failed — Haiku unavailable");
     let elapsed = start.elapsed();
 
     // LLM path has 15s timeout. Must complete within that budget + spawn overhead.
