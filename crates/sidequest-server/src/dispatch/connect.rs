@@ -43,6 +43,7 @@ pub(crate) async fn dispatch_connect(
     turn_manager: &mut sidequest_game::TurnManager,
     npc_registry: &mut Vec<NpcRegistryEntry>,
     lore_store: &mut sidequest_game::LoreStore,
+    opening_seed: &mut Option<String>,
     state: &AppState,
     player_id: &str,
     continuity_corrections: &mut String,
@@ -306,6 +307,7 @@ pub(crate) async fn dispatch_connect(
                             audio_mixer,
                             prerender_scheduler,
                             lore_store,
+                            opening_seed,
                             genre,
                             world,
                             state,
@@ -329,6 +331,7 @@ pub(crate) async fn dispatch_connect(
                             audio_mixer,
                             prerender_scheduler,
                             lore_store,
+                            opening_seed,
                             genre,
                             world,
                             state,
@@ -353,6 +356,7 @@ pub(crate) async fn dispatch_connect(
                     audio_mixer,
                     prerender_scheduler,
                     lore_store,
+                    opening_seed,
                     genre,
                     world,
                     state,
@@ -406,6 +410,7 @@ pub(crate) async fn start_character_creation(
     audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     lore_store: &mut sidequest_game::LoreStore,
+    opening_seed_out: &mut Option<String>,
     genre: &str,
     world_slug: &str,
     state: &AppState,
@@ -501,6 +506,33 @@ pub(crate) async fn start_character_creation(
         world_context_out.push_str(&name_bank);
     }
 
+    // Select a random opening hook if the genre pack provides them
+    if !pack.openings.is_empty() {
+        use rand::Rng;
+        let idx = rand::thread_rng().gen_range(0..pack.openings.len());
+        let hook = &pack.openings[idx];
+
+        // Inject opening directive into world context for the narrator's first turn
+        let mut directive = format!(
+            "\n\n=== OPENING SCENARIO (first turn ONLY) ===\nArchetype: {}\nSituation: {}\nTone: {}",
+            hook.archetype, hook.situation, hook.tone
+        );
+        if !hook.avoid.is_empty() {
+            directive.push_str(&format!("\nAVOID: {}", hook.avoid.join("; ")));
+        }
+        directive.push_str("\n=== END OPENING ===");
+        world_context_out.push_str(&directive);
+
+        *opening_seed_out = Some(hook.first_turn_seed.clone());
+
+        tracing::info!(
+            genre = %genre,
+            hook_id = %hook.id,
+            archetype = %hook.archetype,
+            "opening_hook_selected"
+        );
+    }
+
     // Filter scenes to those with non-empty choices
     let scenes: Vec<_> = pack
         .char_creation
@@ -547,6 +579,7 @@ pub(crate) async fn dispatch_character_creation(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
+    opening_seed: &Option<String>,
     axes_config: &Option<sidequest_genre::AxesConfig>,
     axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &Option<sidequest_genre::VisualStyle>,
@@ -722,7 +755,9 @@ pub(crate) async fn dispatch_character_creation(
 
                     let intro_messages: Vec<GameMessage> = {
                         let mut ctx = super::DispatchContext {
-                            action: "I look around and take in my surroundings.",
+                            action: opening_seed
+                                .as_deref()
+                                .unwrap_or("I look around and take in my surroundings."),
                             char_name: character.core.name.as_str(),
                             player_id,
                             genre_slug: session.genre_slug().unwrap_or(""),

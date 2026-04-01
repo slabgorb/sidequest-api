@@ -1045,6 +1045,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
+    let mut opening_seed: Option<String> = None;
     let mut axes_config: Option<sidequest_genre::AxesConfig> = None;
     let mut axis_values: Vec<sidequest_game::axis::AxisValue> = vec![];
     let mut visual_style: Option<sidequest_genre::VisualStyle> = None;
@@ -1104,6 +1105,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
+                        &mut opening_seed,
                         &mut axes_config,
                         &mut axis_values,
                         &mut visual_style,
@@ -1248,6 +1250,7 @@ async fn dispatch_message(
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
+    opening_seed: &mut Option<String>,
     axes_config: &mut Option<sidequest_genre::AxesConfig>,
     axis_values: &mut Vec<sidequest_game::axis::AxisValue>,
     visual_style: &mut Option<sidequest_genre::VisualStyle>,
@@ -1308,6 +1311,7 @@ async fn dispatch_message(
                 turn_manager,
                 npc_registry,
                 lore_store,
+                opening_seed,
                 state,
                 player_id,
                 continuity_corrections,
@@ -1521,6 +1525,7 @@ async fn dispatch_message(
                 trope_states,
                 trope_defs,
                 world_context,
+                opening_seed,
                 axes_config,
                 axis_values,
                 visual_style,

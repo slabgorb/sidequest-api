@@ -88,7 +88,7 @@ pub(crate) fn build_name_bank_context(cultures: &[sidequest_genre::Culture]) -> 
     if cultures.is_empty() {
         return String::new();
     }
-    let mut lines = vec!["\nNAME BANKS — When introducing new NPCs, you MUST draw names from these cultural name banks. Do NOT use generic Western fantasy names like Maren, Kael, or Ash.".to_string()];
+    let mut lines = vec!["\n=== NAME BANKS (MANDATORY) ===\nYou MUST NOT invent NPC names. Every NPC name MUST come from the name banks below. Combine slots according to the name patterns. If no suitable name exists, use a title or descriptor (\"the old mechanic\", \"the hooded stranger\") instead of inventing a name. Do NOT use generic Western fantasy names like Maren, Kael, or Ash.".to_string()];
     for culture in cultures {
         lines.push(format!(
             "\n## {} — {}",

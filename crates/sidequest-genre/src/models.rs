@@ -312,6 +312,8 @@ pub struct GenrePack {
     pub scenarios: HashMap<String, ScenarioPack>,
     /// Pacing thresholds from `pacing.yaml` (optional per genre pack).
     pub drama_thresholds: Option<DramaThresholds>,
+    /// Opening scenario hooks from `openings.yaml` (optional per genre pack).
+    pub openings: Vec<OpeningHook>,
 }
 
 /// A world within a genre pack, assembled from `worlds/{slug}/`.
@@ -1594,6 +1596,32 @@ pub struct Prompts {
     /// Scene transition hint templates.
     #[serde(default)]
     pub transition_hints: HashMap<String, String>,
+}
+
+// ═══════════════════════════════════════════════════════════
+// openings.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// An opening scenario hook that constrains the narrator's first turn.
+///
+/// Each genre pack can define multiple opening hooks to ensure variety.
+/// One is selected randomly at session start and injected into the
+/// narrator's first-turn context.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OpeningHook {
+    /// Unique identifier within the genre (e.g. "arena_challenge").
+    pub id: String,
+    /// Archetype category (e.g. "challenge", "mystery", "chase", "survival", "standoff", "arrival").
+    pub archetype: String,
+    /// Situation description injected as narrator guidance — what's happening, what the vibe is.
+    pub situation: String,
+    /// Tone directive (e.g. "tense, competitive").
+    pub tone: String,
+    /// Patterns the narrator must avoid in this opening.
+    #[serde(default)]
+    pub avoid: Vec<String>,
+    /// Synthetic first-turn action that replaces the generic "I look around".
+    pub first_turn_seed: String,
 }
 
 // ═══════════════════════════════════════════════════════════
