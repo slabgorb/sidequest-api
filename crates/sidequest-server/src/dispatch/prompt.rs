@@ -435,6 +435,35 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
         let lore_budget = 500; // ~500 tokens for lore context
         let selected =
             sidequest_game::select_lore_for_prompt(ctx.lore_store, lore_budget, context_hint);
+
+        // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
+        let lore_summary = sidequest_game::summarize_lore_retrieval(
+            ctx.lore_store,
+            &selected,
+            lore_budget,
+            context_hint,
+        );
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "lore".to_string(),
+            event_type: WatcherEventType::LoreRetrieval,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("budget".to_string(), serde_json::json!(lore_summary.budget));
+                f.insert("tokens_used".to_string(), serde_json::json!(lore_summary.tokens_used));
+                f.insert("selected_count".to_string(), serde_json::json!(lore_summary.selected.len()));
+                f.insert("rejected_count".to_string(), serde_json::json!(lore_summary.rejected.len()));
+                f.insert("selected".to_string(), serde_json::json!(lore_summary.selected));
+                f.insert("rejected".to_string(), serde_json::json!(lore_summary.rejected));
+                f.insert("total_fragments".to_string(), serde_json::json!(lore_summary.total_fragments));
+                if let Some(ref hint) = lore_summary.context_hint {
+                    f.insert("context_hint".to_string(), serde_json::json!(hint));
+                }
+                f
+            },
+        });
+
         if !selected.is_empty() {
             let lore_text = sidequest_game::format_lore_context(&selected);
             tracing::info!(

@@ -94,6 +94,8 @@ pub enum WatcherEventType {
     GameStateSnapshot,
     /// Full assembled prompt with zone labels and per-zone token counts — for the Prompt Inspector tab.
     PromptAssembled,
+    /// Lore retrieval budget breakdown — selected vs rejected fragments with token counts.
+    LoreRetrieval,
 }
 
 /// Severity levels for watcher telemetry events.

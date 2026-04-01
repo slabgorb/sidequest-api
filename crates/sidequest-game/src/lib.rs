@@ -123,8 +123,9 @@ pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{
     accumulate_lore, accumulate_lore_batch, cosine_similarity, format_lore_context,
     query_language_knowledge, record_language_knowledge, record_name_knowledge,
-    seed_lore_from_char_creation, seed_lore_from_genre_pack, select_lore_for_prompt, LoreCategory,
-    LoreFragment, LoreSource, LoreStore,
+    seed_lore_from_char_creation, seed_lore_from_genre_pack, select_lore_for_prompt,
+    summarize_lore_retrieval, FragmentSummary, LoreCategory, LoreFragment,
+    LoreRetrievalSummary, LoreSource, LoreStore,
 };
 pub use music_director::{
     AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodClassificationWithReason,
