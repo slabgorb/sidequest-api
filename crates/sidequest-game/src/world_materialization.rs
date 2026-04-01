@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
 use crate::character::Character;
-use crate::combat::CombatState;
 use crate::creature_core::CreatureCore;
 use crate::belief_state::BeliefState;
 use crate::disposition::Disposition;
@@ -530,7 +529,9 @@ impl WorldBuilder {
                 }
             }
             if let Some(ref loc) = npc_data.location {
-                npc.location = NonBlankString::new(loc).ok();
+                if let Ok(l) = NonBlankString::new(loc) {
+                    npc.location = Some(l);
+                }
             }
             if let Some(ref personality) = npc_data.personality {
                 if let Ok(p) = NonBlankString::new(personality) {
