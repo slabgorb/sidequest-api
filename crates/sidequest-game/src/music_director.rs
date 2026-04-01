@@ -137,6 +137,8 @@ pub struct MoodContext {
     pub quest_completed: bool,
     /// Whether an NPC died this turn.
     pub npc_died: bool,
+    /// Mood override from active StructuredEncounter (highest priority).
+    pub encounter_mood_override: Option<String>,
 }
 
 /// OTEL telemetry snapshot for the music director's current state.
@@ -307,6 +309,14 @@ impl MusicDirector {
 
     /// Inner classification logic (extracted so span wraps the full result).
     fn classify_mood_inner(&self, narration: &str, ctx: &MoodContext) -> MoodClassification {
+        // Encounter mood override takes highest priority
+        if let Some(ref mood_key) = ctx.encounter_mood_override {
+            return MoodClassification {
+                primary: Self::key_to_mood(mood_key),
+                intensity: 0.85,
+                confidence: 0.95,
+            };
+        }
         // State-based overrides take priority
         if ctx.in_combat {
             return MoodClassification {
@@ -449,6 +459,18 @@ impl MusicDirector {
     /// Classify mood and return both the classification result and the keyword matches
     /// that led to it (for OTEL telemetry).
     pub fn classify_mood_with_reasoning(&self, narration: &str, ctx: &MoodContext) -> MoodClassificationWithReason {
+        // Encounter mood override takes highest priority
+        if let Some(ref mood_key) = ctx.encounter_mood_override {
+            return MoodClassificationWithReason {
+                classification: MoodClassification {
+                    primary: Self::key_to_mood(mood_key),
+                    intensity: 0.85,
+                    confidence: 0.95,
+                },
+                reason: format!("encounter_override: {}", mood_key),
+                keyword_matches: vec![],
+            };
+        }
         // State-based overrides
         if ctx.in_combat {
             return MoodClassificationWithReason {

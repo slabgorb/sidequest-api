@@ -1140,6 +1140,14 @@ async fn persist_game_state(
             snapshot.axis_values = ctx.axis_values.clone();
             snapshot.combat = ctx.combat_state.clone();
             snapshot.chase = ctx.chase_state.clone();
+            // Sync StructuredEncounter from live combat/chase state
+            snapshot.encounter = if ctx.combat_state.in_combat() {
+                Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+            } else if let Some(ref cs) = ctx.chase_state {
+                Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
+            } else {
+                None
+            };
             snapshot.discovered_regions = ctx.discovered_regions.clone();
             snapshot.active_tropes = ctx.trope_states.clone();
             snapshot.quest_log = ctx.quest_log.clone();

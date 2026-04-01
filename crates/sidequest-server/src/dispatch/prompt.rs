@@ -268,14 +268,38 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
         state_summary.push_str("When narrative events affect these resources, include resource_deltas in your JSON block.\n");
     }
 
-    // Bug 6: Include chase state if active
-    if let Some(ref cs) = ctx.chase_state {
-        state_summary.push_str(&format!(
-            "\nACTIVE CHASE: {:?} (round {}, separation {})",
-            cs.chase_type(),
-            cs.round(),
-            cs.separation()
-        ));
+    // Structured encounter context — covers both combat and chase via StructuredEncounter
+    {
+        let encounter = if ctx.combat_state.in_combat() {
+            Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+        } else {
+            ctx.chase_state.as_ref().map(sidequest_game::StructuredEncounter::from_chase_state)
+        };
+        if let Some(ref enc) = encounter {
+            state_summary.push_str(&format!(
+                "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
+                enc.encounter_type,
+                enc.beat,
+                enc.metric.name,
+                enc.metric.current,
+                enc.metric.threshold_high.or(enc.metric.threshold_low).unwrap_or(0),
+            ));
+            if let Some(phase) = enc.structured_phase {
+                state_summary.push_str(&format!(" | phase: {:?}", phase));
+            }
+            if !enc.actors.is_empty() {
+                let actor_list: Vec<String> = enc.actors.iter()
+                    .map(|a| format!("{} ({})", a.name, a.role))
+                    .collect();
+                state_summary.push_str(&format!("\nParticipants: {}", actor_list.join(", ")));
+            }
+            if !enc.narrator_hints.is_empty() {
+                state_summary.push_str("\nEncounter context:");
+                for hint in &enc.narrator_hints {
+                    state_summary.push_str(&format!("\n- {}", hint));
+                }
+            }
+        }
     }
 
     // Include character abilities and mutations so the narrator knows what
