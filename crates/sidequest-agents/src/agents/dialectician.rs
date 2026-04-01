@@ -2,7 +2,6 @@
 //!
 //! Ported from sq-2/sidequest/agents/chase.py. ADR-017.
 
-use crate::agent::Agent;
 
 /// System prompt for the Dialectician agent.
 const DIALECTICIAN_SYSTEM_PROMPT: &str = "\
@@ -59,32 +58,4 @@ Do NOT include combat, inventory, quest, or any other state changes in this bloc
 Always include this block. The game engine parses it to update real game state.
 </system>";
 
-/// The Dialectician agent — chase sequences, pursuit, decision points.
-pub struct DialecticianAgent {
-    system_prompt: String,
-}
-
-impl DialecticianAgent {
-    /// Create a new Dialectician agent.
-    pub fn new() -> Self {
-        Self {
-            system_prompt: DIALECTICIAN_SYSTEM_PROMPT.to_string(),
-        }
-    }
-}
-
-impl Default for DialecticianAgent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Agent for DialecticianAgent {
-    fn name(&self) -> &str {
-        "dialectician"
-    }
-
-    fn system_prompt(&self) -> &str {
-        &self.system_prompt
-    }
-}
+crate::define_agent!(DialecticianAgent, "dialectician", DIALECTICIAN_SYSTEM_PROMPT);

@@ -2,7 +2,6 @@
 //!
 //! Ported from sq-2/sidequest/agents/narrator.py.
 
-use crate::agent::Agent;
 
 /// System prompt for the Narrator agent.
 const NARRATOR_SYSTEM_PROMPT: &str = "\
@@ -150,32 +149,4 @@ Example:
 visual_scene, scene_mood, and scene_intent are REQUIRED every turn. The rest are optional.
 </system>";
 
-/// The Narrator agent — exploration, description, story progression.
-pub struct NarratorAgent {
-    system_prompt: String,
-}
-
-impl NarratorAgent {
-    /// Create a new Narrator agent.
-    pub fn new() -> Self {
-        Self {
-            system_prompt: NARRATOR_SYSTEM_PROMPT.to_string(),
-        }
-    }
-}
-
-impl Default for NarratorAgent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Agent for NarratorAgent {
-    fn name(&self) -> &str {
-        "narrator"
-    }
-
-    fn system_prompt(&self) -> &str {
-        &self.system_prompt
-    }
-}
+crate::define_agent!(NarratorAgent, "narrator", NARRATOR_SYSTEM_PROMPT);
