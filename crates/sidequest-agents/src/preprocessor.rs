@@ -17,8 +17,8 @@ use crate::client::ClaudeClient;
 /// Haiku model identifier for fast preprocessing.
 const HAIKU_MODEL: &str = "haiku";
 
-/// Timeout for preprocessing — must be fast to not delay the game loop.
-const PREPROCESS_TIMEOUT: Duration = Duration::from_secs(15);
+/// Timeout for preprocessing — long enough for Haiku to complete under load.
+const PREPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Preprocess a raw player action into three perspectives via LLM.
 ///

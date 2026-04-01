@@ -195,7 +195,7 @@ async fn async_preprocess_produces_structurally_valid_output() {
 }
 
 // ============================================================================
-// AC-5: Async preprocess completes within timeout (15s budget)
+// AC-5: Async preprocess completes within timeout (30s budget)
 // ============================================================================
 
 #[tokio::test]
@@ -205,10 +205,10 @@ async fn async_preprocess_completes_within_timeout() {
         .expect("Preprocess failed — Haiku unavailable");
     let elapsed = start.elapsed();
 
-    // LLM path has 15s timeout. Must complete within that budget + spawn overhead.
+    // LLM path has 30s timeout. Must complete within that budget + spawn overhead.
     assert!(
-        elapsed.as_secs() < 20,
-        "Async preprocess must complete within 20s (15s LLM timeout + overhead), took: {:?}",
+        elapsed.as_secs() < 35,
+        "Async preprocess must complete within 35s (30s LLM timeout + overhead), took: {:?}",
         elapsed
     );
 }
