@@ -29,6 +29,23 @@ pub(crate) async fn apply_state_mutations(
 
     // Combat state — apply typed CombatPatch from creature_smith
     if let Some(ref combat_patch) = result.combat_patch {
+        ctx.state.send_watcher_event(WatcherEvent {
+            timestamp: chrono::Utc::now(),
+            component: "combat".to_string(),
+            event_type: WatcherEventType::AgentSpanOpen,
+            severity: Severity::Info,
+            fields: {
+                let mut f = HashMap::new();
+                f.insert("action".to_string(), serde_json::json!("combat_patch_received"));
+                f.insert("in_combat".to_string(), serde_json::json!(combat_patch.in_combat));
+                f.insert("hp_changes".to_string(), serde_json::json!(combat_patch.hp_changes));
+                f.insert("turn_order".to_string(), serde_json::json!(combat_patch.turn_order));
+                f.insert("current_turn".to_string(), serde_json::json!(combat_patch.current_turn));
+                f.insert("drama_weight".to_string(), serde_json::json!(combat_patch.drama_weight));
+                f.insert("advance_round".to_string(), serde_json::json!(combat_patch.advance_round));
+                f
+            },
+        });
         let was_in_combat = ctx.combat_state.in_combat();
 
         // Combat start → engage() with player + NPCs from the patch (not all known NPCs)
@@ -59,6 +76,20 @@ pub(crate) async fn apply_state_mutations(
                     current_turn = ?ctx.combat_state.current_turn(),
                     "combat.engaged"
                 );
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "combat".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("action".to_string(), serde_json::json!("combat_started"));
+                        f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));
+                        f.insert("current_turn".to_string(), serde_json::json!(ctx.combat_state.current_turn()));
+                        f.insert("combatant_count".to_string(), serde_json::json!(ctx.combat_state.turn_order().len()));
+                        f
+                    },
+                });
 
                 // Turn mode transition: FreePlay → Structured
                 let holder = ctx.shared_session_holder.lock().await;
@@ -83,6 +114,17 @@ pub(crate) async fn apply_state_mutations(
             } else if !in_combat && was_in_combat {
                 ctx.combat_state.disengage();
                 tracing::info!("combat.disengaged");
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "combat".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("action".to_string(), serde_json::json!("combat_ended"));
+                        f
+                    },
+                });
 
                 // Turn mode transition: Structured → FreePlay
                 let holder = ctx.shared_session_holder.lock().await;
@@ -110,8 +152,26 @@ pub(crate) async fn apply_state_mutations(
                         .map(|n| n.to_lowercase() == target_lower)
                         .unwrap_or(false)
                 {
+                    let old_hp = *ctx.hp;
                     *ctx.hp = sidequest_game::clamp_hp(*ctx.hp, *delta, *ctx.max_hp);
                     tracing::info!(target = %target, delta = delta, new_hp = *ctx.hp, "combat.patch.hp_applied");
+                    ctx.state.send_watcher_event(WatcherEvent {
+                        timestamp: chrono::Utc::now(),
+                        component: "combat".to_string(),
+                        event_type: WatcherEventType::StateTransition,
+                        severity: Severity::Info,
+                        fields: {
+                            let mut f = HashMap::new();
+                            f.insert("action".to_string(), serde_json::json!("hp_change"));
+                            f.insert("target".to_string(), serde_json::json!(target));
+                            f.insert("target_type".to_string(), serde_json::json!("player"));
+                            f.insert("delta".to_string(), serde_json::json!(delta));
+                            f.insert("old_hp".to_string(), serde_json::json!(old_hp));
+                            f.insert("new_hp".to_string(), serde_json::json!(*ctx.hp));
+                            f.insert("max_hp".to_string(), serde_json::json!(*ctx.max_hp));
+                            f
+                        },
+                    });
                 } else if let Some(npc) = ctx.npc_registry.iter_mut().find(|n| n.name.to_lowercase() == target_lower) {
                     // Initialize NPC max_hp on first damage if not yet set
                     if npc.max_hp == 0 {
@@ -120,8 +180,26 @@ pub(crate) async fn apply_state_mutations(
                         npc.max_hp = 20;
                         npc.hp = npc.max_hp;
                     }
+                    let old_npc_hp = npc.hp;
                     npc.hp = sidequest_game::clamp_hp(npc.hp, *delta, npc.max_hp);
                     tracing::info!(target = %target, delta = delta, new_hp = npc.hp, max_hp = npc.max_hp, "combat.patch.npc_hp_applied");
+                    ctx.state.send_watcher_event(WatcherEvent {
+                        timestamp: chrono::Utc::now(),
+                        component: "combat".to_string(),
+                        event_type: WatcherEventType::StateTransition,
+                        severity: Severity::Info,
+                        fields: {
+                            let mut f = HashMap::new();
+                            f.insert("action".to_string(), serde_json::json!("hp_change"));
+                            f.insert("target".to_string(), serde_json::json!(target));
+                            f.insert("target_type".to_string(), serde_json::json!("npc"));
+                            f.insert("delta".to_string(), serde_json::json!(delta));
+                            f.insert("old_hp".to_string(), serde_json::json!(old_npc_hp));
+                            f.insert("new_hp".to_string(), serde_json::json!(npc.hp));
+                            f.insert("max_hp".to_string(), serde_json::json!(npc.max_hp));
+                            f
+                        },
+                    });
                 }
             }
         }
@@ -145,6 +223,20 @@ pub(crate) async fn apply_state_mutations(
         // Advance turn (handles round wrap internally)
         if combat_patch.advance_round && ctx.combat_state.in_combat() {
             ctx.combat_state.advance_turn();
+            ctx.state.send_watcher_event(WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "combat".to_string(),
+                event_type: WatcherEventType::StateTransition,
+                severity: Severity::Info,
+                fields: {
+                    let mut f = HashMap::new();
+                    f.insert("action".to_string(), serde_json::json!("turn_advanced"));
+                    f.insert("round".to_string(), serde_json::json!(ctx.combat_state.round()));
+                    f.insert("current_turn".to_string(), serde_json::json!(ctx.combat_state.current_turn()));
+                    f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));
+                    f
+                },
+            });
         }
     }
 
