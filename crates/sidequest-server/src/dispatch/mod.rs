@@ -1148,6 +1148,32 @@ async fn persist_game_state(
             } else {
                 None
             };
+            if let Some(ref enc) = snapshot.encounter {
+                ctx.state.send_watcher_event(WatcherEvent {
+                    timestamp: chrono::Utc::now(),
+                    component: "encounter".to_string(),
+                    event_type: WatcherEventType::StateTransition,
+                    severity: Severity::Info,
+                    fields: {
+                        let mut f = HashMap::new();
+                        f.insert("encounter_type".to_string(), serde_json::json!(enc.encounter_type));
+                        f.insert("beat".to_string(), serde_json::json!(enc.beat));
+                        f.insert("metric_name".to_string(), serde_json::json!(enc.metric.name));
+                        f.insert("metric_current".to_string(), serde_json::json!(enc.metric.current));
+                        f.insert("metric_threshold".to_string(), serde_json::json!(enc.metric.threshold_high.or(enc.metric.threshold_low)));
+                        f.insert("phase".to_string(), serde_json::json!(enc.structured_phase.map(|p| format!("{:?}", p))));
+                        f.insert("resolved".to_string(), serde_json::json!(enc.resolved));
+                        f.insert("actor_count".to_string(), serde_json::json!(enc.actors.len()));
+                        if let Some(ref mood) = enc.mood_override {
+                            f.insert("mood_override".to_string(), serde_json::json!(mood));
+                        }
+                        if let Some(ref outcome) = enc.outcome {
+                            f.insert("outcome".to_string(), serde_json::json!(outcome));
+                        }
+                        f
+                    },
+                });
+            }
             snapshot.discovered_regions = ctx.discovered_regions.clone();
             snapshot.active_tropes = ctx.trope_states.clone();
             snapshot.quest_log = ctx.quest_log.clone();
