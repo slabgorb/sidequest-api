@@ -53,7 +53,9 @@ pub(crate) async fn process_combat_and_chase(
             f.insert("turn_order".to_string(), serde_json::json!(ctx.combat_state.turn_order()));
             f.insert("current_turn".to_string(), serde_json::json!(ctx.combat_state.current_turn()));
             f.insert("enemy_count".to_string(), serde_json::json!(
-                ctx.npc_registry.iter().filter(|_| ctx.combat_state.in_combat()).count()
+                ctx.combat_state.turn_order().iter()
+                    .filter(|n| !n.eq_ignore_ascii_case(ctx.char_name))
+                    .count()
             ));
             f.insert("damage_log_len".to_string(), serde_json::json!(ctx.combat_state.damage_log().len()));
             f
@@ -96,22 +98,31 @@ pub(crate) async fn process_combat_and_chase(
 
     // Combat overlay — send populated CombatEvent with enemies, turn order, current turn
     if now_in_combat || combat_just_ended {
+        // Build enemies from turn_order (actual combatants), not npc_registry (all known NPCs).
+        // Look up each combatant's HP/effects from npc_registry by name match.
+        // Skip the player character (they're in turn_order but aren't an "enemy").
         let enemies: Vec<sidequest_protocol::CombatEnemy> = ctx
-            .npc_registry
+            .combat_state
+            .turn_order()
             .iter()
-            .filter(|_| ctx.combat_state.in_combat()) // only show enemies during active combat
-            .map(|entry| sidequest_protocol::CombatEnemy {
-                name: entry.name.clone(),
-                hp: entry.hp,
-                max_hp: entry.max_hp,
-                ac: None,
-                status_effects: ctx.combat_state.effects_on(&entry.name)
+            .filter(|name| !name.eq_ignore_ascii_case(ctx.char_name))
+            .filter_map(|name| {
+                ctx.npc_registry
                     .iter()
-                    .map(|e| sidequest_protocol::StatusEffectInfo {
-                        kind: format!("{:?}", e.kind()),
-                        remaining_rounds: e.remaining_rounds(),
+                    .find(|entry| entry.name.eq_ignore_ascii_case(name))
+                    .map(|entry| sidequest_protocol::CombatEnemy {
+                        name: entry.name.clone(),
+                        hp: entry.hp,
+                        max_hp: entry.max_hp,
+                        ac: None,
+                        status_effects: ctx.combat_state.effects_on(&entry.name)
+                            .iter()
+                            .map(|e| sidequest_protocol::StatusEffectInfo {
+                                kind: format!("{:?}", e.kind()),
+                                remaining_rounds: e.remaining_rounds(),
+                            })
+                            .collect(),
                     })
-                    .collect(),
             })
             .collect();
         messages.push(GameMessage::CombatEvent {

@@ -46,6 +46,7 @@ pub(crate) async fn dispatch_connect(
     state: &AppState,
     player_id: &str,
     continuity_corrections: &mut String,
+    inventory: &mut sidequest_game::Inventory,
     snapshot: &mut sidequest_game::state::GameSnapshot,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
@@ -79,6 +80,7 @@ pub(crate) async fn dispatch_connect(
                             *character_name_store = Some(character.core.name.as_str().to_string());
                             *character_hp = character.core.hp;
                             *character_max_hp = character.core.max_hp;
+                            *inventory = character.core.inventory.clone();
                         }
                         // Restore location, regions, turn state, and NPC registry from snapshot
                         *current_location = saved.snapshot.location.clone();

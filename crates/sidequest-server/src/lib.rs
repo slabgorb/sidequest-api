@@ -1255,6 +1255,7 @@ async fn dispatch_message(
                 state,
                 player_id,
                 continuity_corrections,
+                inventory,
                 snapshot,
             )
             .await;

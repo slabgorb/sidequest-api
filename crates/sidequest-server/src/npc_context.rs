@@ -49,7 +49,7 @@ pub(crate) fn build_npc_registry_context_budgeted(
     let mut lines = Vec::new();
 
     if !scene_npcs.is_empty() {
-        lines.push("\nSCENE NPCs — CANONICAL IDENTITY (do NOT contradict):".to_string());
+        lines.push("\n=== SCENE NPCs (NOT the player) — CANONICAL IDENTITY (do NOT contradict, do NOT apply player abilities/backstory to these NPCs) ===".to_string());
         for entry in &scene_npcs {
             let mut desc = format!("- {}", entry.name);
             if !entry.pronouns.is_empty() {

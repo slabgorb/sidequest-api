@@ -225,25 +225,39 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         return handle_aside(ctx).await;
     }
 
-    // Story 18-3: Parallelize prompt context build and preprocess via tokio::join!
-    // Preprocessor FIRST — its relevance flags gate prompt section budgeting.
-    // Sequential by design: prompt build needs the flags to know what to include.
-    let action_for_preprocess = ctx.action.to_string();
-    let char_name_for_preprocess = ctx.char_name.to_string();
-    let preprocessed = match sidequest_agents::preprocessor::preprocess_action_async(
-        &action_for_preprocess,
-        &char_name_for_preprocess,
-    ).await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!(error = %e, "Preprocessor failed — cannot process action");
-            return vec![sidequest_protocol::GameMessage::Error {
-                payload: sidequest_protocol::ErrorPayload {
-                    message: format!("Action preprocessing failed: {e}"),
-                    reconnect_required: None,
-                },
-                player_id: ctx.player_id.to_string(),
-            }];
+    // Skip preprocessor in combat — intent is already known via state override (in_combat),
+    // and the 15s Haiku call adds no value. Use a fast-path with all relevance flags on
+    // so no prompt sections get gated out during combat.
+    let preprocessed = if ctx.combat_state.in_combat() {
+        tracing::info!("Skipping preprocessor — in_combat state override, all relevance flags on");
+        sidequest_game::PreprocessedAction {
+            you: format!("You {}", ctx.action),
+            named: format!("{} {}", ctx.char_name, ctx.action),
+            intent: ctx.action.to_string(),
+            is_power_grab: false,
+            references_inventory: true,
+            references_npc: true,
+            references_ability: true,
+            references_location: false,
+        }
+    } else {
+        let action_for_preprocess = ctx.action.to_string();
+        let char_name_for_preprocess = ctx.char_name.to_string();
+        match sidequest_agents::preprocessor::preprocess_action_async(
+            &action_for_preprocess,
+            &char_name_for_preprocess,
+        ).await {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!(error = %e, "Preprocessor failed — cannot process action");
+                return vec![sidequest_protocol::GameMessage::Error {
+                    payload: sidequest_protocol::ErrorPayload {
+                        message: format!("Action preprocessing failed: {e}"),
+                        reconnect_required: None,
+                    },
+                    player_id: ctx.player_id.to_string(),
+                }];
+            }
         }
     };
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
@@ -509,8 +523,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // NPC registry + OCEAN personality shifts
     update_npc_registry(ctx, &result, &clean_narration);
 
-    // Continuity validation — LLM-based (Haiku), runs via spawn_blocking
-    validate_continuity(ctx, &clean_narration).await;
+    // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
+    // Skip in combat — creature_smith output is structured, and the 18s Haiku call
+    // doubles combat turn latency for marginal value.
+    if !ctx.combat_state.in_combat() {
+        validate_continuity(ctx, &clean_narration).await;
+    } else {
+        tracing::info!("Skipping continuity validation — in_combat, creature_smith output is structured");
+    }
 
     let mutation_result =
         state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
