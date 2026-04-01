@@ -386,6 +386,86 @@ pub fn select_lore_for_prompt<'a>(
     selected
 }
 
+// ---------------------------------------------------------------------------
+// Lore retrieval telemetry — summarize selected vs rejected (story 18-4)
+// ---------------------------------------------------------------------------
+
+/// Summary of a single lore fragment for telemetry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FragmentSummary {
+    /// Fragment identifier.
+    pub id: String,
+    /// Category as a string (e.g., "history", "geography").
+    pub category: String,
+    /// Estimated token count.
+    pub tokens: usize,
+}
+
+/// Structured summary of a lore retrieval operation for the OTEL dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoreRetrievalSummary {
+    /// Token budget for this retrieval.
+    pub budget: usize,
+    /// Total tokens used by selected fragments.
+    pub tokens_used: usize,
+    /// Fragments that were selected for the prompt.
+    pub selected: Vec<FragmentSummary>,
+    /// Fragments that were rejected (didn't fit budget or lower priority).
+    pub rejected: Vec<FragmentSummary>,
+    /// Context hint used for prioritization, if any.
+    pub context_hint: Option<String>,
+    /// Total fragments in the store.
+    pub total_fragments: usize,
+}
+
+fn fragment_to_summary(frag: &LoreFragment) -> FragmentSummary {
+    let category = match frag.category() {
+        LoreCategory::History => "history",
+        LoreCategory::Geography => "geography",
+        LoreCategory::Faction => "faction",
+        LoreCategory::Character => "character",
+        LoreCategory::Item => "item",
+        LoreCategory::Event => "event",
+        LoreCategory::Language => "language",
+        LoreCategory::Custom(s) => s.as_str(),
+        _ => "unknown",
+    };
+    FragmentSummary {
+        id: frag.id().to_string(),
+        category: category.to_string(),
+        tokens: frag.token_estimate(),
+    }
+}
+
+/// Produce a telemetry summary comparing selected vs rejected fragments.
+pub fn summarize_lore_retrieval<'a>(
+    store: &'a LoreStore,
+    selected: &[&'a LoreFragment],
+    budget: usize,
+    context_hint: Option<&str>,
+) -> LoreRetrievalSummary {
+    let selected_ids: std::collections::HashSet<&str> =
+        selected.iter().map(|f| f.id()).collect();
+
+    let rejected: Vec<FragmentSummary> = store
+        .fragments
+        .values()
+        .filter(|f| !selected_ids.contains(f.id()))
+        .map(|f| fragment_to_summary(f))
+        .collect();
+
+    let tokens_used: usize = selected.iter().map(|f| f.token_estimate()).sum();
+
+    LoreRetrievalSummary {
+        budget,
+        tokens_used,
+        selected: selected.iter().map(|f| fragment_to_summary(f)).collect(),
+        rejected,
+        context_hint: context_hint.map(|s| s.to_string()),
+        total_fragments: store.len(),
+    }
+}
+
 /// Format selected lore fragments into a prompt-ready string, grouped by
 /// category with markdown section headers (e.g. `## History`).
 ///
