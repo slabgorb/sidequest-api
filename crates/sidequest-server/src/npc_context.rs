@@ -38,6 +38,68 @@ pub(crate) fn build_npc_registry_context(registry: &[NpcRegistryEntry]) -> Strin
     lines.join("\n")
 }
 
+/// Build budgeted NPC registry context — scene-present NPCs get full entries,
+/// others get name+role only.
+pub(crate) fn build_npc_registry_context_budgeted(
+    registry: &[NpcRegistryEntry],
+    current_turn: u32,
+) -> String {
+    if registry.is_empty() {
+        return String::new();
+    }
+
+    let mut scene_npcs = Vec::new();
+    let mut background_names = Vec::new();
+
+    for entry in registry {
+        if current_turn.saturating_sub(entry.last_seen_turn) <= 2 {
+            scene_npcs.push(entry);
+        } else {
+            let label = if entry.role.is_empty() {
+                entry.name.clone()
+            } else {
+                format!("{} ({})", entry.name, entry.role)
+            };
+            background_names.push(label);
+        }
+    }
+
+    let mut lines = Vec::new();
+
+    if !scene_npcs.is_empty() {
+        lines.push("\nSCENE NPCs — CANONICAL IDENTITY (do NOT contradict):".to_string());
+        for entry in &scene_npcs {
+            let mut desc = format!("- {}", entry.name);
+            if !entry.pronouns.is_empty() {
+                desc.push_str(&format!(" ({})", entry.pronouns));
+            }
+            if !entry.role.is_empty() {
+                desc.push_str(&format!(", {}", entry.role));
+            }
+            let mut physical: Vec<&str> = Vec::new();
+            if !entry.age.is_empty() {
+                physical.push(&entry.age);
+            }
+            if !entry.appearance.is_empty() {
+                physical.push(&entry.appearance);
+            }
+            if !physical.is_empty() {
+                desc.push_str(&format!(" [{}]", physical.join("; ")));
+            }
+            if !entry.ocean_summary.is_empty() {
+                desc.push_str(&format!(" | personality: {}", entry.ocean_summary));
+            }
+            lines.push(desc);
+        }
+    }
+
+    if !background_names.is_empty() {
+        lines.push(format!("\nAlso known: {}", background_names.join(", ")));
+    }
+
+    lines.join("\n")
+}
+
 /// Build a name bank context string from genre pack cultures for the narrator prompt.
 /// Extracts word lists and person name patterns so the LLM uses culturally appropriate names.
 pub(crate) fn build_name_bank_context(cultures: &[sidequest_genre::Culture]) -> String {

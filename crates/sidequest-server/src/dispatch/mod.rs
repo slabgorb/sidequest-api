@@ -220,18 +220,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     // Story 18-3: Parallelize prompt context build and preprocess via tokio::join!
-    // Both operations are independent — preprocess cleans the raw player input while
-    // context build assembles the narrator prompt. ~7s saved per turn.
+    // Preprocessor FIRST — its relevance flags gate prompt section budgeting.
+    // Sequential by design: prompt build needs the flags to know what to include.
     let action_for_preprocess = ctx.action.to_string();
     let char_name_for_preprocess = ctx.char_name.to_string();
-    let (mut state_summary, preprocess_result) = tokio::join!(
-        prompt::build_prompt_context(ctx),
-        sidequest_agents::preprocessor::preprocess_action_async(
-            &action_for_preprocess,
-            &char_name_for_preprocess,
-        )
-    );
-    let preprocessed = match preprocess_result {
+    let preprocessed = match sidequest_agents::preprocessor::preprocess_action_async(
+        &action_for_preprocess,
+        &char_name_for_preprocess,
+    ).await {
         Ok(p) => p,
         Err(e) => {
             tracing::error!(error = %e, "Preprocessor failed — cannot process action");
@@ -244,6 +240,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             }];
         }
     };
+    let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
     tracing::info!(
         raw = %ctx.action,
         you = %preprocessed.you,
@@ -1653,7 +1650,18 @@ fn emit_telemetry(
 async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
     tracing::info!(player = %ctx.char_name, action = %ctx.action, "aside — out-of-character, skipping state mutations");
 
-    let mut state_summary = prompt::build_prompt_context(ctx).await;
+    // Asides are out-of-character — no game state references, minimal prompt
+    let aside_relevance = sidequest_game::PreprocessedAction {
+        you: ctx.action.to_string(),
+        named: ctx.action.to_string(),
+        intent: ctx.action.to_string(),
+        is_power_grab: false,
+        references_inventory: false,
+        references_npc: false,
+        references_ability: false,
+        references_location: false,
+    };
+    let mut state_summary = prompt::build_prompt_context(ctx, &aside_relevance).await;
     state_summary.push_str(concat!(
         "\n\nASIDE RULES (HARD CONSTRAINTS):",
         "\nThe player is speaking an aside — an out-of-character thought, whisper, or ",

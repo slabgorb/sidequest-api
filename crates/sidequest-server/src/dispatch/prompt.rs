@@ -2,17 +2,21 @@
 
 use std::collections::HashMap;
 
-use crate::npc_context::build_npc_registry_context;
+use sidequest_game::PreprocessedAction;
+
+use crate::npc_context::build_npc_registry_context_budgeted;
 use crate::{Severity, WatcherEvent, WatcherEventType};
 
 use super::DispatchContext;
 
-/// Build the full state_summary string for the narrator prompt.
-/// Includes trope seeding, party roster, location constraints, inventory, quests,
-/// chase state, abilities, world context, regions, tone, history, NPCs, lore, and
-/// continuity corrections.
+/// Build the budgeted state_summary string for the narrator prompt.
+/// Sections are gated by relevance flags from the Haiku preprocessor.
 #[tracing::instrument(name = "turn.build_prompt_context", skip_all)]
-pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> String {
+pub(crate) async fn build_prompt_context(
+    ctx: &mut DispatchContext<'_>,
+    relevance: &PreprocessedAction,
+) -> String {
+    let turn_number = ctx.turn_manager.interaction() as u32;
     // Seed starter tropes if none are active yet (first turn)
     if ctx.trope_states.is_empty() && !ctx.trope_defs.is_empty() {
         // Prefer tropes with passive_progression so tick() can advance them.
@@ -135,42 +139,30 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
                 .collect();
 
             if !other_pcs.is_empty() {
-                state_summary.push_str("\n\nPLAYER-CONTROLLED CHARACTERS IN THE PARTY:\n");
-                state_summary
-                    .push_str("The following characters are controlled by OTHER human players:\n");
-                for name in &other_pcs {
-                    state_summary.push_str(&format!("- {}\n", name));
-                }
+                state_summary.push_str(&format!(
+                    "\n\nParty: {}.",
+                    other_pcs.join(", ")
+                ));
                 if !co_located_names.is_empty() {
                     state_summary.push_str(&format!(
-                        "\nCO-LOCATION — HARD RULE: The following party members are RIGHT HERE with the acting player: {}. \
-                         They are physically present at the SAME location. The narrator MUST acknowledge their presence \
-                         in the scene. Do NOT narrate them as being elsewhere or arriving from somewhere else. \
-                         They are already here.\n",
+                        " Co-located: {}.",
                         co_located_names.join(", ")
                     ));
                 }
-                state_summary.push_str(concat!(
-                    "\n\nPLAYER AGENCY — ABSOLUTE RULE (violations break the game):\n",
-                    "You MUST NOT write dialogue, actions, thoughts, feelings, gestures, or internal ",
-                    "state for ANY player character — including the acting player beyond their stated action.\n",
-                    "FORBIDDEN examples:\n",
-                    "- \"Laverne holds up their power glove. 'I've got the strong hand covered.'\" (writing dialogue FOR a player)\n",
-                    "- \"Shirley nudges Laverne with an elbow\" (scripting PC-to-PC physical interaction)\n",
-                    "- \"Kael's heart races as he...\" (writing internal state for a player)\n",
-                    "ALLOWED examples:\n",
-                    "- \"Laverne is nearby, power glove faintly humming.\" (describing presence without action)\n",
-                    "- \"The other party members are within earshot.\" (acknowledging presence)\n",
-                    "Players control their OWN characters. You control the WORLD, NPCs, and narration only.",
-                ));
-                state_summary.push_str(
-                    "\n\nPERSPECTIVE MODE: Third-person omniscient. \
-                     You are narrating for multiple players simultaneously. \
-                     Do NOT use 'you' for any character — including the acting player. \
-                     All characters are named explicitly in third-person. \
-                     Correct: 'Mira surveys the gantry. Kael moves to cover.' \
-                     Wrong: 'You survey the gantry.'",
-                );
+                if turn_number <= 3 {
+                    // Full rules for early turns
+                    state_summary.push_str(concat!(
+                        "\n\nPLAYER AGENCY — ABSOLUTE RULE:\n",
+                        "Do NOT write dialogue, actions, thoughts, or internal state for ANY player character.\n",
+                        "Players control their OWN characters. You control the WORLD, NPCs, and narration only.\n",
+                        "PERSPECTIVE: Third-person omniscient. All characters named explicitly. Never use 'you'.",
+                    ));
+                } else {
+                    // Compressed reminder after turn 3
+                    state_summary.push_str(
+                        " PLAYER AGENCY: Do not write dialogue/actions/thoughts for player characters. Third-person only."
+                    );
+                }
             }
         }
     }
@@ -199,41 +191,52 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
         ));
     }
 
-    // Inventory constraint — the narrator must respect the character sheet
-    let equipped_count = ctx.inventory.items.iter().filter(|i| i.equipped).count();
-    tracing::debug!(
-        items = ctx.inventory.items.len(),
-        equipped = equipped_count,
-        gold = ctx.inventory.gold,
-        "narrator_prompt.inventory_constraint — injecting character sheet"
-    );
-    state_summary.push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
+    // Inventory — full if player references items, compact summary otherwise
     if !ctx.inventory.items.is_empty() {
-        state_summary.push_str("\nThe player currently possesses EXACTLY these items:");
-        for item in &ctx.inventory.items {
-            let equipped_tag = if item.equipped { " [EQUIPPED]" } else { "" };
-            let qty_tag = if item.quantity > 1 {
-                format!(" (x{})", item.quantity)
+        if relevance.references_inventory {
+            // Full inventory with descriptions and rules
+            state_summary.push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
+            state_summary.push_str("\nThe player currently possesses EXACTLY these items:");
+            for item in &ctx.inventory.items {
+                let equipped_tag = if item.equipped { " [EQUIPPED]" } else { "" };
+                let qty_tag = if item.quantity > 1 {
+                    format!(" (x{})", item.quantity)
+                } else {
+                    String::new()
+                };
+                state_summary.push_str(&format!(
+                    "\n- {}{}{} — {} ({})",
+                    item.name, equipped_tag, qty_tag, item.description, item.category
+                ));
+            }
+            state_summary.push_str(&format!("\nGold: {}", ctx.inventory.gold));
+            state_summary.push_str(concat!(
+                "\n\nINVENTORY RULES (HARD CONSTRAINTS — violations break the game):",
+                "\n1. If the player uses an item on this list, it WORKS. The item is real and present.",
+                "\n2. If the player uses an item NOT on this list, it FAILS — they don't have it.",
+                "\n3. NEVER narrate an item being lost, stolen, broken, or missing unless the game",
+                "\n   engine explicitly removes it. The inventory list above is the TRUTH.",
+                "\n4. [EQUIPPED] items are currently in hand/worn — the player does not need to 'find'",
+                "\n   or 'reach for' them. They are ready to use immediately.",
+            ));
+        } else {
+            // Compact: equipped items + count only
+            let equipped: Vec<String> = ctx.inventory.items.iter()
+                .filter(|i| i.equipped)
+                .map(|i| i.name.to_string())
+                .collect();
+            let equipped_str = if equipped.is_empty() {
+                "none equipped".to_string()
             } else {
-                String::new()
+                equipped.join(", ")
             };
             state_summary.push_str(&format!(
-                "\n- {}{}{} — {} ({})",
-                item.name, equipped_tag, qty_tag, item.description, item.category
+                "\n\nInventory: {} items ({}), {} gold.",
+                ctx.inventory.items.len(), equipped_str, ctx.inventory.gold
             ));
         }
-        state_summary.push_str(&format!("\nGold: {}", ctx.inventory.gold));
-        state_summary.push_str(concat!(
-            "\n\nINVENTORY RULES (HARD CONSTRAINTS — violations break the game):",
-            "\n1. If the player uses an item on this list, it WORKS. The item is real and present.",
-            "\n2. If the player uses an item NOT on this list, it FAILS — they don't have it.",
-            "\n3. NEVER narrate an item being lost, stolen, broken, or missing unless the game",
-            "\n   engine explicitly removes it. The inventory list above is the TRUTH.",
-            "\n4. [EQUIPPED] items are currently in hand/worn — the player does not need to 'find'",
-            "\n   or 'reach for' them. They are ready to use immediately.",
-        ));
     } else {
-        state_summary.push_str("\nThe player has NO items. If the player claims to use any item, the narrator MUST reject it — they have nothing in their possession yet.");
+        state_summary.push_str("\n\nThe player has NO items.");
     }
 
     // Quest log — inject active quests so narrator can reference them
@@ -317,28 +320,8 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
         }
     }
 
-    // Include character abilities and mutations so the narrator knows what
-    // the character can and cannot do (prevents hallucinated abilities).
+    // Character identity — always included (compact)
     if let Some(ref cj) = ctx.character_json {
-        // Extract hooks (narrative abilities, mutations, etc.)
-        if let Some(hooks) = cj.get("hooks").and_then(|h| h.as_array()) {
-            let hook_strs: Vec<&str> = hooks.iter().filter_map(|v| v.as_str()).collect();
-            if !hook_strs.is_empty() {
-                state_summary.push_str("\n\nABILITY CONSTRAINTS — THIS IS A HARD RULE:\n");
-                state_summary.push_str("The character can ONLY use the following abilities. Any action that requires a power, mutation, or supernatural ability NOT on this list MUST fail or be reinterpreted as a mundane attempt. Do NOT grant the character abilities they do not have.\n");
-                state_summary.push_str("Allowed abilities:\n");
-                for h in &hook_strs {
-                    state_summary.push_str(&format!("- {}\n", h));
-                }
-                state_summary.push_str("If the player attempts to use an ability NOT listed above, describe the attempt failing or reframe it as a non-supernatural action.\n");
-                state_summary.push_str("PROACTIVE MUTATION NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to be relevant (sensory input, danger, social situations), weave them into the narration subtly. A psychic character might catch stray thoughts; a bioluminescent character's skin might flicker in darkness. Don't force it every turn, but don't ignore mutations either — they define who the character IS.\n");
-            }
-        }
-        // Extract backstory
-        if let Some(backstory) = cj.get("backstory").and_then(|b| b.as_str()) {
-            state_summary.push_str(&format!("\nBackstory: {}", backstory));
-        }
-        // Extract class and race for narrator awareness
         if let Some(class) = cj.get("char_class").and_then(|c| c.as_str()) {
             state_summary.push_str(&format!("\nClass: {}", class));
         }
@@ -351,14 +334,50 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
                     "\nPronouns: {} — ALWAYS use these pronouns for this character.",
                     pronouns
                 ));
-                tracing::debug!(pronouns = %pronouns, "narrator_prompt.pronouns — injected into state_summary");
+            }
+        }
+        if let Some(backstory) = cj.get("backstory").and_then(|b| b.as_str()) {
+            state_summary.push_str(&format!("\nBackstory: {}", backstory));
+        }
+
+        // Abilities — full with rules if player references them, name-only list otherwise
+        if let Some(hooks) = cj.get("hooks").and_then(|h| h.as_array()) {
+            let hook_strs: Vec<&str> = hooks.iter().filter_map(|v| v.as_str()).collect();
+            if !hook_strs.is_empty() {
+                if relevance.references_ability {
+                    state_summary.push_str("\n\nABILITY CONSTRAINTS — THIS IS A HARD RULE:\n");
+                    state_summary.push_str("The character can ONLY use the following abilities. Any action that requires a power, mutation, or supernatural ability NOT on this list MUST fail or be reinterpreted as a mundane attempt.\n");
+                    state_summary.push_str("Allowed abilities:\n");
+                    for h in &hook_strs {
+                        state_summary.push_str(&format!("- {}\n", h));
+                    }
+                    state_summary.push_str("PROACTIVE MUTATION NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to be relevant, weave them into the narration subtly.\n");
+                } else {
+                    state_summary.push_str(&format!(
+                        "\nAbilities: {}.",
+                        hook_strs.join(", ")
+                    ));
+                }
             }
         }
     }
 
+    // World context — full for first 5 turns (establishing setting), compressed after
     if !ctx.world_context.is_empty() {
         state_summary.push('\n');
-        state_summary.push_str(ctx.world_context);
+        if turn_number <= 5 || ctx.world_context.len() < 400 {
+            state_summary.push_str(ctx.world_context);
+        } else {
+            let hook: String = ctx.world_context
+                .split(". ")
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(". ");
+            state_summary.push_str(&hook);
+            if !hook.ends_with('.') {
+                state_summary.push('.');
+            }
+        }
     }
 
     // Inject known locations so the narrator uses canonical place names
@@ -408,19 +427,28 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
         }
     }
 
-    // Bug 17: Include recent narration history so the narrator maintains continuity
+    // Narration history — last 2 full, turns 3-5 first-sentence summary, 6+ dropped
     if !ctx.narration_history.is_empty() {
-        state_summary.push_str("\n\nRECENT CONVERSATION HISTORY (multiple players, most recent last):\nEntries are tagged with [CharacterName]. Only narrate for the ACTING player — do not continue another player's scene:\n");
-        // Include at most the last 10 turns to stay within context limits
-        let start = ctx.narration_history.len().saturating_sub(10);
-        for entry in &ctx.narration_history[start..] {
-            state_summary.push_str(entry);
-            state_summary.push('\n');
+        state_summary.push_str("\n\nRECENT HISTORY (most recent last):\n");
+        let len = ctx.narration_history.len();
+        let window_start = len.saturating_sub(5);
+        for (i, entry) in ctx.narration_history[window_start..].iter().enumerate() {
+            let from_end = len - window_start - i;
+            if from_end <= 2 {
+                // Last 2 turns: full text
+                state_summary.push_str(entry);
+                state_summary.push('\n');
+            } else {
+                // Older turns: first sentence only
+                let first_sentence = entry.split(". ").next().unwrap_or(entry);
+                let trimmed: String = first_sentence.chars().take(120).collect();
+                state_summary.push_str(&format!("[...] {}\n", trimmed));
+            }
         }
     }
 
-    // Inject NPC registry so the narrator maintains identity consistency
-    let npc_context = build_npc_registry_context(ctx.npc_registry);
+    // NPC registry — scene-present NPCs get full entries, others name+role only
+    let npc_context = build_npc_registry_context_budgeted(ctx.npc_registry, turn_number);
     if !npc_context.is_empty() {
         state_summary.push_str(&npc_context);
     }
@@ -459,6 +487,24 @@ pub(crate) async fn build_prompt_context(ctx: &mut DispatchContext<'_>) -> Strin
         // Clear after injection — corrections are one-shot
         ctx.continuity_corrections.clear();
     }
+
+    // OTEL: log prompt budget decisions
+    ctx.state.send_watcher_event(WatcherEvent {
+        timestamp: chrono::Utc::now(),
+        component: "prompt_budget".to_string(),
+        event_type: WatcherEventType::StateTransition,
+        severity: Severity::Info,
+        fields: {
+            let mut f = HashMap::new();
+            f.insert("total_chars".to_string(), serde_json::json!(state_summary.len()));
+            f.insert("turn_number".to_string(), serde_json::json!(turn_number));
+            f.insert("references_inventory".to_string(), serde_json::json!(relevance.references_inventory));
+            f.insert("references_ability".to_string(), serde_json::json!(relevance.references_ability));
+            f.insert("references_npc".to_string(), serde_json::json!(relevance.references_npc));
+            f.insert("references_location".to_string(), serde_json::json!(relevance.references_location));
+            f
+        },
+    });
 
     state_summary
 }
