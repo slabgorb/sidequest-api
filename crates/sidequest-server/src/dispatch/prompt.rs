@@ -534,6 +534,32 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
+    // Inject chase cinematography context (story 15-17)
+    if let Some(ref chase_state) = ctx.chase_state {
+        let chase_context = chase_state.format_context(vec![]);
+        if !chase_context.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&chase_context);
+
+            // OTEL: chase.context_injected — GM panel verification
+            let beat = chase_state.current_beat(vec![]);
+            let cine = sidequest_game::cinematography_for_phase(beat.phase);
+            WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
+                .field("event", "chase.context_injected")
+                .field("phase", format!("{:?}", beat.phase))
+                .field("danger_level", beat.terrain_danger)
+                .field("camera", format!("{:?}", cine.camera))
+                .field("sentence_range", format!("{}-{}", cine.sentence_range.0, cine.sentence_range.1))
+                .send(ctx.state);
+
+            tracing::info!(
+                phase = ?beat.phase,
+                danger = beat.terrain_danger,
+                "chase.context_injected_to_prompt"
+            );
+        }
+    }
+
     // Inject continuity corrections from the previous turn (if any)
     if !ctx.continuity_corrections.is_empty() {
         state_summary.push_str("\n\n");
