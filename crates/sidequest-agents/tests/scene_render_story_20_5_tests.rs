@@ -297,6 +297,7 @@ fn assemble_turn_uses_tool_visual_scene_over_narrator() {
         scene_mood: None,
         scene_intent: None,
         visual_scene: Some(tool_scene),
+        quest_updates: None,
     };
 
     let extraction = extraction_with_visual_scene();
@@ -315,6 +316,7 @@ fn assemble_turn_falls_back_to_narrator_visual_scene_when_no_tool() {
         scene_mood: None,
         scene_intent: None,
         visual_scene: None,
+        quest_updates: None,
     };
 
     let extraction = extraction_with_visual_scene();
@@ -333,6 +335,7 @@ fn assemble_turn_returns_none_visual_scene_when_neither_source() {
         scene_mood: None,
         scene_intent: None,
         visual_scene: None,
+        quest_updates: None,
     };
 
     let extraction = extraction_without_visual_scene();

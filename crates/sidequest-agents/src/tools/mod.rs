@@ -9,6 +9,7 @@
 
 pub mod assemble_turn;
 pub mod preprocessors;
+pub mod quest_update;
 pub mod scene_render;
 pub mod set_intent;
 pub mod set_mood;

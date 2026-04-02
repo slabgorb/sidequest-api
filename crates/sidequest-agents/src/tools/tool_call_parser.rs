@@ -6,6 +6,7 @@
 //! parses each JSONL line into a `ToolCallRecord`, and maps known tools to the
 //! corresponding `ToolCallResults` fields. The sidecar file is deleted after parsing.
 
+use std::collections::HashMap;
 use std::io::BufRead;
 use std::path::PathBuf;
 
@@ -133,6 +134,20 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     }
                 } else {
                     warn!(tool = "scene_render", "missing required fields (subject/tier/mood) in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "quest_update" => {
+                let quest_name = record.result.get("quest_name").and_then(|v| v.as_str());
+                let status = record.result.get("status").and_then(|v| v.as_str());
+
+                if let (Some(quest_name), Some(status)) = (quest_name, status) {
+                    info!(tool = "quest_update", quest_name = quest_name, status = status, "tool result parsed");
+                    let map = results.quest_updates.get_or_insert_with(HashMap::new);
+                    map.insert(quest_name.to_string(), status.to_string());
+                    parsed_count += 1;
+                } else {
+                    warn!(tool = "quest_update", "missing 'quest_name' or 'status' field in result — skipping");
                     skipped_count += 1;
                 }
             }

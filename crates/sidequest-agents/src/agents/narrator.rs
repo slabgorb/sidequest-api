@@ -81,21 +81,8 @@ Each NPC has:
 - appearance: brief physical description (only needed for first introduction, empty string otherwise)
 - is_new: true ONLY if this NPC appears for the FIRST TIME ever. false if previously mentioned.
 
-[QUEST PROTOCOL]
-When the narrative introduces a clear objective, updates a quest's status, or completes
-a quest, include quest_updates in the JSON block. Each key is the quest name, each value
-is the current status.
-
-Status values:
-- \"active: <description> (from: <NPC name>)\" — new quest. ALWAYS note which NPC gave it.
-- \"active: <updated description>\" — updated objective
-- \"completed: <outcome>\" — quest resolved
-- \"failed: <reason>\" — quest failed
-
-Only include quests that CHANGED this turn. Do not repeat unchanged quests.
-
 [REFERRAL RULE]
-When an NPC sends the player to another NPC, note the referral in quest_updates.
+When an NPC sends the player to another NPC for a quest objective,
 NEVER send the player back to an NPC who originally sent them on this quest.
 Check ACTIVE QUESTS — if a quest says \"(from: Toggler)\" and the player is now
 talking to Patchwork, do NOT have Patchwork send the player back to Toggler for
@@ -108,7 +95,6 @@ Fields:
 - footnotes: knowledge/lore discovered (omit if none)
 - items_gained: items acquired (omit if none)
 - npcs_present: NPCs in this scene (omit if none)
-- quest_updates: quest status changes (omit if none)
 - personality_events: list of NPC personality-changing moments (omit if none).
   Each entry: {\"npc\": \"Name\", \"event_type\": \"betrayal\", \"description\": \"brief context\"}.
   event_type MUST be one of exactly these values:
@@ -135,7 +121,7 @@ Fields:
   Omit if no resources changed.
 Example:
 ```json
-{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}],\"quest_updates\":{\"The Corrupted Grove\":\"active: Find the source of corruption in Elder Mirova's grove (from: Elder Mirova)\"}}
+{\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}]}
 ```
 
 All fields are optional — omit any that don't apply this turn.
