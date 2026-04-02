@@ -45,34 +45,36 @@ impl Session {
         world: &str,
         player_name: &str,
     ) -> Result<GameMessage, ServerError> {
-        match &self.state {
-            SessionState::AwaitingConnect => {
-                self.state = SessionState::Creating {
-                    genre_slug: genre.to_string(),
-                    world_slug: world.to_string(),
-                    player_name: player_name.to_string(),
-                };
-
-                Ok(GameMessage::SessionEvent {
-                    payload: sidequest_protocol::SessionEventPayload {
-                        event: "connected".to_string(),
-                        player_name: Some(player_name.to_string()),
-                        genre: Some(genre.to_string()),
-                        world: Some(world.to_string()),
-                        has_character: Some(false),
-                        initial_state: None,
-                        css: None,
-                        image_cooldown_seconds: None,
-                        narrator_verbosity: None,
-                        narrator_vocabulary: None,
-                    },
-                    player_id: String::new(),
-                })
-            }
-            _ => Err(ServerError::Deserialization(
-                "Cannot connect: session already connected".to_string(),
-            )),
+        // Accept connect from ANY state — the client may be reconnecting after
+        // a server restart, browser refresh, or network drop.  Rejecting with
+        // "already connected" leaves the client dead with no recovery path.
+        if !self.is_awaiting_connect() {
+            tracing::info!(
+                previous_state = self.state_name(),
+                "session.reconnect — resetting to Creating from non-AwaitingConnect state"
+            );
         }
+        self.state = SessionState::Creating {
+            genre_slug: genre.to_string(),
+            world_slug: world.to_string(),
+            player_name: player_name.to_string(),
+        };
+
+        Ok(GameMessage::SessionEvent {
+            payload: sidequest_protocol::SessionEventPayload {
+                event: "connected".to_string(),
+                player_name: Some(player_name.to_string()),
+                genre: Some(genre.to_string()),
+                world: Some(world.to_string()),
+                has_character: Some(false),
+                initial_state: None,
+                css: None,
+                image_cooldown_seconds: None,
+                narrator_verbosity: None,
+                narrator_vocabulary: None,
+            },
+            player_id: String::new(),
+        })
     }
 
     /// Complete character creation and transition to Playing.
