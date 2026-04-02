@@ -151,17 +151,6 @@ pub fn format_abilities_context(abilities: &[String]) -> String {
     out
 }
 
-/// Telemetry summary for the `abilities.resolved` OTEL watcher event.
-#[derive(Debug, Clone)]
-pub struct AbilitiesResolvedSummary {
-    /// Number of distinct abilities resolved.
-    pub count: usize,
-    /// Number of affinity tiers that contributed abilities.
-    pub tiers_active: usize,
-    /// The resolved ability names.
-    pub ability_names: Vec<String>,
-}
-
 /// Increment progress for a named affinity. Creates the affinity at tier 0 if absent.
 /// Returns true if the affinity existed (or was created).
 pub fn increment_affinity_progress(

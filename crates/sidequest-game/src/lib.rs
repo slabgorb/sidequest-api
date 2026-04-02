@@ -77,7 +77,7 @@ pub use accusation::{
 pub use achievement::{Achievement, AchievementTracker};
 pub use belief_state::{Belief, BeliefSource, BeliefState, Credibility};
 pub use affinity::{
-    AbilitiesResolvedSummary, AffinityState, AffinityTierUpEvent, check_affinity_thresholds,
+    AffinityState, AffinityTierUpEvent, check_affinity_thresholds,
     format_abilities_context, increment_affinity_progress, resolve_abilities, MAX_TIER, TIER_NAMES,
 };
 pub use audio_mixer::{AudioMixer, DuckConfig};

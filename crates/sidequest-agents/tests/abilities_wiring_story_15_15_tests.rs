@@ -43,17 +43,3 @@ fn format_abilities_context_accessible_from_agents() {
     assert!(context.contains("Spark"));
     assert!(context.contains("Fireball"));
 }
-
-/// OTEL telemetry: verify the AbilitiesResolvedSummary struct exists
-/// for emitting abilities.resolved watcher events.
-#[test]
-fn abilities_resolved_summary_captures_telemetry_fields() {
-    let summary = sidequest_game::AbilitiesResolvedSummary {
-        count: 3,
-        tiers_active: 2,
-        ability_names: vec!["Spark".to_string(), "Flame Shield".to_string(), "Fireball".to_string()],
-    };
-    assert_eq!(summary.count, 3);
-    assert_eq!(summary.tiers_active, 2);
-    assert_eq!(summary.ability_names.len(), 3);
-}
