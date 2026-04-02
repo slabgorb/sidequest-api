@@ -342,7 +342,7 @@ fn orchestrator_prompt_build_span_records_diagnostic_field() {
     );
 }
 
-/// AC5: turn.agent_llm.parse_response must record extraction_tier or narration_len.
+/// AC5: turn.agent_llm.parse_response must record narration_len.
 #[test]
 fn orchestrator_extraction_span_records_diagnostic_field() {
     use sidequest_agents::orchestrator::{GameService, TurnContext};

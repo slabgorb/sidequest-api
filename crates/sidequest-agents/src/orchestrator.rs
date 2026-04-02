@@ -758,20 +758,24 @@ impl GameService for Orchestrator {
 /// Used for creature_smith (CombatPatch) and dialectician (ChasePatch) responses
 /// which may wrap their JSON output in ```json ... ``` fences.
 fn extract_fenced_json<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, serde_json::Error> {
+    // Try ```json ... ``` first
     if let Some(start) = input.find("```json") {
         if let Some(end) = input[start + 7..].find("```") {
             let json_str = input[start + 7..start + 7 + end].trim();
             return serde_json::from_str(json_str);
         }
     }
-    // Also try unfenced ``` ... ```
-    if let Some(start) = input.find("```") {
+    // Try bare ``` ... ```, but skip past any ```json opener we already tried
+    let search_start = input.find("```json").map(|s| s + 7).unwrap_or(0);
+    if let Some(rel_start) = input[search_start..].find("```") {
+        let start = search_start + rel_start;
         if let Some(end) = input[start + 3..].find("```") {
             let json_str = input[start + 3..start + 3 + end].trim();
             return serde_json::from_str(json_str);
         }
     }
-    serde_json::from_str("null")
+    // No fenced JSON found — return a clear error
+    serde_json::from_str::<T>("")
 }
 
 /// Remove a ```json ... ``` fenced block from narration so the player sees clean prose.
@@ -835,42 +839,6 @@ pub struct PersonalityEvent {
     pub description: String,
 }
 
-/// Contains footnotes, items gained, NPCs present, and quest updates in the narrator's response.
-#[derive(Debug, serde::Deserialize)]
-struct NarratorStructuredBlock {
-    #[serde(default)]
-    footnotes: Vec<sidequest_protocol::Footnote>,
-    #[serde(default)]
-    items_gained: Vec<sidequest_protocol::ItemGained>,
-    #[serde(default)]
-    npcs_present: Vec<NpcMention>,
-    #[serde(default)]
-    quest_updates: HashMap<String, String>,
-    #[serde(default)]
-    visual_scene: Option<VisualScene>,
-    #[serde(default)]
-    scene_mood: Option<String>,
-    #[serde(default)]
-    personality_events: Vec<PersonalityEvent>,
-    #[serde(default)]
-    scene_intent: Option<String>,
-    #[serde(default)]
-    resource_deltas: HashMap<String, f64>,
-    #[serde(default)]
-    lore_established: Option<Vec<String>>,
-    /// Merchant transactions (buy/sell) extracted from narrator JSON block.
-    #[serde(default)]
-    merchant_transactions: Vec<MerchantTransactionExtracted>,
-    /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
-    #[serde(default)]
-    sfx_triggers: Vec<String>,
-    /// Inline preprocessor: action rewrite (approach A — eliminates separate Haiku call).
-    #[serde(default)]
-    action_rewrite: Option<ActionRewrite>,
-    /// Inline preprocessor: relevance flags.
-    #[serde(default)]
-    action_flags: Option<ActionFlags>,
-}
 
 /// A merchant transaction extracted from the narrator's JSON block.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
