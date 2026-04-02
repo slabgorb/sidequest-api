@@ -1015,6 +1015,10 @@ pub struct CharCreationScene {
     pub narration: String,
     /// Player choices (may be empty for the final confirmation scene).
     pub choices: Vec<CharCreationChoice>,
+    /// Genre-aware loading text shown while waiting for the next scene.
+    /// E.g. "The ripperdoc considers your words..."
+    #[serde(default)]
+    pub loading_text: Option<String>,
     /// Whether this scene allows freeform text input.
     #[serde(default)]
     pub allows_freeform: Option<bool>,
