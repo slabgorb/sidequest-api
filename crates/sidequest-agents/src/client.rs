@@ -173,6 +173,7 @@ impl ClaudeClient {
         let mut cmd = Command::new(&self.command_path);
         if let Some(endpoint) = &self.otel_endpoint {
             cmd.env("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+                .env("OTEL_TRACES_EXPORTER", "otlp")
                 .env("OTEL_LOGS_EXPORTER", "otlp")
                 .env("OTEL_METRICS_EXPORTER", "otlp")
                 .env("OTEL_EXPORTER_OTLP_PROTOCOL", "http/json")
