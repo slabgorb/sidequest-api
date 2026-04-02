@@ -135,11 +135,13 @@ pub fn validate_scene_render(
 ) -> Result<VisualScene, SceneRenderError> {
     // Validate subject length
     if subject.is_empty() {
+        tracing::warn!(valid = false, "scene_render validation failed: empty subject");
         return Err(SceneRenderError::InvalidSubject(
             "subject must not be empty".to_string(),
         ));
     }
     if subject.len() > 100 {
+        tracing::warn!(valid = false, length = subject.len(), "scene_render validation failed: subject too long");
         return Err(SceneRenderError::InvalidSubject(format!(
             "subject must be ≤100 chars, got {}",
             subject.len()
@@ -147,19 +149,33 @@ pub fn validate_scene_render(
     }
 
     // Validate tier
-    let validated_tier =
-        SceneTier::from_str_ci(tier).ok_or_else(|| SceneRenderError::InvalidTier(tier.to_string()))?;
+    let validated_tier = match SceneTier::from_str_ci(tier) {
+        Some(t) => t,
+        None => {
+            tracing::warn!(valid = false, tier = tier, "scene_render validation failed: invalid tier");
+            return Err(SceneRenderError::InvalidTier(tier.to_string()));
+        }
+    };
 
     // Validate mood
-    let validated_mood =
-        VisualMood::from_str_ci(mood).ok_or_else(|| SceneRenderError::InvalidMood(mood.to_string()))?;
+    let validated_mood = match VisualMood::from_str_ci(mood) {
+        Some(m) => m,
+        None => {
+            tracing::warn!(valid = false, mood = mood, "scene_render validation failed: invalid mood");
+            return Err(SceneRenderError::InvalidMood(mood.to_string()));
+        }
+    };
 
     // Validate tags
     let mut validated_tags = Vec::with_capacity(tags.len());
     for tag in tags {
-        let vt = VisualTag::from_str_ci(tag)
-            .ok_or_else(|| SceneRenderError::InvalidTag((*tag).to_string()))?;
-        validated_tags.push(vt.as_str().to_string());
+        match VisualTag::from_str_ci(tag) {
+            Some(vt) => validated_tags.push(vt.as_str().to_string()),
+            None => {
+                tracing::warn!(valid = false, tag = *tag, "scene_render validation failed: invalid tag");
+                return Err(SceneRenderError::InvalidTag((*tag).to_string()));
+            }
+        }
     }
 
     let scene = VisualScene {

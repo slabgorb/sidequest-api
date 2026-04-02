@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use tracing::{info, warn};
 
-use crate::orchestrator::VisualScene;
 use crate::tools::assemble_turn::ToolCallResults;
+use crate::tools::scene_render::validate_scene_render;
 
 /// Directory where tool call sidecar files are written.
 ///
@@ -116,27 +116,21 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                 let tags = record.result.get("tags").and_then(|v| v.as_array());
 
                 if let (Some(subject), Some(tier), Some(mood)) = (subject, tier, mood) {
-                    let tag_strings: Vec<String> = tags
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                .collect()
-                        })
+                    let tag_refs: Vec<&str> = tags
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
                         .unwrap_or_default();
 
-                    info!(
-                        tool = "scene_render",
-                        subject = subject,
-                        tier = tier,
-                        "tool result parsed"
-                    );
-                    results.visual_scene = Some(VisualScene {
-                        subject: subject.to_string(),
-                        tier: tier.to_string(),
-                        mood: mood.to_string(),
-                        tags: tag_strings,
-                    });
-                    parsed_count += 1;
+                    match validate_scene_render(subject, tier, mood, &tag_refs) {
+                        Ok(scene) => {
+                            info!(tool = "scene_render", subject = subject, tier = tier, "tool result parsed");
+                            results.visual_scene = Some(scene);
+                            parsed_count += 1;
+                        }
+                        Err(e) => {
+                            warn!(tool = "scene_render", error = %e, "scene_render validation failed — skipping");
+                            skipped_count += 1;
+                        }
+                    }
                 } else {
                     warn!(tool = "scene_render", "missing required fields (subject/tier/mood) in result — skipping");
                     skipped_count += 1;
