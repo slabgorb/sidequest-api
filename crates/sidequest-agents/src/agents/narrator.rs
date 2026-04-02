@@ -95,30 +95,11 @@ Fields:
 - footnotes: knowledge/lore discovered (omit if none)
 - items_gained: items acquired (omit if none)
 - npcs_present: NPCs in this scene (omit if none)
-- personality_events: list of NPC personality-changing moments (omit if none).
-  Each entry: {\"npc\": \"Name\", \"event_type\": \"betrayal\", \"description\": \"brief context\"}.
-  event_type MUST be one of exactly these values:
-    betrayal — an NPC betrayed trust or was betrayed
-    near_death — an NPC nearly died or was mortally wounded
-    victory — an NPC achieved a significant triumph
-    defeat — an NPC suffered a crushing loss
-    social_bonding — an NPC formed a meaningful connection
-  Only emit when a SIGNIFICANT personality-shaping event occurs, not routine interactions.
-- sfx_triggers: list of SFX IDs to play this turn (omit if none).
-  Pick from the available SFX library for this genre. Choose based on what
-  HAPPENED in the narration — actions, impacts, environment. A sword being
-  BOUGHT is commerce (coin_drop), not combat (sword_clash). A door being
-  DESCRIBED is not a door_creak. Match the action, not the noun.
 - merchant_transactions: list of buy/sell transactions (omit if none).
   Each entry: {\"type\": \"buy\" or \"sell\", \"item_id\": \"item_name_snake_case\", \"merchant\": \"NPC Name\"}.
   Only emit when the player ACTUALLY completes a purchase or sale with a merchant.
   The item_id should match an item from the merchant's inventory (for buy) or
   the player's inventory (for sell). The merchant name must match an NPC present.
-- resource_deltas: object mapping resource names to signed numeric deltas.
-  Only include resources that CHANGED this turn. Positive = gained, negative = spent/lost.
-  Example: {\"luck\": -1} means the player spent 1 Luck. {\"heat\": 0.5} means Heat rose by 0.5.
-  Resource names must match the genre's declared resource names exactly.
-  Omit if no resources changed.
 Example:
 ```json
 {\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}]}

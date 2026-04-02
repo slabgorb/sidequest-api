@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, NarratorExtraction, VisualScene};
+use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, NarratorExtraction, PersonalityEvent, VisualScene};
 
 /// Collected results from tool calls made during the narrator turn.
 ///
@@ -30,6 +30,18 @@ pub struct ToolCallResults {
     /// `None` means no quest_update tools fired (use narrator fallback).
     /// `Some(map)` means tools fired — use this map even if empty.
     pub quest_updates: Option<HashMap<String, String>>,
+    /// Personality events from `personality_event` tool calls. Overrides narrator's `personality_events`.
+    /// `None` means no personality_event tools fired (use narrator fallback).
+    /// `Some(vec)` means tools fired — use this vec even if empty.
+    pub personality_events: Option<Vec<PersonalityEvent>>,
+    /// Resource deltas from `resource_change` tool calls. Overrides narrator's `resource_deltas`.
+    /// `None` means no resource_change tools fired (use narrator fallback).
+    /// `Some(map)` means tools fired — use this map even if empty.
+    pub resource_deltas: Option<HashMap<String, f64>>,
+    /// SFX triggers from `play_sfx` tool calls. Overrides narrator's `sfx_triggers`.
+    /// `None` means no play_sfx tools fired (use narrator fallback).
+    /// `Some(vec)` means tools fired — use this vec even if empty.
+    pub sfx_triggers: Option<Vec<String>>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
@@ -53,6 +65,12 @@ pub fn assemble_turn(
     let visual_scene = tool_results.visual_scene.or(extraction.visual_scene);
     // Quest updates: tool calls > narrator extraction
     let quest_updates = tool_results.quest_updates.unwrap_or(extraction.quest_updates);
+    // Personality events: tool calls > narrator extraction
+    let personality_events = tool_results.personality_events.unwrap_or(extraction.personality_events);
+    // Resource deltas: tool calls > narrator extraction
+    let resource_deltas = tool_results.resource_deltas.unwrap_or(extraction.resource_deltas);
+    // SFX triggers: tool calls > narrator extraction
+    let sfx_triggers = tool_results.sfx_triggers.unwrap_or(extraction.sfx_triggers);
 
     ActionResult {
         narration: extraction.prose,
@@ -71,13 +89,13 @@ pub fn assemble_turn(
         extraction_tier: Some(extraction.tier),
         visual_scene,
         scene_mood,
-        personality_events: extraction.personality_events,
+        personality_events,
         scene_intent,
-        resource_deltas: extraction.resource_deltas,
+        resource_deltas,
         zone_breakdown: None,
         lore_established: extraction.lore_established,
         merchant_transactions: extraction.merchant_transactions,
-        sfx_triggers: extraction.sfx_triggers,
+        sfx_triggers,
         // Preprocessor values always win — narrator's action_rewrite/action_flags are discarded
         action_rewrite: Some(rewrite),
         action_flags: Some(flags),
