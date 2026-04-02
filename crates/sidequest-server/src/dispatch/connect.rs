@@ -1107,14 +1107,22 @@ pub(crate) async fn dispatch_character_creation(
                         }
                     }
 
+                    // "ready" must come AFTER intro_messages.  The auto-turn
+                    // ("I look around") sends its NARRATION inline via ctx.tx
+                    // inside dispatch_player_action, so by the time we reach
+                    // here the narration is already in the mpsc queue.  The
+                    // client's "ready" handler clears the narration buffer, so
+                    // if "ready" arrives before the narration flushes the
+                    // opening text is wiped.  Placing "ready" last ensures all
+                    // turn-1 messages are delivered first.
                     let mut msgs = vec![
                         complete,
                         char_sheet,
                         backstory_narration,
                         backstory_end,
-                        ready,
                     ];
                     msgs.extend(intro_messages);
+                    msgs.push(ready);
                     msgs
                 }
                 Err(e) => vec![error_response(
