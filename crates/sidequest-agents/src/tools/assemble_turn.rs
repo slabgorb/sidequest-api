@@ -42,6 +42,10 @@ pub struct ToolCallResults {
     /// `None` means no play_sfx tools fired (use narrator fallback).
     /// `Some(vec)` means tools fired — use this vec even if empty.
     pub sfx_triggers: Option<Vec<String>>,
+    /// Items acquired from `item_acquire` tool calls. Overrides narrator's `items_gained`.
+    /// `None` means no item_acquire tools fired (use narrator fallback).
+    /// `Some(vec)` means tools fired — use this vec even if empty.
+    pub items_acquired: Option<Vec<sidequest_protocol::ItemGained>>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
@@ -71,6 +75,8 @@ pub fn assemble_turn(
     let resource_deltas = tool_results.resource_deltas.unwrap_or(extraction.resource_deltas);
     // SFX triggers: tool calls > narrator extraction
     let sfx_triggers = tool_results.sfx_triggers.unwrap_or(extraction.sfx_triggers);
+    // Items gained: tool calls > narrator extraction
+    let items_gained = tool_results.items_acquired.unwrap_or(extraction.items_gained);
 
     ActionResult {
         narration: extraction.prose,
@@ -80,7 +86,7 @@ pub fn assemble_turn(
         classified_intent: None,
         agent_name: None,
         footnotes: extraction.footnotes,
-        items_gained: extraction.items_gained,
+        items_gained,
         npcs_present: extraction.npcs_present,
         quest_updates,
         agent_duration_ms: None,
