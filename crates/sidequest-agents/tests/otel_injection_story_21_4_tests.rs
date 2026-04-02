@@ -19,9 +19,18 @@
 //!   #5 — validated constructors: otel_endpoint must accept valid URLs
 //!   #6 — meaningful assertions (self-checked)
 
+use std::path::PathBuf;
 use std::time::Duration;
 
-use sidequest_agents::client::{ClaudeClient, ClaudeClientBuilder};
+use sidequest_agents::client::ClaudeClient;
+
+/// Path to the test helper script that dumps environment variables.
+/// The script ignores all arguments (unlike `env` on macOS which chokes on `-p`).
+fn dump_env_path() -> String {
+    let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    path.push("tests/dump_env.sh");
+    path.to_string_lossy().to_string()
+}
 
 // ============================================================================
 // AC-1: ClaudeClientBuilder gains `.otel_endpoint(url)` method
@@ -68,31 +77,27 @@ fn builder_otel_endpoint_chains_with_other_settings() {
 
 #[test]
 fn client_without_otel_does_not_set_env_vars() {
-    // Use 'env' as subprocess — its output will NOT contain OTEL vars
-    let client = ClaudeClient::builder()
-        .command_path("env")
+    // Compare env output with and without otel_endpoint.
+    // The "without" run should NOT contain our sentinel endpoint URL.
+    let sentinel = "http://test-sentinel-21-4:9999";
+    let client_without = ClaudeClient::builder()
+        .command_path(dump_env_path())
         .timeout(Duration::from_secs(5))
         .build();
 
-    let result = client.send("ignored");
-    // env command outputs all environment variables
-    // We need to verify OTEL vars are NOT present
-    match result {
-        Ok(response) => {
-            assert!(
-                !response.text.contains("OTEL_LOGS_EXPORTER"),
-                "Without otel_endpoint, OTEL_LOGS_EXPORTER must NOT be in subprocess env"
-            );
-            assert!(
-                !response.text.contains("CLAUDE_CODE_ENABLE_TELEMETRY"),
-                "Without otel_endpoint, CLAUDE_CODE_ENABLE_TELEMETRY must NOT be in subprocess env"
-            );
-        }
-        Err(_) => {
-            // env command may fail due to args passed by send_impl — that's ok,
-            // the test structure proves the builder compiles without otel_endpoint
-        }
-    }
+    let result = client_without.send("ignored");
+    assert!(result.is_ok(), "dump_env should succeed: {:?}", result.err());
+    let output = result.unwrap().text;
+
+    // Our sentinel endpoint must NOT appear — it was never configured
+    assert!(
+        !output.contains(sentinel),
+        "Without otel_endpoint, our sentinel URL must NOT be in subprocess env"
+    );
+    assert!(
+        !output.contains("CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS=3000"),
+        "Without otel_endpoint, flush timeout must NOT be set by our code"
+    );
 }
 
 // ============================================================================
@@ -115,7 +120,7 @@ fn send_with_otel_sets_all_seven_env_vars() {
     // send_impl passes args that 'env' ignores, so we get clean env output.
     let endpoint = "http://localhost:4318";
     let client = ClaudeClient::builder()
-        .command_path("env")
+        .command_path(dump_env_path())
         .timeout(Duration::from_secs(5))
         .otel_endpoint(endpoint.to_string())
         .build();
@@ -149,7 +154,7 @@ fn send_with_otel_sets_all_seven_env_vars() {
 fn send_with_otel_sets_flush_timeout() {
     // AC-3: CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS=3000
     let client = ClaudeClient::builder()
-        .command_path("env")
+        .command_path(dump_env_path())
         .timeout(Duration::from_secs(5))
         .otel_endpoint("http://localhost:4318".to_string())
         .build();
@@ -169,7 +174,7 @@ fn send_with_otel_endpoint_value_appears_in_env() {
     // Verify the endpoint URL is correctly passed, not hardcoded
     let custom_endpoint = "http://192.168.1.100:9999";
     let client = ClaudeClient::builder()
-        .command_path("env")
+        .command_path(dump_env_path())
         .timeout(Duration::from_secs(5))
         .otel_endpoint(custom_endpoint.to_string())
         .build();
@@ -191,28 +196,36 @@ fn send_with_otel_endpoint_value_appears_in_env() {
 
 #[test]
 fn send_without_otel_has_no_otel_env_vars() {
-    let client = ClaudeClient::builder()
-        .command_path("env")
+    // Use a unique sentinel endpoint to distinguish our vars from parent env.
+    // Run WITH endpoint and verify sentinel is present, then run WITHOUT
+    // and verify sentinel is absent. This proves our code controls injection.
+    let sentinel = "http://test-sentinel-negative:7777";
+
+    // First: verify with endpoint → sentinel IS present
+    let client_with = ClaudeClient::builder()
+        .command_path(dump_env_path())
+        .timeout(Duration::from_secs(5))
+        .otel_endpoint(sentinel.to_string())
+        .build();
+    let with_output = client_with.send("ignored").expect("dump_env should succeed").text;
+    assert!(
+        with_output.contains(sentinel),
+        "Sanity check: sentinel must appear when otel_endpoint is set"
+    );
+
+    // Then: verify without endpoint → sentinel is NOT present
+    let client_without = ClaudeClient::builder()
+        .command_path(dump_env_path())
         .timeout(Duration::from_secs(5))
         .build();
-
-    let result = client.send("ignored");
-    assert!(result.is_ok(), "env command should succeed: {:?}", result.err());
-    let output = result.unwrap().text;
-
-    for (var_name, _) in EXPECTED_OTEL_VARS {
-        assert!(
-            !output.contains(var_name),
-            "Without otel_endpoint, {var_name} must NOT appear in subprocess env.\nGot:\n{output}"
-        );
-    }
+    let without_output = client_without.send("ignored").expect("dump_env should succeed").text;
     assert!(
-        !output.contains("OTEL_EXPORTER_OTLP_ENDPOINT"),
-        "Without otel_endpoint, OTEL_EXPORTER_OTLP_ENDPOINT must NOT appear.\nGot:\n{output}"
+        !without_output.contains(sentinel),
+        "Without otel_endpoint, sentinel URL must NOT appear.\nGot:\n{without_output}"
     );
     assert!(
-        !output.contains("CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS"),
-        "Without otel_endpoint, flush timeout must NOT appear.\nGot:\n{output}"
+        !without_output.contains("CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS=3000"),
+        "Without otel_endpoint, flush timeout must NOT be set.\nGot:\n{without_output}"
     );
 }
 
@@ -225,7 +238,7 @@ fn integration_otel_env_inherited_by_subprocess() {
     // Use 'printenv' with a specific var name to confirm inheritance
     // printenv OTEL_LOGS_EXPORTER should output "otlp" when endpoint is set
     let client = ClaudeClient::builder()
-        .command_path("printenv")
+        .command_path(dump_env_path())
         .timeout(Duration::from_secs(5))
         .otel_endpoint("http://localhost:4318".to_string())
         .build();
