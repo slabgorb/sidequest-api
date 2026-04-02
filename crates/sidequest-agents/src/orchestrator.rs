@@ -164,7 +164,16 @@ impl Orchestrator {
     /// Automatically loads SOUL.md from the current working directory if present.
     /// SOUL principles are injected into every agent prompt in the Early attention zone.
     pub fn new(watcher_tx: mpsc::Sender<TurnRecord>) -> Self {
-        let client = ClaudeClient::new();
+        Self::new_with_otel(watcher_tx, None)
+    }
+
+    /// Create a new orchestrator with optional OTEL endpoint for Claude subprocess telemetry.
+    pub fn new_with_otel(watcher_tx: mpsc::Sender<TurnRecord>, otel_endpoint: Option<String>) -> Self {
+        let client = if let Some(endpoint) = otel_endpoint {
+            ClaudeClient::builder().otel_endpoint(endpoint).build()
+        } else {
+            ClaudeClient::new()
+        };
         let soul_path = std::path::Path::new("SOUL.md");
         let soul_data = parse_soul_md(soul_path);
         let soul_data = if soul_data.is_empty() {

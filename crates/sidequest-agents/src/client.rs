@@ -65,6 +65,7 @@ pub struct ClaudeResponse {
 pub struct ClaudeClient {
     timeout: Duration,
     command_path: String,
+    otel_endpoint: Option<String>,
 }
 
 impl ClaudeClient {
@@ -73,6 +74,7 @@ impl ClaudeClient {
         Self {
             timeout: DEFAULT_TIMEOUT,
             command_path: DEFAULT_COMMAND.to_string(),
+            otel_endpoint: None,
         }
     }
 
@@ -81,6 +83,7 @@ impl ClaudeClient {
         Self {
             timeout,
             command_path: DEFAULT_COMMAND.to_string(),
+            otel_endpoint: None,
         }
     }
 
@@ -97,6 +100,11 @@ impl ClaudeClient {
     /// The configured command path.
     pub fn command_path(&self) -> &str {
         &self.command_path
+    }
+
+    /// The configured OTEL endpoint, if any.
+    pub fn otel_endpoint(&self) -> Option<&str> {
+        self.otel_endpoint.as_deref()
     }
 }
 
@@ -160,6 +168,16 @@ impl ClaudeClient {
         }
 
         let mut cmd = Command::new(&self.command_path);
+        if let Some(endpoint) = &self.otel_endpoint {
+            cmd.env("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+                .env("OTEL_LOGS_EXPORTER", "otlp")
+                .env("OTEL_METRICS_EXPORTER", "otlp")
+                .env("OTEL_EXPORTER_OTLP_PROTOCOL", "http/json")
+                .env("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+                .env("OTEL_LOG_TOOL_CONTENT", "1")
+                .env("OTEL_LOG_TOOL_DETAILS", "1")
+                .env("CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS", "3000");
+        }
         if let Some(m) = model {
             cmd.arg("--model").arg(m);
         }
@@ -293,6 +311,7 @@ impl Default for ClaudeClient {
 pub struct ClaudeClientBuilder {
     timeout: Duration,
     command_path: String,
+    otel_endpoint: Option<String>,
 }
 
 impl Default for ClaudeClientBuilder {
@@ -300,6 +319,7 @@ impl Default for ClaudeClientBuilder {
         Self {
             timeout: DEFAULT_TIMEOUT,
             command_path: DEFAULT_COMMAND.to_string(),
+            otel_endpoint: None,
         }
     }
 }
@@ -317,11 +337,19 @@ impl ClaudeClientBuilder {
         self
     }
 
+    /// Set the OTEL endpoint for Claude subprocess telemetry export.
+    /// Empty strings are normalized to None.
+    pub fn otel_endpoint(mut self, endpoint: String) -> Self {
+        self.otel_endpoint = if endpoint.trim().is_empty() { None } else { Some(endpoint) };
+        self
+    }
+
     /// Build the ClaudeClient.
     pub fn build(self) -> ClaudeClient {
         ClaudeClient {
             timeout: self.timeout,
             command_path: self.command_path,
+            otel_endpoint: self.otel_endpoint,
         }
     }
 }

@@ -92,7 +92,7 @@ pub(crate) async fn sync_back_to_shared_session(
                         let text = if let Some(filter) = ss.perception_filters.get(target_id) {
                             if filter.has_effects() {
                                 // Use Claude-backed perception rewriter for actual narration variant
-                                let client = sidequest_agents::client::ClaudeClient::new();
+                                let client = ctx.state.create_claude_client();
                                 let strategy =
                                     sidequest_agents::agents::resonator::ClaudeRewriteStrategy::new(
                                         client,

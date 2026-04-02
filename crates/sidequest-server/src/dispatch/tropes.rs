@@ -3,7 +3,6 @@
 use std::collections::HashSet;
 
 use sidequest_agents::agents::troper::TroperAgent;
-use sidequest_agents::client::ClaudeClient;
 use sidequest_game::achievement::Achievement;
 use sidequest_game::trope::{FiredBeat, TropeEngine};
 use sidequest_protocol::GameMessage;
@@ -37,7 +36,7 @@ pub(crate) fn process_tropes(
         .map(|ts| ts.trope_definition_id().to_string())
         .collect();
 
-    let client = ClaudeClient::new();
+    let client = ctx.state.create_claude_client();
     let activations =
         TroperAgent::evaluate_triggers(&client, clean_narration, ctx.trope_defs, &active_ids);
 
