@@ -53,22 +53,26 @@ pub(crate) async fn process_audio(
         let pre_telemetry = director.telemetry_snapshot();
         let mood_reasoning = director.classify_mood_with_reasoning(clean_narration, &mood_ctx);
 
-        // Use narrator's scene_mood — it's required every turn.
+        // Mood selection: MusicDirector's state-based classification is authoritative
+        // (it checks in_combat, in_chase, quest_completed, etc.).  Narrator's
+        // scene_mood overrides only if the narrator actually provided one —
+        // most agents don't, so relying on it alone produces perpetual "exploration".
         let mood_key = match result.scene_mood.as_deref() {
             Some(mood) => {
-                tracing::info!(mood = %mood, "music_mood_from_narrator");
+                tracing::info!(mood = %mood, "music_mood_from_narrator — overriding classifier");
                 mood
             }
             None => {
-                tracing::error!("narrator did not provide scene_mood — defaulting to exploration");
-                "exploration"
+                let classified = mood_reasoning.classification.primary.as_key();
+                tracing::info!(
+                    mood = classified,
+                    in_combat = mood_ctx.in_combat,
+                    in_chase = mood_ctx.in_chase,
+                    "music_mood_classified — narrator did not provide scene_mood"
+                );
+                classified
             }
         };
-        tracing::info!(
-            mood = mood_key,
-            in_combat = mood_ctx.in_combat,
-            "music_mood_classified"
-        );
 
         // Get turn_number for watcher event (approximate from turn_manager)
         let turn_approx = ctx.turn_manager.interaction();
