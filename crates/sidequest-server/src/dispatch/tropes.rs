@@ -77,6 +77,15 @@ pub(crate) fn process_tropes(
         "Trope tick complete"
     );
 
+    // Unconditional watcher event — GM panel sees the engine is engaged every turn
+    WatcherEventBuilder::new("trope", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "trope.tick")
+        .field("active_tropes", ctx.trope_states.len())
+        .field("activations_from_llm", activations.len())
+        .field("beats_fired", fired.len())
+        .field("achievements_earned", earned.len())
+        .send(ctx.state);
+
     for ts in ctx.trope_states.iter() {
         tracing::debug!(
             trope_id = %ts.trope_definition_id(),

@@ -1051,10 +1051,13 @@ fn update_npc_registry(
             }
         }
     }
-    tracing::debug!(
-        npc_count = ctx.npc_registry.len(),
-        "NPC registry updated from structured extraction"
-    );
+    // Unconditional watcher event — GM panel sees the scan ran even if no new NPCs
+    WatcherEventBuilder::new("npc_registry", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "npc_registry.scan")
+        .field("npcs_in_narration", result.npcs_present.len())
+        .field("registry_size", ctx.npc_registry.len())
+        .field("turn", ctx.turn_manager.interaction())
+        .send(ctx.state);
 
     // OCEAN personality shifts — typed directly from narrator's structured JSON block.
     // No keyword matching. The narrator emits event_type as a typed enum variant.
@@ -1422,7 +1425,15 @@ async fn persist_game_state(
                 .field("turn", ctx.turn_manager.interaction())
                 .send(ctx.state);
         }
-        Err(e) => tracing::warn!(error = %e, "Failed to persist game state"),
+        Err(e) => {
+            tracing::error!(error = %e, "Failed to persist game state");
+            WatcherEventBuilder::new("persistence", WatcherEventType::ValidationWarning)
+                .field("event", "persistence.save_failed")
+                .field("error", &format!("{e}"))
+                .field("player", ctx.player_name_for_save)
+                .field("turn", ctx.turn_manager.interaction())
+                .send(ctx.state);
+        }
     }
 }
 
