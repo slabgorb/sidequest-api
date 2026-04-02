@@ -11,6 +11,7 @@ use std::path::PathBuf;
 
 use tracing::{info, warn};
 
+use crate::orchestrator::VisualScene;
 use crate::tools::assemble_turn::ToolCallResults;
 
 /// Directory where tool call sidecar files are written.
@@ -105,6 +106,39 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     parsed_count += 1;
                 } else {
                     warn!(tool = "set_intent", "missing 'intent' field in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "scene_render" => {
+                let subject = record.result.get("subject").and_then(|v| v.as_str());
+                let tier = record.result.get("tier").and_then(|v| v.as_str());
+                let mood = record.result.get("mood").and_then(|v| v.as_str());
+                let tags = record.result.get("tags").and_then(|v| v.as_array());
+
+                if let (Some(subject), Some(tier), Some(mood)) = (subject, tier, mood) {
+                    let tag_strings: Vec<String> = tags
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    info!(
+                        tool = "scene_render",
+                        subject = subject,
+                        tier = tier,
+                        "tool result parsed"
+                    );
+                    results.visual_scene = Some(VisualScene {
+                        subject: subject.to_string(),
+                        tier: tier.to_string(),
+                        mood: mood.to_string(),
+                        tags: tag_strings,
+                    });
+                    parsed_count += 1;
+                } else {
+                    warn!(tool = "scene_render", "missing required fields (subject/tier/mood) in result — skipping");
                     skipped_count += 1;
                 }
             }
