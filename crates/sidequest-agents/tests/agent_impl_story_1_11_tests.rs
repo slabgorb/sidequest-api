@@ -185,6 +185,7 @@ mod agent_types_tests {
             action_rewrite: None,
             action_flags: None,
             sfx_triggers: vec![],
+            merchant_transactions: vec![],
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -374,6 +375,7 @@ mod game_service_tests {
             action_rewrite: None,
             action_flags: None,
             sfx_triggers: vec![],
+            merchant_transactions: vec![],
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -423,6 +425,7 @@ mod error_handling_tests {
             action_rewrite: None,
             action_flags: None,
             sfx_triggers: vec![],
+            merchant_transactions: vec![],
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());
