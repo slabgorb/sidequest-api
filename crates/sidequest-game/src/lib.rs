@@ -115,7 +115,7 @@ pub use hp::clamp_hp;
 pub use inventory::{Inventory, InventoryError, Item};
 pub use merchant::{
     calculate_price, execute_buy, execute_sell, format_merchant_context,
-    MerchantError, MerchantTransaction, TransactionType,
+    MerchantError, MerchantTransaction, MerchantTransactionRequest, TransactionType,
 };
 pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{

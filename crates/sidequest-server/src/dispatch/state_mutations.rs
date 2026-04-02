@@ -389,6 +389,59 @@ pub(crate) async fn apply_state_mutations(
         }
     }
 
+    // Merchant transactions — apply buy/sell extracted from narrator JSON block (story 15-16).
+    if !result.merchant_transactions.is_empty() {
+        let requests: Vec<sidequest_game::MerchantTransactionRequest> = result
+            .merchant_transactions
+            .iter()
+            .filter_map(|tx| {
+                let transaction_type = match tx.transaction_type.to_lowercase().as_str() {
+                    "buy" => sidequest_game::TransactionType::Buy,
+                    "sell" => sidequest_game::TransactionType::Sell,
+                    other => {
+                        tracing::warn!(tx_type = %other, "merchant.invalid_transaction_type");
+                        return None;
+                    }
+                };
+                Some(sidequest_game::MerchantTransactionRequest {
+                    transaction_type,
+                    item_id: tx.item_id.clone(),
+                    merchant_name: tx.merchant.clone(),
+                })
+            })
+            .collect();
+
+        if !requests.is_empty() {
+            let results = ctx.snapshot.apply_merchant_transactions(&requests);
+            for (i, tx_result) in results.iter().enumerate() {
+                match tx_result {
+                    Ok(tx) => {
+                        // Sync inventory back to ctx for downstream consumers
+                        if let Some(ch) = ctx.snapshot.characters.first() {
+                            *ctx.inventory = ch.core.inventory.clone();
+                        }
+                        WatcherEventBuilder::new("merchant", WatcherEventType::StateTransition)
+                            .field("event", "merchant.transaction")
+                            .field("type", format!("{:?}", tx.transaction_type))
+                            .field("item", &tx.item_name)
+                            .field("price", tx.price)
+                            .field("merchant", &requests[i].merchant_name)
+                            .send(ctx.state);
+                        tracing::info!(
+                            item = %tx.item_name,
+                            price = tx.price,
+                            tx_type = ?tx.transaction_type,
+                            "merchant.transaction_applied"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "merchant.transaction_failed");
+                    }
+                }
+            }
+        }
+    }
+
     // Item acquisition — driven by structured extraction from the LLM response.
     // The narrator emits items_gained in its JSON block when the player
     // actually acquires something.
