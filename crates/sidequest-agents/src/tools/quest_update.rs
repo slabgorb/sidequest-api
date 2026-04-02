@@ -4,8 +4,6 @@
 //! The LLM decides THAT a quest changed; this tool structures the transition.
 //! Quest names and statuses are free-form strings (no enum — quests are open-ended).
 
-use std::fmt;
-
 /// A validated quest state transition.
 ///
 /// Produced by `validate_quest_update`. Serializes to JSON for the tool call response.
