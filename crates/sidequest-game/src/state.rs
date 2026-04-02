@@ -969,6 +969,10 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 y: 0,
                 location_type: "region".to_string(),
                 connections: vec![],
+                room_exits: vec![],
+                room_type: String::new(),
+                size: None,
+                is_current_room: false,
             })
             .collect();
         messages.push(GameMessage::MapUpdate {

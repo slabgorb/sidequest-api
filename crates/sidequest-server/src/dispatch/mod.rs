@@ -472,17 +472,30 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 },
                 player_id: ctx.player_id.to_string(),
             });
-            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = ctx
-                .discovered_regions
-                .iter()
-                .map(|name| sidequest_protocol::ExploredLocation {
-                    name: name.clone(),
-                    x: 0,
-                    y: 0,
-                    location_type: String::new(),
-                    connections: vec![],
-                })
-                .collect();
+            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty() {
+                // Room-graph mode: use build_room_graph_explored for full room metadata
+                sidequest_game::build_room_graph_explored(
+                    &ctx.rooms,
+                    &ctx.snapshot.discovered_rooms,
+                    &ctx.snapshot.location,
+                )
+            } else {
+                // Region mode: simple location list without room metadata
+                ctx.discovered_regions
+                    .iter()
+                    .map(|name| sidequest_protocol::ExploredLocation {
+                        name: name.clone(),
+                        x: 0,
+                        y: 0,
+                        location_type: String::new(),
+                        connections: vec![],
+                        room_exits: vec![],
+                        room_type: String::new(),
+                        size: None,
+                        is_current_room: false,
+                    })
+                    .collect()
+            };
             messages.push(GameMessage::MapUpdate {
                 payload: MapUpdatePayload {
                     current_location: location,
