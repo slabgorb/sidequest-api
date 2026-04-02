@@ -835,7 +835,7 @@ pub(crate) async fn dispatch_character_creation(
                                     .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
                                     .and_then(|pack| pack.worlds.get(ws).cloned())
                                     .filter(|world| world.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
-                                    .map(|world| world.cartography.rooms.clone())
+                                    .and_then(|world| world.cartography.rooms.clone())
                                     .unwrap_or_default()
                             },
                             genre_affinities: {

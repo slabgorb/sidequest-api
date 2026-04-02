@@ -1776,33 +1776,106 @@ impl Default for NavigationMode {
 }
 
 /// A single exit from a room to another room.
+///
+/// Tagged enum discriminated by `type` in YAML/JSON. Each variant carries
+/// its own metadata (e.g., `is_locked` for doors, `discovered` for secrets).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RoomExit {
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RoomExit {
+    /// Normal door: bidirectional by default, optionally locked.
+    Door {
+        /// Target room ID this exit leads to.
+        target: String,
+        /// Whether the door is locked.
+        #[serde(default)]
+        is_locked: bool,
+    },
+    /// Open corridor: bidirectional.
+    Corridor {
+        /// Target room ID this exit leads to.
+        target: String,
+    },
+    /// One-way drop (no reverse required).
+    ChuteDown {
+        /// Target room ID this exit leads to.
+        target: String,
+    },
+    /// One-way ascent (no reverse required, rare).
+    ChuteUp {
+        /// Target room ID this exit leads to.
+        target: String,
+    },
+    /// Secret passage: bidirectional but hidden until discovered.
+    Secret {
+        /// Target room ID this exit leads to.
+        target: String,
+        /// Whether the passage has been discovered.
+        #[serde(default)]
+        discovered: bool,
+    },
+}
+
+impl RoomExit {
     /// Target room ID this exit leads to.
-    pub target: String,
-    /// Cardinal or relative direction (north, south, up, down, etc.).
-    pub direction: String,
-    /// Narrative description of the exit.
-    pub description: String,
-    /// If true, this is a one-way passage (chute/drop) — no return path required.
-    #[serde(default)]
-    pub one_way: bool,
+    pub fn target(&self) -> &str {
+        match self {
+            RoomExit::Door { target, .. }
+            | RoomExit::Corridor { target }
+            | RoomExit::ChuteDown { target }
+            | RoomExit::ChuteUp { target }
+            | RoomExit::Secret { target, .. } => target,
+        }
+    }
+
+    /// Whether this exit requires a return path from the target room.
+    pub fn requires_reverse(&self) -> bool {
+        matches!(
+            self,
+            RoomExit::Door { .. } | RoomExit::Corridor { .. } | RoomExit::Secret { .. }
+        )
+    }
+
+    /// Display name for UI/narration.
+    pub fn display_name(&self) -> &str {
+        match self {
+            RoomExit::Door { .. } => "door",
+            RoomExit::Corridor { .. } => "corridor",
+            RoomExit::ChuteDown { .. } => "chute down",
+            RoomExit::ChuteUp { .. } => "chute up",
+            RoomExit::Secret { .. } => "secret passage",
+        }
+    }
 }
 
 /// A room in the dungeon room graph.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RoomDef {
     /// Unique room identifier (slug).
     pub id: String,
     /// Display name.
     pub name: String,
-    /// Narrative description of the room.
-    pub description: String,
+    /// Room type: "entrance", "normal", "boss", "treasure", "dead_end".
+    pub room_type: String,
+    /// Physical dimensions for layout (width, height in grid units).
+    #[serde(default = "default_room_size")]
+    pub size: (u32, u32),
+    /// How much Keeper awareness escalates per transition (0.8–1.5).
+    #[serde(default = "default_keeper_awareness_modifier")]
+    pub keeper_awareness_modifier: f64,
     /// Exits leading to other rooms.
     #[serde(default)]
     pub exits: Vec<RoomExit>,
+    /// Optional description for UI/lore.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+fn default_room_size() -> (u32, u32) {
+    (1, 1)
+}
+
+fn default_keeper_awareness_modifier() -> f64 {
+    1.0
 }
 
 /// Map and region configuration.
@@ -1829,9 +1902,9 @@ pub struct CartographyConfig {
     /// Routes between regions (used in Region mode).
     #[serde(default)]
     pub routes: Vec<Route>,
-    /// Room definitions (used in RoomGraph mode).
+    /// Room definitions (used in RoomGraph mode). `None` for region-based packs.
     #[serde(default)]
-    pub rooms: Vec<RoomDef>,
+    pub rooms: Option<Vec<RoomDef>>,
 }
 
 /// A map region.

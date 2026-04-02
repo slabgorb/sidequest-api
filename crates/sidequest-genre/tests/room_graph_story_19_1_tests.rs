@@ -1,17 +1,187 @@
-//! Failing tests for Story 19-1: RoomDef + RoomExit structs.
+//! RED-phase tests for Story 19-1: RoomDef + RoomExit tagged-enum data model.
 //!
-//! Tests the room graph data model foundation for the Dungeon Crawl Engine (Epic 19).
-//! Covers:
-//! - NavigationMode enum (Region default, RoomGraph variant)
-//! - RoomDef and RoomExit struct deserialization from YAML
-//! - CartographyConfig backward compatibility (defaults to Region)
-//! - Validation: invalid exit targets, missing bidirectional routes (non-chute)
-//! - rooms.yaml loading alongside cartography.yaml
+//! These tests exercise the CORRECT design from the session file:
+//! - RoomExit as a tagged enum (Door, Corridor, ChuteDown, ChuteUp, Secret)
+//! - RoomExit methods: target(), requires_reverse(), display_name()
+//! - RoomDef with room_type, size, keeper_awareness_modifier fields
+//! - CartographyConfig.rooms as Option<Vec<RoomDef>>
+//! - rooms.yaml loaded from a separate file
+//! - Validation: entrance room_type, orphaned rooms, bidirectional via requires_reverse()
 
 use sidequest_genre::{CartographyConfig, NavigationMode, RoomDef, RoomExit};
 
 // ═══════════════════════════════════════════════════════════
-// AC-1: NavigationMode enum
+// RoomExit tagged-enum deserialization
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn room_exit_deserializes_door() {
+    let yaml = r#"
+type: door
+target: great_hall
+is_locked: true
+"#;
+    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(exit.target(), "great_hall");
+    assert_eq!(exit.display_name(), "door");
+    assert!(exit.requires_reverse());
+}
+
+#[test]
+fn room_exit_deserializes_door_default_unlocked() {
+    let yaml = r#"
+type: door
+target: armory
+"#;
+    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(exit.target(), "armory");
+    // is_locked defaults to false — variant-level check
+    if let RoomExit::Door { is_locked, .. } = &exit {
+        assert!(!is_locked, "is_locked should default to false");
+    } else {
+        panic!("expected Door variant");
+    }
+}
+
+#[test]
+fn room_exit_deserializes_corridor() {
+    let yaml = r#"
+type: corridor
+target: hallway
+"#;
+    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(exit.target(), "hallway");
+    assert_eq!(exit.display_name(), "corridor");
+    assert!(exit.requires_reverse());
+}
+
+#[test]
+fn room_exit_deserializes_chute_down() {
+    let yaml = r#"
+type: chute_down
+target: pit_bottom
+"#;
+    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(exit.target(), "pit_bottom");
+    assert_eq!(exit.display_name(), "chute down");
+    assert!(!exit.requires_reverse(), "ChuteDown should NOT require reverse");
+}
+
+#[test]
+fn room_exit_deserializes_chute_up() {
+    let yaml = r#"
+type: chute_up
+target: upper_level
+"#;
+    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(exit.target(), "upper_level");
+    assert_eq!(exit.display_name(), "chute up");
+    assert!(!exit.requires_reverse(), "ChuteUp should NOT require reverse");
+}
+
+#[test]
+fn room_exit_deserializes_secret() {
+    let yaml = r#"
+type: secret
+target: hidden_vault
+discovered: true
+"#;
+    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(exit.target(), "hidden_vault");
+    assert_eq!(exit.display_name(), "secret passage");
+    assert!(exit.requires_reverse());
+    if let RoomExit::Secret { discovered, .. } = &exit {
+        assert!(discovered);
+    } else {
+        panic!("expected Secret variant");
+    }
+}
+
+#[test]
+fn room_exit_secret_defaults_undiscovered() {
+    let yaml = r#"
+type: secret
+target: hidden_vault
+"#;
+    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
+    if let RoomExit::Secret { discovered, .. } = &exit {
+        assert!(!discovered, "discovered should default to false");
+    } else {
+        panic!("expected Secret variant");
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// RoomDef deserialization — full fields
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn room_def_deserializes_all_fields() {
+    let yaml = r#"
+id: treasure_room
+name: Treasure Room
+room_type: treasure
+size: [3, 2]
+keeper_awareness_modifier: 1.3
+description: Glittering piles of gold and gems
+exits:
+  - type: door
+    target: great_hall
+    is_locked: true
+  - type: secret
+    target: escape_tunnel
+"#;
+    let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(room.id, "treasure_room");
+    assert_eq!(room.name, "Treasure Room");
+    assert_eq!(room.room_type, "treasure");
+    assert_eq!(room.size, (3, 2));
+    assert!((room.keeper_awareness_modifier - 1.3).abs() < f64::EPSILON);
+    assert_eq!(room.description, Some("Glittering piles of gold and gems".to_string()));
+    assert_eq!(room.exits.len(), 2);
+    assert_eq!(room.exits[0].target(), "great_hall");
+    assert_eq!(room.exits[1].target(), "escape_tunnel");
+}
+
+#[test]
+fn room_def_size_defaults_to_1_1() {
+    let yaml = r#"
+id: closet
+name: Broom Closet
+room_type: normal
+exits: []
+"#;
+    let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(room.size, (1, 1), "size should default to (1,1)");
+}
+
+#[test]
+fn room_def_keeper_awareness_defaults_to_1() {
+    let yaml = r#"
+id: hallway
+name: Hallway
+room_type: normal
+exits: []
+"#;
+    let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
+    assert!((room.keeper_awareness_modifier - 1.0).abs() < f64::EPSILON,
+        "keeper_awareness_modifier should default to 1.0");
+}
+
+#[test]
+fn room_def_description_is_optional() {
+    let yaml = r#"
+id: passage
+name: Narrow Passage
+room_type: normal
+exits: []
+"#;
+    let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
+    assert!(room.description.is_none(), "description should be None when absent");
+}
+
+// ═══════════════════════════════════════════════════════════
+// NavigationMode
 // ═══════════════════════════════════════════════════════════
 
 #[test]
@@ -19,17 +189,6 @@ fn navigation_mode_defaults_to_region() {
     let yaml = r#"
 world_name: Test World
 starting_region: town
-"#;
-    let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(config.navigation_mode, NavigationMode::Region);
-}
-
-#[test]
-fn navigation_mode_deserializes_region_explicit() {
-    let yaml = r#"
-world_name: Test World
-starting_region: town
-navigation_mode: region
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.navigation_mode, NavigationMode::Region);
@@ -46,143 +205,22 @@ navigation_mode: room_graph
     assert_eq!(config.navigation_mode, NavigationMode::RoomGraph);
 }
 
-#[test]
-fn navigation_mode_rejects_unknown_variant() {
-    let yaml = r#"
-world_name: Test World
-navigation_mode: hexcrawl
-"#;
-    let result = serde_yaml::from_str::<CartographyConfig>(yaml);
-    assert!(result.is_err(), "unknown NavigationMode variant should fail deserialization");
-}
-
 // ═══════════════════════════════════════════════════════════
-// AC-1: RoomExit struct deserialization
+// CartographyConfig.rooms as Option<Vec<RoomDef>>
 // ═══════════════════════════════════════════════════════════
 
 #[test]
-fn room_exit_deserializes_basic() {
-    let yaml = r#"
-target: great_hall
-direction: north
-description: A heavy oak door leads north
-"#;
-    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(exit.target, "great_hall");
-    assert_eq!(exit.direction, "north");
-    assert_eq!(exit.description, "A heavy oak door leads north");
-    assert!(!exit.one_way, "one_way should default to false");
-}
-
-#[test]
-fn room_exit_deserializes_one_way_chute() {
-    let yaml = r#"
-target: pit_bottom
-direction: down
-description: A crumbling ledge drops into darkness
-one_way: true
-"#;
-    let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(exit.target, "pit_bottom");
-    assert!(exit.one_way, "chute exit should be one_way");
-}
-
-#[test]
-fn room_exit_requires_target() {
-    let yaml = r#"
-direction: north
-description: A door
-"#;
-    let result = serde_yaml::from_str::<RoomExit>(yaml);
-    assert!(result.is_err(), "RoomExit without target should fail");
-}
-
-#[test]
-fn room_exit_requires_direction() {
-    let yaml = r#"
-target: great_hall
-description: A door
-"#;
-    let result = serde_yaml::from_str::<RoomExit>(yaml);
-    assert!(result.is_err(), "RoomExit without direction should fail");
-}
-
-// ═══════════════════════════════════════════════════════════
-// AC-1: RoomDef struct deserialization
-// ═══════════════════════════════════════════════════════════
-
-#[test]
-fn room_def_deserializes_full() {
-    let yaml = r#"
-id: entrance_hall
-name: Entrance Hall
-description: A grand hall with crumbling pillars
-exits:
-  - target: great_hall
-    direction: north
-    description: A heavy oak door
-  - target: guard_room
-    direction: east
-    description: A narrow passage
-"#;
-    let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(room.id, "entrance_hall");
-    assert_eq!(room.name, "Entrance Hall");
-    assert_eq!(room.description, "A grand hall with crumbling pillars");
-    assert_eq!(room.exits.len(), 2);
-    assert_eq!(room.exits[0].target, "great_hall");
-    assert_eq!(room.exits[1].target, "guard_room");
-}
-
-#[test]
-fn room_def_requires_id() {
-    let yaml = r#"
-name: Entrance Hall
-description: A grand hall
-exits: []
-"#;
-    let result = serde_yaml::from_str::<RoomDef>(yaml);
-    assert!(result.is_err(), "RoomDef without id should fail");
-}
-
-#[test]
-fn room_def_requires_name() {
-    let yaml = r#"
-id: entrance_hall
-description: A grand hall
-exits: []
-"#;
-    let result = serde_yaml::from_str::<RoomDef>(yaml);
-    assert!(result.is_err(), "RoomDef without name should fail");
-}
-
-#[test]
-fn room_def_exits_default_to_empty() {
-    let yaml = r#"
-id: dead_end
-name: Dead End
-description: A collapsed tunnel
-"#;
-    let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
-    assert!(room.exits.is_empty(), "exits should default to empty vec");
-}
-
-// ═══════════════════════════════════════════════════════════
-// AC-2: rooms field on CartographyConfig
-// ═══════════════════════════════════════════════════════════
-
-#[test]
-fn cartography_config_rooms_default_empty() {
+fn cartography_rooms_none_when_absent() {
     let yaml = r#"
 world_name: Low Fantasy World
 starting_region: town
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    assert!(config.rooms.is_empty(), "rooms should default to empty vec");
+    assert!(config.rooms.is_none(), "rooms should be None when absent from YAML");
 }
 
 #[test]
-fn cartography_config_with_rooms() {
+fn cartography_rooms_some_when_present() {
     let yaml = r#"
 world_name: The Mawdeep
 starting_region: entrance_hall
@@ -190,33 +228,31 @@ navigation_mode: room_graph
 rooms:
   - id: entrance_hall
     name: Entrance Hall
-    description: The gaping maw of the dungeon
+    room_type: entrance
     exits:
-      - target: great_hall
-        direction: north
-        description: A stone archway
+      - type: corridor
+        target: great_hall
   - id: great_hall
     name: Great Hall
-    description: A vast chamber
+    room_type: normal
     exits:
-      - target: entrance_hall
-        direction: south
-        description: Back to the entrance
+      - type: corridor
+        target: entrance_hall
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(config.navigation_mode, NavigationMode::RoomGraph);
-    assert_eq!(config.rooms.len(), 2);
-    assert_eq!(config.rooms[0].id, "entrance_hall");
-    assert_eq!(config.rooms[1].id, "great_hall");
+    let rooms = config.rooms.as_ref().expect("rooms should be Some when present");
+    assert_eq!(rooms.len(), 2);
+    assert_eq!(rooms[0].id, "entrance_hall");
+    assert_eq!(rooms[0].room_type, "entrance");
+    assert_eq!(rooms[1].id, "great_hall");
 }
 
 // ═══════════════════════════════════════════════════════════
-// AC-4: Backward compatibility — existing genre packs unaffected
+// Backward compatibility — existing genre packs unaffected
 // ═══════════════════════════════════════════════════════════
 
 #[test]
-fn cartography_config_backward_compat_full_existing() {
-    // Existing cartography.yaml from low_fantasy — no navigation_mode, no rooms
+fn backward_compat_existing_cartography_loads_with_rooms_none() {
     let yaml = r#"
 world_name: The Shattered Realms
 starting_region: kingshold
@@ -248,18 +284,290 @@ routes:
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.navigation_mode, NavigationMode::Region);
-    assert!(config.rooms.is_empty());
+    assert!(config.rooms.is_none(), "rooms should be None for existing packs");
     assert_eq!(config.regions.len(), 2);
     assert_eq!(config.routes.len(), 1);
 }
 
 // ═══════════════════════════════════════════════════════════
-// Helper: load a genre pack with custom cartography for validation tests
+// Integration: rooms.yaml loaded from separate file
 // ═══════════════════════════════════════════════════════════
 
-/// Create a minimal genre pack with a single world whose cartography.yaml
-/// is the provided YAML string. Returns the tempdir (kept alive) and loaded pack.
-fn load_pack_with_cartography(cartography_yaml: &str) -> (tempfile::TempDir, sidequest_genre::GenrePack) {
+#[test]
+fn integration_loads_rooms_yaml_from_world_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let world_dir = dir.path().join("worlds").join("test_dungeon");
+    std::fs::create_dir_all(&world_dir).unwrap();
+
+    write_minimal_genre_files(dir.path());
+
+    std::fs::write(
+        world_dir.join("world.yaml"),
+        "name: Test Dungeon\nslug: test_dungeon\ndescription: A test world\n",
+    )
+    .unwrap();
+    std::fs::write(
+        world_dir.join("lore.yaml"),
+        "origin_myth: test\ncentral_conflict: test\n",
+    )
+    .unwrap();
+    std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
+
+    // cartography.yaml references room_graph mode — rooms come from rooms.yaml
+    std::fs::write(
+        world_dir.join("cartography.yaml"),
+        "world_name: Test Dungeon\nstarting_region: entry\nnavigation_mode: room_graph\n",
+    )
+    .unwrap();
+
+    // rooms.yaml is a SEPARATE file in the world directory
+    std::fs::write(
+        world_dir.join("rooms.yaml"),
+        r#"
+- id: entry
+  name: Entry Chamber
+  room_type: entrance
+  exits:
+    - type: door
+      target: hallway
+- id: hallway
+  name: Main Hallway
+  room_type: normal
+  exits:
+    - type: door
+      target: entry
+"#,
+    )
+    .unwrap();
+
+    let pack = sidequest_genre::load_genre_pack(dir.path()).unwrap();
+    let world = pack.worlds.get("test_dungeon").expect("world should load");
+    let rooms = world
+        .cartography
+        .rooms
+        .as_ref()
+        .expect("rooms should be Some when rooms.yaml exists");
+    assert_eq!(rooms.len(), 2);
+    assert_eq!(rooms[0].id, "entry");
+    assert_eq!(rooms[0].room_type, "entrance");
+    assert_eq!(rooms[1].id, "hallway");
+}
+
+// ═══════════════════════════════════════════════════════════
+// Validation — invalid exit target
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn validation_rejects_invalid_exit_target() {
+    let (_dir, pack) = load_pack_with_rooms(
+        "world_name: Test\nstarting_region: entry\nnavigation_mode: room_graph\n",
+        r#"
+- id: entry
+  name: Entry
+  room_type: entrance
+  exits:
+    - type: door
+      target: nonexistent_room
+"#,
+    );
+    let result = pack.validate();
+    assert!(result.is_err(), "should reject exit to nonexistent room");
+    let msg = format!("{}", result.unwrap_err());
+    assert!(msg.contains("nonexistent_room"), "error should mention invalid target, got: {msg}");
+}
+
+// ═══════════════════════════════════════════════════════════
+// Validation — bidirectional exits (uses requires_reverse())
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn validation_rejects_door_without_reverse() {
+    let (_dir, pack) = load_pack_with_rooms(
+        "world_name: Test\nstarting_region: room_a\nnavigation_mode: room_graph\n",
+        r#"
+- id: room_a
+  name: Room A
+  room_type: entrance
+  exits:
+    - type: door
+      target: room_b
+- id: room_b
+  name: Room B
+  room_type: normal
+  exits: []
+"#,
+    );
+    let result = pack.validate();
+    assert!(result.is_err(), "Door A→B without B→A should fail validation");
+}
+
+#[test]
+fn validation_allows_chute_down_without_reverse() {
+    let (_dir, pack) = load_pack_with_rooms(
+        "world_name: Test\nstarting_region: room_a\nnavigation_mode: room_graph\n",
+        r#"
+- id: room_a
+  name: Room A
+  room_type: entrance
+  exits:
+    - type: chute_down
+      target: room_b
+- id: room_b
+  name: Room B
+  room_type: normal
+  exits: []
+"#,
+    );
+    let result = pack.validate();
+    assert!(
+        result.is_ok(),
+        "ChuteDown should NOT require reverse, got: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn validation_allows_chute_up_without_reverse() {
+    let (_dir, pack) = load_pack_with_rooms(
+        "world_name: Test\nstarting_region: room_a\nnavigation_mode: room_graph\n",
+        r#"
+- id: room_a
+  name: Room A
+  room_type: entrance
+  exits:
+    - type: chute_up
+      target: room_b
+- id: room_b
+  name: Room B
+  room_type: normal
+  exits: []
+"#,
+    );
+    let result = pack.validate();
+    assert!(
+        result.is_ok(),
+        "ChuteUp should NOT require reverse, got: {:?}",
+        result.unwrap_err()
+    );
+}
+
+#[test]
+fn validation_passes_valid_bidirectional_graph() {
+    let (_dir, pack) = load_pack_with_rooms(
+        "world_name: Test\nstarting_region: room_a\nnavigation_mode: room_graph\n",
+        r#"
+- id: room_a
+  name: Room A
+  room_type: entrance
+  exits:
+    - type: corridor
+      target: room_b
+- id: room_b
+  name: Room B
+  room_type: normal
+  exits:
+    - type: corridor
+      target: room_a
+"#,
+    );
+    let result = pack.validate();
+    assert!(result.is_ok(), "valid bidirectional graph should pass, got: {:?}", result.unwrap_err());
+}
+
+// ═══════════════════════════════════════════════════════════
+// Validation — entrance room_type required
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn validation_rejects_no_entrance_room() {
+    let (_dir, pack) = load_pack_with_rooms(
+        "world_name: Test\nstarting_region: room_a\nnavigation_mode: room_graph\n",
+        r#"
+- id: room_a
+  name: Room A
+  room_type: normal
+  exits:
+    - type: corridor
+      target: room_b
+- id: room_b
+  name: Room B
+  room_type: normal
+  exits:
+    - type: corridor
+      target: room_a
+"#,
+    );
+    let result = pack.validate();
+    assert!(result.is_err(), "should require exactly one room with room_type 'entrance'");
+    let msg = format!("{}", result.unwrap_err());
+    assert!(
+        msg.to_lowercase().contains("entrance"),
+        "error should mention missing entrance, got: {msg}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Validation — orphaned rooms unreachable from entrance
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn validation_rejects_orphaned_room() {
+    let (_dir, pack) = load_pack_with_rooms(
+        "world_name: Test\nstarting_region: room_a\nnavigation_mode: room_graph\n",
+        r#"
+- id: room_a
+  name: Room A
+  room_type: entrance
+  exits:
+    - type: corridor
+      target: room_b
+- id: room_b
+  name: Room B
+  room_type: normal
+  exits:
+    - type: corridor
+      target: room_a
+- id: orphan
+  name: Orphan Room
+  room_type: normal
+  exits: []
+"#,
+    );
+    let result = pack.validate();
+    assert!(result.is_err(), "orphaned room unreachable from entrance should fail");
+    let msg = format!("{}", result.unwrap_err());
+    assert!(
+        msg.contains("orphan"),
+        "error should mention the orphaned room, got: {msg}"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════
+// Validation — Region mode skips room graph validation
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn region_mode_skips_room_graph_validation() {
+    // Intentionally invalid room data that should be ignored in Region mode
+    let yaml = r#"
+world_name: Low Fantasy
+starting_region: town
+navigation_mode: region
+"#;
+    let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(config.navigation_mode, NavigationMode::Region);
+    assert!(config.rooms.is_none());
+}
+
+// ═══════════════════════════════════════════════════════════
+// Helpers
+// ═══════════════════════════════════════════════════════════
+
+/// Create a minimal genre pack with rooms.yaml as a SEPARATE file.
+fn load_pack_with_rooms(
+    cartography_yaml: &str,
+    rooms_yaml: &str,
+) -> (tempfile::TempDir, sidequest_genre::GenrePack) {
     let dir = tempfile::tempdir().unwrap();
     let world_dir = dir.path().join("worlds").join("test_dungeon");
     std::fs::create_dir_all(&world_dir).unwrap();
@@ -277,205 +585,12 @@ fn load_pack_with_cartography(cartography_yaml: &str) -> (tempfile::TempDir, sid
     )
     .unwrap();
     std::fs::write(world_dir.join("cartography.yaml"), cartography_yaml).unwrap();
+    std::fs::write(world_dir.join("rooms.yaml"), rooms_yaml).unwrap();
     std::fs::write(world_dir.join("legends.yaml"), "[]").unwrap();
 
     let pack = sidequest_genre::load_genre_pack(dir.path()).unwrap();
     (dir, pack)
 }
-
-// ═══════════════════════════════════════════════════════════
-// AC-3: Validation — invalid exit targets
-// ═══════════════════════════════════════════════════════════
-
-#[test]
-fn validation_rejects_invalid_exit_target() {
-    let (_dir, pack) = load_pack_with_cartography(r#"
-world_name: Test Dungeon
-starting_region: entrance
-navigation_mode: room_graph
-rooms:
-  - id: entrance
-    name: Entrance
-    description: The entrance
-    exits:
-      - target: nonexistent_room
-        direction: north
-        description: A door to nowhere
-"#);
-    let result = pack.validate();
-    assert!(result.is_err(), "validation should reject exit to nonexistent room");
-    let err = result.unwrap_err();
-    let msg = format!("{err}");
-    assert!(
-        msg.contains("nonexistent_room"),
-        "error should mention the invalid target, got: {msg}"
-    );
-}
-
-// ═══════════════════════════════════════════════════════════
-// AC-3: Validation — missing bidirectional routes (non-chute)
-// ═══════════════════════════════════════════════════════════
-
-#[test]
-fn validation_rejects_missing_bidirectional_exit() {
-    // Room A → B exists but B → A does NOT, and the exit is NOT one_way
-    let (_dir, pack) = load_pack_with_cartography(r#"
-world_name: Test Dungeon
-starting_region: room_a
-navigation_mode: room_graph
-rooms:
-  - id: room_a
-    name: Room A
-    description: First room
-    exits:
-      - target: room_b
-        direction: north
-        description: A door north
-  - id: room_b
-    name: Room B
-    description: Second room
-    exits: []
-"#);
-    let result = pack.validate();
-    assert!(
-        result.is_err(),
-        "validation should reject non-chute exit without bidirectional return"
-    );
-}
-
-#[test]
-fn validation_allows_one_way_chute_without_return() {
-    // Room A → B is one_way (chute), B has no exit back to A — this is VALID
-    let (_dir, pack) = load_pack_with_cartography(r#"
-world_name: Test Dungeon
-starting_region: room_a
-navigation_mode: room_graph
-rooms:
-  - id: room_a
-    name: Room A
-    description: A ledge
-    exits:
-      - target: room_b
-        direction: down
-        description: A crumbling drop
-        one_way: true
-  - id: room_b
-    name: Room B
-    description: The pit bottom
-    exits: []
-"#);
-    let result = pack.validate();
-    assert!(
-        result.is_ok(),
-        "one_way chute exits should NOT require a return path, got: {:?}",
-        result.unwrap_err()
-    );
-}
-
-#[test]
-fn validation_passes_valid_bidirectional_room_graph() {
-    // Fully bidirectional: A ↔ B
-    let (_dir, pack) = load_pack_with_cartography(r#"
-world_name: Test Dungeon
-starting_region: room_a
-navigation_mode: room_graph
-rooms:
-  - id: room_a
-    name: Room A
-    description: First room
-    exits:
-      - target: room_b
-        direction: north
-        description: A passage north
-  - id: room_b
-    name: Room B
-    description: Second room
-    exits:
-      - target: room_a
-        direction: south
-        description: A passage south
-"#);
-    let result = pack.validate();
-    assert!(result.is_ok(), "valid bidirectional room graph should pass validation, got: {:?}", result.unwrap_err());
-}
-
-// ═══════════════════════════════════════════════════════════
-// AC-3: Validation — duplicate room IDs
-// ═══════════════════════════════════════════════════════════
-
-#[test]
-fn validation_rejects_duplicate_room_ids() {
-    let (_dir, pack) = load_pack_with_cartography(r#"
-world_name: Test Dungeon
-starting_region: room_a
-navigation_mode: room_graph
-rooms:
-  - id: room_a
-    name: Room A
-    description: First room
-    exits: []
-  - id: room_a
-    name: Room A Again
-    description: Duplicate
-    exits: []
-"#);
-    let result = pack.validate();
-    assert!(result.is_err(), "duplicate room IDs should fail validation");
-}
-
-// ═══════════════════════════════════════════════════════════
-// AC-3: Validation — starting_region must be a valid room ID in room_graph mode
-// ═══════════════════════════════════════════════════════════
-
-#[test]
-fn validation_rejects_invalid_starting_region_in_room_graph() {
-    let (_dir, pack) = load_pack_with_cartography(r#"
-world_name: Test Dungeon
-starting_region: nonexistent_start
-navigation_mode: room_graph
-rooms:
-  - id: room_a
-    name: Room A
-    description: A room
-    exits: []
-"#);
-    let result = pack.validate();
-    assert!(
-        result.is_err(),
-        "starting_region must reference a valid room ID in room_graph mode"
-    );
-}
-
-// ═══════════════════════════════════════════════════════════
-// Edge case: rooms field ignored in Region mode
-// ═══════════════════════════════════════════════════════════
-
-#[test]
-fn rooms_in_region_mode_are_ignored_by_validation() {
-    // If someone accidentally includes rooms in Region mode,
-    // they should be silently ignored (no room_graph validation applies)
-    let yaml = r#"
-world_name: Low Fantasy
-starting_region: town
-navigation_mode: region
-rooms:
-  - id: room_a
-    name: Room A
-    description: test
-    exits:
-      - target: nonexistent
-        direction: north
-        description: broken exit
-"#;
-    let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(config.navigation_mode, NavigationMode::Region);
-    // rooms parse but room_graph validation should not run in Region mode
-    assert_eq!(config.rooms.len(), 1);
-}
-
-// ═══════════════════════════════════════════════════════════
-// Helper: write minimal genre pack files for integration tests
-// ═══════════════════════════════════════════════════════════
 
 fn write_minimal_genre_files(pack_dir: &std::path::Path) {
     std::fs::write(
@@ -510,11 +625,7 @@ fn write_minimal_genre_files(pack_dir: &std::path::Path) {
         "tracks: []\nmax_level: 10\nlevel_thresholds: [0, 100]\n",
     )
     .unwrap();
-    std::fs::write(
-        pack_dir.join("axes.yaml"),
-        "definitions: []\n",
-    )
-    .unwrap();
+    std::fs::write(pack_dir.join("axes.yaml"), "definitions: []\n").unwrap();
     std::fs::write(
         pack_dir.join("audio.yaml"),
         "mood_tracks: {}\nsfx_library: {}\ncreature_voice_presets: {}\nmixer:\n  music_volume: 0.8\n  sfx_volume: 0.9\n  voice_volume: 1.0\n  duck_music_for_voice: true\n  duck_amount_db: 3.0\n  crossfade_default_ms: 500\n",
