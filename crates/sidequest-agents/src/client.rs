@@ -340,7 +340,7 @@ impl ClaudeClientBuilder {
     /// Set the OTEL endpoint for Claude subprocess telemetry export.
     /// Empty strings are normalized to None.
     pub fn otel_endpoint(mut self, endpoint: String) -> Self {
-        self.otel_endpoint = if endpoint.is_empty() { None } else { Some(endpoint) };
+        self.otel_endpoint = if endpoint.trim().is_empty() { None } else { Some(endpoint) };
         self
     }
 
