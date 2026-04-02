@@ -200,6 +200,7 @@ impl GenrePack {
 
     fn validate_room_graph(&self, errors: &mut ValidationErrors) {
         use crate::models::NavigationMode;
+        use std::collections::VecDeque;
 
         for (world_slug, world) in &self.worlds {
             // Only validate room graph rules when navigation_mode is RoomGraph
@@ -207,7 +208,10 @@ impl GenrePack {
                 continue;
             }
 
-            let rooms = &world.cartography.rooms;
+            let rooms = match world.cartography.rooms.as_ref() {
+                Some(r) => r,
+                None => continue, // No rooms to validate
+            };
 
             // Check for duplicate room IDs
             let mut seen_ids: HashSet<&str> = HashSet::new();
@@ -240,30 +244,34 @@ impl GenrePack {
             // Check all exit targets reference existing rooms
             for room in rooms {
                 for exit in &room.exits {
-                    if !room_ids.contains(exit.target.as_str()) {
+                    if !room_ids.contains(exit.target()) {
                         errors.push(GenreError::ValidationError {
                             message: format!(
                                 "room '{}' in world '{world_slug}' has exit to '{}' \
                                  which is not a valid room ID",
-                                room.id, exit.target
+                                room.id,
+                                exit.target()
                             ),
                         });
                     }
                 }
             }
 
-            // Check bidirectional exits (non-chute exits must have a return path)
+            // Check bidirectional exits — only exits where requires_reverse() is true
             for room in rooms {
                 for exit in &room.exits {
-                    if exit.one_way {
+                    if !exit.requires_reverse() {
                         continue; // Chutes don't require a return path
                     }
                     // Check that the target room has at least one exit back to this room
                     let has_return = rooms
                         .iter()
-                        .find(|r| r.id == exit.target)
+                        .find(|r| r.id == exit.target())
                         .map(|target_room| {
-                            target_room.exits.iter().any(|e| e.target == room.id)
+                            target_room
+                                .exits
+                                .iter()
+                                .any(|e| e.target() == room.id)
                         })
                         .unwrap_or(false);
 
@@ -272,7 +280,61 @@ impl GenrePack {
                             message: format!(
                                 "room '{}' in world '{world_slug}' has non-chute exit to '{}' \
                                  but '{}' has no exit back to '{}'",
-                                room.id, exit.target, exit.target, room.id
+                                room.id,
+                                exit.target(),
+                                exit.target(),
+                                room.id
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // Require exactly one room with room_type "entrance"
+            let entrance_rooms: Vec<&str> = rooms
+                .iter()
+                .filter(|r| r.room_type == "entrance")
+                .map(|r| r.id.as_str())
+                .collect();
+            if entrance_rooms.is_empty() {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has no room with room_type 'entrance'"
+                    ),
+                });
+            } else if entrance_rooms.len() > 1 {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has multiple entrance rooms: {}",
+                        entrance_rooms.join(", ")
+                    ),
+                });
+            }
+
+            // Reject orphaned rooms unreachable from entrance (BFS)
+            if let Some(entrance_id) = entrance_rooms.first() {
+                let mut visited: HashSet<&str> = HashSet::new();
+                let mut queue: VecDeque<&str> = VecDeque::new();
+                queue.push_back(entrance_id);
+                visited.insert(entrance_id);
+
+                while let Some(current) = queue.pop_front() {
+                    if let Some(room) = rooms.iter().find(|r| r.id == current) {
+                        for exit in &room.exits {
+                            if visited.insert(exit.target()) {
+                                queue.push_back(exit.target());
+                            }
+                        }
+                    }
+                }
+
+                for room in rooms {
+                    if !visited.contains(room.id.as_str()) {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "room '{}' in world '{world_slug}' is unreachable from \
+                                 entrance (orphan)",
+                                room.id
                             ),
                         });
                     }
