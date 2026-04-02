@@ -12,7 +12,7 @@ use crate::agent::Agent;
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
-use crate::agents::intent_router::{Intent, IntentRouter};
+use crate::agents::intent_router::{Intent, IntentRoute, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::client::ClaudeClient;
@@ -99,6 +99,8 @@ pub struct NarratorPromptResult {
     pub script_tools_injected: Vec<String>,
     /// The `--allowedTools` specs for the Claude CLI subprocess.
     pub allowed_tools: Vec<String>,
+    /// The intent classification result, so callers don't need to re-classify.
+    pub intent_route: IntentRoute,
 }
 
 /// Configuration for a script tool binary (ADR-056).
@@ -534,6 +536,7 @@ impl Orchestrator {
             zone_breakdown,
             script_tools_injected,
             allowed_tools,
+            intent_route: route,
         }
     }
 
@@ -570,9 +573,8 @@ impl GameService for Orchestrator {
             .entered();
         }
 
-        // Intent classification is done inside build_narrator_prompt, but we need
-        // the route info for agent dispatch below. Re-classify (cheap — keyword-based).
-        let route = self.intent_router.classify(action, context);
+        // Reuse intent classification from build_narrator_prompt (avoids double Haiku call).
+        let route = prompt_result.intent_route;
         span.record("intent", route.intent().to_string().as_str());
         span.record("agent", route.agent_name());
         info!(
