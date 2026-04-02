@@ -131,8 +131,8 @@ pub struct Orchestrator {
     drama_thresholds: DramaThresholds,
     /// Trope beat injection agent (ADR-018).
     troper: TroperAgent,
-    /// SOUL.md principles — injected into every prompt in the Early zone.
-    soul_text: Option<String>,
+    /// SOUL.md principles — filtered per agent via `<agents>` tags and injected in the Early zone.
+    soul_data: Option<crate::prompt_framework::SoulData>,
     /// Script tool configurations (ADR-056). Keyed by tool name.
     script_tools: HashMap<String, ScriptToolConfig>,
 }
@@ -146,16 +146,16 @@ impl Orchestrator {
         let client = ClaudeClient::new();
         let soul_path = std::path::Path::new("SOUL.md");
         let soul_data = parse_soul_md(soul_path);
-        let soul_text = if soul_data.is_empty() {
+        let soul_data = if soul_data.is_empty() {
             info!("SOUL.md not found or empty — prompts will lack guiding principles");
             None
         } else {
             info!(
                 principles = soul_data.len(),
-                "SOUL.md loaded — {} principles will be injected into every prompt",
+                "SOUL.md loaded — {} principles available, filtered per agent via <agents> tags",
                 soul_data.len()
             );
-            Some(soul_data.as_prompt_text())
+            Some(soul_data)
         };
         Self {
             watcher_tx,
@@ -169,7 +169,7 @@ impl Orchestrator {
             tension_tracker: TensionTracker::new(),
             drama_thresholds: DramaThresholds::default(),
             troper: TroperAgent::new(),
-            soul_text,
+            soul_data,
             script_tools: HashMap::new(),
         }
     }
@@ -257,13 +257,17 @@ impl GameService for Orchestrator {
             };
 
             // SOUL principles (Early zone — high attention, after identity, before state)
-            if let Some(ref soul) = self.soul_text {
-                builder.add_section(PromptSection::new(
-                    "soul_principles",
-                    format!("## Guiding Principles\n{}", soul),
-                    AttentionZone::Early,
-                    SectionCategory::Soul,
-                ));
+            // Filtered per agent via <agents> tags in SOUL.md.
+            if let Some(ref soul) = self.soul_data {
+                let filtered = soul.as_prompt_text_for(route.agent_name());
+                if !filtered.is_empty() {
+                    builder.add_section(PromptSection::new(
+                        "soul_principles",
+                        format!("## Guiding Principles\n{}", filtered),
+                        AttentionZone::Early,
+                        SectionCategory::Soul,
+                    ));
+                }
             }
 
             // Trope beat directives (Early zone — high attention, from previous turn's fired beats)
