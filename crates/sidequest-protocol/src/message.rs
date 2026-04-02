@@ -510,6 +510,10 @@ pub struct CharacterCreationPayload {
     /// Input type hint ("text", "select", etc.).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_type: Option<String>,
+    /// Genre-aware loading text for the spinner between scenes.
+    /// E.g. "The ripperdoc considers your words..."
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loading_text: Option<String>,
     /// Preview of the character being created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_preview: Option<serde_json::Value>,

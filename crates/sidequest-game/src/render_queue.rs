@@ -277,6 +277,10 @@ struct RenderJob {
     /// Raw narration text — sent to daemon for LLM-based visual extraction.
     /// When present, the daemon runs SubjectExtractor instead of using the raw prompt.
     narration: String,
+    /// Target image width in pixels (from tier_to_dimensions).
+    width: u32,
+    /// Target image height in pixels (from tier_to_dimensions).
+    height: u32,
 }
 
 /// The async render queue.
@@ -300,7 +304,7 @@ impl RenderQueue {
     /// the daemon client. Returns `(image_url, generation_ms)` on success.
     pub fn spawn<F, Fut>(config: RenderQueueConfig, render_fn: F) -> Self
     where
-        F: Fn(String, String, String, String, String) -> Fut + Send + 'static,
+        F: Fn(String, String, String, String, String, u32, u32) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(String, u64), String>> + Send,
     {
         let state = Arc::new(Mutex::new(QueueState {
@@ -327,7 +331,7 @@ impl RenderQueue {
                 }
 
                 // Call the render function
-                let result = render_fn(job.prompt, job.art_style, job.tier.clone(), job.negative_prompt, job.narration).await;
+                let result = render_fn(job.prompt, job.art_style, job.tier.clone(), job.negative_prompt, job.narration, job.width, job.height).await;
 
                 // Update state and broadcast
                 let broadcast_msg = match result {
@@ -448,6 +452,13 @@ impl RenderQueue {
             SceneType::Transition => "transition",
         }
         .to_string();
+        let dims = tier_to_dimensions(subject.tier());
+        tracing::info!(
+            tier = %tier,
+            width = dims.width,
+            height = dims.height,
+            "render.dimensions_set"
+        );
         let job = RenderJob {
             job_id,
             prompt,
@@ -456,6 +467,8 @@ impl RenderQueue {
             scene_type,
             negative_prompt: negative_prompt.to_string(),
             narration: narration.to_string(),
+            width: dims.width,
+            height: dims.height,
         };
         if self.job_tx.send(job).await.is_err() {
             let mut guard = self.state.lock().await;

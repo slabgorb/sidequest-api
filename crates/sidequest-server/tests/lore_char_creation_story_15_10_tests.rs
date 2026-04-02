@@ -63,6 +63,7 @@ fn test_char_creation_scenes() -> Vec<CharCreationScene> {
             ],
             allows_freeform: None,
             hook_prompt: None,
+            loading_text: None,
         },
         CharCreationScene {
             id: "motivation".to_string(),
@@ -82,6 +83,7 @@ fn test_char_creation_scenes() -> Vec<CharCreationScene> {
             ],
             allows_freeform: None,
             hook_prompt: None,
+            loading_text: None,
         },
     ]
 }

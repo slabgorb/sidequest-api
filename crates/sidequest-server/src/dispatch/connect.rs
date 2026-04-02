@@ -873,6 +873,7 @@ pub(crate) async fn dispatch_character_creation(
                             choices: None,
                             allows_freeform: None,
                             input_type: None,
+                            loading_text: None,
                             character_preview: None,
                             choice: None,
                             character: Some(char_json),

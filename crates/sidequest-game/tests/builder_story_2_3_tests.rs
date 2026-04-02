@@ -125,6 +125,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             ],
             allows_freeform: Some(false),
             hook_prompt: None,
+            loading_text: None,
         },
         CharCreationScene {
             id: "calling".to_string(),
@@ -144,6 +145,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             ],
             allows_freeform: Some(true),
             hook_prompt: None,
+            loading_text: None,
         },
         CharCreationScene {
             id: "backstory".to_string(),
@@ -160,6 +162,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             }],
             allows_freeform: Some(true),
             hook_prompt: Some("Tell me more about this person...".to_string()),
+            loading_text: None,
         },
     ]
 }
@@ -180,6 +183,7 @@ fn scene_with_hook_prompt() -> CharCreationScene {
         }],
         allows_freeform: Some(false),
         hook_prompt: Some("Who betrayed you, and why?".to_string()),
+            loading_text: None,
     }
 }
 
@@ -420,6 +424,7 @@ fn answer_followup_advances_past_scene() {
         }],
         allows_freeform: Some(false),
         hook_prompt: None,
+            loading_text: None,
     });
     let rules = test_rules();
     let mut builder = CharacterBuilder::new(scenes, &rules);
@@ -720,6 +725,7 @@ fn build_uses_default_race_and_class_when_not_hinted() {
         }],
         allows_freeform: Some(false),
         hook_prompt: None,
+            loading_text: None,
     }];
     let rules = test_rules();
     let mut builder = CharacterBuilder::new(scenes, &rules);

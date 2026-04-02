@@ -260,6 +260,7 @@ mod message_type_tests {
                 }]),
                 allows_freeform: Some(true),
                 input_type: Some("text".into()),
+                loading_text: None,
                 character_preview: None,
                 choice: None,
                 character: None,

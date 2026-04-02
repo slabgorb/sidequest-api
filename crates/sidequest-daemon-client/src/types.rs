@@ -39,6 +39,12 @@ pub struct RenderParams {
     /// to produce visual image prompts instead of using the raw `prompt` field.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub narration: String,
+    /// Target image width in pixels (from tier_to_dimensions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Target image height in pixels (from tier_to_dimensions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
 }
 
 /// Parameters for a `tts` (text-to-speech) request.
