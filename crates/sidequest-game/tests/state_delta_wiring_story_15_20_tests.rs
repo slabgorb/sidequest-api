@@ -1,10 +1,10 @@
-//! Story 15-20: Wire StateDelta computation — failing tests (RED phase).
+//! Story 15-20: Wire StateDelta computation into dispatch pipeline.
 //!
-//! These tests verify that:
-//! 1. `delta::snapshot()` captures all state fields the inline code references
+//! Tests verify:
+//! 1. `delta::snapshot()` captures all state fields
 //! 2. `delta::compute_delta()` correctly detects field changes
-//! 3. `broadcast_state_changes()` produces correct typed GameMessages
-//! 4. Coverage gap: quests and items_gained are handled through the delta path
+//! 3. `broadcast_state_changes()` produces correct typed GameMessages (no Narration)
+//! 4. `build_protocol_delta()` carries quest/character data for the narration path
 //! 5. OTEL span emitted by compute_delta
 //! 6. Wiring: compute_delta + broadcast_state_changes called from server dispatch
 
@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use sidequest_game::combat::CombatState;
 use sidequest_game::delta::{compute_delta, snapshot};
-use sidequest_game::state::{broadcast_state_changes, GameSnapshot};
+use sidequest_game::state::{broadcast_state_changes, build_protocol_delta, GameSnapshot};
 use sidequest_game::turn::TurnManager;
 use sidequest_game::world_materialization::CampaignMaturity;
 use sidequest_protocol::GameMessage;
@@ -253,16 +253,11 @@ fn broadcast_includes_combat_event_on_combat_change() {
 }
 
 // ============================================================================
-// AC 4: Coverage gap — quests and items_gained must be handled
-//
-// The inline server code sends quests and items_gained in protocol::StateDelta
-// piggybacked on NarrationPayload. broadcast_state_changes() currently does NOT
-// handle these. These tests will FAIL until Dev expands broadcast or adds a
-// separate quest/item broadcast path.
+// AC 4: Quest and character data carried via build_protocol_delta
 // ============================================================================
 
 #[test]
-fn broadcast_handles_quest_log_change() {
+fn build_protocol_delta_carries_quest_data() {
     let state1 = base_snapshot();
     let snap1 = snapshot(&state1);
 
@@ -276,28 +271,92 @@ fn broadcast_handles_quest_log_change() {
 
     assert!(delta.quest_log_changed(), "precondition: quest_log flagged as changed");
 
-    // The broadcast path must produce a message that carries quest data to the client.
-    // Currently broadcast_state_changes only handles PartyStatus, ChapterMarker,
-    // MapUpdate, CombatEvent — it does NOT handle quests.
-    // This test forces Dev to either:
-    //   a) Add a QuestUpdate message type to broadcast_state_changes, or
-    //   b) Build the protocol::StateDelta with quest data via the delta path
-    let messages = broadcast_state_changes(&delta, &state2);
-    let carries_quest_data = messages.iter().any(|m| {
-        match m {
-            GameMessage::Narration { payload, .. } => {
-                payload.state_delta.as_ref()
-                    .map(|d| d.quests.is_some())
-                    .unwrap_or(false)
-            }
-            // If a new QuestUpdate message type is added, match it here too
-            _ => false,
-        }
-    });
+    let proto_delta = build_protocol_delta(&delta, &state2, &[]);
     assert!(
-        carries_quest_data,
-        "broadcast must carry quest data to client when quest_log changes — \
-         currently broadcast_state_changes() does not handle quests"
+        proto_delta.quests.is_some(),
+        "protocol delta must carry quest data when quest_log changed"
+    );
+    let quests = proto_delta.quests.unwrap();
+    assert_eq!(quests.len(), 2, "should have both main and side quests");
+    assert_eq!(quests.get("side").unwrap(), "Recover the merchant's goods");
+}
+
+#[test]
+fn build_protocol_delta_carries_quest_clear() {
+    let state1 = base_snapshot();
+    let snap1 = snapshot(&state1);
+
+    let mut state2 = base_snapshot();
+    state2.quest_log.clear(); // all quests completed
+    let snap2 = snapshot(&state2);
+    let delta = compute_delta(&snap1, &snap2);
+
+    assert!(delta.quest_log_changed(), "precondition: quest_log flagged as changed");
+
+    let proto_delta = build_protocol_delta(&delta, &state2, &[]);
+    assert!(
+        proto_delta.quests.is_some(),
+        "protocol delta must carry empty quest map so client can clear quest display"
+    );
+    assert!(
+        proto_delta.quests.unwrap().is_empty(),
+        "quests map should be empty when all quests are cleared"
+    );
+}
+
+#[test]
+fn build_protocol_delta_carries_character_data() {
+    let state1 = base_snapshot();
+    let snap1 = snapshot(&state1);
+
+    let mut state2 = base_snapshot();
+    state2.characters[0].core.hp = 15;
+    let snap2 = snapshot(&state2);
+    let delta = compute_delta(&snap1, &snap2);
+
+    assert!(delta.characters_changed(), "precondition: characters flagged as changed");
+
+    let proto_delta = build_protocol_delta(&delta, &state2, &[]);
+    assert!(proto_delta.characters.is_some(), "must carry character data");
+    let chars = proto_delta.characters.unwrap();
+    assert_eq!(chars[0].hp, 15, "must carry updated HP value");
+}
+
+#[test]
+fn build_protocol_delta_no_data_when_unchanged() {
+    let state = base_snapshot();
+    let snap1 = snapshot(&state);
+    let snap2 = snapshot(&state);
+    let delta = compute_delta(&snap1, &snap2);
+
+    let proto_delta = build_protocol_delta(&delta, &state, &[]);
+    assert!(proto_delta.location.is_none());
+    assert!(proto_delta.characters.is_none());
+    assert!(proto_delta.quests.is_none());
+    assert!(proto_delta.items_gained.is_none());
+}
+
+#[test]
+fn broadcast_does_not_produce_narration_messages() {
+    // broadcast_state_changes produces PartyStatus, ChapterMarker, MapUpdate,
+    // CombatEvent — NOT Narration. Quest/character state_delta rides on the
+    // real Narration message via build_protocol_delta, not through broadcast.
+    let state1 = base_snapshot();
+    let snap1 = snapshot(&state1);
+
+    let mut state2 = base_snapshot();
+    state2.quest_log.insert("side".to_string(), "Find the thing".to_string());
+    state2.characters[0].core.hp = 10;
+    state2.location = "New Place".to_string();
+    let snap2 = snapshot(&state2);
+    let delta = compute_delta(&snap1, &snap2);
+
+    let messages = broadcast_state_changes(&delta, &state2);
+    let narration_count = messages.iter().filter(|m| matches!(m, GameMessage::Narration { .. })).count();
+    assert_eq!(
+        narration_count, 0,
+        "broadcast_state_changes must NOT produce Narration messages — \
+         quest/character data goes on the real Narration via build_protocol_delta"
     );
 }
 
