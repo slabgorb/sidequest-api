@@ -10,9 +10,21 @@
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct QuestUpdate {
     /// The quest name (e.g., "The Corrupted Grove").
-    pub quest_name: String,
+    quest_name: String,
     /// The new status string (e.g., "active: Find the source (from: Elder Mirova)").
-    pub status: String,
+    status: String,
+}
+
+impl QuestUpdate {
+    /// The quest name, trimmed and validated non-empty.
+    pub fn quest_name(&self) -> &str {
+        &self.quest_name
+    }
+
+    /// The quest status string, trimmed and validated non-empty.
+    pub fn status(&self) -> &str {
+        &self.status
+    }
 }
 
 /// Error returned when quest update inputs are invalid.
