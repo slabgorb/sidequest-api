@@ -402,58 +402,110 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
-        let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
-        *ctx.current_location = location.clone();
-        if is_new {
-            ctx.discovered_regions.push(location.clone());
+        // Room-graph mode: validate + apply transition via canonical function (story 19-2).
+        // Region mode (rooms empty): always valid — no room graph to check.
+        let location_valid = if !ctx.rooms.is_empty() {
+            match sidequest_game::room_movement::apply_validated_move(
+                ctx.snapshot,
+                &location,
+                &ctx.rooms,
+            ) {
+                Ok(transition) => {
+                    tracing::info!(
+                        name: "room.transition",
+                        from_room = %transition.from_room,
+                        to_room = %transition.to_room,
+                        exit_type = %transition.exit_type,
+                    );
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::StateTransition)
+                        .field("event", "room.transition")
+                        .field("from_room", &transition.from_room)
+                        .field("to_room", &transition.to_room)
+                        .field("exit_type", &transition.exit_type)
+                        .send(ctx.state);
+                    true
+                }
+                Err(sidequest_game::room_movement::DispatchError::InvalidRoomTransition {
+                    from_room,
+                    to_room,
+                    reason,
+                }) => {
+                    tracing::warn!(
+                        name: "room.invalid_move",
+                        attempted_room = %to_room,
+                        current_room = %from_room,
+                        reason = %reason,
+                    );
+                    WatcherEventBuilder::new("state", WatcherEventType::ValidationWarning)
+                        .field("event", "room.invalid_move")
+                        .field("attempted_room", &to_room)
+                        .field("current_room", &from_room)
+                        .field("reason", &reason)
+                        .send(ctx.state);
+                    false
+                }
+            }
+        } else {
+            true // Region mode — no validation
+        };
+
+        if location_valid {
+            let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
+            *ctx.current_location = location.clone();
+            if is_new {
+                ctx.discovered_regions.push(location.clone());
+            }
+            tracing::info!(
+                location = %location,
+                is_new,
+                total_discovered = ctx.discovered_regions.len(),
+                "location.changed"
+            );
+            WatcherEventBuilder::new("state", WatcherEventType::StateTransition)
+                .field("event", "location_changed")
+                .field("location", &location)
+                .field("turn_number", turn_number)
+                .send(ctx.state);
+            messages.push(GameMessage::ChapterMarker {
+                payload: ChapterMarkerPayload {
+                    title: Some(location.clone()),
+                    location: Some(location.clone()),
+                },
+                player_id: ctx.player_id.to_string(),
+            });
+            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = ctx
+                .discovered_regions
+                .iter()
+                .map(|name| sidequest_protocol::ExploredLocation {
+                    name: name.clone(),
+                    x: 0,
+                    y: 0,
+                    location_type: String::new(),
+                    connections: vec![],
+                })
+                .collect();
+            messages.push(GameMessage::MapUpdate {
+                payload: MapUpdatePayload {
+                    current_location: location,
+                    region: ctx.current_location.clone(),
+                    explored: explored_locs,
+                    fog_bounds: None,
+                },
+                player_id: ctx.player_id.to_string(),
+            });
+            ctx.turn_manager.advance_round();
+            tracing::info!(
+                new_round = ctx.turn_manager.round(),
+                interaction = ctx.turn_manager.interaction(),
+                "turn_manager.advance_round — location change"
+            );
         }
-        tracing::info!(
-            location = %location,
-            is_new,
-            total_discovered = ctx.discovered_regions.len(),
-            "location.changed"
-        );
-        WatcherEventBuilder::new("state", WatcherEventType::StateTransition)
-            .field("event", "location_changed")
-            .field("location", &location)
-            .field("turn_number", turn_number)
-            .send(ctx.state);
-        messages.push(GameMessage::ChapterMarker {
-            payload: ChapterMarkerPayload {
-                title: Some(location.clone()),
-                location: Some(location.clone()),
-            },
-            player_id: ctx.player_id.to_string(),
-        });
-        let explored_locs: Vec<sidequest_protocol::ExploredLocation> = ctx
-            .discovered_regions
-            .iter()
-            .map(|name| sidequest_protocol::ExploredLocation {
-                name: name.clone(),
-                x: 0,
-                y: 0,
-                location_type: String::new(),
-                connections: vec![],
-            })
-            .collect();
-        messages.push(GameMessage::MapUpdate {
-            payload: MapUpdatePayload {
-                current_location: location,
-                region: ctx.current_location.clone(),
-                explored: explored_locs,
-                fog_bounds: None,
-            },
-            player_id: ctx.player_id.to_string(),
-        });
-        ctx.turn_manager.advance_round();
-        tracing::info!(
-            new_round = ctx.turn_manager.round(),
-            interaction = ctx.turn_manager.interaction(),
-            "turn_manager.advance_round — location change"
-        );
     }
 
-    let clean_narration = strip_location_header(narration_text);
+    let clean_narration = strip_location_header(narration_text)
+        .replace("</s>", "")
+        .replace("<|endoftext|>", "")
+        .replace("<|end|>", "");
 
     // Accumulate narration history for context on subsequent turns.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
@@ -668,6 +720,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .await;
 
     let (fired_beats, earned_achievements) = {
+        // Initialize TropeState for each definition if empty.  Definitions
+        // are loaded in dispatch_connect but TropeState instances were never
+        // created from them — the tick ran on an empty vec every turn.
+        if ctx.trope_states.is_empty() && !ctx.trope_defs.is_empty() {
+            for def in ctx.trope_defs.iter() {
+                let id = def.id.as_deref().unwrap_or(def.name.as_str());
+                ctx.trope_states.push(sidequest_game::trope::TropeState::new(id));
+            }
+            tracing::info!(
+                count = ctx.trope_states.len(),
+                "trope_states.initialized — created from definitions (were empty)"
+            );
+        }
         let _tropes_guard = tracing::info_span!(
             "turn.system_tick.tropes",
             active_count = ctx.trope_states.len(),
@@ -949,7 +1014,11 @@ fn update_npc_registry(
                 // pronouns, role, appearance are NOT backfilled from narrator JSON.
                 // enrich_registry_from_npcs() is the authoritative source (from Npc structs).
                 // Narrator JSON extraction was a silent fallback — see CLAUDE.md "No Silent Fallbacks".
-            } else if npc.is_new {
+            } else {
+                // Register ANY NPC not already in the registry, regardless of
+                // is_new.  The LLM's is_new flag is advisory, not a gate —
+                // defaulting to false via #[serde(default)] silently dropped
+                // every NPC the LLM mentioned without the explicit flag.
                 let span = tracing::info_span!(
                     "npc.registration",
                     npc_name = %npc.name,
@@ -1333,10 +1402,10 @@ async fn build_response_messages(
 /// ctx.inventory, etc.) throughout the turn. Before persisting, we sync those
 /// locals into ctx.snapshot so persist_game_state() can save it directly
 /// without loading from SQLite first.
-fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, narration_text: &str) {
-    let location =
-        extract_location_header(narration_text).unwrap_or_else(|| "Starting area".to_string());
-    ctx.snapshot.location = location;
+fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str) {
+    // Use ctx.current_location (authoritative after room-graph validation in story 19-2)
+    // instead of re-extracting from narration text, which would bypass validation.
+    ctx.snapshot.location = ctx.current_location.clone();
     ctx.snapshot.turn_manager = ctx.turn_manager.clone();
     ctx.snapshot.npc_registry = ctx.npc_registry.clone();
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
@@ -1502,6 +1571,10 @@ fn spawn_tts_pipeline(
     let player_id_for_tts = ctx.player_id.to_string();
     let state_for_tts = ctx.state.clone();
     let ss_holder_for_tts = ctx.shared_session_holder.clone();
+    // Clone the direct mpsc sender so NARRATION_CHUNK goes through the same
+    // ordered channel as NARRATION — guaranteeing chunks arrive at the client
+    // BEFORE their corresponding binary audio frames (which go via broadcast).
+    let tx_for_tts = ctx.tx.clone();
     let tts_config = sidequest_game::tts_stream::TtsStreamConfig::default();
     let streamer = sidequest_game::tts_stream::TtsStreamer::new(tts_config);
 
@@ -1626,6 +1699,11 @@ fn spawn_tts_pipeline(
                     send_to_acting_player(game_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
                 }
                 sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
+                    // Send NARRATION_CHUNK via direct mpsc (same channel as NARRATION)
+                    // so the client receives text BEFORE the binary audio frame that
+                    // follows.  The old path (send_to_acting_player) spawned a task
+                    // with double-mutex locking, causing binary audio to consistently
+                    // arrive first and the client to discard it (no chunk to reveal).
                     if let Some(seg) = tts_segments_for_prerender.get(chunk.segment_index) {
                         let chunk_msg = GameMessage::NarrationChunk {
                             payload: sidequest_protocol::NarrationChunkPayload {
@@ -1633,7 +1711,7 @@ fn spawn_tts_pipeline(
                             },
                             player_id: player_id_for_tts.clone(),
                         };
-                        send_to_acting_player(chunk_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
+                        let _ = tx_for_tts.send(chunk_msg).await;
                     }
 
                     let header = serde_json::json!({

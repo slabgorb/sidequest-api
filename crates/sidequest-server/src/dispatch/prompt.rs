@@ -406,11 +406,11 @@ pub(crate) async fn build_prompt_context(
     if !ctx.rooms.is_empty() {
         if let Some(current_room) = ctx.rooms.iter().find(|r| r.id == *ctx.current_location || r.name == *ctx.current_location) {
             state_summary.push_str("\n\nROOM NAVIGATION (room-graph mode):\n");
-            state_summary.push_str(&format!("Current room: {} — {}\n", current_room.name, current_room.description));
+            state_summary.push_str(&format!("Current room: {} — {}\n", current_room.name, current_room.description.as_deref().unwrap_or("")));
             if !current_room.exits.is_empty() {
                 state_summary.push_str("Exits:\n");
                 for exit in &current_room.exits {
-                    state_summary.push_str(&format!("- {} → {} ({})\n", exit.direction, exit.target, exit.description));
+                    state_summary.push_str(&format!("- {} → {}\n", exit.display_name(), exit.target()));
                 }
             }
             state_summary.push_str("When the player moves through an exit, update the location header to the target room name.\n");

@@ -19,7 +19,7 @@ pub(crate) struct MutationResult {
 pub(crate) async fn apply_state_mutations(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
-    _clean_narration: &str,
+    clean_narration: &str,
     effective_action: &str,
 ) -> MutationResult {
     let mut all_tier_events = Vec::new();
@@ -178,8 +178,12 @@ pub(crate) async fn apply_state_mutations(
             ctx.combat_state.set_drama_weight(dw);
         }
 
-        // Advance turn (handles round wrap internally)
-        if combat_patch.advance_round && ctx.combat_state.in_combat() {
+        // Advance turn (handles round wrap internally).
+        // Always advance when in combat — turn alternation is a mechanical game
+        // rule, not an LLM decision.  The creature_smith prompt asks for
+        // advance_round but Claude conservatively returns false most of the
+        // time, leaving NPCs permanently unable to act.
+        if ctx.combat_state.in_combat() {
             ctx.combat_state.advance_turn();
             WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
                 .field("action", "turn_advanced")
@@ -396,13 +400,26 @@ pub(crate) async fn apply_state_mutations(
                 if let Ok(pack) = loader.load(&code) {
                     let genre_affinities = &pack.progression.affinities;
 
-                    // Increment progress for affinities whose triggers match the action
+                    // Increment progress for affinities whose triggers match the
+                    // action OR narration.  Triggers are semantic sentences (e.g.
+                    // "breaching corporate ICE") — match if ANY content word from
+                    // the trigger appears in the combined text.  Old code did
+                    // substring match of the full trigger sentence against the
+                    // player's short action text, which never matched.
+                    let combined_lower = format!(
+                        "{} {}",
+                        effective_action.to_lowercase(),
+                        clean_narration.to_lowercase(),
+                    );
                     for aff_def in genre_affinities {
-                        let action_lower = effective_action.to_lowercase();
-                        let matches_trigger = aff_def
-                            .triggers
-                            .iter()
-                            .any(|t| action_lower.contains(&t.to_lowercase()));
+                        let matches_trigger = aff_def.triggers.iter().any(|trigger| {
+                            // Extract content words (3+ chars, skip stop words)
+                            trigger
+                                .split_whitespace()
+                                .map(|w| w.to_lowercase())
+                                .filter(|w| w.len() >= 4) // skip "a", "the", "in", "for"
+                                .any(|word| combined_lower.contains(&word))
+                        });
                         if matches_trigger {
                             sidequest_game::increment_affinity_progress(
                                 &mut ch.affinities,

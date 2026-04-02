@@ -53,6 +53,7 @@ pub mod preprocessor;
 pub mod prerender;
 pub mod progression;
 pub mod render_queue;
+pub mod room_movement;
 pub mod scenario_state;
 pub mod scene_relevance;
 pub mod scene_directive;
@@ -152,9 +153,10 @@ pub use render_queue::{
 pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
+pub use room_movement::{apply_validated_move, init_room_graph_location, validate_room_transition, DispatchError, RoomTransition};
 pub use state::{
-    broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, GameSnapshot, NpcPatch,
-    WorldStatePatch,
+    broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, DiscoveredRooms,
+    GameSnapshot, NpcPatch, WorldStatePatch,
 };
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,

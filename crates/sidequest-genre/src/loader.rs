@@ -146,7 +146,15 @@ fn load_single_world(
 ) -> Result<World, GenreError> {
     let config: WorldConfig = load_yaml(&world_path.join("world.yaml"))?;
     let lore: WorldLore = load_yaml(&world_path.join("lore.yaml"))?;
-    let cartography: CartographyConfig = load_yaml(&world_path.join("cartography.yaml"))?;
+    let mut cartography: CartographyConfig = load_yaml(&world_path.join("cartography.yaml"))?;
+
+    // When navigation_mode is RoomGraph, load rooms from a separate rooms.yaml file
+    if cartography.navigation_mode == NavigationMode::RoomGraph {
+        let rooms: Option<Vec<RoomDef>> =
+            load_yaml_optional(&world_path.join("rooms.yaml"))?;
+        cartography.rooms = rooms;
+    }
+
     let cultures: Vec<Culture> =
         load_yaml_optional(&world_path.join("cultures.yaml"))?.unwrap_or_default();
 

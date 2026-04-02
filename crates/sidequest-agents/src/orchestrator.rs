@@ -700,10 +700,11 @@ impl GameService for Orchestrator {
                 let flags = extraction.action_flags.clone().unwrap_or_default();
                 let mut base = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
 
-                // Strip JSON fence from narration when combat/chase patches were extracted
-                if combat_patch.is_some() || chase_patch.is_some() {
-                    base.narration = strip_json_fence(&base.narration);
-                }
+                // Always strip residual JSON fence blocks from narration prose.
+                // The extraction pipeline removes the primary block, but edge
+                // cases (malformed fences, double blocks, unfenced JSON) can
+                // leave structured data in the text.
+                base.narration = strip_json_fence(&base.narration);
 
                 info!(
                     len = base.narration.len(),
