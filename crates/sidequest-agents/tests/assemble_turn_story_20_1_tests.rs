@@ -24,7 +24,7 @@ use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::orchestrator::{
     ActionFlags, ActionResult, ActionRewrite, NarratorExtraction,
 };
-use sidequest_agents::tools::assemble_turn::assemble_turn;
+use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use sidequest_agents::tools::preprocessors::{classify_action, rewrite_action};
 
 // ============================================================================
@@ -83,7 +83,7 @@ fn assemble_turn_produces_valid_action_result() {
         references_location: false,
     };
 
-    let result = assemble_turn(extraction, rewrite, flags);
+    let result = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
 
     assert_eq!(
         result.narration,
@@ -120,7 +120,7 @@ fn assemble_turn_passes_through_narrator_fields() {
         references_location: false,
     };
 
-    let result = assemble_turn(extraction, rewrite, flags);
+    let result = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
 
     assert_eq!(result.scene_mood.as_deref(), Some("combat"));
     assert_eq!(result.scene_intent.as_deref(), Some("Combat"));
@@ -159,7 +159,7 @@ fn assemble_turn_uses_preprocessor_rewrite_over_narrator() {
         references_location: false,
     };
 
-    let result = assemble_turn(extraction, preprocessor_rewrite, flags);
+    let result = assemble_turn(extraction, preprocessor_rewrite, flags, ToolCallResults::default());
 
     let rewrite = result.action_rewrite.expect("action_rewrite must be present");
     assert_eq!(rewrite.you, "You draw your sword");
@@ -192,7 +192,7 @@ fn assemble_turn_uses_preprocessor_flags_over_narrator() {
         references_location: false,
     };
 
-    let result = assemble_turn(extraction, rewrite, preprocessor_flags);
+    let result = assemble_turn(extraction, rewrite, preprocessor_flags, ToolCallResults::default());
 
     let flags = result.action_flags.expect("action_flags must be present");
     assert!(!flags.is_power_grab, "preprocessor said false, narrator said true — preprocessor wins");
@@ -347,8 +347,9 @@ fn narrator_prompt_omits_action_flags_schema() {
     );
 }
 
-/// The narrator prompt must still contain visual_scene, scene_mood (not migrated yet).
+/// The narrator prompt must still contain visual_scene (not migrated yet).
 /// This ensures we only removed the fields we intended to remove.
+/// Note: scene_mood was migrated in Phase 2 (story 20-2).
 #[test]
 fn narrator_prompt_retains_non_migrated_fields() {
     let narrator = NarratorAgent::new();
@@ -356,10 +357,6 @@ fn narrator_prompt_retains_non_migrated_fields() {
     assert!(
         prompt.contains("visual_scene"),
         "visual_scene is NOT migrated in Phase 1 — must remain in narrator prompt"
-    );
-    assert!(
-        prompt.contains("scene_mood"),
-        "scene_mood is NOT migrated in Phase 1 — must remain in narrator prompt"
     );
 }
 
@@ -407,7 +404,7 @@ fn rewrite_action_emits_otel_span() {
 #[test]
 fn tools_module_is_public() {
     // If this compiles, the module path is wired
-    let _: fn(NarratorExtraction, ActionRewrite, ActionFlags) -> ActionResult = assemble_turn;
+    let _: fn(NarratorExtraction, ActionRewrite, ActionFlags, ToolCallResults) -> ActionResult = assemble_turn;
 }
 
 /// The preprocessor functions must be accessible from the tools module.
@@ -458,7 +455,7 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
         references_location: true,
     };
 
-    let result = assemble_turn(extraction, rewrite, flags);
+    let result = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
 
     let result_rewrite = result.action_rewrite.expect("preprocessor rewrite must be present");
     assert_eq!(result_rewrite.you, "You open the door");
@@ -487,7 +484,7 @@ fn assemble_turn_preserves_extraction_tier() {
         references_location: false,
     };
 
-    let result = assemble_turn(extraction, rewrite, flags);
+    let result = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
     assert_eq!(
         result.extraction_tier,
         Some(2),
