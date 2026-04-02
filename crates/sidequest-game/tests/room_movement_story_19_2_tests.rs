@@ -7,13 +7,13 @@
 //! - Region mode bypasses all room validation
 //! - Integration: 3-room movement sequence with rejected invalid move
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use sidequest_game::state::{GameSnapshot, WorldStatePatch};
 use sidequest_game::room_movement::{
     validate_room_transition, apply_validated_move, init_room_graph_location, DispatchError,
 };
-use sidequest_genre::{NavigationMode, RoomDef, RoomExit};
+use sidequest_genre::{RoomDef, RoomExit};
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
