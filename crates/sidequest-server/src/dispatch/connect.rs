@@ -838,6 +838,14 @@ pub(crate) async fn dispatch_character_creation(
                                     .map(|world| world.cartography.rooms.clone())
                                     .unwrap_or_default()
                             },
+                            genre_affinities: {
+                                let gs = session.genre_slug().unwrap_or("");
+                                sidequest_genre::GenreCode::new(gs)
+                                    .ok()
+                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .map(|pack| pack.progression.affinities.clone())
+                                    .unwrap_or_default()
+                            },
                             aside: false,
                             opening_directive: opening_directive.take(),
                             narrator_verbosity,
