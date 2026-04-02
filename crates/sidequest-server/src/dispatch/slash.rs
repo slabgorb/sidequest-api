@@ -37,11 +37,14 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
             genre_slug: ctx.genre_slug.to_string(),
             world_slug: ctx.world_slug.to_string(),
             location: ctx.current_location.clone(),
+            current_region: ctx.current_location.clone(),
+            discovered_regions: ctx.discovered_regions.clone(),
             combat: ctx.combat_state.clone(),
             chase: ctx.chase_state.clone(),
             axis_values: ctx.axis_values.clone(),
             active_tropes: ctx.trope_states.clone(),
             quest_log: ctx.quest_log.clone(),
+            npc_registry: ctx.npc_registry.clone(),
             ..GameSnapshot::default()
         };
         // Reconstruct a minimal Character from loose variables.

@@ -335,10 +335,16 @@ pub(crate) async fn apply_state_mutations(
                 .field_opt("separation_delta", &chase_patch.separation_delta)
                 .send(ctx.state);
 
-            // Auto-resolve if chase reports resolved via roll
+            // Auto-resolve: mark as resolved but keep state alive for audio mood.
+            // Chase state is only cleared when narrator explicitly sends in_chase: false.
+            // This prevents mood flickering (Tension → Exploration) on the resolution turn.
             if cs.is_resolved() {
-                tracing::info!("chase.auto_resolved — escape roll exceeded threshold");
-                *ctx.chase_state = None;
+                tracing::info!("chase.auto_resolved — escape roll exceeded threshold, state retained for mood");
+
+                WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
+                    .field("action", "chase_auto_resolved")
+                    .field("note", "state retained — awaiting narrator in_chase=false to clear")
+                    .send(ctx.state);
             }
         }
     }
