@@ -27,18 +27,20 @@ fn orchestrator_calls_assemble_turn() {
     );
 }
 
-/// The orchestrator must import ToolCallResults to construct the default.
+/// The orchestrator must use tool call results (either directly or via parse_tool_results).
+/// Story 20-10 replaced direct ToolCallResults::default() with parse_tool_results().
 #[test]
-fn orchestrator_imports_tool_call_results() {
+fn orchestrator_uses_tool_call_results() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let orchestrator_source =
         std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
             .expect("orchestrator.rs must exist");
 
     assert!(
-        orchestrator_source.contains("ToolCallResults"),
-        "orchestrator.rs must reference ToolCallResults — needed to pass default tool results \
-         to assemble_turn(). Without this import, the wiring is incomplete."
+        orchestrator_source.contains("ToolCallResults")
+            || orchestrator_source.contains("parse_tool_results"),
+        "orchestrator.rs must reference ToolCallResults or parse_tool_results — \
+         needed to pass tool results to assemble_turn()."
     );
 }
 
