@@ -481,6 +481,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     y: 0,
                     location_type: String::new(),
                     connections: vec![],
+                    room_exits: vec![],
+                    room_type: String::new(),
+                    size: None,
+                    is_current_room: false,
                 })
                 .collect();
             messages.push(GameMessage::MapUpdate {

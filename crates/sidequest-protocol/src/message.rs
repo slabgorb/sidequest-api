@@ -927,6 +927,28 @@ pub struct ExploredLocation {
     /// Connected location names.
     #[serde(default)]
     pub connections: Vec<String>,
+    /// Room exits with target and type info (room graph mode only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub room_exits: Vec<RoomExitInfo>,
+    /// Room type from RoomDef (room graph mode only).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub room_type: String,
+    /// Room dimensions (width, height) from RoomDef (room graph mode only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<(u32, u32)>,
+    /// Whether this is the player's current room (room graph mode only).
+    #[serde(default)]
+    pub is_current_room: bool,
+}
+
+/// Exit descriptor for room graph mode — target room and exit type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoomExitInfo {
+    /// Target room ID this exit leads to.
+    pub target: String,
+    /// Exit type: "door", "corridor", "chute_down", "chute_up", "secret".
+    pub exit_type: String,
 }
 
 /// Fog of war bounds for map overlay.

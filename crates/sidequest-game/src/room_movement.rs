@@ -4,7 +4,10 @@
 //! a valid room reachable via an exit from the current room. Invalid moves
 //! are rejected with `DispatchError::InvalidRoomTransition`.
 
-use sidequest_genre::RoomDef;
+use std::collections::HashSet;
+
+use sidequest_genre::{RoomDef, RoomExit};
+use sidequest_protocol::{ExploredLocation, RoomExitInfo};
 
 use crate::state::GameSnapshot;
 
@@ -134,4 +137,64 @@ pub fn init_room_graph_location(snap: &mut GameSnapshot, rooms: &[RoomDef]) {
 
     snap.location = entrance.id.clone();
     snap.discovered_rooms.insert(entrance.id.clone());
+}
+
+/// Build the explored location list for MAP_UPDATE in room graph mode.
+///
+/// Filters to only discovered rooms, populates room metadata from `RoomDef`,
+/// flags the current room, and hides undiscovered secret exits.
+pub fn build_room_graph_explored(
+    rooms: &[RoomDef],
+    discovered: &HashSet<String>,
+    current_room_id: &str,
+) -> Vec<ExploredLocation> {
+    rooms
+        .iter()
+        .filter(|room| discovered.contains(&room.id))
+        .map(|room| {
+            let visible_exits: Vec<RoomExitInfo> = room
+                .exits
+                .iter()
+                .filter(|exit| is_exit_visible(exit))
+                .map(|exit| RoomExitInfo {
+                    target: exit.target().to_string(),
+                    exit_type: exit_type_slug(exit),
+                })
+                .collect();
+
+            let connections: Vec<String> = visible_exits.iter().map(|e| e.target.clone()).collect();
+
+            ExploredLocation {
+                name: room.name.clone(),
+                x: 0,
+                y: 0,
+                location_type: room.room_type.clone(),
+                connections,
+                room_exits: visible_exits,
+                room_type: room.room_type.clone(),
+                size: Some(room.size),
+                is_current_room: room.id == current_room_id,
+            }
+        })
+        .collect()
+}
+
+/// Whether an exit is visible to the player (for MAP_UPDATE).
+/// Secret passages are hidden until their `discovered` flag is true.
+fn is_exit_visible(exit: &RoomExit) -> bool {
+    match exit {
+        RoomExit::Secret { discovered, .. } => *discovered,
+        _ => true,
+    }
+}
+
+/// Slug string for exit type — matches the protocol's exit_type field.
+fn exit_type_slug(exit: &RoomExit) -> String {
+    match exit {
+        RoomExit::Door { .. } => "door".to_string(),
+        RoomExit::Corridor { .. } => "corridor".to_string(),
+        RoomExit::ChuteDown { .. } => "chute_down".to_string(),
+        RoomExit::ChuteUp { .. } => "chute_up".to_string(),
+        RoomExit::Secret { .. } => "secret".to_string(),
+    }
 }

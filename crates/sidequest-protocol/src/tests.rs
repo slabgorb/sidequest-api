@@ -374,6 +374,10 @@ mod message_type_tests {
                     y: 200,
                     location_type: "dungeon".into(),
                     connections: vec!["Forest Path".into()],
+                    room_exits: vec![],
+                    room_type: String::new(),
+                    size: None,
+                    is_current_room: false,
                 }],
                 fog_bounds: Some(FogBounds {
                     width: 500,

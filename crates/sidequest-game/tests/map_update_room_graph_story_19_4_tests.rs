@@ -16,7 +16,7 @@
 use std::collections::HashSet;
 
 use sidequest_genre::{RoomDef, RoomExit};
-use sidequest_protocol::{ExploredLocation, MapUpdatePayload};
+use sidequest_protocol::{ExploredLocation, RoomExitInfo};
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
