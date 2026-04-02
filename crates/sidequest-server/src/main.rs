@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (watcher_tx, watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let mut orchestrator = Orchestrator::new(watcher_tx);
+    let mut orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
 
     // Discover script tool binaries next to the server binary (ADR-056).
     // In dev: target/debug/sidequest-encountergen alongside target/debug/sidequest-server.
@@ -101,6 +101,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         save_dir,
     )
     .with_tts_disabled(args.no_tts());
+
+    if let Some(endpoint) = args.otel_endpoint() {
+        state = state.with_otel_endpoint(endpoint.to_string());
+    }
 
     if let Some(path) = namegen_for_state {
         state = state.with_namegen_binary(path);

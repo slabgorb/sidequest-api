@@ -245,6 +245,10 @@ pub struct Args {
     /// Enable trace-level logging.
     #[arg(long, default_value = "false")]
     trace: bool,
+
+    /// OTEL endpoint for Claude subprocess telemetry export (e.g. http://localhost:4318).
+    #[arg(long)]
+    otel_endpoint: Option<String>,
 }
 
 impl Args {
@@ -276,6 +280,11 @@ impl Args {
     /// Whether trace-level logging is enabled.
     pub fn trace(&self) -> bool {
         self.trace
+    }
+
+    /// OTEL endpoint for Claude subprocess telemetry.
+    pub fn otel_endpoint(&self) -> Option<&str> {
+        self.otel_endpoint.as_deref()
     }
 }
 
@@ -357,6 +366,8 @@ struct AppStateInner {
     sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     /// When true, skip TTS synthesis entirely (text narration still sent).
     tts_disabled: bool,
+    /// OTEL endpoint for Claude subprocess telemetry export.
+    otel_endpoint: Option<String>,
     /// Path to the sidequest-namegen binary for server-side NPC identity generation.
     /// None if the binary was not found at startup.
     namegen_binary_path: Option<PathBuf>,
@@ -516,6 +527,7 @@ impl AppState {
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
                 namegen_binary_path: None,
+                otel_endpoint: None,
             }),
         }
     }
@@ -561,6 +573,19 @@ impl AppState {
     /// Path to the sidequest-namegen binary, if available.
     pub fn namegen_binary_path(&self) -> Option<&Path> {
         self.inner.namegen_binary_path.as_deref()
+    }
+
+    /// Set the OTEL endpoint for Claude subprocess telemetry (builder-style).
+    pub fn with_otel_endpoint(mut self, endpoint: String) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_otel_endpoint must be called before cloning")
+            .otel_endpoint = Some(endpoint);
+        self
+    }
+
+    /// OTEL endpoint for Claude subprocess telemetry, if configured.
+    pub fn otel_endpoint(&self) -> Option<&str> {
+        self.inner.otel_endpoint.as_deref()
     }
 
     /// Get the persistence handle for save/load operations.

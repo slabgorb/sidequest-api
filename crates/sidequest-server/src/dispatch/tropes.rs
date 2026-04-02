@@ -37,7 +37,11 @@ pub(crate) fn process_tropes(
         .map(|ts| ts.trope_definition_id().to_string())
         .collect();
 
-    let client = ClaudeClient::new();
+    let client = if let Some(endpoint) = ctx.state.otel_endpoint() {
+        ClaudeClient::builder().otel_endpoint(endpoint.to_string()).build()
+    } else {
+        ClaudeClient::new()
+    };
     let activations =
         TroperAgent::evaluate_triggers(&client, clean_narration, ctx.trope_defs, &active_ids);
 
