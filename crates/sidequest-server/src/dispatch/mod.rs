@@ -502,7 +502,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    let clean_narration = strip_location_header(narration_text);
+    let clean_narration = strip_location_header(narration_text)
+        .replace("</s>", "")
+        .replace("<|endoftext|>", "")
+        .replace("<|end|>", "");
 
     // Accumulate narration history for context on subsequent turns.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
