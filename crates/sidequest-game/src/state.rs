@@ -34,7 +34,7 @@ use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
 use sidequest_protocol::{
     CharacterState, ChapterMarkerPayload, CombatEnemy, CombatEventPayload, ExploredLocation,
-    GameMessage, MapUpdatePayload, NarrationPayload, PartyMember, PartyStatusPayload,
+    GameMessage, MapUpdatePayload, PartyMember, PartyStatusPayload,
 };
 
 /// The complete game state at a point in time.
@@ -916,26 +916,6 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         });
     }
 
-    // NARRATION state-delta if quests or characters changed
-    // Carries the protocol-level StateDelta so the client can update its state mirror.
-    // Story 15-20: replaces inline construction in dispatch.
-    {
-        let proto_delta = build_protocol_delta(delta, state, &[]);
-        let has_data = proto_delta.location.is_some()
-            || proto_delta.characters.is_some()
-            || proto_delta.quests.is_some();
-        if has_data {
-            messages.push(GameMessage::Narration {
-                payload: NarrationPayload {
-                    text: String::new(),
-                    state_delta: Some(proto_delta),
-                    footnotes: vec![],
-                },
-                player_id: String::new(),
-            });
-        }
-    }
-
     // COMBAT_EVENT if combat state changed
     if delta.combat_changed() {
         messages.push(GameMessage::CombatEvent {
@@ -979,6 +959,15 @@ pub fn build_protocol_delta(
     state: &GameSnapshot,
     items_gained: &[sidequest_protocol::ItemGained],
 ) -> sidequest_protocol::StateDelta {
+    let span = tracing::info_span!(
+        "build_protocol_delta",
+        location_changed = delta.location_changed(),
+        characters_changed = delta.characters_changed(),
+        quest_log_changed = delta.quest_log_changed(),
+        items_gained_count = items_gained.len(),
+    );
+    let _guard = span.enter();
+
     sidequest_protocol::StateDelta {
         location: if delta.location_changed() {
             Some(state.location.clone())
@@ -1010,7 +999,7 @@ pub fn build_protocol_delta(
         } else {
             None
         },
-        quests: if delta.quest_log_changed() && !state.quest_log.is_empty() {
+        quests: if delta.quest_log_changed() {
             Some(state.quest_log.clone())
         } else {
             None

@@ -590,33 +590,24 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     // Story 15-20: build narration state delta from current ctx locals via game-crate.
-    // Uses a quick snapshot-and-diff of the current state to construct the protocol delta.
+    // Patch a temp snapshot with current locals so build_protocol_delta reads fresh values.
+    // Diff against before_snapshot (captured at dispatch entry) to detect what changed.
     let narration_state_delta = {
-        let narration_delta = sidequest_game::build_protocol_delta(
-            // Build a minimal delta marking characters/quests as changed (they always
-            // are after a turn) so the protocol delta carries the latest state.
-            &{
-                let snap_before = sidequest_game::delta::snapshot(ctx.snapshot);
-                // Temporarily patch snapshot with current ctx locals for diffing
-                let mut temp_state = ctx.snapshot.clone();
-                temp_state.location =
-                    extract_location_header(narration_text).unwrap_or_else(|| ctx.current_location.clone());
-                temp_state.quest_log = ctx.quest_log.clone();
-                if let Some(ch) = temp_state.characters.first().cloned() {
-                    let mut updated = ch;
-                    updated.core.hp = *ctx.hp;
-                    updated.core.max_hp = *ctx.max_hp;
-                    updated.core.level = *ctx.level;
-                    updated.core.inventory = ctx.inventory.clone();
-                    temp_state.characters = vec![updated];
-                }
-                let snap_after = sidequest_game::delta::snapshot(&temp_state);
-                sidequest_game::delta::compute_delta(&snap_before, &snap_after)
-            },
-            ctx.snapshot,
-            &result.items_gained,
-        );
-        narration_delta
+        let mut temp_state = ctx.snapshot.clone();
+        temp_state.location =
+            extract_location_header(narration_text).unwrap_or_else(|| ctx.current_location.clone());
+        temp_state.quest_log = ctx.quest_log.clone();
+        if let Some(ch) = temp_state.characters.first().cloned() {
+            let mut updated = ch;
+            updated.core.hp = *ctx.hp;
+            updated.core.max_hp = *ctx.max_hp;
+            updated.core.level = *ctx.level;
+            updated.core.inventory = ctx.inventory.clone();
+            temp_state.characters = vec![updated];
+        }
+        let snap_after = sidequest_game::delta::snapshot(&temp_state);
+        let narration_delta = sidequest_game::delta::compute_delta(&before_snapshot, &snap_after);
+        sidequest_game::build_protocol_delta(&narration_delta, &temp_state, &result.items_gained)
     };
 
     // Build response messages (narration, party status, inventory)
@@ -707,12 +698,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         let after_snapshot = sidequest_game::delta::snapshot(ctx.snapshot);
         let game_delta = sidequest_game::delta::compute_delta(&before_snapshot, &after_snapshot);
 
-        // OTEL event: delta.computed
+        // OTEL event: delta.computed (story 15-20 AC)
         let changed_count = [
             game_delta.characters_changed(),
+            game_delta.npcs_changed(),
             game_delta.location_changed(),
             game_delta.quest_log_changed(),
             game_delta.combat_changed(),
+            game_delta.chase_changed(),
             game_delta.atmosphere_changed(),
             game_delta.regions_changed(),
             game_delta.tropes_changed(),
@@ -720,8 +713,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .iter()
         .filter(|&&b| b)
         .count();
+        let snapshot_size_bytes = serde_json::to_string(ctx.snapshot)
+            .map(|s| s.len())
+            .unwrap_or(0);
         tracing::info!(
             changed_fields = changed_count,
+            snapshot_size_bytes = snapshot_size_bytes,
             is_empty = game_delta.is_empty(),
             "delta.computed"
         );
