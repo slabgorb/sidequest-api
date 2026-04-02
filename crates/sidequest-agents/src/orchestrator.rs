@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::agent::Agent;
+use crate::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
@@ -684,46 +685,45 @@ impl GameService for Orchestrator {
                     None
                 };
 
+                let agent_duration_ms = call_start.elapsed().as_millis() as u64;
+                span.record("is_degraded", false);
+
+                // ADR-057: assemble_turn merges extraction + preprocessor + tool results.
+                // Story 20-9: ToolCallResults::default() (no tools fired yet).
+                if extraction.action_rewrite.is_none() {
+                    warn!("action_rewrite absent from extraction — using default (empty rewrite)");
+                }
+                if extraction.action_flags.is_none() {
+                    warn!("action_flags absent from extraction — using default (all flags false)");
+                }
+                let rewrite = extraction.action_rewrite.clone().unwrap_or_default();
+                let flags = extraction.action_flags.clone().unwrap_or_default();
+                let mut base = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
+
                 // Always strip residual JSON fence blocks from narration prose.
                 // The extraction pipeline removes the primary block, but edge
                 // cases (malformed fences, double blocks, unfenced JSON) can
-                // leave structured data in the text.  Previously only stripped
-                // for combat/chase — non-combat turns leaked JSON to the client.
-                let narration = strip_json_fence(&extraction.prose);
+                // leave structured data in the text.
+                base.narration = strip_json_fence(&base.narration);
 
-                let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 info!(
-                    len = narration.len(),
+                    len = base.narration.len(),
                     duration_ms = agent_duration_ms,
                     "Claude CLI returned narration"
                 );
-                span.record("is_degraded", false);
+
+                // Orchestrator overrides fields assemble_turn doesn't know about
                 ActionResult {
-                    narration,
                     combat_patch,
                     chase_patch,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
-                    footnotes: extraction.footnotes,
-                    items_gained: extraction.items_gained,
-                    npcs_present: extraction.npcs_present,
-                    quest_updates: extraction.quest_updates,
                     agent_duration_ms: Some(agent_duration_ms),
                     token_count_in: response.input_tokens.map(|v| v as usize),
                     token_count_out: response.output_tokens.map(|v| v as usize),
-                    extraction_tier: Some(extraction.tier),
-                    visual_scene: extraction.visual_scene,
-                    scene_mood: extraction.scene_mood,
-                    personality_events: extraction.personality_events,
-                    scene_intent: extraction.scene_intent,
-                    resource_deltas: extraction.resource_deltas,
                     zone_breakdown: Some(prompt_zone_breakdown),
-                    lore_established: extraction.lore_established,
-                    merchant_transactions: extraction.merchant_transactions,
-                    sfx_triggers: extraction.sfx_triggers,
-                    action_rewrite: extraction.action_rewrite,
-                    action_flags: extraction.action_flags,
+                    ..base
                 }
             }
             Err(e) => {
@@ -853,7 +853,7 @@ pub struct MerchantTransactionExtracted {
 }
 
 /// Action rewrite from inline preprocessor (narrator/creature_smith JSON block).
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct ActionRewrite {
     #[serde(default)]
     pub you: String,
@@ -864,7 +864,7 @@ pub struct ActionRewrite {
 }
 
 /// Relevance flags from inline preprocessor (narrator/creature_smith JSON block).
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct ActionFlags {
     #[serde(default)]
     pub is_power_grab: bool,
