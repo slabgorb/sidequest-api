@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use sidequest_agents::agent::Agent;
 use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, ActionResult, NarratorExtraction,
+    ActionFlags, ActionRewrite, NarratorExtraction,
 };
 use std::io::Write;
 
@@ -107,9 +107,9 @@ fn validate_quest_update_active_quest() {
     );
     assert!(result.is_ok(), "valid quest update must succeed");
     let update = result.unwrap();
-    assert_eq!(update.quest_name, "The Corrupted Grove");
+    assert_eq!(update.quest_name(), "The Corrupted Grove");
     assert_eq!(
-        update.status,
+        update.status(),
         "active: Find the source of corruption (from: Elder Mirova)"
     );
 }
@@ -123,8 +123,8 @@ fn validate_quest_update_completed_quest() {
     );
     assert!(result.is_ok());
     let update = result.unwrap();
-    assert_eq!(update.quest_name, "The Corrupted Grove");
-    assert_eq!(update.status, "completed: the source was purified");
+    assert_eq!(update.quest_name(), "The Corrupted Grove");
+    assert_eq!(update.status(), "completed: the source was purified");
 }
 
 /// Quest failure status.
@@ -136,8 +136,8 @@ fn validate_quest_update_failed_quest() {
     );
     assert!(result.is_ok());
     let update = result.unwrap();
-    assert_eq!(update.quest_name, "The Heist");
-    assert_eq!(update.status, "failed: the guards were alerted");
+    assert_eq!(update.quest_name(), "The Heist");
+    assert_eq!(update.status(), "failed: the guards were alerted");
 }
 
 /// Updated objective status.
@@ -150,7 +150,7 @@ fn validate_quest_update_updated_objective() {
     assert!(result.is_ok());
     let update = result.unwrap();
     assert_eq!(
-        update.status,
+        update.status(),
         "active: Defeat the corruption elemental at the grove's heart"
     );
 }
@@ -202,10 +202,7 @@ fn validate_quest_update_rejects_whitespace_status() {
 /// QuestUpdate must serialize to the expected JSON shape.
 #[test]
 fn quest_update_serializes_to_json() {
-    let update = QuestUpdate {
-        quest_name: "The Corrupted Grove".to_string(),
-        status: "completed: the source was purified".to_string(),
-    };
+    let update = validate_quest_update("The Corrupted Grove", "completed: the source was purified").unwrap();
     let json = serde_json::to_value(&update).expect("QuestUpdate must serialize");
     assert_eq!(json["quest_name"], "The Corrupted Grove");
     assert_eq!(json["status"], "completed: the source was purified");
@@ -229,8 +226,8 @@ fn multiple_quest_updates_are_independent() {
     )
     .unwrap();
 
-    assert_ne!(update1.quest_name, update2.quest_name);
-    assert_ne!(update1.status, update2.status);
+    assert_ne!(update1.quest_name(), update2.quest_name());
+    assert_ne!(update1.status(), update2.status());
 }
 
 // ============================================================================
@@ -546,11 +543,9 @@ fn quest_update_module_is_public() {
 
 #[test]
 fn quest_update_struct_is_exported() {
-    let update = QuestUpdate {
-        quest_name: "test".to_string(),
-        status: "active: test".to_string(),
-    };
-    assert_eq!(update.quest_name, "test");
+    let update = validate_quest_update("test", "active: test").unwrap();
+    assert_eq!(update.quest_name(), "test");
+    assert_eq!(update.status(), "active: test");
 }
 
 // ============================================================================
@@ -563,7 +558,7 @@ fn validate_quest_update_accepts_long_quest_name() {
     let long_name = "The Very Long Quest Name That The LLM Decided To Give This Particular Adventure Hook Because It Was Feeling Creative Today";
     let result = validate_quest_update(long_name, "active: do the thing");
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().quest_name, long_name);
+    assert_eq!(result.unwrap().quest_name(), long_name);
 }
 
 /// Unicode quest names should be accepted (genre packs may use non-ASCII).
@@ -572,8 +567,8 @@ fn validate_quest_update_accepts_unicode_name() {
     let result = validate_quest_update("紫電の試練", "active: 古の神殿を探せ");
     assert!(result.is_ok());
     let update = result.unwrap();
-    assert_eq!(update.quest_name, "紫電の試練");
-    assert_eq!(update.status, "active: 古の神殿を探せ");
+    assert_eq!(update.quest_name(), "紫電の試練");
+    assert_eq!(update.status(), "active: 古の神殿を探せ");
 }
 
 /// Quest name with leading/trailing whitespace should be trimmed.
@@ -582,7 +577,7 @@ fn validate_quest_update_trims_quest_name() {
     let result = validate_quest_update("  The Corrupted Grove  ", "active: find the source");
     assert!(result.is_ok());
     assert_eq!(
-        result.unwrap().quest_name,
+        result.unwrap().quest_name(),
         "The Corrupted Grove",
         "quest name must be trimmed"
     );
@@ -594,7 +589,7 @@ fn validate_quest_update_trims_status() {
     let result = validate_quest_update("The Quest", "  active: find the thing  ");
     assert!(result.is_ok());
     assert_eq!(
-        result.unwrap().status,
+        result.unwrap().status(),
         "active: find the thing",
         "status must be trimmed"
     );
