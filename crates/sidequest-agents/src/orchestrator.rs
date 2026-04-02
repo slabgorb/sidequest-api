@@ -690,6 +690,12 @@ impl GameService for Orchestrator {
 
                 // ADR-057: assemble_turn merges extraction + preprocessor + tool results.
                 // Story 20-9: ToolCallResults::default() (no tools fired yet).
+                if extraction.action_rewrite.is_none() {
+                    warn!("action_rewrite absent from extraction — using default (empty rewrite)");
+                }
+                if extraction.action_flags.is_none() {
+                    warn!("action_flags absent from extraction — using default (all flags false)");
+                }
                 let rewrite = extraction.action_rewrite.clone().unwrap_or_default();
                 let flags = extraction.action_flags.clone().unwrap_or_default();
                 let mut base = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
