@@ -684,12 +684,12 @@ impl GameService for Orchestrator {
                     None
                 };
 
-                // Strip the JSON fence block from narration so prose is clean
-                let narration = if combat_patch.is_some() || chase_patch.is_some() {
-                    strip_json_fence(&extraction.prose)
-                } else {
-                    extraction.prose
-                };
+                // Always strip residual JSON fence blocks from narration prose.
+                // The extraction pipeline removes the primary block, but edge
+                // cases (malformed fences, double blocks, unfenced JSON) can
+                // leave structured data in the text.  Previously only stripped
+                // for combat/chase — non-combat turns leaked JSON to the client.
+                let narration = strip_json_fence(&extraction.prose);
 
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 info!(
