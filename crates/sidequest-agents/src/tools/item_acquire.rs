@@ -4,8 +4,6 @@
 //! Accepts catalog-style IDs or narrator-described free-text references.
 //! Rejects empty/whitespace fields. Produces `ItemGained` for the protocol layer.
 
-use std::fmt;
-
 /// Validated result of an `item_acquire` tool call.
 ///
 /// Fields are private with getters to enforce validation invariants
@@ -47,16 +45,9 @@ impl ItemAcquireResult {
 }
 
 /// Error returned when an item_acquire tool call has invalid fields.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("invalid item_acquire: {0}")]
 pub struct InvalidItemAcquire(String);
-
-impl fmt::Display for InvalidItemAcquire {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "invalid item_acquire: {}", self.0)
-    }
-}
-
-impl std::error::Error for InvalidItemAcquire {}
 
 /// Validate an item_acquire tool call.
 ///
