@@ -790,7 +790,11 @@ pub(crate) async fn dispatch_character_creation(
                     // Materialize world from genre pack history (Story 15-23).
                     // Load the genre pack (cached) to get World.history, then build
                     // a snapshot at Fresh maturity with history chapters applied.
-                    let mut snapshot = {
+                    // NOTE: This assigns to the &mut snapshot parameter, NOT a local.
+                    // A previous version shadowed it with `let mut snapshot = ...`,
+                    // causing the per-connection snapshot to stay empty (characters: [],
+                    // npcs: [], quest_log: {}, genre/world: "").
+                    *snapshot = {
                         let history_value = GenreCode::new(&genre)
                             .ok()
                             .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
@@ -974,7 +978,7 @@ pub(crate) async fn dispatch_character_creation(
                             narrator_vocabulary,
                             pending_trope_context,
                             achievement_tracker,
-                            snapshot: &mut snapshot,
+                            snapshot,
                             tx,
                         };
                         super::dispatch_player_action(&mut ctx).await
