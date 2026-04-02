@@ -142,10 +142,18 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                 let status = record.result.get("status").and_then(|v| v.as_str());
 
                 if let (Some(quest_name), Some(status)) = (quest_name, status) {
-                    info!(tool = "quest_update", quest_name = quest_name, status = status, "tool result parsed");
-                    let map = results.quest_updates.get_or_insert_with(HashMap::new);
-                    map.insert(quest_name.to_string(), status.to_string());
-                    parsed_count += 1;
+                    match crate::tools::quest_update::validate_quest_update(quest_name, status) {
+                        Ok(update) => {
+                            info!(tool = "quest_update", quest_name = update.quest_name(), status = update.status(), "tool result parsed");
+                            let map = results.quest_updates.get_or_insert_with(HashMap::new);
+                            map.insert(update.quest_name().to_string(), update.status().to_string());
+                            parsed_count += 1;
+                        }
+                        Err(e) => {
+                            warn!(tool = "quest_update", error = %e, "quest_update validation failed — skipping");
+                            skipped_count += 1;
+                        }
+                    }
                 } else {
                     warn!(tool = "quest_update", "missing 'quest_name' or 'status' field in result — skipping");
                     skipped_count += 1;
