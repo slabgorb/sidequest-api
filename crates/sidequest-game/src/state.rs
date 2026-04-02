@@ -3,7 +3,7 @@
 //! Port lesson #4: GameSnapshot composes domain structs, no god object.
 //! Each domain struct owns its mutations via typed patch application.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,65 @@ use sidequest_protocol::{
     CharacterState, ChapterMarkerPayload, CombatEnemy, CombatEventPayload, ExploredLocation,
     GameMessage, MapUpdatePayload, PartyMember, PartyStatusPayload,
 };
+
+/// Room IDs the player has visited in room-graph navigation mode.
+///
+/// Wraps `HashSet<String>` but serializes as a **sorted** `Vec<String>` for
+/// deterministic JSON output (story 19-2). Deserializes from `Vec<String>`.
+#[derive(Debug, Clone, Default, Eq)]
+pub struct DiscoveredRooms(pub HashSet<String>);
+
+impl Serialize for DiscoveredRooms {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut sorted: Vec<&String> = self.0.iter().collect();
+        sorted.sort();
+        sorted.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DiscoveredRooms {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let vec = Vec::<String>::deserialize(deserializer)?;
+        Ok(DiscoveredRooms(vec.into_iter().collect()))
+    }
+}
+
+impl std::ops::Deref for DiscoveredRooms {
+    type Target = HashSet<String>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for DiscoveredRooms {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::iter::FromIterator<String> for DiscoveredRooms {
+    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
+        DiscoveredRooms(iter.into_iter().collect())
+    }
+}
+
+impl PartialEq for DiscoveredRooms {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl PartialEq<HashSet<String>> for DiscoveredRooms {
+    fn eq(&self, other: &HashSet<String>) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<DiscoveredRooms> for HashSet<String> {
+    fn eq(&self, other: &DiscoveredRooms) -> bool {
+        *self == other.0
+    }
+}
 
 /// The complete game state at a point in time.
 ///
@@ -138,6 +197,10 @@ pub struct GameSnapshot {
     /// Used for bounds clamping during delta application.
     #[serde(default)]
     pub resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
+    /// Room IDs the player has visited in room-graph mode (story 19-2).
+    /// Empty in region mode. Serializes as sorted Vec for deterministic JSON.
+    #[serde(default)]
+    pub discovered_rooms: DiscoveredRooms,
 }
 
 /// Backward-compatible deserializer for active_tropes.
@@ -226,6 +289,8 @@ struct GameSnapshotRaw {
     resource_state: HashMap<String, f64>,
     #[serde(default)]
     resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
+    #[serde(default)]
+    discovered_rooms: DiscoveredRooms,
 }
 
 impl From<GameSnapshotRaw> for GameSnapshot {
@@ -270,6 +335,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             scenario_state: raw.scenario_state,
             resource_state: raw.resource_state,
             resource_declarations: raw.resource_declarations,
+            discovered_rooms: raw.discovered_rooms,
         }
     }
 }

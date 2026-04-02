@@ -402,55 +402,105 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
-        let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
-        *ctx.current_location = location.clone();
-        if is_new {
-            ctx.discovered_regions.push(location.clone());
+        // Room-graph mode: validate transition before applying (story 19-2).
+        // Region mode (rooms empty): always valid.
+        let location_valid = if !ctx.rooms.is_empty() {
+            match sidequest_game::room_movement::validate_room_transition(
+                ctx.snapshot,
+                &location,
+                &ctx.rooms,
+            ) {
+                Ok(()) => {
+                    // Track room discovery + OTEL transition event
+                    let exit_type = ctx.rooms.iter()
+                        .find(|r| r.id == ctx.snapshot.location)
+                        .and_then(|r| r.exits.iter().find(|e| e.target() == location).map(|e| e.display_name().to_string()))
+                        .unwrap_or_default();
+                    let from_room = ctx.snapshot.location.clone();
+                    ctx.snapshot.discovered_rooms.insert(location.clone());
+                    tracing::info!(
+                        name: "room.transition",
+                        from_room = %from_room,
+                        to_room = %location,
+                        exit_type = %exit_type,
+                    );
+                    true
+                }
+                Err(sidequest_game::room_movement::DispatchError::InvalidRoomTransition {
+                    from_room,
+                    to_room,
+                    reason,
+                }) => {
+                    tracing::warn!(
+                        name: "room.invalid_move",
+                        attempted_room = %to_room,
+                        current_room = %from_room,
+                        reason = %reason,
+                    );
+                    WatcherEventBuilder::new("state", WatcherEventType::ValidationWarning)
+                        .field("event", "room.invalid_move")
+                        .field("attempted_room", &to_room)
+                        .field("current_room", &from_room)
+                        .field("reason", &reason)
+                        .send(ctx.state);
+                    false
+                }
+            }
+        } else {
+            true // Region mode — no validation
+        };
+
+        if location_valid {
+            let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
+            *ctx.current_location = location.clone();
+            if is_new {
+                ctx.discovered_regions.push(location.clone());
+            }
+            tracing::info!(
+                location = %location,
+                is_new,
+                total_discovered = ctx.discovered_regions.len(),
+                "location.changed"
+            );
+            WatcherEventBuilder::new("state", WatcherEventType::StateTransition)
+                .field("event", "location_changed")
+                .field("location", &location)
+                .field("turn_number", turn_number)
+                .send(ctx.state);
+            messages.push(GameMessage::ChapterMarker {
+                payload: ChapterMarkerPayload {
+                    title: Some(location.clone()),
+                    location: Some(location.clone()),
+                },
+                player_id: ctx.player_id.to_string(),
+            });
+            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = ctx
+                .discovered_regions
+                .iter()
+                .map(|name| sidequest_protocol::ExploredLocation {
+                    name: name.clone(),
+                    x: 0,
+                    y: 0,
+                    location_type: String::new(),
+                    connections: vec![],
+                })
+                .collect();
+            messages.push(GameMessage::MapUpdate {
+                payload: MapUpdatePayload {
+                    current_location: location,
+                    region: ctx.current_location.clone(),
+                    explored: explored_locs,
+                    fog_bounds: None,
+                },
+                player_id: ctx.player_id.to_string(),
+            });
+            ctx.turn_manager.advance_round();
+            tracing::info!(
+                new_round = ctx.turn_manager.round(),
+                interaction = ctx.turn_manager.interaction(),
+                "turn_manager.advance_round — location change"
+            );
         }
-        tracing::info!(
-            location = %location,
-            is_new,
-            total_discovered = ctx.discovered_regions.len(),
-            "location.changed"
-        );
-        WatcherEventBuilder::new("state", WatcherEventType::StateTransition)
-            .field("event", "location_changed")
-            .field("location", &location)
-            .field("turn_number", turn_number)
-            .send(ctx.state);
-        messages.push(GameMessage::ChapterMarker {
-            payload: ChapterMarkerPayload {
-                title: Some(location.clone()),
-                location: Some(location.clone()),
-            },
-            player_id: ctx.player_id.to_string(),
-        });
-        let explored_locs: Vec<sidequest_protocol::ExploredLocation> = ctx
-            .discovered_regions
-            .iter()
-            .map(|name| sidequest_protocol::ExploredLocation {
-                name: name.clone(),
-                x: 0,
-                y: 0,
-                location_type: String::new(),
-                connections: vec![],
-            })
-            .collect();
-        messages.push(GameMessage::MapUpdate {
-            payload: MapUpdatePayload {
-                current_location: location,
-                region: ctx.current_location.clone(),
-                explored: explored_locs,
-                fog_bounds: None,
-            },
-            player_id: ctx.player_id.to_string(),
-        });
-        ctx.turn_manager.advance_round();
-        tracing::info!(
-            new_round = ctx.turn_manager.round(),
-            interaction = ctx.turn_manager.interaction(),
-            "turn_manager.advance_round — location change"
-        );
     }
 
     let clean_narration = strip_location_header(narration_text);
@@ -1333,10 +1383,10 @@ async fn build_response_messages(
 /// ctx.inventory, etc.) throughout the turn. Before persisting, we sync those
 /// locals into ctx.snapshot so persist_game_state() can save it directly
 /// without loading from SQLite first.
-fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, narration_text: &str) {
-    let location =
-        extract_location_header(narration_text).unwrap_or_else(|| "Starting area".to_string());
-    ctx.snapshot.location = location;
+fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str) {
+    // Use ctx.current_location (authoritative after room-graph validation in story 19-2)
+    // instead of re-extracting from narration text, which would bypass validation.
+    ctx.snapshot.location = ctx.current_location.clone();
     ctx.snapshot.turn_manager = ctx.turn_manager.clone();
     ctx.snapshot.npc_registry = ctx.npc_registry.clone();
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
