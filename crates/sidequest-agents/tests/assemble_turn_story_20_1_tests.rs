@@ -347,16 +347,16 @@ fn narrator_prompt_omits_action_flags_schema() {
     );
 }
 
-/// The narrator prompt must still contain visual_scene (not migrated yet).
+/// The narrator prompt must still contain personality_events (not migrated yet).
 /// This ensures we only removed the fields we intended to remove.
-/// Note: scene_mood was migrated in Phase 2 (story 20-2).
+/// Note: scene_mood migrated in Phase 2 (20-2), visual_scene migrated in Phase 5 (20-5).
 #[test]
 fn narrator_prompt_retains_non_migrated_fields() {
     let narrator = NarratorAgent::new();
     let prompt = narrator.system_prompt();
     assert!(
-        prompt.contains("visual_scene"),
-        "visual_scene is NOT migrated in Phase 1 — must remain in narrator prompt"
+        prompt.contains("personality_events"),
+        "personality_events is NOT migrated yet — must remain in narrator prompt"
     );
 }
 

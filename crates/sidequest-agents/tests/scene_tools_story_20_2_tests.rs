@@ -255,6 +255,7 @@ fn assemble_turn_tool_mood_overrides_narrator() {
     let tool_results = ToolCallResults {
         scene_mood: Some("triumph".to_string()),
         scene_intent: None,
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -273,6 +274,7 @@ fn assemble_turn_tool_intent_overrides_narrator() {
     let tool_results = ToolCallResults {
         scene_mood: None,
         scene_intent: Some("combat_prep".to_string()),
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -291,6 +293,7 @@ fn assemble_turn_both_tools_override_narrator() {
     let tool_results = ToolCallResults {
         scene_mood: Some("foreboding".to_string()),
         scene_intent: Some("stealth".to_string()),
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -313,6 +316,7 @@ fn assemble_turn_no_tool_mood_uses_narrator_fallback() {
     let tool_results = ToolCallResults {
         scene_mood: None,
         scene_intent: None,
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -331,6 +335,7 @@ fn assemble_turn_no_tool_intent_uses_narrator_fallback() {
     let tool_results = ToolCallResults {
         scene_mood: None,
         scene_intent: None,
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -350,6 +355,7 @@ fn assemble_turn_no_mood_anywhere_is_none() {
     let tool_results = ToolCallResults {
         scene_mood: None,
         scene_intent: None,
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -367,6 +373,7 @@ fn assemble_turn_mixed_tool_and_fallback() {
     let tool_results = ToolCallResults {
         scene_mood: Some("exhilaration".to_string()),
         scene_intent: None, // falls back to narrator
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -390,6 +397,7 @@ fn assemble_turn_preserves_other_fields_with_tool_results() {
     let tool_results = ToolCallResults {
         scene_mood: Some("calm".to_string()),
         scene_intent: Some("social".to_string()),
+        ..ToolCallResults::default()
     };
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -451,16 +459,13 @@ fn narrator_prompt_omits_scene_intent_schema() {
     );
 }
 
-/// The narrator prompt must still contain non-migrated fields (visual_scene, footnotes, etc.).
+/// The narrator prompt must still contain non-migrated fields (footnotes, items_gained, etc.).
+/// Note: visual_scene was migrated in Phase 5 (story 20-5).
 #[test]
 fn narrator_prompt_retains_non_migrated_phase2_fields() {
     let narrator = NarratorAgent::new();
     let prompt = narrator.system_prompt();
 
-    assert!(
-        prompt.contains("visual_scene"),
-        "visual_scene is NOT migrated in Phase 2 — must remain"
-    );
     assert!(
         prompt.contains("items_gained"),
         "items_gained is NOT migrated in Phase 2 — must remain"

@@ -8,7 +8,7 @@
 //! For action_rewrite/action_flags: preprocessor always wins.
 //! For scene_mood/scene_intent: tool call wins if present, else narrator fallback.
 
-use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, NarratorExtraction};
+use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, NarratorExtraction, VisualScene};
 
 /// Collected results from tool calls made during the narrator turn.
 ///
@@ -22,6 +22,8 @@ pub struct ToolCallResults {
     pub scene_mood: Option<String>,
     /// Scene intent from `set_intent` tool call. Overrides narrator's `scene_intent`.
     pub scene_intent: Option<String>,
+    /// Visual scene from `scene_render` tool call. Overrides narrator's `visual_scene`.
+    pub visual_scene: Option<VisualScene>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
@@ -41,6 +43,8 @@ pub fn assemble_turn(
     let scene_mood = tool_results.scene_mood.or(extraction.scene_mood);
     // Scene intent: tool call > narrator extraction
     let scene_intent = tool_results.scene_intent.or(extraction.scene_intent);
+    // Visual scene: tool call > narrator extraction
+    let visual_scene = tool_results.visual_scene.or(extraction.visual_scene);
 
     ActionResult {
         narration: extraction.prose,
@@ -57,7 +61,7 @@ pub fn assemble_turn(
         token_count_in: None,
         token_count_out: None,
         extraction_tier: Some(extraction.tier),
-        visual_scene: extraction.visual_scene,
+        visual_scene,
         scene_mood,
         personality_events: extraction.personality_events,
         scene_intent,
