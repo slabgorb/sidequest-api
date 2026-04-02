@@ -272,6 +272,11 @@ impl Orchestrator {
 
         // Trope beat directives (Early zone)
         if let Some(ref beats) = context.pending_trope_context {
+            let _trope_span = tracing::info_span!(
+                "orchestrator.trope_beat_injection",
+                beats_injected = 1u64,
+            )
+            .entered();
             builder.add_section(PromptSection::new(
                 "trope_beat_directives",
                 beats.clone(),
