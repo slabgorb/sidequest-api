@@ -19,8 +19,11 @@ use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::orchestrator::{
     ActionFlags, ActionRewrite, ActionResult, NarratorExtraction,
 };
+use std::io::Write;
+
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use sidequest_agents::tools::quest_update::{validate_quest_update, QuestUpdate};
+use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
 
 // ============================================================================
 // Helpers
@@ -595,4 +598,153 @@ fn validate_quest_update_trims_status() {
         "active: find the thing",
         "status must be trimmed"
     );
+}
+
+// ============================================================================
+// REWORK: Sidecar wiring tests (Reviewer finding — parse_tool_results)
+// ============================================================================
+
+fn test_session_id(test_name: &str) -> String {
+    format!("test-20-6-{}-{}", test_name, std::process::id())
+}
+
+fn write_sidecar(session_id: &str, lines: &[&str]) {
+    let path = sidecar_path(session_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("failed to create sidecar dir");
+    }
+    let mut file = std::fs::File::create(&path).expect("failed to create sidecar file");
+    for line in lines {
+        writeln!(file, "{}", line).expect("failed to write line");
+    }
+}
+
+fn cleanup_sidecar(session_id: &str) {
+    let path = sidecar_path(session_id);
+    let _ = std::fs::remove_file(path);
+}
+
+/// Wiring test: parse_tool_results must recognize quest_update records and
+/// populate ToolCallResults.quest_updates HashMap.
+#[test]
+fn parser_extracts_quest_update_from_sidecar() {
+    let sid = test_session_id("parse-quest");
+    write_sidecar(&sid, &[
+        r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: the source was purified"}}"#,
+    ]);
+
+    let results = parse_tool_results(&sid);
+    let quests = results.quest_updates.expect("quest_update tool result should populate quest_updates");
+    assert_eq!(quests.len(), 1);
+    assert_eq!(
+        quests.get("The Corrupted Grove").unwrap(),
+        "completed: the source was purified"
+    );
+
+    cleanup_sidecar(&sid);
+}
+
+/// Multiple quest_update records in one sidecar accumulate into the HashMap.
+#[test]
+fn parser_accumulates_multiple_quest_updates() {
+    let sid = test_session_id("parse-quest-multi");
+    write_sidecar(&sid, &[
+        r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: purified"}}"#,
+        r#"{"tool":"quest_update","result":{"quest_name":"The Missing Merchant","status":"active: search the docks (from: Harbormaster Dex)"}}"#,
+    ]);
+
+    let results = parse_tool_results(&sid);
+    let quests = results.quest_updates.expect("multiple quest_updates should accumulate");
+    assert_eq!(quests.len(), 2);
+    assert!(quests.contains_key("The Corrupted Grove"));
+    assert!(quests.contains_key("The Missing Merchant"));
+
+    cleanup_sidecar(&sid);
+}
+
+/// Parser must reject empty quest_name from sidecar — validator rejects it,
+/// so the parser must call the validator (not raw-insert).
+#[test]
+fn parser_rejects_empty_quest_name_from_sidecar() {
+    let sid = test_session_id("parse-quest-empty-name");
+    write_sidecar(&sid, &[
+        r#"{"tool":"quest_update","result":{"quest_name":"","status":"active: some quest"}}"#,
+    ]);
+
+    let results = parse_tool_results(&sid);
+    // Empty quest_name must be rejected — quest_updates should be None (no valid records)
+    assert!(
+        results.quest_updates.is_none(),
+        "empty quest_name must be rejected by the parser — got {:?}",
+        results.quest_updates
+    );
+
+    cleanup_sidecar(&sid);
+}
+
+/// Parser must reject whitespace-only quest_name from sidecar.
+#[test]
+fn parser_rejects_whitespace_quest_name_from_sidecar() {
+    let sid = test_session_id("parse-quest-ws-name");
+    write_sidecar(&sid, &[
+        r#"{"tool":"quest_update","result":{"quest_name":"   ","status":"active: some quest"}}"#,
+    ]);
+
+    let results = parse_tool_results(&sid);
+    assert!(
+        results.quest_updates.is_none(),
+        "whitespace-only quest_name must be rejected by the parser"
+    );
+
+    cleanup_sidecar(&sid);
+}
+
+/// Parser must trim quest_name and status from sidecar records.
+#[test]
+fn parser_trims_quest_update_fields() {
+    let sid = test_session_id("parse-quest-trim");
+    write_sidecar(&sid, &[
+        r#"{"tool":"quest_update","result":{"quest_name":"  The Corrupted Grove  ","status":"  active: find the source  "}}"#,
+    ]);
+
+    let results = parse_tool_results(&sid);
+    let quests = results.quest_updates.expect("trimmed quest_update should be accepted");
+    assert_eq!(
+        quests.get("The Corrupted Grove").unwrap(),
+        "active: find the source",
+        "parser must trim quest_name and status"
+    );
+    // Verify the untrimmed key is NOT present
+    assert!(
+        !quests.contains_key("  The Corrupted Grove  "),
+        "untrimmed quest_name must not be a key"
+    );
+
+    cleanup_sidecar(&sid);
+}
+
+/// End-to-end: sidecar → parse_tool_results → assemble_turn → ActionResult.
+#[test]
+fn quest_update_e2e_sidecar_to_action_result() {
+    let sid = test_session_id("e2e-quest");
+    write_sidecar(&sid, &[
+        r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: the source was purified"}}"#,
+    ]);
+
+    let tool_results = parse_tool_results(&sid);
+    let extraction = extraction_with_quests(); // has narrator fallback quest
+    let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
+
+    // Tool result must override narrator extraction
+    assert!(
+        result.quest_updates.contains_key("The Corrupted Grove"),
+        "e2e: tool quest update must be present"
+    );
+    assert_eq!(
+        result.quest_updates.get("The Corrupted Grove").unwrap(),
+        "completed: the source was purified",
+        "e2e: tool result must override narrator extraction"
+    );
+
+    cleanup_sidecar(&sid);
 }
