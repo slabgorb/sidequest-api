@@ -294,10 +294,8 @@ fn assemble_turn_uses_tool_visual_scene_over_narrator() {
         tags: vec!["location".to_string(), "atmosphere".to_string()],
     };
     let tool_results = ToolCallResults {
-        scene_mood: None,
-        scene_intent: None,
         visual_scene: Some(tool_scene),
-        quest_updates: None,
+        ..ToolCallResults::default()
     };
 
     let extraction = extraction_with_visual_scene();
@@ -312,12 +310,7 @@ fn assemble_turn_uses_tool_visual_scene_over_narrator() {
 
 #[test]
 fn assemble_turn_falls_back_to_narrator_visual_scene_when_no_tool() {
-    let tool_results = ToolCallResults {
-        scene_mood: None,
-        scene_intent: None,
-        visual_scene: None,
-        quest_updates: None,
-    };
+    let tool_results = ToolCallResults::default();
 
     let extraction = extraction_with_visual_scene();
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
@@ -331,12 +324,7 @@ fn assemble_turn_falls_back_to_narrator_visual_scene_when_no_tool() {
 
 #[test]
 fn assemble_turn_returns_none_visual_scene_when_neither_source() {
-    let tool_results = ToolCallResults {
-        scene_mood: None,
-        scene_intent: None,
-        visual_scene: None,
-        quest_updates: None,
-    };
+    let tool_results = ToolCallResults::default();
 
     let extraction = extraction_without_visual_scene();
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);

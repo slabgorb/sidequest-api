@@ -347,16 +347,16 @@ fn narrator_prompt_omits_action_flags_schema() {
     );
 }
 
-/// The narrator prompt must still contain personality_events (not migrated yet).
-/// This ensures we only removed the fields we intended to remove.
+/// The narrator prompt must still contain non-migrated fields.
+/// Note: personality_events, resource_deltas, sfx_triggers migrated in Phase 7 (20-7).
 /// Note: scene_mood migrated in Phase 2 (20-2), visual_scene migrated in Phase 5 (20-5).
 #[test]
 fn narrator_prompt_retains_non_migrated_fields() {
     let narrator = NarratorAgent::new();
     let prompt = narrator.system_prompt();
     assert!(
-        prompt.contains("personality_events"),
-        "personality_events is NOT migrated yet — must remain in narrator prompt"
+        prompt.contains("merchant_transactions"),
+        "merchant_transactions must remain in narrator prompt"
     );
 }
 

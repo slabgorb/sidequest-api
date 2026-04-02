@@ -283,23 +283,24 @@ fn narrator_prompt_omits_quest_updates_json_field() {
 }
 
 /// Non-migrated fields must still be present in the narrator prompt.
+/// Note: personality_events, sfx_triggers, resource_deltas were migrated in Phase 7 (story 20-7).
 #[test]
 fn narrator_prompt_retains_non_migrated_fields() {
     let narrator = NarratorAgent::new();
     let prompt = narrator.system_prompt();
 
-    // These fields are NOT migrated in Phase 6
+    // These fields are NOT migrated in any phase — they must remain
     assert!(
-        prompt.contains("personality_events"),
-        "personality_events is NOT migrated in Phase 6 — must remain"
+        prompt.contains("merchant_transactions"),
+        "merchant_transactions must remain in narrator prompt"
     );
     assert!(
-        prompt.contains("sfx_triggers"),
-        "sfx_triggers is NOT migrated in Phase 6 — must remain"
+        prompt.contains("footnotes"),
+        "footnotes must remain in narrator prompt"
     );
     assert!(
-        prompt.contains("resource_deltas"),
-        "resource_deltas is NOT migrated in Phase 6 — must remain"
+        prompt.contains("items_gained"),
+        "items_gained must remain in narrator prompt"
     );
 }
 

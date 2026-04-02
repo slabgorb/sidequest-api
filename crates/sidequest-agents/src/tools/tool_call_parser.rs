@@ -13,7 +13,9 @@ use std::path::PathBuf;
 use tracing::{info, warn};
 
 use crate::tools::assemble_turn::ToolCallResults;
+use crate::tools::personality_event::validate_personality_event;
 use crate::tools::scene_render::validate_scene_render;
+use sidequest_game;
 
 /// Directory where tool call sidecar files are written.
 ///
@@ -156,6 +158,63 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     }
                 } else {
                     warn!(tool = "quest_update", "missing 'quest_name' or 'status' field in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "personality_event" => {
+                let npc = record.result.get("npc").and_then(|v| v.as_str());
+                let event_type = record.result.get("event_type").and_then(|v| v.as_str());
+                let description = record.result.get("description").and_then(|v| v.as_str()).unwrap_or("");
+
+                if let (Some(npc), Some(event_type)) = (npc, event_type) {
+                    match validate_personality_event(npc, event_type, description) {
+                        Ok(validated) => {
+                            // Convert to orchestrator PersonalityEvent
+                            let game_event: sidequest_game::PersonalityEvent = serde_json::from_value(
+                                serde_json::Value::String(validated.event_type_str().to_string())
+                            ).unwrap(); // Safe: validate already ensured this is a valid variant
+                            let pe = crate::orchestrator::PersonalityEvent {
+                                npc: validated.npc().to_string(),
+                                event_type: game_event,
+                                description: validated.description().to_string(),
+                            };
+                            info!(tool = "personality_event", npc = validated.npc(), event_type = validated.event_type_str(), "tool result parsed");
+                            let events = results.personality_events.get_or_insert_with(Vec::new);
+                            events.push(pe);
+                            parsed_count += 1;
+                        }
+                        Err(e) => {
+                            warn!(tool = "personality_event", error = %e, "personality_event validation failed — skipping");
+                            skipped_count += 1;
+                        }
+                    }
+                } else {
+                    warn!(tool = "personality_event", "missing 'npc' or 'event_type' field in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "resource_change" => {
+                let resource = record.result.get("resource").and_then(|v| v.as_str());
+                let delta = record.result.get("delta").and_then(|v| v.as_f64());
+
+                if let (Some(resource), Some(delta)) = (resource, delta) {
+                    info!(tool = "resource_change", resource = resource, delta = delta, "tool result parsed");
+                    let deltas = results.resource_deltas.get_or_insert_with(HashMap::new);
+                    deltas.insert(resource.to_string(), delta);
+                    parsed_count += 1;
+                } else {
+                    warn!(tool = "resource_change", "missing 'resource' or 'delta' field in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "play_sfx" => {
+                if let Some(sfx_id) = record.result.get("sfx_id").and_then(|v| v.as_str()) {
+                    info!(tool = "play_sfx", sfx_id = sfx_id, "tool result parsed");
+                    let triggers = results.sfx_triggers.get_or_insert_with(Vec::new);
+                    triggers.push(sfx_id.to_string());
+                    parsed_count += 1;
+                } else {
+                    warn!(tool = "play_sfx", "missing 'sfx_id' field in result — skipping");
                     skipped_count += 1;
                 }
             }
