@@ -71,7 +71,7 @@ fn merchant_npc(name: &str, items: Vec<Item>, gold: i64) -> Npc {
         },
         voice_id: None,
         disposition: Disposition::new(0), // Neutral
-        location: Some("Market Square".to_string()),
+        location: Some(NonBlankString::new("Market Square").unwrap()),
         pronouns: Some("he/him".to_string()),
         appearance: None,
         age: None,

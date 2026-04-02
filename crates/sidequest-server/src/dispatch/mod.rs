@@ -314,6 +314,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         active_trope_summary,
         genre: Some(ctx.genre_slug.to_string()),
         available_sfx: ctx.sfx_library.keys().cloned().collect(),
+        // Story 15-16: merchant context injection
+        npc_registry: ctx.npc_registry.clone(),
+        npcs: ctx.snapshot.npcs.clone(),
+        current_location: ctx.current_location.clone(),
     };
     let result = ctx
         .state
@@ -1733,6 +1737,10 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         active_trope_summary: None,
         genre: Some(ctx.genre_slug.to_string()),
         available_sfx: ctx.sfx_library.keys().cloned().collect(),
+        // Aside turns don't need merchant context — no state changes allowed
+        npc_registry: Vec::new(),
+        npcs: Vec::new(),
+        current_location: String::new(),
     };
     let result = ctx
         .state

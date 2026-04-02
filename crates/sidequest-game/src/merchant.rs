@@ -55,6 +55,20 @@ pub enum MerchantError {
     InventoryFull(#[from] InventoryError),
 }
 
+/// A transaction request from the narrator — lightweight, without price.
+///
+/// The narrator outputs this when a buy/sell occurs. The engine resolves the
+/// price mechanically using the merchant NPC's disposition via `calculate_price`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerchantTransactionRequest {
+    /// Buy or sell (from the player's perspective).
+    pub transaction_type: TransactionType,
+    /// Item ID to transact (matches `Item.id`).
+    pub item_id: String,
+    /// Name of the merchant NPC (matches `Npc.name()`).
+    pub merchant_name: String,
+}
+
 /// Calculate the transaction price given base value, disposition, and direction.
 ///
 /// Disposition pricing formula:

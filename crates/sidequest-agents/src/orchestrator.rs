@@ -19,6 +19,8 @@ use crate::client::ClaudeClient;
 use crate::context_builder::{ContextBuilder, ZoneBreakdown};
 use crate::prompt_framework::{parse_soul_md, AttentionZone, PromptSection, SectionCategory};
 use crate::turn_record::{TurnIdCounter, TurnRecord};
+use sidequest_game::merchant::format_merchant_context;
+use sidequest_game::npc::{Npc, NpcRegistryEntry};
 use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTracker};
 
 /// Result of processing a player action through the orchestrator.
@@ -384,6 +386,15 @@ impl GameService for Orchestrator {
                     SectionCategory::State,
                 ));
             }
+
+            // Merchant context injection (Valley zone — story 15-16)
+            inject_merchant_context(
+                &mut builder,
+                &context.npc_registry,
+                &context.npcs,
+                route.intent(),
+                &context.current_location,
+            );
 
             // Active trope summary (Valley zone — background context for all agents)
             if let Some(ref trope_summary) = context.active_trope_summary {
@@ -1004,6 +1015,15 @@ pub struct TurnContext {
     /// Available SFX IDs from the genre pack's sfx_library.
     /// Injected into the narrator prompt so it knows what SFX to pick from.
     pub available_sfx: Vec<String>,
+    /// NPC registry entries for merchant detection (story 15-16).
+    /// Populated from GameSnapshot.npc_registry by the server dispatch loop.
+    pub npc_registry: Vec<NpcRegistryEntry>,
+    /// Full NPC structs for merchant context injection (story 15-16).
+    /// Only NPCs at the current location are needed, but all are passed
+    /// for simplicity — inject_merchant_context filters by location.
+    pub npcs: Vec<Npc>,
+    /// Player's current location for merchant context injection (story 15-16).
+    pub current_location: String,
 }
 
 /// Result of processing a player action through the full turn loop.
@@ -1043,4 +1063,59 @@ pub enum AgentKind {
     Resonator,
     /// Intent classification (LLM-based).
     IntentRouter,
+}
+
+/// Inject merchant context into the prompt builder when appropriate.
+///
+/// Checks the NPC registry for merchants at the player's current location.
+/// For each merchant found, calls `format_merchant_context()` and adds the
+/// result as a Valley-zone section. Only injects for Exploration and Dialogue
+/// intents — combat and chase don't need merchant wares in the prompt.
+///
+/// Emits a `merchant.context_injected` OTEL span per merchant for GM panel visibility.
+pub fn inject_merchant_context(
+    builder: &mut ContextBuilder,
+    registry: &[NpcRegistryEntry],
+    npcs: &[Npc],
+    intent: Intent,
+    current_location: &str,
+) {
+    // Only inject for Exploration and Dialogue intents
+    if !matches!(intent, Intent::Exploration | Intent::Dialogue) {
+        return;
+    }
+
+    // Find merchants at the player's current location
+    let merchant_entries: Vec<&NpcRegistryEntry> = registry
+        .iter()
+        .filter(|entry| {
+            entry.role.contains("merchant") && entry.location == current_location
+        })
+        .collect();
+
+    for entry in merchant_entries {
+        // Look up the full NPC to get inventory and disposition
+        let Some(npc) = npcs.iter().find(|n| n.core.name.as_str() == entry.name) else {
+            continue;
+        };
+
+        let item_count = npc.core.inventory.item_count();
+        let context_text =
+            format_merchant_context(&entry.name, &npc.core.inventory, &npc.disposition);
+
+        // OTEL span for GM panel
+        let _span = tracing::info_span!(
+            "merchant.context_injected",
+            merchant_name = %entry.name,
+            item_count = item_count,
+        )
+        .entered();
+
+        builder.add_section(PromptSection::new(
+            "merchant_context",
+            context_text,
+            AttentionZone::Valley,
+            SectionCategory::State,
+        ));
+    }
 }
