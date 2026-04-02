@@ -8,6 +8,8 @@
 //! For action_rewrite/action_flags: preprocessor always wins.
 //! For scene_mood/scene_intent: tool call wins if present, else narrator fallback.
 
+use std::collections::HashMap;
+
 use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, NarratorExtraction, VisualScene};
 
 /// Collected results from tool calls made during the narrator turn.
@@ -24,6 +26,10 @@ pub struct ToolCallResults {
     pub scene_intent: Option<String>,
     /// Visual scene from `scene_render` tool call. Overrides narrator's `visual_scene`.
     pub visual_scene: Option<VisualScene>,
+    /// Quest updates from `quest_update` tool calls. Overrides narrator's `quest_updates`.
+    /// `None` means no quest_update tools fired (use narrator fallback).
+    /// `Some(map)` means tools fired — use this map even if empty.
+    pub quest_updates: Option<HashMap<String, String>>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
@@ -45,6 +51,8 @@ pub fn assemble_turn(
     let scene_intent = tool_results.scene_intent.or(extraction.scene_intent);
     // Visual scene: tool call > narrator extraction
     let visual_scene = tool_results.visual_scene.or(extraction.visual_scene);
+    // Quest updates: tool calls > narrator extraction
+    let quest_updates = tool_results.quest_updates.unwrap_or(extraction.quest_updates);
 
     ActionResult {
         narration: extraction.prose,
@@ -56,7 +64,7 @@ pub fn assemble_turn(
         footnotes: extraction.footnotes,
         items_gained: extraction.items_gained,
         npcs_present: extraction.npcs_present,
-        quest_updates: extraction.quest_updates,
+        quest_updates,
         agent_duration_ms: None,
         token_count_in: None,
         token_count_out: None,
