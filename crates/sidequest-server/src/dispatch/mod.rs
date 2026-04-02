@@ -946,15 +946,9 @@ fn update_npc_registry(
                 if npc.name.len() > entry.name.len() {
                     entry.name = npc.name.clone();
                 }
-                if entry.pronouns.is_empty() && !npc.pronouns.is_empty() {
-                    entry.pronouns = npc.pronouns.clone();
-                }
-                if entry.role.is_empty() && !npc.role.is_empty() {
-                    entry.role = npc.role.clone();
-                }
-                if entry.appearance.is_empty() && !npc.appearance.is_empty() {
-                    entry.appearance = npc.appearance.clone();
-                }
+                // pronouns, role, appearance are NOT backfilled from narrator JSON.
+                // enrich_registry_from_npcs() is the authoritative source (from Npc structs).
+                // Narrator JSON extraction was a silent fallback — see CLAUDE.md "No Silent Fallbacks".
             } else if npc.is_new {
                 let span = tracing::info_span!(
                     "npc.registration",
