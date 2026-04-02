@@ -8,6 +8,7 @@
 //! tool call results, with preprocessor/tool values always taking precedence.
 
 pub mod assemble_turn;
+pub mod item_acquire;
 pub mod personality_event;
 pub mod play_sfx;
 pub mod preprocessors;

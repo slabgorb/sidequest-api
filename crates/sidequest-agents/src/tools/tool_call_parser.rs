@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use tracing::{info, warn};
 
 use crate::tools::assemble_turn::ToolCallResults;
+use crate::tools::item_acquire::validate_item_acquire;
 use crate::tools::personality_event::validate_personality_event;
 use crate::tools::scene_render::validate_scene_render;
 use sidequest_game;
@@ -109,6 +110,35 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     parsed_count += 1;
                 } else {
                     warn!(tool = "set_intent", "missing 'intent' field in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "item_acquire" => {
+                let item_ref = record.result.get("item_ref").and_then(|v| v.as_str());
+                let name = record.result.get("name").and_then(|v| v.as_str());
+                let category = record.result.get("category").and_then(|v| v.as_str());
+
+                if let (Some(item_ref), Some(name), Some(category)) = (item_ref, name, category) {
+                    match validate_item_acquire(item_ref, name, category) {
+                        Ok(validated) => {
+                            info!(
+                                tool = "item_acquire",
+                                item_ref = validated.item_ref(),
+                                name = validated.name(),
+                                category = validated.category(),
+                                "tool result parsed"
+                            );
+                            let items = results.items_acquired.get_or_insert_with(Vec::new);
+                            items.push(validated.to_item_gained());
+                            parsed_count += 1;
+                        }
+                        Err(e) => {
+                            warn!(tool = "item_acquire", error = %e, "item_acquire validation failed — skipping");
+                            skipped_count += 1;
+                        }
+                    }
+                } else {
+                    warn!(tool = "item_acquire", "missing required fields (item_ref/name/category) in result — skipping");
                     skipped_count += 1;
                 }
             }
