@@ -12,7 +12,6 @@ pub mod continuity_validator;
 pub mod context_builder;
 pub mod entity_reference;
 pub mod exercise_tracker;
-pub mod extractor;
 pub mod footnotes;
 // format_helpers module removed — superseded by inline formatting in
 // sidequest-server::dispatch::prompt::build_prompt_context.

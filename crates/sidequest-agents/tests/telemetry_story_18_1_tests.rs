@@ -363,8 +363,8 @@ fn orchestrator_extraction_span_records_diagnostic_field() {
     assert!(span.is_some(), "turn.agent_llm.extraction span must exist");
     let span = span.unwrap();
     assert!(
-        has_field(span, "extraction_tier") || has_field(span, "narration_len"),
-        "turn.agent_llm.extraction must record extraction_tier or narration_len, got fields: {:?}",
+        has_field(span, "narration_len"),
+        "turn.agent_llm.extraction must record narration_len, got fields: {:?}",
         span.fields
     );
 }

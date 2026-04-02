@@ -269,7 +269,6 @@ async fn server_accepts_mock_game_service() {
                 agent_duration_ms: None,
                 token_count_in: None,
                 token_count_out: None,
-                extraction_tier: None,
                 visual_scene: None,
                 scene_mood: None,
                 personality_events: vec![],

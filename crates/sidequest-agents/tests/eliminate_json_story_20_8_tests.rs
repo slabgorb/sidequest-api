@@ -52,7 +52,6 @@ fn minimal_extraction() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -210,20 +209,19 @@ fn orchestrator_has_no_extractor_import() {
 // ============================================================================
 
 #[test]
-fn assemble_turn_produces_no_extraction_tier() {
-    // After 20-8, assemble_turn should not populate extraction_tier
-    // (field removed or always None). Currently it sets Some(extraction.tier).
-    let extraction = minimal_extraction();
-    let rewrite = ActionRewrite::default();
-    let flags = ActionFlags::default();
-    let result = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
-
+fn action_result_has_no_extraction_tier_field_in_source() {
+    // After 20-8, ActionResult should not have an extraction_tier field at all.
+    let orchestrator_source = include_str!("../src/orchestrator.rs");
+    let has_extraction_tier = orchestrator_source
+        .lines()
+        .any(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("pub extraction_tier:") || trimmed.starts_with("extraction_tier:")
+        });
     assert!(
-        result.extraction_tier.is_none(),
-        "assemble_turn still sets extraction_tier to Some({}) — \
-         this field should be None or removed now that the 3-tier \
-         extraction pipeline is deleted",
-        result.extraction_tier.unwrap_or(0)
+        !has_extraction_tier,
+        "ActionResult still has an `extraction_tier` field — \
+         this field should be removed now that the 3-tier extraction pipeline is deleted"
     );
 }
 
@@ -233,13 +231,13 @@ fn narrator_extraction_has_no_tier_field_in_source() {
     // extraction tier succeeded. With extractor.rs gone, it should be removed.
     let orchestrator_source = include_str!("../src/orchestrator.rs");
 
-    // Check that NarratorExtraction struct doesn't have a `tier` field
-    // (look for the pattern within the struct definition)
+    // Check that NarratorExtraction struct doesn't have a `tier: u8` field.
+    // VisualScene has a `tier: String` which is unrelated — match the u8 type specifically.
     let has_tier_field = orchestrator_source
         .lines()
         .any(|line| {
             let trimmed = line.trim();
-            trimmed.starts_with("pub tier:") || trimmed.starts_with("tier:")
+            trimmed.starts_with("pub tier: u8") || trimmed.starts_with("tier: u8")
         });
 
     assert!(
@@ -285,7 +283,6 @@ fn assemble_turn_produces_complete_action_result() {
         sfx_triggers: vec!["coins_clink".to_string()],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     };
 
     let rewrite = ActionRewrite {

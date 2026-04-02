@@ -141,7 +141,6 @@ async fn turn_record_bridge(
             agent = %record.agent_name,
             patches = record.patches_applied.len(),
             delta_empty = record.delta.is_empty(),
-            extraction_tier = record.extraction_tier,
             is_degraded = record.is_degraded,
             agent_duration_ms = record.agent_duration_ms,
             token_count_in = record.token_count_in,
@@ -175,7 +174,6 @@ async fn turn_record_bridge(
             .field("agent_duration_ms", record.agent_duration_ms)
             .field("token_count_in", record.token_count_in)
             .field("token_count_out", record.token_count_out)
-            .field("extraction_tier", &record.extraction_tier)
             .field("is_degraded", record.is_degraded)
             .field("narration_len", record.narration.len())
             .field("patches", &patches)

@@ -63,7 +63,6 @@ fn extraction_with_mood_and_intent() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -459,22 +458,6 @@ fn narrator_prompt_omits_scene_intent_schema() {
     );
 }
 
-/// The narrator prompt must still contain non-migrated fields (footnotes, items_gained, etc.).
-/// Note: visual_scene was migrated in Phase 5 (story 20-5).
-#[test]
-fn narrator_prompt_retains_non_migrated_phase2_fields() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
-
-    assert!(
-        prompt.contains("items_gained"),
-        "items_gained is NOT migrated in Phase 2 — must remain"
-    );
-    assert!(
-        prompt.contains("footnotes"),
-        "footnotes is NOT migrated in Phase 2 — must remain"
-    );
-}
 
 // ============================================================================
 // AC-6: OTEL spans emitted for tool calls

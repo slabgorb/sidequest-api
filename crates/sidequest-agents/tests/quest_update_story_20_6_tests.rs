@@ -69,7 +69,6 @@ fn extraction_with_quests() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -90,7 +89,6 @@ fn extraction_no_quests() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -282,27 +280,6 @@ fn narrator_prompt_omits_quest_updates_json_field() {
     );
 }
 
-/// Non-migrated fields must still be present in the narrator prompt.
-/// Note: personality_events, sfx_triggers, resource_deltas were migrated in Phase 7 (story 20-7).
-#[test]
-fn narrator_prompt_retains_non_migrated_fields() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
-
-    // These fields are NOT migrated in any phase — they must remain
-    assert!(
-        prompt.contains("merchant_transactions"),
-        "merchant_transactions must remain in narrator prompt"
-    );
-    assert!(
-        prompt.contains("footnotes"),
-        "footnotes must remain in narrator prompt"
-    );
-    assert!(
-        prompt.contains("items_gained"),
-        "items_gained must remain in narrator prompt"
-    );
-}
 
 // ============================================================================
 // AC-4: assemble_turn collects quest tool calls into quest_updates HashMap

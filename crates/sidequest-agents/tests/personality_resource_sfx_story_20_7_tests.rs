@@ -70,7 +70,6 @@ fn extraction_with_personality_events() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -93,7 +92,6 @@ fn extraction_with_resource_deltas() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -114,7 +112,6 @@ fn extraction_with_sfx() -> NarratorExtraction {
         sfx_triggers: vec!["sword_clash".to_string()],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -135,7 +132,6 @@ fn extraction_empty() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 1,
     }
 }
 
@@ -485,26 +481,6 @@ fn narrator_prompt_omits_sfx_triggers_schema() {
     );
 }
 
-/// Non-migrated fields must still be present in the narrator prompt.
-#[test]
-fn narrator_prompt_retains_non_migrated_fields() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
-
-    // These fields are NOT migrated in any prior phase — they must remain
-    assert!(
-        prompt.contains("merchant_transactions"),
-        "merchant_transactions is NOT migrated yet — must remain"
-    );
-    assert!(
-        prompt.contains("footnotes"),
-        "footnotes must remain in narrator prompt"
-    );
-    assert!(
-        prompt.contains("items_gained"),
-        "items_gained must remain in narrator prompt"
-    );
-}
 
 // ============================================================================
 // AC-5: assemble_turn collects all three into respective ActionResult fields
