@@ -12,7 +12,7 @@ use crate::agent::Agent;
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
-use crate::agents::intent_router::{Intent, IntentRouter};
+use crate::agents::intent_router::{Intent, IntentRoute, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::client::ClaudeClient;
@@ -82,6 +82,25 @@ pub struct ActionResult {
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
     pub action_flags: Option<ActionFlags>,
+}
+
+/// Result of building a narrator prompt without invoking the LLM.
+///
+/// Extracted from `process_action()` so prompt content can be tested
+/// independently of the Claude CLI subprocess (story 15-27).
+#[derive(Debug, Clone)]
+pub struct NarratorPromptResult {
+    /// The fully composed prompt text, ordered by attention zone.
+    pub prompt_text: String,
+    /// Zone breakdown for the Prompt Inspector dashboard tab.
+    pub zone_breakdown: ZoneBreakdown,
+    /// Names of script tools whose instruction sections were injected into the prompt.
+    /// Empty when genre is None or no tools are registered.
+    pub script_tools_injected: Vec<String>,
+    /// The `--allowedTools` specs for the Claude CLI subprocess.
+    pub allowed_tools: Vec<String>,
+    /// The intent classification result, so callers don't need to re-classify.
+    pub intent_route: IntentRoute,
 }
 
 /// Configuration for a script tool binary (ADR-056).
@@ -188,7 +207,7 @@ impl Orchestrator {
     ///
     /// Returns tool spec strings that let the narrator invoke registered script tools
     /// via `Bash(...)`. Empty if no tools are configured.
-    fn narrator_allowed_tools(&self) -> Vec<String> {
+    pub fn narrator_allowed_tools(&self) -> Vec<String> {
         self.script_tools
             .values()
             .map(|cfg| format!("Bash({}:*)", cfg.binary_path))
@@ -215,6 +234,317 @@ impl Orchestrator {
         &self.troper
     }
 
+    /// Build the narrator prompt and tool configuration without invoking the LLM.
+    ///
+    /// Extracted from `process_action()` (story 15-27) so prompt content — including
+    /// script tool sections — can be tested independently. Runs intent classification
+    /// internally to determine which agent's system prompt to use.
+    ///
+    /// Returns the composed prompt text, zone breakdown, injected script tool names,
+    /// and the `--allowedTools` specs for the Claude CLI.
+    pub fn build_narrator_prompt(&self, action: &str, context: &TurnContext) -> NarratorPromptResult {
+        let route = self.intent_router.classify(action, context);
+
+        let mut builder = ContextBuilder::new();
+        let mut script_tools_injected: Vec<String> = Vec::new();
+
+        // Agent identity section (Primacy zone)
+        match route.agent_name() {
+            "creature_smith" => self.creature_smith.build_context(&mut builder),
+            "ensemble" => self.ensemble.build_context(&mut builder),
+            "dialectician" => self.dialectician.build_context(&mut builder),
+            _ => self.narrator.build_context(&mut builder),
+        };
+
+        // SOUL principles (Early zone — high attention, after identity, before state)
+        // Filtered per agent via <agents> tags in SOUL.md.
+        if let Some(ref soul) = self.soul_data {
+            let filtered = soul.as_prompt_text_for(route.agent_name());
+            if !filtered.is_empty() {
+                builder.add_section(PromptSection::new(
+                    "soul_principles",
+                    format!("## Guiding Principles\n{}", filtered),
+                    AttentionZone::Early,
+                    SectionCategory::Soul,
+                ));
+            }
+        }
+
+        // Trope beat directives (Early zone)
+        if let Some(ref beats) = context.pending_trope_context {
+            let _trope_span = tracing::info_span!(
+                "orchestrator.trope_beat_injection",
+                beats_injected = 1u64,
+            )
+            .entered();
+            builder.add_section(PromptSection::new(
+                "trope_beat_directives",
+                beats.clone(),
+                AttentionZone::Early,
+                SectionCategory::State,
+            ));
+        }
+
+        // Script tool instructions (Valley zone — available tools + commands)
+        if let Some(ref genre) = context.genre {
+            for (tool_name, cfg) in &self.script_tools {
+                let tool_section = match tool_name.as_str() {
+                    "encountergen" => format!(
+                        "[ENCOUNTER GENERATOR]\n\
+                         Generate enemy stat blocks from genre pack data.\n\n\
+                         Command:\n\
+                         ```\n\
+                         {} --genre-packs-path {} --genre {} [options]\n\
+                         ```\n\n\
+                         | Flag | Required | Description |\n\
+                         |------|----------|-------------|\n\
+                         | --tier | No | Power tier 1-4 (default: random 1-3) |\n\
+                         | --count | No | Number of enemies (default: 1) |\n\
+                         | --class | No | Character class (e.g., Mutant, Scavenger) |\n\
+                         | --culture | No | Culture for name generation |\n\
+                         | --archetype | No | Archetype (e.g., \"Wasteland Trader\") |\n\
+                         | --role | No | Role description (e.g., \"ambush predator\") |\n\
+                         | --context | No | Scene context for visual prompt |\n\n\
+                         When to call: any time new enemies enter the scene.\n\
+                         Pick flags based on narrative context — use --culture for the local faction, \
+                         --tier for the threat level, --role for the enemy's purpose in the scene.\n\n\
+                         Output: JSON with enemies[].{{name, class, level, hp, abilities, weaknesses, \
+                         stat_scores, visual_prompt, ...}}\n\n\
+                         Checklist after calling:\n\
+                         - [ ] Use the generated name in your narration\n\
+                         - [ ] Reference abilities from the abilities list (not invented ones)\n\
+                         - [ ] Include the enemy in npcs_present with is_new: true\n\
+                         - [ ] Set hp_changes in combat patch using the generated HP as the baseline\n\
+                         - [ ] The visual_prompt field goes to image generation automatically",
+                        cfg.binary_path, cfg.genre_packs_path, genre,
+                    ),
+                    "namegen" => format!(
+                        "[NPC GENERATOR]\n\
+                         Generate NPC identity from genre pack data.\n\n\
+                         Command:\n\
+                         ```\n\
+                         {} --genre-packs-path {} --genre {} [options]\n\
+                         ```\n\n\
+                         | Flag | Required | Description |\n\
+                         |------|----------|-------------|\n\
+                         | --culture | No | Culture/faction name |\n\
+                         | --archetype | No | Archetype name |\n\
+                         | --gender | No | male, female, nonbinary |\n\
+                         | --role | No | Role override |\n\
+                         | --description | No | Physical description hints |\n\n\
+                         When to call: any time a new NPC appears (is_new: true).\n\
+                         Pick --culture based on where the scene takes place.\n\n\
+                         Output: JSON with {{name, pronouns, culture, role, appearance, personality, \
+                         dialogue_quirks, history, ocean, inventory, trope_connections}}\n\n\
+                         Checklist after calling:\n\
+                         - [ ] Use the generated name exactly\n\
+                         - [ ] Use dialogue_quirks to flavor their speech\n\
+                         - [ ] Include in npcs_present with the generated details\n\
+                         - [ ] Reference their role and appearance in narration",
+                        cfg.binary_path, cfg.genre_packs_path, genre,
+                    ),
+                    "loadoutgen" => format!(
+                        "[STARTING LOADOUT GENERATOR]\n\
+                         Generate starting equipment and currency for a character.\n\n\
+                         Command:\n\
+                         ```\n\
+                         {} --genre-packs-path {} --genre {} --class <class_name>\n\
+                         ```\n\n\
+                         | Flag | Required | Description |\n\
+                         |------|----------|-------------|\n\
+                         | --class | Yes | Character class or archetype name |\n\
+                         | --tier | No | Power tier 1-4 (default: 1) |\n\n\
+                         When to call: at character creation completion or session start, \
+                         when introducing the character's starting gear.\n\n\
+                         Output: JSON with {{class, currency_name, starting_gold, equipment[], \
+                         narrative_hook, total_value}}\n\
+                         Each equipment item has: id, name, description, category, value, tags, lore.\n\n\
+                         Checklist after calling:\n\
+                         - [ ] Weave the narrative_hook into the opening scene naturally\n\
+                         - [ ] Reference specific items by name when the character uses them\n\
+                         - [ ] Use the currency_name for all money references\n\
+                         - [ ] Include equipment in the character's inventory state",
+                        cfg.binary_path, cfg.genre_packs_path, genre,
+                    ),
+                    unknown => {
+                        warn!(
+                            tool = %unknown,
+                            "Script tool registered but has no prompt section — narrator will not know how to use it"
+                        );
+                        continue;
+                    }
+                };
+                builder.add_section(PromptSection::new(
+                    &format!("script_tool_{}", tool_name),
+                    tool_section,
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+                script_tools_injected.push(tool_name.clone());
+            }
+        }
+
+        // Game state section (Valley zone)
+        if let Some(state) = &context.state_summary {
+            builder.add_section(PromptSection::new(
+                "game_state",
+                format!("<game_state>\n{}\n</game_state>", state),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ));
+        }
+
+        // Merchant context injection (Valley zone — story 15-16)
+        inject_merchant_context(
+            &mut builder,
+            &context.npc_registry,
+            &context.npcs,
+            route.intent(),
+            &context.current_location,
+        );
+
+        // Active trope summary (Valley zone)
+        if let Some(ref trope_summary) = context.active_trope_summary {
+            builder.add_section(PromptSection::new(
+                "active_tropes",
+                trope_summary.clone(),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ));
+        }
+
+        // SFX library (Valley zone)
+        if !context.available_sfx.is_empty() {
+            let sfx_list = context.available_sfx.join(", ");
+            builder.add_section(PromptSection::new(
+                "sfx_library",
+                format!(
+                    "[AVAILABLE SFX]\n\
+                     When your narration describes a sound-producing action, include matching \
+                     SFX IDs in sfx_triggers. Pick based on what HAPPENED, not what was mentioned.\n\
+                     Available: {}",
+                    sfx_list
+                ),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ));
+        }
+
+        // Backstory capture directive
+        if route.intent() == Intent::Backstory {
+            builder.add_section(PromptSection::new(
+                "backstory_capture",
+                "## Backstory Capture Mode\n\
+                 The player is describing their character's history, personality, appearance, \
+                 possessions, or memories. This is character-building, not plot advancement.\n\n\
+                 IMPORTANT: In your JSON footnotes block, extract each personal detail as a \
+                 separate footnote with `is_new: true`. Examples of what to capture:\n\
+                 - Physical description or appearance details\n\
+                 - Personal history or backstory events\n\
+                 - Relationships to people or places from their past\n\
+                 - Emotional traits, habits, or personality quirks\n\
+                 - Meaningful possessions, keepsakes, or mementos\n\
+                 - Skills, training, or formative experiences\n\n\
+                 Each footnote summary should be a concise, third-person statement about the \
+                 character (e.g., \"Served in the Union army\" not \"The player mentioned serving\"). \
+                 These facts will be stored permanently and recalled when relevant."
+                    .to_string(),
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ));
+        }
+
+        // Narrator verbosity instruction (Late zone)
+        {
+            use sidequest_protocol::NarratorVerbosity;
+            let content = match context.narrator_verbosity {
+                NarratorVerbosity::Concise => {
+                    "[NARRATION LENGTH]\n\
+                     Keep descriptions to 1-2 sentences. Prioritize action and \
+                     consequence over atmosphere. No extended scene-setting or \
+                     sensory elaboration. Be direct."
+                }
+                NarratorVerbosity::Standard => {
+                    "[NARRATION LENGTH]\n\
+                     Use standard descriptive prose — balanced detail and pacing. \
+                     Include enough atmosphere to set the scene without belaboring it. \
+                     2-4 sentences per beat is typical."
+                }
+                NarratorVerbosity::Verbose => {
+                    "[NARRATION LENGTH]\n\
+                     Elaborate with sensory details and world-building. Paint the \
+                     scene with sights, sounds, smells, and texture. Take time to \
+                     establish atmosphere and let moments breathe. 4-6+ sentences \
+                     per beat."
+                }
+            };
+            builder.add_section(PromptSection::new(
+                "narrator_verbosity",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ));
+        }
+
+        // Narrator vocabulary instruction (Late zone)
+        {
+            use sidequest_protocol::NarratorVocabulary;
+            let content = match context.narrator_vocabulary {
+                NarratorVocabulary::Accessible => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use simple, direct language. Prefer common words over obscure \
+                     ones. Keep sentences short and clear. Aim for approximately \
+                     8th-grade reading level. No archaic constructions or elaborate \
+                     metaphors."
+                }
+                NarratorVocabulary::Literary => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use rich but clear prose. Employ varied vocabulary and literary \
+                     devices where they serve the narrative. Balance elegance with \
+                     accessibility — vivid but not purple."
+                }
+                NarratorVocabulary::Epic => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use elevated, archaic, or mythic diction. Embrace elaborate \
+                     sentence structures, rare words, and poetic constructions. \
+                     Channel the cadence of sagas, epics, and high fantasy prose. \
+                     Unrestricted complexity."
+                }
+            };
+            builder.add_section(PromptSection::new(
+                "narrator_vocabulary",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ));
+        }
+
+        // Player action section (Recency zone)
+        builder.add_section(PromptSection::new(
+            "player_action",
+            format!("The player says: {}", action),
+            AttentionZone::Recency,
+            SectionCategory::Action,
+        ));
+
+        let section_count = builder.section_count();
+        let _pb_guard = tracing::info_span!(
+            "turn.agent_llm.prompt_build",
+            section_count = section_count as u64,
+        ).entered();
+        let zone_breakdown = builder.zone_breakdown();
+        let prompt_text = builder.compose();
+        let allowed_tools = self.narrator_allowed_tools();
+
+        NarratorPromptResult {
+            prompt_text,
+            zone_breakdown,
+            script_tools_injected,
+            allowed_tools,
+            intent_route: route,
+        }
+    }
+
 }
 
 impl GameService for Orchestrator {
@@ -232,8 +562,24 @@ impl GameService for Orchestrator {
         );
         let _guard = span.enter();
 
-        // ADR-032: Two-tier intent classification (Haiku → narrator fallback)
-        let route = self.intent_router.classify(action, context);
+        // Build prompt via extracted method (story 15-27: testable prompt assembly).
+        let prompt_result = self.build_narrator_prompt(action, context);
+        let prompt = prompt_result.prompt_text;
+        let prompt_zone_breakdown = prompt_result.zone_breakdown;
+        let allowed_tools = prompt_result.allowed_tools;
+
+        // OTEL: report which script tools were injected into this turn's prompt
+        if !prompt_result.script_tools_injected.is_empty() {
+            let _tools_span = tracing::info_span!(
+                "script_tool.prompt_injected",
+                tools = %prompt_result.script_tools_injected.join(","),
+                count = prompt_result.script_tools_injected.len(),
+            )
+            .entered();
+        }
+
+        // Reuse intent classification from build_narrator_prompt (avoids double Haiku call).
+        let route = prompt_result.intent_route;
         span.record("intent", route.intent().to_string().as_str());
         span.record("agent", route.agent_name());
         info!(
@@ -244,302 +590,6 @@ impl GameService for Orchestrator {
             "Intent classified"
         );
 
-        // Build prompt via ContextBuilder — zone-ordered, telemetry-instrumented.
-        let (prompt, prompt_zone_breakdown) = {
-            let mut builder = ContextBuilder::new();
-
-            // Agent identity section (Primacy zone)
-            match route.agent_name() {
-                "creature_smith" => self.creature_smith.build_context(&mut builder),
-                "ensemble" => self.ensemble.build_context(&mut builder),
-                "dialectician" => self.dialectician.build_context(&mut builder),
-                _ => self.narrator.build_context(&mut builder),
-            };
-
-            // SOUL principles (Early zone — high attention, after identity, before state)
-            // Filtered per agent via <agents> tags in SOUL.md.
-            if let Some(ref soul) = self.soul_data {
-                let filtered = soul.as_prompt_text_for(route.agent_name());
-                if !filtered.is_empty() {
-                    builder.add_section(PromptSection::new(
-                        "soul_principles",
-                        format!("## Guiding Principles\n{}", filtered),
-                        AttentionZone::Early,
-                        SectionCategory::Soul,
-                    ));
-                }
-            }
-
-            // Trope beat directives (Early zone — high attention, from previous turn's fired beats)
-            if let Some(ref beats) = context.pending_trope_context {
-                let _trope_span = tracing::info_span!(
-                    "orchestrator.trope_beat_injection",
-                    beats_injected = 1u64,
-                )
-                .entered();
-                builder.add_section(PromptSection::new(
-                    "trope_beat_directives",
-                    beats.clone(),
-                    AttentionZone::Early,
-                    SectionCategory::State,
-                ));
-            }
-
-            // Script tool instructions (Valley zone — available tools + commands)
-            // Skill-style: clear command reference + checklist for using the result.
-            if let Some(ref genre) = context.genre {
-                for (tool_name, cfg) in &self.script_tools {
-                    let tool_section = match tool_name.as_str() {
-                        "encountergen" => format!(
-                            "[ENCOUNTER GENERATOR]\n\
-                             Generate enemy stat blocks from genre pack data.\n\n\
-                             Command:\n\
-                             ```\n\
-                             {} --genre-packs-path {} --genre {} [options]\n\
-                             ```\n\n\
-                             | Flag | Required | Description |\n\
-                             |------|----------|-------------|\n\
-                             | --tier | No | Power tier 1-4 (default: random 1-3) |\n\
-                             | --count | No | Number of enemies (default: 1) |\n\
-                             | --class | No | Character class (e.g., Mutant, Scavenger) |\n\
-                             | --culture | No | Culture for name generation |\n\
-                             | --archetype | No | Archetype (e.g., \"Wasteland Trader\") |\n\
-                             | --role | No | Role description (e.g., \"ambush predator\") |\n\
-                             | --context | No | Scene context for visual prompt |\n\n\
-                             When to call: any time new enemies enter the scene.\n\
-                             Pick flags based on narrative context — use --culture for the local faction, \
-                             --tier for the threat level, --role for the enemy's purpose in the scene.\n\n\
-                             Output: JSON with enemies[].{{name, class, level, hp, abilities, weaknesses, \
-                             stat_scores, visual_prompt, ...}}\n\n\
-                             Checklist after calling:\n\
-                             - [ ] Use the generated name in your narration\n\
-                             - [ ] Reference abilities from the abilities list (not invented ones)\n\
-                             - [ ] Include the enemy in npcs_present with is_new: true\n\
-                             - [ ] Set hp_changes in combat patch using the generated HP as the baseline\n\
-                             - [ ] The visual_prompt field goes to image generation automatically",
-                            cfg.binary_path, cfg.genre_packs_path, genre,
-                        ),
-                        "namegen" => format!(
-                            "[NPC GENERATOR]\n\
-                             Generate NPC identity from genre pack data.\n\n\
-                             Command:\n\
-                             ```\n\
-                             {} --genre-packs-path {} --genre {} [options]\n\
-                             ```\n\n\
-                             | Flag | Required | Description |\n\
-                             |------|----------|-------------|\n\
-                             | --culture | No | Culture/faction name |\n\
-                             | --archetype | No | Archetype name |\n\
-                             | --gender | No | male, female, nonbinary |\n\
-                             | --role | No | Role override |\n\
-                             | --description | No | Physical description hints |\n\n\
-                             When to call: any time a new NPC appears (is_new: true).\n\
-                             Pick --culture based on where the scene takes place.\n\n\
-                             Output: JSON with {{name, pronouns, culture, role, appearance, personality, \
-                             dialogue_quirks, history, ocean, inventory, trope_connections}}\n\n\
-                             Checklist after calling:\n\
-                             - [ ] Use the generated name exactly\n\
-                             - [ ] Use dialogue_quirks to flavor their speech\n\
-                             - [ ] Include in npcs_present with the generated details\n\
-                             - [ ] Reference their role and appearance in narration",
-                            cfg.binary_path, cfg.genre_packs_path, genre,
-                        ),
-                        "loadoutgen" => format!(
-                            "[STARTING LOADOUT GENERATOR]\n\
-                             Generate starting equipment and currency for a character.\n\n\
-                             Command:\n\
-                             ```\n\
-                             {} --genre-packs-path {} --genre {} --class <class_name>\n\
-                             ```\n\n\
-                             | Flag | Required | Description |\n\
-                             |------|----------|-------------|\n\
-                             | --class | Yes | Character class or archetype name |\n\
-                             | --tier | No | Power tier 1-4 (default: 1) |\n\n\
-                             When to call: at character creation completion or session start, \
-                             when introducing the character's starting gear.\n\n\
-                             Output: JSON with {{class, currency_name, starting_gold, equipment[], \
-                             narrative_hook, total_value}}\n\
-                             Each equipment item has: id, name, description, category, value, tags, lore.\n\n\
-                             Checklist after calling:\n\
-                             - [ ] Weave the narrative_hook into the opening scene naturally\n\
-                             - [ ] Reference specific items by name when the character uses them\n\
-                             - [ ] Use the currency_name for all money references\n\
-                             - [ ] Include equipment in the character's inventory state",
-                            cfg.binary_path, cfg.genre_packs_path, genre,
-                        ),
-                        unknown => {
-                            warn!(
-                                tool = %unknown,
-                                "Script tool registered but has no prompt section — narrator will not know how to use it"
-                            );
-                            continue;
-                        }
-                    };
-                    builder.add_section(PromptSection::new(
-                        &format!("script_tool_{}", tool_name),
-                        tool_section,
-                        AttentionZone::Valley,
-                        SectionCategory::State,
-                    ));
-                }
-            }
-
-            // Game state section (Valley zone — lower attention, grounding context)
-            if let Some(state) = &context.state_summary {
-                builder.add_section(PromptSection::new(
-                    "game_state",
-                    format!("<game_state>\n{}\n</game_state>", state),
-                    AttentionZone::Valley,
-                    SectionCategory::State,
-                ));
-            }
-
-            // Merchant context injection (Valley zone — story 15-16)
-            inject_merchant_context(
-                &mut builder,
-                &context.npc_registry,
-                &context.npcs,
-                route.intent(),
-                &context.current_location,
-            );
-
-            // Active trope summary (Valley zone — background context for all agents)
-            if let Some(ref trope_summary) = context.active_trope_summary {
-                builder.add_section(PromptSection::new(
-                    "active_tropes",
-                    trope_summary.clone(),
-                    AttentionZone::Valley,
-                    SectionCategory::State,
-                ));
-            }
-
-            // SFX library (Valley zone — available SFX IDs for narrator to pick from)
-            if !context.available_sfx.is_empty() {
-                let sfx_list = context.available_sfx.join(", ");
-                builder.add_section(PromptSection::new(
-                    "sfx_library",
-                    format!(
-                        "[AVAILABLE SFX]\n\
-                         When your narration describes a sound-producing action, include matching \
-                         SFX IDs in sfx_triggers. Pick based on what HAPPENED, not what was mentioned.\n\
-                         Available: {}",
-                        sfx_list
-                    ),
-                    AttentionZone::Valley,
-                    SectionCategory::State,
-                ));
-            }
-
-            // Backstory capture directive — when the player is building their character's
-            // history, tell the narrator to extract personal details as footnotes so they
-            // persist in the RAG knowledge store.
-            if route.intent() == Intent::Backstory {
-                builder.add_section(PromptSection::new(
-                    "backstory_capture",
-                    "## Backstory Capture Mode\n\
-                     The player is describing their character's history, personality, appearance, \
-                     possessions, or memories. This is character-building, not plot advancement.\n\n\
-                     IMPORTANT: In your JSON footnotes block, extract each personal detail as a \
-                     separate footnote with `is_new: true`. Examples of what to capture:\n\
-                     - Physical description or appearance details\n\
-                     - Personal history or backstory events\n\
-                     - Relationships to people or places from their past\n\
-                     - Emotional traits, habits, or personality quirks\n\
-                     - Meaningful possessions, keepsakes, or mementos\n\
-                     - Skills, training, or formative experiences\n\n\
-                     Each footnote summary should be a concise, third-person statement about the \
-                     character (e.g., \"Served in the Union army\" not \"The player mentioned serving\"). \
-                     These facts will be stored permanently and recalled when relevant."
-                        .to_string(),
-                    AttentionZone::Late,
-                    SectionCategory::Format,
-                ));
-            }
-
-            // Narrator verbosity instruction (Late zone — high recency attention for format guidance)
-            {
-                use sidequest_protocol::NarratorVerbosity;
-                let content = match context.narrator_verbosity {
-                    NarratorVerbosity::Concise => {
-                        "[NARRATION LENGTH]\n\
-                         Keep descriptions to 1-2 sentences. Prioritize action and \
-                         consequence over atmosphere. No extended scene-setting or \
-                         sensory elaboration. Be direct."
-                    }
-                    NarratorVerbosity::Standard => {
-                        "[NARRATION LENGTH]\n\
-                         Use standard descriptive prose — balanced detail and pacing. \
-                         Include enough atmosphere to set the scene without belaboring it. \
-                         2-4 sentences per beat is typical."
-                    }
-                    NarratorVerbosity::Verbose => {
-                        "[NARRATION LENGTH]\n\
-                         Elaborate with sensory details and world-building. Paint the \
-                         scene with sights, sounds, smells, and texture. Take time to \
-                         establish atmosphere and let moments breathe. 4-6+ sentences \
-                         per beat."
-                    }
-                };
-                builder.add_section(PromptSection::new(
-                    "narrator_verbosity",
-                    content,
-                    AttentionZone::Late,
-                    SectionCategory::Format,
-                ));
-            }
-
-            // Narrator vocabulary instruction (Late zone — high recency attention for format guidance)
-            {
-                use sidequest_protocol::NarratorVocabulary;
-                let content = match context.narrator_vocabulary {
-                    NarratorVocabulary::Accessible => {
-                        "[NARRATION VOCABULARY]\n\
-                         Use simple, direct language. Prefer common words over obscure \
-                         ones. Keep sentences short and clear. Aim for approximately \
-                         8th-grade reading level. No archaic constructions or elaborate \
-                         metaphors."
-                    }
-                    NarratorVocabulary::Literary => {
-                        "[NARRATION VOCABULARY]\n\
-                         Use rich but clear prose. Employ varied vocabulary and literary \
-                         devices where they serve the narrative. Balance elegance with \
-                         accessibility — vivid but not purple."
-                    }
-                    NarratorVocabulary::Epic => {
-                        "[NARRATION VOCABULARY]\n\
-                         Use elevated, archaic, or mythic diction. Embrace elaborate \
-                         sentence structures, rare words, and poetic constructions. \
-                         Channel the cadence of sagas, epics, and high fantasy prose. \
-                         Unrestricted complexity."
-                    }
-                };
-                builder.add_section(PromptSection::new(
-                    "narrator_vocabulary",
-                    content,
-                    AttentionZone::Late,
-                    SectionCategory::Format,
-                ));
-            }
-
-            // Player action section (Recency zone — highest attention at prompt end)
-            builder.add_section(PromptSection::new(
-                "player_action",
-                format!("The player says: {}", action),
-                AttentionZone::Recency,
-                SectionCategory::Action,
-            ));
-
-            let section_count = builder.section_count();
-            let _pb_guard = tracing::info_span!(
-                "turn.agent_llm.prompt_build",
-                section_count = section_count as u64,
-            ).entered();
-            // Capture zone breakdown before composing (story 18-6)
-            let zb = builder.zone_breakdown();
-            let prompt_text = builder.compose();
-            (prompt_text, zb)
-        };
-
         info!(action = %action, "Invoking Claude CLI for narration");
 
         let intent_str = route.intent().to_string();
@@ -549,7 +599,6 @@ impl GameService for Orchestrator {
         // Mechanical consistency enforced by state systems (LoreStore, NPC registry, tropes),
         // not by LLM memory. Structured extraction failures are soft (dropped field, not crash).
         let narrator_model = "sonnet";
-        let allowed_tools = self.narrator_allowed_tools();
         let has_tools = !allowed_tools.is_empty();
         let inference_span = tracing::info_span!(
             "turn.agent_llm.inference",
