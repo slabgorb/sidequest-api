@@ -469,6 +469,32 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // NPC registry + OCEAN personality shifts
     update_npc_registry(ctx, &result, &clean_narration);
 
+    // Story 15-14: Enrich registry with structured NPC data (age, appearance, pronouns)
+    // from GameSnapshot.npcs — update_npc_registry only gets regex-extracted data.
+    {
+        let before: Vec<(String, bool, bool, bool)> = ctx.npc_registry.iter().map(|e| {
+            (e.name.clone(), e.pronouns.is_empty(), e.age.is_empty(), e.appearance.is_empty())
+        }).collect();
+
+        sidequest_game::enrich_registry_from_npcs(ctx.npc_registry, &ctx.snapshot.npcs);
+
+        for (i, entry) in ctx.npc_registry.iter().enumerate() {
+            if let Some((name, was_empty_pronouns, was_empty_age, was_empty_appearance)) = before.get(i) {
+                let mut fields_added: u32 = 0;
+                if *was_empty_pronouns && !entry.pronouns.is_empty() { fields_added += 1; }
+                if *was_empty_age && !entry.age.is_empty() { fields_added += 1; }
+                if *was_empty_appearance && !entry.appearance.is_empty() { fields_added += 1; }
+                if fields_added > 0 {
+                    WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
+                        .field("event", "npc.registry_enriched")
+                        .field("npc_name", name)
+                        .field("fields_added", fields_added)
+                        .send(ctx.state);
+                }
+            }
+        }
+    }
+
     // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
     // Skip in combat — creature_smith output is structured, and the 18s Haiku call
     // doubles combat turn latency for marginal value.
@@ -1847,4 +1873,35 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
             player_id: ctx.player_id.to_string(),
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    /// Story 15-14: Verify the production dispatch pipeline actually calls
+    /// enrich_registry_from_npcs after update_npc_registry(). Source-level grep
+    /// of non-test code — strips the test module to avoid self-referential matches.
+    #[test]
+    fn dispatch_pipeline_calls_enrich_registry() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("enrich_registry_from_npcs("),
+            "enrich_registry_from_npcs() must be called in dispatch pipeline \
+             (production code, not just tests) after update_npc_registry() — story 15-14"
+        );
+    }
+
+    /// Story 15-14: Verify OTEL event npc.registry_enriched is emitted in production code
+    /// so the GM panel can confirm enrichment is running.
+    #[test]
+    fn dispatch_pipeline_emits_registry_enriched_otel() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("npc.registry_enriched")
+                || production_code.contains("npc_registry_enriched"),
+            "dispatch must emit npc.registry_enriched OTEL event so GM panel \
+             can verify enrichment is running — story 15-14"
+        );
+    }
 }

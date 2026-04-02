@@ -280,6 +280,7 @@ async fn server_accepts_mock_game_service() {
                 action_rewrite: None,
                 action_flags: None,
                 sfx_triggers: vec![],
+                merchant_transactions: vec![],
             }
         }
     }
