@@ -1848,3 +1848,34 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    /// Story 15-14: Verify the production dispatch pipeline actually calls
+    /// enrich_registry_from_npcs after update_npc_registry(). Source-level grep
+    /// of non-test code — strips the test module to avoid self-referential matches.
+    #[test]
+    fn dispatch_pipeline_calls_enrich_registry() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("enrich_registry_from_npcs("),
+            "enrich_registry_from_npcs() must be called in dispatch pipeline \
+             (production code, not just tests) after update_npc_registry() — story 15-14"
+        );
+    }
+
+    /// Story 15-14: Verify OTEL event npc.registry_enriched is emitted in production code
+    /// so the GM panel can confirm enrichment is running.
+    #[test]
+    fn dispatch_pipeline_emits_registry_enriched_otel() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("npc.registry_enriched")
+                || production_code.contains("npc_registry_enriched"),
+            "dispatch must emit npc.registry_enriched OTEL event so GM panel \
+             can verify enrichment is running — story 15-14"
+        );
+    }
+}
