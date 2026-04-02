@@ -469,6 +469,32 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // NPC registry + OCEAN personality shifts
     update_npc_registry(ctx, &result, &clean_narration);
 
+    // Story 15-14: Enrich registry with structured NPC data (age, appearance, pronouns)
+    // from GameSnapshot.npcs — update_npc_registry only gets regex-extracted data.
+    {
+        let before: Vec<(String, bool, bool, bool)> = ctx.npc_registry.iter().map(|e| {
+            (e.name.clone(), e.pronouns.is_empty(), e.age.is_empty(), e.appearance.is_empty())
+        }).collect();
+
+        sidequest_game::enrich_registry_from_npcs(ctx.npc_registry, &ctx.snapshot.npcs);
+
+        for (i, entry) in ctx.npc_registry.iter().enumerate() {
+            if let Some((name, was_empty_pronouns, was_empty_age, was_empty_appearance)) = before.get(i) {
+                let mut fields_added: u32 = 0;
+                if *was_empty_pronouns && !entry.pronouns.is_empty() { fields_added += 1; }
+                if *was_empty_age && !entry.age.is_empty() { fields_added += 1; }
+                if *was_empty_appearance && !entry.appearance.is_empty() { fields_added += 1; }
+                if fields_added > 0 {
+                    WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
+                        .field("event", "npc.registry_enriched")
+                        .field("npc_name", name)
+                        .field("fields_added", fields_added)
+                        .send(ctx.state);
+                }
+            }
+        }
+    }
+
     // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
     // Skip in combat — creature_smith output is structured, and the 18s Haiku call
     // doubles combat turn latency for marginal value.
