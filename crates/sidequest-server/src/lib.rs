@@ -1445,6 +1445,10 @@ async fn dispatch_message(
                     ps.character_hp = *character_hp;
                     ps.character_max_hp = *character_max_hp;
                     ps.display_location = current_location.clone();
+                    ps.inventory = inventory.clone();
+                    ps.combat_state = combat_state.clone();
+                    ps.chase_state = chase_state.clone();
+                    ps.character_json = character_json.clone();
                     ps.region_id = ss_guard
                         .resolve_region(current_location)
                         .unwrap_or_default();

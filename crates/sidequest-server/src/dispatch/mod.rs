@@ -1471,7 +1471,7 @@ async fn persist_game_state(
         return;
     }
 
-    // Append the current narration entry to ctx.snapshot
+    // Append the current narration entry to ctx.snapshot and persist to narrative_log table
     let narrative_entry = sidequest_game::NarrativeEntry {
         timestamp: 0,
         round: ctx.turn_manager.interaction() as u32,
@@ -1483,6 +1483,16 @@ async fn persist_game_state(
         entry_type: None,
     };
     ctx.snapshot.narrative_log.push(narrative_entry.clone());
+
+    // Write to append-only narrative_log table in SQLite
+    if let Err(e) = ctx
+        .state
+        .persistence()
+        .append_narrative(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &narrative_entry)
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to append narrative log entry");
+    }
 
     // Emit encounter OTEL event if active
     if let Some(ref enc) = ctx.snapshot.encounter {
