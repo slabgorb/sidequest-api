@@ -152,6 +152,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // Story 15-20: capture pre-turn snapshot for delta computation
+    let before_snapshot = sidequest_game::delta::snapshot(ctx.snapshot);
+
     // Timing capture for OTEL flame chart spans
     let turn_start = std::time::Instant::now();
 
@@ -584,6 +587,36 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // Story 15-20: build narration state delta from current ctx locals via game-crate.
+    // Uses a quick snapshot-and-diff of the current state to construct the protocol delta.
+    let narration_state_delta = {
+        let narration_delta = sidequest_game::build_protocol_delta(
+            // Build a minimal delta marking characters/quests as changed (they always
+            // are after a turn) so the protocol delta carries the latest state.
+            &{
+                let snap_before = sidequest_game::delta::snapshot(ctx.snapshot);
+                // Temporarily patch snapshot with current ctx locals for diffing
+                let mut temp_state = ctx.snapshot.clone();
+                temp_state.location =
+                    extract_location_header(narration_text).unwrap_or_else(|| ctx.current_location.clone());
+                temp_state.quest_log = ctx.quest_log.clone();
+                if let Some(ch) = temp_state.characters.first().cloned() {
+                    let mut updated = ch;
+                    updated.core.hp = *ctx.hp;
+                    updated.core.max_hp = *ctx.max_hp;
+                    updated.core.level = *ctx.level;
+                    updated.core.inventory = ctx.inventory.clone();
+                    temp_state.characters = vec![updated];
+                }
+                let snap_after = sidequest_game::delta::snapshot(&temp_state);
+                sidequest_game::delta::compute_delta(&snap_before, &snap_after)
+            },
+            ctx.snapshot,
+            &result.items_gained,
+        );
+        narration_delta
+    };
+
     // Build response messages (narration, party status, inventory)
     build_response_messages(
         ctx,
@@ -593,6 +626,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         &tier_events,
         &effective_action,
         &mut messages,
+        narration_state_delta,
     )
     .await;
 
@@ -665,6 +699,39 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // Sync scattered locals into the canonical snapshot, then persist (story 15-8)
     sync_locals_to_snapshot(ctx, narration_text);
+
+    // Story 15-20: compute state delta and broadcast typed messages
+    {
+        let after_snapshot = sidequest_game::delta::snapshot(ctx.snapshot);
+        let game_delta = sidequest_game::delta::compute_delta(&before_snapshot, &after_snapshot);
+
+        // OTEL event: delta.computed
+        let changed_count = [
+            game_delta.characters_changed(),
+            game_delta.location_changed(),
+            game_delta.quest_log_changed(),
+            game_delta.combat_changed(),
+            game_delta.atmosphere_changed(),
+            game_delta.regions_changed(),
+            game_delta.tropes_changed(),
+        ]
+        .iter()
+        .filter(|&&b| b)
+        .count();
+        tracing::info!(
+            changed_fields = changed_count,
+            is_empty = game_delta.is_empty(),
+            "delta.computed"
+        );
+
+        // Generate typed broadcast messages from the delta
+        let broadcast_msgs =
+            sidequest_game::broadcast_state_changes(&game_delta, ctx.snapshot);
+        for msg in broadcast_msgs {
+            let _ = ctx.tx.send(msg).await;
+        }
+    }
+
     persist_game_state(ctx, narration_text, &clean_narration).await;
 
     // TTS streaming
@@ -1074,6 +1141,9 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
 }
 
 /// Build narration, party status, inventory, and RAG messages.
+///
+/// Story 15-20: `narration_state_delta` is pre-built via `build_protocol_delta`
+/// using game-crate delta computation instead of inline construction.
 async fn build_response_messages(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
@@ -1082,20 +1152,8 @@ async fn build_response_messages(
     tier_events: &[sidequest_game::AffinityTierUpEvent],
     _effective_action: &str,
     messages: &mut Vec<GameMessage>,
+    narration_state_delta: sidequest_protocol::StateDelta,
 ) {
-    let inventory_names: Vec<String> = ctx
-        .inventory
-        .items
-        .iter()
-        .map(|i| i.name.as_str().to_string())
-        .collect();
-    let char_class_name = ctx
-        .character_json
-        .as_ref()
-        .and_then(|cj| cj.get("char_class"))
-        .and_then(|c| c.as_str())
-        .unwrap_or("Adventurer");
-
     // Merge narrator footnotes with affinity tier-up events
     let mut footnotes = result.footnotes.clone();
     for event in tier_events {
@@ -1116,31 +1174,11 @@ async fn build_response_messages(
 
     // Send narration to client IMMEDIATELY — don't wait for state cleanup.
     // The user sees prose while we update game state in the background.
+    // Story 15-20: state_delta built via game-crate delta path, not inline.
     let narration_msg = GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration.to_string(),
-            state_delta: Some(sidequest_protocol::StateDelta {
-                location: extract_location_header(narration_text),
-                characters: Some(vec![sidequest_protocol::CharacterState {
-                    name: ctx.char_name.to_string(),
-                    hp: *ctx.hp,
-                    max_hp: *ctx.max_hp,
-                    level: *ctx.level,
-                    class: char_class_name.to_string(),
-                    statuses: vec![],
-                    inventory: inventory_names.clone(),
-                }]),
-                quests: if ctx.quest_log.is_empty() {
-                    None
-                } else {
-                    Some(ctx.quest_log.clone())
-                },
-                items_gained: if result.items_gained.is_empty() {
-                    None
-                } else {
-                    Some(result.items_gained.clone())
-                },
-            }),
+            state_delta: Some(narration_state_delta),
             footnotes,
         },
         player_id: ctx.player_id.to_string(),
@@ -1187,12 +1225,7 @@ async fn build_response_messages(
 
     let _ = ctx.tx.send(GameMessage::NarrationEnd {
         payload: NarrationEndPayload {
-            state_delta: Some(sidequest_protocol::StateDelta {
-                location: None,
-                characters: None,
-                quests: None,
-                items_gained: None,
-            }),
+            state_delta: None,
         },
         player_id: ctx.player_id.to_string(),
     }).await;

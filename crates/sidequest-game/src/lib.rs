@@ -153,7 +153,8 @@ pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
 pub use state::{
-    broadcast_state_changes, ChasePatch, CombatPatch, GameSnapshot, NpcPatch, WorldStatePatch,
+    broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, GameSnapshot, NpcPatch,
+    WorldStatePatch,
 };
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
