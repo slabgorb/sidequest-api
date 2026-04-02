@@ -728,6 +728,24 @@ pub(crate) async fn dispatch_character_creation(
 
                         // Inject the chargen-produced character into the materialized snapshot
                         snap.characters = vec![character.clone()];
+
+                        // Room-graph mode: set starting location to entrance room (story 19-2)
+                        let rooms_for_init: Vec<sidequest_genre::RoomDef> = GenreCode::new(&genre)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.worlds.get(&world).cloned())
+                            .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                            .and_then(|w| w.cartography.rooms.clone())
+                            .unwrap_or_default();
+                        if !rooms_for_init.is_empty() {
+                            sidequest_game::room_movement::init_room_graph_location(&mut snap, &rooms_for_init);
+                            tracing::info!(
+                                location = %snap.location,
+                                discovered_rooms = snap.discovered_rooms.len(),
+                                "room_graph.init — entrance room set"
+                            );
+                        }
+
                         snap
                     };
                     if let Err(e) = state
