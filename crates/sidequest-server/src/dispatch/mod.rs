@@ -1551,6 +1551,10 @@ fn spawn_tts_pipeline(
     let player_id_for_tts = ctx.player_id.to_string();
     let state_for_tts = ctx.state.clone();
     let ss_holder_for_tts = ctx.shared_session_holder.clone();
+    // Clone the direct mpsc sender so NARRATION_CHUNK goes through the same
+    // ordered channel as NARRATION — guaranteeing chunks arrive at the client
+    // BEFORE their corresponding binary audio frames (which go via broadcast).
+    let tx_for_tts = ctx.tx.clone();
     let tts_config = sidequest_game::tts_stream::TtsStreamConfig::default();
     let streamer = sidequest_game::tts_stream::TtsStreamer::new(tts_config);
 
@@ -1675,6 +1679,11 @@ fn spawn_tts_pipeline(
                     send_to_acting_player(game_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
                 }
                 sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
+                    // Send NARRATION_CHUNK via direct mpsc (same channel as NARRATION)
+                    // so the client receives text BEFORE the binary audio frame that
+                    // follows.  The old path (send_to_acting_player) spawned a task
+                    // with double-mutex locking, causing binary audio to consistently
+                    // arrive first and the client to discard it (no chunk to reveal).
                     if let Some(seg) = tts_segments_for_prerender.get(chunk.segment_index) {
                         let chunk_msg = GameMessage::NarrationChunk {
                             payload: sidequest_protocol::NarrationChunkPayload {
@@ -1682,7 +1691,7 @@ fn spawn_tts_pipeline(
                             },
                             player_id: player_id_for_tts.clone(),
                         };
-                        send_to_acting_player(chunk_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
+                        let _ = tx_for_tts.send(chunk_msg).await;
                     }
 
                     let header = serde_json::json!({
