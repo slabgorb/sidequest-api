@@ -13,6 +13,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::combatant::Combatant;
+use crate::lore::{LoreCategory, LoreFragment, LoreSource};
 use crate::narrative::NarrativeEntry;
 use crate::state::GameSnapshot;
 
@@ -211,7 +212,17 @@ impl SqliteStore {
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_narrative_round ON narrative_log(round_number);
-            CREATE INDEX IF NOT EXISTS idx_narrative_author ON narrative_log(author);",
+            CREATE INDEX IF NOT EXISTS idx_narrative_author ON narrative_log(author);
+            CREATE TABLE IF NOT EXISTS lore_fragments (
+                id TEXT PRIMARY KEY,
+                category TEXT NOT NULL,
+                content TEXT NOT NULL,
+                source TEXT NOT NULL,
+                turn_created INTEGER,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_lore_category ON lore_fragments(category);",
         )?;
         Ok(())
     }
@@ -343,6 +354,84 @@ impl SessionStore for SqliteStore {
     }
 }
 
+impl SqliteStore {
+    /// Persist a lore fragment to the lore_fragments table.
+    pub fn append_lore_fragment(&self, fragment: &LoreFragment) -> Result<(), PersistError> {
+        let category_str = fragment.category().to_string();
+        let source_str = match fragment.source() {
+            LoreSource::GenrePack => "GenrePack",
+            LoreSource::CharacterCreation => "CharacterCreation",
+            LoreSource::GameEvent => "GameEvent",
+        };
+        let metadata_json = serde_json::to_string(fragment.metadata())?;
+        self.conn.execute(
+            "INSERT OR IGNORE INTO lore_fragments (id, category, content, source, turn_created, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                fragment.id(),
+                category_str,
+                fragment.content(),
+                source_str,
+                fragment.turn_created().map(|t| t as i64),
+                metadata_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Load all persisted lore fragments from the lore_fragments table.
+    pub fn load_lore_fragments(&self) -> Result<Vec<LoreFragment>, PersistError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, category, content, source, turn_created, metadata_json FROM lore_fragments ORDER BY id",
+        )?;
+        let fragments = stmt
+            .query_map([], |row| {
+                let id: String = row.get(0)?;
+                let category_str: String = row.get(1)?;
+                let content: String = row.get(2)?;
+                let source_str: String = row.get(3)?;
+                let turn_created: Option<i64> = row.get(4)?;
+                let metadata_json: String = row.get::<_, String>(5).unwrap_or_else(|_| "{}".to_string());
+                Ok((id, category_str, content, source_str, turn_created, metadata_json))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut result = Vec::with_capacity(fragments.len());
+        for (id, category_str, content, source_str, turn_created, metadata_json) in fragments {
+            let category = parse_lore_category(&category_str);
+            let source = match source_str.as_str() {
+                "GenrePack" => LoreSource::GenrePack,
+                "CharacterCreation" => LoreSource::CharacterCreation,
+                _ => LoreSource::GameEvent,
+            };
+            let metadata: HashMap<String, String> = serde_json::from_str(&metadata_json).unwrap_or_default();
+            let fragment = LoreFragment::new(
+                id,
+                category,
+                content,
+                source,
+                turn_created.map(|t| t as u64),
+                metadata,
+            );
+            result.push(fragment);
+        }
+        Ok(result)
+    }
+}
+
+/// Parse a category string back to LoreCategory.
+fn parse_lore_category(s: &str) -> LoreCategory {
+    match s {
+        "History" => LoreCategory::History,
+        "Geography" => LoreCategory::Geography,
+        "Faction" => LoreCategory::Faction,
+        "Character" => LoreCategory::Character,
+        "Item" => LoreCategory::Item,
+        "Event" => LoreCategory::Event,
+        "Language" => LoreCategory::Language,
+        other => LoreCategory::Custom(other.to_string()),
+    }
+}
+
 // ============================================================================
 // PersistenceWorker — actor pattern for !Send SqliteStore
 // ============================================================================
@@ -401,6 +490,30 @@ pub enum PersistenceCommand {
     ListSaves {
         /// Reply channel.
         reply: oneshot::Sender<Result<Vec<SaveListEntry>, PersistError>>,
+    },
+    /// Persist a lore fragment.
+    AppendLoreFragment {
+        /// Genre slug for the session.
+        genre_slug: String,
+        /// World slug for the session.
+        world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
+        /// The lore fragment to persist.
+        fragment: LoreFragment,
+        /// Reply channel.
+        reply: oneshot::Sender<Result<(), PersistError>>,
+    },
+    /// Load all persisted lore fragments.
+    LoadLoreFragments {
+        /// Genre slug for the session.
+        genre_slug: String,
+        /// World slug for the session.
+        world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
+        /// Reply channel.
+        reply: oneshot::Sender<Result<Vec<LoreFragment>, PersistError>>,
     },
     /// Graceful shutdown.
     Shutdown,
@@ -475,6 +588,33 @@ impl PersistenceHandle {
     pub async fn list_saves(&self) -> Result<Vec<SaveListEntry>, PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx.send(PersistenceCommand::ListSaves { reply: reply_tx }).await.map_err(|_| PersistError::WorkerGone)?;
+        reply_rx.await.map_err(|_| PersistError::WorkerGone)?
+    }
+
+    /// Persist a lore fragment for a genre/world/player session.
+    #[tracing::instrument(skip(self, fragment), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn append_lore_fragment(&self, genre_slug: &str, world_slug: &str, player_name: &str, fragment: &LoreFragment) -> Result<(), PersistError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(PersistenceCommand::AppendLoreFragment {
+            genre_slug: genre_slug.to_string(),
+            world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
+            fragment: fragment.clone(),
+            reply: reply_tx,
+        }).await.map_err(|_| PersistError::WorkerGone)?;
+        reply_rx.await.map_err(|_| PersistError::WorkerGone)?
+    }
+
+    /// Load all persisted lore fragments for a genre/world/player session.
+    #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn load_lore_fragments(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<Vec<LoreFragment>, PersistError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(PersistenceCommand::LoadLoreFragments {
+            genre_slug: genre_slug.to_string(),
+            world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
+            reply: reply_tx,
+        }).await.map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
@@ -597,6 +737,14 @@ impl PersistenceWorker {
                 let exists = db_path.exists();
                 tracing::debug!(genre = %genre_slug, world = %world_slug, player = %player_name, exists, "Checking save");
                 let _ = reply.send(exists);
+            }
+            PersistenceCommand::AppendLoreFragment { genre_slug, world_slug, player_name, fragment, reply } => {
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.append_lore_fragment(&fragment));
+                let _ = reply.send(result);
+            }
+            PersistenceCommand::LoadLoreFragments { genre_slug, world_slug, player_name, reply } => {
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.load_lore_fragments());
+                let _ = reply.send(result);
             }
             PersistenceCommand::ListSaves { reply } => {
                 let result = SqliteStore::list_saves(&self.save_dir);

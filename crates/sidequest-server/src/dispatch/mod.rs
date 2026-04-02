@@ -509,6 +509,34 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         "lore.fragment_accumulated"
                     );
 
+                    // Story 15-24: Persist lore fragment to SQLite for cross-session survival.
+                    let persist_fragment = sidequest_game::LoreFragment::new(
+                        fragment_id.clone(),
+                        sidequest_game::lore::LoreCategory::Event,
+                        entry.clone(),
+                        sidequest_game::LoreSource::GameEvent,
+                        Some(turn_number as u64),
+                        std::collections::HashMap::new(),
+                    );
+                    match ctx.state.persistence().append_lore_fragment(
+                        ctx.genre_slug,
+                        ctx.world_slug,
+                        ctx.player_name_for_save,
+                        &persist_fragment,
+                    ).await {
+                        Ok(()) => {
+                            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                                .field("event", "lore.fragment_persisted")
+                                .field("fragment_id", &fragment_id)
+                                .field("category", category)
+                                .send(ctx.state);
+                            tracing::info!(fragment_id = %fragment_id, "lore.fragment_persisted");
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.fragment_persist_failed");
+                        }
+                    }
+
                     // AC-3: Call daemon embed() to generate embedding for the new fragment.
                     // AC-6: Emit lore.embedding_generated with fragment_id at call site.
                     let config = sidequest_daemon_client::DaemonConfig::default();
