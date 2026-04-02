@@ -22,6 +22,9 @@ use crate::delta::StateDelta;
 use crate::disposition::Disposition;
 use crate::encounter::StructuredEncounter;
 use crate::inventory::Inventory;
+use crate::merchant::{
+    self, MerchantError, MerchantTransaction, MerchantTransactionRequest, TransactionType,
+};
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
 use crate::scenario_state::ScenarioState;
@@ -633,6 +636,82 @@ impl GameSnapshot {
             "fields_changed",
             &tracing::field::display(&changed.join(",")),
         );
+    }
+
+    /// Apply merchant transactions mechanically via execute_buy/execute_sell.
+    ///
+    /// Each request is resolved using the named NPC's disposition for pricing.
+    /// Returns one Result per request. Failed transactions leave state unchanged
+    /// (atomic per-transaction). Emits OTEL spans for each successful transaction.
+    ///
+    /// Uses characters[0] as the player (single-player assumption matches
+    /// the existing inventory and gold tracking pattern).
+    pub fn apply_merchant_transactions(
+        &mut self,
+        requests: &[MerchantTransactionRequest],
+    ) -> Vec<Result<MerchantTransaction, MerchantError>> {
+        /// Default carry limit for player inventory during merchant transactions.
+        const PLAYER_CARRY_LIMIT: usize = 100;
+
+        let mut results = Vec::with_capacity(requests.len());
+
+        for request in requests {
+            // Find the merchant NPC by name
+            let merchant_idx = self
+                .npcs
+                .iter()
+                .position(|n| n.name() == request.merchant_name);
+
+            let Some(merchant_idx) = merchant_idx else {
+                results.push(Err(MerchantError::CharacterNotFound(
+                    request.merchant_name.clone(),
+                )));
+                continue;
+            };
+
+            // Copy disposition before mutable borrows (Disposition is Copy)
+            let disposition = self.npcs[merchant_idx].disposition;
+            let gold_before = self.characters[0].core.inventory.gold;
+
+            // Split borrow: player is in characters, merchant is in npcs — no overlap
+            let player_inv = &mut self.characters[0].core.inventory;
+            let merchant_inv = &mut self.npcs[merchant_idx].core.inventory;
+
+            let result = match request.transaction_type {
+                TransactionType::Buy => merchant::execute_buy(
+                    player_inv,
+                    merchant_inv,
+                    &request.item_id,
+                    &disposition,
+                    PLAYER_CARRY_LIMIT,
+                ),
+                TransactionType::Sell => merchant::execute_sell(
+                    player_inv,
+                    merchant_inv,
+                    &request.item_id,
+                    &disposition,
+                ),
+            };
+
+            // Emit OTEL span for successful transactions
+            if let Ok(ref tx) = result {
+                let gold_after = self.characters[0].core.inventory.gold;
+                let tx_type = format!("{:?}", tx.transaction_type);
+                let _span = tracing::info_span!(
+                    "merchant.transaction",
+                    transaction_type = %tx_type,
+                    item_name = %tx.item_name,
+                    price = tx.price,
+                    gold_before = gold_before,
+                    gold_after = gold_after,
+                )
+                .entered();
+            }
+
+            results.push(result);
+        }
+
+        results
     }
 }
 

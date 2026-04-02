@@ -21,7 +21,6 @@ use sidequest_agents::prompt_framework::{
 };
 
 // === New types from story 2-6 ===
-use sidequest_agents::client::parse_json_envelope;
 use sidequest_agents::prompt_framework::PromptRegistry;
 
 // ============================================================================
@@ -108,34 +107,7 @@ fn client_send_timeout_returns_error() {
     );
 }
 
-// ============================================================================
-// AC-4: JSON envelope parsed, inner text extracted
-// ============================================================================
-
-#[test]
-fn parse_json_envelope_extracts_result() {
-    let json = r#"{"result": "The goblin attacks!"}"#;
-    let text = parse_json_envelope(json);
-    assert_eq!(
-        text.as_deref(),
-        Some("The goblin attacks!"),
-        "Should extract result field"
-    );
-}
-
-#[test]
-fn parse_json_envelope_returns_none_for_non_envelope() {
-    let plain = "Just some plain text narration";
-    let result = parse_json_envelope(plain);
-    assert!(result.is_none(), "Non-JSON should return None");
-}
-
-#[test]
-fn parse_json_envelope_handles_nested_json() {
-    let json = r#"{"result": "The goblin attacks!", "metadata": {"round": 3}}"#;
-    let text = parse_json_envelope(json);
-    assert_eq!(text.as_deref(), Some("The goblin attacks!"));
-}
+// parse_json_envelope tests removed — function deleted (logic is inline in send_impl).
 
 // ============================================================================
 // AC-7: PromptComposer::compose() includes sections in attention-zone order

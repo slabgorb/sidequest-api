@@ -184,6 +184,7 @@ mod agent_types_tests {
             lore_established: None,
             action_rewrite: None,
             action_flags: None,
+            sfx_triggers: vec![],
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -372,6 +373,7 @@ mod game_service_tests {
             lore_established: None,
             action_rewrite: None,
             action_flags: None,
+            sfx_triggers: vec![],
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -420,6 +422,7 @@ mod error_handling_tests {
             lore_established: None,
             action_rewrite: None,
             action_flags: None,
+            sfx_triggers: vec![],
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

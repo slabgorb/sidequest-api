@@ -1,5 +1,6 @@
 //! Audio/music processing — mood classification and cue generation.
 
+use rand::Rng;
 use sidequest_protocol::GameMessage;
 
 use crate::extraction::audio_cue_to_game_message;
@@ -143,5 +144,67 @@ pub(crate) async fn process_audio(
         }
     } else {
         tracing::warn!("music_director_missing — audio cues skipped");
+    }
+
+    // SFX triggers from narrator — resolve IDs to genre-prefixed file paths.
+    // The narrator picks SFX IDs based on what happened in the scene.
+    // The server resolves each ID to a random variant from the genre pack's sfx_library,
+    // then prefixes with the genre path so the UI can fetch the file.
+    if !result.sfx_triggers.is_empty() {
+        let mut rng = rand::rng();
+        let mut resolved_paths: Vec<String> = Vec::new();
+        let mut invalid_ids: Vec<String> = Vec::new();
+
+        for sfx_id in &result.sfx_triggers {
+            if let Some(variants) = ctx.sfx_library.get(sfx_id.as_str()) {
+                if !variants.is_empty() {
+                    // Pick a random variant from the available files
+                    let idx = rng.random_range(0..variants.len());
+                    let path = &variants[idx];
+                    // Prefix with genre path for client fetching
+                    let full_path = format!("/genre/{}/{}", ctx.genre_slug, path);
+                    resolved_paths.push(full_path);
+                }
+            } else {
+                invalid_ids.push(sfx_id.clone());
+            }
+        }
+
+        if !invalid_ids.is_empty() {
+            tracing::warn!(
+                invalid = ?invalid_ids,
+                "sfx.invalid_ids — narrator emitted SFX IDs not in genre pack sfx_library"
+            );
+            WatcherEventBuilder::new("sfx", WatcherEventType::ValidationWarning)
+                .field("action", "sfx_invalid_ids")
+                .field("invalid_ids", &invalid_ids)
+                .field("requested", &result.sfx_triggers)
+                .send(ctx.state);
+        }
+
+        if !resolved_paths.is_empty() {
+            tracing::info!(
+                requested = ?result.sfx_triggers,
+                resolved = ?resolved_paths,
+                "sfx.triggers_resolved"
+            );
+            WatcherEventBuilder::new("sfx", WatcherEventType::StateTransition)
+                .field("action", "sfx_triggered")
+                .field("requested_ids", &result.sfx_triggers)
+                .field("resolved_paths", &resolved_paths)
+                .field("count", resolved_paths.len())
+                .send(ctx.state);
+            messages.push(GameMessage::AudioCue {
+                payload: sidequest_protocol::AudioCuePayload {
+                    mood: None,
+                    music_track: None,
+                    sfx_triggers: resolved_paths,
+                    channel: Some("sfx".to_string()),
+                    action: Some("play".to_string()),
+                    volume: Some(0.7),
+                },
+                player_id: ctx.player_id.to_string(),
+            });
+        }
     }
 }

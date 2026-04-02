@@ -19,6 +19,8 @@ use crate::client::ClaudeClient;
 use crate::context_builder::{ContextBuilder, ZoneBreakdown};
 use crate::prompt_framework::{parse_soul_md, AttentionZone, PromptSection, SectionCategory};
 use crate::turn_record::{TurnIdCounter, TurnRecord};
+use sidequest_game::merchant::format_merchant_context;
+use sidequest_game::npc::{Npc, NpcRegistryEntry};
 use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTracker};
 
 /// Result of processing a player action through the orchestrator.
@@ -70,6 +72,9 @@ pub struct ActionResult {
     /// Lore fragments established during this turn (story 15-7).
     /// Extracted from narrator structured JSON block, fed to `accumulate_lore()` in dispatch.
     pub lore_established: Option<Vec<String>>,
+    /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
+    /// Passed through to AudioCuePayload.sfx_triggers for client playback.
+    pub sfx_triggers: Vec<String>,
     /// Inline preprocessor: action rewrite (eliminates separate Haiku subprocess).
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
@@ -382,11 +387,37 @@ impl GameService for Orchestrator {
                 ));
             }
 
+            // Merchant context injection (Valley zone — story 15-16)
+            inject_merchant_context(
+                &mut builder,
+                &context.npc_registry,
+                &context.npcs,
+                route.intent(),
+                &context.current_location,
+            );
+
             // Active trope summary (Valley zone — background context for all agents)
             if let Some(ref trope_summary) = context.active_trope_summary {
                 builder.add_section(PromptSection::new(
                     "active_tropes",
                     trope_summary.clone(),
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+            }
+
+            // SFX library (Valley zone — available SFX IDs for narrator to pick from)
+            if !context.available_sfx.is_empty() {
+                let sfx_list = context.available_sfx.join(", ");
+                builder.add_section(PromptSection::new(
+                    "sfx_library",
+                    format!(
+                        "[AVAILABLE SFX]\n\
+                         When your narration describes a sound-producing action, include matching \
+                         SFX IDs in sfx_triggers. Pick based on what HAPPENED, not what was mentioned.\n\
+                         Available: {}",
+                        sfx_list
+                    ),
                     AttentionZone::Valley,
                     SectionCategory::State,
                 ));
@@ -633,6 +664,7 @@ impl GameService for Orchestrator {
                     resource_deltas: extraction.resource_deltas,
                     zone_breakdown: Some(prompt_zone_breakdown),
                     lore_established: extraction.lore_established,
+                    sfx_triggers: extraction.sfx_triggers,
                     action_rewrite: extraction.action_rewrite,
                     action_flags: extraction.action_flags,
                 }
@@ -737,6 +769,9 @@ struct NarratorStructuredBlock {
     resource_deltas: HashMap<String, f64>,
     #[serde(default)]
     lore_established: Option<Vec<String>>,
+    /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
+    #[serde(default)]
+    sfx_triggers: Vec<String>,
     /// Inline preprocessor: action rewrite (approach A — eliminates separate Haiku call).
     #[serde(default)]
     action_rewrite: Option<ActionRewrite>,
@@ -795,6 +830,8 @@ pub struct NarratorExtraction {
     pub resource_deltas: HashMap<String, f64>,
     /// Lore fragments established this turn (story 15-7).
     pub lore_established: Option<Vec<String>>,
+    /// SFX trigger IDs from the narrator's scene analysis.
+    pub sfx_triggers: Vec<String>,
     /// Inline preprocessor: action rewrite (eliminates separate Haiku call).
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
@@ -836,6 +873,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: block.scene_intent,
                     resource_deltas: block.resource_deltas,
                     lore_established: block.lore_established,
+                    sfx_triggers: block.sfx_triggers,
                     action_rewrite: block.action_rewrite,
                     action_flags: block.action_flags,
                     tier: 1,
@@ -863,6 +901,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: None,
                     resource_deltas: HashMap::new(),
                     lore_established: None,
+                    sfx_triggers: vec![],
                     action_rewrite: None,
                     action_flags: None,
                     tier: 2,
@@ -894,6 +933,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                sfx_triggers: block.sfx_triggers,
                 action_rewrite: block.action_rewrite,
                 action_flags: block.action_flags,
                 tier: 2,
@@ -918,6 +958,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                sfx_triggers: block.sfx_triggers,
                 action_rewrite: block.action_rewrite,
                 action_flags: block.action_flags,
                 tier: 2,
@@ -939,6 +980,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         scene_intent: None,
         resource_deltas: HashMap::new(),
         lore_established: None,
+        sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
         tier: 3,
@@ -970,6 +1012,18 @@ pub struct TurnContext {
     /// Genre slug for the current session (e.g., "mutant_wasteland").
     /// Required for script tool prompt injection — tools need the genre to call the binary.
     pub genre: Option<String>,
+    /// Available SFX IDs from the genre pack's sfx_library.
+    /// Injected into the narrator prompt so it knows what SFX to pick from.
+    pub available_sfx: Vec<String>,
+    /// NPC registry entries for merchant detection (story 15-16).
+    /// Populated from GameSnapshot.npc_registry by the server dispatch loop.
+    pub npc_registry: Vec<NpcRegistryEntry>,
+    /// Full NPC structs for merchant context injection (story 15-16).
+    /// Only NPCs at the current location are needed, but all are passed
+    /// for simplicity — inject_merchant_context filters by location.
+    pub npcs: Vec<Npc>,
+    /// Player's current location for merchant context injection (story 15-16).
+    pub current_location: String,
 }
 
 /// Result of processing a player action through the full turn loop.
@@ -1009,4 +1063,59 @@ pub enum AgentKind {
     Resonator,
     /// Intent classification (LLM-based).
     IntentRouter,
+}
+
+/// Inject merchant context into the prompt builder when appropriate.
+///
+/// Checks the NPC registry for merchants at the player's current location.
+/// For each merchant found, calls `format_merchant_context()` and adds the
+/// result as a Valley-zone section. Only injects for Exploration and Dialogue
+/// intents — combat and chase don't need merchant wares in the prompt.
+///
+/// Emits a `merchant.context_injected` OTEL span per merchant for GM panel visibility.
+pub fn inject_merchant_context(
+    builder: &mut ContextBuilder,
+    registry: &[NpcRegistryEntry],
+    npcs: &[Npc],
+    intent: Intent,
+    current_location: &str,
+) {
+    // Only inject for Exploration and Dialogue intents
+    if !matches!(intent, Intent::Exploration | Intent::Dialogue) {
+        return;
+    }
+
+    // Find merchants at the player's current location
+    let merchant_entries: Vec<&NpcRegistryEntry> = registry
+        .iter()
+        .filter(|entry| {
+            entry.role.contains("merchant") && entry.location == current_location
+        })
+        .collect();
+
+    for entry in merchant_entries {
+        // Look up the full NPC to get inventory and disposition
+        let Some(npc) = npcs.iter().find(|n| n.core.name.as_str() == entry.name) else {
+            continue;
+        };
+
+        let item_count = npc.core.inventory.item_count();
+        let context_text =
+            format_merchant_context(&entry.name, &npc.core.inventory, &npc.disposition);
+
+        // OTEL span for GM panel
+        let _span = tracing::info_span!(
+            "merchant.context_injected",
+            merchant_name = %entry.name,
+            item_count = item_count,
+        )
+        .entered();
+
+        builder.add_section(PromptSection::new(
+            "merchant_context",
+            context_text,
+            AttentionZone::Valley,
+            SectionCategory::State,
+        ));
+    }
 }

@@ -110,6 +110,28 @@ fn span_names(spans: &[CapturedSpan]) -> Vec<&str> {
     spans.iter().map(|s| s.name.as_str()).collect()
 }
 
+
+/// Create a minimal TurnContext for testing.
+fn test_turn_context() -> sidequest_agents::orchestrator::TurnContext {
+    use sidequest_agents::orchestrator::TurnContext;
+    use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+
+    TurnContext {
+        state_summary: Some("Test state".to_string()),
+        in_combat: false,
+        in_chase: false,
+        narrator_verbosity: NarratorVerbosity::Standard,
+        narrator_vocabulary: NarratorVocabulary::Literary,
+        pending_trope_context: None,
+        active_trope_summary: None,
+        genre: None,
+        available_sfx: vec![],
+        npc_registry: vec![],
+        npcs: vec![],
+        current_location: "TestLocation".to_string(),
+    }
+}
+
 // ===========================================================================
 // AC1: Preprocess sub-spans — turn.preprocess.llm and turn.preprocess.parse
 // ===========================================================================
@@ -192,16 +214,7 @@ fn orchestrator_emits_prompt_build_sub_span() {
     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
     let orch = test_orchestrator();
-    let context = TurnContext {
-        state_summary: Some("Test state".to_string()),
-        in_combat: false,
-        in_chase: false,
-        narrator_verbosity: NarratorVerbosity::Standard,
-        narrator_vocabulary: NarratorVocabulary::Literary,
-        pending_trope_context: None,
-        active_trope_summary: None,
-        genre: None,
-    };
+    let context = test_turn_context();
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
@@ -227,16 +240,7 @@ fn orchestrator_emits_inference_sub_span() {
     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
     let orch = test_orchestrator();
-    let context = TurnContext {
-        state_summary: Some("Test state".to_string()),
-        in_combat: false,
-        in_chase: false,
-        narrator_verbosity: NarratorVerbosity::Standard,
-        narrator_vocabulary: NarratorVocabulary::Literary,
-        pending_trope_context: None,
-        active_trope_summary: None,
-        genre: None,
-    };
+    let context = test_turn_context();
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
@@ -262,16 +266,7 @@ fn orchestrator_emits_extraction_sub_span() {
     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
     let orch = test_orchestrator();
-    let context = TurnContext {
-        state_summary: Some("Test state".to_string()),
-        in_combat: false,
-        in_chase: false,
-        narrator_verbosity: NarratorVerbosity::Standard,
-        narrator_vocabulary: NarratorVocabulary::Literary,
-        pending_trope_context: None,
-        active_trope_summary: None,
-        genre: None,
-    };
+    let context = test_turn_context();
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
@@ -296,16 +291,7 @@ fn orchestrator_inference_span_records_diagnostic_field() {
     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
     let orch = test_orchestrator();
-    let context = TurnContext {
-        state_summary: Some("Test state".to_string()),
-        in_combat: false,
-        in_chase: false,
-        narrator_verbosity: NarratorVerbosity::Standard,
-        narrator_vocabulary: NarratorVocabulary::Literary,
-        pending_trope_context: None,
-        active_trope_summary: None,
-        genre: None,
-    };
+    let context = test_turn_context();
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
@@ -333,16 +319,7 @@ fn orchestrator_prompt_build_span_records_diagnostic_field() {
     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
     let orch = test_orchestrator();
-    let context = TurnContext {
-        state_summary: Some("Test state".to_string()),
-        in_combat: false,
-        in_chase: false,
-        narrator_verbosity: NarratorVerbosity::Standard,
-        narrator_vocabulary: NarratorVocabulary::Literary,
-        pending_trope_context: None,
-        active_trope_summary: None,
-        genre: None,
-    };
+    let context = test_turn_context();
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
@@ -372,16 +349,7 @@ fn orchestrator_extraction_span_records_diagnostic_field() {
     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
     let orch = test_orchestrator();
-    let context = TurnContext {
-        state_summary: Some("Test state".to_string()),
-        in_combat: false,
-        in_chase: false,
-        narrator_verbosity: NarratorVerbosity::Standard,
-        narrator_vocabulary: NarratorVocabulary::Literary,
-        pending_trope_context: None,
-        active_trope_summary: None,
-        genre: None,
-    };
+    let context = test_turn_context();
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);

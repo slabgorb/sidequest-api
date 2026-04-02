@@ -279,6 +279,7 @@ async fn server_accepts_mock_game_service() {
                 lore_established: None,
                 action_rewrite: None,
                 action_flags: None,
+                sfx_triggers: vec![],
             }
         }
     }

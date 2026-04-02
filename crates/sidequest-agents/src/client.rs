@@ -288,14 +288,6 @@ impl Default for ClaudeClient {
     }
 }
 
-/// Parse a JSON envelope `{"result": "text"}` and extract the inner text.
-///
-/// Returns `None` if the input is not valid JSON or doesn't contain a "result" field.
-pub fn parse_json_envelope(input: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_str(input).ok()?;
-    value.get("result")?.as_str().map(|s| s.to_string())
-}
-
 /// Builder for ClaudeClient configuration.
 #[derive(Debug)]
 pub struct ClaudeClientBuilder {

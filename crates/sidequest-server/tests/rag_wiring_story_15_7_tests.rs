@@ -44,6 +44,7 @@ fn action_result_has_lore_established_field() {
         ]),
         action_rewrite: None,
         action_flags: None,
+        sfx_triggers: vec![],
     };
 
     let lore = result.lore_established.as_ref().unwrap();
@@ -79,6 +80,7 @@ fn action_result_lore_established_defaults_to_none() {
         lore_established: None,
         action_rewrite: None,
         action_flags: None,
+        sfx_triggers: vec![],
     };
 
     assert!(result.lore_established.is_none());

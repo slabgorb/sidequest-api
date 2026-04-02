@@ -1355,6 +1355,7 @@ mod tests {
             scenarios: HashMap::new(),
             drama_thresholds: None,
             openings: vec![],
+            inventory: None,
         }
     }
 

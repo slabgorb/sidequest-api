@@ -107,6 +107,7 @@ impl IntentRoute {
     }
 
     /// Create a route for a given intent with full confidence.
+    #[doc(hidden)]
     pub fn for_intent(intent: Intent) -> Self {
         Self {
             agent_name: Self::agent_for(intent).to_string(),
