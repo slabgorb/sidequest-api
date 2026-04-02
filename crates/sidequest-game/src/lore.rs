@@ -1425,6 +1425,7 @@ mod tests {
                 ],
                 allows_freeform: None,
                 hook_prompt: None,
+            loading_text: None,
             },
             CharCreationScene {
                 id: "motivation".to_string(),
@@ -1437,6 +1438,7 @@ mod tests {
                 }],
                 allows_freeform: None,
                 hook_prompt: None,
+            loading_text: None,
             },
         ]
     }
@@ -1754,6 +1756,7 @@ mod tests {
             choices: vec![],
             allows_freeform: None,
             hook_prompt: None,
+            loading_text: None,
         }];
         let mut store = LoreStore::new();
         let count = seed_lore_from_char_creation(&mut store, &scenes);
