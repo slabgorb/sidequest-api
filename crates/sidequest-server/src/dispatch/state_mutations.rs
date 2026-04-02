@@ -178,8 +178,12 @@ pub(crate) async fn apply_state_mutations(
             ctx.combat_state.set_drama_weight(dw);
         }
 
-        // Advance turn (handles round wrap internally)
-        if combat_patch.advance_round && ctx.combat_state.in_combat() {
+        // Advance turn (handles round wrap internally).
+        // Always advance when in combat — turn alternation is a mechanical game
+        // rule, not an LLM decision.  The creature_smith prompt asks for
+        // advance_round but Claude conservatively returns false most of the
+        // time, leaving NPCs permanently unable to act.
+        if ctx.combat_state.in_combat() {
             ctx.combat_state.advance_turn();
             WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
                 .field("action", "turn_advanced")
