@@ -72,6 +72,9 @@ pub struct ActionResult {
     /// Lore fragments established during this turn (story 15-7).
     /// Extracted from narrator structured JSON block, fed to `accumulate_lore()` in dispatch.
     pub lore_established: Option<Vec<String>>,
+    /// Merchant transactions extracted from narrator JSON block (story 15-16).
+    /// Converted to MerchantTransactionRequests and applied via apply_merchant_transactions().
+    pub merchant_transactions: Vec<MerchantTransactionExtracted>,
     /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
     /// Passed through to AudioCuePayload.sfx_triggers for client playback.
     pub sfx_triggers: Vec<String>,
@@ -664,6 +667,7 @@ impl GameService for Orchestrator {
                     resource_deltas: extraction.resource_deltas,
                     zone_breakdown: Some(prompt_zone_breakdown),
                     lore_established: extraction.lore_established,
+                    merchant_transactions: extraction.merchant_transactions,
                     sfx_triggers: extraction.sfx_triggers,
                     action_rewrite: extraction.action_rewrite,
                     action_flags: extraction.action_flags,
@@ -769,6 +773,9 @@ struct NarratorStructuredBlock {
     resource_deltas: HashMap<String, f64>,
     #[serde(default)]
     lore_established: Option<Vec<String>>,
+    /// Merchant transactions (buy/sell) extracted from narrator JSON block.
+    #[serde(default)]
+    merchant_transactions: Vec<MerchantTransactionExtracted>,
     /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
     #[serde(default)]
     sfx_triggers: Vec<String>,
@@ -778,6 +785,18 @@ struct NarratorStructuredBlock {
     /// Inline preprocessor: relevance flags.
     #[serde(default)]
     action_flags: Option<ActionFlags>,
+}
+
+/// A merchant transaction extracted from the narrator's JSON block.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct MerchantTransactionExtracted {
+    /// "buy" or "sell" (from player's perspective).
+    #[serde(rename = "type")]
+    pub transaction_type: String,
+    /// Item identifier (snake_case name matching inventory).
+    pub item_id: String,
+    /// Merchant NPC name.
+    pub merchant: String,
 }
 
 /// Action rewrite from inline preprocessor (narrator/creature_smith JSON block).
@@ -830,6 +849,8 @@ pub struct NarratorExtraction {
     pub resource_deltas: HashMap<String, f64>,
     /// Lore fragments established this turn (story 15-7).
     pub lore_established: Option<Vec<String>>,
+    /// Merchant transactions extracted from narrator JSON block.
+    pub merchant_transactions: Vec<MerchantTransactionExtracted>,
     /// SFX trigger IDs from the narrator's scene analysis.
     pub sfx_triggers: Vec<String>,
     /// Inline preprocessor: action rewrite (eliminates separate Haiku call).
@@ -873,6 +894,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: block.scene_intent,
                     resource_deltas: block.resource_deltas,
                     lore_established: block.lore_established,
+                    merchant_transactions: block.merchant_transactions,
                     sfx_triggers: block.sfx_triggers,
                     action_rewrite: block.action_rewrite,
                     action_flags: block.action_flags,
@@ -901,6 +923,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                     scene_intent: None,
                     resource_deltas: HashMap::new(),
                     lore_established: None,
+                    merchant_transactions: vec![],
                     sfx_triggers: vec![],
                     action_rewrite: None,
                     action_flags: None,
@@ -933,6 +956,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                merchant_transactions: block.merchant_transactions,
                 sfx_triggers: block.sfx_triggers,
                 action_rewrite: block.action_rewrite,
                 action_flags: block.action_flags,
@@ -958,6 +982,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
                 scene_intent: block.scene_intent,
                 resource_deltas: block.resource_deltas,
                 lore_established: block.lore_established,
+                merchant_transactions: block.merchant_transactions,
                 sfx_triggers: block.sfx_triggers,
                 action_rewrite: block.action_rewrite,
                 action_flags: block.action_flags,
@@ -980,6 +1005,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         scene_intent: None,
         resource_deltas: HashMap::new(),
         lore_established: None,
+        merchant_transactions: vec![],
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,

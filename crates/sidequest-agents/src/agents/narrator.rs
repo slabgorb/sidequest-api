@@ -136,6 +136,11 @@ Fields:
   HAPPENED in the narration — actions, impacts, environment. A sword being
   BOUGHT is commerce (coin_drop), not combat (sword_clash). A door being
   DESCRIBED is not a door_creak. Match the action, not the noun.
+- merchant_transactions: list of buy/sell transactions (omit if none).
+  Each entry: {\"type\": \"buy\" or \"sell\", \"item_id\": \"item_name_snake_case\", \"merchant\": \"NPC Name\"}.
+  Only emit when the player ACTUALLY completes a purchase or sale with a merchant.
+  The item_id should match an item from the merchant's inventory (for buy) or
+  the player's inventory (for sell). The merchant name must match an NPC present.
 - resource_deltas: object mapping resource names to signed numeric deltas.
   Only include resources that CHANGED this turn. Positive = gained, negative = spent/lost.
   Example: {\"luck\": -1} means the player spent 1 Luck. {\"heat\": 0.5} means Heat rose by 0.5.
