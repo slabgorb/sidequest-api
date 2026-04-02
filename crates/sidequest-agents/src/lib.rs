@@ -21,6 +21,7 @@ pub mod patch_legality;
 pub mod patches;
 pub mod preprocessor;
 pub mod prompt_framework;
+pub mod tools;
 pub mod turn_record;
 
 pub use sidequest_game;
