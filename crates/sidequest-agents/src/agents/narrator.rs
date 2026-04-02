@@ -103,7 +103,7 @@ the same objective. Advance the quest instead.
 
 [JSON BLOCK]
 After your prose, emit a single fenced JSON block. Include ALL applicable fields.
-Do not omit visual_scene or scene_mood — the game engine needs them every turn.
+Do not omit visual_scene — the game engine needs it every turn.
 
 Fields:
 - footnotes: knowledge/lore discovered (omit if none)
@@ -118,8 +118,6 @@ Fields:
   - tier: one of portrait, landscape, scene_illustration
   - mood: one of ominous, tense, mystical, dramatic, melancholic, atmospheric
   - tags: list from [combat, magic, special_effect, character, location, atmosphere]
-- scene_mood: ALWAYS INCLUDE. One of: combat, exploration, tension, triumph, sorrow, mystery, calm.
-  The overall emotional tone of this scene for music selection.
 - personality_events: list of NPC personality-changing moments (omit if none).
   Each entry: {\"npc\": \"Name\", \"event_type\": \"betrayal\", \"description\": \"brief context\"}.
   event_type MUST be one of exactly these values:
@@ -129,8 +127,6 @@ Fields:
     defeat — an NPC suffered a crushing loss
     social_bonding — an NPC formed a meaningful connection
   Only emit when a SIGNIFICANT personality-shaping event occurs, not routine interactions.
-- scene_intent: ALWAYS INCLUDE. What the NEXT player action is likely to be.
-  One of: Combat, Dialogue, Exploration, Examine, Chase.
 - sfx_triggers: list of SFX IDs to play this turn (omit if none).
   Pick from the available SFX library for this genre. Choose based on what
   HAPPENED in the narration — actions, impacts, environment. A sword being
@@ -148,10 +144,10 @@ Fields:
   Omit if no resources changed.
 Example:
 ```json
-{\"visual_scene\":{\"subject\":\"tall woman with bark-like skin, standing in corrupted grove, twisted black branches, sickly green light filtering through canopy\",\"tier\":\"portrait\",\"mood\":\"mystical\",\"tags\":[\"character\",\"location\",\"atmosphere\"]},\"scene_mood\":\"mystery\",\"scene_intent\":\"Dialogue\",\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}],\"quest_updates\":{\"The Corrupted Grove\":\"active: Find the source of corruption in Elder Mirova's grove (from: Elder Mirova)\"}}
+{\"visual_scene\":{\"subject\":\"tall woman with bark-like skin, standing in corrupted grove, twisted black branches, sickly green light filtering through canopy\",\"tier\":\"portrait\",\"mood\":\"mystical\",\"tags\":[\"character\",\"location\",\"atmosphere\"]},\"footnotes\":[{\"marker\":1,\"summary\":\"Corruption detected in the grove's oldest tree\",\"category\":\"Place\",\"is_new\":true}],\"items_gained\":[{\"name\":\"twisted branch\",\"description\":\"A gnarled branch from the corrupted tree, warm to the touch\",\"category\":\"quest\"}],\"npcs_present\":[{\"name\":\"Elder Mirova\",\"pronouns\":\"she/her\",\"role\":\"grove keeper\",\"appearance\":\"Tall woman with bark-like skin and moss in her hair\",\"is_new\":true}],\"quest_updates\":{\"The Corrupted Grove\":\"active: Find the source of corruption in Elder Mirova's grove (from: Elder Mirova)\"}}
 ```
 
-visual_scene, scene_mood, and scene_intent are REQUIRED every turn. The rest are optional.
+visual_scene is REQUIRED every turn. The rest are optional.
 </system>";
 
 crate::define_agent!(NarratorAgent, "narrator", NARRATOR_SYSTEM_PROMPT);
