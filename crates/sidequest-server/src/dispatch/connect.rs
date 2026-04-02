@@ -273,6 +273,26 @@ pub(crate) async fn dispatch_connect(
                                     "rag.lore_store_seeded"
                                 );
 
+                                // Story 15-24: Restore persisted lore fragments from SQLite.
+                                match state.persistence().load_lore_fragments(genre, world, pname).await {
+                                    Ok(fragments) => {
+                                        let restored_count = fragments.len();
+                                        for fragment in fragments {
+                                            let _ = lore_store.add(fragment);
+                                        }
+                                        if restored_count > 0 {
+                                            tracing::info!(
+                                                count = restored_count,
+                                                genre = %genre,
+                                                "lore.fragments_restored"
+                                            );
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, "lore.fragments_restore_failed");
+                                    }
+                                }
+
                                 // Inject culture reference for returning player
                                 let cultures = pack
                                     .worlds
