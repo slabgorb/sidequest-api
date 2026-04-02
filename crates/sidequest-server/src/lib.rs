@@ -588,6 +588,17 @@ impl AppState {
         self.inner.otel_endpoint.as_deref()
     }
 
+    /// Build a ClaudeClient with the configured OTEL endpoint (if any).
+    pub fn create_claude_client(&self) -> sidequest_agents::client::ClaudeClient {
+        if let Some(endpoint) = self.otel_endpoint() {
+            sidequest_agents::client::ClaudeClient::builder()
+                .otel_endpoint(endpoint.to_string())
+                .build()
+        } else {
+            sidequest_agents::client::ClaudeClient::new()
+        }
+    }
+
     /// Get the persistence handle for save/load operations.
     pub fn persistence(&self) -> &sidequest_game::PersistenceHandle {
         &self.inner.persistence
