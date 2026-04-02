@@ -998,7 +998,11 @@ fn update_npc_registry(
                 // pronouns, role, appearance are NOT backfilled from narrator JSON.
                 // enrich_registry_from_npcs() is the authoritative source (from Npc structs).
                 // Narrator JSON extraction was a silent fallback — see CLAUDE.md "No Silent Fallbacks".
-            } else if npc.is_new {
+            } else {
+                // Register ANY NPC not already in the registry, regardless of
+                // is_new.  The LLM's is_new flag is advisory, not a gate —
+                // defaulting to false via #[serde(default)] silently dropped
+                // every NPC the LLM mentioned without the explicit flag.
                 let span = tracing::info_span!(
                     "npc.registration",
                     npc_name = %npc.name,
