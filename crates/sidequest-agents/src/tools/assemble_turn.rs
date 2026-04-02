@@ -86,7 +86,6 @@ pub fn assemble_turn(
         agent_duration_ms: None,
         token_count_in: None,
         token_count_out: None,
-        extraction_tier: Some(extraction.tier),
         visual_scene,
         scene_mood,
         personality_events,

@@ -3,7 +3,7 @@
 //! Tests that the preprocessor emits child spans (turn.preprocess.llm,
 //! turn.preprocess.parse) and that the orchestrator emits child spans
 //! (turn.agent_llm.prompt_build, turn.agent_llm.inference,
-//! turn.agent_llm.extraction) for flame chart granularity.
+//! turn.agent_llm.parse_response) for flame chart granularity.
 
 use std::sync::{Arc, Mutex};
 use tracing::subscriber::with_default;
@@ -258,7 +258,7 @@ fn orchestrator_emits_inference_sub_span() {
     );
 }
 
-/// orchestrator.process_action must emit a turn.agent_llm.extraction sub-span
+/// orchestrator.process_action must emit a turn.agent_llm.parse_response sub-span
 /// wrapping response parsing and patch extraction.
 #[test]
 fn orchestrator_emits_extraction_sub_span() {
@@ -276,10 +276,10 @@ fn orchestrator_emits_extraction_sub_span() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "turn.agent_llm.extraction");
+    let span = find_span(&spans, "turn.agent_llm.parse_response");
     assert!(
         span.is_some(),
-        "Expected 'turn.agent_llm.extraction' span, got spans: {:?}",
+        "Expected 'turn.agent_llm.parse_response' span, got spans: {:?}",
         span_names(&spans)
     );
 }
@@ -342,7 +342,7 @@ fn orchestrator_prompt_build_span_records_diagnostic_field() {
     );
 }
 
-/// AC5: turn.agent_llm.extraction must record extraction_tier or narration_len.
+/// AC5: turn.agent_llm.parse_response must record narration_len.
 #[test]
 fn orchestrator_extraction_span_records_diagnostic_field() {
     use sidequest_agents::orchestrator::{GameService, TurnContext};
@@ -359,12 +359,12 @@ fn orchestrator_extraction_span_records_diagnostic_field() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "turn.agent_llm.extraction");
-    assert!(span.is_some(), "turn.agent_llm.extraction span must exist");
+    let span = find_span(&spans, "turn.agent_llm.parse_response");
+    assert!(span.is_some(), "turn.agent_llm.parse_response span must exist");
     let span = span.unwrap();
     assert!(
-        has_field(span, "extraction_tier") || has_field(span, "narration_len"),
-        "turn.agent_llm.extraction must record extraction_tier or narration_len, got fields: {:?}",
+        has_field(span, "narration_len"),
+        "turn.agent_llm.parse_response must record narration_len, got fields: {:?}",
         span.fields
     );
 }

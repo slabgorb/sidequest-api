@@ -8,8 +8,6 @@ use std::collections::HashMap;
 // These modules don't exist yet — compilation will fail (RED state).
 use sidequest_agents::agent::{Agent, AgentResponse};
 use sidequest_agents::context_builder::ContextBuilder;
-use sidequest_agents::extractor::JsonExtractor;
-
 // New modules that story 1-11 must create:
 use sidequest_agents::agents::creature_smith::CreatureSmithAgent;
 use sidequest_agents::agents::dialectician::DialecticianAgent;
@@ -174,7 +172,7 @@ mod agent_types_tests {
             agent_duration_ms: None,
             token_count_in: None,
             token_count_out: None,
-            extraction_tier: None,
+
             visual_scene: None,
             scene_mood: None,
             personality_events: vec![],
@@ -189,48 +187,6 @@ mod agent_types_tests {
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
-    }
-}
-
-// ============================================================
-// AC 3: JsonExtractor validates all JSON payloads
-// ============================================================
-
-mod json_extraction_tests {
-    use super::*;
-
-    #[test]
-    fn extract_world_state_patch_from_fenced_json() {
-        let llm_output = r#"Here's the world state update:
-
-```json
-{
-    "location": "The Broken Bridge",
-    "atmosphere": "An eerie fog rolls in"
-}
-```
-
-The world has been updated."#;
-        let patch: WorldStatePatch = JsonExtractor::extract(llm_output).unwrap();
-        assert_eq!(patch.location.as_deref(), Some("The Broken Bridge"));
-        assert_eq!(patch.atmosphere.as_deref(), Some("An eerie fog rolls in"));
-    }
-
-    #[test]
-    fn extract_combat_patch_from_prose_with_json() {
-        let llm_output = r#"The goblin strikes! Here's the result:
-{"in_combat": true, "hp_changes": {"Gorm": -8}, "drama_weight": 0.6}
-That was a brutal hit."#;
-        let patch: CombatPatch = JsonExtractor::extract(llm_output).unwrap();
-        assert_eq!(patch.in_combat, Some(true));
-        assert_eq!(patch.hp_changes.as_ref().unwrap().get("Gorm"), Some(&-8));
-    }
-
-    #[test]
-    fn extract_chase_patch_from_direct_json() {
-        let json = r#"{"separation_delta": 20, "phase": "escape"}"#;
-        let patch: ChasePatch = JsonExtractor::extract(json).unwrap();
-        assert_eq!(patch.separation_delta, Some(20));
     }
 }
 
@@ -364,7 +320,7 @@ mod game_service_tests {
             agent_duration_ms: None,
             token_count_in: None,
             token_count_out: None,
-            extraction_tier: None,
+
             visual_scene: None,
             scene_mood: None,
             personality_events: vec![],
@@ -414,7 +370,7 @@ mod error_handling_tests {
             agent_duration_ms: None,
             token_count_in: None,
             token_count_out: None,
-            extraction_tier: None,
+
             visual_scene: None,
             scene_mood: None,
             personality_events: vec![],

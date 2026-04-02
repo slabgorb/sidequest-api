@@ -55,8 +55,6 @@ pub struct ActionResult {
     pub token_count_in: Option<usize>,
     /// Output tokens produced by the agent LLM call (for GM Dashboard).
     pub token_count_out: Option<usize>,
-    /// JSON extraction tier used: 1=direct, 2=fenced, 3=regex (for GM Dashboard).
-    pub extraction_tier: Option<u8>,
     /// Visual scene description for image generation (from narrator JSON block).
     pub visual_scene: Option<VisualScene>,
     /// Scene mood tag for atmosphere/music selection (from narrator JSON block).
@@ -640,9 +638,9 @@ impl GameService for Orchestrator {
         match send_result {
             Ok(response) => {
                 let raw_response = &response.text;
-                // Extract structured data from narrator response (footnotes + items)
+                // Parse narrator response — strip fences, return prose
                 let extraction_span = tracing::info_span!(
-                    "turn.agent_llm.extraction",
+                    "turn.agent_llm.parse_response",
                     narration_len = raw_response.len(),
                 );
                 let _ext_guard = extraction_span.enter();
@@ -662,9 +660,9 @@ impl GameService for Orchestrator {
                 }
                 // Extract combat patch from creature_smith responses
                 let combat_patch = if agent_str == "creature_smith" {
-                    match crate::extractor::JsonExtractor::extract::<crate::patches::CombatPatch>(
-                        &raw_response,
-                    ) {
+                    match serde_json::from_str::<crate::patches::CombatPatch>(&raw_response)
+                        .or_else(|_| extract_fenced_json::<crate::patches::CombatPatch>(&raw_response))
+                    {
                         Ok(patch) => {
                             info!(
                                 in_combat = ?patch.in_combat,
@@ -675,7 +673,7 @@ impl GameService for Orchestrator {
                             Some(patch)
                         }
                         Err(e) => {
-                            warn!(error = %e, "combat.patch_extraction_failed — creature_smith response had no valid JSON block");
+                            warn!(error = %e, "combat.patch_extraction_failed — creature_smith response had no valid JSON");
                             None
                         }
                     }
@@ -685,9 +683,9 @@ impl GameService for Orchestrator {
 
                 // Extract chase patch from dialectician responses
                 let chase_patch = if agent_str == "dialectician" {
-                    match crate::extractor::JsonExtractor::extract::<crate::patches::ChasePatch>(
-                        &raw_response,
-                    ) {
+                    match serde_json::from_str::<crate::patches::ChasePatch>(&raw_response)
+                        .or_else(|_| extract_fenced_json::<crate::patches::ChasePatch>(&raw_response))
+                    {
                         Ok(patch) => {
                             info!(
                                 in_chase = ?patch.in_chase,
@@ -698,7 +696,7 @@ impl GameService for Orchestrator {
                             Some(patch)
                         }
                         Err(e) => {
-                            warn!(error = %e, "chase.patch_extraction_failed — dialectician response had no valid JSON block");
+                            warn!(error = %e, "chase.patch_extraction_failed — dialectician response had no valid JSON");
                             None
                         }
                     }
@@ -723,10 +721,9 @@ impl GameService for Orchestrator {
                 let flags = extraction.action_flags.clone().unwrap_or_default();
                 let mut base = assemble_turn(extraction, rewrite, flags, tool_results);
 
-                // Always strip residual JSON fence blocks from narration prose.
-                // The extraction pipeline removes the primary block, but edge
-                // cases (malformed fences, double blocks, unfenced JSON) can
-                // leave structured data in the text.
+                // Strip any residual JSON fence blocks from narration prose.
+                // The narrator should produce pure prose, but fences can appear
+                // in edge cases (e.g., tool output leaking into narration text).
                 base.narration = strip_json_fence(&base.narration);
 
                 info!(
@@ -764,6 +761,31 @@ impl GameService for Orchestrator {
 // ============================================================================
 // Combat patch: strip JSON fence from prose after extraction
 // ============================================================================
+
+/// Extract and deserialize JSON from a markdown fenced code block.
+///
+/// Used for creature_smith (CombatPatch) and dialectician (ChasePatch) responses
+/// which may wrap their JSON output in ```json ... ``` fences.
+fn extract_fenced_json<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, serde_json::Error> {
+    // Try ```json ... ``` first
+    if let Some(start) = input.find("```json") {
+        if let Some(end) = input[start + 7..].find("```") {
+            let json_str = input[start + 7..start + 7 + end].trim();
+            return serde_json::from_str(json_str);
+        }
+    }
+    // Try bare ``` ... ```, but skip past any ```json opener we already tried
+    let search_start = input.find("```json").map(|s| s + 7).unwrap_or(0);
+    if let Some(rel_start) = input[search_start..].find("```") {
+        let start = search_start + rel_start;
+        if let Some(end) = input[start + 3..].find("```") {
+            let json_str = input[start + 3..start + 3 + end].trim();
+            return serde_json::from_str(json_str);
+        }
+    }
+    // No fenced JSON found — return a clear error
+    serde_json::from_str::<T>("")
+}
 
 /// Remove a ```json ... ``` fenced block from narration so the player sees clean prose.
 fn strip_json_fence(input: &str) -> String {
@@ -826,42 +848,6 @@ pub struct PersonalityEvent {
     pub description: String,
 }
 
-/// Contains footnotes, items gained, NPCs present, and quest updates in the narrator's response.
-#[derive(Debug, serde::Deserialize)]
-struct NarratorStructuredBlock {
-    #[serde(default)]
-    footnotes: Vec<sidequest_protocol::Footnote>,
-    #[serde(default)]
-    items_gained: Vec<sidequest_protocol::ItemGained>,
-    #[serde(default)]
-    npcs_present: Vec<NpcMention>,
-    #[serde(default)]
-    quest_updates: HashMap<String, String>,
-    #[serde(default)]
-    visual_scene: Option<VisualScene>,
-    #[serde(default)]
-    scene_mood: Option<String>,
-    #[serde(default)]
-    personality_events: Vec<PersonalityEvent>,
-    #[serde(default)]
-    scene_intent: Option<String>,
-    #[serde(default)]
-    resource_deltas: HashMap<String, f64>,
-    #[serde(default)]
-    lore_established: Option<Vec<String>>,
-    /// Merchant transactions (buy/sell) extracted from narrator JSON block.
-    #[serde(default)]
-    merchant_transactions: Vec<MerchantTransactionExtracted>,
-    /// SFX trigger IDs chosen by the narrator based on what happened in the scene.
-    #[serde(default)]
-    sfx_triggers: Vec<String>,
-    /// Inline preprocessor: action rewrite (approach A — eliminates separate Haiku call).
-    #[serde(default)]
-    action_rewrite: Option<ActionRewrite>,
-    /// Inline preprocessor: relevance flags.
-    #[serde(default)]
-    action_flags: Option<ActionFlags>,
-}
 
 /// A merchant transaction extracted from the narrator's JSON block.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -933,144 +919,22 @@ pub struct NarratorExtraction {
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
     pub action_flags: Option<ActionFlags>,
-    /// Extraction tier: 1=fenced JSON, 2=legacy array, 3=no structured data.
-    pub tier: u8,
 }
 
-/// Extract structured data (footnotes, items) from a narrator response.
+/// Extract the narrator's prose from a raw response.
 ///
-/// The narrator embeds a JSON block after the prose containing footnotes
-/// and items_gained. This function finds and parses that block, returning
-/// the clean prose and extracted structured data.
+/// ADR-057 (story 20-8): The narrator produces pure prose. All structured data
+/// (footnotes, items, NPCs, mood, etc.) comes from tool calls collected by
+/// `assemble_turn`. This function strips any residual JSON fences and returns
+/// the prose with empty structured fields.
 fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
-    let span = tracing::info_span!("rag.extract_structured", raw_len = raw.len());
+    let span = tracing::info_span!("rag.prose_cleanup", raw_len = raw.len());
     let _guard = span.enter();
 
-    // Strategy 1: Fenced JSON block (```json ... ```)
-    if let Some(start) = raw.find("```json") {
-        if let Some(end) = raw[start + 7..].find("```") {
-            let json_str = raw[start + 7..start + 7 + end].trim();
-            if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
-                let prose = raw[..start].trim().to_string();
-                tracing::info!(
-                    footnotes = block.footnotes.len(),
-                    items = block.items_gained.len(),
-                    strategy = "fenced_json",
-                    "rag.structured_parsed"
-                );
-                return NarratorExtraction {
-                    prose,
-                    footnotes: block.footnotes,
-                    items_gained: block.items_gained,
-                    npcs_present: block.npcs_present,
-                    quest_updates: block.quest_updates,
-                    visual_scene: block.visual_scene,
-                    scene_mood: block.scene_mood,
-                    personality_events: block.personality_events,
-                    scene_intent: block.scene_intent,
-                    resource_deltas: block.resource_deltas,
-                    lore_established: block.lore_established,
-                    merchant_transactions: block.merchant_transactions,
-                    sfx_triggers: block.sfx_triggers,
-                    action_rewrite: block.action_rewrite,
-                    action_flags: block.action_flags,
-                    tier: 1,
-                };
-            }
-            // Try parsing as a bare footnotes array (legacy format)
-            if let Ok(footnotes) =
-                serde_json::from_str::<Vec<sidequest_protocol::Footnote>>(json_str)
-            {
-                let prose = raw[..start].trim().to_string();
-                tracing::info!(
-                    footnotes = footnotes.len(),
-                    strategy = "fenced_array",
-                    "rag.structured_parsed"
-                );
-                return NarratorExtraction {
-                    prose,
-                    footnotes,
-                    items_gained: vec![],
-                    npcs_present: vec![],
-                    quest_updates: HashMap::new(),
-                    visual_scene: None,
-                    scene_mood: None,
-                    personality_events: vec![],
-                    scene_intent: None,
-                    resource_deltas: HashMap::new(),
-                    lore_established: None,
-                    merchant_transactions: vec![],
-                    sfx_triggers: vec![],
-                    action_rewrite: None,
-                    action_flags: None,
-                    tier: 2,
-                };
-            }
-        }
-    }
+    let prose = strip_json_fence(raw);
 
-    // Strategy 2: Trailing JSON object
-    if let Some(idx) = raw.rfind("{\"footnotes\"") {
-        let json_str = &raw[idx..];
-        if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
-            let prose = raw[..idx].trim().to_string();
-            tracing::info!(
-                footnotes = block.footnotes.len(),
-                items = block.items_gained.len(),
-                strategy = "trailing_json",
-                "rag.structured_parsed"
-            );
-            return NarratorExtraction {
-                prose,
-                footnotes: block.footnotes,
-                items_gained: block.items_gained,
-                npcs_present: block.npcs_present,
-                quest_updates: block.quest_updates,
-                visual_scene: block.visual_scene,
-                scene_mood: block.scene_mood,
-                personality_events: block.personality_events,
-                scene_intent: block.scene_intent,
-                resource_deltas: block.resource_deltas,
-                lore_established: block.lore_established,
-                merchant_transactions: block.merchant_transactions,
-                sfx_triggers: block.sfx_triggers,
-                action_rewrite: block.action_rewrite,
-                action_flags: block.action_flags,
-                tier: 2,
-            };
-        }
-    }
-
-    // Also try items_gained as the leading key
-    if let Some(idx) = raw.rfind("{\"items_gained\"") {
-        let json_str = &raw[idx..];
-        if let Ok(block) = serde_json::from_str::<NarratorStructuredBlock>(json_str) {
-            let prose = raw[..idx].trim().to_string();
-            return NarratorExtraction {
-                prose,
-                footnotes: block.footnotes,
-                items_gained: block.items_gained,
-                npcs_present: block.npcs_present,
-                quest_updates: block.quest_updates,
-                visual_scene: block.visual_scene,
-                scene_mood: block.scene_mood,
-                personality_events: block.personality_events,
-                scene_intent: block.scene_intent,
-                resource_deltas: block.resource_deltas,
-                lore_established: block.lore_established,
-                merchant_transactions: block.merchant_transactions,
-                sfx_triggers: block.sfx_triggers,
-                action_rewrite: block.action_rewrite,
-                action_flags: block.action_flags,
-                tier: 2,
-            };
-        }
-    }
-
-    // No structured data found
-    tracing::debug!("rag.no_structured_data_found");
     NarratorExtraction {
-        prose: raw.to_string(),
+        prose,
         footnotes: vec![],
         items_gained: vec![],
         npcs_present: vec![],
@@ -1085,7 +949,6 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-        tier: 3,
     }
 }
 

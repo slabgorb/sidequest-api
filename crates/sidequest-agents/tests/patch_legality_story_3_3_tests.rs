@@ -133,7 +133,6 @@ fn make_mock_record(turn_id: u64) -> TurnRecord {
         snapshot_after: mock_game_snapshot(),
         delta: mock_state_delta(),
         beats_fired: vec![],
-        extraction_tier: 1,
         token_count_in: 500,
         token_count_out: 100,
         agent_duration_ms: 1200,

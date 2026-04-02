@@ -96,7 +96,6 @@ fn make_mock_record(turn_id: u64) -> TurnRecord {
         snapshot_after: mock_game_snapshot(),
         delta: mock_state_delta(),
         beats_fired: vec![("scavenger_instinct".to_string(), 0.75)],
-        extraction_tier: 1,
         token_count_in: 1200,
         token_count_out: 350,
         agent_duration_ms: 2400,
@@ -203,7 +202,6 @@ fn turn_record_has_all_fifteen_fields() {
     let _: &GameSnapshot = &record.snapshot_after;
     let _: &StateDelta = &record.delta;
     let _: &[(String, f32)] = &record.beats_fired;
-    let _: u8 = record.extraction_tier;
     let _: usize = record.token_count_in;
     let _: usize = record.token_count_out;
     let _: u64 = record.agent_duration_ms;
@@ -910,7 +908,6 @@ fn turn_record_with_empty_collections_is_valid() {
         snapshot_after: mock_game_snapshot(),
         delta: mock_state_delta(),
         beats_fired: vec![],
-        extraction_tier: 1,
         token_count_in: 500,
         token_count_out: 100,
         agent_duration_ms: 800,
@@ -920,13 +917,4 @@ fn turn_record_with_empty_collections_is_valid() {
 
     assert!(record.patches_applied.is_empty());
     assert!(record.beats_fired.is_empty());
-    assert_eq!(record.extraction_tier, 1);
-}
-
-/// TurnRecord with maximum extraction tier (3) should be valid.
-#[test]
-fn turn_record_with_tier_3_extraction_is_valid() {
-    let mut record = make_mock_record(1);
-    record.extraction_tier = 3;
-    assert_eq!(record.extraction_tier, 3);
 }

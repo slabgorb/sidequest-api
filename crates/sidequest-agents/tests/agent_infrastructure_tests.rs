@@ -1,7 +1,7 @@
-//! Tests for agent infrastructure: Agent trait, ClaudeClient, JsonExtractor,
+//! Tests for agent infrastructure: Agent trait, ClaudeClient,
 //! ContextBuilder, and format helpers.
 //!
-//! Story 1-10: Agent infrastructure — Agent trait, ClaudeClient, JsonExtractor,
+//! Story 1-10: Agent infrastructure — Agent trait, ClaudeClient,
 //! ContextBuilder, format helpers.
 //!
 //! These are TDD RED tests — they reference types and modules that don't exist yet.
@@ -141,113 +141,6 @@ mod claude_client {
         // std::error::Error is implemented (thiserror)
         let _msg = format!("{err}");
         assert!(!_msg.is_empty());
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// JsonExtractor — port lesson #2 (single 3-tier extraction)
-// ═══════════════════════════════════════════════════════════
-
-mod json_extractor {
-    use sidequest_agents::extractor::{ExtractionError, JsonExtractor};
-
-    // Tier 1: Direct JSON parse
-    #[test]
-    fn extract_direct_json_object() {
-        let input = r#"{"action": "move", "direction": "north"}"#;
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["action"], "move");
-        assert_eq!(result["direction"], "north");
-    }
-
-    #[test]
-    fn extract_direct_json_array() {
-        let input = r#"[{"name": "sword"}, {"name": "shield"}]"#;
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert!(result.is_array());
-        assert_eq!(result.as_array().unwrap().len(), 2);
-    }
-
-    // Tier 2: Markdown fence extraction
-    #[test]
-    fn extract_from_json_fence() {
-        let input = "Here is the response:\n```json\n{\"hp\": 42}\n```\nDone.";
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["hp"], 42);
-    }
-
-    #[test]
-    fn extract_from_bare_fence() {
-        let input = "Response:\n```\n{\"status\": \"ok\"}\n```";
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["status"], "ok");
-    }
-
-    // Tier 3: Freeform search (find JSON in mixed text)
-    #[test]
-    fn extract_freeform_json_in_prose() {
-        let input = "The narrator says: I think {\"mood\": \"tense\", \"location\": \"cave\"} is the state.";
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["mood"], "tense");
-    }
-
-    // Failure cases
-    #[test]
-    fn extract_fails_on_no_json() {
-        let input = "This is just plain text with no JSON at all.";
-        let result = JsonExtractor::extract::<serde_json::Value>(input);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            ExtractionError::NoJsonFound => {}
-            other => panic!("expected NoJsonFound, got: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn extract_fails_on_invalid_json_in_fence() {
-        let input = "```json\n{invalid json here}\n```";
-        let result = JsonExtractor::extract::<serde_json::Value>(input);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            ExtractionError::ParseFailed { .. } => {}
-            other => panic!("expected ParseFailed, got: {other:?}"),
-        }
-    }
-
-    // Typed extraction
-    #[test]
-    fn extract_into_typed_struct() {
-        #[derive(serde::Deserialize, Debug, PartialEq)]
-        struct MoveAction {
-            action: String,
-            direction: String,
-        }
-
-        let input = r#"{"action": "move", "direction": "north"}"#;
-        let result: MoveAction = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result.action, "move");
-        assert_eq!(result.direction, "north");
-    }
-
-    #[test]
-    fn extract_rejects_wrong_typed_struct() {
-        #[derive(serde::Deserialize, Debug)]
-        struct ExpectedType {
-            #[allow(dead_code)]
-            required_field: i32,
-        }
-
-        let input = r#"{"other_field": "text"}"#;
-        let result = JsonExtractor::extract::<ExpectedType>(input);
-        assert!(result.is_err());
-    }
-
-    // Rule #2: ExtractionError should be #[non_exhaustive]
-    #[test]
-    fn extraction_error_implements_std_error() {
-        let err = ExtractionError::NoJsonFound;
-        let msg = format!("{err}");
-        assert!(!msg.is_empty());
     }
 }
 

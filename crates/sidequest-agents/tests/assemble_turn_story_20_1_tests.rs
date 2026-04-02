@@ -59,7 +59,6 @@ fn minimal_extraction() -> NarratorExtraction {
             references_ability: true,
             references_location: true,
         }),
-        tier: 1,
     }
 }
 
@@ -347,18 +346,6 @@ fn narrator_prompt_omits_action_flags_schema() {
     );
 }
 
-/// The narrator prompt must still contain non-migrated fields.
-/// Note: personality_events, resource_deltas, sfx_triggers migrated in Phase 7 (20-7).
-/// Note: scene_mood migrated in Phase 2 (20-2), visual_scene migrated in Phase 5 (20-5).
-#[test]
-fn narrator_prompt_retains_non_migrated_fields() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
-    assert!(
-        prompt.contains("merchant_transactions"),
-        "merchant_transactions must remain in narrator prompt"
-    );
-}
 
 // ============================================================================
 // AC-5: OTEL events for preprocessor execution
@@ -439,7 +426,6 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
         sfx_triggers: vec![],
         action_rewrite: None, // narrator didn't emit
         action_flags: None,   // narrator didn't emit
-        tier: 3,
     };
 
     let rewrite = ActionRewrite {
@@ -465,29 +451,3 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
     assert!(!result_flags.is_power_grab);
 }
 
-/// assemble_turn preserves extraction_tier from the narrator extraction.
-#[test]
-fn assemble_turn_preserves_extraction_tier() {
-    let mut extraction = minimal_extraction();
-    extraction.tier = 2;
-
-    let rewrite = ActionRewrite {
-        you: "You look".to_string(),
-        named: "Kael looks".to_string(),
-        intent: "look".to_string(),
-    };
-    let flags = ActionFlags {
-        is_power_grab: false,
-        references_inventory: false,
-        references_npc: false,
-        references_ability: false,
-        references_location: false,
-    };
-
-    let result = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
-    assert_eq!(
-        result.extraction_tier,
-        Some(2),
-        "extraction_tier must pass through from narrator extraction"
-    );
-}

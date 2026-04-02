@@ -368,7 +368,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field_opt("agent_duration_ms", &result.agent_duration_ms)
         .field_opt("token_count_in", &result.token_count_in)
         .field_opt("token_count_out", &result.token_count_out)
-        .field_opt("extraction_tier", &result.extraction_tier)
         .field("sfx_trigger_count", result.sfx_triggers.len())
         .field("has_new_npcs", result.npcs_present.iter().any(|n| n.is_new))
         .field("items_gained_count", result.items_gained.len())
@@ -1856,7 +1855,6 @@ fn emit_telemetry(
             .field("player_id", ctx.player_id)
             .field_opt("token_count_in", &result.token_count_in)
             .field_opt("token_count_out", &result.token_count_out)
-            .field_opt("extraction_tier", &result.extraction_tier)
             .field("spans", &spans)
             .field("total_duration_ms", total_ms);
         if result.is_degraded {
