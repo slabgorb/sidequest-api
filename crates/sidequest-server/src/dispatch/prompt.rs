@@ -436,6 +436,43 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
+    // Resolve and inject character abilities from affinity tiers (story 15-15)
+    if let Some(ch) = ctx.snapshot.characters.first() {
+        let genre_affinities = &ctx.genre_affinities;
+        let all_abilities = sidequest_game::resolve_abilities(&ch.affinities, &|name, tier| {
+            genre_affinities
+                .iter()
+                .find(|a| a.name == name)
+                .and_then(|a| a.unlocks.as_ref())
+                .and_then(|u| match tier {
+                    0 => u.tier_0.as_ref(),
+                    1 => u.tier_1.as_ref(),
+                    2 => u.tier_2.as_ref(),
+                    3 => u.tier_3.as_ref(),
+                    _ => None,
+                })
+                .map(|t| t.abilities.iter().map(|a| a.name.clone()).collect())
+                .unwrap_or_default()
+        });
+        if !all_abilities.is_empty() {
+            let abilities_text = sidequest_game::format_abilities_context(&all_abilities);
+            state_summary.push_str(&abilities_text);
+
+            let tiers_active = ch.affinities.iter().filter(|a| a.tier > 0).count();
+            WatcherEventBuilder::new("abilities", WatcherEventType::StateTransition)
+                .field("event", "abilities.resolved")
+                .field("count", all_abilities.len())
+                .field("tiers_active", tiers_active)
+                .field("ability_names", all_abilities.join(", "))
+                .send(ctx.state);
+            tracing::info!(
+                count = all_abilities.len(),
+                tiers_active = tiers_active,
+                "abilities.resolved"
+            );
+        }
+    }
+
     // Narration history — last 2 full, turns 3-5 first-sentence summary, 6+ dropped
     if !ctx.narration_history.is_empty() {
         state_summary.push_str("\n\nRECENT HISTORY (most recent last):\n");

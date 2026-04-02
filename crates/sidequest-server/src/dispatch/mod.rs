@@ -93,6 +93,8 @@ pub(crate) struct DispatchContext<'a> {
     pub rooms: Vec<sidequest_genre::RoomDef>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
+    /// Genre pack affinity definitions — used by resolve_abilities() to map tiers to ability names.
+    pub genre_affinities: Vec<sidequest_genre::Affinity>,
     pub pending_trope_context: &'a mut Option<String>,
     pub achievement_tracker: &'a mut sidequest_game::achievement::AchievementTracker,
     /// Canonical game state snapshot — patched in-place during the turn,
