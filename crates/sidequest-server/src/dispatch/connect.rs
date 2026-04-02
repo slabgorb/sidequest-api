@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use sidequest_game::builder::CharacterBuilder;
-use sidequest_genre::{GenreCode, GenreLoader};
+use sidequest_genre::GenreCode;
 use sidequest_protocol::{
     ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload, CharacterState,
     GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
@@ -47,10 +47,10 @@ pub(crate) async fn dispatch_connect(
     opening_directive: &mut Option<String>,
     state: &AppState,
     player_id: &str,
-    continuity_corrections: &mut String,
+    _continuity_corrections: &mut String,
     inventory: &mut sidequest_game::Inventory,
     snapshot: &mut sidequest_game::state::GameSnapshot,
-    tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
+    _tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");

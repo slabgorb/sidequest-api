@@ -29,7 +29,6 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{EnvFilter, Registry};
 
 use sidequest_agents::orchestrator::GameService;
 use sidequest_game::builder::CharacterBuilder;
@@ -75,8 +74,7 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
 }
 use sidequest_genre::{GenreCache, GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload, CharacterState,
-    ErrorPayload, GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
+    ErrorPayload, GameMessage, PartyMember,
     PartyStatusPayload, SessionEventPayload, TurnStatusPayload,
 };
 

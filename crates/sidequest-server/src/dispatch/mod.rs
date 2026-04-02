@@ -340,7 +340,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     // Update preprocessed from inline agent output (approach A — no separate Haiku call).
-    let preprocessed = if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
+    let _preprocessed = if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
         tracing::info!(
             you = %rw.you, named = %rw.named, intent = %rw.intent,
             power_grab = flags.is_power_grab,
@@ -1002,7 +1002,7 @@ async fn handle_barrier(
 fn update_npc_registry(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
-    clean_narration: &str,
+    _clean_narration: &str,
 ) {
     let turn_approx = ctx.turn_manager.interaction() as u32;
     if !result.npcs_present.is_empty() {
@@ -1254,7 +1254,7 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
 async fn build_response_messages(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
-    narration_text: &str,
+    _narration_text: &str,
     result: &sidequest_agents::orchestrator::ActionResult,
     tier_events: &[sidequest_game::AffinityTierUpEvent],
     _effective_action: &str,
