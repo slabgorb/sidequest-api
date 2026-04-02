@@ -229,7 +229,7 @@ pub(crate) async fn build_prompt_context(
         for (quest_name, status) in ctx.quest_log.iter() {
             state_summary.push_str(&format!("- {}: {}\n", quest_name, status));
         }
-        state_summary.push_str("Reference active quests when narratively relevant. Update quest status in quest_updates when objectives change.\n");
+        state_summary.push_str("Reference active quests when narratively relevant. Quest state changes are handled via the quest_update tool.\n");
     }
 
     // Resource state injection (story 16-1)
