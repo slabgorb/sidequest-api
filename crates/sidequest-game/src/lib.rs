@@ -153,7 +153,7 @@ pub use render_queue::{
 pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
-pub use room_movement::{apply_validated_move, init_room_graph_location, validate_room_transition, DispatchError};
+pub use room_movement::{apply_validated_move, init_room_graph_location, validate_room_transition, DispatchError, RoomTransition};
 pub use state::{
     broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, DiscoveredRooms,
     GameSnapshot, NpcPatch, WorldStatePatch,

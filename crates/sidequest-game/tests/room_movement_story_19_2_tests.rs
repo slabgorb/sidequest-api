@@ -112,14 +112,20 @@ fn test_discovered_rooms_populated_on_entry() {
     let mut snap = snapshot_at("entrance", &["entrance"]);
 
     // Move entrance → corridor (valid)
-    apply_validated_move(&mut snap, "corridor", &rooms).unwrap();
+    let transition = apply_validated_move(&mut snap, "corridor", &rooms).unwrap();
+    assert_eq!(transition.from_room, "entrance");
+    assert_eq!(transition.to_room, "corridor");
+    assert_eq!(transition.exit_type, "corridor"); // RoomExit::Corridor display_name
     assert_eq!(snap.location, "corridor");
     assert!(snap.discovered_rooms.contains("entrance"));
     assert!(snap.discovered_rooms.contains("corridor"));
     assert_eq!(snap.discovered_rooms.len(), 2);
 
     // Move corridor → chamber (valid)
-    apply_validated_move(&mut snap, "chamber", &rooms).unwrap();
+    let transition = apply_validated_move(&mut snap, "chamber", &rooms).unwrap();
+    assert_eq!(transition.from_room, "corridor");
+    assert_eq!(transition.to_room, "chamber");
+    assert_eq!(transition.exit_type, "door"); // RoomExit::Door display_name
     assert_eq!(snap.location, "chamber");
     assert!(snap.discovered_rooms.contains("chamber"));
     assert_eq!(snap.discovered_rooms.len(), 3);

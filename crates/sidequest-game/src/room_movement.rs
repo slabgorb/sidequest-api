@@ -8,6 +8,20 @@ use sidequest_genre::RoomDef;
 
 use crate::state::GameSnapshot;
 
+/// Successful room transition metadata — returned by `apply_validated_move`.
+///
+/// Carries the data the caller needs for OTEL/WatcherEvent emission.
+/// The game crate doesn't emit dispatch-level telemetry — that's the server's job.
+#[derive(Debug, Clone)]
+pub struct RoomTransition {
+    /// Room the player moved from.
+    pub from_room: String,
+    /// Room the player moved to.
+    pub to_room: String,
+    /// Exit type used (e.g., "door", "corridor", "chute down").
+    pub exit_type: String,
+}
+
 /// Errors from the dispatch/movement pipeline.
 #[derive(Debug)]
 pub enum DispatchError {
@@ -69,15 +83,16 @@ pub fn validate_room_transition(
 
 /// Validate and apply a room move. On success, updates location and discovered_rooms.
 ///
-/// Emits OTEL `room.transition` event on success.
+/// Returns `RoomTransition` with metadata for the caller to emit OTEL/WatcherEvents.
+/// The game crate does not emit dispatch-level telemetry — that's the server's responsibility.
 pub fn apply_validated_move(
     snap: &mut GameSnapshot,
     to_room: &str,
     rooms: &[RoomDef],
-) -> Result<(), DispatchError> {
+) -> Result<RoomTransition, DispatchError> {
     validate_room_transition(snap, to_room, rooms)?;
 
-    // Find the exit type for OTEL
+    // Find the exit type from the current room's exit list
     let exit_type = rooms
         .iter()
         .find(|r| r.id == snap.location)
@@ -95,15 +110,11 @@ pub fn apply_validated_move(
     snap.location = to_room.to_string();
     snap.discovered_rooms.insert(to_room.to_string());
 
-    // OTEL: room.transition
-    tracing::info!(
-        name: "room.transition",
-        from_room = %from,
-        to_room = %to_room,
-        exit_type = %exit_type,
-    );
-
-    Ok(())
+    Ok(RoomTransition {
+        from_room: from,
+        to_room: to_room.to_string(),
+        exit_type,
+    })
 }
 
 /// Set the starting location to the entrance room in the graph.

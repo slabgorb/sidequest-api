@@ -402,28 +402,27 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
-        // Room-graph mode: validate transition before applying (story 19-2).
-        // Region mode (rooms empty): always valid.
+        // Room-graph mode: validate + apply transition via canonical function (story 19-2).
+        // Region mode (rooms empty): always valid — no room graph to check.
         let location_valid = if !ctx.rooms.is_empty() {
-            match sidequest_game::room_movement::validate_room_transition(
+            match sidequest_game::room_movement::apply_validated_move(
                 ctx.snapshot,
                 &location,
                 &ctx.rooms,
             ) {
-                Ok(()) => {
-                    // Track room discovery + OTEL transition event
-                    let exit_type = ctx.rooms.iter()
-                        .find(|r| r.id == ctx.snapshot.location)
-                        .and_then(|r| r.exits.iter().find(|e| e.target() == location).map(|e| e.display_name().to_string()))
-                        .unwrap_or_default();
-                    let from_room = ctx.snapshot.location.clone();
-                    ctx.snapshot.discovered_rooms.insert(location.clone());
+                Ok(transition) => {
                     tracing::info!(
                         name: "room.transition",
-                        from_room = %from_room,
-                        to_room = %location,
-                        exit_type = %exit_type,
+                        from_room = %transition.from_room,
+                        to_room = %transition.to_room,
+                        exit_type = %transition.exit_type,
                     );
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::StateTransition)
+                        .field("event", "room.transition")
+                        .field("from_room", &transition.from_room)
+                        .field("to_room", &transition.to_room)
+                        .field("exit_type", &transition.exit_type)
+                        .send(ctx.state);
                     true
                 }
                 Err(sidequest_game::room_movement::DispatchError::InvalidRoomTransition {

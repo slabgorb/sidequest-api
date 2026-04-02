@@ -730,13 +730,22 @@ pub(crate) async fn dispatch_character_creation(
                         snap.characters = vec![character.clone()];
 
                         // Room-graph mode: set starting location to entrance room (story 19-2)
-                        let rooms_for_init: Vec<sidequest_genre::RoomDef> = GenreCode::new(&genre)
-                            .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
-                            .and_then(|pack| pack.worlds.get(&world).cloned())
-                            .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
-                            .and_then(|w| w.cartography.rooms.clone())
-                            .unwrap_or_default();
+                        let rooms_for_init: Vec<sidequest_genre::RoomDef> = match GenreCode::new(&genre) {
+                            Ok(gc) => match state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                                Ok(pack) => pack.worlds.get(&world).cloned()
+                                    .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                    .and_then(|w| w.cartography.rooms.clone())
+                                    .unwrap_or_default(),
+                                Err(e) => {
+                                    tracing::warn!(error = %e, genre = %genre, world = %world, "Failed to load genre pack for room-graph init");
+                                    vec![]
+                                }
+                            },
+                            Err(e) => {
+                                tracing::warn!(error = %e, genre = %genre, "Invalid genre code for room-graph init");
+                                vec![]
+                            }
+                        };
                         if !rooms_for_init.is_empty() {
                             sidequest_game::room_movement::init_room_graph_location(&mut snap, &rooms_for_init);
                             tracing::info!(
@@ -848,13 +857,22 @@ pub(crate) async fn dispatch_character_creation(
                             rooms: {
                                 let gs = session.genre_slug().unwrap_or("");
                                 let ws = session.world_slug().unwrap_or("");
-                                sidequest_genre::GenreCode::new(gs)
-                                    .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
-                                    .and_then(|pack| pack.worlds.get(ws).cloned())
-                                    .filter(|world| world.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
-                                    .and_then(|world| world.cartography.rooms.clone())
-                                    .unwrap_or_default()
+                                match sidequest_genre::GenreCode::new(gs) {
+                                    Ok(gc) => match state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                                        Ok(pack) => pack.worlds.get(ws).cloned()
+                                            .filter(|world| world.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                            .and_then(|world| world.cartography.rooms.clone())
+                                            .unwrap_or_default(),
+                                        Err(e) => {
+                                            tracing::warn!(error = %e, genre = %gs, world = %ws, "Failed to load genre pack for dispatch rooms");
+                                            vec![]
+                                        }
+                                    },
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, genre = %gs, "Invalid genre code for dispatch rooms");
+                                        vec![]
+                                    }
+                                }
                             },
                             genre_affinities: {
                                 let gs = session.genre_slug().unwrap_or("");
