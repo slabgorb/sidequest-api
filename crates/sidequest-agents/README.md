@@ -10,18 +10,20 @@ Anthropic SDK. See [ADR-001](../../../docs/adr/001-claude-cli-only.md).
 - **`orchestrator`** — `GameService` trait and `Orchestrator` implementation that
   routes player actions to the right agent
 - **`agents/`** — Individual agent implementations:
-  - `narrator` — Narrative generation
-  - `creature_smith` — Character creation
-  - `world_builder` — World generation
-  - `intent_router` — Player intent classification
-  - `troper` — Narrative trope application
-  - `ensemble` — Multi-agent coordination
+  - `narrator` — Exploration, story progression, OCEAN injection, knowledge extraction
+  - `creature_smith` — Combat resolution, tactical encounters
+  - `ensemble` — NPC dialogue and interaction
+  - `dialectician` — Chase sequences (pursuit, escape, negotiation)
+  - `intent_router` — 2-tier player intent classification
+  - `resonator` — Hook refiner + perception rewriter (scaffolding)
+  - `troper` — Trope logic orchestration (scaffolding)
+  - `world_builder` — World materialization at maturity levels (scaffolding)
+- **`tools/`** — Sidecar tool definitions and parsers (assemble_turn, scene_render, quest_update, etc.)
 - **`client`** — Claude CLI wrapper (`tokio::process::Command`)
-- **`prompt_framework`** — Three-tier prompt taxonomy (Critical / Firm / Coherence)
+- **`prompt_framework`** — Zone-ordered prompt assembly (Primacy / Situational / Anchoring / Grounding)
 - **`context_builder`** — Assembles prompt context from game state
 - **`extractor`** — JSON extraction from Claude responses (3-tier fallback)
 - **`patches`** — Applies agent-emitted state patches
-- **`format_helpers`** — Output formatting utilities
 
 ## Key design notes
 

@@ -13,7 +13,7 @@ This is a personal project under the `slabgorb` GitHub account.
 ## SideQuest System Overview
 
 Four repos compose the SideQuest Rust rewrite:
-- **sidequest-api** — Rust game engine and WebSocket API (workspace with 6 crates)
+- **sidequest-api** — Rust game engine and WebSocket API (workspace with 9 crates)
 - **sidequest-ui** — React/TypeScript game client
 - **sidequest-daemon** — Python media services (image gen, TTS, audio)
 - **sidequest-content** — Genre packs (YAML configs, audio, images, world data)
@@ -137,12 +137,15 @@ The ML stack (image gen, TTS, audio) stays in Python as a sidecar daemon.
 
 | Crate | Role |
 |-------|------|
-| `sidequest-protocol` | GameMessage, typed payloads (serde) |
-| `sidequest-genre` | YAML genre pack loader |
-| `sidequest-game` | State, characters, combat, chase, tropes (15k+ LOC) |
-| `sidequest-agents` | Claude CLI subprocess orchestration (7.6k LOC) |
-| `sidequest-daemon-client` | Client for Python media daemon |
-| `sidequest-server` | axum HTTP/WebSocket, sessions, dispatch pipeline |
+| `sidequest-protocol` | GameMessage, typed payloads (serde) — ~2.9k LOC |
+| `sidequest-genre` | YAML genre pack loader, models, validation — ~4.3k LOC |
+| `sidequest-game` | State, characters, combat, chase, tropes, audio, rendering — ~23.7k LOC |
+| `sidequest-agents` | Claude CLI subprocess orchestration, prompt framework, tools — ~8.1k LOC |
+| `sidequest-daemon-client` | Unix socket client for Python media daemon — ~520 LOC |
+| `sidequest-server` | axum HTTP/WebSocket, sessions, dispatch pipeline — ~8.7k LOC |
+| `sidequest-encountergen` | CLI: enemy stat block generator from genre pack data — ~550 LOC |
+| `sidequest-loadoutgen` | CLI: starting equipment generator from genre pack data — ~230 LOC |
+| `sidequest-namegen` | CLI: NPC identity block generator from genre pack data — ~310 LOC |
 
 Each crate has its own CLAUDE.md with a feature inventory. Read those before modifying a crate.
 

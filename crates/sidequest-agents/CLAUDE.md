@@ -1,8 +1,8 @@
 # sidequest-agents — Feature Inventory
 
-LLM agent orchestration via Claude CLI subprocess. **~7,600 LOC across 30+ modules.**
-This crate handles intent classification, agent dispatch, prompt composition, and
-response extraction.
+LLM agent orchestration via Claude CLI subprocess. **~8,100 LOC across 38 modules.**
+This crate handles intent classification, agent dispatch, prompt composition,
+response extraction, and sidecar tool parsing.
 
 ## COMPLETE — Do Not Rewrite
 
@@ -41,6 +41,12 @@ response extraction.
 - **Soul** — `prompt_framework/soul.rs` (131 LOC) — character personality embedding
   in prompts.
 
+### Sidecar Tools
+- **tools/** — tool definitions and sidecar parsers for narrator tool calls:
+  `assemble_turn`, `personality_event`, `play_sfx`, `quest_update`,
+  `resource_change`, `scene_render`, `set_intent`, `set_mood`, `tool_call_parser`.
+  Plus `preprocessors.rs` for input preprocessing.
+
 ### Support Systems
 - **TurnRecord** — `turn_record.rs` (150 LOC) — turn history & telemetry (story 3-2).
 - **ExerciseTracker** — `exercise_tracker.rs` (120 LOC) — agent invocation history (story 3-5).
@@ -48,6 +54,7 @@ response extraction.
 - **PatchLegality** — `patch_legality.rs` (202 LOC) — validate patches before applying (story 3-3).
 - **TropeAlignment** — `trope_alignment.rs` (134 LOC) — trope compatibility checking (story 3-8).
 - **Footnotes** — `footnotes.rs` (38 LOC) — footnote extraction from narrator output.
+- **ContinuityValidator** — `continuity_validator.rs` — continuity checking across turns.
 
 ## NEEDS FULL IMPLEMENTATION — Not Stubs
 

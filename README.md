@@ -38,12 +38,14 @@ React Client (sidequest-ui)
 +---------+----------+  +---------+----------+  +---------------------------+
           |                       |
           +-----------+-----------+
-                      v
-          +--------------------+
-          | sidequest-protocol |
-          | GameMessage enum,  |
-          | newtypes, sanitize |
-          +--------------------+
+                      |
+          +-----------+-----------+-----------+
+          v                       v           v
++--------------------+  +---------------+  +---------------+  +---------------+
+| sidequest-protocol |  | encountergen  |  | loadoutgen    |  | namegen       |
+| GameMessage enum,  |  | CLI: enemy    |  | CLI: starting |  | CLI: NPC      |
+| newtypes, sanitize |  | stat blocks   |  | equipment     |  | identity      |
++--------------------+  +---------------+  +---------------+  +---------------+
 ```
 
 ## Crates
@@ -66,7 +68,7 @@ template blending), and a genre cache for hot-reloading packs at runtime.
 
 ### sidequest-game -- 95% COMPLETE
 
-Core game state engine. 26+ modules covering:
+Core game state engine. 59 modules (~23.7k LOC) covering:
 
 - **GameSnapshot** -- composable game state
 - **Characters/NPCs** -- full model with inventory, abilities, disposition
@@ -78,6 +80,10 @@ Core game state engine. 26+ modules covering:
 - **Character builder** -- state machine ([ADR-015](../docs/adr/015-character-builder-state-machine.md))
 - **Tension tracker** -- dual-track model ([ADR-024](../docs/adr/024-dual-track-tension-model.md))
 - **Beat filter, render queue, segmenter** -- pacing control ([ADR-025](../docs/adr/025-pacing-detection.md))
+- **Music director, audio mixer, voice router** -- cinematic audio
+- **Multiplayer, guest NPC** -- concurrent player sessions
+- **Lore store, conlang** -- knowledge indexing and constructed languages
+- **Prerender scheduler** -- speculative image rendering during TTS
 
 One module stubbed: `perception.rs` (RED phase, story 8-6).
 
@@ -120,10 +126,33 @@ Typed request/response structs with error handling.
 
 **Depends on:** protocol
 
+### sidequest-encountergen -- COMPLETE
+
+CLI binary that generates enemy stat blocks from genre pack data. Produces
+culture-appropriate names (Markov chains), class/archetype stats, HP, abilities,
+weaknesses, OCEAN personality, trope connections, and visual prompts.
+
+**Depends on:** genre
+
+### sidequest-loadoutgen -- COMPLETE
+
+CLI binary that generates starting equipment sets from genre pack inventory
+catalogs. Resolves items, applies tier scaling, and generates narrative hooks.
+
+**Depends on:** genre
+
+### sidequest-namegen -- COMPLETE
+
+CLI binary that generates complete NPC identity blocks from genre pack data.
+Culture-appropriate names, archetype personality, OCEAN profile, dialogue quirks,
+inventory hints, and trope connections.
+
+**Depends on:** genre
+
 ## Build and Test
 
 ```bash
-cargo build                           # Build all 6 crates
+cargo build                           # Build all 9 crates
 cargo test                            # Run all tests (182 test files)
 cargo clippy -- -D warnings           # Lint
 cargo fmt -- --check                  # Format check

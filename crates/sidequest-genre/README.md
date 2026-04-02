@@ -10,9 +10,10 @@ game world with lore, rules, character creation, tropes, audio, and visual style
 - **`load_genre_pack(path)`** — Load and parse a genre pack directory
 - **`GenreCache`** — Cache loaded packs to avoid re-parsing
 - **`GenreCode`** — Validated genre identifier newtype
-- **Models** — Strongly-typed structs for all 12 YAML files in a genre pack
+- **Models** — Strongly-typed structs for all 12 YAML files in a genre pack (including `OceanProfile` — Big Five personality)
 - **Validation** — Schema and cross-reference validation
 - **Trope inheritance** — `resolve_trope_inheritance()` merges parent/child trope definitions
+- **Name generation** — Template-based names with Markov chain corpus blending
 
 ## Usage
 

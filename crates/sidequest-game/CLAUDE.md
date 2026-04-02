@@ -1,6 +1,6 @@
 # sidequest-game — Feature Inventory
 
-The core game engine crate. **15,000+ LOC across 48 modules.** Almost everything
+The core game engine crate. **~23,700 LOC across 59 modules.** Almost everything
 you're looking for is already here. Read this before writing any code.
 
 ## COMPLETE — Do Not Rewrite
@@ -91,6 +91,8 @@ or rewrite them. Use the existing types and functions.
   **Do NOT use Vec<String> for items. Use the Item struct.**
 - **ChaseState** — `chase.rs` (133 LOC) — chase resolution (Footrace/Stealth/
   Negotiation). Escape threshold, round recording.
+- **ChaseDepth** — `chase_depth.rs` — camera modes, cinematography, terrain modifiers,
+  danger levels, and outcome resolution for cinematic chases.
 - **TropeEngine** — `trope.rs` (225 LOC) — trope runtime with passive progression +
   engagement multiplier. Escalation thresholds trigger FiredBeat events.
 - **Disposition** — `disposition.rs` (223 LOC) — newtype i32 with Attitude derivation
@@ -99,6 +101,8 @@ or rewrite them. Use the existing types and functions.
   diminishing returns.
 - **Ability** — `ability.rs` (56 LOC) — dual-voice representation (genre_description
   for players, mechanical_effect for engine). Involuntary flag for narrator triggers.
+- **OCEAN** — `ocean.rs` — OceanProfile, OceanDimension, OceanShift, OceanShiftLog
+  for Big Five personality tracking.
 
 ### Commands & Input
 - **SlashRouter** — `slash_router.rs` (106 LOC) — command dispatch for /command input.
