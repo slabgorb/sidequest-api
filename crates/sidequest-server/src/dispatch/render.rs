@@ -12,43 +12,61 @@ pub(crate) async fn process_render(
     narration_text: &str,
     result: &sidequest_agents::orchestrator::ActionResult,
 ) {
-    // Use narrator's visual_scene — the narrator already imagined the scene.
-    let scene = match result.visual_scene {
-        Some(ref vs) => vs,
-        None => {
-            tracing::error!("narrator did not provide visual_scene — skipping render");
-            return;
+    // Render subject: prefer narrator's visual_scene, fall back to SubjectExtractor
+    // parsing the narration text.  Without this fallback, ensemble/dialogue turns
+    // (which don't produce visual_scene) generate zero images — a wiring gap where
+    // SubjectExtractor existed and worked but was never connected.
+    let subject = if let Some(ref scene) = result.visual_scene {
+        let tier = match scene.tier.as_str() {
+            "portrait" => sidequest_game::SubjectTier::Portrait,
+            "landscape" => sidequest_game::SubjectTier::Landscape,
+            "scene_illustration" => sidequest_game::SubjectTier::Scene,
+            _ => sidequest_game::SubjectTier::Scene,
+        };
+        match sidequest_game::RenderSubject::new(
+            vec![],
+            sidequest_game::SceneType::Exploration,
+            tier,
+            scene.subject.clone(),
+            0.6,
+        ) {
+            Some(s) => {
+                tracing::info!(
+                    prompt = %s.prompt_fragment(),
+                    tier = ?s.tier(),
+                    "render.visual_scene_from_narrator"
+                );
+                s
+            }
+            None => {
+                tracing::error!(subject = %scene.subject, "invalid visual_scene from narrator");
+                return;
+            }
+        }
+    } else {
+        // SubjectExtractor fallback — parse narration text for render subjects.
+        let extraction_ctx = sidequest_game::ExtractionContext {
+            in_combat: ctx.combat_state.in_combat(),
+            known_npcs: ctx.npc_registry.iter().map(|e| e.name.clone()).collect(),
+            current_location: ctx.current_location.clone(),
+            recent_subjects: vec![],
+        };
+        let extractor = sidequest_game::SubjectExtractor::new();
+        match extractor.extract(_clean_narration, &extraction_ctx) {
+            Some(s) => {
+                tracing::info!(
+                    prompt = %s.prompt_fragment(),
+                    tier = ?s.tier(),
+                    "render.subject_extracted_from_narration"
+                );
+                s
+            }
+            None => {
+                tracing::debug!("render.no_subject_extracted — narration too short or low-weight");
+                return;
+            }
         }
     };
-
-    // Map narrator tier string to SubjectTier
-    let tier = match scene.tier.as_str() {
-        "portrait" => sidequest_game::SubjectTier::Portrait,
-        "landscape" => sidequest_game::SubjectTier::Landscape,
-        "scene_illustration" => sidequest_game::SubjectTier::Scene,
-        _ => sidequest_game::SubjectTier::Scene,
-    };
-
-    // Build RenderSubject from narrator's visual description
-    let subject = match sidequest_game::RenderSubject::new(
-        vec![], // entities not needed — the subject text is already visual
-        sidequest_game::SceneType::Exploration,
-        tier,
-        scene.subject.clone(),
-        0.6, // default weight — narrator provided, always worth rendering
-    ) {
-        Some(s) => s,
-        None => {
-            tracing::error!(subject = %scene.subject, "invalid visual_scene from narrator");
-            return;
-        }
-    };
-
-    tracing::info!(
-        prompt = %subject.prompt_fragment(),
-        tier = ?subject.tier(),
-        "visual_scene from narrator"
-    );
 
     // Scene relevance validation — reject prompts that don't match the current scene
     let relevance_ctx = sidequest_game::ExtractionContext {

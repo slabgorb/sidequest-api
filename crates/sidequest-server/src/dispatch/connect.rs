@@ -686,11 +686,97 @@ pub(crate) async fn dispatch_character_creation(
                     *character_hp = character.core.hp;
                     *character_max_hp = character.core.max_hp;
                     *inventory = character.core.inventory.clone();
+
+                    // Wire starting equipment from genre pack's inventory.yaml.
+                    // The data exists, the parser exists, sidequest-loadoutgen reads
+                    // it — but chargen never called any of it.  Classic wiring gap.
+                    {
+                        let char_class = character.char_class.as_str().to_string();
+                        let genre_slug = session.genre_slug().unwrap_or("").to_string();
+                        if let Ok(gc) = GenreCode::new(&genre_slug) {
+                            if let Ok(pack) = state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                                if let Some(ref inv_config) = pack.inventory {
+                                    // Match class name case-insensitively
+                                    let class_lower = char_class.to_lowercase();
+                                    let equipment_ids: Vec<String> = inv_config.starting_equipment.iter()
+                                        .find(|(k, _)| k.to_lowercase() == class_lower)
+                                        .map(|(_, v)| v.clone())
+                                        .unwrap_or_default();
+                                    let gold = inv_config.starting_gold.iter()
+                                        .find(|(k, _)| k.to_lowercase() == class_lower)
+                                        .map(|(_, v)| *v)
+                                        .unwrap_or(0);
+
+                                    // Resolve item IDs from catalog
+                                    for item_id in &equipment_ids {
+                                        if let Some(catalog_item) = inv_config.item_catalog.iter().find(|ci| ci.id == *item_id) {
+                                            let rarity_str = if catalog_item.rarity.is_empty() { "common" } else { &catalog_item.rarity };
+                                            if let (Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
+                                                sidequest_protocol::NonBlankString::new(&catalog_item.name),
+                                                sidequest_protocol::NonBlankString::new(&catalog_item.description),
+                                                sidequest_protocol::NonBlankString::new(&catalog_item.category),
+                                                sidequest_protocol::NonBlankString::new(rarity_str),
+                                            ) {
+                                                inventory.items.push(sidequest_game::Item {
+                                                    id: sidequest_protocol::NonBlankString::new(&catalog_item.id).unwrap_or(name.clone()),
+                                                    name,
+                                                    description: desc,
+                                                    category: cat,
+                                                    value: catalog_item.value as i32,
+                                                    weight: catalog_item.weight,
+                                                    rarity,
+                                                    narrative_weight: 0.3,
+                                                    tags: catalog_item.tags.clone(),
+                                                    equipped: false,
+                                                    quantity: 1,
+                                                });
+                                            }
+                                        } else {
+                                            // Item not in catalog — create a minimal entry
+                                            let display = item_id.replace('_', " ");
+                                            if let (Ok(id_nb), Ok(name_nb), Ok(desc_nb), Ok(cat_nb), Ok(rar_nb)) = (
+                                                sidequest_protocol::NonBlankString::new(item_id),
+                                                sidequest_protocol::NonBlankString::new(&display),
+                                                sidequest_protocol::NonBlankString::new("Starting equipment"),
+                                                sidequest_protocol::NonBlankString::new("equipment"),
+                                                sidequest_protocol::NonBlankString::new("common"),
+                                            ) {
+                                                inventory.items.push(sidequest_game::Item {
+                                                    id: id_nb,
+                                                    name: name_nb,
+                                                    description: desc_nb,
+                                                    category: cat_nb,
+                                                    value: 0,
+                                                    weight: 1.0,
+                                                    rarity: rar_nb,
+                                                    narrative_weight: 0.2,
+                                                    tags: vec![],
+                                                    equipped: false,
+                                                    quantity: 1,
+                                                });
+                                            }
+                                        }
+                                    }
+                                    inventory.gold += gold as i64;
+                                    if !equipment_ids.is_empty() || gold > 0 {
+                                        tracing::info!(
+                                            class = %char_class,
+                                            items_added = equipment_ids.len(),
+                                            gold_added = gold,
+                                            "chargen.starting_equipment — wired from inventory.yaml"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     *character_json_store = Some(char_json.clone());
                     tracing::info!(
                         char_name = %character.core.name,
                         hp = character.core.hp,
-                        items = character.core.inventory.items.len(),
+                        items = inventory.items.len(),
+                        gold = inventory.gold,
                         pronouns = %character.pronouns,
                         "chargen.complete — character built, inventory synced"
                     );
@@ -704,7 +790,11 @@ pub(crate) async fn dispatch_character_creation(
                     // Materialize world from genre pack history (Story 15-23).
                     // Load the genre pack (cached) to get World.history, then build
                     // a snapshot at Fresh maturity with history chapters applied.
-                    let mut snapshot = {
+                    // NOTE: This assigns to the &mut snapshot parameter, NOT a local.
+                    // A previous version shadowed it with `let mut snapshot = ...`,
+                    // causing the per-connection snapshot to stay empty (characters: [],
+                    // npcs: [], quest_log: {}, genre/world: "").
+                    *snapshot = {
                         let history_value = GenreCode::new(&genre)
                             .ok()
                             .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
@@ -888,7 +978,7 @@ pub(crate) async fn dispatch_character_creation(
                             narrator_vocabulary,
                             pending_trope_context,
                             achievement_tracker,
-                            snapshot: &mut snapshot,
+                            snapshot,
                             tx,
                         };
                         super::dispatch_player_action(&mut ctx).await
@@ -1107,14 +1197,22 @@ pub(crate) async fn dispatch_character_creation(
                         }
                     }
 
+                    // "ready" must come AFTER intro_messages.  The auto-turn
+                    // ("I look around") sends its NARRATION inline via ctx.tx
+                    // inside dispatch_player_action, so by the time we reach
+                    // here the narration is already in the mpsc queue.  The
+                    // client's "ready" handler clears the narration buffer, so
+                    // if "ready" arrives before the narration flushes the
+                    // opening text is wiped.  Placing "ready" last ensures all
+                    // turn-1 messages are delivered first.
                     let mut msgs = vec![
                         complete,
                         char_sheet,
                         backstory_narration,
                         backstory_end,
-                        ready,
                     ];
                     msgs.extend(intro_messages);
+                    msgs.push(ready);
                     msgs
                 }
                 Err(e) => vec![error_response(

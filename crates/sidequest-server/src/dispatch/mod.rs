@@ -502,7 +502,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    let clean_narration = strip_location_header(narration_text);
+    let clean_narration = strip_location_header(narration_text)
+        .replace("</s>", "")
+        .replace("<|endoftext|>", "")
+        .replace("<|end|>", "");
 
     // Accumulate narration history for context on subsequent turns.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
@@ -717,6 +720,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .await;
 
     let (fired_beats, earned_achievements) = {
+        // Initialize TropeState for each definition if empty.  Definitions
+        // are loaded in dispatch_connect but TropeState instances were never
+        // created from them — the tick ran on an empty vec every turn.
+        if ctx.trope_states.is_empty() && !ctx.trope_defs.is_empty() {
+            for def in ctx.trope_defs.iter() {
+                let id = def.id.as_deref().unwrap_or(def.name.as_str());
+                ctx.trope_states.push(sidequest_game::trope::TropeState::new(id));
+            }
+            tracing::info!(
+                count = ctx.trope_states.len(),
+                "trope_states.initialized — created from definitions (were empty)"
+            );
+        }
         let _tropes_guard = tracing::info_span!(
             "turn.system_tick.tropes",
             active_count = ctx.trope_states.len(),
@@ -998,7 +1014,11 @@ fn update_npc_registry(
                 // pronouns, role, appearance are NOT backfilled from narrator JSON.
                 // enrich_registry_from_npcs() is the authoritative source (from Npc structs).
                 // Narrator JSON extraction was a silent fallback — see CLAUDE.md "No Silent Fallbacks".
-            } else if npc.is_new {
+            } else {
+                // Register ANY NPC not already in the registry, regardless of
+                // is_new.  The LLM's is_new flag is advisory, not a gate —
+                // defaulting to false via #[serde(default)] silently dropped
+                // every NPC the LLM mentioned without the explicit flag.
                 let span = tracing::info_span!(
                     "npc.registration",
                     npc_name = %npc.name,
@@ -1551,6 +1571,10 @@ fn spawn_tts_pipeline(
     let player_id_for_tts = ctx.player_id.to_string();
     let state_for_tts = ctx.state.clone();
     let ss_holder_for_tts = ctx.shared_session_holder.clone();
+    // Clone the direct mpsc sender so NARRATION_CHUNK goes through the same
+    // ordered channel as NARRATION — guaranteeing chunks arrive at the client
+    // BEFORE their corresponding binary audio frames (which go via broadcast).
+    let tx_for_tts = ctx.tx.clone();
     let tts_config = sidequest_game::tts_stream::TtsStreamConfig::default();
     let streamer = sidequest_game::tts_stream::TtsStreamer::new(tts_config);
 
@@ -1675,6 +1699,11 @@ fn spawn_tts_pipeline(
                     send_to_acting_player(game_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
                 }
                 sidequest_game::tts_stream::TtsMessage::Chunk(chunk) => {
+                    // Send NARRATION_CHUNK via direct mpsc (same channel as NARRATION)
+                    // so the client receives text BEFORE the binary audio frame that
+                    // follows.  The old path (send_to_acting_player) spawned a task
+                    // with double-mutex locking, causing binary audio to consistently
+                    // arrive first and the client to discard it (no chunk to reveal).
                     if let Some(seg) = tts_segments_for_prerender.get(chunk.segment_index) {
                         let chunk_msg = GameMessage::NarrationChunk {
                             payload: sidequest_protocol::NarrationChunkPayload {
@@ -1682,7 +1711,7 @@ fn spawn_tts_pipeline(
                             },
                             player_id: player_id_for_tts.clone(),
                         };
-                        send_to_acting_player(chunk_msg, &ss_holder_for_tts, &player_id_for_tts, &state_for_tts);
+                        let _ = tx_for_tts.send(chunk_msg).await;
                     }
 
                     let header = serde_json::json!({
