@@ -717,6 +717,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .await;
 
     let (fired_beats, earned_achievements) = {
+        // Initialize TropeState for each definition if empty.  Definitions
+        // are loaded in dispatch_connect but TropeState instances were never
+        // created from them — the tick ran on an empty vec every turn.
+        if ctx.trope_states.is_empty() && !ctx.trope_defs.is_empty() {
+            for def in ctx.trope_defs.iter() {
+                let id = def.id.as_deref().unwrap_or(def.name.as_str());
+                ctx.trope_states.push(sidequest_game::trope::TropeState::new(id));
+            }
+            tracing::info!(
+                count = ctx.trope_states.len(),
+                "trope_states.initialized — created from definitions (were empty)"
+            );
+        }
         let _tropes_guard = tracing::info_span!(
             "turn.system_tick.tropes",
             active_count = ctx.trope_states.len(),
