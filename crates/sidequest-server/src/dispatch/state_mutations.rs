@@ -187,6 +187,85 @@ pub(crate) async fn apply_state_mutations(
                 .field("current_turn", ctx.combat_state.current_turn())
                 .field("turn_order", ctx.combat_state.turn_order())
                 .send(ctx.state);
+
+            // NPC turns — resolve attacks for each NPC until it's the player's turn again.
+            // Without this, combat is an asskicking simulator: the player attacks every turn
+            // and NPCs never mechanically fight back (Claude just improvises damage in narration).
+            let max_npc_turns = ctx.combat_state.turn_order().len();
+            for _ in 0..max_npc_turns {
+                if !ctx.combat_state.in_combat() {
+                    break;
+                }
+                let current = ctx.combat_state.current_turn().unwrap_or("").to_string();
+                if current.eq_ignore_ascii_case(ctx.char_name) {
+                    break; // Player's turn — stop, let them act
+                }
+
+                // This is an NPC's turn. Resolve their attack against the player.
+                // Scope borrows carefully to avoid borrow checker conflicts.
+                let round_result = {
+                    let npc_opt = ctx.snapshot.npcs.iter().find(|n| {
+                        sidequest_game::combatant::Combatant::name(*n).eq_ignore_ascii_case(&current)
+                    });
+                    let player_opt = ctx.snapshot.characters.first();
+                    match (npc_opt, player_opt) {
+                        (Some(npc), Some(player)) => {
+                            Some(ctx.combat_state.resolve_attack(&current, npc, ctx.char_name, player))
+                        }
+                        _ => None,
+                    }
+                };
+
+                if let Some(round_result) = round_result {
+                    // Apply NPC damage to player HP (both ctx.hp and snapshot)
+                    for event in &round_result.damage_events {
+                        *ctx.hp -= event.damage;
+                        if *ctx.hp < 0 {
+                            *ctx.hp = 0;
+                        }
+                        if let Some(ch) = ctx.snapshot.characters.first_mut() {
+                            ch.core.hp = *ctx.hp;
+                        }
+                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                            .field("action", "npc_attack")
+                            .field("attacker", &event.attacker)
+                            .field("target", &event.target)
+                            .field("damage", event.damage)
+                            .field("target_hp_after", *ctx.hp)
+                            .field("round", event.round)
+                            .send(ctx.state);
+                        tracing::info!(
+                            attacker = %event.attacker,
+                            target = %event.target,
+                            damage = event.damage,
+                            hp_after = *ctx.hp,
+                            "combat.npc_attack_resolved"
+                        );
+                    }
+
+                    // Check victory/defeat after NPC attack
+                    let npc_combatants: Vec<&dyn sidequest_game::combatant::Combatant> = ctx.snapshot.npcs.iter()
+                        .filter(|n| ctx.combat_state.turn_order().iter().any(|t| t.eq_ignore_ascii_case(sidequest_game::combatant::Combatant::name(*n))))
+                        .map(|n| n as &dyn sidequest_game::combatant::Combatant)
+                        .collect();
+                    let player_combatants: Vec<&dyn sidequest_game::combatant::Combatant> = ctx.snapshot.characters.iter()
+                        .map(|c| c as &dyn sidequest_game::combatant::Combatant)
+                        .collect();
+                    if let Some(outcome) = ctx.combat_state.check_victory(&player_combatants, &npc_combatants) {
+                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                            .field("action", "combat_outcome")
+                            .field("outcome", format!("{:?}", outcome))
+                            .field("round", ctx.combat_state.round())
+                            .send(ctx.state);
+                        tracing::info!(outcome = ?outcome, "combat.outcome_reached");
+                        ctx.combat_state.disengage();
+                        break;
+                    }
+                }
+
+                // Advance to next combatant
+                ctx.combat_state.advance_turn();
+            }
         }
     }
 
