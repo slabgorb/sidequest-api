@@ -273,14 +273,14 @@ fn orchestrator_source_has_inference_sub_span() {
     );
 }
 
-/// orchestrator.rs must define a "turn.agent_llm.extraction" span wrapping
+/// orchestrator.rs must define a "turn.agent_llm.parse_response" span wrapping
 /// response parsing and patch extraction.
 #[test]
 fn orchestrator_source_has_extraction_sub_span() {
     let src = orchestrator_source();
     assert!(
-        src.contains("turn.agent_llm.extraction"),
-        "orchestrator.rs must define a 'turn.agent_llm.extraction' sub-span \
+        src.contains("turn.agent_llm.parse_response"),
+        "orchestrator.rs must define a 'turn.agent_llm.parse_response' sub-span \
          wrapping response parsing and patch extraction"
     );
 }
@@ -365,7 +365,7 @@ fn all_required_sub_spans_are_defined() {
         // Agent LLM sub-spans
         ("turn.agent_llm.prompt_build", &orchestrator),
         ("turn.agent_llm.inference", &orchestrator),
-        ("turn.agent_llm.extraction", &orchestrator),
+        ("turn.agent_llm.parse_response", &orchestrator),
         // System tick sub-spans
         ("turn.system_tick.combat", &dispatch),
         ("turn.system_tick.tropes", &dispatch),

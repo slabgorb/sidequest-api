@@ -629,9 +629,9 @@ impl GameService for Orchestrator {
         match send_result {
             Ok(response) => {
                 let raw_response = &response.text;
-                // Extract structured data from narrator response (footnotes + items)
+                // Parse narrator response — strip fences, return prose
                 let extraction_span = tracing::info_span!(
-                    "turn.agent_llm.extraction",
+                    "turn.agent_llm.parse_response",
                     narration_len = raw_response.len(),
                 );
                 let _ext_guard = extraction_span.enter();
@@ -712,10 +712,9 @@ impl GameService for Orchestrator {
                 let flags = extraction.action_flags.clone().unwrap_or_default();
                 let mut base = assemble_turn(extraction, rewrite, flags, tool_results);
 
-                // Always strip residual JSON fence blocks from narration prose.
-                // The extraction pipeline removes the primary block, but edge
-                // cases (malformed fences, double blocks, unfenced JSON) can
-                // leave structured data in the text.
+                // Strip any residual JSON fence blocks from narration prose.
+                // The narrator should produce pure prose, but fences can appear
+                // in edge cases (e.g., tool output leaking into narration text).
                 base.narration = strip_json_fence(&base.narration);
 
                 info!(
@@ -952,7 +951,7 @@ pub struct NarratorExtraction {
 /// `assemble_turn`. This function strips any residual JSON fences and returns
 /// the prose with empty structured fields.
 fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
-    let span = tracing::info_span!("rag.extract_structured", raw_len = raw.len());
+    let span = tracing::info_span!("rag.prose_cleanup", raw_len = raw.len());
     let _guard = span.enter();
 
     let prose = strip_json_fence(raw);
