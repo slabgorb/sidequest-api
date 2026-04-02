@@ -9,7 +9,8 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::agent::Agent;
-use crate::tools::assemble_turn::{assemble_turn, ToolCallResults};
+use crate::tools::assemble_turn::assemble_turn;
+use crate::tools::tool_call_parser::parse_tool_results;
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
@@ -591,7 +592,18 @@ impl GameService for Orchestrator {
             "Intent classified"
         );
 
-        info!(action = %action, "Invoking Claude CLI for narration");
+        // Generate a unique session ID for the tool call sidecar file.
+        // Tool scripts write results here; we read them after the CLI call completes.
+        let sidecar_session_id = format!(
+            "turn-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
+
+        info!(action = %action, sidecar_session_id = %sidecar_session_id, "Invoking Claude CLI for narration");
 
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
@@ -689,7 +701,9 @@ impl GameService for Orchestrator {
                 span.record("is_degraded", false);
 
                 // ADR-057: assemble_turn merges extraction + preprocessor + tool results.
-                // Story 20-9: ToolCallResults::default() (no tools fired yet).
+                // Story 20-10: parse sidecar file for tool call results.
+                let tool_results = parse_tool_results(&sidecar_session_id);
+
                 if extraction.action_rewrite.is_none() {
                     warn!("action_rewrite absent from extraction — using default (empty rewrite)");
                 }
@@ -698,7 +712,7 @@ impl GameService for Orchestrator {
                 }
                 let rewrite = extraction.action_rewrite.clone().unwrap_or_default();
                 let flags = extraction.action_flags.clone().unwrap_or_default();
-                let mut base = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
+                let mut base = assemble_turn(extraction, rewrite, flags, tool_results);
 
                 // Always strip residual JSON fence blocks from narration prose.
                 // The extraction pipeline removes the primary block, but edge

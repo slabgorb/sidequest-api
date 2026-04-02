@@ -11,3 +11,4 @@ pub mod assemble_turn;
 pub mod preprocessors;
 pub mod set_intent;
 pub mod set_mood;
+pub mod tool_call_parser;

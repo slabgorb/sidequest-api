@@ -382,8 +382,9 @@ fn missing_sidecar_falls_back_to_narrator_extraction() {
 fn orchestrator_imports_parse_tool_results() {
     // Verify that orchestrator.rs imports and uses parse_tool_results
     // (not ToolCallResults::default)
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let orchestrator_src =
-        std::fs::read_to_string("crates/sidequest-agents/src/orchestrator.rs")
+        std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
             .expect("should be able to read orchestrator.rs");
 
     assert!(
@@ -397,8 +398,9 @@ fn orchestrator_imports_parse_tool_results() {
 fn orchestrator_does_not_use_default_tool_call_results() {
     // After 20-10, the orchestrator should NOT be calling ToolCallResults::default()
     // in process_action(). It should call parse_tool_results() instead.
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let orchestrator_src =
-        std::fs::read_to_string("crates/sidequest-agents/src/orchestrator.rs")
+        std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
             .expect("should be able to read orchestrator.rs");
 
     // The default() call from story 20-9 should be replaced
