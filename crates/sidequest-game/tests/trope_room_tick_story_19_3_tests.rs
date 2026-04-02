@@ -11,20 +11,22 @@
 //! - AC5: 5 room transitions advance trope by 5 × rate_per_turn × modifier
 
 use sidequest_game::trope::{TropeEngine, TropeState};
-use sidequest_genre::{
-    NavigationMode, PassiveProgression, RoomDef, RoomExit, TropeDefinition, TropeEscalation,
-};
+use sidequest_genre::{PassiveProgression, RoomDef, TropeDefinition, TropeEscalation};
+use sidequest_protocol::NonBlankString;
 
 /// Helper: create a trope definition with passive progression and optional escalation beats.
 fn make_trope_def(id: &str, rate_per_turn: f64, escalation: Vec<(f64, &str)>) -> TropeDefinition {
     TropeDefinition {
         id: Some(id.to_string()),
-        name: id.into(),
+        name: NonBlankString::new(id).unwrap(),
         description: None,
         category: "test".into(),
         triggers: vec![],
-        guidance: String::new(),
-        cooldown_turns: 0,
+        narrative_hints: vec![],
+        tension_level: None,
+        resolution_hints: None,
+        resolution_patterns: None,
+        tags: vec![],
         passive_progression: Some(PassiveProgression {
             rate_per_turn,
             rate_per_day: 0.0,

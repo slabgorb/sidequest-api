@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use sidequest_genre::{TropeDefinition, TropeEscalation};
+use sidequest_genre::{RoomDef, TropeDefinition, TropeEscalation};
 
 use crate::achievement::{Achievement, AchievementTracker};
 
@@ -171,6 +171,35 @@ impl TropeEngine {
 
         span.record("beats_fired", fired.len() as u64);
         fired
+    }
+
+    /// Tick tropes on a room transition using the room's `keeper_awareness_modifier`.
+    ///
+    /// Looks up `room_id` in the provided rooms slice. If found, calls
+    /// `tick_with_multiplier` using the room's `keeper_awareness_modifier`.
+    /// If the room is not found, logs a warning and does NOT tick — no silent fallback.
+    pub fn tick_room_transition(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        rooms: &[RoomDef],
+        room_id: &str,
+    ) -> Vec<FiredBeat> {
+        let Some(room) = rooms.iter().find(|r| r.id == room_id) else {
+            tracing::warn!(
+                room_id = %room_id,
+                "Room not found for trope tick — skipping (no silent fallback)"
+            );
+            return Vec::new();
+        };
+
+        let span = tracing::info_span!(
+            "trope.room_tick",
+            room_id = %room_id,
+            keeper_awareness_modifier = room.keeper_awareness_modifier,
+        );
+        let _guard = span.enter();
+
+        Self::tick_with_multiplier(tropes, trope_defs, room.keeper_awareness_modifier)
     }
 
     /// Activate a trope. Idempotent — returns existing if already active.
