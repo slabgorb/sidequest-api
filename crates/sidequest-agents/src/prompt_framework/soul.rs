@@ -49,13 +49,13 @@ impl SoulData {
             .find(|p| p.name.to_lowercase() == lower)
     }
 
-    /// Format all principles as a bullet list for prompt injection.
+    /// Format all principles as `<important>` XML blocks for prompt injection.
     pub fn as_prompt_text(&self) -> String {
         self.principles
             .iter()
-            .map(|p| format!("- {}: {}", p.name, p.text))
+            .map(|p| format!("<important>\n{}: {}\n</important>", p.name, p.text))
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n\n")
     }
 
     /// Format principles for a specific agent, filtering by `<agents>` tags.
@@ -75,9 +75,9 @@ impl SoulData {
                     && NARRATOR_COVERED_PRINCIPLES.iter().any(|&name| p.name == name);
                 agent_match && !narrator_excluded
             })
-            .map(|p| format!("- {}: {}", p.name, p.text))
+            .map(|p| format!("<important>\n{}: {}\n</important>", p.name, p.text))
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n\n")
     }
 }
 

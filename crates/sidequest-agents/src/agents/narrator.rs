@@ -106,7 +106,7 @@ impl Agent for NarratorAgent {
         // Primacy/Identity — the narrator's core identity
         builder.add_section(PromptSection::new(
             "narrator_identity",
-            &self.identity,
+            format!("<identity>\n{}\n</identity>", self.identity),
             AttentionZone::Primacy,
             SectionCategory::Identity,
         ));
@@ -114,7 +114,7 @@ impl Agent for NarratorAgent {
         // Primacy/Guardrail — silent constraint handling
         builder.add_section(PromptSection::new(
             "narrator_constraints",
-            NARRATOR_CONSTRAINTS,
+            format!("<critical>\n{}\n</critical>", NARRATOR_CONSTRAINTS),
             AttentionZone::Primacy,
             SectionCategory::Guardrail,
         ));
@@ -122,7 +122,7 @@ impl Agent for NarratorAgent {
         // Primacy/Guardrail — agency (including multiplayer)
         builder.add_section(PromptSection::new(
             "narrator_agency",
-            NARRATOR_AGENCY,
+            format!("<critical>\n{}\n</critical>", NARRATOR_AGENCY),
             AttentionZone::Primacy,
             SectionCategory::Guardrail,
         ));
@@ -130,7 +130,7 @@ impl Agent for NarratorAgent {
         // Primacy/Guardrail — consequences follow genre tone
         builder.add_section(PromptSection::new(
             "narrator_consequences",
-            NARRATOR_CONSEQUENCES,
+            format!("<critical>\n{}\n</critical>", NARRATOR_CONSEQUENCES),
             AttentionZone::Primacy,
             SectionCategory::Guardrail,
         ));
@@ -138,7 +138,7 @@ impl Agent for NarratorAgent {
         // Primacy/Guardrail — output only prose
         builder.add_section(PromptSection::new(
             "narrator_output_only",
-            NARRATOR_OUTPUT_ONLY,
+            format!("<critical>\n{}\n</critical>", NARRATOR_OUTPUT_ONLY),
             AttentionZone::Primacy,
             SectionCategory::Guardrail,
         ));
@@ -146,7 +146,7 @@ impl Agent for NarratorAgent {
         // Early/Format — output-style rules
         builder.add_section(PromptSection::new(
             "narrator_output_style",
-            NARRATOR_OUTPUT_STYLE,
+            format!("<output-style>\n{}\n</output-style>", NARRATOR_OUTPUT_STYLE),
             AttentionZone::Early,
             SectionCategory::Format,
         ));
@@ -154,7 +154,7 @@ impl Agent for NarratorAgent {
         // Early/Guardrail — referral rule (not in SOUL.md)
         builder.add_section(PromptSection::new(
             "narrator_referral_rule",
-            NARRATOR_REFERRAL_RULE,
+            format!("<important>\n{}\n</important>", NARRATOR_REFERRAL_RULE),
             AttentionZone::Early,
             SectionCategory::Guardrail,
         ));

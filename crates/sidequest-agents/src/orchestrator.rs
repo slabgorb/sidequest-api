@@ -280,7 +280,7 @@ impl Orchestrator {
             if !filtered.is_empty() {
                 builder.add_section(PromptSection::new(
                     "soul_principles",
-                    format!("## Guiding Principles\n{}", filtered),
+                    filtered,
                     AttentionZone::Early,
                     SectionCategory::Soul,
                 ));
@@ -311,30 +311,31 @@ impl Orchestrator {
                 let tool_section = match tool_name.as_str() {
                     "encountergen" => "\
 <tool name=\"ENCOUNTER\">\n\
-When to call: any time new enemies enter the scene.\n\
-<command>sidequest-encounter [--tier N] [--count N] [--culture NAME]</command>\n\
+When to call: any time new enemies enter the scene. Pick flags based on narrative context.\n\
+<command>sidequest-encounter [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]</command>\n\
 <usage>\n\
 - [ ] Use the generated name in your narration\n\
-- [ ] Reference abilities from the abilities list\n\
+- [ ] Reference abilities from the abilities list (not invented ones)\n\
 </usage>\n\
 </tool>".to_string(),
                     "namegen" => "\
 <tool name=\"NPC\">\n\
-MANDATORY: Call before introducing any new NPC.\n\
-When to call: any time a new NPC appears (is_new: true).\n\
-<command>sidequest-npc [--culture NAME]</command>\n\
+MANDATORY: Call this BEFORE introducing any new NPC. Do NOT invent NPC names.\n\
+<command>sidequest-npc [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]</command>\n\
 <usage>\n\
-- [ ] Use the generated name exactly\n\
-- [ ] Use dialogue_quirks in speech\n\
+- [ ] Use the generated name exactly — do NOT modify or replace it\n\
+- [ ] Use dialogue_quirks to flavor their speech\n\
+- [ ] Reference their role and appearance in narration\n\
 </usage>\n\
 </tool>".to_string(),
                     "loadoutgen" => "\
 <tool name=\"LOADOUT\">\n\
-When to call: at character creation or session start.\n\
-<command>sidequest-loadout --class CLASS</command>\n\
+When to call: at character creation when introducing the character's starting gear.\n\
+<command>sidequest-loadout --class CLASS [--tier N]</command>\n\
 <usage>\n\
-- [ ] Weave the narrative_hook into the scene\n\
-- [ ] Use the currency_name for money\n\
+- [ ] Weave the narrative_hook into the opening scene naturally\n\
+- [ ] Reference specific items by name when the character uses them\n\
+- [ ] Use the currency_name for all money references\n\
 </usage>\n\
 </tool>".to_string(),
                     unknown => {

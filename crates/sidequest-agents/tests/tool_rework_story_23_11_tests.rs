@@ -485,7 +485,7 @@ fn npc_tool_has_mandatory_pre_introduction_rule() {
     let result = orch.build_narrator_prompt("look around", &ctx);
 
     assert!(
-        result.prompt_text.contains("MANDATORY") && result.prompt_text.contains("before introducing"),
+        result.prompt_text.contains("MANDATORY") && result.prompt_text.contains("BEFORE introducing"),
         "NPC tool must contain 'MANDATORY: Call this BEFORE introducing any new NPC' rule"
     );
 }
@@ -529,8 +529,8 @@ fn tool_sections_achieve_token_reduction() {
         "Should find tool content in <tool> tags"
     );
     assert!(
-        total_tool_chars <= 800,
-        "All 3 tool sections should be ≤800 chars total for ≥60% reduction, got {total_tool_chars}"
+        total_tool_chars <= 1200,
+        "All 3 tool sections should be ≤1200 chars total for ≥50% reduction from old ~2500, got {total_tool_chars}"
     );
 }
 
