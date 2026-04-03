@@ -23,12 +23,12 @@ use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 #[derive(Parser)]
 #[command(name = "sidequest-encountergen", about = "Generate enemy encounter stat blocks from genre pack data")]
 struct Cli {
-    /// Path to the genre_packs/ directory.
-    #[arg(long)]
+    /// Path to the genre_packs/ directory. Also reads SIDEQUEST_CONTENT_PATH env var.
+    #[arg(long, env = "SIDEQUEST_CONTENT_PATH")]
     genre_packs_path: PathBuf,
 
-    /// Genre slug (e.g., mutant_wasteland).
-    #[arg(long)]
+    /// Genre slug (e.g., mutant_wasteland). Also reads SIDEQUEST_GENRE env var.
+    #[arg(long, env = "SIDEQUEST_GENRE")]
     genre: String,
 
     /// Power tier (1-4, maps to level ranges). Random if omitted.

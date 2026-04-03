@@ -20,12 +20,12 @@ use sidequest_genre::load_genre_pack;
 #[derive(Parser)]
 #[command(name = "sidequest-loadoutgen", about = "Generate starting equipment set from genre pack data")]
 struct Cli {
-    /// Path to the genre_packs/ directory.
-    #[arg(long)]
+    /// Path to the genre_packs/ directory. Also reads SIDEQUEST_CONTENT_PATH env var.
+    #[arg(long, env = "SIDEQUEST_CONTENT_PATH")]
     genre_packs_path: PathBuf,
 
-    /// Genre slug (e.g., low_fantasy, space_opera).
-    #[arg(long)]
+    /// Genre slug (e.g., low_fantasy, space_opera). Also reads SIDEQUEST_GENRE env var.
+    #[arg(long, env = "SIDEQUEST_GENRE")]
     genre: String,
 
     /// Character class or archetype name (e.g., fighter, pilot).
