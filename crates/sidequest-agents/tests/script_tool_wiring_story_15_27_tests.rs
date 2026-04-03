@@ -118,11 +118,8 @@ fn allowed_tools_empty_when_no_script_tools_registered() {
 // AC-2: Narrator prompt includes script tool instructions per tool
 // ============================================================================
 
-/// Verify that build_narrator_prompt() includes [ENCOUNTER GENERATOR] section
-/// when encountergen is registered and genre is set.
-///
-/// RED because: `build_narrator_prompt()` does not exist yet.
-/// Dev must extract prompt building from process_action() into this method.
+/// Verify that build_narrator_prompt() includes encounter tool section
+/// when encountergen is registered and genre is set (compact XML format, story 23-11).
 #[test]
 fn prompt_includes_encountergen_section_when_registered_with_genre() {
     let orch = orchestrator_with_script_tools();
@@ -131,16 +128,18 @@ fn prompt_includes_encountergen_section_when_registered_with_genre() {
     let prompt_result = orch.build_narrator_prompt("look around", &context);
 
     assert!(
-        prompt_result.prompt_text.contains("[ENCOUNTER GENERATOR]"),
-        "Narrator prompt should contain [ENCOUNTER GENERATOR] section when tool is registered"
+        prompt_result.prompt_text.contains("<tool name=\"ENCOUNTER\">"),
+        "Narrator prompt should contain encounter tool section when tool is registered"
     );
-    assert!(
-        prompt_result.prompt_text.contains("--genre mutant_wasteland"),
-        "Encountergen section should include the genre slug from context"
+    // Genre is now an env var (story 23-11), not a CLI flag in the prompt
+    assert_eq!(
+        prompt_result.env_vars.get("SIDEQUEST_GENRE"),
+        Some(&"mutant_wasteland".to_string()),
+        "Genre should be in env_vars, not in prompt text"
     );
 }
 
-/// Verify that build_narrator_prompt() includes [NPC GENERATOR] section.
+/// Verify that build_narrator_prompt() includes NPC tool section (compact XML format).
 #[test]
 fn prompt_includes_namegen_section_when_registered_with_genre() {
     let orch = orchestrator_with_script_tools();
@@ -149,12 +148,12 @@ fn prompt_includes_namegen_section_when_registered_with_genre() {
     let prompt_result = orch.build_narrator_prompt("look around", &context);
 
     assert!(
-        prompt_result.prompt_text.contains("[NPC GENERATOR]"),
-        "Narrator prompt should contain [NPC GENERATOR] section when namegen is registered"
+        prompt_result.prompt_text.contains("<tool name=\"NPC\">"),
+        "Narrator prompt should contain NPC tool section when namegen is registered"
     );
 }
 
-/// Verify that build_narrator_prompt() includes [STARTING LOADOUT GENERATOR] section.
+/// Verify that build_narrator_prompt() includes loadout tool section (compact XML format).
 #[test]
 fn prompt_includes_loadoutgen_section_when_registered_with_genre() {
     let orch = orchestrator_with_script_tools();
@@ -163,8 +162,8 @@ fn prompt_includes_loadoutgen_section_when_registered_with_genre() {
     let prompt_result = orch.build_narrator_prompt("look around", &context);
 
     assert!(
-        prompt_result.prompt_text.contains("[STARTING LOADOUT GENERATOR]"),
-        "Narrator prompt should contain [STARTING LOADOUT GENERATOR] section when tool is registered"
+        prompt_result.prompt_text.contains("<tool name=\"LOADOUT\">"),
+        "Narrator prompt should contain loadout tool section when tool is registered"
     );
 }
 
@@ -178,22 +177,12 @@ fn prompt_omits_script_tools_when_genre_is_none() {
     let prompt_result = orch.build_narrator_prompt("look around", &context);
 
     assert!(
-        !prompt_result.prompt_text.contains("[ENCOUNTER GENERATOR]"),
-        "Script tool sections should NOT appear when genre is None"
-    );
-    assert!(
-        !prompt_result.prompt_text.contains("[NPC GENERATOR]"),
-        "Script tool sections should NOT appear when genre is None"
-    );
-    assert!(
-        !prompt_result.prompt_text.contains("[STARTING LOADOUT GENERATOR]"),
+        !prompt_result.prompt_text.contains("<tool "),
         "Script tool sections should NOT appear when genre is None"
     );
 }
 
-/// The narrator system prompt should reference namegen in the NPC protocol.
-/// This is already partially there (narrator.rs:72) but needs to reference
-/// all three tools for completeness.
+/// The narrator prompt should reference wrapper names for script tools (story 23-11).
 #[test]
 fn narrator_system_prompt_references_script_tools() {
     let orch = orchestrator_with_script_tools();
@@ -201,10 +190,9 @@ fn narrator_system_prompt_references_script_tools() {
 
     let prompt_result = orch.build_narrator_prompt("look around", &context);
 
-    // The system prompt (Primacy zone) should mention namegen for NPC creation
     assert!(
-        prompt_result.prompt_text.contains("sidequest-namegen"),
-        "Narrator system prompt should reference namegen tool for NPC creation"
+        prompt_result.prompt_text.contains("sidequest-npc"),
+        "Narrator prompt should reference sidequest-npc wrapper for NPC creation"
     );
 }
 
@@ -212,46 +200,51 @@ fn narrator_system_prompt_references_script_tools() {
 // AC-2 (cont.): Tool sections contain correct binary paths and genre
 // ============================================================================
 
-/// Each script tool section should embed the correct binary path so the LLM
-/// can invoke it via Bash.
+/// Tool sections use wrapper names, not binary paths (story 23-11).
+/// Binary paths are only in allowed_tools for the Claude CLI.
 #[test]
-fn script_tool_sections_contain_correct_binary_paths() {
+fn script_tool_sections_use_wrapper_names_not_binary_paths() {
     let orch = orchestrator_with_script_tools();
     let context = context_with_genre("neon_dystopia");
 
     let prompt_result = orch.build_narrator_prompt("enter the club", &context);
 
+    // Wrapper names in prompt text
     assert!(
-        prompt_result
-            .prompt_text
-            .contains("/usr/local/bin/sidequest-encountergen"),
-        "Encountergen section should contain its binary path"
+        prompt_result.prompt_text.contains("sidequest-encounter"),
+        "Encounter section should use wrapper name"
     );
     assert!(
-        prompt_result
-            .prompt_text
-            .contains("/usr/local/bin/sidequest-loadoutgen"),
-        "Loadoutgen section should contain its binary path"
+        prompt_result.prompt_text.contains("sidequest-loadout"),
+        "Loadout section should use wrapper name"
     );
     assert!(
-        prompt_result
-            .prompt_text
-            .contains("/usr/local/bin/sidequest-namegen"),
-        "Namegen section should contain its binary path"
+        prompt_result.prompt_text.contains("sidequest-npc"),
+        "NPC section should use wrapper name"
+    );
+    // Binary paths NOT in prompt text
+    assert!(
+        !prompt_result.prompt_text.contains("/usr/local/bin/"),
+        "Binary paths should not appear in prompt text"
     );
 }
 
-/// Tool sections should use the genre from context, not a hardcoded value.
+/// Genre is passed via env var, not CLI flag in prompt text (story 23-11).
 #[test]
-fn script_tool_sections_use_genre_from_context() {
+fn script_tool_genre_passed_via_env_var() {
     let orch = orchestrator_with_script_tools();
     let context = context_with_genre("space_opera");
 
     let prompt_result = orch.build_narrator_prompt("hail the ship", &context);
 
     assert!(
-        prompt_result.prompt_text.contains("--genre space_opera"),
-        "Script tool sections should use the genre from TurnContext"
+        !prompt_result.prompt_text.contains("--genre "),
+        "Genre should not be a CLI flag in prompt text"
+    );
+    assert_eq!(
+        prompt_result.env_vars.get("SIDEQUEST_GENRE"),
+        Some(&"space_opera".to_string()),
+        "Genre should be in env_vars"
     );
 }
 
@@ -331,25 +324,26 @@ fn wiring_script_tools_registered_injected_and_allowed() {
         "Wiring check: 3 tools should be registered"
     );
 
-    // Step 2: Verify tools are injected into prompt
+    // Step 2: Verify tools are injected into prompt (compact XML format, story 23-11)
     let prompt_result = orch.build_narrator_prompt("enter the tavern", &context);
     assert!(
-        prompt_result.prompt_text.contains("[ENCOUNTER GENERATOR]"),
-        "Wiring check: encountergen section should be in prompt"
+        prompt_result.prompt_text.contains("<tool name=\"ENCOUNTER\">"),
+        "Wiring check: encounter section should be in prompt"
     );
     assert!(
-        prompt_result.prompt_text.contains("[NPC GENERATOR]"),
-        "Wiring check: namegen section should be in prompt"
+        prompt_result.prompt_text.contains("<tool name=\"NPC\">"),
+        "Wiring check: NPC section should be in prompt"
     );
     assert!(
-        prompt_result.prompt_text.contains("[STARTING LOADOUT GENERATOR]"),
-        "Wiring check: loadoutgen section should be in prompt"
+        prompt_result.prompt_text.contains("<tool name=\"LOADOUT\">"),
+        "Wiring check: loadout section should be in prompt"
     );
 
-    // Step 3: Verify genre is threaded through
-    assert!(
-        prompt_result.prompt_text.contains("--genre low_fantasy"),
-        "Wiring check: genre slug from TurnContext should appear in tool sections"
+    // Step 3: Verify genre is threaded through via env var (story 23-11)
+    assert_eq!(
+        prompt_result.env_vars.get("SIDEQUEST_GENRE"),
+        Some(&"low_fantasy".to_string()),
+        "Wiring check: genre should be in env_vars"
     );
 
     // Step 4: Verify tools are in allowed_tools (what gets passed to --allowedTools)
@@ -383,8 +377,8 @@ fn wiring_no_tools_means_clean_prompt_and_empty_allowed() {
 
     let prompt_result = orch.build_narrator_prompt("look around", &context);
     assert!(
-        !prompt_result.prompt_text.contains("[ENCOUNTER GENERATOR]"),
-        "Wiring check: no tools → no encountergen section"
+        !prompt_result.prompt_text.contains("<tool "),
+        "Wiring check: no tools → no tool sections"
     );
     assert!(
         prompt_result.script_tools_injected.is_empty(),

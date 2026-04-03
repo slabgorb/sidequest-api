@@ -101,6 +101,9 @@ pub struct NarratorPromptResult {
     pub allowed_tools: Vec<String>,
     /// The intent classification result, so callers don't need to re-classify.
     pub intent_route: IntentRoute,
+    /// Environment variables to set on the Claude CLI subprocess (story 23-11).
+    /// Contains `SIDEQUEST_GENRE` and `SIDEQUEST_CONTENT_PATH` when script tools are injected.
+    pub env_vars: HashMap<String, String>,
 }
 
 /// Configuration for a script tool binary (ADR-056).
@@ -294,87 +297,41 @@ impl Orchestrator {
             ));
         }
 
-        // Script tool instructions (Valley zone — available tools + commands)
+        // Script tool instructions (Valley zone — compact XML format, story 23-11)
+        // Env vars (SIDEQUEST_GENRE, SIDEQUEST_CONTENT_PATH) replace --genre/--genre-packs-path flags.
+        // Wrapper names (sidequest-encounter, sidequest-npc, sidequest-loadout) replace binary paths.
+        let mut env_vars: HashMap<String, String> = HashMap::new();
         if let Some(ref genre) = context.genre {
             for (tool_name, cfg) in &self.script_tools {
                 let tool_section = match tool_name.as_str() {
-                    "encountergen" => format!(
-                        "[ENCOUNTER GENERATOR]\n\
-                         Generate enemy stat blocks from genre pack data.\n\n\
-                         Command:\n\
-                         ```\n\
-                         {} --genre-packs-path {} --genre {} [options]\n\
-                         ```\n\n\
-                         | Flag | Required | Description |\n\
-                         |------|----------|-------------|\n\
-                         | --tier | No | Power tier 1-4 (default: random 1-3) |\n\
-                         | --count | No | Number of enemies (default: 1) |\n\
-                         | --class | No | Character class (e.g., Mutant, Scavenger) |\n\
-                         | --culture | No | Culture for name generation |\n\
-                         | --archetype | No | Archetype (e.g., \"Wasteland Trader\") |\n\
-                         | --role | No | Role description (e.g., \"ambush predator\") |\n\
-                         | --context | No | Scene context for visual prompt |\n\n\
-                         When to call: any time new enemies enter the scene.\n\
-                         Pick flags based on narrative context — use --culture for the local faction, \
-                         --tier for the threat level, --role for the enemy's purpose in the scene.\n\n\
-                         Output: JSON with enemies[].{{name, class, level, hp, abilities, weaknesses, \
-                         stat_scores, visual_prompt, ...}}\n\n\
-                         Checklist after calling:\n\
-                         - [ ] Use the generated name in your narration\n\
-                         - [ ] Reference abilities from the abilities list (not invented ones)\n\
-                         - [ ] Include the enemy in npcs_present with is_new: true\n\
-                         - [ ] Set hp_changes in combat patch using the generated HP as the baseline\n\
-                         - [ ] The visual_prompt field goes to image generation automatically",
-                        cfg.binary_path, cfg.genre_packs_path, genre,
-                    ),
-                    "namegen" => format!(
-                        "[NPC GENERATOR]\n\
-                         Generate NPC identity from genre pack data.\n\n\
-                         Command:\n\
-                         ```\n\
-                         {} --genre-packs-path {} --genre {} [options]\n\
-                         ```\n\n\
-                         | Flag | Required | Description |\n\
-                         |------|----------|-------------|\n\
-                         | --culture | No | Culture/faction name |\n\
-                         | --archetype | No | Archetype name |\n\
-                         | --gender | No | male, female, nonbinary |\n\
-                         | --role | No | Role override |\n\
-                         | --description | No | Physical description hints |\n\n\
-                         When to call: any time a new NPC appears (is_new: true).\n\
-                         Pick --culture based on where the scene takes place.\n\n\
-                         Output: JSON with {{name, pronouns, culture, role, appearance, personality, \
-                         dialogue_quirks, history, ocean, inventory, trope_connections}}\n\n\
-                         Checklist after calling:\n\
-                         - [ ] Use the generated name exactly\n\
-                         - [ ] Use dialogue_quirks to flavor their speech\n\
-                         - [ ] Include in npcs_present with the generated details\n\
-                         - [ ] Reference their role and appearance in narration",
-                        cfg.binary_path, cfg.genre_packs_path, genre,
-                    ),
-                    "loadoutgen" => format!(
-                        "[STARTING LOADOUT GENERATOR]\n\
-                         Generate starting equipment and currency for a character.\n\n\
-                         Command:\n\
-                         ```\n\
-                         {} --genre-packs-path {} --genre {} --class <class_name>\n\
-                         ```\n\n\
-                         | Flag | Required | Description |\n\
-                         |------|----------|-------------|\n\
-                         | --class | Yes | Character class or archetype name |\n\
-                         | --tier | No | Power tier 1-4 (default: 1) |\n\n\
-                         When to call: at character creation completion or session start, \
-                         when introducing the character's starting gear.\n\n\
-                         Output: JSON with {{class, currency_name, starting_gold, equipment[], \
-                         narrative_hook, total_value}}\n\
-                         Each equipment item has: id, name, description, category, value, tags, lore.\n\n\
-                         Checklist after calling:\n\
-                         - [ ] Weave the narrative_hook into the opening scene naturally\n\
-                         - [ ] Reference specific items by name when the character uses them\n\
-                         - [ ] Use the currency_name for all money references\n\
-                         - [ ] Include equipment in the character's inventory state",
-                        cfg.binary_path, cfg.genre_packs_path, genre,
-                    ),
+                    "encountergen" => "\
+<tool name=\"ENCOUNTER\">\n\
+When to call: any time new enemies enter the scene.\n\
+<command>sidequest-encounter [--tier N] [--count N] [--culture NAME]</command>\n\
+<usage>\n\
+- [ ] Use the generated name in your narration\n\
+- [ ] Reference abilities from the abilities list\n\
+</usage>\n\
+</tool>".to_string(),
+                    "namegen" => "\
+<tool name=\"NPC\">\n\
+MANDATORY: Call before introducing any new NPC.\n\
+When to call: any time a new NPC appears (is_new: true).\n\
+<command>sidequest-npc [--culture NAME]</command>\n\
+<usage>\n\
+- [ ] Use the generated name exactly\n\
+- [ ] Use dialogue_quirks in speech\n\
+</usage>\n\
+</tool>".to_string(),
+                    "loadoutgen" => "\
+<tool name=\"LOADOUT\">\n\
+When to call: at character creation or session start.\n\
+<command>sidequest-loadout --class CLASS</command>\n\
+<usage>\n\
+- [ ] Weave the narrative_hook into the scene\n\
+- [ ] Use the currency_name for money\n\
+</usage>\n\
+</tool>".to_string(),
                     unknown => {
                         warn!(
                             tool = %unknown,
@@ -390,6 +347,11 @@ impl Orchestrator {
                     SectionCategory::State,
                 ));
                 script_tools_injected.push(tool_name.clone());
+            }
+            // Set env vars for tool wrappers (story 23-11: env vars replace CLI flags)
+            env_vars.insert("SIDEQUEST_GENRE".to_string(), genre.clone());
+            if let Some(cfg) = self.script_tools.values().next() {
+                env_vars.insert("SIDEQUEST_CONTENT_PATH".to_string(), cfg.genre_packs_path.clone());
             }
         }
 
@@ -551,6 +513,7 @@ impl Orchestrator {
             script_tools_injected,
             allowed_tools,
             intent_route: route,
+            env_vars,
         }
     }
 
@@ -576,6 +539,7 @@ impl GameService for Orchestrator {
         let prompt = prompt_result.prompt_text;
         let prompt_zone_breakdown = prompt_result.zone_breakdown;
         let allowed_tools = prompt_result.allowed_tools;
+        let env_vars = prompt_result.env_vars;
 
         // OTEL: report which script tools were injected into this turn's prompt
         if !prompt_result.script_tools_injected.is_empty() {
@@ -630,7 +594,7 @@ impl GameService for Orchestrator {
         let send_result = {
             let _inf_guard = inference_span.enter();
             if has_tools {
-                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools)
+                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools, &env_vars)
             } else {
                 self.client.send_with_model(&prompt, narrator_model)
             }
