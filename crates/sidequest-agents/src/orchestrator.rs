@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 use crate::agent::Agent;
 use crate::tools::assemble_turn::assemble_turn;
-use crate::tools::tool_call_parser::parse_tool_results;
+// ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
@@ -225,10 +225,9 @@ impl Orchestrator {
     /// Returns tool spec strings that let the narrator invoke registered script tools
     /// via `Bash(...)`. Empty if no tools are configured.
     pub fn narrator_allowed_tools(&self) -> Vec<String> {
-        // Claude CLI --allowedTools uses command-name patterns, not full paths.
-        // "Bash" enables all bash; "Bash(cmd:*)" restricts to a specific command.
-        // We allow all Bash so Claude can call any of our registered tool binaries.
-        vec!["Bash".to_string()]
+        // ADR-059: No tools needed. Monster Manual injects data via game_state.
+        // Claude narrates, engine crunches. No --allowedTools passed to claude -p.
+        Vec::new()
     }
 
     /// Access the tension tracker (pacing engine).
@@ -303,82 +302,9 @@ impl Orchestrator {
         }
 
         // Tool workflow (Primacy zone — mandatory procedure before narration)
-        // OQ-2 created wrapper scripts in tools/ that translate env vars to CLI flags.
-        // PATH is prepended so Claude can call wrapper names directly.
-        let mut env_vars: HashMap<String, String> = HashMap::new();
-        if let Some(ref genre) = context.genre {
-            let mut tool_commands = Vec::new();
-            for (tool_name, cfg) in &self.script_tools {
-                // Derive the tools/ directory from the binary path
-                let tools_dir = std::path::Path::new(&cfg.binary_path)
-                    .parent()
-                    .and_then(|p| p.parent())
-                    .and_then(|p| p.parent())
-                    .map(|p| p.join("tools"))
-                    .unwrap_or_else(|| std::path::PathBuf::from("tools"));
-                let current_path = std::env::var("PATH").unwrap_or_default();
-                env_vars.insert("PATH".to_string(), format!("{}:{}", tools_dir.display(), current_path));
-
-                match tool_name.as_str() {
-                    "encountergen" => {
-                        tool_commands.push(
-                            "ENCOUNTER: sidequest-encounter [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]".to_string()
-                        );
-                    }
-                    "namegen" => {
-                        tool_commands.push(
-                            "NPC: sidequest-npc [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]".to_string()
-                        );
-                    }
-                    "loadoutgen" => {
-                        tool_commands.push(
-                            "LOADOUT: sidequest-loadout --class CLASS [--tier N]".to_string()
-                        );
-                    }
-                    unknown => {
-                        warn!(
-                            tool = %unknown,
-                            "Script tool registered but has no prompt section — narrator will not know how to use it"
-                        );
-                        continue;
-                    }
-                }
-                script_tools_injected.push(tool_name.clone());
-            }
-            if !tool_commands.is_empty() {
-                let workflow = format!("\
-<tool_workflow>\n\
-MANDATORY PROCEDURE — follow these steps IN ORDER:\n\
-\n\
-Step 1: BEFORE writing any narration, check if you need to:\n\
-  - Introduce a new NPC → call the NPC tool via Bash\n\
-  - Start combat with new enemies → call the ENCOUNTER tool via Bash\n\
-  - Generate starting equipment → call the LOADOUT tool via Bash\n\
-\n\
-Step 2: If Step 1 applies, call the tool NOW using the Bash tool. Wait for the result.\n\
-\n\
-Step 3: Write your narration using the tool's output (names, stats, abilities, items).\n\
-  - Use the EXACT name from the tool output. Do NOT invent or modify names.\n\
-  - Reference abilities and items from the tool output, not invented ones.\n\
-\n\
-If no new NPCs, enemies, or equipment are needed this turn, skip to Step 3.\n\
-\n\
-Available tools (run via Bash):\n\
-{}\n\
-</tool_workflow>", tool_commands.join("\n"));
-                builder.add_section(PromptSection::new(
-                    "tool_workflow",
-                    workflow,
-                    AttentionZone::Primacy,
-                    SectionCategory::Identity,
-                ));
-            }
-            // Set env vars for tool wrappers (story 23-11: env vars replace CLI flags)
-            env_vars.insert("SIDEQUEST_GENRE".to_string(), genre.clone());
-            if let Some(cfg) = self.script_tools.values().next() {
-                env_vars.insert("SIDEQUEST_CONTENT_PATH".to_string(), cfg.genre_packs_path.clone());
-            }
-        }
+        // ADR-059: Tool infrastructure removed. Monster Manual injects NPC/encounter
+        // data into game_state via dispatch. No tool sections, no env vars, no PATH.
+        let env_vars: HashMap<String, String> = HashMap::new();
 
         // Game state section (Valley zone)
         if let Some(state) = &context.state_summary {
@@ -589,21 +515,8 @@ impl GameService for Orchestrator {
         );
 
         // Generate a unique session ID for the tool call sidecar file.
-        // Tool scripts write results here; we read them after the CLI call completes.
-        let sidecar_session_id = format!(
-            "turn-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        );
-
-        // Pass sidecar env vars so tool binaries can write results for the orchestrator.
-        env_vars.insert("SIDEQUEST_TOOL_SIDECAR_DIR".to_string(), crate::tools::tool_call_parser::SIDECAR_DIR.to_string());
-        env_vars.insert("SIDEQUEST_TOOL_SESSION_ID".to_string(), sidecar_session_id.clone());
-
-        info!(action = %action, sidecar_session_id = %sidecar_session_id, "Invoking Claude CLI for narration");
+        // ADR-059: Sidecar mechanism removed. Monster Manual handles pre-generation.
+        info!(action = %action, "Invoking Claude CLI for narration");
 
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
@@ -700,9 +613,9 @@ impl GameService for Orchestrator {
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 span.record("is_degraded", false);
 
-                // ADR-057: assemble_turn merges extraction + preprocessor + tool results.
-                // Story 20-10: parse sidecar file for tool call results.
-                let tool_results = parse_tool_results(&sidecar_session_id);
+                // ADR-059: sidecar tool results removed. Monster Manual handles pre-generation.
+                // assemble_turn still merges extraction + preprocessor with default tool results.
+                let tool_results = crate::tools::assemble_turn::ToolCallResults::default();
 
                 if extraction.action_rewrite.is_none() {
                     warn!("action_rewrite absent from extraction — using default (empty rewrite)");

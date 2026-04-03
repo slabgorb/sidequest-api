@@ -4,7 +4,7 @@
 //! endpoints for the React frontend to interact with the game engine.
 
 use clap::Parser;
-use sidequest_agents::orchestrator::{Orchestrator, ScriptToolConfig};
+use sidequest_agents::orchestrator::Orchestrator;
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 use sidequest_server::{create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType};
 
@@ -25,57 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let mut orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
 
-    // Discover script tool binaries next to the server binary (ADR-056).
-    // In dev: target/debug/sidequest-encountergen alongside target/debug/sidequest-server.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let genre_packs_path = args.genre_packs_path().to_string_lossy().to_string();
-
-            // Encounter generator
-            let encountergen_path = dir.join("sidequest-encountergen");
-            if encountergen_path.exists() {
-                tracing::info!(
-                    path = %encountergen_path.display(),
-                    "sidequest-encountergen discovered — narrator will have encounter tool"
-                );
-                orchestrator.register_script_tool("encountergen", ScriptToolConfig {
-                    binary_path: encountergen_path.to_string_lossy().to_string(),
-                    genre_packs_path: genre_packs_path.clone(),
-                });
-            } else {
-                tracing::warn!(
-                    expected = %encountergen_path.display(),
-                    "sidequest-encountergen not found — narrator will not have encounter tool"
-                );
-            }
-
-            // Starting loadout generator
-            let loadoutgen_path = dir.join("sidequest-loadoutgen");
-            if loadoutgen_path.exists() {
-                tracing::info!(
-                    path = %loadoutgen_path.display(),
-                    "sidequest-loadoutgen discovered — narrator will have loadout tool"
-                );
-                orchestrator.register_script_tool("loadoutgen", ScriptToolConfig {
-                    binary_path: loadoutgen_path.to_string_lossy().to_string(),
-                    genre_packs_path: genre_packs_path.clone(),
-                });
-            }
-
-            // NPC name generator (when merged from OQ-1)
-            let namegen_path = dir.join("sidequest-namegen");
-            if namegen_path.exists() {
-                tracing::info!(
-                    path = %namegen_path.display(),
-                    "sidequest-namegen discovered — narrator will have NPC tool"
-                );
-                orchestrator.register_script_tool("namegen", ScriptToolConfig {
-                    binary_path: namegen_path.to_string_lossy().to_string(),
-                    genre_packs_path,
-                });
-            }
-        }
-    }
+    // ADR-059: Tool binaries are now called server-side by dispatch/pregen.rs,
+    // not registered on the orchestrator for narrator tool calls.
+    // Binary paths are discovered and stored on AppState (below).
 
     let save_dir = args
         .save_dir()
