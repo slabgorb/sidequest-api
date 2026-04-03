@@ -16,6 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         port = args.port(),
         genre_packs = %args.genre_packs_path().display(),
         no_tts = args.no_tts(),
+        headless = args.headless(),
         "SideQuest Server starting"
     );
 
@@ -100,7 +101,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         args.genre_packs_path().to_path_buf(),
         save_dir,
     )
-    .with_tts_disabled(args.no_tts());
+    .with_tts_disabled(args.no_tts() || args.headless());
+
+    if args.headless() {
+        state = state.with_render_disabled();
+    }
 
     if let Some(endpoint) = args.otel_endpoint() {
         state = state.with_otel_endpoint(endpoint.to_string());

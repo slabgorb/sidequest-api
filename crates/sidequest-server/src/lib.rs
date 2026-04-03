@@ -562,6 +562,15 @@ impl AppState {
         self.inner.tts_disabled
     }
 
+    /// Disable image rendering by dropping the render queue (builder-style).
+    /// In headless mode, no daemon connection is attempted and no IMAGE messages are broadcast.
+    pub fn with_render_disabled(mut self) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_render_disabled must be called before cloning")
+            .render_queue = None;
+        self
+    }
+
     /// Set the path to the sidequest-namegen binary for server-side NPC validation.
     pub fn with_namegen_binary(mut self, path: PathBuf) -> Self {
         Arc::get_mut(&mut self.inner)
