@@ -117,7 +117,7 @@ impl ClaudeClient {
         prompt: &str,
         model: &str,
     ) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, Some(model), &[])
+        self.send_impl(prompt, Some(model), &[], &std::collections::HashMap::new())
     }
 
     /// Execute a subprocess call with tool access.
@@ -131,7 +131,22 @@ impl ClaudeClient {
         model: &str,
         allowed_tools: &[String],
     ) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, Some(model), allowed_tools)
+        self.send_impl(prompt, Some(model), allowed_tools, &std::collections::HashMap::new())
+    }
+
+    /// Execute a subprocess call with tool access and extra environment variables (story 23-11).
+    ///
+    /// Sets additional env vars on the Claude CLI subprocess before invocation.
+    /// Used to pass `SIDEQUEST_GENRE` and `SIDEQUEST_CONTENT_PATH` so tool wrappers
+    /// can resolve paths from environment instead of CLI flags in the prompt.
+    pub fn send_with_tools_and_env(
+        &self,
+        prompt: &str,
+        model: &str,
+        allowed_tools: &[String],
+        env_vars: &std::collections::HashMap<String, String>,
+    ) -> Result<ClaudeResponse, ClaudeClientError> {
+        self.send_impl(prompt, Some(model), allowed_tools, env_vars)
     }
 
     /// Core subprocess execution — used by all send methods.
@@ -145,6 +160,7 @@ impl ClaudeClient {
         prompt: &str,
         model: Option<&str>,
         allowed_tools: &[String],
+        extra_env: &std::collections::HashMap<String, String>,
     ) -> Result<ClaudeResponse, ClaudeClientError> {
         use std::io::Read;
         use std::process::{Command, Stdio};
@@ -177,6 +193,10 @@ impl ClaudeClient {
                 .env("OTEL_LOG_TOOL_CONTENT", "1")
                 .env("OTEL_LOG_TOOL_DETAILS", "1")
                 .env("CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS", "3000");
+        }
+        // Apply extra environment variables (story 23-11: SIDEQUEST_GENRE, SIDEQUEST_CONTENT_PATH)
+        for (key, value) in extra_env {
+            cmd.env(key, value);
         }
         if let Some(m) = model {
             cmd.arg("--model").arg(m);
@@ -296,7 +316,7 @@ impl ClaudeClient {
 
     /// Execute a synchronous subprocess call with the configured command and timeout.
     pub fn send(&self, prompt: &str) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, None, &[])
+        self.send_impl(prompt, None, &[], &std::collections::HashMap::new())
     }
 }
 
