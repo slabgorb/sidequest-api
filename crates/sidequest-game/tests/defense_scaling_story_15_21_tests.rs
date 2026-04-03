@@ -57,14 +57,17 @@ fn resolve_attack_factors_defender_level_into_damage() {
     let mut combat = CombatState::default();
     combat.set_in_combat(true);
 
-    let atk = attacker(1);
+    // Use a high-level attacker to produce enough raw damage that
+    // the defense difference between level 1 and level 10 is visible
+    // after rounding.
+    let atk = attacker(10);
     let low_def = defender(1, 10);
-    let high_def = defender(5, 10);
+    let high_def = defender(10, 10);
 
-    let result_low = combat.resolve_attack("Attacker", &atk, "Defender", &low_def);
+    let result_low = combat.resolve_attack("Attacker", &atk, "LowDef", &low_def);
     let damage_vs_low = result_low.damage_events[0].damage;
 
-    let result_high = combat.resolve_attack("Attacker", &atk, "Defender", &high_def);
+    let result_high = combat.resolve_attack("Attacker", &atk, "HighDef", &high_def);
     let damage_vs_high = result_high.damage_events[0].damage;
 
     assert!(
@@ -103,18 +106,25 @@ fn resolve_attack_factors_defender_ac_into_damage() {
 // ═══════════════════════════════════════════════════════════════
 
 #[test]
-fn level_5_defender_takes_less_than_level_1() {
+fn level_10_defender_takes_less_than_level_1() {
     let mut combat = CombatState::default();
     combat.set_in_combat(true);
 
-    let atk = attacker(3);
+    // High-level attacker so raw damage is large enough for the defense
+    // difference to survive rounding.
+    let atk = attacker(10);
     let def_l1 = defender(1, 10);
-    let def_l5 = defender(5, 10);
+    let def_l10 = defender(10, 10);
 
     let r1 = combat.resolve_attack("Atk", &atk, "DefL1", &def_l1);
-    let r5 = combat.resolve_attack("Atk", &atk, "DefL5", &def_l5);
+    let r10 = combat.resolve_attack("Atk", &atk, "DefL10", &def_l10);
 
-    assert!(r5.damage_events[0].damage < r1.damage_events[0].damage);
+    assert!(
+        r10.damage_events[0].damage < r1.damage_events[0].damage,
+        "Level 10 defender should take less: l1={}, l10={}",
+        r1.damage_events[0].damage,
+        r10.damage_events[0].damage
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
