@@ -157,6 +157,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Story 15-20: capture pre-turn snapshot for delta computation
     let before_snapshot = sidequest_game::delta::snapshot(ctx.snapshot);
 
+    // Story 12-1: capture location before state updates for cinematic variation detection
+    let location_before_turn = ctx.current_location.clone();
+
     // Timing capture for OTEL flame chart spans
     let turn_start = std::time::Instant::now();
 
@@ -781,7 +784,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     render::process_render(ctx, &clean_narration, narration_text, &result).await;
 
-    audio::process_audio(ctx, &clean_narration, &mut messages, &result).await;
+    let location_changed = *ctx.current_location != location_before_turn;
+    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, mutation_result.combat_just_ended).await;
 
     // Record this interaction in the turn manager
     ctx.turn_manager.record_interaction();

@@ -131,6 +131,7 @@ pub use music_director::{
     AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodClassificationWithReason,
     MoodContext, MusicDirector, MusicTelemetry,
 };
+pub use sidequest_genre::TrackVariation;
 pub use narrative::NarrativeEntry;
 pub use npc::{enrich_registry_from_npcs, Npc, NpcRegistryEntry};
 pub use npc_actions::{available_actions, select_npc_action, NpcAction, ScenarioRole};
