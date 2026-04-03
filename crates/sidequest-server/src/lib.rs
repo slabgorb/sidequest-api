@@ -369,6 +369,10 @@ struct AppStateInner {
     /// Path to the sidequest-namegen binary for server-side NPC identity generation.
     /// None if the binary was not found at startup.
     namegen_binary_path: Option<PathBuf>,
+    /// Path to the sidequest-encountergen binary for server-side encounter generation.
+    encountergen_binary_path: Option<PathBuf>,
+    /// Path to the sidequest-loadoutgen binary for server-side loadout generation.
+    loadoutgen_binary_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -527,6 +531,8 @@ impl AppState {
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
                 namegen_binary_path: None,
+                encountergen_binary_path: None,
+                loadoutgen_binary_path: None,
                 otel_endpoint: None,
             }),
         }
@@ -582,6 +588,32 @@ impl AppState {
     /// Path to the sidequest-namegen binary, if available.
     pub fn namegen_binary_path(&self) -> Option<&Path> {
         self.inner.namegen_binary_path.as_deref()
+    }
+
+    /// Set the path to the sidequest-encountergen binary (builder-style).
+    pub fn with_encountergen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_encountergen_binary must be called before cloning")
+            .encountergen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-encountergen binary, if available.
+    pub fn encountergen_binary_path(&self) -> Option<&Path> {
+        self.inner.encountergen_binary_path.as_deref()
+    }
+
+    /// Set the path to the sidequest-loadoutgen binary (builder-style).
+    pub fn with_loadoutgen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_loadoutgen_binary must be called before cloning")
+            .loadoutgen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-loadoutgen binary, if available.
+    pub fn loadoutgen_binary_path(&self) -> Option<&Path> {
+        self.inner.loadoutgen_binary_path.as_deref()
     }
 
     /// Set the OTEL endpoint for Claude subprocess telemetry (builder-style).

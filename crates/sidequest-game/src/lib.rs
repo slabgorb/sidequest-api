@@ -40,6 +40,7 @@ pub mod journal;
 pub mod known_fact;
 pub mod lore;
 pub mod merchant;
+pub mod monster_manual;
 pub mod multiplayer;
 pub mod music_director;
 pub mod narrative;

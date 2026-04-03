@@ -87,14 +87,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 .join("saves")
         });
 
-    // Store discovered namegen path for server-side NPC gate validation
-    let namegen_for_state = if let Ok(exe) = std::env::current_exe() {
-        exe.parent()
-            .map(|dir| dir.join("sidequest-namegen"))
-            .filter(|p| p.exists())
-    } else {
-        None
-    };
+    // Store discovered binary paths for server-side pre-generation (ADR-059)
+    let (namegen_for_state, encountergen_for_state, loadoutgen_for_state) =
+        if let Ok(exe) = std::env::current_exe() {
+            let dir = exe.parent();
+            (
+                dir.map(|d| d.join("sidequest-namegen")).filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-encountergen")).filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-loadoutgen")).filter(|p| p.exists()),
+            )
+        } else {
+            (None, None, None)
+        };
 
     let mut state = AppState::new_with_game_service(
         Box::new(orchestrator),
@@ -113,6 +117,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if let Some(path) = namegen_for_state {
         state = state.with_namegen_binary(path);
+    }
+    if let Some(path) = encountergen_for_state {
+        state = state.with_encountergen_binary(path);
+    }
+    if let Some(path) = loadoutgen_for_state {
+        state = state.with_loadoutgen_binary(path);
     }
 
     // Spawn the turn record bridge — receives TurnRecords from the orchestrator (hot path)

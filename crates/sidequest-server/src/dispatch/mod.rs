@@ -13,6 +13,7 @@
 mod audio;
 mod combat;
 pub(crate) mod connect;
+pub(crate) mod pregen;
 mod prompt;
 mod render;
 mod session_sync;
