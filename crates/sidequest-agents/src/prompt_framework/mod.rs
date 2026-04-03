@@ -4,7 +4,7 @@
 //! Provides [`PromptSection`], [`AttentionZone`], [`RuleTier`], [`SoulData`],
 //! and the [`PromptComposer`] trait for assembling structured prompts.
 
-mod soul;
+pub mod soul;
 mod types;
 
 #[cfg(test)]
