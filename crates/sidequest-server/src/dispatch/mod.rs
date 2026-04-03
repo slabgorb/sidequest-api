@@ -1032,11 +1032,16 @@ fn update_npc_registry(
 ) {
     let turn_approx = ctx.turn_manager.interaction() as u32;
     if !result.npcs_present.is_empty() {
+        // Sort by name length descending so full names ("Toggler Copperjaw") register
+        // before nicknames ("Toggler"). Prevents short-name fragments from creating
+        // duplicate entries that substring matching then fails to merge.
+        let mut npcs_sorted: Vec<_> = result.npcs_present.iter().collect();
+        npcs_sorted.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
         tracing::info!(
-            count = result.npcs_present.len(),
+            count = npcs_sorted.len(),
             "npc_registry.structured — updating from narrator JSON"
         );
-        for npc in &result.npcs_present {
+        for npc in &npcs_sorted {
             if npc.name.is_empty() {
                 continue;
             }

@@ -304,40 +304,41 @@ impl Orchestrator {
 
         // Script tool instructions (Valley zone — compact XML format, story 23-11)
         // Env vars (SIDEQUEST_GENRE, SIDEQUEST_CONTENT_PATH) replace --genre/--genre-packs-path flags.
-        // Wrapper names (sidequest-encounter, sidequest-npc, sidequest-loadout) replace binary paths.
+        // Command names use actual binary paths so they match --allowedTools Bash() specs.
         let mut env_vars: HashMap<String, String> = HashMap::new();
         if let Some(ref genre) = context.genre {
             for (tool_name, cfg) in &self.script_tools {
+                let binary = &cfg.binary_path;
                 let tool_section = match tool_name.as_str() {
-                    "encountergen" => "\
+                    "encountergen" => format!("\
 <tool name=\"ENCOUNTER\">\n\
 When to call: any time new enemies enter the scene. Pick flags based on narrative context.\n\
-<command>sidequest-encounter [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]</command>\n\
+<command>{binary} [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]</command>\n\
 <usage>\n\
 - [ ] Use the generated name in your narration\n\
 - [ ] Reference abilities from the abilities list (not invented ones)\n\
 </usage>\n\
-</tool>".to_string(),
-                    "namegen" => "\
+</tool>"),
+                    "namegen" => format!("\
 <tool name=\"NPC\">\n\
 MANDATORY: Call this BEFORE introducing any new NPC. Do NOT invent NPC names.\n\
-<command>sidequest-npc [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]</command>\n\
+<command>{binary} [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]</command>\n\
 <usage>\n\
 - [ ] Use the generated name exactly — do NOT modify or replace it\n\
 - [ ] Use dialogue_quirks to flavor their speech\n\
 - [ ] Reference their role and appearance in narration\n\
 </usage>\n\
-</tool>".to_string(),
-                    "loadoutgen" => "\
+</tool>"),
+                    "loadoutgen" => format!("\
 <tool name=\"LOADOUT\">\n\
 When to call: at character creation when introducing the character's starting gear.\n\
-<command>sidequest-loadout --class CLASS [--tier N]</command>\n\
+<command>{binary} --class CLASS [--tier N]</command>\n\
 <usage>\n\
 - [ ] Weave the narrative_hook into the opening scene naturally\n\
 - [ ] Reference specific items by name when the character uses them\n\
 - [ ] Use the currency_name for all money references\n\
 </usage>\n\
-</tool>".to_string(),
+</tool>"),
                     unknown => {
                         warn!(
                             tool = %unknown,
