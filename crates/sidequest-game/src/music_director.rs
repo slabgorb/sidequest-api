@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use sidequest_genre::{AudioConfig, MoodTrack};
+use sidequest_genre::{AudioConfig, MoodTrack, TrackVariation};
 
 use crate::theme_rotator::{RotationConfig, ThemeRotator};
 
@@ -139,6 +139,16 @@ pub struct MoodContext {
     pub npc_died: bool,
     /// Mood override from active StructuredEncounter (highest priority).
     pub encounter_mood_override: Option<String>,
+    /// Whether the player changed location this turn (from StateDelta).
+    pub location_changed: bool,
+    /// Turns since last location change.
+    pub scene_turn_count: u32,
+    /// Drama weight from TensionTracker PacingHint (0.0–1.0).
+    pub drama_weight: f32,
+    /// Whether combat just ended this turn (transition detection).
+    pub combat_just_ended: bool,
+    /// Whether this is the first turn of the session.
+    pub session_start: bool,
 }
 
 /// OTEL telemetry snapshot for the music director's current state.
@@ -152,6 +162,10 @@ pub struct MusicTelemetry {
     pub available_moods: Vec<String>,
     /// Track titles available per mood.
     pub tracks_per_mood: HashMap<String, Vec<String>>,
+    /// Current track variation type (e.g. "overture", "ambient", "full").
+    pub current_variation: Option<String>,
+    /// Reason for variation selection (e.g. "priority_1_overture: session_start").
+    pub variation_reason: Option<String>,
 }
 
 /// Mood classification with human-readable reasoning for OTEL telemetry.
@@ -171,8 +185,12 @@ pub struct MoodClassificationWithReason {
 /// Evaluates narration and game state to produce mood-based music cues.
 pub struct MusicDirector {
     mood_tracks: HashMap<String, Vec<MoodTrack>>,
+    /// Per-mood, per-variation themed track index.
+    themed_tracks: HashMap<String, HashMap<TrackVariation, Vec<MoodTrack>>>,
     current_mood: Option<Mood>,
     current_track: Option<String>,
+    current_variation: Option<TrackVariation>,
+    variation_reason: Option<String>,
     rotator: ThemeRotator,
 }
 
@@ -221,20 +239,138 @@ impl MusicDirector {
             }
         }
 
+        // Build per-mood, per-variation themed track index
+        let mut themed_tracks: HashMap<String, HashMap<TrackVariation, Vec<MoodTrack>>> =
+            HashMap::new();
+        for theme in &audio_config.themes {
+            let mood_map = themed_tracks
+                .entry(theme.mood.clone())
+                .or_default();
+            for variation in &theme.variations {
+                let tv = variation.as_variation();
+                let energy = match tv {
+                    TrackVariation::Ambient => 0.3,
+                    TrackVariation::Sparse => 0.2,
+                    TrackVariation::TensionBuild => 0.7,
+                    TrackVariation::Overture => 0.6,
+                    TrackVariation::Resolution => 0.4,
+                    TrackVariation::Full => 0.5,
+                    _ => 0.5,
+                };
+                let title = variation
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&variation.path)
+                    .trim_end_matches(".ogg")
+                    .trim_end_matches(".mp3")
+                    .replace('_', " ");
+                mood_map.entry(tv).or_default().push(MoodTrack {
+                    path: variation.path.clone(),
+                    title,
+                    bpm: 100,
+                    energy,
+                });
+            }
+        }
+
         let track_count: usize = mood_tracks.values().map(|v| v.len()).sum();
         tracing::info!(
             moods = mood_tracks.len(),
             tracks = track_count,
             themes = audio_config.themes.len(),
+            themed_moods = themed_tracks.len(),
             "MusicDirector initialized with merged mood_tracks + themes"
         );
 
         Self {
             mood_tracks,
+            themed_tracks,
             current_mood: None,
             current_track: None,
+            current_variation: None,
+            variation_reason: None,
             rotator: ThemeRotator::new(RotationConfig::default()),
         }
+    }
+
+    /// Select the appropriate track variation based on mood classification and game context.
+    ///
+    /// Implements a 6-priority scoring system:
+    /// 1. Overture — session start or new location arrival
+    /// 2. Resolution — combat just ended or quest completed
+    /// 3. TensionBuild — high intensity (>=0.7) or high drama (>=0.7)
+    /// 4. Ambient — low intensity (<=0.3) or long scene (turn count >= 4)
+    /// 5. Sparse — mid-intensity (0.3-0.5) with low drama (<=0.3)
+    /// 6. Full — default fallback
+    ///
+    /// If the preferred variation has no tracks for the current mood, falls back
+    /// to Full, then to any available variation.
+    pub fn select_variation(
+        &self,
+        classification: &MoodClassification,
+        ctx: &MoodContext,
+    ) -> TrackVariation {
+        let mood_key = classification.primary.as_key();
+
+        let preferred = self.score_variation(classification, ctx);
+
+        // Check if the preferred variation has tracks available
+        if let Some(mood_variations) = self.themed_tracks.get(mood_key) {
+            if mood_variations.contains_key(&preferred) {
+                return preferred;
+            }
+            // Fallback: Full
+            if preferred != TrackVariation::Full && mood_variations.contains_key(&TrackVariation::Full) {
+                return TrackVariation::Full;
+            }
+            // Fallback: any available
+            if let Some((&first_available, _)) = mood_variations.iter().next() {
+                return first_available;
+            }
+        }
+
+        // No themed tracks at all — return preferred anyway (evaluate will
+        // fall back to mood_tracks)
+        preferred
+    }
+
+    /// Pure scoring function — returns the ideal variation based on priority table.
+    fn score_variation(
+        &self,
+        classification: &MoodClassification,
+        ctx: &MoodContext,
+    ) -> TrackVariation {
+        // Priority 1: Overture — session start or new location arrival (turn 0)
+        if ctx.session_start || (ctx.location_changed && ctx.scene_turn_count == 0) {
+            return TrackVariation::Overture;
+        }
+
+        // Priority 2: Resolution — combat just ended or quest completed
+        if ctx.combat_just_ended || ctx.quest_completed {
+            return TrackVariation::Resolution;
+        }
+
+        // Priority 3: TensionBuild — high intensity (non-combat) or high drama
+        if classification.intensity >= 0.7 || ctx.drama_weight >= 0.7 {
+            return TrackVariation::TensionBuild;
+        }
+
+        // Priority 4: Ambient — low intensity or lingering in scene
+        if classification.intensity <= 0.3 || ctx.scene_turn_count >= 4 {
+            return TrackVariation::Ambient;
+        }
+
+        // Priority 5: Sparse — mid-intensity with low drama
+        if classification.intensity > 0.3
+            && classification.intensity <= 0.5
+            && ctx.drama_weight <= 0.3
+        {
+            return TrackVariation::Sparse;
+        }
+
+        // Priority 6: Full — default fallback
+        TrackVariation::Full
     }
 
     /// Evaluate narration text and game context, returning an AudioCue if the mood changed.
@@ -245,6 +381,8 @@ impl MusicDirector {
             track_id = tracing::field::Empty,
             action = tracing::field::Empty,
             mood_changed = tracing::field::Empty,
+            variation = tracing::field::Empty,
+            variation_reason = tracing::field::Empty,
         );
         let _guard = span.enter();
 
@@ -261,8 +399,16 @@ impl MusicDirector {
 
         span.record("mood_changed", true);
 
-        let track = self.select_track(&classification)?;
-        let track_path = track.path.clone();
+        // Select variation based on narrative context
+        let variation = self.select_variation(&classification, ctx);
+        let reason = self.describe_variation_reason(&variation, ctx, &classification);
+        span.record("variation", tracing::field::debug(&variation));
+        span.record("variation_reason", tracing::field::display(&reason));
+
+        // Try themed tracks for the selected variation first
+        let track_path = self
+            .select_themed_track(&classification, &variation)
+            .or_else(|| self.select_track(&classification).map(|t| t.path.clone()))?;
 
         let action = Self::transition_action(self.current_mood.as_ref(), &classification.primary);
         let volume = Self::intensity_to_volume(classification.intensity);
@@ -279,6 +425,8 @@ impl MusicDirector {
 
         self.current_mood = Some(classification.primary);
         self.current_track = Some(track_path);
+        self.current_variation = Some(variation);
+        self.variation_reason = Some(reason);
         Some(cue)
     }
 
@@ -358,7 +506,73 @@ impl MusicDirector {
         }
     }
 
-    /// Select a track for the classified mood using the theme rotator.
+    /// Select a themed track for the given mood and variation.
+    /// Uses "{mood}:{variation}" keying for per-variation anti-repetition.
+    /// Returns the track path, or None if no themed tracks are available.
+    fn select_themed_track(
+        &mut self,
+        classification: &MoodClassification,
+        variation: &TrackVariation,
+    ) -> Option<String> {
+        let mood_key = classification.primary.as_key();
+        let tracks = self
+            .themed_tracks
+            .get(mood_key)?
+            .get(variation)?;
+        if tracks.is_empty() {
+            return None;
+        }
+        // Use "{mood}:{variation}" keying for per-variation anti-repetition
+        let rotator_key = format!("{mood_key}:{variation:?}").to_lowercase();
+        self.rotator
+            .select(&rotator_key, tracks, classification.intensity)
+            .map(|t| t.path.clone())
+    }
+
+    /// Generate a human-readable reason for the variation selection (for OTEL telemetry).
+    fn describe_variation_reason(
+        &self,
+        variation: &TrackVariation,
+        ctx: &MoodContext,
+        classification: &MoodClassification,
+    ) -> String {
+        match variation {
+            TrackVariation::Overture if ctx.session_start => {
+                "priority_1_overture: session_start".to_string()
+            }
+            TrackVariation::Overture => {
+                "priority_1_overture: location_arrival".to_string()
+            }
+            TrackVariation::Resolution if ctx.combat_just_ended => {
+                "priority_2_resolution: combat_just_ended".to_string()
+            }
+            TrackVariation::Resolution => {
+                "priority_2_resolution: quest_completed".to_string()
+            }
+            TrackVariation::TensionBuild if classification.intensity >= 0.7 => {
+                format!("priority_3_tension_build: intensity={:.1}", classification.intensity)
+            }
+            TrackVariation::TensionBuild => {
+                format!("priority_3_tension_build: drama_weight={:.1}", ctx.drama_weight)
+            }
+            TrackVariation::Ambient if classification.intensity <= 0.3 => {
+                format!("priority_4_ambient: low_intensity={:.1}", classification.intensity)
+            }
+            TrackVariation::Ambient => {
+                format!("priority_4_ambient: scene_turn_count={}", ctx.scene_turn_count)
+            }
+            TrackVariation::Sparse => {
+                format!(
+                    "priority_5_sparse: intensity={:.1} drama={:.1}",
+                    classification.intensity, ctx.drama_weight
+                )
+            }
+            TrackVariation::Full => "priority_6_full: default_fallback".to_string(),
+            _ => format!("unknown_variation: {variation:?}"),
+        }
+    }
+
+    /// Select a track for the classified mood using the theme rotator (legacy flat lookup).
     /// Tries the primary key first, then genre pack aliases (e.g. "rest" for "calm").
     fn select_track(&mut self, classification: &MoodClassification) -> Option<&MoodTrack> {
         let mood_key = classification.primary.as_key();
@@ -424,6 +638,8 @@ impl MusicDirector {
             tracks_per_mood: self.mood_tracks.iter()
                 .map(|(k, v)| (k.clone(), v.iter().map(|t| t.title.clone()).collect()))
                 .collect(),
+            current_variation: self.current_variation.map(|v| format!("{v:?}").to_lowercase()),
+            variation_reason: self.variation_reason.clone(),
         }
     }
 

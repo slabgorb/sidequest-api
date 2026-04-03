@@ -15,9 +15,12 @@ pub(crate) async fn process_audio(
     clean_narration: &str,
     messages: &mut Vec<GameMessage>,
     result: &sidequest_agents::orchestrator::ActionResult,
+    location_changed: bool,
+    combat_just_ended: bool,
 ) {
     if let Some(ref mut director) = ctx.music_director {
         tracing::info!("music_director_present — evaluating mood");
+        let turn_number = ctx.turn_manager.interaction();
         let mood_ctx = sidequest_game::MoodContext {
             in_combat: ctx.combat_state.in_combat(),
             in_chase: ctx.chase_state.is_some(),
@@ -39,6 +42,12 @@ pub(crate) async fn process_audio(
                 };
                 encounter.and_then(|e| e.mood_override)
             },
+            // Story 12-1: cinematic variation context
+            location_changed,
+            scene_turn_count: if location_changed { 0 } else { turn_number as u32 },
+            drama_weight: ctx.combat_state.drama_weight() as f32,
+            combat_just_ended,
+            session_start: turn_number == 0,
         };
 
         // OTEL: log encounter mood override if active
@@ -101,8 +110,12 @@ pub(crate) async fn process_audio(
                             .map(|(mood, kw)| format!("{}:{}", mood, kw))
                             .collect::<Vec<_>>());
                 }
+                // Story 12-1: variation telemetry from post-evaluate snapshot
+                let post_telemetry = director.telemetry_snapshot();
                 builder
                     .field("track_selected", &cue.track_id)
+                    .field("variation", &post_telemetry.current_variation)
+                    .field("variation_reason", &post_telemetry.variation_reason)
                     .field("previous_mood", &pre_telemetry.current_mood)
                     .field("previous_track", &pre_telemetry.current_track)
                     .field("action", cue.action.to_string())

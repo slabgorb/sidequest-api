@@ -630,7 +630,7 @@ fn music_director_indexes_themes_by_variation() {
     use sidequest_game::TrackVariation;
 
     let config = config_with_themes();
-    let director = MusicDirector::new(&config);
+    let mut director = MusicDirector::new(&config);
 
     // The director should have themed tracks indexed
     // We verify through behavior: selecting an overture should return an overture track
@@ -706,7 +706,7 @@ fn theme_rotator_uses_variation_keying() {
         .any(|k| k.contains(':'));
     assert!(
         has_variation_key,
-        "rotation history should use '{mood}:{variation}' keying, got keys: {:?}",
+        "rotation history should use '{{mood}}:{{variation}}' keying, got keys: {:?}",
         telemetry.rotation_history.keys().collect::<Vec<_>>()
     );
 }

@@ -1532,6 +1532,46 @@ pub struct AudioVariation {
     pub path: String,
 }
 
+impl AudioVariation {
+    /// Convert the string `variation_type` to the typed [`TrackVariation`] enum.
+    /// Defaults to [`TrackVariation::Full`] for unrecognized types.
+    pub fn as_variation(&self) -> TrackVariation {
+        match self.variation_type.as_str() {
+            "full" => TrackVariation::Full,
+            "overture" => TrackVariation::Overture,
+            "ambient" => TrackVariation::Ambient,
+            "sparse" => TrackVariation::Sparse,
+            "tension_build" => TrackVariation::TensionBuild,
+            "resolution" => TrackVariation::Resolution,
+            _ => TrackVariation::Full,
+        }
+    }
+}
+
+/// Typed track variation — cinematic score cue categories.
+///
+/// Each variation represents a different energy/pacing role in the soundtrack.
+/// The [`MusicDirector`] selects a variation based on narrative context (session
+/// start, combat transitions, intensity, drama weight) then picks a track from
+/// the genre pack's themed variations for that category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum TrackVariation {
+    /// Default — peak dramatic moment.
+    Full,
+    /// First arrival, session start, major scene transition.
+    Overture,
+    /// Background during dialogue, quiet moments.
+    Ambient,
+    /// Low-intensity exploration, uncertainty.
+    Sparse,
+    /// Escalating stakes, approaching danger.
+    TensionBuild,
+    /// After combat ends, quest completion, winding down.
+    Resolution,
+}
+
 // ═══════════════════════════════════════════════════════════
 // cultures.yaml
 // ═══════════════════════════════════════════════════════════
