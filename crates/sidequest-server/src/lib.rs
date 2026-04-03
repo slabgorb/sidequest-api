@@ -1709,6 +1709,15 @@ async fn dispatch_message(
             }
             {
                 let aside = payload.action.starts_with("(aside)") || payload.action.starts_with("/aside");
+
+                // Monster Manual: load from disk, seed if needed (ADR-059)
+                let gs = session.genre_slug().unwrap_or("");
+                let ws = session.world_slug().unwrap_or("");
+                let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs, ws);
+                if monster_manual.needs_seeding() && !gs.is_empty() {
+                    dispatch::pregen::seed_manual(state, gs, &mut monster_manual);
+                }
+
                 let mut ctx = dispatch::DispatchContext {
                     action: &payload.action,
                     char_name: character_name.as_deref().unwrap_or("Unknown"),
@@ -1781,8 +1790,14 @@ async fn dispatch_message(
                     achievement_tracker,
                     snapshot,
                     tx: &tx,
+                    monster_manual: &mut monster_manual,
                 };
-                dispatch::dispatch_player_action(&mut ctx).await
+                let result = dispatch::dispatch_player_action(&mut ctx).await;
+
+                // Save Manual after dispatch (entries may have been marked Active)
+                ctx.monster_manual.save();
+
+                result
             }
         }
         // Journal browse — on-demand KnownFact retrieval (story 9-13)

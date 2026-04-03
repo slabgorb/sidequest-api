@@ -105,6 +105,10 @@ pub(crate) struct DispatchContext<'a> {
     /// Direct sender to the client WebSocket writer — used to emit narration
     /// immediately before state cleanup completes (approach A streaming).
     pub tx: &'a tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
+    /// Monster Manual — persistent pre-generated content pool (ADR-059).
+    /// Loaded from `~/.sidequest/manuals/{genre}_{world}.json` on session start.
+    /// NPCs and encounters injected into game_state for narrator to reference.
+    pub monster_manual: &'a mut sidequest_game::monster_manual::MonsterManual,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -243,6 +247,29 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         references_location: true,
     };
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
+
+    // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
+    {
+        let nearby = ctx.monster_manual.format_nearby_npcs();
+        let creatures = ctx.monster_manual.format_area_creatures();
+        if !nearby.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&nearby);
+        }
+        if !creatures.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&creatures);
+        }
+        let _mm_span = tracing::info_span!(
+            "monster_manual.injected",
+            available_npcs = ctx.monster_manual.available_npcs().len(),
+            available_encounters = ctx.monster_manual.available_encounters().len(),
+            total_npcs = ctx.monster_manual.npcs.len(),
+            total_encounters = ctx.monster_manual.encounters.len(),
+        ).entered();
+        tracing::info!("Monster Manual content injected into game_state");
+    }
+
     tracing::info!(
         raw = %ctx.action,
         "Prompt context built (preprocessor inlined into agent call)"
@@ -572,6 +599,29 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // NPC registry + OCEAN personality shifts
     update_npc_registry(ctx, &result, &clean_narration);
+
+    // Monster Manual: match narration against Manual NPCs, mark Active (ADR-059)
+    {
+        let mut activated = Vec::new();
+        for npc in &ctx.monster_manual.npcs {
+            if npc.state == sidequest_game::monster_manual::EntryState::Available
+                && clean_narration.contains(&npc.name)
+            {
+                activated.push(npc.name.clone());
+            }
+        }
+        for name in &activated {
+            ctx.monster_manual.mark_active(name);
+            tracing::info!(
+                npc_name = %name,
+                "monster_manual.npc_activated — narrator used pool NPC"
+            );
+            crate::WatcherEventBuilder::new("monster_manual", crate::WatcherEventType::StateTransition)
+                .field("action", "npc_activated")
+                .field("name", name)
+                .send(ctx.state);
+        }
+    }
 
     // Story 15-14: Enrich registry with structured NPC data (age, appearance, pronouns)
     // from GameSnapshot.npcs — update_npc_registry only gets regex-extracted data.

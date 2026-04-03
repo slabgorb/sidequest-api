@@ -927,6 +927,14 @@ pub(crate) async fn dispatch_character_creation(
                     };
 
                     let intro_messages: Vec<GameMessage> = {
+                        // Monster Manual: load/seed for opening turn (ADR-059)
+                        let gs_mm = session.genre_slug().unwrap_or("");
+                        let ws_mm = session.world_slug().unwrap_or("");
+                        let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs_mm, ws_mm);
+                        if monster_manual.needs_seeding() && !gs_mm.is_empty() {
+                            super::pregen::seed_manual(state, gs_mm, &mut monster_manual);
+                        }
+
                         let mut ctx = super::DispatchContext {
                             action: opening_seed
                                 .as_deref()
@@ -1010,8 +1018,11 @@ pub(crate) async fn dispatch_character_creation(
                             achievement_tracker,
                             snapshot,
                             tx,
+                            monster_manual: &mut monster_manual,
                         };
-                        super::dispatch_player_action(&mut ctx).await
+                        let result = super::dispatch_player_action(&mut ctx).await;
+                        ctx.monster_manual.save();
+                        result
                     };
 
                     // Emit CHARACTER_SHEET for the UI overlay
