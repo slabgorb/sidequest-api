@@ -1543,7 +1543,13 @@ impl AudioVariation {
             "sparse" => TrackVariation::Sparse,
             "tension_build" => TrackVariation::TensionBuild,
             "resolution" => TrackVariation::Resolution,
-            _ => TrackVariation::Full,
+            other => {
+                tracing::warn!(
+                    variation_type = %other,
+                    "unrecognized AudioVariation type, defaulting to Full"
+                );
+                TrackVariation::Full
+            }
         }
     }
 }

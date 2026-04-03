@@ -47,7 +47,7 @@ pub(crate) async fn process_audio(
             scene_turn_count: if location_changed { 0 } else { turn_number as u32 },
             drama_weight: ctx.combat_state.drama_weight() as f32,
             combat_just_ended,
-            session_start: turn_number == 0,
+            session_start: turn_number <= 1,
         };
 
         // OTEL: log encounter mood override if active

@@ -322,10 +322,21 @@ impl MusicDirector {
             }
             // Fallback: Full
             if preferred != TrackVariation::Full && mood_variations.contains_key(&TrackVariation::Full) {
+                tracing::warn!(
+                    mood = mood_key,
+                    preferred = ?preferred,
+                    "variation fallback: preferred not available, using Full"
+                );
                 return TrackVariation::Full;
             }
             // Fallback: any available
             if let Some((&first_available, _)) = mood_variations.iter().next() {
+                tracing::warn!(
+                    mood = mood_key,
+                    preferred = ?preferred,
+                    selected = ?first_available,
+                    "variation fallback: neither preferred nor Full available, using first available"
+                );
                 return first_available;
             }
         }
