@@ -124,23 +124,30 @@ fn narrator_prompt_has_no_fenced_json_example() {
 fn narrator_prompt_retains_core_identity() {
     // Sanity check: deletion should NOT remove the narrator's core identity,
     // pacing rules, agency rules, or constraint handling.
+    // Story 23-1: these are now in separate sections via build_context(),
+    // not all in system_prompt(). Check the composed output.
+    use sidequest_agents::agent::Agent;
+    use sidequest_agents::context_builder::ContextBuilder;
+
     let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
+    let mut builder = ContextBuilder::new();
+    narrator.build_context(&mut builder);
+    let composed = builder.compose();
 
     assert!(
-        prompt.contains("NARRATOR"),
-        "Narrator prompt must still identify the agent as NARRATOR"
+        composed.contains("Game Master"),
+        "Narrator prompt must still identify the agent as Game Master"
     );
     assert!(
-        prompt.contains("PACING"),
-        "Narrator prompt must still contain pacing guidance"
+        composed.contains("tweet-length"),
+        "Narrator prompt must still contain pacing/output-style guidance"
     );
     assert!(
-        prompt.contains("Agency"),
+        composed.contains("Agency"),
         "Narrator prompt must still contain agency rules"
     );
     assert!(
-        prompt.contains("CONSTRAINT HANDLING"),
+        composed.contains("INTERNAL INSTRUCTIONS"),
         "Narrator prompt must still contain constraint handling rules"
     );
 }
