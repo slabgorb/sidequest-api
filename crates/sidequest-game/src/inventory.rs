@@ -36,6 +36,10 @@ pub struct Item {
     pub equipped: bool,
     /// Stack count (consumables can stack).
     pub quantity: u32,
+    /// Remaining uses before this item is consumed. `None` means infinite.
+    /// Set from genre pack `item_catalog` entries (e.g., `resource_ticks: 6` for a torch).
+    #[serde(default)]
+    pub uses_remaining: Option<u32>,
 }
 
 impl Item {
@@ -112,6 +116,44 @@ impl Inventory {
     pub fn equipped(&self) -> Vec<&Item> {
         self.items.iter().filter(|item| item.equipped).collect()
     }
+
+    /// Decrement an item's `uses_remaining` by 1.
+    ///
+    /// - If `uses_remaining` is `None` (infinite): no-op, returns `None`.
+    /// - If `uses_remaining` is `Some(n)` where `n > 1`: decrements to `n - 1`, returns `None`.
+    /// - If `uses_remaining` is `Some(1)` or `Some(0)`: removes the item and returns it with
+    ///   `uses_remaining` set to `Some(0)`.
+    /// - If the item is not found: returns `None`.
+    pub fn consume_use(&mut self, id: &str) -> Option<Item> {
+        let pos = self.items.iter().position(|item| item.id.as_str() == id)?;
+
+        match self.items[pos].uses_remaining {
+            None => None, // infinite use
+            Some(n) if n <= 1 => {
+                let mut removed = self.items.remove(pos);
+                removed.uses_remaining = Some(0);
+                Some(removed)
+            }
+            Some(n) => {
+                self.items[pos].uses_remaining = Some(n - 1);
+                None
+            }
+        }
+    }
+
+    /// Deplete the first light source on a room transition.
+    ///
+    /// Finds the first item with tag `"light"` and calls [`consume_use`](Self::consume_use).
+    /// Returns the removed item if the light source was exhausted (for GameMessage emission).
+    pub fn deplete_light_on_transition(&mut self) -> Option<Item> {
+        let light_id = self
+            .items
+            .iter()
+            .find(|item| item.tags.iter().any(|t| t == "light"))
+            .map(|item| item.id.as_str().to_owned())?;
+
+        self.consume_use(&light_id)
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +173,7 @@ mod tests {
             tags: vec!["melee".to_string(), "blade".to_string()],
             equipped: true,
             quantity: 1,
+            uses_remaining: None,
         }
     }
 
@@ -147,6 +190,7 @@ mod tests {
             tags: vec!["healing".to_string()],
             equipped: false,
             quantity: 3,
+            uses_remaining: None,
         }
     }
 
@@ -167,6 +211,7 @@ mod tests {
             ],
             equipped: false,
             quantity: 1,
+            uses_remaining: None,
         }
     }
 

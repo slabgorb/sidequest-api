@@ -612,6 +612,7 @@ impl CharacterBuilder {
                     tags: vec![],
                     equipped: true,
                     quantity: 1,
+                    uses_remaining: None,
                 }
             })
             .collect();
