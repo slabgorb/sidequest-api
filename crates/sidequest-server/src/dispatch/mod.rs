@@ -1468,7 +1468,7 @@ async fn persist_game_state(
     }
 
     // Append the current narration entry to ctx.snapshot
-    ctx.snapshot.narrative_log.push(sidequest_game::NarrativeEntry {
+    let narrative_entry = sidequest_game::NarrativeEntry {
         timestamp: 0,
         round: ctx.turn_manager.interaction() as u32,
         author: "narrator".to_string(),
@@ -1477,7 +1477,8 @@ async fn persist_game_state(
         encounter_tags: vec![],
         speaker: None,
         entry_type: None,
-    });
+    };
+    ctx.snapshot.narrative_log.push(narrative_entry.clone());
 
     // Emit encounter OTEL event if active
     if let Some(ref enc) = ctx.snapshot.encounter {
@@ -1525,6 +1526,32 @@ async fn persist_game_state(
                 .field("player", ctx.player_name_for_save)
                 .field("turn", ctx.turn_manager.interaction())
                 .send(ctx.state);
+
+            // Also write to the dedicated narrative_log SQLite table
+            // (enables recent_narrative() for "Previously On..." reconnect recaps)
+            match ctx
+                .state
+                .persistence()
+                .append_narrative(
+                    ctx.genre_slug,
+                    ctx.world_slug,
+                    ctx.player_name_for_save,
+                    &narrative_entry,
+                )
+                .await
+            {
+                Ok(()) => {
+                    WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
+                        .field("event", "persistence.narrative_appended")
+                        .field("turn", ctx.turn_manager.interaction())
+                        .field("length", clean_narration.len())
+                        .field("player", ctx.player_name_for_save)
+                        .send(ctx.state);
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to append narrative to SQLite table");
+                }
+            }
         }
         Err(e) => {
             tracing::error!(error = %e, "Failed to persist game state");
