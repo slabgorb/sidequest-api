@@ -225,10 +225,10 @@ impl Orchestrator {
     /// Returns tool spec strings that let the narrator invoke registered script tools
     /// via `Bash(...)`. Empty if no tools are configured.
     pub fn narrator_allowed_tools(&self) -> Vec<String> {
-        self.script_tools
-            .values()
-            .map(|cfg| format!("Bash({}:*)", cfg.binary_path))
-            .collect()
+        // Claude CLI --allowedTools uses command-name patterns, not full paths.
+        // "Bash" enables all bash; "Bash(cmd:*)" restricts to a specific command.
+        // We allow all Bash so Claude can call any of our registered tool binaries.
+        vec!["Bash".to_string()]
     }
 
     /// Access the tension tracker (pacing engine).
