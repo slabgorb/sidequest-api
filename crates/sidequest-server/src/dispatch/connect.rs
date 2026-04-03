@@ -729,6 +729,7 @@ pub(crate) async fn dispatch_character_creation(
                                                     tags: catalog_item.tags.clone(),
                                                     equipped: false,
                                                     quantity: 1,
+                                                    uses_remaining: None,
                                                 });
                                             }
                                         } else {
@@ -753,6 +754,7 @@ pub(crate) async fn dispatch_character_creation(
                                                     tags: vec![],
                                                     equipped: false,
                                                     quantity: 1,
+                                                    uses_remaining: None,
                                                 });
                                             }
                                         }

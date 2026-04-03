@@ -52,6 +52,7 @@ fn test_item(id: &str, name: &str) -> Item {
         tags: vec![],
         equipped: false,
         quantity: 1,
+        uses_remaining: None,
     }
 }
 

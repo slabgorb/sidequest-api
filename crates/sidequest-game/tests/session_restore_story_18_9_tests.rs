@@ -90,6 +90,7 @@ fn rich_inventory() -> Inventory {
                 tags: vec!["melee".to_string(), "blade".to_string()],
                 equipped: true,
                 quantity: 1,
+                uses_remaining: None,
             },
             Item {
                 id: NonBlankString::new("potion_healing").unwrap(),
@@ -103,6 +104,7 @@ fn rich_inventory() -> Inventory {
                 tags: vec!["healing".to_string()],
                 equipped: false,
                 quantity: 3,
+                uses_remaining: None,
             },
             Item {
                 id: NonBlankString::new("amulet_whispers").unwrap(),
@@ -119,6 +121,7 @@ fn rich_inventory() -> Inventory {
                 tags: vec!["magic".to_string(), "mystery".to_string()],
                 equipped: true,
                 quantity: 1,
+                uses_remaining: None,
             },
         ],
         gold: 150,
@@ -567,6 +570,7 @@ fn persistence_overwrite_preserves_latest_inventory() {
         tags: vec!["gem".to_string()],
         equipped: false,
         quantity: 1,
+                uses_remaining: None,
     });
     snapshot.characters[0].core.inventory.gold = 225;
 
