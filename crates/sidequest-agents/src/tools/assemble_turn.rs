@@ -50,6 +50,10 @@ pub struct ToolCallResults {
     /// `None` means no merchant_transact tools fired (use narrator fallback).
     /// `Some(vec)` means tools fired — use this vec even if empty.
     pub merchant_transactions: Option<Vec<MerchantTransactionExtracted>>,
+    /// Lore facts from `lore_mark` tool calls. Overrides narrator's `lore_established`.
+    /// `None` means no lore_mark tools fired (use narrator fallback).
+    /// `Some(vec)` means tools fired — use this vec even if empty.
+    pub lore_established: Option<Vec<String>>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
@@ -83,6 +87,8 @@ pub fn assemble_turn(
     let items_gained = tool_results.items_acquired.unwrap_or(extraction.items_gained);
     // Merchant transactions: tool calls > narrator extraction
     let merchant_transactions = tool_results.merchant_transactions.unwrap_or(extraction.merchant_transactions);
+    // Lore established: tool calls > narrator extraction
+    let lore_established = tool_results.lore_established.or(extraction.lore_established);
 
     ActionResult {
         narration: extraction.prose,
@@ -104,7 +110,7 @@ pub fn assemble_turn(
         scene_intent,
         resource_deltas,
         zone_breakdown: None,
-        lore_established: extraction.lore_established,
+        lore_established,
         merchant_transactions,
         sfx_triggers,
         // Preprocessor values always win — narrator's action_rewrite/action_flags are discarded

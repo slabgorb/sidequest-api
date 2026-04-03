@@ -14,6 +14,7 @@ use tracing::{info, warn};
 
 use crate::tools::assemble_turn::ToolCallResults;
 use crate::tools::item_acquire::validate_item_acquire;
+use crate::tools::lore_mark::validate_lore_mark;
 use crate::tools::merchant_transact::validate_merchant_transact;
 use crate::tools::personality_event::validate_personality_event;
 use crate::tools::scene_render::validate_scene_render;
@@ -169,6 +170,35 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     }
                 } else {
                     warn!(tool = "merchant_transact", "missing required fields (transaction_type/item_id/merchant) in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "lore_mark" => {
+                let text = record.result.get("text").and_then(|v| v.as_str());
+                let category = record.result.get("category").and_then(|v| v.as_str());
+                let confidence = record.result.get("confidence").and_then(|v| v.as_str());
+
+                if let (Some(text), Some(category), Some(confidence)) = (text, category, confidence) {
+                    match validate_lore_mark(text, category, confidence) {
+                        Ok(validated) => {
+                            info!(
+                                tool = "lore_mark",
+                                text = validated.text(),
+                                category = validated.category(),
+                                confidence = validated.confidence(),
+                                "tool result parsed"
+                            );
+                            let lore = results.lore_established.get_or_insert_with(Vec::new);
+                            lore.push(validated.to_lore_text());
+                            parsed_count += 1;
+                        }
+                        Err(e) => {
+                            warn!(tool = "lore_mark", error = %e, "lore_mark validation failed — skipping");
+                            skipped_count += 1;
+                        }
+                    }
+                } else {
+                    warn!(tool = "lore_mark", "missing required fields (text/category/confidence) in result — skipping");
                     skipped_count += 1;
                 }
             }
