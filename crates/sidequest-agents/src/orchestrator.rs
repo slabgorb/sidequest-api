@@ -302,54 +302,39 @@ impl Orchestrator {
             ));
         }
 
-        // Script tool instructions (Situational zone — high attention, must be seen)
-        // Wrapper scripts in tools/ translate env vars to CLI flags and call the
-        // actual binaries. Claude sees clean command names it knows how to call.
+        // Tool workflow (Primacy zone — mandatory procedure before narration)
+        // OQ-2 created wrapper scripts in tools/ that translate env vars to CLI flags.
+        // PATH is prepended so Claude can call wrapper names directly.
         let mut env_vars: HashMap<String, String> = HashMap::new();
         if let Some(ref genre) = context.genre {
+            let mut tool_commands = Vec::new();
             for (tool_name, cfg) in &self.script_tools {
                 // Derive the tools/ directory from the binary path
-                // e.g., /path/to/target/debug/sidequest-namegen → /path/to/tools/
                 let tools_dir = std::path::Path::new(&cfg.binary_path)
-                    .parent() // target/debug/
-                    .and_then(|p| p.parent()) // target/
-                    .and_then(|p| p.parent()) // sidequest-api/
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .and_then(|p| p.parent())
                     .map(|p| p.join("tools"))
                     .unwrap_or_else(|| std::path::PathBuf::from("tools"));
-                // Prepend tools dir to PATH so Claude can find the wrappers
                 let current_path = std::env::var("PATH").unwrap_or_default();
                 env_vars.insert("PATH".to_string(), format!("{}:{}", tools_dir.display(), current_path));
 
-                let tool_section = match tool_name.as_str() {
-                    "encountergen" => "\
-<tool name=\"ENCOUNTER\">\n\
-When to call: any time new enemies enter the scene. Pick flags based on narrative context.\n\
-<command>sidequest-encounter [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]</command>\n\
-<usage>\n\
-- [ ] Use the generated name in your narration\n\
-- [ ] Reference abilities from the abilities list (not invented ones)\n\
-</usage>\n\
-</tool>".to_string(),
-                    "namegen" => "\
-<tool name=\"NPC\">\n\
-MANDATORY: Call this BEFORE introducing any new NPC. Do NOT invent NPC names.\n\
-<command>sidequest-npc [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]</command>\n\
-<usage>\n\
-- [ ] Use the generated name exactly — do NOT modify or replace it\n\
-- [ ] Use dialogue_quirks to flavor their speech\n\
-- [ ] Reference their role and appearance in narration\n\
-</usage>\n\
-</tool>".to_string(),
-                    "loadoutgen" => "\
-<tool name=\"LOADOUT\">\n\
-When to call: at character creation when introducing the character's starting gear.\n\
-<command>sidequest-loadout --class CLASS [--tier N]</command>\n\
-<usage>\n\
-- [ ] Weave the narrative_hook into the opening scene naturally\n\
-- [ ] Reference specific items by name when the character uses them\n\
-- [ ] Use the currency_name for all money references\n\
-</usage>\n\
-</tool>".to_string(),
+                match tool_name.as_str() {
+                    "encountergen" => {
+                        tool_commands.push(
+                            "ENCOUNTER: sidequest-encounter [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]".to_string()
+                        );
+                    }
+                    "namegen" => {
+                        tool_commands.push(
+                            "NPC: sidequest-npc [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]".to_string()
+                        );
+                    }
+                    "loadoutgen" => {
+                        tool_commands.push(
+                            "LOADOUT: sidequest-loadout --class CLASS [--tier N]".to_string()
+                        );
+                    }
                     unknown => {
                         warn!(
                             tool = %unknown,
@@ -357,14 +342,36 @@ When to call: at character creation when introducing the character's starting ge
                         );
                         continue;
                     }
-                };
-                builder.add_section(PromptSection::new(
-                    &format!("script_tool_{}", tool_name),
-                    tool_section,
-                    AttentionZone::Early,
-                    SectionCategory::State,
-                ));
+                }
                 script_tools_injected.push(tool_name.clone());
+            }
+            if !tool_commands.is_empty() {
+                let workflow = format!("\
+<tool_workflow>\n\
+MANDATORY PROCEDURE — follow these steps IN ORDER:\n\
+\n\
+Step 1: BEFORE writing any narration, check if you need to:\n\
+  - Introduce a new NPC → call the NPC tool via Bash\n\
+  - Start combat with new enemies → call the ENCOUNTER tool via Bash\n\
+  - Generate starting equipment → call the LOADOUT tool via Bash\n\
+\n\
+Step 2: If Step 1 applies, call the tool NOW using the Bash tool. Wait for the result.\n\
+\n\
+Step 3: Write your narration using the tool's output (names, stats, abilities, items).\n\
+  - Use the EXACT name from the tool output. Do NOT invent or modify names.\n\
+  - Reference abilities and items from the tool output, not invented ones.\n\
+\n\
+If no new NPCs, enemies, or equipment are needed this turn, skip to Step 3.\n\
+\n\
+Available tools (run via Bash):\n\
+{}\n\
+</tool_workflow>", tool_commands.join("\n"));
+                builder.add_section(PromptSection::new(
+                    "tool_workflow",
+                    workflow,
+                    AttentionZone::Primacy,
+                    SectionCategory::Identity,
+                ));
             }
             // Set env vars for tool wrappers (story 23-11: env vars replace CLI flags)
             env_vars.insert("SIDEQUEST_GENRE".to_string(), genre.clone());
