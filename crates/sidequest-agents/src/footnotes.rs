@@ -33,6 +33,7 @@ pub fn footnotes_to_discovered_facts(
                 learned_turn: turn,
                 source: source.clone(),
                 confidence: Confidence::Certain,
+                category: f.category,
             },
         })
         .collect()

@@ -327,6 +327,24 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// Client requests accumulated journal entries (story 9-13).
+    #[serde(rename = "JOURNAL_REQUEST")]
+    JournalRequest {
+        /// The typed payload for this message.
+        payload: JournalRequestPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
+    /// Server responds with journal entries (story 9-13).
+    #[serde(rename = "JOURNAL_RESPONSE")]
+    JournalResponse {
+        /// The typed payload for this message.
+        payload: JournalResponsePayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1030,4 +1048,64 @@ pub struct AchievementEarnedPayload {
     /// Optional emoji for UI display.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub emoji: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Journal browse (Story 9-13)
+// ---------------------------------------------------------------------------
+
+/// Sort order for journal entries.
+///
+/// Story 9-13: Controls how journal entries are ordered in the response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum JournalSortOrder {
+    /// Sort by learned_turn, newest first.
+    Time,
+    /// Group by FactCategory, newest first within each group.
+    Category,
+}
+
+/// Request payload for journal browse (client → server).
+///
+/// Story 9-13: Client requests accumulated KnownFacts, optionally filtered
+/// by category and sorted.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JournalRequestPayload {
+    /// Optional category filter. None = all categories.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<FactCategory>,
+    /// Sort order for results.
+    pub sort_by: JournalSortOrder,
+}
+
+/// Response payload for journal browse (server → client).
+///
+/// Story 9-13: Server returns accumulated journal entries from character's
+/// KnownFacts, filtered and sorted per request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JournalResponsePayload {
+    /// Journal entries matching the request filter/sort.
+    pub entries: Vec<JournalEntry>,
+}
+
+/// A single journal entry for the browse view.
+///
+/// Story 9-13: Wire representation of a KnownFact for the React client.
+/// Source and confidence are strings (Display format of their Rust enums)
+/// for UI simplicity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JournalEntry {
+    /// Unique identifier for this fact.
+    pub fact_id: String,
+    /// The fact content in genre voice.
+    pub content: String,
+    /// Classification category.
+    pub category: FactCategory,
+    /// How the fact was acquired (e.g., "Observation", "Dialogue", "Discovery").
+    pub source: String,
+    /// Confidence level (e.g., "Certain", "Suspected", "Rumored").
+    pub confidence: String,
+    /// Turn number when this fact was learned.
+    pub learned_turn: u64,
 }

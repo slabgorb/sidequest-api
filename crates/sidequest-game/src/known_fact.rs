@@ -5,6 +5,7 @@
 //! Facts are monotonic — no deletion or decay in this epic.
 
 use serde::{Deserialize, Serialize};
+use sidequest_protocol::FactCategory;
 
 /// A fact the character learned during play.
 ///
@@ -21,6 +22,14 @@ pub struct KnownFact {
     pub source: FactSource,
     /// How confident the character is in this fact.
     pub confidence: Confidence,
+    /// Classification category (Lore, Place, Person, Quest, Ability).
+    /// Story 9-13: Flows from Footnote → DiscoveredFact → KnownFact.
+    #[serde(default = "default_category")]
+    pub category: FactCategory,
+}
+
+fn default_category() -> FactCategory {
+    FactCategory::Lore
 }
 
 /// How a fact was acquired.
@@ -46,6 +55,27 @@ pub enum Confidence {
     Suspected,
     /// Hearsay — may be wrong.
     Rumored,
+}
+
+impl std::fmt::Display for FactSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Observation => write!(f, "Observation"),
+            Self::Dialogue => write!(f, "Dialogue"),
+            Self::Discovery => write!(f, "Discovery"),
+            Self::Backstory => write!(f, "Backstory"),
+        }
+    }
+}
+
+impl std::fmt::Display for Confidence {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Certain => write!(f, "Certain"),
+            Self::Suspected => write!(f, "Suspected"),
+            Self::Rumored => write!(f, "Rumored"),
+        }
+    }
 }
 
 /// A fact discovered during a turn, tagged with the character who learned it.

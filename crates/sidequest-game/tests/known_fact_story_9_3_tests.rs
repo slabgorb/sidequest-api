@@ -32,6 +32,7 @@ fn make_fact(content: &str, turn: u64, source: FactSource, confidence: Confidenc
         learned_turn: turn,
         source,
         confidence,
+        category: sidequest_protocol::FactCategory::Lore,
     }
 }
 
