@@ -31,7 +31,7 @@ fn npc_state_with_claim(subject: &str, content: &str, turn: u64, source_npc: &st
         content: content.to_string(),
         turn_learned: turn,
         source: BeliefSource::ToldBy(source_npc.to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state
 }
@@ -272,14 +272,14 @@ fn detect_contradictions_finds_conflicting_claims() {
         content: "The butler did it".to_string(),
         turn_learned: 1,
         source: BeliefSource::ToldBy("Alice".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.add_belief(Belief::Claim {
         subject: "murder".to_string(),
         content: "The cook did it".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);
@@ -304,7 +304,7 @@ fn detect_contradictions_returns_empty_for_consistent_beliefs() {
         content: "Dagger in library".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);
@@ -322,14 +322,14 @@ fn detect_contradictions_ignores_different_subjects() {
         content: "The butler did it".to_string(),
         turn_learned: 1,
         source: BeliefSource::ToldBy("Alice".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.add_belief(Belief::Claim {
         subject: "theft".to_string(),
         content: "The cook stole it".to_string(),
         turn_learned: 2,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);
@@ -347,14 +347,14 @@ fn contradiction_carries_both_beliefs() {
         content: "The butler".to_string(),
         turn_learned: 1,
         source: BeliefSource::ToldBy("Alice".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.add_belief(Belief::Claim {
         subject: "killer".to_string(),
         content: "The cook".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true,
+        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);

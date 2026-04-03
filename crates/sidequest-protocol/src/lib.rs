@@ -23,3 +23,11 @@ mod tests;
 #[cfg(test)]
 #[path = "action_reveal_tests.rs"]
 mod action_reveal_tests;
+
+#[cfg(test)]
+#[path = "narrator_verbosity_story_14_3_tests.rs"]
+mod narrator_verbosity_story_14_3_tests;
+
+#[cfg(test)]
+#[path = "narrator_vocabulary_story_14_4_tests.rs"]
+mod narrator_vocabulary_story_14_4_tests;

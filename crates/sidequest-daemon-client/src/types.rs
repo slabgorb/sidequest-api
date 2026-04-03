@@ -35,6 +35,16 @@ pub struct RenderParams {
     /// Flux doesn't use negative prompts natively, but future models (SDXL) will.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub negative_prompt: String,
+    /// Raw narration text — when present, the daemon runs LLM-based SubjectExtractor
+    /// to produce visual image prompts instead of using the raw `prompt` field.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub narration: String,
+    /// Target image width in pixels (from tier_to_dimensions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    /// Target image height in pixels (from tier_to_dimensions).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
 }
 
 /// Parameters for a `tts` (text-to-speech) request.
@@ -100,6 +110,30 @@ pub struct TtsResult {
 pub struct WarmUpParams {
     /// The worker/model to warm up (e.g. "flux", "kokoro").
     pub worker: String,
+}
+
+/// Parameters for an `embed` request (story 15-7).
+///
+/// Sent to the daemon's embed worker to generate sentence embeddings
+/// for semantic lore retrieval.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedParams {
+    /// The text to generate an embedding for.
+    pub text: String,
+}
+
+/// Result from an `embed` request (story 15-7).
+///
+/// Contains the embedding vector and metadata for OTEL telemetry
+/// (`lore.embedding_generated` event needs `model` and `latency_ms`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbedResult {
+    /// The embedding vector (e.g. 384-dimensional for all-MiniLM-L6-v2).
+    pub embedding: Vec<f32>,
+    /// Name of the embedding model used.
+    pub model: String,
+    /// Time taken to generate the embedding in milliseconds.
+    pub latency_ms: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -196,6 +230,6 @@ pub fn build_request_json(method: &str, params: &impl Serialize) -> serde_json::
     serde_json::json!({
         "id": Uuid::new_v4().to_string(),
         "method": method,
-        "params": serde_json::to_value(params).unwrap_or(serde_json::Value::Object(Default::default())),
+        "params": serde_json::to_value(params).expect("Failed to serialize RPC params"),
     })
 }

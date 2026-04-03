@@ -137,6 +137,31 @@ pub struct MoodContext {
     pub quest_completed: bool,
     /// Whether an NPC died this turn.
     pub npc_died: bool,
+    /// Mood override from active StructuredEncounter (highest priority).
+    pub encounter_mood_override: Option<String>,
+}
+
+/// OTEL telemetry snapshot for the music director's current state.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MusicTelemetry {
+    pub current_mood: Option<String>,
+    pub current_track: Option<String>,
+    /// Per-mood recently-played track titles (the anti-repetition history).
+    pub rotation_history: HashMap<String, Vec<String>>,
+    /// All mood keys available in the genre pack.
+    pub available_moods: Vec<String>,
+    /// Track titles available per mood.
+    pub tracks_per_mood: HashMap<String, Vec<String>>,
+}
+
+/// Mood classification with human-readable reasoning for OTEL telemetry.
+#[derive(Debug, Clone)]
+pub struct MoodClassificationWithReason {
+    pub classification: MoodClassification,
+    /// Why this mood was chosen (e.g. "state_override: in_combat", "keyword_scoring: tension (score=3.0)").
+    pub reason: String,
+    /// (mood_key, keyword) pairs that matched in narration text.
+    pub keyword_matches: Vec<(String, String)>,
 }
 
 // ───────────────────────────────────────────────────────────────────
@@ -145,7 +170,6 @@ pub struct MoodContext {
 
 /// Evaluates narration and game state to produce mood-based music cues.
 pub struct MusicDirector {
-    mood_keywords: HashMap<String, Vec<String>>,
     mood_tracks: HashMap<String, Vec<MoodTrack>>,
     current_mood: Option<Mood>,
     current_track: Option<String>,
@@ -155,12 +179,6 @@ pub struct MusicDirector {
 impl MusicDirector {
     /// Create a new MusicDirector from genre pack audio configuration.
     pub fn new(audio_config: &AudioConfig) -> Self {
-        let mut mood_keywords = audio_config.mood_keywords.clone();
-        // Provide sensible defaults if genre pack omits mood_keywords
-        if mood_keywords.is_empty() {
-            mood_keywords = Self::default_mood_keywords();
-        }
-
         // Start with mood_tracks from the genre pack
         let mut mood_tracks = audio_config.mood_tracks.clone();
 
@@ -212,7 +230,6 @@ impl MusicDirector {
         );
 
         Self {
-            mood_keywords,
             mood_tracks,
             current_mood: None,
             current_track: None,
@@ -283,7 +300,15 @@ impl MusicDirector {
     }
 
     /// Inner classification logic (extracted so span wraps the full result).
-    fn classify_mood_inner(&self, narration: &str, ctx: &MoodContext) -> MoodClassification {
+    fn classify_mood_inner(&self, _narration: &str, ctx: &MoodContext) -> MoodClassification {
+        // Encounter mood override takes highest priority
+        if let Some(ref mood_key) = ctx.encounter_mood_override {
+            return MoodClassification {
+                primary: Self::key_to_mood(mood_key),
+                intensity: 0.85,
+                confidence: 0.95,
+            };
+        }
         // State-based overrides take priority
         if ctx.in_combat {
             return MoodClassification {
@@ -322,31 +347,10 @@ impl MusicDirector {
             };
         }
 
-        // Keyword scoring
-        let lower = narration.to_lowercase();
-        let mut scores: HashMap<&str, f32> = HashMap::new();
-
-        for (mood_key, keywords) in &self.mood_keywords {
-            let count = keywords.iter().filter(|kw| lower.contains(kw.as_str())).count();
-            if count > 0 {
-                *scores.entry(mood_key.as_str()).or_default() += count as f32;
-            }
-        }
-
-        // Highest scoring mood wins
-        if let Some((mood_key, score)) = scores
-            .into_iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-        {
-            let primary = Self::key_to_mood(mood_key);
-            return MoodClassification {
-                primary,
-                intensity: (score / 5.0).clamp(0.3, 1.0),
-                confidence: (score / 3.0).clamp(0.0, 1.0),
-            };
-        }
-
-        // Default: Exploration
+        // No state-based override matched. The dispatch pipeline uses the narrator's
+        // scene_mood (structured JSON) for track selection. This classification is only
+        // used for OTEL telemetry comparison. Default to Exploration at low confidence
+        // so the telemetry clearly shows "no mechanical mood detected."
         MoodClassification {
             primary: Mood::Exploration,
             intensity: 0.4,
@@ -409,81 +413,81 @@ impl MusicDirector {
         }
     }
 
-    /// Default mood keywords when genre pack doesn't provide them.
-    fn default_mood_keywords() -> HashMap<String, Vec<String>> {
-        let mut kw = HashMap::new();
-        kw.insert(
-            "combat".to_string(),
-            vec![
-                "attack", "sword", "strike", "fight", "battle", "clash", "slash",
-                "punch", "blood", "wound", "damage", "charge", "parry", "dodge",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "tension".to_string(),
-            vec![
-                "danger", "lurk", "shadow", "creep", "ominous", "threat", "dread",
-                "suspense", "trap", "ambush", "stalk", "menace",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "triumph".to_string(),
-            vec![
-                "victory", "triumph", "celebrate", "succeed", "glory", "champion",
-                "conquer", "reward", "treasure",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "sorrow".to_string(),
-            vec![
-                "death", "mourn", "grief", "loss", "weep", "fallen", "farewell",
-                "tragic", "bury",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "mystery".to_string(),
-            vec![
-                "strange", "mystery", "puzzle", "riddle", "hidden", "secret",
-                "ancient", "rune", "arcane", "whisper",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "calm".to_string(),
-            vec![
-                "rest", "sleep", "peaceful", "tavern", "inn", "campfire", "heal",
-                "quiet", "serene", "safe",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw.insert(
-            "exploration".to_string(),
-            vec![
-                "walk", "travel", "road", "path", "forest", "mountain", "river",
-                "village", "arrive", "discover", "enter",
-            ]
-            .into_iter()
-            .map(String::from)
-            .collect(),
-        );
-        kw
+    /// Return the current mood, current track, and per-mood rotation history
+    /// for OTEL dashboard telemetry.
+    pub fn telemetry_snapshot(&self) -> MusicTelemetry {
+        MusicTelemetry {
+            current_mood: self.current_mood.map(|m| m.as_key().to_string()),
+            current_track: self.current_track.clone(),
+            rotation_history: self.rotator.history_snapshot(),
+            available_moods: self.mood_tracks.keys().cloned().collect(),
+            tracks_per_mood: self.mood_tracks.iter()
+                .map(|(k, v)| (k.clone(), v.iter().map(|t| t.title.clone()).collect()))
+                .collect(),
+        }
     }
+
+    /// Classify mood and return both the classification result and the keyword matches
+    /// that led to it (for OTEL telemetry).
+    pub fn classify_mood_with_reasoning(&self, _narration: &str, ctx: &MoodContext) -> MoodClassificationWithReason {
+        // Encounter mood override takes highest priority
+        if let Some(ref mood_key) = ctx.encounter_mood_override {
+            return MoodClassificationWithReason {
+                classification: MoodClassification {
+                    primary: Self::key_to_mood(mood_key),
+                    intensity: 0.85,
+                    confidence: 0.95,
+                },
+                reason: format!("encounter_override: {}", mood_key),
+                keyword_matches: vec![],
+            };
+        }
+        // State-based overrides
+        if ctx.in_combat {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Combat, intensity: 0.8, confidence: 1.0 },
+                reason: "state_override: in_combat".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.in_chase {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Tension, intensity: 0.9, confidence: 1.0 },
+                reason: "state_override: in_chase".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.quest_completed {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Triumph, intensity: 0.7, confidence: 0.9 },
+                reason: "state_override: quest_completed".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.npc_died {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Sorrow, intensity: 0.7, confidence: 0.8 },
+                reason: "state_override: npc_died".to_string(),
+                keyword_matches: vec![],
+            };
+        }
+        if ctx.party_health_pct > 0.0 && ctx.party_health_pct < 0.3 {
+            return MoodClassificationWithReason {
+                classification: MoodClassification { primary: Mood::Tension, intensity: 0.6, confidence: 0.7 },
+                reason: format!("state_override: low_health ({}%)", (ctx.party_health_pct * 100.0) as u8),
+                keyword_matches: vec![],
+            };
+        }
+
+        // No state-based override. Narrator's scene_mood is used for track selection
+        // in the dispatch pipeline. This telemetry classification defaults to Exploration.
+        MoodClassificationWithReason {
+            classification: MoodClassification { primary: Mood::Exploration, intensity: 0.4, confidence: 0.2 },
+            reason: "default: no state override, defer to narrator scene_mood".to_string(),
+            keyword_matches: vec![],
+        }
+    }
+
 }
 
 impl std::fmt::Debug for MusicDirector {
@@ -550,6 +554,7 @@ mod tests {
 
         AudioConfig {
             mood_tracks,
+            mood_keywords: HashMap::new(),
             sfx_library: HashMap::new(),
             creature_voice_presets: HashMap::new(),
             mixer: MixerConfig {
@@ -562,7 +567,6 @@ mod tests {
             },
             themes: vec![],
             ai_generation: None,
-            mood_keywords: HashMap::new(), // Use defaults
             mixer_defaults: None,
         }
     }
@@ -589,16 +593,19 @@ mod tests {
     }
 
     #[test]
-    fn keyword_scoring_picks_combat() {
+    fn no_state_override_defaults_to_exploration() {
         let config = test_audio_config();
         let director = MusicDirector::new(&config);
 
+        // Without state overrides (in_combat, in_chase, etc.), mood defaults to
+        // Exploration regardless of narration content. The dispatch pipeline uses
+        // the narrator's scene_mood for track selection, not keyword classification.
         let ctx = MoodContext::default();
         let classification = director.classify_mood(
             "The warrior draws his sword and charges into the fight, clashing blades",
             &ctx,
         );
-        assert_eq!(classification.primary, Mood::Combat);
+        assert_eq!(classification.primary, Mood::Exploration);
     }
 
     #[test]

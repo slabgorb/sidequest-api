@@ -12,8 +12,11 @@ use std::path::Path;
 pub struct SoulPrinciple {
     /// Principle name (e.g., "Agency", "Living World").
     pub name: String,
-    /// Principle body text.
+    /// Principle body text (with `<agents>` tag stripped).
     pub text: String,
+    /// Which agents receive this principle. Parsed from `<agents>all</agents>` tag.
+    /// `all` = every agent, `none` = design-only (no agents), or comma-separated names.
+    pub agents: Vec<String>,
 }
 
 /// Parsed SOUL.md structure — all principles in document order.
@@ -54,6 +57,20 @@ impl SoulData {
             .collect::<Vec<_>>()
             .join("\n")
     }
+
+    /// Format principles for a specific agent, filtering by `<agents>` tags.
+    /// Includes principles tagged `all` or containing the agent name.
+    /// Excludes principles tagged `none`.
+    pub fn as_prompt_text_for(&self, agent: &str) -> String {
+        self.principles
+            .iter()
+            .filter(|p| {
+                p.agents.iter().any(|a| a == "all" || a == agent)
+            })
+            .map(|p| format!("- {}: {}", p.name, p.text))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 /// Parse a SOUL.md file and return the structured data.
@@ -85,13 +102,24 @@ pub fn parse_soul_md(path: &Path) -> SoulData {
     // Extract description: text between title line and first principle.
     let description = extract_description(&content);
 
-    // Extract **Name.** Body text patterns.
+    // Extract **Name.** Body text patterns, with optional <agents>tag</agents>.
     let re = Regex::new(r"\*\*([^*]+?)\.\*\*\s*(.+)").unwrap();
+    let agents_re = Regex::new(r"<agents>([^<]+)</agents>\s*").unwrap();
     let principles: Vec<SoulPrinciple> = re
         .captures_iter(&content)
-        .map(|cap| SoulPrinciple {
-            name: cap[1].to_string(),
-            text: cap[2].trim().to_string(),
+        .map(|cap| {
+            let raw_text = cap[2].trim().to_string();
+            let agents = agents_re
+                .captures(&raw_text)
+                .map(|ac| {
+                    ac[1]
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| vec!["all".to_string()]);
+            let text = agents_re.replace(&raw_text, "").trim().to_string();
+            SoulPrinciple { name: cap[1].to_string(), text, agents }
         })
         .collect();
 

@@ -8,8 +8,6 @@ use std::collections::HashMap;
 // These modules don't exist yet — compilation will fail (RED state).
 use sidequest_agents::agent::{Agent, AgentResponse};
 use sidequest_agents::context_builder::ContextBuilder;
-use sidequest_agents::extractor::JsonExtractor;
-
 // New modules that story 1-11 must create:
 use sidequest_agents::agents::creature_smith::CreatureSmithAgent;
 use sidequest_agents::agents::dialectician::DialecticianAgent;
@@ -151,11 +149,11 @@ mod agent_types_tests {
     #[test]
     fn chase_patch_deserializes_from_json() {
         let json = r#"{
-            "separation": 15,
+            "separation_delta": 15,
             "phase": "pursuit"
         }"#;
         let patch: ChasePatch = serde_json::from_str(json).unwrap();
-        assert_eq!(patch.separation, Some(15));
+        assert_eq!(patch.separation_delta, Some(15));
     }
 
     #[test]
@@ -163,9 +161,7 @@ mod agent_types_tests {
         // ActionResult must carry narration text and optional state changes
         let result = ActionResult {
             narration: "You enter the dimly lit tavern.".to_string(),
-            state_delta: None,
-            combat_events: vec![],
-            combat_patch: None,
+            combat_patch: None, chase_patch: None,
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -176,52 +172,21 @@ mod agent_types_tests {
             agent_duration_ms: None,
             token_count_in: None,
             token_count_out: None,
-            extraction_tier: None,
+
+            visual_scene: None,
+            scene_mood: None,
+            personality_events: vec![],
+            scene_intent: None,
+            resource_deltas: HashMap::new(),
+            zone_breakdown: None,
+            lore_established: None,
+            action_rewrite: None,
+            action_flags: None,
+            sfx_triggers: vec![],
+            merchant_transactions: vec![],
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
-    }
-}
-
-// ============================================================
-// AC 3: JsonExtractor validates all JSON payloads
-// ============================================================
-
-mod json_extraction_tests {
-    use super::*;
-
-    #[test]
-    fn extract_world_state_patch_from_fenced_json() {
-        let llm_output = r#"Here's the world state update:
-
-```json
-{
-    "location": "The Broken Bridge",
-    "atmosphere": "An eerie fog rolls in"
-}
-```
-
-The world has been updated."#;
-        let patch: WorldStatePatch = JsonExtractor::extract(llm_output).unwrap();
-        assert_eq!(patch.location.as_deref(), Some("The Broken Bridge"));
-        assert_eq!(patch.atmosphere.as_deref(), Some("An eerie fog rolls in"));
-    }
-
-    #[test]
-    fn extract_combat_patch_from_prose_with_json() {
-        let llm_output = r#"The goblin strikes! Here's the result:
-{"in_combat": true, "hp_changes": {"Gorm": -8}, "drama_weight": 0.6}
-That was a brutal hit."#;
-        let patch: CombatPatch = JsonExtractor::extract(llm_output).unwrap();
-        assert_eq!(patch.in_combat, Some(true));
-        assert_eq!(patch.hp_changes.as_ref().unwrap().get("Gorm"), Some(&-8));
-    }
-
-    #[test]
-    fn extract_chase_patch_from_direct_json() {
-        let json = r#"{"separation": 20, "phase": "escape"}"#;
-        let patch: ChasePatch = JsonExtractor::extract(json).unwrap();
-        assert_eq!(patch.separation, Some(20));
     }
 }
 
@@ -236,7 +201,10 @@ mod context_building_tests {
     #[test]
     fn narrator_has_system_prompt() {
         let agent = NarratorAgent::new();
-        assert!(!agent.system_prompt().is_empty(), "Narrator must have a system prompt");
+        assert!(
+            !agent.system_prompt().is_empty(),
+            "Narrator must have a system prompt"
+        );
     }
 
     #[test]
@@ -303,13 +271,14 @@ mod intent_routing_tests {
     #[test]
     fn intent_route_defaults_to_narrator_on_unknown() {
         // ADR-010: fallback to Narrator if classification fails
-        let route = IntentRoute::fallback();
+        let route = IntentRoute::narrator_fallback();
         assert_eq!(route.agent_name(), "narrator");
     }
 
     #[test]
     fn intent_router_has_classify_method() {
-        let router = IntentRouter::new();
+        use sidequest_agents::client::ClaudeClient;
+        let router = IntentRouter::new(ClaudeClient::new());
         // Verify the type exists and can be constructed
         let _ = &router; // type exists and can be constructed
     }
@@ -340,9 +309,7 @@ mod game_service_tests {
     fn action_result_has_required_fields() {
         let result = ActionResult {
             narration: "test".to_string(),
-            state_delta: None,
-            combat_events: vec![],
-            combat_patch: None,
+            combat_patch: None, chase_patch: None,
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -353,7 +320,18 @@ mod game_service_tests {
             agent_duration_ms: None,
             token_count_in: None,
             token_count_out: None,
-            extraction_tier: None,
+
+            visual_scene: None,
+            scene_mood: None,
+            personality_events: vec![],
+            scene_intent: None,
+            resource_deltas: HashMap::new(),
+            zone_breakdown: None,
+            lore_established: None,
+            action_rewrite: None,
+            action_flags: None,
+            sfx_triggers: vec![],
+            merchant_transactions: vec![],
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -381,9 +359,7 @@ mod error_handling_tests {
         // ADR-005: Timeout → degraded response, not error
         let result = ActionResult {
             narration: "The narrator pauses, gathering their thoughts...".to_string(),
-            state_delta: None,
-            combat_events: vec![],
-            combat_patch: None,
+            combat_patch: None, chase_patch: None,
             is_degraded: true,
             classified_intent: None,
             agent_name: None,
@@ -394,7 +370,18 @@ mod error_handling_tests {
             agent_duration_ms: None,
             token_count_in: None,
             token_count_out: None,
-            extraction_tier: None,
+
+            visual_scene: None,
+            scene_mood: None,
+            personality_events: vec![],
+            scene_intent: None,
+            resource_deltas: HashMap::new(),
+            zone_breakdown: None,
+            lore_established: None,
+            action_rewrite: None,
+            action_flags: None,
+            sfx_triggers: vec![],
+            merchant_transactions: vec![],
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());
@@ -417,17 +404,21 @@ mod deferred_debt_tests {
     }
 
     #[test]
-    fn combat_patch_deny_unknown_fields() {
+    fn combat_patch_allows_unknown_fields() {
+        // CombatPatch intentionally omits deny_unknown_fields because creature_smith
+        // may include inline preprocessor fields (action_rewrite, action_flags) in
+        // the same JSON block.
         let json = r#"{"in_combat": true, "bogus_field": 42}"#;
         let result = serde_json::from_str::<CombatPatch>(json);
-        assert!(result.is_err(), "CombatPatch must deny unknown fields");
+        assert!(result.is_ok(), "CombatPatch must accept unknown fields (inline preprocessor)");
     }
 
     #[test]
-    fn chase_patch_deny_unknown_fields() {
-        let json = r#"{"separation": 10, "bogus_field": "x"}"#;
+    fn chase_patch_allows_unknown_fields() {
+        // ChasePatch intentionally omits deny_unknown_fields — same reason as CombatPatch.
+        let json = r#"{"separation_delta": 10, "bogus_field": "x"}"#;
         let result = serde_json::from_str::<ChasePatch>(json);
-        assert!(result.is_err(), "ChasePatch must deny unknown fields");
+        assert!(result.is_ok(), "ChasePatch must accept unknown fields (inline preprocessor)");
     }
 
     #[test]

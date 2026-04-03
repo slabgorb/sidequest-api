@@ -7,7 +7,9 @@ use std::collections::{HashMap, HashSet};
 
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
-use sidequest_genre::{TropeDefinition, TropeEscalation};
+use sidequest_genre::{RoomDef, TropeDefinition, TropeEscalation};
+
+use crate::achievement::{Achievement, AchievementTracker};
 
 /// Status of an active trope in the game.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -87,6 +89,7 @@ impl TropeState {
 }
 
 /// A beat that fired during a tick.
+#[derive(Clone)]
 pub struct FiredBeat {
     /// The trope definition ID.
     pub trope_id: String,
@@ -170,58 +173,33 @@ impl TropeEngine {
         fired
     }
 
-    /// Apply keyword-based acceleration/deceleration from turn text.
-    pub fn apply_keyword_modifiers(
+    /// Tick tropes on a room transition using the room's `keeper_awareness_modifier`.
+    ///
+    /// Looks up `room_id` in the provided rooms slice. If found, calls
+    /// `tick_with_multiplier` using the room's `keeper_awareness_modifier`.
+    /// If the room is not found, logs a warning and does NOT tick — no silent fallback.
+    pub fn tick_room_transition(
         tropes: &mut [TropeState],
         trope_defs: &[TropeDefinition],
-        turn_text: &str,
-    ) {
+        rooms: &[RoomDef],
+        room_id: &str,
+    ) -> Vec<FiredBeat> {
+        let Some(room) = rooms.iter().find(|r| r.id == room_id) else {
+            tracing::warn!(
+                room_id = %room_id,
+                "Room not found for trope tick — skipping (no silent fallback)"
+            );
+            return Vec::new();
+        };
+
         let span = tracing::info_span!(
-            "trope_keyword_modifiers",
-            tropes_modified = tracing::field::Empty,
+            "trope.room_tick",
+            room_id = %room_id,
+            keeper_awareness_modifier = room.keeper_awareness_modifier,
         );
         let _guard = span.enter();
-        let mut modified_count: u64 = 0;
 
-        let lower = turn_text.to_lowercase();
-        let def_map: HashMap<&str, &TropeDefinition> = trope_defs
-            .iter()
-            .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
-            .collect();
-
-        for ts in tropes.iter_mut() {
-            if matches!(ts.status, TropeStatus::Resolved | TropeStatus::Dormant) {
-                continue;
-            }
-            let Some(td) = def_map.get(ts.trope_definition_id.as_str()) else {
-                continue;
-            };
-            let Some(pp) = &td.passive_progression else {
-                continue;
-            };
-
-            let before = ts.progression;
-
-            // Accelerators
-            for keyword in &pp.accelerators {
-                if lower.contains(&keyword.to_lowercase()) {
-                    ts.progression = (ts.progression + pp.accelerator_bonus).min(1.0);
-                    break;
-                }
-            }
-            // Decelerators
-            for keyword in &pp.decelerators {
-                if lower.contains(&keyword.to_lowercase()) {
-                    ts.progression = (ts.progression - pp.decelerator_penalty).max(0.0);
-                    break;
-                }
-            }
-
-            if (ts.progression - before).abs() > f64::EPSILON {
-                modified_count += 1;
-            }
-        }
-        span.record("tropes_modified", modified_count);
+        Self::tick_with_multiplier(tropes, trope_defs, room.keeper_awareness_modifier)
     }
 
     /// Activate a trope. Idempotent — returns existing if already active.
@@ -242,6 +220,90 @@ impl TropeEngine {
         tropes.last().unwrap()
     }
 
+    /// Advance all active tropes by elapsed real-time days since last session.
+    ///
+    /// Uses `rate_per_day` from passive progression config. Returns any escalation
+    /// beats that fire due to the advancement — these represent "living world"
+    /// events that happened while the player was away.
+    pub fn advance_between_sessions(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        elapsed_days: f64,
+    ) -> Vec<FiredBeat> {
+        let span = tracing::info_span!(
+            "trope.cross_session",
+            elapsed_days = elapsed_days,
+            tropes_advanced = tracing::field::Empty,
+            beats_fired = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let def_map: HashMap<&str, &TropeDefinition> = trope_defs
+            .iter()
+            .filter_map(|td| td.id.as_deref().map(|id| (id, td)))
+            .collect();
+
+        let mut fired = Vec::new();
+        let mut advanced_count: u64 = 0;
+
+        for ts in tropes.iter_mut() {
+            if matches!(ts.status, TropeStatus::Resolved | TropeStatus::Dormant) {
+                continue;
+            }
+
+            let Some(td) = def_map.get(ts.trope_definition_id.as_str()) else {
+                continue;
+            };
+
+            let Some(pp) = &td.passive_progression else {
+                continue;
+            };
+
+            if pp.rate_per_day <= 0.0 {
+                continue;
+            }
+
+            let before = ts.progression;
+            ts.progression = (ts.progression + pp.rate_per_day * elapsed_days).min(1.0);
+
+            if (ts.progression - before).abs() > f64::EPSILON {
+                advanced_count += 1;
+            }
+
+            // Check escalation beats crossed during the gap
+            for beat in &td.escalation {
+                let threshold = OrderedFloat(beat.at);
+                if beat.at <= ts.progression && !ts.fired_beats.contains(&threshold) {
+                    ts.fired_beats.insert(threshold);
+                    fired.push(FiredBeat {
+                        trope_id: ts.trope_definition_id.clone(),
+                        trope_name: td.name.as_str().to_string(),
+                        beat: beat.clone(),
+                    });
+                }
+            }
+
+            // Status transition: Active → Progressing
+            if ts.status == TropeStatus::Active && ts.progression > 0.0 {
+                ts.status = TropeStatus::Progressing;
+            }
+        }
+
+        span.record("tropes_advanced", advanced_count);
+        span.record("beats_fired", fired.len() as u64);
+
+        if advanced_count > 0 {
+            tracing::info!(
+                advanced = advanced_count,
+                beats = fired.len(),
+                elapsed_days = elapsed_days,
+                "Cross-session trope advancement complete"
+            );
+        }
+
+        fired
+    }
+
     /// Resolve a trope — sets progression to 1.0 and status to Resolved.
     pub fn resolve(tropes: &mut [TropeState], def_id: &str, note: Option<&str>) {
         let span = tracing::info_span!(
@@ -259,6 +321,142 @@ impl TropeEngine {
             if let Some(n) = note {
                 ts.add_note(n.to_string());
             }
+        }
+    }
+
+    /// Tick all tropes and check for newly earned achievements.
+    ///
+    /// Captures each trope's status before the tick, delegates to `tick()`,
+    /// then calls `AchievementTracker::check_transition` for every trope
+    /// whose status changed. Returns both fired beats and earned achievements.
+    pub fn tick_and_check_achievements(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        tracker: &mut AchievementTracker,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        Self::tick_and_check_achievements_with_multiplier(tropes, trope_defs, tracker, 1.0)
+    }
+
+    /// Tick all tropes with an engagement multiplier and check for achievements.
+    ///
+    /// Same as `tick_and_check_achievements` but applies the given multiplier
+    /// to the passive progression rate.
+    pub fn tick_and_check_achievements_with_multiplier(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        tracker: &mut AchievementTracker,
+        multiplier: f64,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        // Snapshot old statuses before tick
+        let old_statuses: Vec<TropeStatus> = tropes.iter().map(|ts| ts.status()).collect();
+
+        let fired = Self::tick_with_multiplier(tropes, trope_defs, multiplier);
+
+        // Check achievements for every trope that transitioned
+        let mut earned = Vec::new();
+        for (ts, old_status) in tropes.iter().zip(old_statuses.iter()) {
+            if ts.status() != *old_status {
+                let newly_earned = tracker.check_transition(ts, *old_status);
+                Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
+                earned.extend(newly_earned);
+            }
+        }
+
+        (fired, earned)
+    }
+
+    /// Resolve a trope and check for newly earned achievements.
+    ///
+    /// Captures the trope's status before resolving, delegates to `resolve()`,
+    /// then calls `AchievementTracker::check_transition` if the status changed.
+    pub fn resolve_and_check_achievements(
+        tropes: &mut [TropeState],
+        def_id: &str,
+        note: Option<&str>,
+        tracker: &mut AchievementTracker,
+    ) -> Vec<Achievement> {
+        // Snapshot old status for the target trope
+        let old_status = tropes
+            .iter()
+            .find(|ts| ts.trope_definition_id == def_id)
+            .map(|ts| ts.status());
+
+        Self::resolve(tropes, def_id, note);
+
+        // Check achievements if the trope exists and status changed
+        if let Some(old) = old_status {
+            if let Some(ts) = tropes.iter().find(|ts| ts.trope_definition_id == def_id) {
+                if ts.status() != old {
+                    let newly_earned = tracker.check_transition(ts, old);
+                    Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
+                    return newly_earned;
+                }
+            }
+        }
+
+        Vec::new()
+    }
+
+    /// Activate a trope and check for newly earned achievements.
+    ///
+    /// Captures whether the trope existed before activation. If activation
+    /// creates a new trope (Dormant → Active transition), checks for
+    /// "activated" trigger achievements.
+    pub fn activate_and_check_achievements<'a>(
+        tropes: &'a mut Vec<TropeState>,
+        def_id: &str,
+        tracker: &mut AchievementTracker,
+    ) -> &'a TropeState {
+        // Check if trope already exists (idempotent activation = no transition)
+        let already_exists = tropes.iter().any(|ts| ts.trope_definition_id == def_id);
+
+        let ts = Self::activate(tropes, def_id);
+
+        if !already_exists {
+            // New trope: transition is effectively Dormant → Active
+            let newly_earned = tracker.check_transition(ts, TropeStatus::Dormant);
+            Self::log_earned_achievements(&newly_earned, def_id);
+        }
+
+        // Re-borrow after tracker mutation
+        tropes.iter().find(|ts| ts.trope_definition_id == def_id).unwrap()
+    }
+
+    /// Advance tropes by elapsed days and check for newly earned achievements.
+    ///
+    /// Same as `advance_between_sessions` but captures old statuses and calls
+    /// `check_transition` for any trope whose status changed during the gap.
+    pub fn advance_between_sessions_and_check_achievements(
+        tropes: &mut [TropeState],
+        trope_defs: &[TropeDefinition],
+        elapsed_days: f64,
+        tracker: &mut AchievementTracker,
+    ) -> (Vec<FiredBeat>, Vec<Achievement>) {
+        let old_statuses: Vec<TropeStatus> = tropes.iter().map(|ts| ts.status()).collect();
+
+        let fired = Self::advance_between_sessions(tropes, trope_defs, elapsed_days);
+
+        let mut earned = Vec::new();
+        for (ts, old_status) in tropes.iter().zip(old_statuses.iter()) {
+            if ts.status() != *old_status {
+                let newly_earned = tracker.check_transition(ts, *old_status);
+                Self::log_earned_achievements(&newly_earned, ts.trope_definition_id());
+                earned.extend(newly_earned);
+            }
+        }
+
+        (fired, earned)
+    }
+
+    /// Emit OTEL info events for each earned achievement.
+    fn log_earned_achievements(achievements: &[Achievement], trope_id: &str) {
+        for achievement in achievements {
+            tracing::info!(
+                achievement_id = %achievement.id,
+                trope_id = %trope_id,
+                trigger_type = %achievement.trigger_status,
+                "achievement.earned"
+            );
         }
     }
 }

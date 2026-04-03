@@ -38,6 +38,7 @@ fn make_character(
             hp: 18,
             max_hp: 30,
             ac: 14,
+            xp: 0,
             inventory: Inventory::default(),
             statuses: vec![],
         },
@@ -46,6 +47,7 @@ fn make_character(
         hooks: vec!["nemesis: The Warden".to_string()],
         char_class: NonBlankString::new("Warden").unwrap(),
         race: NonBlankString::new("Dwarf").unwrap(),
+        pronouns: "he/him".to_string(),
         stats: HashMap::from([
             ("STR".to_string(), 16),
             ("DEX".to_string(), 10),
@@ -53,6 +55,7 @@ fn make_character(
         ]),
         abilities,
         known_facts,
+        affinities: vec![],
         is_friendly: true,
     }
 }

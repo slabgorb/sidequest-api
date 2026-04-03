@@ -10,8 +10,19 @@
 
 use std::collections::HashMap;
 
-use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::intent_router::{
+    Intent, IntentClassifier, IntentRoute, IntentRouter,
+};
 use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
+
+/// Mock classifier that always returns a fixed intent.
+struct MockClassifier(Intent);
+
+impl IntentClassifier for MockClassifier {
+    fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+        IntentRoute::for_intent(self.0)
+    }
+}
 use sidequest_game::tension_tracker::DeliveryMode;
 
 // ============================================================================
@@ -66,7 +77,8 @@ fn chase_state_overrides_classification() {
     let mut ctx = TurnContext::default();
     ctx.in_chase = true;
 
-    let route = IntentRouter::classify_with_state("I look around", &ctx);
+    let classifier = MockClassifier(Intent::Exploration);
+    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
     assert_eq!(
         route.intent(),
         Intent::Chase,
@@ -83,7 +95,8 @@ fn combat_state_overrides_classification() {
     let mut ctx = TurnContext::default();
     ctx.in_combat = true;
 
-    let route = IntentRouter::classify_with_state("I look around", &ctx);
+    let classifier = MockClassifier(Intent::Exploration);
+    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
     assert_eq!(
         route.intent(),
         Intent::Combat,
@@ -97,7 +110,7 @@ fn combat_state_overrides_classification() {
 
 #[test]
 fn fallback_routes_to_narrator() {
-    let route = IntentRoute::fallback();
+    let route = IntentRoute::narrator_fallback();
     assert_eq!(route.agent_name(), "narrator");
     assert_eq!(route.intent(), Intent::Exploration);
 }
@@ -109,7 +122,8 @@ fn fallback_routes_to_narrator() {
 #[test]
 fn classify_does_not_mutate_context() {
     let ctx = TurnContext::default();
-    let _route = IntentRouter::classify_with_state("attack", &ctx);
+    let classifier = MockClassifier(Intent::Combat);
+    let _route = IntentRouter::classify_with_classifier("attack", &ctx, &classifier);
     assert!(!ctx.in_combat, "classify must not mutate state");
     assert!(!ctx.in_chase, "classify must not mutate state");
 }
@@ -208,36 +222,20 @@ fn turn_result_carries_state_delta() {
 // ============================================================================
 
 #[test]
-fn extract_combat_patch_from_response() {
-    use sidequest_agents::extractor::JsonExtractor;
+fn deserialize_combat_patch() {
     use sidequest_agents::patches::CombatPatch;
 
-    let response = r#"The goblin swings wildly but misses!
-
-```json
-{"advance_round": true}
-```
-"#;
-
-    let patch = JsonExtractor::extract::<CombatPatch>(response);
-    assert!(patch.is_ok(), "Should extract combat patch from response");
-    assert!(patch.unwrap().advance_round);
+    let json = r#"{"advance_round": true}"#;
+    let patch: CombatPatch = serde_json::from_str(json).unwrap();
+    assert!(patch.advance_round);
 }
 
 #[test]
-fn extract_chase_patch_from_response() {
-    use sidequest_agents::extractor::JsonExtractor;
+fn deserialize_chase_patch() {
     use sidequest_agents::patches::ChasePatch;
 
-    let response = r#"You sprint through the alley!
-
-```json
-{"roll": 0.7}
-```
-"#;
-
-    let patch = JsonExtractor::extract::<ChasePatch>(response);
-    assert!(patch.is_ok(), "Should extract chase patch from response");
+    let json = r#"{"roll": 0.7}"#;
+    let patch: ChasePatch = serde_json::from_str(json).unwrap();
 }
 
 // ============================================================================

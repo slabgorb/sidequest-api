@@ -26,7 +26,9 @@ impl GenrePack {
         let mut errors = ValidationErrors::new();
         self.validate_achievements(&mut errors);
         self.validate_cartography(&mut errors);
+        self.validate_room_graph(&mut errors);
         self.validate_scenarios(&mut errors);
+        self.validate_confrontations(&mut errors);
         errors.into_result()
     }
 
@@ -73,17 +75,20 @@ impl GenrePack {
                 .map(|s| s.as_str())
                 .collect();
 
-            // Check starting_region references an existing region
-            if !world.cartography.starting_region.is_empty()
-                && !region_slugs.contains(world.cartography.starting_region.as_str())
-            {
-                errors.push(GenreError::ValidationError {
-                    message: format!(
-                        "world '{world_slug}' has starting_region '{}' \
-                         which does not exist",
-                        world.cartography.starting_region
-                    ),
-                });
+            // Check starting_region references an existing region (Region mode only)
+            // RoomGraph mode validates starting_region in validate_room_graph
+            if world.cartography.navigation_mode == crate::models::NavigationMode::Region {
+                if !world.cartography.starting_region.is_empty()
+                    && !region_slugs.contains(world.cartography.starting_region.as_str())
+                {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "world '{world_slug}' has starting_region '{}' \
+                             which does not exist",
+                            world.cartography.starting_region
+                        ),
+                    });
+                }
             }
 
             // Check adjacent references
@@ -132,6 +137,204 @@ impl GenrePack {
                                 "route '{}' in world '{world_slug}' has waypoint '{}' \
                                  which does not exist",
                                 route.name, wp
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn validate_confrontations(&self, errors: &mut ValidationErrors) {
+        if self.rules.confrontations.is_empty() {
+            return;
+        }
+
+        // Collect valid ability score names (uppercased for comparison)
+        let ability_scores: HashSet<String> = self
+            .rules
+            .ability_score_names
+            .iter()
+            .map(|s| s.to_uppercase())
+            .collect();
+
+        // Collect all confrontation type IDs for escalates_to validation
+        let confrontation_types: HashSet<&str> = self
+            .rules
+            .confrontations
+            .iter()
+            .map(|c| c.confrontation_type.as_str())
+            .collect();
+
+        for confrontation in &self.rules.confrontations {
+            // Validate beat stat_check references
+            for beat in &confrontation.beats {
+                if !ability_scores.contains(&beat.stat_check.to_uppercase()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "confrontation '{}' beat '{}' has stat_check '{}' \
+                             which is not a declared ability score (valid: {:?})",
+                            confrontation.confrontation_type,
+                            beat.id,
+                            beat.stat_check,
+                            self.rules.ability_score_names
+                        ),
+                    });
+                }
+            }
+
+            // Validate escalates_to references
+            if let Some(ref target) = confrontation.escalates_to {
+                if !confrontation_types.contains(target.as_str()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "confrontation '{}' escalates_to '{}' \
+                             which is not a declared confrontation type",
+                            confrontation.confrontation_type, target
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
+    fn validate_room_graph(&self, errors: &mut ValidationErrors) {
+        use crate::models::NavigationMode;
+        use std::collections::VecDeque;
+
+        for (world_slug, world) in &self.worlds {
+            // Only validate room graph rules when navigation_mode is RoomGraph
+            if world.cartography.navigation_mode != NavigationMode::RoomGraph {
+                continue;
+            }
+
+            let rooms = match world.cartography.rooms.as_ref() {
+                Some(r) => r,
+                None => continue, // No rooms to validate
+            };
+
+            // Check for duplicate room IDs
+            let mut seen_ids: HashSet<&str> = HashSet::new();
+            for room in rooms {
+                if !seen_ids.insert(room.id.as_str()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "world '{world_slug}' has duplicate room ID '{}'",
+                            room.id
+                        ),
+                    });
+                }
+            }
+
+            let room_ids: HashSet<&str> = rooms.iter().map(|r| r.id.as_str()).collect();
+
+            // Check starting_region references a valid room ID
+            if !world.cartography.starting_region.is_empty()
+                && !room_ids.contains(world.cartography.starting_region.as_str())
+            {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has starting_region '{}' \
+                         which is not a valid room ID",
+                        world.cartography.starting_region
+                    ),
+                });
+            }
+
+            // Check all exit targets reference existing rooms
+            for room in rooms {
+                for exit in &room.exits {
+                    if !room_ids.contains(exit.target()) {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "room '{}' in world '{world_slug}' has exit to '{}' \
+                                 which is not a valid room ID",
+                                room.id,
+                                exit.target()
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // Check bidirectional exits — only exits where requires_reverse() is true
+            for room in rooms {
+                for exit in &room.exits {
+                    if !exit.requires_reverse() {
+                        continue; // Chutes don't require a return path
+                    }
+                    // Check that the target room has at least one exit back to this room
+                    let has_return = rooms
+                        .iter()
+                        .find(|r| r.id == exit.target())
+                        .map(|target_room| {
+                            target_room
+                                .exits
+                                .iter()
+                                .any(|e| e.target() == room.id)
+                        })
+                        .unwrap_or(false);
+
+                    if !has_return {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "room '{}' in world '{world_slug}' has non-chute exit to '{}' \
+                                 but '{}' has no exit back to '{}'",
+                                room.id,
+                                exit.target(),
+                                exit.target(),
+                                room.id
+                            ),
+                        });
+                    }
+                }
+            }
+
+            // Require exactly one room with room_type "entrance"
+            let entrance_rooms: Vec<&str> = rooms
+                .iter()
+                .filter(|r| r.room_type == "entrance")
+                .map(|r| r.id.as_str())
+                .collect();
+            if entrance_rooms.is_empty() {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has no room with room_type 'entrance'"
+                    ),
+                });
+            } else if entrance_rooms.len() > 1 {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has multiple entrance rooms: {}",
+                        entrance_rooms.join(", ")
+                    ),
+                });
+            }
+
+            // Reject orphaned rooms unreachable from entrance (BFS)
+            if let Some(entrance_id) = entrance_rooms.first() {
+                let mut visited: HashSet<&str> = HashSet::new();
+                let mut queue: VecDeque<&str> = VecDeque::new();
+                queue.push_back(entrance_id);
+                visited.insert(entrance_id);
+
+                while let Some(current) = queue.pop_front() {
+                    if let Some(room) = rooms.iter().find(|r| r.id == current) {
+                        for exit in &room.exits {
+                            if visited.insert(exit.target()) {
+                                queue.push_back(exit.target());
+                            }
+                        }
+                    }
+                }
+
+                for room in rooms {
+                    if !visited.contains(room.id.as_str()) {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "room '{}' in world '{world_slug}' is unreachable from \
+                                 entrance (orphan)",
+                                room.id
                             ),
                         });
                     }

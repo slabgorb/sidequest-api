@@ -1,6 +1,6 @@
 # sidequest-server — Feature Inventory
 
-axum HTTP/WebSocket server. **~4,500 LOC.** This is the integration layer that wires
+axum HTTP/WebSocket server. **~8,700 LOC.** This is the integration layer that wires
 all other crates together.
 
 ## COMPLETE — Do Not Rewrite
@@ -20,14 +20,18 @@ all other crates together.
 - **Session state machine** — AwaitingConnect -> Creating -> Playing.
 - **ProcessingGuard** — RAII guard preventing concurrent actions per player.
 
-### Message Dispatch (the big functions)
-- **dispatch_message()** (lines ~1196-1354) — routes by message type.
-- **dispatch_connect()** (lines ~1355-1740) — genre/world binding, session init.
-- **dispatch_character_creation()** (lines ~1741-2050) — character creation workflow.
-- **dispatch_player_action()** (lines ~2051-4000, ~1950 LOC) — **monolithic action
-  handler**. Orchestrates narration, character updates, combat, chase, tropes,
-  renders, music, inventory, NPC registry, narration history. This function does
-  too much but it IS working. Refactoring planned but not urgent.
+### Message Dispatch
+Now split into `dispatch/` subdirectory with focused modules:
+- **dispatch/mod.rs** — main dispatch routing (by message type)
+- **dispatch/connect.rs** — genre/world binding, session initialization
+- **dispatch/audio.rs** — audio system dispatch (music, SFX, ambience)
+- **dispatch/combat.rs** — combat dispatch
+- **dispatch/render.rs** — render integration
+- **dispatch/prompt.rs** — prompt building
+- **dispatch/session_sync.rs** — session synchronization
+- **dispatch/slash.rs** — slash command dispatch
+- **dispatch/state_mutations.rs** — state mutations
+- **dispatch/tropes.rs** — trope system dispatch
 
 ### Multiplayer
 - **SharedGameSession** — `shared_session.rs` (215 LOC) — world-level state shared

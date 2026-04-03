@@ -17,6 +17,7 @@ use sidequest_game::character::Character;
 use sidequest_game::known_fact::Confidence;
 use sidequest_game::npc::Npc;
 use sidequest_game::scene_directive::SceneDirective;
+use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 
 /// Render a `SceneDirective` into its prompt text representation.
 ///
@@ -76,6 +77,10 @@ impl Default for PromptRegistry {
 /// Agents that receive pacing guidance in their prompts.
 const PACING_AGENTS: &[&str] = &["narrator", "creature_smith"];
 
+/// Agents that receive narrator verbosity instructions.
+/// Same set as pacing — only agents that produce narrative prose.
+const NARRATING_AGENTS: &[&str] = &["narrator", "creature_smith"];
+
 impl PromptRegistry {
     /// Inject pacing guidance into the prompt for narrating agents.
     /// Non-narrating agents (ensemble, dialectician, etc.) are silently skipped.
@@ -96,6 +101,106 @@ impl PromptRegistry {
         self.register_section(
             agent_name,
             PromptSection::new("pacing", content, AttentionZone::Late, SectionCategory::Context),
+        );
+    }
+
+    /// Inject narrator verbosity instructions into the system prompt.
+    ///
+    /// Only applies to narrating agents (narrator, creature_smith). Non-narrating
+    /// agents are silently skipped. Placed in Late zone, Format category — same
+    /// position as footnote protocol, so the LLM sees it with high recency attention.
+    ///
+    /// Story 14-3: Per-session verbosity control.
+    pub fn register_verbosity_section(
+        &mut self,
+        agent_name: &str,
+        verbosity: NarratorVerbosity,
+    ) {
+        if !NARRATING_AGENTS.contains(&agent_name) {
+            return;
+        }
+
+        let content = match verbosity {
+            NarratorVerbosity::Concise => {
+                "[NARRATION LENGTH]\n\
+                 Keep descriptions to 1-2 sentences. Prioritize action and \
+                 consequence over atmosphere. No extended scene-setting or \
+                 sensory elaboration. Be direct."
+            }
+            NarratorVerbosity::Standard => {
+                "[NARRATION LENGTH]\n\
+                 Use standard descriptive prose — balanced detail and pacing. \
+                 Include enough atmosphere to set the scene without belaboring it. \
+                 2-4 sentences per beat is typical."
+            }
+            NarratorVerbosity::Verbose => {
+                "[NARRATION LENGTH]\n\
+                 Elaborate with sensory details and world-building. Paint the \
+                 scene with sights, sounds, smells, and texture. Take time to \
+                 establish atmosphere and let moments breathe. 4-6+ sentences \
+                 per beat."
+            }
+        };
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "narrator_verbosity",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ),
+        );
+    }
+
+    /// Inject narrator vocabulary/complexity instructions into the system prompt.
+    ///
+    /// Only applies to narrating agents (narrator, creature_smith). Non-narrating
+    /// agents are silently skipped. Placed in Late zone, Format category — same
+    /// position as verbosity, so the LLM sees both length and complexity guidance
+    /// with high recency attention.
+    ///
+    /// Story 14-4: Per-session vocabulary control.
+    pub fn register_vocabulary_section(
+        &mut self,
+        agent_name: &str,
+        vocabulary: NarratorVocabulary,
+    ) {
+        if !NARRATING_AGENTS.contains(&agent_name) {
+            return;
+        }
+
+        let content = match vocabulary {
+            NarratorVocabulary::Accessible => {
+                "[NARRATION VOCABULARY]\n\
+                 Use simple, direct language. Prefer common words over obscure \
+                 ones. Keep sentences short and clear. Aim for approximately \
+                 8th-grade reading level. No archaic constructions or elaborate \
+                 metaphors."
+            }
+            NarratorVocabulary::Literary => {
+                "[NARRATION VOCABULARY]\n\
+                 Use rich but clear prose. Employ varied vocabulary and literary \
+                 devices where they serve the narrative. Balance elegance with \
+                 accessibility — vivid but not purple."
+            }
+            NarratorVocabulary::Epic => {
+                "[NARRATION VOCABULARY]\n\
+                 Use elevated, archaic, or mythic diction. Embrace elaborate \
+                 sentence structures, rare words, and poetic constructions. \
+                 Channel the cadence of sagas, epics, and high fantasy prose. \
+                 Unrestricted complexity."
+            }
+        };
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "narrator_vocabulary",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Format,
+            ),
         );
     }
 
@@ -288,6 +393,50 @@ If nothing new is revealed and nothing prior is referenced, omit the footnotes a
                 content,
                 AttentionZone::Late,
                 SectionCategory::Format,
+            ),
+        );
+    }
+
+    /// Inject genre resource state into the narrator prompt (story 16-1).
+    ///
+    /// Serializes current resource values into a human-readable block in the Valley zone.
+    /// Empty declarations produce no section (genres without resources are unaffected).
+    /// Falls back to `starting` value when resource state is missing.
+    pub fn register_resource_section(
+        &mut self,
+        agent_name: &str,
+        declarations: &[sidequest_genre::ResourceDeclaration],
+        state: &std::collections::HashMap<String, f64>,
+    ) {
+        if declarations.is_empty() {
+            return;
+        }
+
+        let mut lines = vec!["## GENRE RESOURCES — Current State".to_string()];
+        for decl in declarations {
+            let current = state.get(&decl.name).copied().unwrap_or(decl.starting);
+            let vol_label = if decl.voluntary {
+                "voluntary"
+            } else {
+                "involuntary"
+            };
+            let mut line = format!(
+                "{}: {}/{} ({})",
+                decl.label, current, decl.max, vol_label
+            );
+            if decl.decay_per_turn.abs() > f64::EPSILON {
+                line.push_str(&format!(", decay {}/turn", decl.decay_per_turn.abs()));
+            }
+            lines.push(line);
+        }
+
+        self.register_section(
+            agent_name,
+            PromptSection::new(
+                "genre_resources",
+                lines.join("\n"),
+                AttentionZone::Valley,
+                SectionCategory::State,
             ),
         );
     }

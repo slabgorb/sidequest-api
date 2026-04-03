@@ -257,9 +257,8 @@ async fn server_accepts_mock_game_service() {
         ) -> sidequest_agents::orchestrator::ActionResult {
             sidequest_agents::orchestrator::ActionResult {
                 narration: format!("Mock response to: {}", action),
-                state_delta: None,
-                combat_events: vec![],
                 combat_patch: None,
+                chase_patch: None,
                 is_degraded: false,
                 classified_intent: None,
                 agent_name: None,
@@ -270,7 +269,17 @@ async fn server_accepts_mock_game_service() {
                 agent_duration_ms: None,
                 token_count_in: None,
                 token_count_out: None,
-                extraction_tier: None,
+                visual_scene: None,
+                scene_mood: None,
+                personality_events: vec![],
+                scene_intent: None,
+                resource_deltas: std::collections::HashMap::new(),
+                zone_breakdown: None,
+                lore_established: None,
+                action_rewrite: None,
+                action_flags: None,
+                sfx_triggers: vec![],
+                merchant_transactions: vec![],
             }
         }
     }

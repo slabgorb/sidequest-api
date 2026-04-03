@@ -10,42 +10,48 @@
 use std::time::Duration;
 
 use sidequest_game::PreprocessedAction;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::client::ClaudeClient;
 
 /// Haiku model identifier for fast preprocessing.
-const HAIKU_MODEL: &str = "claude-haiku-4-5-20250514";
+const HAIKU_MODEL: &str = "haiku";
 
-/// Timeout for preprocessing — must be fast to not delay the game loop.
-const PREPROCESS_TIMEOUT: Duration = Duration::from_secs(15);
+/// Timeout for preprocessing — long enough for Haiku to complete under load.
+const PREPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Preprocess a raw player action into three perspectives via LLM.
 ///
-/// On any failure (timeout, parse error, LLM error), returns a mechanical fallback.
-pub fn preprocess_action(raw_input: &str, char_name: &str) -> PreprocessedAction {
+/// Fails loudly if Haiku is unavailable — no silent fallbacks.
+pub fn preprocess_action(raw_input: &str, char_name: &str) -> Result<PreprocessedAction, PreprocessError> {
     let client = ClaudeClient::with_timeout(PREPROCESS_TIMEOUT);
 
     let prompt = build_prompt(raw_input, char_name);
 
-    match client.send_with_model(&prompt, HAIKU_MODEL) {
-        Ok(response) => {
-            match parse_response(&response) {
+    let llm_span = tracing::info_span!("turn.preprocess.llm", model = HAIKU_MODEL);
+    let llm_result = {
+        let _llm_guard = llm_span.enter();
+        client.send_with_model(&prompt, HAIKU_MODEL)
+    };
+
+    match llm_result {
+        Ok(resp) => {
+            let response = &resp.text;
+            let parse_span = tracing::info_span!("turn.preprocess.parse", response_len = response.len());
+            let _parse_guard = parse_span.enter();
+            match parse_response(response) {
                 Some(action) => {
-                    // Validate output length constraint: each field <= 2x input length
                     let max_len = raw_input.len() * 2;
                     if action.you.len() > max_len
                         || action.named.len() > max_len
                         || action.intent.len() > max_len
                     {
-                        warn!(
-                            raw_len = raw_input.len(),
-                            you_len = action.you.len(),
-                            named_len = action.named.len(),
-                            intent_len = action.intent.len(),
-                            "Preprocessor output exceeded 2x input length, using fallback"
-                        );
-                        fallback(raw_input, char_name)
+                        Err(PreprocessError::OutputTooLong {
+                            raw_len: raw_input.len(),
+                            you_len: action.you.len(),
+                            named_len: action.named.len(),
+                            intent_len: action.intent.len(),
+                        })
                     } else {
                         info!(
                             you = %action.you,
@@ -53,19 +59,42 @@ pub fn preprocess_action(raw_input: &str, char_name: &str) -> PreprocessedAction
                             intent = %action.intent,
                             "Action preprocessed via LLM"
                         );
-                        action
+                        Ok(action)
                     }
                 }
-                None => {
-                    warn!(response = %response, "Failed to parse preprocessor LLM response, using fallback");
-                    fallback(raw_input, char_name)
-                }
+                None => Err(PreprocessError::ParseFailed(response.clone())),
             }
         }
-        Err(e) => {
-            warn!(error = %e, "Preprocessor LLM call failed, using fallback");
-            fallback(raw_input, char_name)
-        }
+        Err(e) => Err(PreprocessError::LlmFailed(e.to_string())),
+    }
+}
+
+/// Errors from preprocessing — no silent fallbacks.
+#[derive(Debug, thiserror::Error)]
+pub enum PreprocessError {
+    #[error("Haiku LLM call failed: {0}")]
+    LlmFailed(String),
+    #[error("Failed to parse Haiku response as PreprocessedAction: {0}")]
+    ParseFailed(String),
+    #[error("Preprocessor output exceeded 2x input length (raw={raw_len}, you={you_len}, named={named_len}, intent={intent_len})")]
+    OutputTooLong {
+        raw_len: usize,
+        you_len: usize,
+        named_len: usize,
+        intent_len: usize,
+    },
+}
+
+/// Async wrapper around [`preprocess_action`] for use in the dispatch pipeline.
+///
+/// Runs the sync preprocessor on a blocking thread via `spawn_blocking` so it
+/// doesn't block the tokio runtime. Propagates errors — no silent fallbacks.
+pub async fn preprocess_action_async(raw_input: &str, char_name: &str) -> Result<PreprocessedAction, PreprocessError> {
+    let raw = raw_input.to_string();
+    let name = char_name.to_string();
+    match tokio::task::spawn_blocking(move || preprocess_action(&raw, &name)).await {
+        Ok(result) => result,
+        Err(e) => Err(PreprocessError::LlmFailed(format!("spawn_blocking panicked: {e}"))),
     }
 }
 
@@ -86,7 +115,7 @@ Character name: {char_name}
 
 Player input: "{raw_input}"
 
-Respond with JSON having exactly four keys:
+Respond with JSON having exactly eight keys:
 - "you": second-person rewrite (e.g., "You draw your sword")
 - "named": third-person with character name (e.g., "{char_name} draws their sword")
 - "intent": neutral, no pronouns (e.g., "draw sword")
@@ -94,7 +123,16 @@ Respond with JSON having exactly four keys:
   (unlimited resources, godlike abilities, time control, invincibility, summoning weapons from
   nothing, killing everyone). The test: would a tabletop DM say "you can't just do that"?
   Casual mention does NOT count: "I wish I hadn't eaten that" = false.
-  "I wish for unlimited gold from the genie" = true."#
+  "I wish for unlimited gold from the genie" = true.
+- "references_inventory": true if the player mentions using, checking, equipping, trading,
+  dropping, or interacting with items, equipment, or possessions. "I look around" = false.
+  "I use my healing potion" = true. "I check what I'm carrying" = true.
+- "references_npc": true if the player addresses or mentions a specific character by name
+  or role. "I explore the cave" = false. "I talk to the bartender" = true.
+- "references_ability": true if the player invokes or activates a power, mutation, skill,
+  spell, or supernatural ability. "I walk north" = false. "I use my psychic echo" = true.
+- "references_location": true if the player mentions a specific place by name or attempts
+  to travel somewhere. "I look around" = false. "I head to the market" = true."#
     )
 }
 
@@ -118,121 +156,9 @@ fn parse_response(response: &str) -> Option<PreprocessedAction> {
     None
 }
 
-/// Mechanical fallback when LLM is unavailable.
-///
-/// Strips "I " or "i " prefix and constructs three perspectives from the remainder.
-pub fn fallback(raw_input: &str, char_name: &str) -> PreprocessedAction {
-    let trimmed = raw_input.trim();
-
-    // Strip first-person prefix
-    let action_text = if trimmed.starts_with("I ") {
-        &trimmed[2..]
-    } else if trimmed.starts_with("i ") {
-        &trimmed[2..]
-    } else {
-        trimmed
-    };
-
-    let action_text = action_text.trim();
-
-    PreprocessedAction {
-        you: format!("You {}", action_text),
-        named: format!("{} {}", char_name, action_text_to_third_person(action_text)),
-        intent: action_text.to_string(),
-        is_power_grab: false,
-    }
-}
-
-/// Minimal verb conjugation for third-person fallback.
-///
-/// Handles common patterns: "draw" -> "draws", "look around" -> "looks around".
-/// Not exhaustive — this is a best-effort fallback, not a grammar engine.
-fn action_text_to_third_person(text: &str) -> String {
-    // Split into first word (verb) and rest
-    let mut parts = text.splitn(2, ' ');
-    let verb = match parts.next() {
-        Some(v) => v,
-        None => return text.to_string(),
-    };
-    let rest = parts.next().unwrap_or("");
-
-    // Simple third-person -s suffix
-    let conjugated = if verb.ends_with("sh") || verb.ends_with("ch") || verb.ends_with("ss")
-        || verb.ends_with('x') || verb.ends_with('z') || verb.ends_with('o')
-    {
-        format!("{}es", verb)
-    } else if verb.ends_with('y')
-        && !verb.ends_with("ay")
-        && !verb.ends_with("ey")
-        && !verb.ends_with("oy")
-        && !verb.ends_with("uy")
-    {
-        format!("{}ies", &verb[..verb.len() - 1])
-    } else {
-        format!("{}s", verb)
-    };
-
-    if rest.is_empty() {
-        conjugated
-    } else {
-        format!("{} {}", conjugated, rest)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_fallback_strips_i_prefix() {
-        let result = fallback("I draw my sword", "Kael");
-        assert_eq!(result.you, "You draw my sword");
-        assert_eq!(result.named, "Kael draws my sword");
-        assert_eq!(result.intent, "draw my sword");
-    }
-
-    #[test]
-    fn test_fallback_lowercase_i_prefix() {
-        let result = fallback("i look around", "Lyra");
-        assert_eq!(result.you, "You look around");
-        assert_eq!(result.named, "Lyra looks around");
-        assert_eq!(result.intent, "look around");
-    }
-
-    #[test]
-    fn test_fallback_no_i_prefix() {
-        let result = fallback("attack the goblin", "Thorne");
-        assert_eq!(result.you, "You attack the goblin");
-        assert_eq!(result.named, "Thorne attacks the goblin");
-        assert_eq!(result.intent, "attack the goblin");
-    }
-
-    #[test]
-    fn test_fallback_trims_whitespace() {
-        let result = fallback("  I  search the room  ", "Anya");
-        assert_eq!(result.you, "You search the room");
-        assert_eq!(result.named, "Anya searches the room");
-        assert_eq!(result.intent, "search the room");
-    }
-
-    #[test]
-    fn test_fallback_verb_conjugation_sh() {
-        let result = fallback("push the door", "Rex");
-        assert_eq!(result.named, "Rex pushes the door");
-    }
-
-    #[test]
-    fn test_fallback_verb_conjugation_y() {
-        let result = fallback("try to open the chest", "Ivy");
-        assert_eq!(result.named, "Ivy tries to open the chest");
-    }
-
-    #[test]
-    fn test_fallback_verb_conjugation_ay() {
-        // "play" should become "plays", not "plaies"
-        let result = fallback("play the lute", "Bard");
-        assert_eq!(result.named, "Bard plays the lute");
-    }
 
     #[test]
     fn test_parse_response_direct_json() {
@@ -263,12 +189,5 @@ mod tests {
         assert!(prompt.contains("\"you\""));
         assert!(prompt.contains("\"named\""));
         assert!(prompt.contains("\"intent\""));
-    }
-
-    #[test]
-    fn test_third_person_single_word() {
-        assert_eq!(action_text_to_third_person("run"), "runs");
-        assert_eq!(action_text_to_third_person("watch"), "watches");
-        assert_eq!(action_text_to_third_person("go"), "goes");
     }
 }

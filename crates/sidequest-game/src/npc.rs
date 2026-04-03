@@ -456,6 +456,8 @@ mod tests {
             appearance: String::new(),
             ocean_summary: String::new(),
             ocean: None,
+            hp: 0,
+            max_hp: 0,
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "she/her");
@@ -476,6 +478,8 @@ mod tests {
             appearance: String::new(), // empty — should be backfilled
             ocean_summary: String::new(),
             ocean: None,
+            hp: 0,
+            max_hp: 0,
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "they/them"); // unchanged
@@ -517,6 +521,12 @@ pub struct NpcRegistryEntry {
     /// Source of truth — `ocean_summary` is derived from this via `behavioral_summary()`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ocean: Option<crate::ocean::OceanProfile>,
+    /// Current HP (tracked during combat via combat patches).
+    #[serde(default)]
+    pub hp: i32,
+    /// Maximum HP (set when NPC enters combat).
+    #[serde(default)]
+    pub max_hp: i32,
 }
 
 /// Enrich registry entries with physical description data from full Npc structs.

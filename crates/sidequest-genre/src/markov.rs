@@ -81,12 +81,17 @@ impl MarkovChain {
             .or_insert(1);
     }
 
-    /// Train on raw text — splits into words, strips non-letters.
+    /// Train on raw text — splits into words, keeps only capitalized words (proper nouns).
+    ///
+    /// Filters out common/function words by requiring the first character to be uppercase.
+    /// This works across all languages: "The", "nosotros", "aber" are filtered out while
+    /// "Friedrich", "Zarathustra", "Montmartre" are kept. Minimum 3 chars to skip
+    /// single-letter words and abbreviations.
     pub fn train(&mut self, text: &str) {
         for line in text.lines() {
             for word in line.split_whitespace() {
                 let cleaned: String = word.chars().filter(|c| c.is_alphabetic()).collect();
-                if !cleaned.is_empty() {
+                if cleaned.len() >= 3 && cleaned.chars().next().is_some_and(|c| c.is_uppercase()) {
                     self.add_word(&cleaned);
                 }
             }
@@ -186,6 +191,51 @@ impl MarkovChain {
     }
 }
 
+/// Map each English word to a unique generated fantasy word.
+///
+/// Uses the trained chain to produce a fantasy equivalent for each input word,
+/// ensuring all generated values are unique. The resulting dictionary can be
+/// serialized, groomed, and checked into the content repo.
+pub fn generate_dictionary<R: Rng>(
+    chain: &MarkovChain,
+    english_words: &[String],
+    rng: &mut R,
+) -> HashMap<String, String> {
+    let mut mapping = HashMap::new();
+    let mut used = std::collections::HashSet::new();
+
+    for eng in english_words {
+        let mut found = false;
+        for _ in 0..50 {
+            let fantasy = chain.make_word(rng);
+            if fantasy.len() >= 2
+                && fantasy.len() <= 12
+                && !used.contains(&fantasy)
+                && !chain.reject_words.contains(&fantasy)
+            {
+                used.insert(fantasy.clone());
+                mapping.insert(eng.clone(), fantasy);
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            // Fallback: use the original word if generation fails
+            mapping.insert(eng.clone(), eng.clone());
+        }
+    }
+
+    mapping
+}
+
+/// Translate a word list using a dictionary, passing through unknown words.
+pub fn translate_word_list(word_list: &[String], dictionary: &HashMap<String, String>) -> Vec<String> {
+    word_list
+        .iter()
+        .map(|w| dictionary.get(w).cloned().unwrap_or_else(|| w.clone()))
+        .collect()
+}
+
 /// Pick a random character weighted by counts.
 fn weighted_choice<R: Rng>(counts: &HashMap<char, u32>, rng: &mut R) -> char {
     let total: u32 = counts.values().sum();
@@ -254,7 +304,7 @@ mod tests {
     #[test]
     fn train_text_splits_words() {
         let mut chain = MarkovChain::new(2);
-        chain.train("hello world foo bar baz");
+        chain.train("Sakura Takeshi Haruki Kazuki Naomi");
         assert!(!chain.is_empty());
         let word = chain.make_word(&mut rand::rng());
         assert!(!word.is_empty());

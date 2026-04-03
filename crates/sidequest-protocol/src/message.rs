@@ -25,6 +25,66 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ---------------------------------------------------------------------------
+// NarratorVerbosity — per-session narrator verbosity control (story 14-3)
+// ---------------------------------------------------------------------------
+
+/// Controls how verbose the narrator's prose output should be.
+///
+/// Serializes as lowercase strings for wire compatibility with the React UI.
+/// Default is `Standard`. Solo sessions default to `Verbose` via
+/// `default_for_player_count()`.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NarratorVerbosity {
+    /// Keep descriptions to 1-2 sentences. Prioritize action over atmosphere.
+    Concise,
+    /// Standard descriptive prose — balanced detail and pacing.
+    #[default]
+    Standard,
+    /// Elaborate with sensory details, world-building, and atmospheric prose.
+    Verbose,
+}
+
+
+
+impl NarratorVerbosity {
+    /// Returns the default verbosity for a given player count.
+    ///
+    /// Solo sessions (1 player) default to Verbose for immersive storytelling.
+    /// Multiplayer sessions (2+) default to Standard for pacing.
+    pub fn default_for_player_count(player_count: usize) -> Self {
+        if player_count <= 1 {
+            Self::Verbose
+        } else {
+            Self::Standard
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// NarratorVocabulary — per-session narrator vocabulary/complexity control (story 14-4)
+// ---------------------------------------------------------------------------
+
+/// Controls the prose complexity and diction of narrator output.
+///
+/// Works alongside `NarratorVerbosity` (which controls length). Vocabulary
+/// controls word choice and sentence complexity. Serializes as lowercase strings
+/// for wire compatibility with the React UI. Default is `Literary`.
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NarratorVocabulary {
+    /// Simple, direct language. Approximately 8th-grade reading level.
+    Accessible,
+    /// Rich but clear prose. Varied vocabulary without being obscure.
+    #[default]
+    Literary,
+    /// Elevated, archaic, or mythic diction. Unrestricted complexity.
+    Epic,
+}
+
+
+
+// ---------------------------------------------------------------------------
 // GameMessage — the tagged enum
 // ---------------------------------------------------------------------------
 
@@ -249,6 +309,24 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// Scenario system event (Epic 7 — clue discovery, NPC actions, gossip, accusations).
+    #[serde(rename = "SCENARIO_EVENT")]
+    ScenarioEvent {
+        /// The typed payload for this message.
+        payload: ScenarioEventPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
+
+    /// Achievement earned — broadcast when a trope transition triggers an achievement (story 15-13).
+    #[serde(rename = "ACHIEVEMENT_EARNED")]
+    AchievementEarned {
+        /// The typed payload for this message.
+        payload: AchievementEarnedPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -383,6 +461,23 @@ pub struct SessionEventPayload {
     /// Genre CSS content (on theme_css event).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub css: Option<String>,
+    /// Narrator verbosity setting (story 14-3).
+    /// Optional for backward compatibility — old clients that don't send it
+    /// deserialize as None, and the server applies a default based on player count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narrator_verbosity: Option<NarratorVerbosity>,
+
+    /// Narrator vocabulary/complexity setting (story 14-4).
+    /// Optional for backward compatibility — old clients that don't send it
+    /// deserialize as None, and the server applies a default (Literary).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub narrator_vocabulary: Option<NarratorVocabulary>,
+
+    /// Image generation cooldown in seconds (story 14-6).
+    /// Optional for backward compatibility — old clients that don't send it
+    /// deserialize as None, and the server applies a default based on player count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_cooldown_seconds: Option<u32>,
 }
 
 /// Character creation flow payload.
@@ -415,6 +510,10 @@ pub struct CharacterCreationPayload {
     /// Input type hint ("text", "select", etc.).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_type: Option<String>,
+    /// Genre-aware loading text for the spinner between scenes.
+    /// E.g. "The ripperdoc considers your words..."
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loading_text: Option<String>,
     /// Preview of the character being created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_preview: Option<serde_json::Value>,
@@ -832,6 +931,28 @@ pub struct ExploredLocation {
     /// Connected location names.
     #[serde(default)]
     pub connections: Vec<String>,
+    /// Room exits with target and type info (room graph mode only).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub room_exits: Vec<RoomExitInfo>,
+    /// Room type from RoomDef (room graph mode only).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub room_type: String,
+    /// Room dimensions (width, height) from RoomDef (room graph mode only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<(u32, u32)>,
+    /// Whether this is the player's current room (room graph mode only).
+    #[serde(default)]
+    pub is_current_room: bool,
+}
+
+/// Exit descriptor for room graph mode — target room and exit type.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoomExitInfo {
+    /// Target room ID this exit leads to.
+    pub target: String,
+    /// Exit type: "door", "corridor", "chute_down", "chute_up", "secret".
+    pub exit_type: String,
 }
 
 /// Fog of war bounds for map overlay.
@@ -842,6 +963,15 @@ pub struct FogBounds {
     pub width: i32,
     /// Map height.
     pub height: i32,
+}
+
+/// Status effect info for the combat overlay.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StatusEffectInfo {
+    /// Effect kind (e.g. "Poison", "Stun", "Bless", "Curse").
+    pub kind: String,
+    /// Rounds remaining.
+    pub remaining_rounds: u32,
 }
 
 /// An enemy in combat.
@@ -857,4 +987,47 @@ pub struct CombatEnemy {
     /// Armor class (optional for some enemies).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ac: Option<i32>,
+    /// Active status effects on this enemy.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub status_effects: Vec<StatusEffectInfo>,
+}
+
+// ---------------------------------------------------------------------------
+// Scenario system (Epic 7)
+// ---------------------------------------------------------------------------
+
+/// Payload for scenario system events.
+///
+/// Carries structured scenario data (clue discoveries, NPC actions, gossip
+/// propagation results, accusation outcomes) to the client for UI rendering.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ScenarioEventPayload {
+    /// The type of scenario event.
+    pub event_type: String,
+    /// Human-readable description for display or narrator context.
+    pub description: String,
+    /// Structured event details (varies by event_type).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
+}
+
+/// Payload for achievement earned events (story 15-13).
+///
+/// Broadcast to all session players when a trope status transition
+/// triggers an achievement. The UI can display a toast or achievement panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AchievementEarnedPayload {
+    /// Unique achievement identifier.
+    pub achievement_id: String,
+    /// Display name of the achievement.
+    pub name: String,
+    /// Flavor text shown on unlock.
+    pub description: String,
+    /// The trope that triggered this achievement.
+    pub trope_id: String,
+    /// What triggered it: "activated", "progressing", "resolved", "subverted".
+    pub trigger: String,
+    /// Optional emoji for UI display.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
 }

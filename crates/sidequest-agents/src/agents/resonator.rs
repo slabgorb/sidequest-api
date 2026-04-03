@@ -179,6 +179,7 @@ impl RewriteStrategy for ClaudeRewriteStrategy {
 
         self.client
             .send(&full_prompt)
+            .map(|r| r.text)
             .map_err(|e| RewriterError::Agent(e.to_string()))
     }
 }
@@ -233,6 +234,7 @@ impl RewriteStrategy for FullContextRewriteStrategy {
 
         self.client
             .send(&full_prompt)
+            .map(|r| r.text)
             .map_err(|e| RewriterError::Agent(e.to_string()))
     }
 }

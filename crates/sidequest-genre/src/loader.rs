@@ -38,18 +38,23 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     let cultures: Vec<Culture> = load_yaml(&path.join("cultures.yaml"))?;
     let prompts: Prompts = load_yaml(&path.join("prompts.yaml"))?;
 
+    // Load required genre-level tropes
+    let genre_tropes: Vec<TropeDefinition> = load_yaml(&path.join("tropes.yaml"))?;
+
     // Load optional files
-    let genre_tropes: Vec<TropeDefinition> =
-        load_yaml_optional(&path.join("tropes.yaml"))?.unwrap_or_default();
-    let beat_vocabulary: Option<BeatVocabulary> =
-        load_yaml_optional(&path.join("beat_vocabulary.yaml"))?;
     let achievements: Vec<Achievement> =
         load_yaml_optional(&path.join("achievements.yaml"))?.unwrap_or_default();
-    let voice_presets: Option<VoicePresets> = load_yaml_optional(&path.join("voice_presets.yaml"))?;
     let power_tiers: HashMap<String, Vec<PowerTier>> =
         load_yaml_optional(&path.join("power_tiers.yaml"))?.unwrap_or_default();
+    let beat_vocabulary: Option<BeatVocabulary> =
+        load_yaml_optional(&path.join("beat_vocabulary.yaml"))?;
+    let voice_presets: Option<VoicePresets> = load_yaml_optional(&path.join("voice_presets.yaml"))?;
     let drama_thresholds: Option<DramaThresholds> =
         load_yaml_optional(&path.join("pacing.yaml"))?;
+    let inventory: Option<InventoryConfig> =
+        load_yaml_optional(&path.join("inventory.yaml"))?;
+    let openings: Vec<OpeningHook> =
+        load_yaml_optional(&path.join("openings.yaml"))?.unwrap_or_default();
 
     // Load worlds and scenarios from subdirectories
     let worlds = load_subdirectories(path, "worlds", |p| load_single_world(p, &genre_tropes))?;
@@ -76,6 +81,8 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         worlds,
         scenarios,
         drama_thresholds,
+        inventory,
+        openings,
     })
 }
 
@@ -139,7 +146,15 @@ fn load_single_world(
 ) -> Result<World, GenreError> {
     let config: WorldConfig = load_yaml(&world_path.join("world.yaml"))?;
     let lore: WorldLore = load_yaml(&world_path.join("lore.yaml"))?;
-    let cartography: CartographyConfig = load_yaml(&world_path.join("cartography.yaml"))?;
+    let mut cartography: CartographyConfig = load_yaml(&world_path.join("cartography.yaml"))?;
+
+    // When navigation_mode is RoomGraph, load rooms from a separate rooms.yaml file
+    if cartography.navigation_mode == NavigationMode::RoomGraph {
+        let rooms: Option<Vec<RoomDef>> =
+            load_yaml_optional(&world_path.join("rooms.yaml"))?;
+        cartography.rooms = rooms;
+    }
+
     let cultures: Vec<Culture> =
         load_yaml_optional(&world_path.join("cultures.yaml"))?.unwrap_or_default();
 

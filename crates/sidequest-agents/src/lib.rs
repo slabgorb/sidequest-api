@@ -8,18 +8,19 @@
 pub mod agent;
 pub mod agents;
 pub mod client;
+pub mod continuity_validator;
 pub mod context_builder;
 pub mod entity_reference;
 pub mod exercise_tracker;
-pub mod extractor;
 pub mod footnotes;
-pub mod format_helpers;
+// format_helpers module removed — superseded by inline formatting in
+// sidequest-server::dispatch::prompt::build_prompt_context.
 pub mod orchestrator;
 pub mod patch_legality;
 pub mod patches;
 pub mod preprocessor;
 pub mod prompt_framework;
-pub mod trope_alignment;
+pub mod tools;
 pub mod turn_record;
 
 pub use sidequest_game;

@@ -98,24 +98,33 @@ fn has_field(span: &CapturedSpan, field_name: &str) -> bool {
 // AC: IntentRouter span — classify() must emit semantic fields
 // ===========================================================================
 
-/// IntentRouter::classify_keywords must emit a span with player_input,
-/// classified_intent, agent_routed_to, confidence, and fallback_used.
+/// IntentRouter::classify_with_classifier must emit a span with player_input,
+/// classified_intent, agent_routed_to, confidence.
 #[test]
 fn intent_router_classify_emits_span_with_semantic_fields() {
-    use sidequest_agents::agents::intent_router::IntentRouter;
+    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
+    use sidequest_agents::orchestrator::TurnContext;
+
+    struct MockClassifier;
+    impl IntentClassifier for MockClassifier {
+        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+            IntentRoute::for_intent(Intent::Combat)
+        }
+    }
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        let _route = IntentRouter::classify_keywords("I attack the goblin");
+        let ctx = TurnContext::default();
+        let classifier = MockClassifier;
+        let _route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "classify_keywords")
-        .or_else(|| find_span(&spans, "classify_intent"))
+    let span = find_span(&spans, "classify_intent")
         .or_else(|| find_span(&spans, "classify"))
-        .expect("Expected a 'classify_keywords' span to be emitted");
+        .expect("Expected a 'classify_intent' span to be emitted");
 
     assert!(
         has_field(span, "player_input"),
@@ -138,124 +147,39 @@ fn intent_router_classify_emits_span_with_semantic_fields() {
 /// State override classification must emit a span with classified_intent.
 #[test]
 fn intent_router_state_override_emits_span() {
-    use sidequest_agents::agents::intent_router::IntentRouter;
+    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
     use sidequest_agents::orchestrator::TurnContext;
+
+    struct MockClassifier;
+    impl IntentClassifier for MockClassifier {
+        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+            IntentRoute::for_intent(Intent::Exploration)
+        }
+    }
 
     let ctx = TurnContext {
         in_combat: true,
         in_chase: false,
         state_summary: None,
+        ..Default::default()
     };
 
     let (layer, captured) = SpanCaptureLayer::new();
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        let _route = IntentRouter::classify_with_state("I look around", &ctx);
+        let classifier = MockClassifier;
+        let _route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "classify_with_state")
-        .or_else(|| find_span(&spans, "classify_intent"))
+    let span = find_span(&spans, "classify_intent")
         .or_else(|| find_span(&spans, "classify"))
-        .expect("Expected a span from classify_with_state");
+        .expect("Expected a 'classify_intent' span from state override");
 
     assert!(
         has_field(span, "classified_intent"),
         "classify span missing 'classified_intent' field"
-    );
-}
-
-// ===========================================================================
-// AC: Extractor span — extract() must emit extraction_tier, target_type, success
-// ===========================================================================
-
-/// JsonExtractor::extract must emit a span with extraction_tier, target_type, and success.
-#[test]
-fn extractor_emits_span_with_tier_and_target_type() {
-    use sidequest_agents::extractor::JsonExtractor;
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        // Tier 1: direct parse should work
-        let _result: Result<serde_json::Value, _> = JsonExtractor::extract(r#"{"key": "value"}"#);
-    });
-
-    let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "extract")
-        .expect("Expected an 'extract' span to be emitted from JsonExtractor");
-
-    assert!(
-        has_field(span, "extraction_tier"),
-        "Extractor span missing 'extraction_tier' field"
-    );
-    assert!(
-        has_field(span, "target_type"),
-        "Extractor span missing 'target_type' field"
-    );
-    assert!(
-        has_field(span, "success"),
-        "Extractor span missing 'success' field"
-    );
-}
-
-/// Tier 2 extraction (from markdown fence) should report extraction_tier=2.
-#[test]
-fn extractor_tier2_reports_correct_tier() {
-    use sidequest_agents::extractor::JsonExtractor;
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    let fenced_input = "Here's the result:\n```json\n{\"key\": \"value\"}\n```\nDone.";
-
-    with_default(subscriber, || {
-        let _result: Result<serde_json::Value, _> = JsonExtractor::extract(fenced_input);
-    });
-
-    let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "extract").expect("Expected an 'extract' span from tier 2 extraction");
-
-    // The extraction_tier field should be present and indicate tier 2
-    let tier_field = span
-        .fields
-        .iter()
-        .find(|(name, _)| name == "extraction_tier");
-    assert!(
-        tier_field.is_some(),
-        "Extractor span missing 'extraction_tier' for tier 2 input"
-    );
-}
-
-/// Failed extraction should still emit a span with success=false.
-#[test]
-fn extractor_failed_extraction_emits_span_with_success_false() {
-    use sidequest_agents::extractor::JsonExtractor;
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        let _result: Result<serde_json::Value, _> = JsonExtractor::extract("no json here at all");
-    });
-
-    let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "extract").expect("Expected an 'extract' span even on failed extraction");
-
-    assert!(
-        has_field(span, "success"),
-        "Failed extraction span missing 'success' field"
-    );
-
-    let success_field = span.fields.iter().find(|(name, _)| name == "success");
-    assert_eq!(
-        success_field.map(|(_, v)| v.as_str()),
-        Some("false"),
-        "Failed extraction should have success=false"
     );
 }
 
@@ -320,7 +244,15 @@ fn context_builder_compose_emits_span_with_metrics() {
 /// the fields ARE populated (not left as Empty) after the function returns.
 #[test]
 fn intent_router_deferred_fields_are_populated_after_classify() {
-    use sidequest_agents::agents::intent_router::IntentRouter;
+    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
+    use sidequest_agents::orchestrator::TurnContext;
+
+    struct MockClassifier;
+    impl IntentClassifier for MockClassifier {
+        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
+            IntentRoute::for_intent(Intent::Combat)
+        }
+    }
 
     // We need a layer that captures both span creation AND field recording.
     // The SpanCaptureLayer above only captures on_new_span. For deferred fields,
@@ -337,21 +269,21 @@ fn intent_router_deferred_fields_are_populated_after_classify() {
     let subscriber = Registry::default().with(layer).with(record_layer);
 
     with_default(subscriber, || {
-        use sidequest_agents::agents::intent_router::IntentRouter;
-
-        let _route = IntentRouter::classify_keywords("I attack the goblin");
+        let ctx = TurnContext::default();
+        let classifier = MockClassifier;
+        let _route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
     });
 
-    let recorded = recorded_fields.lock().unwrap();
+    let _recorded = recorded_fields.lock().unwrap();
 
     // After classify returns, the span fields should have been recorded
-    // Note: classify_keywords uses info_span! which records fields at creation,
+    // Note: classify_with_classifier uses info_span! which records fields at creation,
     // not via deferred Span::record(). This test verifies the span was emitted.
     // The actual field values are checked by the span capture test above.
     let spans = captured.lock().unwrap();
     assert!(
         !spans.is_empty(),
-        "classify_keywords must emit at least one span"
+        "classify_with_classifier must emit at least one span"
     );
 }
 

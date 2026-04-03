@@ -1,7 +1,7 @@
-//! Tests for agent infrastructure: Agent trait, ClaudeClient, JsonExtractor,
+//! Tests for agent infrastructure: Agent trait, ClaudeClient,
 //! ContextBuilder, and format helpers.
 //!
-//! Story 1-10: Agent infrastructure — Agent trait, ClaudeClient, JsonExtractor,
+//! Story 1-10: Agent infrastructure — Agent trait, ClaudeClient,
 //! ContextBuilder, format helpers.
 //!
 //! These are TDD RED tests — they reference types and modules that don't exist yet.
@@ -141,113 +141,6 @@ mod claude_client {
         // std::error::Error is implemented (thiserror)
         let _msg = format!("{err}");
         assert!(!_msg.is_empty());
-    }
-}
-
-// ═══════════════════════════════════════════════════════════
-// JsonExtractor — port lesson #2 (single 3-tier extraction)
-// ═══════════════════════════════════════════════════════════
-
-mod json_extractor {
-    use sidequest_agents::extractor::{ExtractionError, JsonExtractor};
-
-    // Tier 1: Direct JSON parse
-    #[test]
-    fn extract_direct_json_object() {
-        let input = r#"{"action": "move", "direction": "north"}"#;
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["action"], "move");
-        assert_eq!(result["direction"], "north");
-    }
-
-    #[test]
-    fn extract_direct_json_array() {
-        let input = r#"[{"name": "sword"}, {"name": "shield"}]"#;
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert!(result.is_array());
-        assert_eq!(result.as_array().unwrap().len(), 2);
-    }
-
-    // Tier 2: Markdown fence extraction
-    #[test]
-    fn extract_from_json_fence() {
-        let input = "Here is the response:\n```json\n{\"hp\": 42}\n```\nDone.";
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["hp"], 42);
-    }
-
-    #[test]
-    fn extract_from_bare_fence() {
-        let input = "Response:\n```\n{\"status\": \"ok\"}\n```";
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["status"], "ok");
-    }
-
-    // Tier 3: Freeform search (find JSON in mixed text)
-    #[test]
-    fn extract_freeform_json_in_prose() {
-        let input = "The narrator says: I think {\"mood\": \"tense\", \"location\": \"cave\"} is the state.";
-        let result: serde_json::Value = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result["mood"], "tense");
-    }
-
-    // Failure cases
-    #[test]
-    fn extract_fails_on_no_json() {
-        let input = "This is just plain text with no JSON at all.";
-        let result = JsonExtractor::extract::<serde_json::Value>(input);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            ExtractionError::NoJsonFound => {}
-            other => panic!("expected NoJsonFound, got: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn extract_fails_on_invalid_json_in_fence() {
-        let input = "```json\n{invalid json here}\n```";
-        let result = JsonExtractor::extract::<serde_json::Value>(input);
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            ExtractionError::ParseFailed { .. } => {}
-            other => panic!("expected ParseFailed, got: {other:?}"),
-        }
-    }
-
-    // Typed extraction
-    #[test]
-    fn extract_into_typed_struct() {
-        #[derive(serde::Deserialize, Debug, PartialEq)]
-        struct MoveAction {
-            action: String,
-            direction: String,
-        }
-
-        let input = r#"{"action": "move", "direction": "north"}"#;
-        let result: MoveAction = JsonExtractor::extract(input).unwrap();
-        assert_eq!(result.action, "move");
-        assert_eq!(result.direction, "north");
-    }
-
-    #[test]
-    fn extract_rejects_wrong_typed_struct() {
-        #[derive(serde::Deserialize, Debug)]
-        struct ExpectedType {
-            #[allow(dead_code)]
-            required_field: i32,
-        }
-
-        let input = r#"{"other_field": "text"}"#;
-        let result = JsonExtractor::extract::<ExpectedType>(input);
-        assert!(result.is_err());
-    }
-
-    // Rule #2: ExtractionError should be #[non_exhaustive]
-    #[test]
-    fn extraction_error_implements_std_error() {
-        let err = ExtractionError::NoJsonFound;
-        let msg = format!("{err}");
-        assert!(!msg.is_empty());
     }
 }
 
@@ -404,56 +297,5 @@ mod context_builder {
     }
 }
 
-// ═══════════════════════════════════════════════════════════
-// Format helpers — ported from Python format_helpers.py
-// ═══════════════════════════════════════════════════════════
-
-mod format_helpers {
-    use sidequest_agents::format_helpers;
-
-    #[test]
-    fn format_character_block_includes_name_and_hp() {
-        let block = format_helpers::character_block("Kira", 42, 50, 5);
-        assert!(block.contains("Kira"));
-        assert!(block.contains("42"));
-        assert!(block.contains("50"));
-    }
-
-    #[test]
-    fn format_character_block_includes_level() {
-        let block = format_helpers::character_block("Kira", 42, 50, 5);
-        assert!(block.contains("5"));
-    }
-
-    #[test]
-    fn format_location_block_includes_region_and_area() {
-        let block = format_helpers::location_block("Flickering Reach", "Tood's Dome");
-        assert!(block.contains("Flickering Reach"));
-        assert!(block.contains("Tood's Dome"));
-    }
-
-    #[test]
-    fn format_npc_block_includes_name_and_attitude() {
-        let block = format_helpers::npc_block("Griztok", "hostile");
-        assert!(block.contains("Griztok"));
-        assert!(block.contains("hostile"));
-    }
-
-    #[test]
-    fn format_inventory_summary_lists_items() {
-        let items = vec!["Rusty Sword".to_string(), "Health Potion".to_string()];
-        let summary = format_helpers::inventory_summary(&items);
-        assert!(summary.contains("Rusty Sword"));
-        assert!(summary.contains("Health Potion"));
-    }
-
-    #[test]
-    fn format_inventory_summary_empty_says_no_items() {
-        let items: Vec<String> = vec![];
-        let summary = format_helpers::inventory_summary(&items);
-        assert!(
-            summary.to_lowercase().contains("no items") || summary.to_lowercase().contains("empty"),
-            "empty inventory should indicate no items"
-        );
-    }
-}
+// Format helpers tests removed — format_helpers.rs deleted (superseded by
+// inline formatting in sidequest-server::dispatch::prompt::build_prompt_context).

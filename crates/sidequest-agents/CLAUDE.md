@@ -1,8 +1,8 @@
 # sidequest-agents — Feature Inventory
 
-LLM agent orchestration via Claude CLI subprocess. **~7,600 LOC across 30+ modules.**
-This crate handles intent classification, agent dispatch, prompt composition, and
-response extraction.
+LLM agent orchestration via Claude CLI subprocess. **~8,100 LOC across 38 modules.**
+This crate handles intent classification, agent dispatch, prompt composition,
+response extraction, and sidecar tool parsing.
 
 ## COMPLETE — Do Not Rewrite
 
@@ -41,6 +41,12 @@ response extraction.
 - **Soul** — `prompt_framework/soul.rs` (131 LOC) — character personality embedding
   in prompts.
 
+### Sidecar Tools
+- **tools/** — tool definitions and sidecar parsers for narrator tool calls:
+  `assemble_turn`, `personality_event`, `play_sfx`, `quest_update`,
+  `resource_change`, `scene_render`, `set_intent`, `set_mood`, `tool_call_parser`.
+  Plus `preprocessors.rs` for input preprocessing.
+
 ### Support Systems
 - **TurnRecord** — `turn_record.rs` (150 LOC) — turn history & telemetry (story 3-2).
 - **ExerciseTracker** — `exercise_tracker.rs` (120 LOC) — agent invocation history (story 3-5).
@@ -48,31 +54,30 @@ response extraction.
 - **PatchLegality** — `patch_legality.rs` (202 LOC) — validate patches before applying (story 3-3).
 - **TropeAlignment** — `trope_alignment.rs` (134 LOC) — trope compatibility checking (story 3-8).
 - **Footnotes** — `footnotes.rs` (38 LOC) — footnote extraction from narrator output.
+- **ContinuityValidator** — `continuity_validator.rs` — continuity checking across turns.
 
-## STUBS — Defined but NOT Implemented
+## NEEDS FULL IMPLEMENTATION — Not Stubs
 
-These have Agent trait impls but do nothing useful. 49 LOC each = just scaffolding.
+These have Agent trait impls but are minimal scaffolding (49 LOC each). All three
+are fully implemented in the Python codebase and in sidequest-game's Rust engine,
+but the agent-level LLM orchestration is not yet ported.
 
-- **Resonator** — `resonator.rs` (49 LOC) — **STUB ONLY.** Python original is TWO
-  separate components: `hook_refiner.py` (~150 LOC, LLM-assisted narrative hook
-  polishing) + `perception_rewriter.py` (~190 LOC, per-player narration rewriting
-  based on perception effects like blinded/charmed/dominated). The Rust stub
-  combines both responsibilities but implements neither.
-- **Troper** — `troper.rs` (49 LOC) — **STUB ONLY.** No discrete Troper agent exists
-  in Python either — trope logic is distributed across `state.py` (lifecycle),
-  `state_processor.py` (passive ticking), and `prompt_composer.py` (LLM context).
-  The Rust version (per ADR-018) intends to consolidate these into one agent.
-  NOTE: The TropeEngine in sidequest-game/trope.rs already handles ticking and
-  escalation — the Troper agent's job would be LLM-driven trope activation and
-  narrative beat injection, not the mechanical progression.
-- **WorldBuilder** — `world_builder.rs` (49 LOC) — **STUB ONLY.** Python original
-  at `game/world_builder.py` (~500 LOC) is a builder pattern that materializes
-  dense GameState at specified maturity levels (FRESH/EARLY/MID/VETERAN) with
-  NPCs, items, lore. Note: Python version is a builder class, NOT an LLM agent.
-  The Rust world_materialization.rs in sidequest-game already handles the maturity
-  model — check what remains for this agent to do.
+- **Resonator** — `resonator.rs` (372+ LOC in Python) — TWO responsibilities:
+  `hook_refiner.py` (~150 LOC, LLM-assisted narrative hook polishing) +
+  `perception_rewriter.py` (~190 LOC, per-player narration rewriting based on
+  perception effects like blinded/charmed/dominated). The Rust agent needs to
+  orchestrate both via Claude CLI.
+- **Troper** — `troper.rs` (728+ LOC across Python modules) — trope logic distributed
+  across `state.py` (lifecycle), `state_processor.py` (passive ticking), and
+  `prompt_composer.py` (LLM context). The TropeEngine in sidequest-game/trope.rs
+  handles ticking and escalation — the Troper agent's job is LLM-driven trope
+  activation and narrative beat injection.
+- **WorldBuilder** — `world_builder.rs` (500+ LOC in Python) — materializes dense
+  GameState at specified maturity levels (FRESH/EARLY/MID/VETERAN). The Rust
+  world_materialization.rs in sidequest-game handles the maturity model — check
+  what remains for this agent.
 
-Do NOT integrate with these stubs. They need full implementation first.
+These need full implementation, not integration with their current scaffolding.
 
 ## Key Patterns
 

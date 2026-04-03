@@ -6,10 +6,11 @@ This is the leaf crate — no SideQuest dependencies. Everything else builds on 
 
 ## What's in here
 
-- **`GameMessage`** — Tagged enum covering all 23+ message types between client and server
-  (narration, combat, inventory, voice audio, state deltas, etc.)
-- **Validated newtypes** — Typed wrappers for IDs and constrained values
-- **Input sanitization** — `sanitize_player_text()` strips dangerous content from player input
+- **`GameMessage`** — Tagged enum covering 23+ message types between client and server
+  (narration, combat, inventory, voice audio, state deltas, TTS streaming, etc.)
+- **`NarrativePayload`** — Narration text + `StateDelta` + footnotes (`deny_unknown_fields`)
+- **Validated newtypes** — `NonBlankString`, typed wrappers for IDs and constrained values
+- **Input sanitization** — `sanitize_player_text()` strips XML, injection vectors, unicode confusables, zero-width chars
 - **`PROTOCOL_VERSION`** — Version string for compatibility checking
 
 ## Usage

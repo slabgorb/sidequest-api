@@ -73,6 +73,19 @@ impl LoreStore {
         self.fragments.is_empty()
     }
 
+    /// Attach an embedding vector to an existing fragment by id.
+    /// Returns `Err` if the fragment does not exist.
+    pub fn set_embedding(&mut self, id: &str, embedding: Vec<f32>) -> Result<(), String> {
+        let frag = self.fragments.get_mut(id).ok_or_else(|| format!("fragment not found: {id}"))?;
+        frag.embedding = Some(embedding);
+        Ok(())
+    }
+
+    /// Count of fragments that have embedding vectors attached.
+    pub fn fragments_with_embeddings_count(&self) -> usize {
+        self.fragments.values().filter(|f| f.embedding().is_some()).count()
+    }
+
     /// Return the top-k fragments most similar to `query_embedding`, sorted by
     /// descending cosine similarity. Fragments without embeddings are skipped.
     pub fn query_by_similarity(
@@ -348,31 +361,67 @@ pub fn seed_lore_from_char_creation(
 
 /// Select lore fragments from the store that fit within the given token budget.
 ///
-/// When `context_hint` is provided, fragments whose content matches the hint
-/// keyword are prioritised. Among equally-prioritised fragments, earlier-added
-/// fragments are preferred. The returned vec never exceeds `budget` total tokens.
+/// Prioritizes by category relevance: Geography and Faction fragments come first
+/// (most universally relevant for scene-setting), then History, then game events
+/// (most recent first by turn_created), then everything else.
+///
+/// The `priority_categories` parameter allows the caller to boost specific
+/// categories (e.g., Event fragments during combat, Character fragments during
+/// dialogue). Fragments in priority categories get sort priority 0, Geography/Faction
+/// get priority 1, and everything else gets priority 2.
 pub fn select_lore_for_prompt<'a>(
     store: &'a LoreStore,
     budget: usize,
-    context_hint: Option<&str>,
+    priority_categories: Option<&[LoreCategory]>,
+    query_embedding: Option<&[f32]>,
 ) -> Vec<&'a LoreFragment> {
     if store.is_empty() || budget == 0 {
         return Vec::new();
     }
 
-    let hint_lower = context_hint.map(|h| h.to_lowercase());
+    // Check if semantic search is viable: we have a query embedding AND at least
+    // one fragment has an embedding.
+    let use_semantic = query_embedding.is_some()
+        && store
+            .fragments
+            .values()
+            .any(|f| f.embedding().is_some());
 
     let mut fragments: Vec<&LoreFragment> = store.fragments.values().collect();
-    // Stable sort by id first, then partition by hint match
-    fragments.sort_by_key(|f| f.id().to_string());
-    fragments.sort_by_key(|f| {
-        if let Some(ref hint) = hint_lower {
-            if f.content().to_lowercase().contains(hint) {
-                return 0;
-            }
-        }
-        1
-    });
+
+    if use_semantic {
+        let qe = query_embedding.unwrap();
+        // Sort by descending cosine similarity. Fragments without embeddings
+        // get similarity -1.0 so they rank last.
+        fragments.sort_by(|a, b| {
+            let sim_a = a
+                .embedding()
+                .map(|e| cosine_similarity(qe, e))
+                .unwrap_or(-1.0);
+            let sim_b = b
+                .embedding()
+                .map(|e| cosine_similarity(qe, e))
+                .unwrap_or(-1.0);
+            sim_b
+                .partial_cmp(&sim_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    } else {
+        // Category-based fallback
+        // Stable sort by id first for determinism
+        fragments.sort_by_key(|f| f.id().to_string());
+
+        // Priority: caller-specified categories first, then geo/faction, then recency
+        fragments.sort_by(|a, b| {
+            let priority_a = fragment_priority(a, priority_categories);
+            let priority_b = fragment_priority(b, priority_categories);
+            priority_a.cmp(&priority_b)
+                .then_with(|| {
+                    // Within same priority, prefer more recent game events
+                    b.turn_created().unwrap_or(0).cmp(&a.turn_created().unwrap_or(0))
+                })
+        });
+    }
 
     let mut selected = Vec::new();
     let mut remaining = budget;
@@ -384,6 +433,104 @@ pub fn select_lore_for_prompt<'a>(
         }
     }
     selected
+}
+
+/// Assign a sort priority to a fragment based on its category.
+fn fragment_priority(frag: &LoreFragment, priority_categories: Option<&[LoreCategory]>) -> u8 {
+    // Caller-specified priority categories get highest priority
+    if let Some(cats) = priority_categories {
+        if cats.contains(frag.category()) {
+            return 0;
+        }
+    }
+    // Geography and Faction are universally relevant for scene-setting
+    match frag.category() {
+        LoreCategory::Geography | LoreCategory::Faction => 1,
+        LoreCategory::History => 2,
+        _ => 3,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Lore retrieval telemetry — summarize selected vs rejected (story 18-4)
+// ---------------------------------------------------------------------------
+
+/// Summary of a single lore fragment for telemetry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FragmentSummary {
+    /// Fragment identifier.
+    pub id: String,
+    /// Category as a string (e.g., "history", "geography").
+    pub category: String,
+    /// Estimated token count.
+    pub tokens: usize,
+}
+
+/// Structured summary of a lore retrieval operation for the OTEL dashboard.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoreRetrievalSummary {
+    /// Token budget for this retrieval.
+    pub budget: usize,
+    /// Total tokens used by selected fragments.
+    pub tokens_used: usize,
+    /// Fragments that were selected for the prompt.
+    pub selected: Vec<FragmentSummary>,
+    /// Fragments that were rejected (didn't fit budget or lower priority).
+    pub rejected: Vec<FragmentSummary>,
+    /// Context hint used for prioritization, if any.
+    pub context_hint: Option<String>,
+    /// Total fragments in the store.
+    pub total_fragments: usize,
+}
+
+fn fragment_to_summary(frag: &LoreFragment) -> FragmentSummary {
+    let category = match frag.category() {
+        LoreCategory::History => "history",
+        LoreCategory::Geography => "geography",
+        LoreCategory::Faction => "faction",
+        LoreCategory::Character => "character",
+        LoreCategory::Item => "item",
+        LoreCategory::Event => "event",
+        LoreCategory::Language => "language",
+        LoreCategory::Custom(s) => s.as_str(),
+        _ => "unknown",
+    };
+    FragmentSummary {
+        id: frag.id().to_string(),
+        category: category.to_string(),
+        tokens: frag.token_estimate(),
+    }
+}
+
+/// Produce a telemetry summary comparing selected vs rejected fragments.
+pub fn summarize_lore_retrieval<'a>(
+    store: &'a LoreStore,
+    selected: &[&'a LoreFragment],
+    budget: usize,
+    priority_categories: Option<&[LoreCategory]>,
+) -> LoreRetrievalSummary {
+    let selected_ids: std::collections::HashSet<&str> =
+        selected.iter().map(|f| f.id()).collect();
+
+    let rejected: Vec<FragmentSummary> = store
+        .fragments
+        .values()
+        .filter(|f| !selected_ids.contains(f.id()))
+        .map(|f| fragment_to_summary(f))
+        .collect();
+
+    let tokens_used: usize = selected.iter().map(|f| f.token_estimate()).sum();
+
+    LoreRetrievalSummary {
+        budget,
+        tokens_used,
+        selected: selected.iter().map(|f| fragment_to_summary(f)).collect(),
+        rejected,
+        context_hint: priority_categories.map(|cats| {
+            cats.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ")
+        }),
+        total_fragments: store.len(),
+    }
 }
 
 /// Format selected lore fragments into a prompt-ready string, grouped by
@@ -1207,6 +1354,8 @@ mod tests {
             worlds: HashMap::new(),
             scenarios: HashMap::new(),
             drama_thresholds: None,
+            openings: vec![],
+            inventory: None,
         }
     }
 
@@ -1276,6 +1425,7 @@ mod tests {
                 ],
                 allows_freeform: None,
                 hook_prompt: None,
+            loading_text: None,
             },
             CharCreationScene {
                 id: "motivation".to_string(),
@@ -1288,6 +1438,7 @@ mod tests {
                 }],
                 allows_freeform: None,
                 hook_prompt: None,
+            loading_text: None,
             },
         ]
     }
@@ -1605,6 +1756,7 @@ mod tests {
             choices: vec![],
             allows_freeform: None,
             hook_prompt: None,
+            loading_text: None,
         }];
         let mut store = LoreStore::new();
         let count = seed_lore_from_char_creation(&mut store, &scenes);
@@ -1687,21 +1839,21 @@ mod tests {
     #[test]
     fn select_lore_empty_store_returns_empty() {
         let store = LoreStore::new();
-        let result = select_lore_for_prompt(&store, 1000, None);
+        let result = select_lore_for_prompt(&store, 1000, None, None);
         assert!(result.is_empty());
     }
 
     #[test]
     fn select_lore_zero_budget_returns_empty() {
         let store = injection_store();
-        let result = select_lore_for_prompt(&store, 0, None);
+        let result = select_lore_for_prompt(&store, 0, None, None);
         assert!(result.is_empty());
     }
 
     #[test]
     fn select_lore_large_budget_returns_all() {
         let store = injection_store();
-        let result = select_lore_for_prompt(&store, 100_000, None);
+        let result = select_lore_for_prompt(&store, 100_000, None, None);
         assert_eq!(result.len(), 3);
     }
 
@@ -1710,7 +1862,7 @@ mod tests {
         let store = injection_store();
         // Total tokens across all 3 fragments is well above 10.
         // With a budget of 15, we should not get all fragments.
-        let result = select_lore_for_prompt(&store, 15, None);
+        let result = select_lore_for_prompt(&store, 15, None, None);
         let total: usize = result.iter().map(|f| f.token_estimate()).sum();
         assert!(total <= 15, "total tokens {total} exceeds budget 15");
         assert!(
@@ -1722,7 +1874,7 @@ mod tests {
     #[test]
     fn select_lore_no_duplicates() {
         let store = injection_store();
-        let result = select_lore_for_prompt(&store, 100_000, None);
+        let result = select_lore_for_prompt(&store, 100_000, None, None);
         let mut ids: Vec<&str> = result.iter().map(|f| f.id()).collect();
         ids.sort();
         ids.dedup();
@@ -1730,14 +1882,14 @@ mod tests {
     }
 
     #[test]
-    fn select_lore_context_hint_prioritises_matching() {
+    fn select_lore_priority_categories_boost_geography() {
         let store = injection_store();
-        // "caverns" appears only in the geography fragment
-        let result = select_lore_for_prompt(&store, 15, Some("caverns"));
+        let cats = [LoreCategory::Geography];
+        let result = select_lore_for_prompt(&store, 15, Some(&cats), None);
         let ids: Vec<&str> = result.iter().map(|f| f.id()).collect();
         assert!(
             ids.contains(&"inj-geo-001"),
-            "hint-matched fragment should be included"
+            "Geography fragment should be prioritized when Geography is priority category"
         );
     }
 
@@ -1767,7 +1919,8 @@ mod tests {
             ))
             .unwrap();
 
-        let result = select_lore_for_prompt(&store, 10, Some("dragons"));
+        let cats = [LoreCategory::History];
+        let result = select_lore_for_prompt(&store, 10, Some(&cats), None);
         let total: usize = result.iter().map(|f| f.token_estimate()).sum();
         assert!(total <= 10, "total tokens {total} exceeds budget 10");
     }
@@ -1779,7 +1932,7 @@ mod tests {
         // and stays within budget.
         let store = injection_store();
         let budget = store.total_tokens() / 2;
-        let result = select_lore_for_prompt(&store, budget, None);
+        let result = select_lore_for_prompt(&store, budget, None, None);
         let total: usize = result.iter().map(|f| f.token_estimate()).sum();
         assert!(total <= budget);
         assert!(!result.is_empty());
@@ -2465,7 +2618,7 @@ mod tests {
         store.add(history_fragment()).unwrap();
         store.add(geography_fragment()).unwrap();
         // None of these have embeddings — select_lore_for_prompt should still work
-        let selected = select_lore_for_prompt(&store, 1000, None);
+        let selected = select_lore_for_prompt(&store, 1000, None, None);
         assert_eq!(selected.len(), 2);
     }
 

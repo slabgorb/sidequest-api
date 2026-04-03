@@ -14,14 +14,12 @@ use std::time::Duration;
 
 use sidequest_agents::client::{ClaudeClient, ClaudeClientError};
 use sidequest_agents::context_builder::ContextBuilder;
-use sidequest_agents::extractor::JsonExtractor;
-use sidequest_agents::patches::{ChasePatch, CombatPatch, WorldStatePatch};
+use sidequest_agents::patches::CombatPatch;
 use sidequest_agents::prompt_framework::{
     AttentionZone, PromptComposer, PromptSection, SectionCategory,
 };
 
 // === New types from story 2-6 ===
-use sidequest_agents::client::parse_json_envelope;
 use sidequest_agents::prompt_framework::PromptRegistry;
 
 // ============================================================================
@@ -44,9 +42,9 @@ fn client_send_with_echo_returns_stdout() {
     );
     let output = result.unwrap();
     assert!(
-        output.contains("hello"),
+        output.text.contains("hello"),
         "Output should contain the prompt. Got: {}",
-        output
+        output.text
     );
 }
 
@@ -108,34 +106,7 @@ fn client_send_timeout_returns_error() {
     );
 }
 
-// ============================================================================
-// AC-4: JSON envelope parsed, inner text extracted
-// ============================================================================
-
-#[test]
-fn parse_json_envelope_extracts_result() {
-    let json = r#"{"result": "The goblin attacks!"}"#;
-    let text = parse_json_envelope(json);
-    assert_eq!(
-        text.as_deref(),
-        Some("The goblin attacks!"),
-        "Should extract result field"
-    );
-}
-
-#[test]
-fn parse_json_envelope_returns_none_for_non_envelope() {
-    let plain = "Just some plain text narration";
-    let result = parse_json_envelope(plain);
-    assert!(result.is_none(), "Non-JSON should return None");
-}
-
-#[test]
-fn parse_json_envelope_handles_nested_json() {
-    let json = r#"{"result": "The goblin attacks!", "metadata": {"round": 3}}"#;
-    let text = parse_json_envelope(json);
-    assert_eq!(text.as_deref(), Some("The goblin attacks!"));
-}
+// parse_json_envelope tests removed — function deleted (logic is inline in send_impl).
 
 // ============================================================================
 // AC-7: PromptComposer::compose() includes sections in attention-zone order
@@ -306,66 +277,15 @@ fn prompt_registry_caches_sections_across_composes() {
 }
 
 // ============================================================================
-// AC-12: extract_json::<CombatPatch>() deserializes typed patch
+// AC-12: CombatPatch deserializes from typed JSON
 // ============================================================================
 
 #[test]
 fn extract_combat_patch_from_json() {
     let json = r#"{"in_combat": true, "drama_weight": 0.8}"#;
-    let patch = JsonExtractor::extract::<CombatPatch>(json);
-    assert!(patch.is_ok());
-    let patch = patch.unwrap();
+    let patch: CombatPatch = serde_json::from_str(json).unwrap();
     assert_eq!(patch.in_combat, Some(true));
     assert_eq!(patch.drama_weight, Some(0.8));
-}
-
-// ============================================================================
-// AC-13: extract_json fallback — fenced block
-// ============================================================================
-
-#[test]
-fn extract_json_from_fenced_block() {
-    let response = "The battle rages on!\n\n```json\n{\"in_combat\": true}\n```\n\nWhat do you do?";
-    let patch = JsonExtractor::extract::<CombatPatch>(response);
-    assert!(patch.is_ok(), "Should extract from fenced block");
-    assert_eq!(patch.unwrap().in_combat, Some(true));
-}
-
-// ============================================================================
-// AC-14: extract_json fallback — raw brace matching
-// ============================================================================
-
-#[test]
-fn extract_json_from_raw_braces() {
-    let response =
-        "The chase continues! {\"separation\": 5, \"phase\": \"pursuit\"} Better run faster!";
-    let patch = JsonExtractor::extract::<ChasePatch>(response);
-    assert!(patch.is_ok(), "Should extract from raw braces");
-    assert_eq!(patch.unwrap().separation, Some(5));
-}
-
-// ============================================================================
-// AC-15: Malformed JSON → None returned, narration preserved
-// ============================================================================
-
-#[test]
-fn malformed_json_returns_error() {
-    let response = "The goblin attacks! {broken json here";
-    let result = JsonExtractor::extract::<CombatPatch>(response);
-    assert!(
-        result.is_err(),
-        "Malformed JSON should return error, not panic"
-    );
-}
-
-#[test]
-fn no_json_in_pure_narration() {
-    let response = "The sun sets over the mountains. A peaceful evening.";
-    let result = JsonExtractor::extract::<WorldStatePatch>(response);
-    assert!(
-        result.is_err(),
-        "Pure narration should have no JSON to extract"
-    );
 }
 
 // ============================================================================

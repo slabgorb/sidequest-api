@@ -188,6 +188,43 @@ impl DaemonClient {
         Ok(tts_result)
     }
 
+    /// Generate a sentence embedding for the given text (story 15-7).
+    ///
+    /// Calls the daemon's `embed` method, which runs a sentence-transformer
+    /// model and returns the embedding vector with timing metadata.
+    pub async fn embed(
+        &mut self,
+        params: crate::types::EmbedParams,
+    ) -> Result<crate::types::EmbedResult, DaemonError> {
+        let span = tracing::info_span!(
+            "daemon.embed",
+            text_len = params.text.len(),
+            latency_ms = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        let resp = self
+            .request("embed", &params, self.config.default_timeout)
+            .await?;
+        let result = resp
+            .result
+            .ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
+        let embed_result: crate::types::EmbedResult = serde_json::from_value(result)
+            .map_err(|e| DaemonError::InvalidResponse(e.to_string()))?;
+        span.record("latency_ms", embed_result.latency_ms);
+
+        // AC-6: OTEL lore.embedding_generated — emitted here so the event fires
+        // whenever embed() is called, regardless of call site.
+        tracing::info!(
+            latency_ms = embed_result.latency_ms,
+            model = %embed_result.model,
+            embedding_dim = embed_result.embedding.len(),
+            "lore.embedding_generated"
+        );
+
+        Ok(embed_result)
+    }
+
     /// Request a graceful daemon shutdown.
     pub async fn shutdown(&mut self) -> Result<(), DaemonError> {
         self.request(

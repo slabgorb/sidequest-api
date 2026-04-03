@@ -17,8 +17,9 @@ pub struct WorldStatePatch {
     pub time_of_day: Option<String>,
     /// Per-character HP deltas.
     pub hp_changes: Option<HashMap<String, i32>>,
-    /// NPC attitude changes.
-    pub npc_attitudes: Option<HashMap<String, String>>,
+    /// NPC disposition deltas (signed integers on the -100 to +100 scale).
+    /// Positive = friendlier, negative = more hostile.
+    pub npc_attitudes: Option<HashMap<String, i32>>,
     /// Quest log updates.
     pub quest_updates: Option<HashMap<String, String>>,
     /// Narrative note to append.
@@ -38,8 +39,9 @@ pub struct WorldStatePatch {
 }
 
 /// Patch produced by the CreatureSmith agent for combat state mutations.
+/// Note: no deny_unknown_fields — creature_smith may include inline preprocessor
+/// fields (action_rewrite, action_flags) in the same JSON block.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct CombatPatch {
     /// Whether combat is active.
     pub in_combat: Option<bool>,
@@ -59,15 +61,19 @@ pub struct CombatPatch {
 }
 
 /// Patch produced by the Dialectician agent for chase state mutations.
+/// Note: no deny_unknown_fields — same reason as CombatPatch.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ChasePatch {
-    /// Distance between pursuer and quarry.
-    pub separation: Option<i32>,
-    /// Current chase phase.
+    /// Whether a chase is active. true to start, false to resolve.
+    pub in_chase: Option<bool>,
+    /// Chase type: "footrace", "stealth", or "negotiation".
+    pub chase_type: Option<String>,
+    /// Change in separation distance (positive = gap widens, negative = gap closes).
+    pub separation_delta: Option<i32>,
+    /// Current chase phase description.
     pub phase: Option<String>,
-    /// Chase event description.
+    /// Chase event description for this beat.
     pub event: Option<String>,
-    /// Chase roll result (0.0 to 1.0).
+    /// Escape roll result (0.0 to 1.0). Used for mechanical resolution.
     pub roll: Option<f64>,
 }

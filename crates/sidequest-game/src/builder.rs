@@ -286,6 +286,11 @@ impl CharacterBuilder {
         self.scenes.len()
     }
 
+    /// Access the raw scene definitions (used for lore seeding).
+    pub fn scenes(&self) -> &[CharCreationScene] {
+        &self.scenes
+    }
+
     /// The accumulated scene results stack.
     pub fn scene_results(&self) -> &[SceneResult] {
         &self.results
@@ -320,7 +325,9 @@ impl CharacterBuilder {
                 acc.background = Some(v.clone());
             }
             if let Some(ref v) = eff.item_hint {
-                acc.item_hints.push(v.clone());
+                if !v.is_empty() && v != "none" {
+                    acc.item_hints.push(v.clone());
+                }
             }
             if let Some(ref v) = eff.mutation_hint {
                 acc.mutation_hint = Some(v.clone());
@@ -691,6 +698,7 @@ impl CharacterBuilder {
                         choices: Some(choices),
                         allows_freeform: scene.allows_freeform,
                         input_type: Some("choice".to_string()),
+                        loading_text: scene.loading_text.clone(),
                         character_preview: None,
                         choice: None,
                         character: None,
@@ -709,6 +717,7 @@ impl CharacterBuilder {
                     choices: None,
                     allows_freeform: Some(true),
                     input_type: Some("text".to_string()),
+                    loading_text: None,
                     character_preview: None,
                     choice: None,
                     character: None,
@@ -764,6 +773,7 @@ impl CharacterBuilder {
                         choices: None,
                         allows_freeform: None,
                         input_type: None,
+                        loading_text: None,
                         character_preview: None,
                         choice: None,
                         character: None,

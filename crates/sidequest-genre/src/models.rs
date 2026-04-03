@@ -312,6 +312,10 @@ pub struct GenrePack {
     pub scenarios: HashMap<String, ScenarioPack>,
     /// Pacing thresholds from `pacing.yaml` (optional per genre pack).
     pub drama_thresholds: Option<DramaThresholds>,
+    /// Item catalog and starting loadouts from `inventory.yaml` (optional per genre pack).
+    pub inventory: Option<InventoryConfig>,
+    /// Opening scenario hooks from `openings.yaml` (optional per genre pack).
+    pub openings: Vec<OpeningHook>,
 }
 
 /// A world within a genre pack, assembled from `worlds/{slug}/`.
@@ -387,6 +391,292 @@ pub struct Inspiration {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Resource declarations (story 16-1)
+// ═══════════════════════════════════════════════════════════
+
+/// Raw representation for deserialization with validation.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ResourceDeclarationRaw {
+    name: String,
+    label: String,
+    min: f64,
+    max: f64,
+    starting: f64,
+    voluntary: bool,
+    decay_per_turn: f64,
+}
+
+/// Genre resource declaration (e.g., Luck, Humanity, Heat).
+///
+/// Declares a named resource that the narrator should track and reference.
+/// Lightweight precursor to the formal ResourcePool (story 16-10).
+/// Validates on deserialization: max >= min, starting in [min, max].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "ResourceDeclarationRaw")]
+pub struct ResourceDeclaration {
+    /// Internal name (e.g., "luck", "humanity").
+    pub name: String,
+    /// Display label (e.g., "Luck", "Humanity").
+    pub label: String,
+    /// Minimum value.
+    pub min: f64,
+    /// Maximum value.
+    pub max: f64,
+    /// Starting value for new sessions.
+    pub starting: f64,
+    /// Whether the player can voluntarily spend this resource.
+    pub voluntary: bool,
+    /// Automatic change per turn (e.g., -0.1 for Heat decay). 0.0 = no decay.
+    pub decay_per_turn: f64,
+}
+
+impl TryFrom<ResourceDeclarationRaw> for ResourceDeclaration {
+    type Error = String;
+
+    fn try_from(raw: ResourceDeclarationRaw) -> Result<Self, Self::Error> {
+        if raw.max < raw.min {
+            return Err(format!(
+                "resource '{}': max ({}) must be >= min ({})",
+                raw.name, raw.max, raw.min
+            ));
+        }
+        if raw.starting < raw.min || raw.starting > raw.max {
+            return Err(format!(
+                "resource '{}': starting ({}) must be in [{}, {}]",
+                raw.name, raw.starting, raw.min, raw.max
+            ));
+        }
+        Ok(Self {
+            name: raw.name,
+            label: raw.label,
+            min: raw.min,
+            max: raw.max,
+            starting: raw.starting,
+            voluntary: raw.voluntary,
+            decay_per_turn: raw.decay_per_turn,
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Confrontation declarations (story 16-3)
+// ═══════════════════════════════════════════════════════════
+
+const VALID_CATEGORIES: &[&str] = &["combat", "social", "pre_combat", "movement"];
+const VALID_DIRECTIONS: &[&str] = &["ascending", "descending", "bidirectional"];
+
+/// A secondary stat derived from an ability score, usable during confrontations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecondaryStatDef {
+    /// Internal name (e.g., "focus", "shields").
+    pub name: String,
+    /// Ability score this stat derives from.
+    pub source_stat: String,
+    /// Whether the player can voluntarily spend this stat.
+    pub spendable: bool,
+}
+
+/// Raw beat definition for deserialization with validation.
+#[derive(Debug, Clone, Deserialize)]
+struct RawBeatDef {
+    id: String,
+    label: String,
+    metric_delta: i32,
+    stat_check: String,
+    #[serde(default)]
+    risk: Option<String>,
+    #[serde(default)]
+    reveals: Option<String>,
+    #[serde(default)]
+    resolution: Option<bool>,
+}
+
+/// A single action available during a confrontation.
+///
+/// Validated on deserialization: id must not be empty.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "RawBeatDef")]
+pub struct BeatDef {
+    /// Unique identifier within the confrontation (e.g., "attack", "draw").
+    pub id: String,
+    /// Display label.
+    pub label: String,
+    /// How much this beat changes the primary metric.
+    pub metric_delta: i32,
+    /// Ability score checked when performing this beat.
+    pub stat_check: String,
+    /// Risk description if this beat can backfire.
+    #[serde(default)]
+    pub risk: Option<String>,
+    /// What information this beat reveals.
+    #[serde(default)]
+    pub reveals: Option<String>,
+    /// Whether this beat can resolve the confrontation.
+    #[serde(default)]
+    pub resolution: Option<bool>,
+}
+
+impl TryFrom<RawBeatDef> for BeatDef {
+    type Error = String;
+
+    fn try_from(raw: RawBeatDef) -> Result<Self, Self::Error> {
+        if raw.id.is_empty() {
+            return Err("beat id must not be empty".to_string());
+        }
+        Ok(Self {
+            id: raw.id,
+            label: raw.label,
+            metric_delta: raw.metric_delta,
+            stat_check: raw.stat_check,
+            risk: raw.risk,
+            reveals: raw.reveals,
+            resolution: raw.resolution,
+        })
+    }
+}
+
+/// Raw metric definition for deserialization with validation.
+#[derive(Debug, Clone, Deserialize)]
+struct RawMetricDef {
+    name: String,
+    direction: String,
+    starting: i32,
+    #[serde(default)]
+    threshold_high: Option<i32>,
+    #[serde(default)]
+    threshold_low: Option<i32>,
+}
+
+/// The primary tracking metric for a confrontation type.
+///
+/// Validated on deserialization: direction must be ascending/descending/bidirectional.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "RawMetricDef")]
+pub struct MetricDef {
+    /// Metric name (e.g., "hp", "tension", "leverage").
+    pub name: String,
+    /// Direction: "ascending", "descending", or "bidirectional".
+    pub direction: String,
+    /// Starting value at confrontation begin.
+    pub starting: i32,
+    /// Upper threshold for resolution (if applicable).
+    #[serde(default)]
+    pub threshold_high: Option<i32>,
+    /// Lower threshold for resolution (if applicable).
+    #[serde(default)]
+    pub threshold_low: Option<i32>,
+}
+
+impl TryFrom<RawMetricDef> for MetricDef {
+    type Error = String;
+
+    fn try_from(raw: RawMetricDef) -> Result<Self, Self::Error> {
+        if !VALID_DIRECTIONS.contains(&raw.direction.as_str()) {
+            return Err(format!(
+                "invalid metric direction '{}': must be one of {:?}",
+                raw.direction, VALID_DIRECTIONS
+            ));
+        }
+        Ok(Self {
+            name: raw.name,
+            direction: raw.direction,
+            starting: raw.starting,
+            threshold_high: raw.threshold_high,
+            threshold_low: raw.threshold_low,
+        })
+    }
+}
+
+/// Raw confrontation definition for deserialization with validation.
+#[derive(Debug, Clone, Deserialize)]
+struct RawConfrontationDef {
+    #[serde(rename = "type")]
+    confrontation_type: String,
+    label: String,
+    category: String,
+    metric: MetricDef,
+    beats: Vec<BeatDef>,
+    #[serde(default)]
+    secondary_stats: Vec<SecondaryStatDef>,
+    #[serde(default)]
+    escalates_to: Option<String>,
+    #[serde(default)]
+    mood: Option<String>,
+}
+
+/// A confrontation type declared by a genre pack in rules.yaml.
+///
+/// Validated on deserialization: type must not be empty, category must be valid,
+/// beats must not be empty, beat IDs must be unique.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "RawConfrontationDef")]
+pub struct ConfrontationDef {
+    /// Confrontation type identifier (e.g., "combat", "standoff", "negotiation").
+    /// Serializes as `type` in YAML.
+    #[serde(rename = "type")]
+    pub confrontation_type: String,
+    /// Display label.
+    pub label: String,
+    /// Category: "combat", "social", "pre_combat", or "movement".
+    pub category: String,
+    /// Primary tracking metric.
+    pub metric: MetricDef,
+    /// Available actions during this confrontation.
+    pub beats: Vec<BeatDef>,
+    /// Optional secondary stats derived from ability scores.
+    #[serde(default)]
+    pub secondary_stats: Vec<SecondaryStatDef>,
+    /// Confrontation type this can escalate to (e.g., standoff → combat).
+    #[serde(default)]
+    pub escalates_to: Option<String>,
+    /// Mood override for MusicDirector.
+    #[serde(default)]
+    pub mood: Option<String>,
+}
+
+impl TryFrom<RawConfrontationDef> for ConfrontationDef {
+    type Error = String;
+
+    fn try_from(raw: RawConfrontationDef) -> Result<Self, Self::Error> {
+        if raw.confrontation_type.is_empty() {
+            return Err("confrontation type must not be empty".to_string());
+        }
+        if !VALID_CATEGORIES.contains(&raw.category.as_str()) {
+            return Err(format!(
+                "invalid confrontation category '{}': must be one of {:?}",
+                raw.category, VALID_CATEGORIES
+            ));
+        }
+        if raw.beats.is_empty() {
+            return Err(format!(
+                "confrontation '{}' must have at least one beat",
+                raw.confrontation_type
+            ));
+        }
+        // Check for duplicate beat IDs
+        let mut seen = std::collections::HashSet::new();
+        for beat in &raw.beats {
+            if !seen.insert(&beat.id) {
+                return Err(format!(
+                    "confrontation '{}' has duplicate beat id '{}'",
+                    raw.confrontation_type, beat.id
+                ));
+            }
+        }
+        Ok(Self {
+            confrontation_type: raw.confrontation_type,
+            label: raw.label,
+            category: raw.category,
+            metric: raw.metric,
+            beats: raw.beats,
+            secondary_stats: raw.secondary_stats,
+            escalates_to: raw.escalates_to,
+            mood: raw.mood,
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // rules.yaml
 // ═══════════════════════════════════════════════════════════
 
@@ -452,6 +742,12 @@ pub struct RulesConfig {
     /// Base tension values per encounter type.
     #[serde(default)]
     pub encounter_base_tension: HashMap<String, f64>,
+    /// Genre resource declarations (story 16-1). Empty for genres without resources.
+    #[serde(default)]
+    pub resources: Vec<ResourceDeclaration>,
+    /// Confrontation type declarations (story 16-3). Empty for genres without confrontations.
+    #[serde(default)]
+    pub confrontations: Vec<ConfrontationDef>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -719,6 +1015,10 @@ pub struct CharCreationScene {
     pub narration: String,
     /// Player choices (may be empty for the final confirmation scene).
     pub choices: Vec<CharCreationChoice>,
+    /// Genre-aware loading text shown while waiting for the next scene.
+    /// E.g. "The ripperdoc considers your words..."
+    #[serde(default)]
+    pub loading_text: Option<String>,
     /// Whether this scene allows freeform text input.
     #[serde(default)]
     pub allows_freeform: Option<bool>,
@@ -1305,6 +1605,32 @@ pub struct Prompts {
 }
 
 // ═══════════════════════════════════════════════════════════
+// openings.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// An opening scenario hook that constrains the narrator's first turn.
+///
+/// Each genre pack can define multiple opening hooks to ensure variety.
+/// One is selected randomly at session start and injected into the
+/// narrator's first-turn context.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct OpeningHook {
+    /// Unique identifier within the genre (e.g. "arena_challenge").
+    pub id: String,
+    /// Archetype category (e.g. "challenge", "mystery", "chase", "survival", "standoff", "arrival").
+    pub archetype: String,
+    /// Situation description injected as narrator guidance — what's happening, what the vibe is.
+    pub situation: String,
+    /// Tone directive (e.g. "tense, competitive").
+    pub tone: String,
+    /// Patterns the narrator must avoid in this opening.
+    #[serde(default)]
+    pub avoid: Vec<String>,
+    /// Synthetic first-turn action that replaces the generic "I look around".
+    pub first_turn_seed: String,
+}
+
+// ═══════════════════════════════════════════════════════════
 // beat_vocabulary.yaml
 // ═══════════════════════════════════════════════════════════
 
@@ -1433,13 +1759,136 @@ pub struct WorldConfig {
 // cartography.yaml
 // ═══════════════════════════════════════════════════════════
 
+/// Navigation mode for a world's cartography.
+///
+/// `Region` (default) uses freeform location strings with region metadata.
+/// `RoomGraph` uses validated room IDs with checked exits — required for
+/// dungeon crawl genre packs where room transitions drive game mechanics.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NavigationMode {
+    /// Freeform region-based navigation (default for all existing genre packs).
+    Region,
+    /// Validated room graph with checked exits (dungeon crawl mode).
+    RoomGraph,
+}
+
+impl Default for NavigationMode {
+    fn default() -> Self {
+        Self::Region
+    }
+}
+
+/// A single exit from a room to another room.
+///
+/// Tagged enum discriminated by `type` in YAML/JSON. Each variant carries
+/// its own metadata (e.g., `is_locked` for doors, `discovered` for secrets).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RoomExit {
+    /// Normal door: bidirectional by default, optionally locked.
+    Door {
+        /// Target room ID this exit leads to.
+        target: String,
+        /// Whether the door is locked.
+        #[serde(default)]
+        is_locked: bool,
+    },
+    /// Open corridor: bidirectional.
+    Corridor {
+        /// Target room ID this exit leads to.
+        target: String,
+    },
+    /// One-way drop (no reverse required).
+    ChuteDown {
+        /// Target room ID this exit leads to.
+        target: String,
+    },
+    /// One-way ascent (no reverse required, rare).
+    ChuteUp {
+        /// Target room ID this exit leads to.
+        target: String,
+    },
+    /// Secret passage: bidirectional but hidden until discovered.
+    Secret {
+        /// Target room ID this exit leads to.
+        target: String,
+        /// Whether the passage has been discovered.
+        #[serde(default)]
+        discovered: bool,
+    },
+}
+
+impl RoomExit {
+    /// Target room ID this exit leads to.
+    pub fn target(&self) -> &str {
+        match self {
+            RoomExit::Door { target, .. }
+            | RoomExit::Corridor { target }
+            | RoomExit::ChuteDown { target }
+            | RoomExit::ChuteUp { target }
+            | RoomExit::Secret { target, .. } => target,
+        }
+    }
+
+    /// Whether this exit requires a return path from the target room.
+    pub fn requires_reverse(&self) -> bool {
+        matches!(
+            self,
+            RoomExit::Door { .. } | RoomExit::Corridor { .. } | RoomExit::Secret { .. }
+        )
+    }
+
+    /// Display name for UI/narration.
+    pub fn display_name(&self) -> &str {
+        match self {
+            RoomExit::Door { .. } => "door",
+            RoomExit::Corridor { .. } => "corridor",
+            RoomExit::ChuteDown { .. } => "chute down",
+            RoomExit::ChuteUp { .. } => "chute up",
+            RoomExit::Secret { .. } => "secret passage",
+        }
+    }
+}
+
+/// A room in the dungeon room graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoomDef {
+    /// Unique room identifier (slug).
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Room type: "entrance", "normal", "boss", "treasure", "dead_end".
+    pub room_type: String,
+    /// Physical dimensions for layout (width, height in grid units).
+    #[serde(default = "default_room_size")]
+    pub size: (u32, u32),
+    /// How much Keeper awareness escalates per transition (0.8–1.5).
+    #[serde(default = "default_keeper_awareness_modifier")]
+    pub keeper_awareness_modifier: f64,
+    /// Exits leading to other rooms.
+    #[serde(default)]
+    pub exits: Vec<RoomExit>,
+    /// Optional description for UI/lore.
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+fn default_room_size() -> (u32, u32) {
+    (1, 1)
+}
+
+fn default_keeper_awareness_modifier() -> f64 {
+    1.0
+}
+
 /// Map and region configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CartographyConfig {
     /// World name.
     #[serde(default)]
     pub world_name: String,
-    /// Starting region slug.
+    /// Starting region slug (or starting room ID in room_graph mode).
     #[serde(default)]
     pub starting_region: String,
     /// Map style prompt for image generation.
@@ -1448,12 +1897,18 @@ pub struct CartographyConfig {
     /// Map resolution in pixels [width, height] (null if not specified).
     #[serde(default)]
     pub map_resolution: Option<[u32; 2]>,
-    /// Regions keyed by slug.
+    /// Navigation mode — Region (default) or RoomGraph.
+    #[serde(default)]
+    pub navigation_mode: NavigationMode,
+    /// Regions keyed by slug (used in Region mode).
     #[serde(default)]
     pub regions: HashMap<String, Region>,
-    /// Routes between regions.
+    /// Routes between regions (used in Region mode).
     #[serde(default)]
     pub routes: Vec<Route>,
+    /// Room definitions (used in RoomGraph mode). `None` for region-based packs.
+    #[serde(default)]
+    pub rooms: Option<Vec<RoomDef>>,
 }
 
 /// A map region.
@@ -1930,4 +2385,87 @@ pub struct WhenInnocent {
     /// The NPC's secret (unrelated to the crime).
     #[serde(default)]
     pub secret: String,
+}
+
+// ═══════════════════════════════════════════════════════════
+// inventory.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// Complete inventory configuration from `inventory.yaml`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InventoryConfig {
+    /// Currency system (optional — some genre packs don't define one).
+    #[serde(default)]
+    pub currency: Option<CurrencyConfig>,
+    /// Full item catalog.
+    #[serde(default)]
+    pub item_catalog: Vec<CatalogItem>,
+    /// Starting equipment per archetype/class. Key = archetype/class name, value = item IDs.
+    #[serde(default)]
+    pub starting_equipment: HashMap<String, Vec<String>>,
+    /// Starting gold per archetype/class.
+    #[serde(default)]
+    pub starting_gold: HashMap<String, u32>,
+    /// Inventory philosophy (carry limits, restrictions).
+    #[serde(default)]
+    pub philosophy: Option<InventoryPhilosophy>,
+}
+
+/// Currency system definition.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CurrencyConfig {
+    /// Currency name (e.g., "gold", "credits", "Dollars").
+    pub name: String,
+    /// Denomination names or name→multiplier map.
+    /// Accepts either a list of strings or a map of name→value.
+    #[serde(default)]
+    pub denominations: serde_json::Value,
+}
+
+/// A single item in the genre pack's item catalog.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CatalogItem {
+    /// Unique item identifier (e.g., "sword_iron").
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Item description.
+    pub description: String,
+    /// Category: weapon, armor, tool, consumable, treasure, misc.
+    pub category: String,
+    /// Base value in currency.
+    #[serde(default)]
+    pub value: u32,
+    /// Weight in abstract units.
+    #[serde(default)]
+    pub weight: f64,
+    /// Rarity: common, uncommon, rare, legendary.
+    #[serde(default)]
+    pub rarity: String,
+    /// Power level (0-5 scale).
+    #[serde(default)]
+    pub power_level: u32,
+    /// Searchable tags.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Flavor text / lore.
+    #[serde(default)]
+    pub lore: String,
+    /// Narrative weight for how much the narrator should mention this item.
+    #[serde(default)]
+    pub narrative_weight: serde_json::Value,
+}
+
+/// Inventory philosophy configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InventoryPhilosophy {
+    /// Maximum carry weight.
+    #[serde(default)]
+    pub carry_limit: Option<u32>,
+    /// Item categories that are restricted.
+    #[serde(default)]
+    pub restricted_categories: Vec<String>,
+    /// Progression gates for item access.
+    #[serde(default)]
+    pub progression_gates: HashMap<String, serde_json::Value>,
 }

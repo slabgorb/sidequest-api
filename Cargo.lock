@@ -1306,6 +1306,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidequest-encountergen"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "sidequest-genre",
+]
+
+[[package]]
 name = "sidequest-game"
 version = "0.1.0"
 dependencies = [
@@ -1336,7 +1347,30 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sidequest-protocol",
+ "tempfile",
  "thiserror",
+]
+
+[[package]]
+name = "sidequest-loadoutgen"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "sidequest-genre",
+]
+
+[[package]]
+name = "sidequest-namegen"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "rand 0.9.2",
+ "serde",
+ "serde_json",
+ "sidequest-genre",
 ]
 
 [[package]]

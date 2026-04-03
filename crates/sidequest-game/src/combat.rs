@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::combatant::Combatant;
-use crate::progression::level_to_damage;
+use crate::progression::{level_to_damage, level_to_defense};
 
 /// Tracks the state of an active combat encounter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,7 +191,7 @@ impl CombatState {
         attacker_name: &str,
         attacker: &impl Combatant,
         target_name: &str,
-        _target: &impl Combatant,
+        target: &impl Combatant,
     ) -> RoundResult {
         let span = tracing::info_span!(
             "combat_resolve_attack",
@@ -216,7 +216,26 @@ impl CombatState {
         }
 
         let base_damage = 5;
-        let damage = level_to_damage(base_damage, attacker.level());
+        let raw_damage = level_to_damage(base_damage, attacker.level());
+
+        // Apply defender's level-scaled defense to mitigate damage.
+        // AC is the base defense stat, scaled by level via level_to_defense.
+        // Defense provides percentage reduction: defense / (defense + 20).
+        // This gives diminishing returns — AC 10 = 33% reduction, AC 20 = 50%.
+        // Damage is always at least 1 — attacks always connect.
+        let defense_value = level_to_defense(target.ac(), target.level());
+        let reduction = defense_value as f64 / (defense_value as f64 + 20.0);
+        let damage = (raw_damage as f64 * (1.0 - reduction)).round().max(1.0) as i32;
+
+        let _defense_span = tracing::info_span!(
+            "combat.defense_applied",
+            defender_name = target_name,
+            level = target.level(),
+            defense_value = defense_value,
+            damage_before = raw_damage,
+            damage_after = damage,
+        )
+        .entered();
 
         let event = DamageEvent {
             attacker: attacker_name.to_string(),

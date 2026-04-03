@@ -3,7 +3,7 @@
 //! Port lesson #4: GameSnapshot composes domain structs, no god object.
 //! Each domain struct owns its mutations via typed patch application.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -20,17 +20,81 @@ use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
 use crate::delta::StateDelta;
 use crate::disposition::Disposition;
+use crate::encounter::StructuredEncounter;
 use crate::inventory::Inventory;
+use crate::merchant::{
+    self, MerchantError, MerchantTransaction, MerchantTransactionRequest, TransactionType,
+};
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
+use crate::scenario_state::ScenarioState;
 use crate::trope::TropeState;
 use crate::turn::TurnManager;
 use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
 use sidequest_protocol::{
-    ChapterMarkerPayload, CombatEnemy, CombatEventPayload, ExploredLocation, GameMessage,
-    MapUpdatePayload, PartyMember, PartyStatusPayload,
+    CharacterState, ChapterMarkerPayload, CombatEnemy, CombatEventPayload, ExploredLocation,
+    GameMessage, MapUpdatePayload, PartyMember, PartyStatusPayload,
 };
+
+/// Room IDs the player has visited in room-graph navigation mode.
+///
+/// Wraps `HashSet<String>` but serializes as a **sorted** `Vec<String>` for
+/// deterministic JSON output (story 19-2). Deserializes from `Vec<String>`.
+#[derive(Debug, Clone, Default, Eq)]
+pub struct DiscoveredRooms(pub HashSet<String>);
+
+impl Serialize for DiscoveredRooms {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut sorted: Vec<&String> = self.0.iter().collect();
+        sorted.sort();
+        sorted.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DiscoveredRooms {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let vec = Vec::<String>::deserialize(deserializer)?;
+        Ok(DiscoveredRooms(vec.into_iter().collect()))
+    }
+}
+
+impl std::ops::Deref for DiscoveredRooms {
+    type Target = HashSet<String>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for DiscoveredRooms {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl std::iter::FromIterator<String> for DiscoveredRooms {
+    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
+        DiscoveredRooms(iter.into_iter().collect())
+    }
+}
+
+impl PartialEq for DiscoveredRooms {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl PartialEq<HashSet<String>> for DiscoveredRooms {
+    fn eq(&self, other: &HashSet<String>) -> bool {
+        self.0 == *other
+    }
+}
+
+impl PartialEq<DiscoveredRooms> for HashSet<String> {
+    fn eq(&self, other: &DiscoveredRooms) -> bool {
+        *self == other.0
+    }
+}
 
 /// The complete game state at a point in time.
 ///
@@ -38,6 +102,7 @@ use sidequest_protocol::{
 /// and WebSocket broadcast. Port lesson #11: captures ALL client-visible fields,
 /// not just characters/location/quest_log like the Python version.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(from = "GameSnapshotRaw")]
 pub struct GameSnapshot {
     /// Genre pack identifier (e.g., "mutant_wasteland").
     pub genre_slug: String,
@@ -60,8 +125,14 @@ pub struct GameSnapshot {
     /// Active combat state.
     pub combat: CombatState,
     /// Active chase sequence (None if no chase in progress).
+    /// Kept for backward compatibility with ChasePatch system.
     #[serde(default)]
     pub chase: Option<ChaseState>,
+    /// Active structured encounter (story 16-2).
+    /// Generalizes ChaseState — supports standoffs, negotiations, ship combat, etc.
+    /// Old saves with a `chase` field are migrated to this field during deserialization.
+    #[serde(default)]
+    pub encounter: Option<StructuredEncounter>,
     /// Currently active narrative tropes (full state for persistence).
     /// Backward-compatible: old saves with Vec<String> IDs deserialize as empty
     /// (tropes get re-seeded on first turn).
@@ -114,6 +185,22 @@ pub struct GameSnapshot {
     /// Achievement tracker (story F7).
     #[serde(default)]
     pub achievement_tracker: AchievementTracker,
+    /// Active scenario state (Epic 7 — whodunit, belief state, clues, accusations).
+    /// None when no scenario is active.
+    #[serde(default)]
+    pub scenario_state: Option<ScenarioState>,
+    /// Current resource values keyed by resource name (story 16-1).
+    /// Lightweight tracking — formal ResourcePool comes in story 16-10.
+    #[serde(default)]
+    pub resource_state: HashMap<String, f64>,
+    /// Resource declarations loaded from genre pack (story 16-1).
+    /// Used for bounds clamping during delta application.
+    #[serde(default)]
+    pub resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
+    /// Room IDs the player has visited in room-graph mode (story 19-2).
+    /// Empty in region mode. Serializes as sorted Vec for deterministic JSON.
+    #[serde(default)]
+    pub discovered_rooms: DiscoveredRooms,
 }
 
 /// Backward-compatible deserializer for active_tropes.
@@ -131,7 +218,146 @@ where
     }
 }
 
+/// Raw deserialization helper for GameSnapshot backward compatibility (story 16-2).
+///
+/// Handles migration of old saves that have a `chase` field but no `encounter`
+/// field. The `From<GameSnapshotRaw> for GameSnapshot` impl converts the old
+/// ChaseState into a StructuredEncounter during deserialization.
+#[derive(Deserialize)]
+struct GameSnapshotRaw {
+    #[serde(default)]
+    genre_slug: String,
+    #[serde(default)]
+    world_slug: String,
+    #[serde(default)]
+    characters: Vec<Character>,
+    #[serde(default)]
+    npcs: Vec<Npc>,
+    #[serde(default)]
+    location: String,
+    #[serde(default)]
+    time_of_day: String,
+    #[serde(default)]
+    quest_log: HashMap<String, String>,
+    #[serde(default)]
+    notes: Vec<String>,
+    #[serde(default)]
+    narrative_log: Vec<NarrativeEntry>,
+    #[serde(default)]
+    combat: CombatState,
+    #[serde(default)]
+    chase: Option<ChaseState>,
+    #[serde(default)]
+    encounter: Option<StructuredEncounter>,
+    #[serde(default, deserialize_with = "deserialize_trope_states")]
+    active_tropes: Vec<TropeState>,
+    #[serde(default)]
+    atmosphere: String,
+    #[serde(default)]
+    current_region: String,
+    #[serde(default)]
+    discovered_regions: Vec<String>,
+    #[serde(default)]
+    discovered_routes: Vec<String>,
+    #[serde(default)]
+    turn_manager: TurnManager,
+    #[serde(default)]
+    last_saved_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    active_stakes: String,
+    #[serde(default)]
+    lore_established: Vec<String>,
+    #[serde(default)]
+    turns_since_meaningful: u32,
+    #[serde(default)]
+    total_beats_fired: u32,
+    #[serde(default)]
+    campaign_maturity: CampaignMaturity,
+    #[serde(default)]
+    world_history: Vec<HistoryChapter>,
+    #[serde(default)]
+    npc_registry: Vec<crate::npc::NpcRegistryEntry>,
+    #[serde(default)]
+    genie_wishes: Vec<GenieWish>,
+    #[serde(default)]
+    axis_values: Vec<AxisValue>,
+    #[serde(default)]
+    achievement_tracker: AchievementTracker,
+    #[serde(default)]
+    scenario_state: Option<ScenarioState>,
+    #[serde(default)]
+    resource_state: HashMap<String, f64>,
+    #[serde(default)]
+    resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
+    #[serde(default)]
+    discovered_rooms: DiscoveredRooms,
+}
+
+impl From<GameSnapshotRaw> for GameSnapshot {
+    fn from(raw: GameSnapshotRaw) -> Self {
+        // Migrate: if encounter is absent but chase is present, convert chase → encounter
+        let encounter = raw.encounter.or_else(|| {
+            raw.chase
+                .as_ref()
+                .map(StructuredEncounter::from_chase_state)
+        });
+
+        Self {
+            genre_slug: raw.genre_slug,
+            world_slug: raw.world_slug,
+            characters: raw.characters,
+            npcs: raw.npcs,
+            location: raw.location,
+            time_of_day: raw.time_of_day,
+            quest_log: raw.quest_log,
+            notes: raw.notes,
+            narrative_log: raw.narrative_log,
+            combat: raw.combat,
+            chase: raw.chase,
+            encounter,
+            active_tropes: raw.active_tropes,
+            atmosphere: raw.atmosphere,
+            current_region: raw.current_region,
+            discovered_regions: raw.discovered_regions,
+            discovered_routes: raw.discovered_routes,
+            turn_manager: raw.turn_manager,
+            last_saved_at: raw.last_saved_at,
+            active_stakes: raw.active_stakes,
+            lore_established: raw.lore_established,
+            turns_since_meaningful: raw.turns_since_meaningful,
+            total_beats_fired: raw.total_beats_fired,
+            campaign_maturity: raw.campaign_maturity,
+            world_history: raw.world_history,
+            npc_registry: raw.npc_registry,
+            genie_wishes: raw.genie_wishes,
+            axis_values: raw.axis_values,
+            achievement_tracker: raw.achievement_tracker,
+            scenario_state: raw.scenario_state,
+            resource_state: raw.resource_state,
+            resource_declarations: raw.resource_declarations,
+            discovered_rooms: raw.discovered_rooms,
+        }
+    }
+}
+
 impl GameSnapshot {
+    /// Apply resource deltas to tracked state (story 16-1).
+    ///
+    /// Only modifies resources that already exist in `resource_state`.
+    /// Unknown resources in the delta map are silently ignored (not created).
+    /// Values are clamped to [min, max] if a matching `ResourceDeclaration` exists.
+    pub fn apply_resource_deltas(&mut self, deltas: &HashMap<String, f64>) {
+        for (name, delta) in deltas {
+            if let Some(current) = self.resource_state.get_mut(name) {
+                *current += delta;
+                // Clamp to bounds if declaration exists
+                if let Some(decl) = self.resource_declarations.iter().find(|d| d.name == *name) {
+                    *current = current.clamp(decl.min, decl.max);
+                }
+            }
+        }
+    }
+
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {
@@ -283,14 +509,12 @@ impl GameSnapshot {
             changed.push("hp_changes");
         }
 
-        // NPC attitude changes
+        // NPC disposition deltas — numeric values from the LLM, applied directly
         if let Some(ref attitudes) = patch.npc_attitudes {
-            for (name, attitude_str) in attitudes {
-                if let Some(disposition) = Disposition::from_attitude_str(attitude_str) {
-                    for npc in &mut self.npcs {
-                        if npc.name() == name {
-                            npc.disposition = disposition;
-                        }
+            for (name, &delta) in attitudes {
+                for npc in &mut self.npcs {
+                    if npc.name() == name {
+                        npc.disposition.apply_delta(delta);
                     }
                 }
             }
@@ -479,6 +703,82 @@ impl GameSnapshot {
             &tracing::field::display(&changed.join(",")),
         );
     }
+
+    /// Apply merchant transactions mechanically via execute_buy/execute_sell.
+    ///
+    /// Each request is resolved using the named NPC's disposition for pricing.
+    /// Returns one Result per request. Failed transactions leave state unchanged
+    /// (atomic per-transaction). Emits OTEL spans for each successful transaction.
+    ///
+    /// Uses characters[0] as the player (single-player assumption matches
+    /// the existing inventory and gold tracking pattern).
+    pub fn apply_merchant_transactions(
+        &mut self,
+        requests: &[MerchantTransactionRequest],
+    ) -> Vec<Result<MerchantTransaction, MerchantError>> {
+        /// Default carry limit for player inventory during merchant transactions.
+        const PLAYER_CARRY_LIMIT: usize = 100;
+
+        let mut results = Vec::with_capacity(requests.len());
+
+        for request in requests {
+            // Find the merchant NPC by name
+            let merchant_idx = self
+                .npcs
+                .iter()
+                .position(|n| n.name() == request.merchant_name);
+
+            let Some(merchant_idx) = merchant_idx else {
+                results.push(Err(MerchantError::CharacterNotFound(
+                    request.merchant_name.clone(),
+                )));
+                continue;
+            };
+
+            // Copy disposition before mutable borrows (Disposition is Copy)
+            let disposition = self.npcs[merchant_idx].disposition;
+            let gold_before = self.characters[0].core.inventory.gold;
+
+            // Split borrow: player is in characters, merchant is in npcs — no overlap
+            let player_inv = &mut self.characters[0].core.inventory;
+            let merchant_inv = &mut self.npcs[merchant_idx].core.inventory;
+
+            let result = match request.transaction_type {
+                TransactionType::Buy => merchant::execute_buy(
+                    player_inv,
+                    merchant_inv,
+                    &request.item_id,
+                    &disposition,
+                    PLAYER_CARRY_LIMIT,
+                ),
+                TransactionType::Sell => merchant::execute_sell(
+                    player_inv,
+                    merchant_inv,
+                    &request.item_id,
+                    &disposition,
+                ),
+            };
+
+            // Emit OTEL span for successful transactions
+            if let Ok(ref tx) = result {
+                let gold_after = self.characters[0].core.inventory.gold;
+                let tx_type = format!("{:?}", tx.transaction_type);
+                let _span = tracing::info_span!(
+                    "merchant.transaction",
+                    transaction_type = %tx_type,
+                    item_name = %tx.item_name,
+                    price = tx.price,
+                    gold_before = gold_before,
+                    gold_after = gold_after,
+                )
+                .entered();
+            }
+
+            results.push(result);
+        }
+
+        results
+    }
 }
 
 /// Patch for world-level state (location, atmosphere, quests, regions).
@@ -512,8 +812,8 @@ pub struct WorldStatePatch {
     pub discover_routes: Option<Vec<String>>,
     /// Per-character/NPC HP deltas.
     pub hp_changes: Option<HashMap<String, i32>>,
-    /// NPC attitude string changes.
-    pub npc_attitudes: Option<HashMap<String, String>>,
+    /// NPC disposition deltas (signed integers on the -100 to +100 scale).
+    pub npc_attitudes: Option<HashMap<String, i32>>,
     /// NPC upsert patches.
     pub npcs_present: Option<Vec<NpcPatch>>,
     /// Active narrative stakes.
@@ -669,6 +969,10 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 y: 0,
                 location_type: "region".to_string(),
                 connections: vec![],
+                room_exits: vec![],
+                room_type: String::new(),
+                size: None,
+                is_current_room: false,
             })
             .collect();
         messages.push(GameMessage::MapUpdate {
@@ -696,6 +1000,13 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                         hp: Combatant::hp(n),
                         max_hp: Combatant::max_hp(n),
                         ac: Some(Combatant::ac(n)),
+                        status_effects: state.combat.effects_on(n.name())
+                            .iter()
+                            .map(|e| sidequest_protocol::StatusEffectInfo {
+                                kind: format!("{:?}", e.kind()),
+                                remaining_rounds: e.remaining_rounds(),
+                            })
+                            .collect(),
                     })
                     .collect(),
                 turn_order: state.combat.turn_order().to_vec(),
@@ -706,4 +1017,67 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
     }
 
     messages
+}
+
+/// Build the wire-format StateDelta from a game-crate delta and current snapshot.
+///
+/// Converts the boolean-flagged game delta into the protocol's data-carrying delta
+/// that the client uses to update its state mirror. Story 15-20: replaces inline
+/// construction in dispatch/mod.rs.
+pub fn build_protocol_delta(
+    delta: &StateDelta,
+    state: &GameSnapshot,
+    items_gained: &[sidequest_protocol::ItemGained],
+) -> sidequest_protocol::StateDelta {
+    let span = tracing::info_span!(
+        "build_protocol_delta",
+        location_changed = delta.location_changed(),
+        characters_changed = delta.characters_changed(),
+        quest_log_changed = delta.quest_log_changed(),
+        items_gained_count = items_gained.len(),
+    );
+    let _guard = span.enter();
+
+    sidequest_protocol::StateDelta {
+        location: if delta.location_changed() {
+            Some(state.location.clone())
+        } else {
+            None
+        },
+        characters: if delta.characters_changed() {
+            Some(
+                state
+                    .characters
+                    .iter()
+                    .map(|c| CharacterState {
+                        name: c.name().to_string(),
+                        hp: Combatant::hp(c),
+                        max_hp: Combatant::max_hp(c),
+                        level: Combatant::level(c),
+                        class: c.char_class.as_str().to_string(),
+                        statuses: vec![],
+                        inventory: c
+                            .core
+                            .inventory
+                            .items
+                            .iter()
+                            .map(|i| i.name.as_str().to_string())
+                            .collect(),
+                    })
+                    .collect(),
+            )
+        } else {
+            None
+        },
+        quests: if delta.quest_log_changed() {
+            Some(state.quest_log.clone())
+        } else {
+            None
+        },
+        items_gained: if items_gained.is_empty() {
+            None
+        } else {
+            Some(items_gained.to_vec())
+        },
+    }
 }

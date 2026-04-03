@@ -60,8 +60,6 @@ pub struct TurnRecord {
     pub delta: StateDelta,
     /// Trope beats that fired during this turn: (trope_name, threshold).
     pub beats_fired: Vec<(String, f32)>,
-    /// JSON extraction tier used (1=direct, 2=fenced, 3=regex).
-    pub extraction_tier: u8,
     /// Input tokens consumed by the agent LLM call.
     pub token_count_in: usize,
     /// Output tokens produced by the agent LLM call.
@@ -140,7 +138,6 @@ pub async fn run_validator(mut rx: mpsc::Receiver<TurnRecord>) -> Vec<u64> {
             agent = %record.agent_name,
             patches = record.patches_applied.len(),
             delta_empty = record.delta.is_empty(),
-            extraction_tier = record.extraction_tier,
             is_degraded = record.is_degraded,
             "received TurnRecord"
         );
