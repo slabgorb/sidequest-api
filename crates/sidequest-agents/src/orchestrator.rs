@@ -303,43 +303,53 @@ impl Orchestrator {
         }
 
         // Script tool instructions (Situational zone — high attention, must be seen)
-        // Moved from Valley to Situational because Sonnet ignores Valley-zone tool
-        // instructions and writes prose without calling tools.
-        // Env vars (SIDEQUEST_GENRE, SIDEQUEST_CONTENT_PATH) replace --genre/--genre-packs-path flags.
+        // Wrapper scripts in tools/ translate env vars to CLI flags and call the
+        // actual binaries. Claude sees clean command names it knows how to call.
         let mut env_vars: HashMap<String, String> = HashMap::new();
         if let Some(ref genre) = context.genre {
             for (tool_name, cfg) in &self.script_tools {
-                let binary = &cfg.binary_path;
+                // Derive the tools/ directory from the binary path
+                // e.g., /path/to/target/debug/sidequest-namegen → /path/to/tools/
+                let tools_dir = std::path::Path::new(&cfg.binary_path)
+                    .parent() // target/debug/
+                    .and_then(|p| p.parent()) // target/
+                    .and_then(|p| p.parent()) // sidequest-api/
+                    .map(|p| p.join("tools"))
+                    .unwrap_or_else(|| std::path::PathBuf::from("tools"));
+                // Prepend tools dir to PATH so Claude can find the wrappers
+                let current_path = std::env::var("PATH").unwrap_or_default();
+                env_vars.insert("PATH".to_string(), format!("{}:{}", tools_dir.display(), current_path));
+
                 let tool_section = match tool_name.as_str() {
-                    "encountergen" => format!("\
+                    "encountergen" => "\
 <tool name=\"ENCOUNTER\">\n\
 When to call: any time new enemies enter the scene. Pick flags based on narrative context.\n\
-<command>{binary} [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]</command>\n\
+<command>sidequest-encounter [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]</command>\n\
 <usage>\n\
 - [ ] Use the generated name in your narration\n\
 - [ ] Reference abilities from the abilities list (not invented ones)\n\
 </usage>\n\
-</tool>"),
-                    "namegen" => format!("\
+</tool>".to_string(),
+                    "namegen" => "\
 <tool name=\"NPC\">\n\
 MANDATORY: Call this BEFORE introducing any new NPC. Do NOT invent NPC names.\n\
-<command>{binary} [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]</command>\n\
+<command>sidequest-npc [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]</command>\n\
 <usage>\n\
 - [ ] Use the generated name exactly — do NOT modify or replace it\n\
 - [ ] Use dialogue_quirks to flavor their speech\n\
 - [ ] Reference their role and appearance in narration\n\
 </usage>\n\
-</tool>"),
-                    "loadoutgen" => format!("\
+</tool>".to_string(),
+                    "loadoutgen" => "\
 <tool name=\"LOADOUT\">\n\
 When to call: at character creation when introducing the character's starting gear.\n\
-<command>{binary} --class CLASS [--tier N]</command>\n\
+<command>sidequest-loadout --class CLASS [--tier N]</command>\n\
 <usage>\n\
 - [ ] Weave the narrative_hook into the opening scene naturally\n\
 - [ ] Reference specific items by name when the character uses them\n\
 - [ ] Use the currency_name for all money references\n\
 </usage>\n\
-</tool>"),
+</tool>".to_string(),
                     unknown => {
                         warn!(
                             tool = %unknown,
