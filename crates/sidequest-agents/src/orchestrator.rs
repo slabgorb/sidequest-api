@@ -302,9 +302,10 @@ impl Orchestrator {
             ));
         }
 
-        // Script tool instructions (Valley zone — compact XML format, story 23-11)
+        // Script tool instructions (Situational zone — high attention, must be seen)
+        // Moved from Valley to Situational because Sonnet ignores Valley-zone tool
+        // instructions and writes prose without calling tools.
         // Env vars (SIDEQUEST_GENRE, SIDEQUEST_CONTENT_PATH) replace --genre/--genre-packs-path flags.
-        // Command names use actual binary paths so they match --allowedTools Bash() specs.
         let mut env_vars: HashMap<String, String> = HashMap::new();
         if let Some(ref genre) = context.genre {
             for (tool_name, cfg) in &self.script_tools {
@@ -350,7 +351,7 @@ When to call: at character creation when introducing the character's starting ge
                 builder.add_section(PromptSection::new(
                     &format!("script_tool_{}", tool_name),
                     tool_section,
-                    AttentionZone::Valley,
+                    AttentionZone::Early,
                     SectionCategory::State,
                 ));
                 script_tools_injected.push(tool_name.clone());
