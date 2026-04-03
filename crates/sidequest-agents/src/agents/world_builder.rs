@@ -9,11 +9,13 @@
 //! sidequest-game::world_materialization and uses the LLM for creative content
 //! generation appropriate to the current maturity level.
 
+use tracing::info_span;
+
 use crate::agent::Agent;
 use crate::context_builder::ContextBuilder;
 use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
 use sidequest_game::faction_agenda::{AgendaUrgency, FactionAgenda};
-use sidequest_game::world_materialization::CampaignMaturity;
+use sidequest_game::world_materialization::{CampaignMaturity, HistoryChapter};
 
 /// System prompt for the WorldBuilder agent.
 const WORLD_BUILDER_SYSTEM_PROMPT: &str = "\
@@ -87,6 +89,8 @@ pub struct WorldBuilderAgent {
     known_lore: Vec<String>,
     /// Active faction agendas for context injection.
     faction_summaries: Vec<String>,
+    /// History chapters from the genre pack for progressive materialization.
+    history_chapters: Vec<HistoryChapter>,
 }
 
 impl WorldBuilderAgent {
@@ -99,6 +103,7 @@ impl WorldBuilderAgent {
             known_npcs: Vec::new(),
             known_lore: Vec::new(),
             faction_summaries: Vec::new(),
+            history_chapters: Vec::new(),
         }
     }
 
@@ -140,6 +145,15 @@ impl WorldBuilderAgent {
                 )
             })
             .collect();
+        self
+    }
+
+    /// Provide history chapters for progressive world materialization.
+    ///
+    /// Chapters are filtered by maturity during `build_context()` — only
+    /// chapters at or below the current maturity level are included.
+    pub fn with_chapters(mut self, chapters: Vec<HistoryChapter>) -> Self {
+        self.history_chapters = chapters;
         self
     }
 
@@ -199,6 +213,58 @@ impl WorldBuilderAgent {
         parts.push("</world_maturity>".to_string());
         parts.join("\n")
     }
+
+    /// Filter history chapters by current maturity and format as materialized
+    /// world description for prompt injection. Returns None if no applicable
+    /// chapters exist.
+    ///
+    /// Emits OTEL span: `world.materialized` with maturity_level, chapter_count,
+    /// and description_tokens fields.
+    fn materialized_world_context(&self) -> Option<String> {
+        // Filter chapters: include all at or below current maturity
+        let applicable: Vec<&HistoryChapter> = self.history_chapters.iter()
+            .filter(|ch| {
+                // Reuse CampaignMaturity ordering — chapter id maps to a maturity level,
+                // and we include it if that level <= our current maturity.
+                match ch.id.as_str() {
+                    "fresh" => CampaignMaturity::Fresh <= self.maturity,
+                    "early" => CampaignMaturity::Early <= self.maturity,
+                    "mid" => CampaignMaturity::Mid <= self.maturity,
+                    "veteran" => CampaignMaturity::Veteran <= self.maturity,
+                    _ => false, // Unknown chapter IDs are excluded
+                }
+            })
+            .collect();
+
+        if applicable.is_empty() {
+            return None;
+        }
+
+        let mut parts = vec!["<world_materialization>".to_string()];
+
+        for chapter in &applicable {
+            parts.push(format!("## {} ({})", chapter.label, chapter.id));
+            for lore in &chapter.lore {
+                parts.push(format!("- {}", lore));
+            }
+        }
+
+        parts.push("</world_materialization>".to_string());
+        let description = parts.join("\n");
+
+        // Approximate token count (~4 chars per token)
+        let description_tokens = description.len() / 4;
+
+        let _span = info_span!(
+            "world.materialized",
+            maturity_level = self.maturity_label(),
+            chapter_count = applicable.len(),
+            description_tokens = description_tokens,
+        )
+        .entered();
+
+        Some(description)
+    }
 }
 
 impl Default for WorldBuilderAgent {
@@ -232,6 +298,17 @@ impl Agent for WorldBuilderAgent {
             AttentionZone::Early,
             SectionCategory::State,
         ));
+
+        // Materialized world description (Situational zone) — progressive content
+        // from history chapters filtered by current maturity level.
+        if let Some(materialized) = self.materialized_world_context() {
+            builder.add_section(PromptSection::new(
+                "world_materialization",
+                materialized,
+                AttentionZone::Early,
+                SectionCategory::State,
+            ));
+        }
     }
 }
 

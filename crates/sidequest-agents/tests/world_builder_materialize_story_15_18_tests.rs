@@ -11,8 +11,8 @@
 use sidequest_agents::agents::world_builder::WorldBuilderAgent;
 use sidequest_agents::agent::Agent;
 use sidequest_agents::context_builder::ContextBuilder;
-use sidequest_agents::prompt_framework::{AttentionZone, SectionCategory};
 use sidequest_game::world_materialization::{CampaignMaturity, HistoryChapter};
+
 
 /// Helper: build a minimal HistoryChapter at a given maturity id with lore.
 fn chapter(id: &str, label: &str, lore: Vec<&str>) -> HistoryChapter {
