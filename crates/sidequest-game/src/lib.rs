@@ -36,6 +36,7 @@ pub mod gossip;
 pub mod guest_npc;
 pub mod hp;
 pub mod inventory;
+pub mod journal;
 pub mod known_fact;
 pub mod lore;
 pub mod merchant;

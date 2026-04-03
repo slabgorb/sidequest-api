@@ -132,24 +132,28 @@ fn rich_known_facts() -> Vec<KnownFact> {
             learned_turn: 3,
             source: FactSource::Dialogue,
             confidence: Confidence::Certain,
+            category: sidequest_protocol::FactCategory::Place,
         },
         KnownFact {
             content: "Strange lights have been seen near the mine entrance at dusk".to_string(),
             learned_turn: 5,
             source: FactSource::Observation,
             confidence: Confidence::Certain,
+            category: sidequest_protocol::FactCategory::Place,
         },
         KnownFact {
             content: "The merchant Voss may be smuggling artifacts from the mines".to_string(),
             learned_turn: 8,
             source: FactSource::Dialogue,
             confidence: Confidence::Suspected,
+            category: sidequest_protocol::FactCategory::Person,
         },
         KnownFact {
             content: "A creature matching the description of a Gloom Stalker was spotted near the south ridge".to_string(),
             learned_turn: 12,
             source: FactSource::Discovery,
             confidence: Confidence::Rumored,
+            category: sidequest_protocol::FactCategory::Lore,
         },
     ]
 }

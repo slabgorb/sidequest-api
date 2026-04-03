@@ -87,6 +87,7 @@ fn certain_fact() -> KnownFact {
         learned_turn: 5,
         source: FactSource::Observation,
         confidence: Confidence::Certain,
+        category: sidequest_protocol::FactCategory::Person,
     }
 }
 
@@ -96,6 +97,7 @@ fn rumored_fact() -> KnownFact {
         learned_turn: 2,
         source: FactSource::Dialogue,
         confidence: Confidence::Rumored,
+        category: sidequest_protocol::FactCategory::Place,
     }
 }
 

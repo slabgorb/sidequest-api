@@ -31,3 +31,7 @@ mod narrator_verbosity_story_14_3_tests;
 #[cfg(test)]
 #[path = "narrator_vocabulary_story_14_4_tests.rs"]
 mod narrator_vocabulary_story_14_4_tests;
+
+#[cfg(test)]
+#[path = "journal_story_9_13_tests.rs"]
+mod journal_story_9_13_tests;

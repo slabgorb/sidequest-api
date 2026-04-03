@@ -1742,6 +1742,45 @@ async fn dispatch_message(
                 dispatch::dispatch_player_action(&mut ctx).await
             }
         }
+        // Journal browse — on-demand KnownFact retrieval (story 9-13)
+        GameMessage::JournalRequest { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(player_id, "Cannot browse journal before game starts")];
+            }
+            let char_name = character_name.as_deref().unwrap_or("");
+            let known_facts: &[sidequest_game::known_fact::KnownFact] = snapshot
+                .characters
+                .iter()
+                .find(|c| c.core.name.as_str() == char_name)
+                .map(|c| c.known_facts.as_slice())
+                .unwrap_or(&[]);
+
+            let filter = sidequest_game::journal::JournalFilter {
+                category: payload.category,
+                sort_by: payload.sort_by,
+            };
+            let entries = sidequest_game::journal::build_journal_entries(known_facts, &filter);
+
+            tracing::info!(
+                character = %char_name,
+                entry_count = entries.len(),
+                category_filter = ?payload.category,
+                sort_by = ?payload.sort_by,
+                "journal.request"
+            );
+
+            // Emit OTEL watcher event for GM panel visibility
+            WatcherEventBuilder::new("journal", WatcherEventType::SubsystemExerciseSummary)
+                .field("character", char_name)
+                .field("entry_count", entries.len())
+                .field("category_filter", format!("{:?}", payload.category))
+                .send(state);
+
+            vec![GameMessage::JournalResponse {
+                payload: sidequest_protocol::JournalResponsePayload { entries },
+                player_id: player_id.to_string(),
+            }]
+        }
         // All other valid message types in wrong state
         _ => {
             if session.is_awaiting_connect() {

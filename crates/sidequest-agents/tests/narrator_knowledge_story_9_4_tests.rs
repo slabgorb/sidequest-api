@@ -36,6 +36,7 @@ fn make_fact(content: &str, turn: u64, confidence: Confidence) -> KnownFact {
         learned_turn: turn,
         source: FactSource::Observation,
         confidence,
+        category: sidequest_protocol::FactCategory::Lore,
     }
 }
 
