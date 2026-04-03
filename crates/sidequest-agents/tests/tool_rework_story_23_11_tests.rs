@@ -60,16 +60,6 @@ fn context_with_genre(genre: &str) -> TurnContext {
     }
 }
 
-/// Extract only the tool sections from the full prompt text.
-/// Tool sections are registered as `script_tool_*` sections in the Valley zone.
-fn extract_tool_text(prompt: &str) -> String {
-    // All three tool sections appear between the first <tool and the last </tool>
-    // or between [ENCOUNTER / [NPC / [STARTING — whatever format is active.
-    // For these tests we just search the full prompt text since tool content is
-    // uniquely identifiable by wrapper names and XML tags.
-    prompt.to_string()
-}
-
 // ============================================================================
 // AC-1: Compact `<tool>` XML format
 // ============================================================================

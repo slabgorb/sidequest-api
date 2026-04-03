@@ -120,26 +120,13 @@ impl ClaudeClient {
         self.send_impl(prompt, Some(model), &[], &std::collections::HashMap::new())
     }
 
-    /// Execute a subprocess call with tool access.
+    /// Execute a subprocess call with tool access and environment variables.
     ///
     /// Passes `--allowedTools <tools>` so the Claude CLI can execute tools
-    /// autonomously during the session. The CLI handles tool execution internally
-    /// and returns the final text result.
-    pub fn send_with_tools(
-        &self,
-        prompt: &str,
-        model: &str,
-        allowed_tools: &[String],
-    ) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, Some(model), allowed_tools, &std::collections::HashMap::new())
-    }
-
-    /// Execute a subprocess call with tool access and extra environment variables (story 23-11).
-    ///
-    /// Sets additional env vars on the Claude CLI subprocess before invocation.
-    /// Used to pass `SIDEQUEST_GENRE` and `SIDEQUEST_CONTENT_PATH` so tool wrappers
+    /// autonomously during the session. Sets extra env vars on the subprocess
+    /// (e.g., `SIDEQUEST_GENRE`, `SIDEQUEST_CONTENT_PATH`) so tool wrappers
     /// can resolve paths from environment instead of CLI flags in the prompt.
-    pub fn send_with_tools_and_env(
+    pub fn send_with_tools(
         &self,
         prompt: &str,
         model: &str,

@@ -594,7 +594,7 @@ impl GameService for Orchestrator {
         let send_result = {
             let _inf_guard = inference_span.enter();
             if has_tools {
-                self.client.send_with_tools_and_env(&prompt, narrator_model, &allowed_tools, &env_vars)
+                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools, &env_vars)
             } else {
                 self.client.send_with_model(&prompt, narrator_model)
             }
