@@ -1938,9 +1938,13 @@ fn default_keeper_awareness_modifier() -> f64 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Terrain {
+    /// Established roads and highways between locations.
     Road,
+    /// Untamed terrain — forests, plains, wastelands.
     Wilderness,
+    /// Rivers, seas, and waterways.
     Water,
+    /// Caves, tunnels, and subterranean passages.
     Underground,
 }
 
