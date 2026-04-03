@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, NarratorExtraction, PersonalityEvent, VisualScene};
+use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, MerchantTransactionExtracted, NarratorExtraction, PersonalityEvent, VisualScene};
 
 /// Collected results from tool calls made during the narrator turn.
 ///
@@ -46,6 +46,10 @@ pub struct ToolCallResults {
     /// `None` means no item_acquire tools fired (use narrator fallback).
     /// `Some(vec)` means tools fired — use this vec even if empty.
     pub items_acquired: Option<Vec<sidequest_protocol::ItemGained>>,
+    /// Merchant transactions from `merchant_transact` tool calls. Overrides narrator's `merchant_transactions`.
+    /// `None` means no merchant_transact tools fired (use narrator fallback).
+    /// `Some(vec)` means tools fired — use this vec even if empty.
+    pub merchant_transactions: Option<Vec<MerchantTransactionExtracted>>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
@@ -77,6 +81,8 @@ pub fn assemble_turn(
     let sfx_triggers = tool_results.sfx_triggers.unwrap_or(extraction.sfx_triggers);
     // Items gained: tool calls > narrator extraction
     let items_gained = tool_results.items_acquired.unwrap_or(extraction.items_gained);
+    // Merchant transactions: tool calls > narrator extraction
+    let merchant_transactions = tool_results.merchant_transactions.unwrap_or(extraction.merchant_transactions);
 
     ActionResult {
         narration: extraction.prose,
@@ -99,7 +105,7 @@ pub fn assemble_turn(
         resource_deltas,
         zone_breakdown: None,
         lore_established: extraction.lore_established,
-        merchant_transactions: extraction.merchant_transactions,
+        merchant_transactions,
         sfx_triggers,
         // Preprocessor values always win — narrator's action_rewrite/action_flags are discarded
         action_rewrite: Some(rewrite),

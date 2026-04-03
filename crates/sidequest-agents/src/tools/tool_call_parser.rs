@@ -14,6 +14,7 @@ use tracing::{info, warn};
 
 use crate::tools::assemble_turn::ToolCallResults;
 use crate::tools::item_acquire::validate_item_acquire;
+use crate::tools::merchant_transact::validate_merchant_transact;
 use crate::tools::personality_event::validate_personality_event;
 use crate::tools::scene_render::validate_scene_render;
 use sidequest_game;
@@ -139,6 +140,35 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     }
                 } else {
                     warn!(tool = "item_acquire", "missing required fields (item_ref/name/category) in result — skipping");
+                    skipped_count += 1;
+                }
+            }
+            "merchant_transact" => {
+                let transaction_type = record.result.get("transaction_type").and_then(|v| v.as_str());
+                let item_id = record.result.get("item_id").and_then(|v| v.as_str());
+                let merchant = record.result.get("merchant").and_then(|v| v.as_str());
+
+                if let (Some(transaction_type), Some(item_id), Some(merchant)) = (transaction_type, item_id, merchant) {
+                    match validate_merchant_transact(transaction_type, item_id, merchant) {
+                        Ok(validated) => {
+                            info!(
+                                tool = "merchant_transact",
+                                transaction_type = validated.transaction_type(),
+                                item_id = validated.item_id(),
+                                merchant = validated.merchant(),
+                                "tool result parsed"
+                            );
+                            let txns = results.merchant_transactions.get_or_insert_with(Vec::new);
+                            txns.push(validated.to_merchant_transaction_extracted());
+                            parsed_count += 1;
+                        }
+                        Err(e) => {
+                            warn!(tool = "merchant_transact", error = %e, "merchant_transact validation failed — skipping");
+                            skipped_count += 1;
+                        }
+                    }
+                } else {
+                    warn!(tool = "merchant_transact", "missing required fields (transaction_type/item_id/merchant) in result — skipping");
                     skipped_count += 1;
                 }
             }
