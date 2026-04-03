@@ -546,7 +546,7 @@ impl GameService for Orchestrator {
         let prompt = prompt_result.prompt_text;
         let prompt_zone_breakdown = prompt_result.zone_breakdown;
         let allowed_tools = prompt_result.allowed_tools;
-        let env_vars = prompt_result.env_vars;
+        let mut env_vars = prompt_result.env_vars;
 
         // OTEL: report which script tools were injected into this turn's prompt
         if !prompt_result.script_tools_injected.is_empty() {
@@ -580,6 +580,10 @@ impl GameService for Orchestrator {
                 .unwrap_or_default()
                 .as_nanos()
         );
+
+        // Pass sidecar env vars so tool binaries can write results for the orchestrator.
+        env_vars.insert("SIDEQUEST_TOOL_SIDECAR_DIR".to_string(), crate::tools::tool_call_parser::SIDECAR_DIR.to_string());
+        env_vars.insert("SIDEQUEST_TOOL_SESSION_ID".to_string(), sidecar_session_id.clone());
 
         info!(action = %action, sidecar_session_id = %sidecar_session_id, "Invoking Claude CLI for narration");
 

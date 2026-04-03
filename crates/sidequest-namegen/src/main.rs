@@ -104,7 +104,50 @@ fn main() {
     let mut rng = rand::rng();
     let npc = generate_npc(&pack, &genre_dir, &cli, &mut rng);
 
-    println!("{}", serde_json::to_string_pretty(&npc).unwrap());
+    let json = serde_json::to_string_pretty(&npc).unwrap();
+    println!("{json}");
+
+    // Write sidecar JSONL so the orchestrator can see this tool was called.
+    // The orchestrator passes SIDEQUEST_TOOL_SIDECAR_DIR and SIDEQUEST_TOOL_SESSION_ID
+    // as env vars when invoking Claude CLI with tools.
+    write_sidecar(&npc);
+}
+
+/// Write a tool call record to the sidecar JSONL file for the orchestrator.
+fn write_sidecar(npc: &NpcBlock) {
+    let dir = match std::env::var("SIDEQUEST_TOOL_SIDECAR_DIR") {
+        Ok(d) => d,
+        Err(_) => return, // Not running under orchestrator — skip silently
+    };
+    let session_id = match std::env::var("SIDEQUEST_TOOL_SESSION_ID") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let sidecar_path = std::path::PathBuf::from(&dir)
+        .join(format!("sidequest-tools-{session_id}.jsonl"));
+
+    // Ensure directory exists
+    let _ = std::fs::create_dir_all(&dir);
+
+    // Write personality_event record for the NPC
+    let record = serde_json::json!({
+        "tool": "personality_event",
+        "result": {
+            "npc": &npc.name,
+            "event_type": "introduced",
+            "description": format!("{} ({})", &npc.role, &npc.archetype)
+        }
+    });
+
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&sidecar_path)
+    {
+        let _ = writeln!(f, "{}", serde_json::to_string(&record).unwrap());
+    }
 }
 
 fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &mut impl Rng) -> NpcBlock {

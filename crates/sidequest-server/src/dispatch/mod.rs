@@ -222,7 +222,17 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // produces action_rewrite + action_flags in its JSON block. For prompt building, use
     // all-flags-on so no sections are gated out — the narrator has full context.
     let preprocessed = sidequest_game::PreprocessedAction {
-        you: format!("You {}", ctx.action),
+        you: {
+            let trimmed = ctx.action.trim_start();
+            if trimmed.starts_with("I ") || trimmed.starts_with("I'") {
+                // Already first-person — convert to second-person by replacing leading "I"
+                format!("You {}", &trimmed[2..])
+            } else if trimmed.starts_with("you ") || trimmed.starts_with("You ") {
+                trimmed.to_string()
+            } else {
+                format!("You {}", ctx.action)
+            }
+        },
         named: format!("{} {}", ctx.char_name, ctx.action),
         intent: ctx.action.to_string(),
         is_power_grab: false,
