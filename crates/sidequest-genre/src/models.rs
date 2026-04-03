@@ -1817,6 +1817,8 @@ pub enum NavigationMode {
     Region,
     /// Validated room graph with checked exits (dungeon crawl mode).
     RoomGraph,
+    /// Hierarchical world graph with optional sub-graphs per node.
+    Hierarchical,
 }
 
 impl Default for NavigationMode {
@@ -1928,6 +1930,127 @@ fn default_keeper_awareness_modifier() -> f64 {
     1.0
 }
 
+// ═══════════════════════════════════════════════════════════
+// Hierarchical world graph (Story 23-3)
+// ═══════════════════════════════════════════════════════════
+
+/// Terrain type for graph edges.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Terrain {
+    /// Established roads and highways between locations.
+    Road,
+    /// Untamed terrain — forests, plains, wastelands.
+    Wilderness,
+    /// Rivers, seas, and waterways.
+    Water,
+    /// Caves, tunnels, and subterranean passages.
+    Underground,
+}
+
+impl Default for Terrain {
+    fn default() -> Self {
+        Self::Road
+    }
+}
+
+/// A node in the world graph — a major location (city, region, landmark).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldGraphNode {
+    /// Unique node identifier (slug).
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Optional description for context/narration.
+    #[serde(default)]
+    pub description: String,
+}
+
+/// An edge between two world graph nodes.
+///
+/// Danger semantics: 0 = fast travel ("you arrive"), >0 = story-generating scene.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphEdge {
+    /// Source node ID.
+    pub from: String,
+    /// Destination node ID.
+    pub to: String,
+    /// Danger level: 0 = fast travel, >0 = story-generating encounter.
+    pub danger: u32,
+    /// Terrain type (defaults to road).
+    #[serde(default)]
+    pub terrain: Terrain,
+    /// Travel distance in abstract units (affects travel time / number of beats).
+    #[serde(default = "default_edge_distance")]
+    pub distance: u32,
+    /// Optional encounter table key for story-generating edges.
+    #[serde(default)]
+    pub encounter_table_key: Option<String>,
+}
+
+fn default_edge_distance() -> u32 {
+    1
+}
+
+impl GraphEdge {
+    /// Whether this edge represents fast travel (danger == 0).
+    pub fn is_fast_travel(&self) -> bool {
+        self.danger == 0
+    }
+
+    /// Whether this edge generates a story scene (danger > 0).
+    pub fn is_story_generating(&self) -> bool {
+        self.danger > 0
+    }
+}
+
+/// A sub-graph: internal topology for a world graph node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubGraph {
+    /// Internal location nodes.
+    #[serde(default)]
+    pub nodes: Vec<WorldGraphNode>,
+    /// Internal edges between sub-nodes.
+    #[serde(default)]
+    pub edges: Vec<GraphEdge>,
+}
+
+/// The top-level world graph: coarse nodes and edges between major locations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldGraph {
+    /// Major location nodes.
+    #[serde(default)]
+    pub nodes: Vec<WorldGraphNode>,
+    /// Edges between nodes with danger/terrain/distance.
+    #[serde(default)]
+    pub edges: Vec<GraphEdge>,
+}
+
+impl WorldGraph {
+    /// Find a node by its ID.
+    pub fn node_by_id(&self, id: &str) -> Option<&WorldGraphNode> {
+        self.nodes.iter().find(|n| n.id == id)
+    }
+
+    /// Iterate over neighbor node IDs (bidirectional traversal).
+    pub fn neighbors<'a>(&'a self, node_id: &'a str) -> impl Iterator<Item = &'a str> + 'a {
+        self.edges.iter().filter_map(move |e| {
+            if e.from == node_id {
+                Some(e.to.as_str())
+            } else if e.to == node_id {
+                Some(e.from.as_str())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Iterate over edges originating from a node (forward direction only).
+    pub fn edges_from<'a>(&'a self, node_id: &'a str) -> impl Iterator<Item = &'a GraphEdge> + 'a {
+        self.edges.iter().filter(move |e| e.from == node_id)
+    }
+}
+
 /// Map and region configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CartographyConfig {
@@ -1955,6 +2078,12 @@ pub struct CartographyConfig {
     /// Room definitions (used in RoomGraph mode). `None` for region-based packs.
     #[serde(default)]
     pub rooms: Option<Vec<RoomDef>>,
+    /// Hierarchical world graph (used in Hierarchical mode).
+    #[serde(default)]
+    pub world_graph: Option<WorldGraph>,
+    /// Sub-graphs keyed by parent world-graph node ID (used in Hierarchical mode).
+    #[serde(default)]
+    pub sub_graphs: Option<HashMap<String, SubGraph>>,
 }
 
 /// A map region.
