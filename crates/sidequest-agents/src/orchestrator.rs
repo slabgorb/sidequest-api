@@ -205,6 +205,11 @@ impl Orchestrator {
         }
     }
 
+    /// Replace the SOUL data for testing (story 23-10).
+    pub fn set_soul_data(&mut self, soul: crate::prompt_framework::SoulData) {
+        self.soul_data = Some(soul);
+    }
+
     /// Register a script tool binary (ADR-056).
     pub fn register_script_tool(&mut self, name: &str, config: ScriptToolConfig) {
         info!(
