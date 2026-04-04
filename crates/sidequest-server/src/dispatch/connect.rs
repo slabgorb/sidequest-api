@@ -1156,9 +1156,13 @@ pub(crate) async fn dispatch_character_creation(
                                     target_pid.clone(),
                                 );
                             }
-                            // Build and send targeted PARTY_STATUS to each session member
-                            // Each player gets their own player_id so the client HUD
-                            // shows the correct identity.
+                            // Build and send targeted PARTY_STATUS to OTHER session members.
+                            // The current player gets their PartyStatus from the opening
+                            // narration dispatch — sending here too causes duplicates.
+                            // Skip entirely for single-player (no other members to notify).
+                            if ss.players.len() <= 1 {
+                                tracing::debug!("Skipping connect PartyStatus — single player, dispatch will send");
+                            } else {
                             let members: Vec<PartyMember> = ss
                                 .players
                                 .iter()
@@ -1204,6 +1208,7 @@ pub(crate) async fn dispatch_character_creation(
                                     ss.send_to_player(party_msg, target_pid.clone());
                                 }
                             }
+                            } // end multiplayer PartyStatus
                             let pc = ss.player_count();
                             tracing::info!(
                                 player_id = %player_id,
