@@ -68,6 +68,19 @@ pub(crate) async fn dispatch_connect(
                 // Returning player — load snapshot from SQLite (keyed by player name)
                 match state.persistence().load(genre, world, pname).await {
                     Ok(Some(saved)) => {
+                        // Permadeath: if the player died, wipe the save and restart at chargen
+                        if saved.snapshot.player_dead {
+                            tracing::info!(
+                                genre = %genre, world = %world, player = %pname,
+                                "permadeath.save_wiped — player_dead on reconnect, restarting chargen"
+                            );
+                            if let Err(e) = state.persistence().delete(genre, world, pname).await {
+                                tracing::warn!(error = %e, "Failed to delete dead player save");
+                            }
+                            responses.push(connected_msg); // has_character stays None → chargen
+                            return responses;
+                        }
+
                         if let GameMessage::SessionEvent {
                             ref mut payload, ..
                         } = connected_msg

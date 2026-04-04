@@ -515,6 +515,17 @@ pub enum PersistenceCommand {
         /// Reply channel.
         reply: oneshot::Sender<Result<Vec<LoreFragment>, PersistError>>,
     },
+    /// Delete a saved session (permadeath wipe).
+    Delete {
+        /// Genre slug for the session.
+        genre_slug: String,
+        /// World slug for the session.
+        world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
+        /// Reply channel.
+        reply: oneshot::Sender<Result<(), PersistError>>,
+    },
     /// Graceful shutdown.
     Shutdown,
 }
@@ -581,6 +592,19 @@ impl PersistenceHandle {
         }).await;
         if sent.is_err() { return false; }
         reply_rx.await.unwrap_or(false)
+    }
+
+    /// Delete a saved session (permadeath wipe). Removes the .db file and evicts the store cache.
+    #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn delete(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<(), PersistError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(PersistenceCommand::Delete {
+            genre_slug: genre_slug.to_string(),
+            world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
+            reply: reply_tx,
+        }).await.map_err(|_| PersistError::WorkerGone)?;
+        reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
     /// List all saved sessions under the save directory.
@@ -744,6 +768,24 @@ impl PersistenceWorker {
             }
             PersistenceCommand::LoadLoreFragments { genre_slug, world_slug, player_name, reply } => {
                 let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.load_lore_fragments());
+                let _ = reply.send(result);
+            }
+            PersistenceCommand::Delete { genre_slug, world_slug, player_name, reply } => {
+                let _span = tracing::info_span!("persistence_delete", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
+                // Evict cached store so the Connection is dropped before we delete the file
+                let key = Self::store_key(&genre_slug, &world_slug, &player_name);
+                self.stores.remove(&key);
+                let db_path = self.db_path(&genre_slug, &world_slug, &player_name);
+                let result = if db_path.exists() {
+                    std::fs::remove_file(&db_path)
+                        .map_err(|e| PersistError::Database(format!("failed to delete save: {}", e)))
+                } else {
+                    Ok(())
+                };
+                match &result {
+                    Ok(()) => tracing::info!("Save deleted (permadeath)"),
+                    Err(e) => tracing::warn!(error = %e, "Delete failed"),
+                }
                 let _ = reply.send(result);
             }
             PersistenceCommand::ListSaves { reply } => {
