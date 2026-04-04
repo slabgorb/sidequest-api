@@ -67,7 +67,7 @@ fn generate_encounter(
 
 /// Seed a MonsterManual with NPCs and encounters from tool binaries.
 ///
-/// Examines the genre pack's cultures and generates 1 NPC per culture (up to 4).
+/// Examines the genre pack's cultures and generates 3 NPCs per culture (up to 12 total).
 /// Generates 2 encounter blocks (tier 1 and tier 2).
 pub fn seed_manual(state: &AppState, genre: &str, manual: &mut MonsterManual) {
     let span = tracing::info_span!(
@@ -94,9 +94,11 @@ pub fn seed_manual(state: &AppState, genre: &str, manual: &mut MonsterManual) {
             })
             .unwrap_or_default();
 
+        const NPCS_PER_CULTURE: usize = 3;
+
         if cultures.is_empty() {
             // No cultures found — generate without culture flag
-            for _ in 0..3 {
+            for _ in 0..(NPCS_PER_CULTURE * 3) {
                 if let Some(data) = generate_npc(namegen_binary, genre_packs_path, genre, None) {
                     tracing::info!(
                         name = data.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
@@ -107,15 +109,17 @@ pub fn seed_manual(state: &AppState, genre: &str, manual: &mut MonsterManual) {
             }
         } else {
             for culture in &cultures {
-                if let Some(data) =
-                    generate_npc(namegen_binary, genre_packs_path, genre, Some(culture))
-                {
-                    tracing::info!(
-                        name = data.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
-                        culture = %culture,
-                        "pregen.npc_generated"
-                    );
-                    manual.add_npc(data, vec![]);
+                for _ in 0..NPCS_PER_CULTURE {
+                    if let Some(data) =
+                        generate_npc(namegen_binary, genre_packs_path, genre, Some(culture))
+                    {
+                        tracing::info!(
+                            name = data.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                            culture = %culture,
+                            "pregen.npc_generated"
+                        );
+                        manual.add_npc(data, vec![]);
+                    }
                 }
             }
         }

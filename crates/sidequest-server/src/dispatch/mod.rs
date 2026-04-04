@@ -392,6 +392,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         if !nearby.is_empty() {
             state_summary.push_str("\n\n");
             state_summary.push_str(&nearby);
+            state_summary.push_str("\nNPC NAMING RULE: Use ONLY NPC names from the list above. Do NOT invent new character names. If you need an unnamed NPC, describe them by role or appearance (\"the blacksmith\", \"a weathered rider\") instead of giving them a name not on this list.");
         }
         if !creatures.is_empty() {
             state_summary.push_str("\n\n");

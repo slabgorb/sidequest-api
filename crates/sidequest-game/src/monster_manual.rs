@@ -202,7 +202,7 @@ impl MonsterManual {
 
     /// Whether the Manual needs more Available entries.
     pub fn needs_seeding(&self) -> bool {
-        self.available_npcs().len() < 2 || self.available_encounters().is_empty()
+        self.available_npcs().len() < 4 || self.available_encounters().is_empty()
     }
 
     // ── Formatting for game_state injection ─────────────────
