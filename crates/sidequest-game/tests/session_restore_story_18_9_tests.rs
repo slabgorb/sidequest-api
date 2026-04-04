@@ -91,6 +91,7 @@ fn rich_inventory() -> Inventory {
                 equipped: true,
                 quantity: 1,
                 uses_remaining: None,
+                state: sidequest_game::ItemState::Carried,
             },
             Item {
                 id: NonBlankString::new("potion_healing").unwrap(),
@@ -105,6 +106,7 @@ fn rich_inventory() -> Inventory {
                 equipped: false,
                 quantity: 3,
                 uses_remaining: None,
+                state: sidequest_game::ItemState::Carried,
             },
             Item {
                 id: NonBlankString::new("amulet_whispers").unwrap(),
@@ -122,6 +124,7 @@ fn rich_inventory() -> Inventory {
                 equipped: true,
                 quantity: 1,
                 uses_remaining: None,
+                state: sidequest_game::ItemState::Carried,
             },
         ],
         gold: 150,
@@ -570,7 +573,8 @@ fn persistence_overwrite_preserves_latest_inventory() {
         tags: vec!["gem".to_string()],
         equipped: false,
         quantity: 1,
-                uses_remaining: None,
+        uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
     snapshot.characters[0].core.inventory.gold = 225;
 

@@ -39,6 +39,7 @@ fn make_torch(uses: u32) -> Item {
         equipped: true,
         quantity: 1,
         uses_remaining: Some(uses),
+        state: sidequest_game::ItemState::Carried,
     }
 }
 
@@ -57,6 +58,7 @@ fn make_lantern(uses: u32) -> Item {
         equipped: true,
         quantity: 1,
         uses_remaining: Some(uses),
+        state: sidequest_game::ItemState::Carried,
     }
 }
 
@@ -75,6 +77,7 @@ fn make_sword() -> Item {
         equipped: true,
         quantity: 1,
         uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     }
 }
 
@@ -93,6 +96,7 @@ fn make_rope(uses: u32) -> Item {
         equipped: false,
         quantity: 1,
         uses_remaining: Some(uses),
+        state: sidequest_game::ItemState::Carried,
     }
 }
 
@@ -206,25 +210,28 @@ fn consume_use_decrements_remaining() {
     );
 }
 
-/// Decrementing from 1 → 0 removes the item and returns it.
+/// Decrementing from 1 → 0 transitions the item to Consumed and returns it.
+/// The item remains in the ledger but is no longer carried.
 #[test]
 fn consume_use_removes_at_zero() {
     let mut inv = Inventory::default();
     inv.add(make_torch(1), 10).unwrap();
 
     let removed = inv.consume_use("torch");
-    assert!(removed.is_some(), "Item should be removed when uses hits 0");
+    assert!(removed.is_some(), "Item should be transitioned when uses hits 0");
 
     let removed_item = removed.unwrap();
     assert_eq!(removed_item.id.as_str(), "torch");
     assert_eq!(
         removed_item.uses_remaining,
         Some(0),
-        "Removed item should show 0 uses remaining"
+        "Consumed item should show 0 uses remaining"
     );
+    assert_eq!(inv.item_count(), 0, "Torch should no longer be in carried count after depletion");
+    assert_eq!(inv.ledger_size(), 1, "Torch stays in ledger as Consumed record");
     assert!(
         inv.find("torch").is_none(),
-        "Torch should no longer be in inventory after depletion"
+        "find() must not return consumed torch — only carried items"
     );
 }
 
@@ -269,10 +276,12 @@ fn consume_use_progressive_decrement() {
     assert!(inv.consume_use("torch").is_none());
     assert_eq!(inv.find("torch").unwrap().uses_remaining, Some(1));
 
-    // 1 → 0: removed
+    // 1 → 0: transitions to Consumed
     let removed = inv.consume_use("torch");
-    assert!(removed.is_some(), "Should be removed at 0");
-    assert!(inv.find("torch").is_none(), "Gone from inventory");
+    assert!(removed.is_some(), "Should be consumed at 0");
+    assert_eq!(inv.item_count(), 0, "No longer carried");
+    assert_eq!(inv.ledger_size(), 1, "Still in ledger as Consumed record");
+    assert!(inv.find("torch").is_none(), "find() returns only carried items");
 }
 
 // ═══════════════════════════════════════════════════════════

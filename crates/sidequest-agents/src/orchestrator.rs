@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 use crate::agent::Agent;
 use crate::tools::assemble_turn::assemble_turn;
-use crate::tools::tool_call_parser::parse_tool_results;
+// ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
@@ -225,10 +225,9 @@ impl Orchestrator {
     /// Returns tool spec strings that let the narrator invoke registered script tools
     /// via `Bash(...)`. Empty if no tools are configured.
     pub fn narrator_allowed_tools(&self) -> Vec<String> {
-        self.script_tools
-            .values()
-            .map(|cfg| format!("Bash({}:*)", cfg.binary_path))
-            .collect()
+        // ADR-059: No tools needed. Monster Manual injects data via game_state.
+        // Claude narrates, engine crunches. No --allowedTools passed to claude -p.
+        Vec::new()
     }
 
     /// Access the tension tracker (pacing engine).
@@ -302,64 +301,10 @@ impl Orchestrator {
             ));
         }
 
-        // Script tool instructions (Valley zone — compact XML format, story 23-11)
-        // Env vars (SIDEQUEST_GENRE, SIDEQUEST_CONTENT_PATH) replace --genre/--genre-packs-path flags.
-        // Wrapper names (sidequest-encounter, sidequest-npc, sidequest-loadout) replace binary paths.
-        let mut env_vars: HashMap<String, String> = HashMap::new();
-        if let Some(ref genre) = context.genre {
-            for (tool_name, cfg) in &self.script_tools {
-                let tool_section = match tool_name.as_str() {
-                    "encountergen" => "\
-<tool name=\"ENCOUNTER\">\n\
-When to call: any time new enemies enter the scene. Pick flags based on narrative context.\n\
-<command>sidequest-encounter [--tier N] [--count N] [--culture NAME] [--archetype NAME] [--role ROLE] [--context TEXT]</command>\n\
-<usage>\n\
-- [ ] Use the generated name in your narration\n\
-- [ ] Reference abilities from the abilities list (not invented ones)\n\
-</usage>\n\
-</tool>".to_string(),
-                    "namegen" => "\
-<tool name=\"NPC\">\n\
-MANDATORY: Call this BEFORE introducing any new NPC. Do NOT invent NPC names.\n\
-<command>sidequest-npc [--culture NAME] [--archetype NAME] [--gender GENDER] [--role ROLE] [--description TEXT]</command>\n\
-<usage>\n\
-- [ ] Use the generated name exactly — do NOT modify or replace it\n\
-- [ ] Use dialogue_quirks to flavor their speech\n\
-- [ ] Reference their role and appearance in narration\n\
-</usage>\n\
-</tool>".to_string(),
-                    "loadoutgen" => "\
-<tool name=\"LOADOUT\">\n\
-When to call: at character creation when introducing the character's starting gear.\n\
-<command>sidequest-loadout --class CLASS [--tier N]</command>\n\
-<usage>\n\
-- [ ] Weave the narrative_hook into the opening scene naturally\n\
-- [ ] Reference specific items by name when the character uses them\n\
-- [ ] Use the currency_name for all money references\n\
-</usage>\n\
-</tool>".to_string(),
-                    unknown => {
-                        warn!(
-                            tool = %unknown,
-                            "Script tool registered but has no prompt section — narrator will not know how to use it"
-                        );
-                        continue;
-                    }
-                };
-                builder.add_section(PromptSection::new(
-                    &format!("script_tool_{}", tool_name),
-                    tool_section,
-                    AttentionZone::Valley,
-                    SectionCategory::State,
-                ));
-                script_tools_injected.push(tool_name.clone());
-            }
-            // Set env vars for tool wrappers (story 23-11: env vars replace CLI flags)
-            env_vars.insert("SIDEQUEST_GENRE".to_string(), genre.clone());
-            if let Some(cfg) = self.script_tools.values().next() {
-                env_vars.insert("SIDEQUEST_CONTENT_PATH".to_string(), cfg.genre_packs_path.clone());
-            }
-        }
+        // Tool workflow (Primacy zone — mandatory procedure before narration)
+        // ADR-059: Tool infrastructure removed. Monster Manual injects NPC/encounter
+        // data into game_state via dispatch. No tool sections, no env vars, no PATH.
+        let env_vars: HashMap<String, String> = HashMap::new();
 
         // Game state section (Valley zone)
         if let Some(state) = &context.state_summary {
@@ -545,7 +490,7 @@ impl GameService for Orchestrator {
         let prompt = prompt_result.prompt_text;
         let prompt_zone_breakdown = prompt_result.zone_breakdown;
         let allowed_tools = prompt_result.allowed_tools;
-        let env_vars = prompt_result.env_vars;
+        let mut env_vars = prompt_result.env_vars;
 
         // OTEL: report which script tools were injected into this turn's prompt
         if !prompt_result.script_tools_injected.is_empty() {
@@ -570,17 +515,8 @@ impl GameService for Orchestrator {
         );
 
         // Generate a unique session ID for the tool call sidecar file.
-        // Tool scripts write results here; we read them after the CLI call completes.
-        let sidecar_session_id = format!(
-            "turn-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        );
-
-        info!(action = %action, sidecar_session_id = %sidecar_session_id, "Invoking Claude CLI for narration");
+        // ADR-059: Sidecar mechanism removed. Monster Manual handles pre-generation.
+        info!(action = %action, "Invoking Claude CLI for narration");
 
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
@@ -677,9 +613,9 @@ impl GameService for Orchestrator {
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 span.record("is_degraded", false);
 
-                // ADR-057: assemble_turn merges extraction + preprocessor + tool results.
-                // Story 20-10: parse sidecar file for tool call results.
-                let tool_results = parse_tool_results(&sidecar_session_id);
+                // ADR-059: sidecar tool results removed. Monster Manual handles pre-generation.
+                // assemble_turn still merges extraction + preprocessor with default tool results.
+                let tool_results = crate::tools::assemble_turn::ToolCallResults::default();
 
                 if extraction.action_rewrite.is_none() {
                     warn!("action_rewrite absent from extraction — using default (empty rewrite)");
@@ -718,11 +654,46 @@ impl GameService for Orchestrator {
             }
             Err(e) => {
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
-                panic!(
-                    "CLAUDE CLI FAILED — agent={}, duration={}ms, error={}. \
-                     If the LLM is down, the game is down.",
-                    agent_str, agent_duration_ms, e
+                tracing::error!(
+                    agent = %agent_str,
+                    duration_ms = agent_duration_ms,
+                    error = %e,
+                    "CLAUDE CLI FAILED — returning degraded response (ADR-005)"
                 );
+                // ADR-005: graceful degradation. Return a degraded narration
+                // so the game loop continues. The player sees a brief pause
+                // message instead of a disconnection.
+                let degraded_narration = format!(
+                    "**{}**\n\nThe world holds its breath for a moment... \
+                     something shifts in the distance, but the moment passes.",
+                    context.current_location
+                );
+                ActionResult {
+                    narration: degraded_narration,
+                    combat_patch: None,
+                    chase_patch: None,
+                    is_degraded: true,
+                    classified_intent: Some(intent_str),
+                    agent_name: Some(agent_str),
+                    footnotes: vec![],
+                    items_gained: vec![],
+                    npcs_present: vec![],
+                    quest_updates: HashMap::new(),
+                    agent_duration_ms: Some(agent_duration_ms),
+                    token_count_in: None,
+                    token_count_out: None,
+                    visual_scene: None,
+                    scene_mood: None,
+                    personality_events: vec![],
+                    scene_intent: None,
+                    resource_deltas: HashMap::new(),
+                    zone_breakdown: Some(prompt_zone_breakdown),
+                    lore_established: None,
+                    merchant_transactions: vec![],
+                    sfx_triggers: vec![],
+                    action_rewrite: None,
+                    action_flags: None,
+                }
             }
         }
     }

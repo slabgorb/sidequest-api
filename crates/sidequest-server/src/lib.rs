@@ -369,6 +369,10 @@ struct AppStateInner {
     /// Path to the sidequest-namegen binary for server-side NPC identity generation.
     /// None if the binary was not found at startup.
     namegen_binary_path: Option<PathBuf>,
+    /// Path to the sidequest-encountergen binary for server-side encounter generation.
+    encountergen_binary_path: Option<PathBuf>,
+    /// Path to the sidequest-loadoutgen binary for server-side loadout generation.
+    loadoutgen_binary_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -527,6 +531,8 @@ impl AppState {
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
                 namegen_binary_path: None,
+                encountergen_binary_path: None,
+                loadoutgen_binary_path: None,
                 otel_endpoint: None,
             }),
         }
@@ -562,6 +568,15 @@ impl AppState {
         self.inner.tts_disabled
     }
 
+    /// Disable image rendering by dropping the render queue (builder-style).
+    /// In headless mode, no daemon connection is attempted and no IMAGE messages are broadcast.
+    pub fn with_render_disabled(mut self) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_render_disabled must be called before cloning")
+            .render_queue = None;
+        self
+    }
+
     /// Set the path to the sidequest-namegen binary for server-side NPC validation.
     pub fn with_namegen_binary(mut self, path: PathBuf) -> Self {
         Arc::get_mut(&mut self.inner)
@@ -573,6 +588,32 @@ impl AppState {
     /// Path to the sidequest-namegen binary, if available.
     pub fn namegen_binary_path(&self) -> Option<&Path> {
         self.inner.namegen_binary_path.as_deref()
+    }
+
+    /// Set the path to the sidequest-encountergen binary (builder-style).
+    pub fn with_encountergen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_encountergen_binary must be called before cloning")
+            .encountergen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-encountergen binary, if available.
+    pub fn encountergen_binary_path(&self) -> Option<&Path> {
+        self.inner.encountergen_binary_path.as_deref()
+    }
+
+    /// Set the path to the sidequest-loadoutgen binary (builder-style).
+    pub fn with_loadoutgen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_loadoutgen_binary must be called before cloning")
+            .loadoutgen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-loadoutgen binary, if available.
+    pub fn loadoutgen_binary_path(&self) -> Option<&Path> {
+        self.inner.loadoutgen_binary_path.as_deref()
     }
 
     /// Set the OTEL endpoint for Claude subprocess telemetry (builder-style).
@@ -1668,6 +1709,15 @@ async fn dispatch_message(
             }
             {
                 let aside = payload.action.starts_with("(aside)") || payload.action.starts_with("/aside");
+
+                // Monster Manual: load from disk, seed if needed (ADR-059)
+                let gs = session.genre_slug().unwrap_or("");
+                let ws = session.world_slug().unwrap_or("");
+                let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs, ws);
+                if monster_manual.needs_seeding() && !gs.is_empty() {
+                    dispatch::pregen::seed_manual(state, gs, &mut monster_manual);
+                }
+
                 let mut ctx = dispatch::DispatchContext {
                     action: &payload.action,
                     char_name: character_name.as_deref().unwrap_or("Unknown"),
@@ -1740,8 +1790,14 @@ async fn dispatch_message(
                     achievement_tracker,
                     snapshot,
                     tx: &tx,
+                    monster_manual: &mut monster_manual,
                 };
-                dispatch::dispatch_player_action(&mut ctx).await
+                let result = dispatch::dispatch_player_action(&mut ctx).await;
+
+                // Save Manual after dispatch (entries may have been marked Active)
+                ctx.monster_manual.save();
+
+                result
             }
         }
         // Journal browse — on-demand KnownFact retrieval (story 9-13)

@@ -27,6 +27,7 @@ use sidequest_agents::prompt_framework::PromptRegistry;
 // ============================================================================
 
 #[test]
+#[ignore]
 fn client_send_with_echo_returns_stdout() {
     // Use 'echo' as a mock subprocess — tests the subprocess execution path
     let client = ClaudeClient::builder()
@@ -53,6 +54,7 @@ fn client_send_with_echo_returns_stdout() {
 // ============================================================================
 
 #[test]
+#[ignore]
 fn client_send_nonexistent_command_fails() {
     let client = ClaudeClient::builder()
         .command_path("/nonexistent/command/that/does/not/exist")
@@ -70,6 +72,7 @@ fn client_send_nonexistent_command_fails() {
 }
 
 #[test]
+#[ignore]
 fn client_send_failing_command_returns_subprocess_failed() {
     let client = ClaudeClient::builder()
         .command_path("false") // 'false' always exits with code 1

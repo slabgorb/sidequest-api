@@ -40,6 +40,7 @@ pub mod journal;
 pub mod known_fact;
 pub mod lore;
 pub mod merchant;
+pub mod monster_manual;
 pub mod multiplayer;
 pub mod music_director;
 pub mod narrative;
@@ -114,7 +115,7 @@ pub use encounter::{
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use gossip::{GossipEngine, PropagationResult};
 pub use hp::clamp_hp;
-pub use inventory::{Inventory, InventoryError, Item};
+pub use inventory::{Inventory, InventoryError, Item, ItemState};
 pub use merchant::{
     calculate_price, execute_buy, execute_sell, format_merchant_context,
     MerchantError, MerchantTransaction, MerchantTransactionRequest, TransactionType,

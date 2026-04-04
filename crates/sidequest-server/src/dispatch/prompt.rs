@@ -187,12 +187,18 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inventory — full if player references items, compact summary otherwise
-    if !ctx.inventory.items.is_empty() {
+    tracing::info!(
+        carried_count = ctx.inventory.item_count(),
+        ledger_size = ctx.inventory.ledger_size(),
+        gold = ctx.inventory.gold,
+        "prompt.inventory_check — building inventory section"
+    );
+    if ctx.inventory.item_count() > 0 {
         if relevance.references_inventory {
             // Full inventory with descriptions and rules
             state_summary.push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
             state_summary.push_str("\nThe player currently possesses EXACTLY these items:");
-            for item in &ctx.inventory.items {
+            for item in ctx.inventory.carried() {
                 let equipped_tag = if item.equipped { " [EQUIPPED]" } else { "" };
                 let qty_tag = if item.quantity > 1 {
                     format!(" (x{})", item.quantity)
@@ -216,7 +222,7 @@ pub(crate) async fn build_prompt_context(
             ));
         } else {
             // Compact: equipped items + count only
-            let equipped: Vec<String> = ctx.inventory.items.iter()
+            let equipped: Vec<String> = ctx.inventory.carried()
                 .filter(|i| i.equipped)
                 .map(|i| i.name.to_string())
                 .collect();
@@ -227,7 +233,7 @@ pub(crate) async fn build_prompt_context(
             };
             state_summary.push_str(&format!(
                 "\n\nInventory: {} items ({}), {} gold.",
-                ctx.inventory.items.len(), equipped_str, ctx.inventory.gold
+                ctx.inventory.item_count(), equipped_str, ctx.inventory.gold
             ));
         }
     } else {

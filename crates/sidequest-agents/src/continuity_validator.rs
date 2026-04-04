@@ -15,7 +15,7 @@ use crate::client::ClaudeClient;
 const HAIKU_MODEL: &str = "haiku";
 
 /// Timeout — validation must not block the game loop.
-const VALIDATE_TIMEOUT: Duration = Duration::from_secs(10);
+const VALIDATE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Validate narrator text against game state using Haiku classification.
 ///

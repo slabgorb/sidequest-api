@@ -202,6 +202,16 @@ impl ClaudeClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        // Log the full command for debugging tool invocation issues
+        tracing::debug!(
+            command = %self.command_path,
+            model = %model_label,
+            allowed_tools = ?allowed_tools,
+            env_keys = ?extra_env.keys().collect::<Vec<_>>(),
+            prompt_len = prompt.len(),
+            "claude_cli.command_built"
+        );
+
         let mut child = cmd.spawn().map_err(|e| {
             tracing::error!(command = %self.command_path, model = %model_label, error = %e, "Failed to spawn subprocess");
             ClaudeClientError::SubprocessFailed {

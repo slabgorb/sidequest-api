@@ -52,12 +52,12 @@ impl EntityRegistry {
         let item_names: HashSet<String> = snapshot
             .characters
             .iter()
-            .flat_map(|c| c.core.inventory.items.iter())
+            .flat_map(|c| c.core.inventory.carried())
             .chain(
                 snapshot
                     .npcs
                     .iter()
-                    .flat_map(|n| n.core.inventory.items.iter()),
+                    .flat_map(|n| n.core.inventory.carried()),
             )
             .map(|item| item.name.as_str().to_string())
             .collect();

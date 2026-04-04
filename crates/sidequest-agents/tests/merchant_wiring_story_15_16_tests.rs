@@ -45,6 +45,7 @@ fn test_item(id: &str, name: &str, value: i32) -> Item {
         equipped: false,
         quantity: 1,
         uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     }
 }
 

@@ -20,12 +20,12 @@ use sidequest_genre::load_genre_pack;
 #[derive(Parser)]
 #[command(name = "sidequest-loadoutgen", about = "Generate starting equipment set from genre pack data")]
 struct Cli {
-    /// Path to the genre_packs/ directory.
-    #[arg(long)]
+    /// Path to the genre_packs/ directory. Also reads SIDEQUEST_CONTENT_PATH env var.
+    #[arg(long, env = "SIDEQUEST_CONTENT_PATH")]
     genre_packs_path: PathBuf,
 
-    /// Genre slug (e.g., low_fantasy, space_opera).
-    #[arg(long)]
+    /// Genre slug (e.g., low_fantasy, space_opera). Also reads SIDEQUEST_GENRE env var.
+    #[arg(long, env = "SIDEQUEST_GENRE")]
     genre: String,
 
     /// Character class or archetype name (e.g., fighter, pilot).
@@ -96,7 +96,46 @@ fn main() {
     let mut rng = rand::rng();
     let loadout = generate_loadout(inventory, &cli, &mut rng);
 
-    println!("{}", serde_json::to_string_pretty(&loadout).unwrap());
+    let json = serde_json::to_string_pretty(&loadout).unwrap();
+    println!("{json}");
+
+    // Write sidecar JSONL so the orchestrator can see items for inventory tracking.
+    write_sidecar(&loadout);
+}
+
+/// Write item_acquire records to the sidecar JSONL file for the orchestrator.
+fn write_sidecar(loadout: &LoadoutBlock) {
+    let dir = match std::env::var("SIDEQUEST_TOOL_SIDECAR_DIR") {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let session_id = match std::env::var("SIDEQUEST_TOOL_SESSION_ID") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let sidecar_path = std::path::PathBuf::from(&dir)
+        .join(format!("sidequest-tools-{session_id}.jsonl"));
+    let _ = std::fs::create_dir_all(&dir);
+
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&sidecar_path)
+    {
+        for item in &loadout.equipment {
+            let record = serde_json::json!({
+                "tool": "item_acquire",
+                "result": {
+                    "item_ref": &item.id,
+                    "name": &item.name,
+                    "category": &item.category
+                }
+            });
+            let _ = writeln!(f, "{}", serde_json::to_string(&record).unwrap());
+        }
+    }
 }
 
 // ── Generation ──────────────────────────────────────────────
