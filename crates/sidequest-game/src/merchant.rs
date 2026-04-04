@@ -214,6 +214,7 @@ mod tests {
             equipped: false,
             quantity: 1,
             uses_remaining: None,
+            state: crate::inventory::ItemState::Carried,
         }
     }
 

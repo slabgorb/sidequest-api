@@ -6,6 +6,66 @@
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
+/// Disposition state of an item in the inventory ledger.
+///
+/// Items are never removed from inventory — they transition to a non-carried
+/// state that records provenance. This enables quest hooks ("recover your
+/// stolen sword"), narrative callbacks, and full item history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "detail")]
+pub enum ItemState {
+    /// Player is carrying this item (default, active inventory).
+    Carried,
+    /// Item was consumed (potion drunk, food eaten, ammo spent).
+    Consumed,
+    /// Item was sold to a merchant.
+    Sold {
+        /// Name of the merchant or buyer.
+        to: String,
+    },
+    /// Item was given to an NPC or another player.
+    Given {
+        /// Name of the recipient.
+        to: String,
+    },
+    /// Item was lost (stolen, dropped into a pit, confiscated).
+    Lost {
+        /// How the item was lost.
+        reason: String,
+    },
+    /// Item was destroyed (broken, burned, disintegrated).
+    Destroyed {
+        /// How the item was destroyed.
+        reason: String,
+    },
+}
+
+impl Default for ItemState {
+    fn default() -> Self {
+        Self::Carried
+    }
+}
+
+impl ItemState {
+    /// Whether the item is currently in the player's active inventory.
+    pub fn is_carried(&self) -> bool {
+        matches!(self, Self::Carried)
+    }
+}
+
+impl std::fmt::Display for ItemState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Carried => write!(f, "carried"),
+            Self::Consumed => write!(f, "consumed"),
+            Self::Sold { to } => write!(f, "sold to {}", to),
+            Self::Given { to } => write!(f, "given to {}", to),
+            Self::Lost { reason } => write!(f, "lost: {}", reason),
+            Self::Destroyed { reason } => write!(f, "destroyed: {}", reason),
+        }
+    }
+}
+
 /// An item in the game world.
 ///
 /// Items gain identity as `narrative_weight` increases (ADR-021):
@@ -40,6 +100,10 @@ pub struct Item {
     /// Set from genre pack `item_catalog` entries (e.g., `resource_ticks: 6` for a torch).
     #[serde(default)]
     pub uses_remaining: Option<u32>,
+    /// Disposition state — items are never deleted, they transition states.
+    /// Enables provenance tracking, quest hooks, and narrative callbacks.
+    #[serde(default)]
+    pub state: ItemState,
 }
 
 impl Item {
@@ -70,26 +134,36 @@ pub enum InventoryError {
     NotFound(String),
 }
 
-/// A character's inventory — items and gold.
+/// A character's inventory ledger — append-only item history and gold.
+///
+/// Items are never removed. They transition between states (Carried, Sold,
+/// Given, Lost, Destroyed, Consumed). This preserves provenance for quest
+/// hooks ("recover your stolen sword") and narrative callbacks.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Inventory {
-    /// Carried items.
+    /// All items — active (Carried) and historical (other states).
     pub items: Vec<Item>,
     /// Gold currency.
     pub gold: i64,
 }
 
 impl Inventory {
-    /// Number of items currently held.
+    /// Number of items currently carried (active inventory).
     pub fn item_count(&self) -> usize {
+        self.items.iter().filter(|i| i.state.is_carried()).count()
+    }
+
+    /// All items in the ledger, including non-carried.
+    pub fn ledger_size(&self) -> usize {
         self.items.len()
     }
 
-    /// Add an item to the inventory. Returns error if at capacity.
+    /// Add an item to the inventory. Returns error if carried items at capacity.
     pub fn add(&mut self, item: Item, carry_limit: usize) -> Result<(), InventoryError> {
-        if self.items.len() >= carry_limit {
+        let carried = self.item_count();
+        if carried >= carry_limit {
             return Err(InventoryError::Full {
-                current: self.items.len(),
+                current: carried,
                 limit: carry_limit,
             });
         }
@@ -97,42 +171,89 @@ impl Inventory {
         Ok(())
     }
 
-    /// Remove an item by ID. Returns the removed item or error if not found.
+    /// Transition an item to a new state. Returns the item's previous state,
+    /// or `NotFound` if no carried item matches the ID.
+    pub fn transition(&mut self, id: &str, new_state: ItemState) -> Result<ItemState, InventoryError> {
+        let item = self
+            .items
+            .iter_mut()
+            .find(|item| item.id.as_str() == id && item.state.is_carried())
+            .ok_or_else(|| InventoryError::NotFound(id.to_string()))?;
+        let old_state = std::mem::replace(&mut item.state, new_state);
+        item.equipped = false;
+        Ok(old_state)
+    }
+
+    /// Remove an item by ID. Kept for backwards compatibility with merchant
+    /// transactions and other code that expects physical removal.
+    /// Prefer `transition()` for new code.
     pub fn remove(&mut self, id: &str) -> Result<Item, InventoryError> {
         let pos = self
             .items
             .iter()
-            .position(|item| item.id.as_str() == id)
+            .position(|item| item.id.as_str() == id && item.state.is_carried())
             .ok_or_else(|| InventoryError::NotFound(id.to_string()))?;
         Ok(self.items.remove(pos))
     }
 
-    /// Find an item by ID.
+    /// Find a carried item by ID.
     pub fn find(&self, id: &str) -> Option<&Item> {
+        self.items
+            .iter()
+            .find(|item| item.id.as_str() == id && item.state.is_carried())
+    }
+
+    /// Find any item by ID regardless of state (for ledger queries).
+    pub fn find_any(&self, id: &str) -> Option<&Item> {
         self.items.iter().find(|item| item.id.as_str() == id)
     }
 
-    /// Get all equipped items.
+    /// All non-carried items — the history ledger.
+    pub fn history(&self) -> Vec<&Item> {
+        self.items.iter().filter(|i| !i.state.is_carried()).collect()
+    }
+
+    /// Items lost/stolen/given away — potential quest hooks.
+    pub fn recoverable(&self) -> Vec<&Item> {
+        self.items
+            .iter()
+            .filter(|i| matches!(i.state, ItemState::Lost { .. } | ItemState::Given { .. }))
+            .collect()
+    }
+
+    /// Get all equipped carried items.
     pub fn equipped(&self) -> Vec<&Item> {
-        self.items.iter().filter(|item| item.equipped).collect()
+        self.items
+            .iter()
+            .filter(|item| item.equipped && item.state.is_carried())
+            .collect()
+    }
+
+    /// Iterator over carried items only (active inventory).
+    pub fn carried(&self) -> impl Iterator<Item = &self::Item> {
+        self.items.iter().filter(|i| i.state.is_carried())
     }
 
     /// Decrement an item's `uses_remaining` by 1.
     ///
     /// - If `uses_remaining` is `None` (infinite): no-op, returns `None`.
     /// - If `uses_remaining` is `Some(n)` where `n > 1`: decrements to `n - 1`, returns `None`.
-    /// - If `uses_remaining` is `Some(1)` or `Some(0)`: removes the item and returns it with
-    ///   `uses_remaining` set to `Some(0)`.
-    /// - If the item is not found: returns `None`.
+    /// - If `uses_remaining` is `Some(1)` or `Some(0)`: transitions to `Consumed`, returns
+    ///   a clone with `uses_remaining` set to `Some(0)`.
+    /// - If the item is not found (or not carried): returns `None`.
     pub fn consume_use(&mut self, id: &str) -> Option<Item> {
-        let pos = self.items.iter().position(|item| item.id.as_str() == id)?;
+        let pos = self
+            .items
+            .iter()
+            .position(|item| item.id.as_str() == id && item.state.is_carried())?;
 
         match self.items[pos].uses_remaining {
             None => None, // infinite use
             Some(n) if n <= 1 => {
-                let mut removed = self.items.remove(pos);
-                removed.uses_remaining = Some(0);
-                Some(removed)
+                self.items[pos].uses_remaining = Some(0);
+                self.items[pos].state = ItemState::Consumed;
+                self.items[pos].equipped = false;
+                Some(self.items[pos].clone())
             }
             Some(n) => {
                 self.items[pos].uses_remaining = Some(n - 1);
@@ -143,13 +264,13 @@ impl Inventory {
 
     /// Deplete the first light source on a room transition.
     ///
-    /// Finds the first item with tag `"light"` and calls [`consume_use`](Self::consume_use).
-    /// Returns the removed item if the light source was exhausted (for GameMessage emission).
+    /// Finds the first carried item with tag `"light"` and calls [`consume_use`](Self::consume_use).
+    /// Returns the consumed item if the light source was exhausted (for GameMessage emission).
     pub fn deplete_light_on_transition(&mut self) -> Option<Item> {
         let light_id = self
             .items
             .iter()
-            .find(|item| item.tags.iter().any(|t| t == "light"))
+            .find(|item| item.state.is_carried() && item.tags.iter().any(|t| t == "light"))
             .map(|item| item.id.as_str().to_owned())?;
 
         self.consume_use(&light_id)
@@ -174,6 +295,7 @@ mod tests {
             equipped: true,
             quantity: 1,
             uses_remaining: None,
+            state: ItemState::Carried,
         }
     }
 
@@ -191,6 +313,7 @@ mod tests {
             equipped: false,
             quantity: 3,
             uses_remaining: None,
+            state: ItemState::Carried,
         }
     }
 
@@ -212,6 +335,7 @@ mod tests {
             equipped: false,
             quantity: 1,
             uses_remaining: None,
+            state: ItemState::Carried,
         }
     }
 
@@ -638,5 +762,112 @@ mod tests {
         assert_eq!(t.uses_remaining, Some(6));
         let s = back.find("sword_iron").unwrap();
         assert_eq!(s.uses_remaining, None);
+    }
+
+    // === ItemState ledger behavior ===
+
+    #[test]
+    fn transition_to_sold_stays_in_ledger() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap();
+        inv.transition("sword_iron", ItemState::Sold { to: "Patchwork".into() }).unwrap();
+        assert_eq!(inv.item_count(), 0, "carried count should be 0");
+        assert_eq!(inv.ledger_size(), 1, "item remains in ledger");
+        assert!(inv.find("sword_iron").is_none(), "find only returns carried");
+        assert!(inv.find_any("sword_iron").is_some(), "find_any returns any state");
+    }
+
+    #[test]
+    fn transition_to_lost_is_recoverable() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap();
+        inv.transition("sword_iron", ItemState::Lost { reason: "stolen by Gutter Rats".into() }).unwrap();
+        let recoverable = inv.recoverable();
+        assert_eq!(recoverable.len(), 1);
+        assert_eq!(recoverable[0].id.as_str(), "sword_iron");
+    }
+
+    #[test]
+    fn transition_to_given_is_recoverable() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap();
+        inv.transition("sword_iron", ItemState::Given { to: "Shirley".into() }).unwrap();
+        let recoverable = inv.recoverable();
+        assert_eq!(recoverable.len(), 1);
+    }
+
+    #[test]
+    fn transition_consumed_not_recoverable() {
+        let mut inv = Inventory::default();
+        inv.add(potion(), 10).unwrap();
+        inv.transition("healing_potion", ItemState::Consumed).unwrap();
+        assert!(inv.recoverable().is_empty());
+    }
+
+    #[test]
+    fn transition_unequips_item() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap(); // equipped = true
+        inv.transition("sword_iron", ItemState::Sold { to: "merchant".into() }).unwrap();
+        let item = inv.find_any("sword_iron").unwrap();
+        assert!(!item.equipped, "sold items should not remain equipped");
+    }
+
+    #[test]
+    fn carry_limit_ignores_non_carried() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 1).unwrap();
+        inv.transition("sword_iron", ItemState::Sold { to: "merchant".into() }).unwrap();
+        // Carry limit is 1, but the sword is sold — slot is free
+        assert!(inv.add(potion(), 1).is_ok());
+    }
+
+    #[test]
+    fn history_returns_non_carried() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap();
+        inv.add(potion(), 10).unwrap();
+        inv.transition("sword_iron", ItemState::Destroyed { reason: "dragon fire".into() }).unwrap();
+        let history = inv.history();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].id.as_str(), "sword_iron");
+    }
+
+    #[test]
+    fn consume_use_transitions_to_consumed() {
+        let mut inv = Inventory::default();
+        let mut p = potion();
+        p.uses_remaining = Some(1);
+        inv.add(p, 10).unwrap();
+        let exhausted = inv.consume_use("healing_potion");
+        assert!(exhausted.is_some());
+        let item = inv.find_any("healing_potion").unwrap();
+        assert_eq!(item.state, ItemState::Consumed);
+        assert_eq!(inv.item_count(), 0, "consumed item not in carried count");
+        assert_eq!(inv.ledger_size(), 1, "consumed item stays in ledger");
+    }
+
+    #[test]
+    fn item_state_serde_roundtrip() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap();
+        inv.transition("sword_iron", ItemState::Lost { reason: "fell into the void".into() }).unwrap();
+        let json = serde_json::to_string(&inv).unwrap();
+        let back: Inventory = serde_json::from_str(&json).unwrap();
+        let item = back.find_any("sword_iron").unwrap();
+        assert_eq!(item.state, ItemState::Lost { reason: "fell into the void".into() });
+    }
+
+    #[test]
+    fn default_item_state_is_carried() {
+        let item = sword();
+        assert_eq!(item.state, ItemState::Carried);
+    }
+
+    #[test]
+    fn item_state_display() {
+        assert_eq!(format!("{}", ItemState::Carried), "carried");
+        assert_eq!(format!("{}", ItemState::Sold { to: "Patchwork".into() }), "sold to Patchwork");
+        assert_eq!(format!("{}", ItemState::Lost { reason: "stolen".into() }), "lost: stolen");
     }
 }

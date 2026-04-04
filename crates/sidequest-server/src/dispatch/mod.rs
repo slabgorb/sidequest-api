@@ -1306,8 +1306,7 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
 
     let inventory_items: Vec<String> = ctx
         .inventory
-        .items
-        .iter()
+        .carried()
         .map(|i| i.name.as_str().to_string())
         .collect();
 
@@ -1950,8 +1949,7 @@ fn emit_telemetry(
             .collect();
         let inventory_names: Vec<String> = ctx
             .inventory
-            .items
-            .iter()
+            .carried()
             .map(|i| i.name.as_str().to_string())
             .collect();
         let active_tropes: Vec<serde_json::Value> = ctx

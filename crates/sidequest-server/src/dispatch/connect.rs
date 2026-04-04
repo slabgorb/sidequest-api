@@ -730,6 +730,7 @@ pub(crate) async fn dispatch_character_creation(
                                                     equipped: false,
                                                     quantity: 1,
                                                     uses_remaining: catalog_item.resource_ticks,
+                                                    state: sidequest_game::ItemState::Carried,
                                                 });
                                             }
                                         } else {
@@ -755,6 +756,7 @@ pub(crate) async fn dispatch_character_creation(
                                                     equipped: false,
                                                     quantity: 1,
                                                     uses_remaining: None,
+                                                    state: sidequest_game::ItemState::Carried,
                                                 });
                                             }
                                         }
@@ -1087,6 +1089,11 @@ pub(crate) async fn dispatch_character_creation(
                                 p.character_max_hp = character.core.max_hp;
                                 p.character_level = character.core.level as u32;
                                 p.character_class = character.char_class.as_str().to_string();
+                                p.inventory = character.core.inventory.clone();
+                                p.character_xp = character.core.xp;
+                                if let Some(ref cj) = *character_json_store {
+                                    p.character_json = Some(cj.clone());
+                                }
                             }
                             // Notify existing players that a new character has arrived
                             let arrival_text = format!(

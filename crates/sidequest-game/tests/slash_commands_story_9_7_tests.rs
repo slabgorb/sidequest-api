@@ -88,6 +88,7 @@ fn test_character() -> Character {
         equipped: true,
         quantity: 1,
                 uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     inventory.items.push(Item {
@@ -103,6 +104,7 @@ fn test_character() -> Character {
         equipped: true,
         quantity: 1,
                 uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     inventory.items.push(Item {
@@ -118,6 +120,7 @@ fn test_character() -> Character {
         equipped: false,
         quantity: 1,
                 uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     inventory.items.push(Item {
@@ -133,6 +136,7 @@ fn test_character() -> Character {
         equipped: false,
         quantity: 3,
                 uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     Character {

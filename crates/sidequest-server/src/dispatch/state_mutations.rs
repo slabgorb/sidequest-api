@@ -628,6 +628,7 @@ pub(crate) async fn apply_state_mutations(
                 equipped: false,
                 quantity: 1,
                 uses_remaining: None,
+                state: sidequest_game::ItemState::Carried,
             };
             let _ = ctx.inventory.add(item, 50);
             tracing::info!(item_name = %item_def.name, "Item added to inventory from LLM extraction");

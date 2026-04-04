@@ -115,7 +115,7 @@ pub use encounter::{
 pub use faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
 pub use gossip::{GossipEngine, PropagationResult};
 pub use hp::clamp_hp;
-pub use inventory::{Inventory, InventoryError, Item};
+pub use inventory::{Inventory, InventoryError, Item, ItemState};
 pub use merchant::{
     calculate_price, execute_buy, execute_sell, format_merchant_context,
     MerchantError, MerchantTransaction, MerchantTransactionRequest, TransactionType,

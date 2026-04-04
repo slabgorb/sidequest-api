@@ -59,8 +59,9 @@ impl CommandHandler for InventoryCommand {
         };
 
         let inv = &ch.core.inventory;
+        let carried: Vec<_> = inv.carried().collect();
 
-        if inv.items.is_empty() && inv.gold == 0 {
+        if carried.is_empty() && inv.gold == 0 {
             return CommandResult::Display(
                 "You carry nothing of note. Your pockets are empty.".to_string(),
             );
@@ -69,7 +70,7 @@ impl CommandHandler for InventoryCommand {
         let mut output = String::new();
 
         // Equipped items
-        let equipped: Vec<_> = inv.items.iter().filter(|i| i.equipped).collect();
+        let equipped: Vec<_> = carried.iter().filter(|i| i.equipped).collect();
         output.push_str("EQUIPPED:\n");
         if equipped.is_empty() {
             output.push_str("  (nothing equipped)\n");
@@ -80,7 +81,7 @@ impl CommandHandler for InventoryCommand {
         }
 
         // Pack items
-        let pack: Vec<_> = inv.items.iter().filter(|i| !i.equipped).collect();
+        let pack: Vec<_> = carried.iter().filter(|i| !i.equipped).collect();
         output.push_str("\nPACK:\n");
         if pack.is_empty() {
             output.push_str("  (empty)\n");
@@ -91,6 +92,15 @@ impl CommandHandler for InventoryCommand {
                 } else {
                     output.push_str(&format!("  {}\n", item.name));
                 }
+            }
+        }
+
+        // Former possessions — quest hooks
+        let lost_items: Vec<_> = inv.recoverable();
+        if !lost_items.is_empty() {
+            output.push_str("\nFORMER POSSESSIONS:\n");
+            for item in &lost_items {
+                output.push_str(&format!("  {} ({})\n", item.name, item.state));
             }
         }
 
