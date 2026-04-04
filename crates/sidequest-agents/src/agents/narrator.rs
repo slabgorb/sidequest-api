@@ -69,13 +69,17 @@ ALWAYS emit the game_patch block. It is mandatory.";
 
 /// Output-style rules (Early/Format zone).
 const NARRATOR_OUTPUT_STYLE: &str = "\
+HARD LIMIT: Narrative prose must be under 400 characters (~3-4 sentences). \
+This limit exists because longer responses break TTS pacing and make turns feel slow. \
+Count your characters. If you're over 400, cut.\n\
 - Most turns: 2-3 sentences. Movement, dialogue, simple actions = SHORT.
-- Big moments only (arrivals, reveals, combat start): up to 5-6 sentences.
+- Big moments only (arrivals, reveals, combat start): up to 4 sentences max.
 - VARY your length. Not every turn is the same size.
 - Fast action = short sentences. Quiet moments can breathe.
 - Dialogue is snappy, not embedded in description paragraphs.
 - End on a hook the player can react to. Not a prose flourish.
 - Think tweet-length beats, not novel paragraphs.
+- One action, one scene beat. If the player enters a room, describe what they see and exits — don't narrate their inventory management.
 - First line: location header like **The Collapsed Overpass**
 - Blank line, then prose.";
 
