@@ -17,7 +17,8 @@ use crate::client::ClaudeClient;
 const HAIKU_MODEL: &str = "haiku";
 
 /// Timeout — extraction must not block the game loop.
-const EXTRACT_TIMEOUT: Duration = Duration::from_secs(8);
+/// Haiku CLI cold starts can take 10-15s, so 20s gives headroom.
+const EXTRACT_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// A single inventory mutation extracted from narration.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
