@@ -849,6 +849,33 @@ pub(crate) async fn dispatch_character_creation(
 
                         snap
                     };
+
+                    // Set initial current_location from snapshot (room-graph) or genre rules
+                    if !snapshot.location.is_empty() {
+                        *current_location = snapshot.location.clone();
+                    } else {
+                        // Fallback: use default_location from rules.yaml
+                        let default_loc = GenreCode::new(&genre)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.rules.default_location.clone())
+                            .unwrap_or_default();
+                        if !default_loc.is_empty() {
+                            *current_location = default_loc.clone();
+                            snapshot.location = default_loc.clone();
+                            snapshot.current_region = default_loc.clone();
+                            discovered_regions.push(default_loc);
+                            tracing::info!(
+                                location = %snapshot.location,
+                                "connect.default_location — set from rules.yaml"
+                            );
+                        }
+                    }
+                    // Seed discovered_regions from snapshot location
+                    if !current_location.is_empty() && !discovered_regions.iter().any(|r| r == current_location.as_str()) {
+                        discovered_regions.push(current_location.clone());
+                    }
+
                     if let Err(e) = state
                         .persistence()
                         .save(&genre, &world, &pname_for_save, &snapshot)
