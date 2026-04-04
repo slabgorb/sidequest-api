@@ -293,12 +293,13 @@ fn low_fantasy_worlds_have_region_summaries() {
     let pack = sidequest_genre::load_genre_pack(&path).expect("should load low_fantasy");
 
     // Cartography lives on World, not GenrePack
+    // Some worlds use hierarchical navigation (world_graph) instead of regions
+    let mut checked_any = false;
     for (world_slug, world) in &pack.worlds {
-        assert!(
-            !world.cartography.regions.is_empty(),
-            "World '{}' should have regions",
-            world_slug
-        );
+        if world.cartography.regions.is_empty() {
+            continue; // hierarchical/room_graph worlds have no regions
+        }
+        checked_any = true;
         for (slug, region) in &world.cartography.regions {
             assert!(
                 !region.summary().is_empty(),
@@ -308,6 +309,7 @@ fn low_fantasy_worlds_have_region_summaries() {
             );
         }
     }
+    assert!(checked_any, "At least one low_fantasy world should have regions");
 }
 
 #[test]
