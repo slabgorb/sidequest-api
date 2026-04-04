@@ -211,18 +211,10 @@ regions:
     description: "No summary here."
 "#;
     let result = serde_yaml::from_str::<CartographyConfig>(yaml);
-    // Region without summary should fail, but CartographyConfig itself will
-    // parse — the region's missing summary should cause the error
-    if let Ok(config) = &result {
-        // If CartographyConfig parsed, the region must have errored at the Region level
-        // This assertion catches the case where summary silently falls into extras
-        let region = config.regions.get("test");
-        assert!(
-            region.is_none(),
-            "Region without summary should not parse successfully"
-        );
-    }
-    // If the whole thing errored, that's also correct
+    assert!(
+        result.is_err(),
+        "Region without summary should fail deserialization"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════

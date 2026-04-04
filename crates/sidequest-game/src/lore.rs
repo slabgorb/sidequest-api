@@ -1368,12 +1368,14 @@ mod tests {
             factions: vec![
                 Faction {
                     name: "The Merchant Consortium".to_string(),
+                    summary: "Trade coalition enforcing the Iron Accord".to_string(),
                     description: "A coalition of wealthy trading families.".to_string(),
                     disposition: "neutral".to_string(),
                     extras: HashMap::new(),
                 },
                 Faction {
                     name: "Order of the Ashen Veil".to_string(),
+                    summary: "Anti-magic inquisitors devoted to the old gods".to_string(),
                     description: "A religious order devoted to the old gods.".to_string(),
                     disposition: "hostile".to_string(),
                     extras: HashMap::new(),
