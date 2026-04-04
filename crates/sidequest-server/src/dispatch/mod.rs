@@ -425,6 +425,32 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("to_room", &transition.to_room)
                         .field("exit_type", &transition.exit_type)
                         .send(ctx.state);
+
+                    // Story 19-5: Deplete active light source on room transition
+                    if let Some(depleted_item) = ctx.inventory.deplete_light_on_transition() {
+                        let item_name = depleted_item.name.as_str().to_owned();
+                        tracing::info!(
+                            name: "item.depleted",
+                            item_name = %item_name,
+                            item_id = %depleted_item.id.as_str(),
+                            category = "light",
+                        );
+                        WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                            .field("event", "item.depleted")
+                            .field("item_name", &item_name)
+                            .field("item_id", depleted_item.id.as_str())
+                            .field("category", "light")
+                            .send(ctx.state);
+                        messages.push(GameMessage::Narration {
+                            payload: NarrationPayload {
+                                text: format!("Your {} sputters and dies. The darkness closes in.", item_name),
+                                state_delta: None,
+                                footnotes: vec![],
+                            },
+                            player_id: ctx.player_id.to_string(),
+                        });
+                    }
+
                     true
                 }
                 Err(sidequest_game::room_movement::DispatchError::InvalidRoomTransition {

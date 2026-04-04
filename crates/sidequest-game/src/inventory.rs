@@ -388,4 +388,255 @@ mod tests {
         let result = serde_json::from_str::<Item>(json);
         assert!(result.is_err(), "blank item id should fail deserialization");
     }
+
+    // === Consumable depletion (Story 19-5) ===
+
+    fn torch() -> Item {
+        Item {
+            id: NonBlankString::new("torch_1").unwrap(),
+            name: NonBlankString::new("Torch").unwrap(),
+            description: NonBlankString::new("A pitch-soaked bundle of rags on a stick").unwrap(),
+            category: NonBlankString::new("light").unwrap(),
+            value: 1,
+            weight: 0.5,
+            rarity: NonBlankString::new("common").unwrap(),
+            narrative_weight: 0.3,
+            tags: vec!["light".to_string(), "consumable".to_string()],
+            equipped: false,
+            quantity: 1,
+            uses_remaining: Some(6),
+        }
+    }
+
+    fn lantern_oil() -> Item {
+        Item {
+            id: NonBlankString::new("lantern_oil_1").unwrap(),
+            name: NonBlankString::new("Flask of Lantern Oil").unwrap(),
+            description: NonBlankString::new("Enough oil for two hours").unwrap(),
+            category: NonBlankString::new("light").unwrap(),
+            value: 5,
+            weight: 0.5,
+            rarity: NonBlankString::new("common").unwrap(),
+            narrative_weight: 0.1,
+            tags: vec!["light".to_string(), "consumable".to_string(), "fuel".to_string()],
+            equipped: false,
+            quantity: 1,
+            uses_remaining: Some(12),
+        }
+    }
+
+    // --- consume_use: basic behavior ---
+
+    #[test]
+    fn consume_use_infinite_item_is_noop() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap(); // uses_remaining: None
+        let result = inv.consume_use("sword_iron");
+        assert!(result.is_none(), "infinite-use item should not be consumed");
+        assert_eq!(inv.item_count(), 1, "item should still be in inventory");
+    }
+
+    #[test]
+    fn consume_use_decrements_uses_remaining() {
+        let mut inv = Inventory::default();
+        inv.add(torch(), 10).unwrap(); // uses_remaining: Some(6)
+        let result = inv.consume_use("torch_1");
+        assert!(result.is_none(), "torch should not be removed after one use");
+        let item = inv.find("torch_1").expect("torch should still exist");
+        assert_eq!(item.uses_remaining, Some(5), "uses_remaining should decrement from 6 to 5");
+    }
+
+    #[test]
+    fn consume_use_removes_item_at_last_use() {
+        let mut inv = Inventory::default();
+        let mut t = torch();
+        t.uses_remaining = Some(1); // one use left
+        inv.add(t, 10).unwrap();
+        let result = inv.consume_use("torch_1");
+        assert!(result.is_some(), "last use should return the removed item");
+        let removed = result.unwrap();
+        assert_eq!(removed.id.as_str(), "torch_1");
+        assert_eq!(removed.uses_remaining, Some(0), "removed item should have 0 uses");
+        assert_eq!(inv.item_count(), 0, "inventory should be empty after removal");
+    }
+
+    #[test]
+    fn consume_use_removes_item_at_zero() {
+        let mut inv = Inventory::default();
+        let mut t = torch();
+        t.uses_remaining = Some(0); // already at zero
+        inv.add(t, 10).unwrap();
+        let result = inv.consume_use("torch_1");
+        assert!(result.is_some(), "item at 0 uses should be removed");
+        assert_eq!(inv.item_count(), 0);
+    }
+
+    #[test]
+    fn consume_use_nonexistent_item_returns_none() {
+        let mut inv = Inventory::default();
+        inv.add(torch(), 10).unwrap();
+        let result = inv.consume_use("nonexistent");
+        assert!(result.is_none(), "nonexistent item should return None");
+        assert_eq!(inv.item_count(), 1, "inventory unchanged");
+    }
+
+    // --- deplete_light_on_transition ---
+
+    #[test]
+    fn deplete_light_decrements_first_light_source() {
+        let mut inv = Inventory::default();
+        inv.add(torch(), 10).unwrap();
+        let result = inv.deplete_light_on_transition();
+        assert!(result.is_none(), "torch with 6 uses should not be removed after 1 transition");
+        let item = inv.find("torch_1").expect("torch should still exist");
+        assert_eq!(item.uses_remaining, Some(5));
+    }
+
+    #[test]
+    fn deplete_light_no_light_source_returns_none() {
+        let mut inv = Inventory::default();
+        inv.add(sword(), 10).unwrap(); // no "light" tag
+        let result = inv.deplete_light_on_transition();
+        assert!(result.is_none(), "no light source means no depletion");
+    }
+
+    #[test]
+    fn deplete_light_empty_inventory_returns_none() {
+        let mut inv = Inventory::default();
+        let result = inv.deplete_light_on_transition();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn deplete_light_uses_first_light_not_second() {
+        let mut inv = Inventory::default();
+        inv.add(torch(), 10).unwrap(); // light, 6 uses
+        inv.add(lantern_oil(), 10).unwrap(); // light, 12 uses
+        inv.deplete_light_on_transition();
+        let t = inv.find("torch_1").expect("torch should exist");
+        assert_eq!(t.uses_remaining, Some(5), "torch should be decremented");
+        let l = inv.find("lantern_oil_1").expect("lantern oil should exist");
+        assert_eq!(l.uses_remaining, Some(12), "lantern oil should be untouched");
+    }
+
+    #[test]
+    fn deplete_light_infinite_light_source_not_consumed() {
+        let mut inv = Inventory::default();
+        let mut magic_lamp = sword();
+        magic_lamp.tags = vec!["light".to_string()];
+        magic_lamp.uses_remaining = None; // infinite
+        inv.add(magic_lamp, 10).unwrap();
+        let result = inv.deplete_light_on_transition();
+        assert!(result.is_none(), "infinite light source should not be consumed");
+        assert_eq!(inv.item_count(), 1);
+    }
+
+    // --- AC 5: torch with 6 uses survives 5 transitions, removed on 6th ---
+
+    #[test]
+    fn torch_survives_five_transitions_removed_on_sixth() {
+        let mut inv = Inventory::default();
+        inv.add(torch(), 10).unwrap(); // uses_remaining: Some(6)
+
+        // Transitions 1-5: torch should survive
+        for i in 1..=5 {
+            let result = inv.deplete_light_on_transition();
+            assert!(result.is_none(), "torch should survive transition {i}");
+            let t = inv.find("torch_1").expect("torch should exist after transition {i}");
+            assert_eq!(
+                t.uses_remaining,
+                Some(6 - i),
+                "uses_remaining should be {} after transition {i}",
+                6 - i
+            );
+        }
+
+        // Transition 6: torch should be removed
+        let result = inv.deplete_light_on_transition();
+        assert!(result.is_some(), "torch should be removed on 6th transition");
+        let removed = result.unwrap();
+        assert_eq!(removed.id.as_str(), "torch_1");
+        assert_eq!(removed.uses_remaining, Some(0));
+        assert_eq!(inv.item_count(), 0, "inventory should be empty");
+    }
+
+    #[test]
+    fn second_torch_takes_over_after_first_exhausted() {
+        let mut inv = Inventory::default();
+        let mut torch_1 = torch();
+        torch_1.uses_remaining = Some(1); // about to die
+        let mut torch_2 = torch();
+        torch_2.id = NonBlankString::new("torch_2").unwrap();
+        torch_2.uses_remaining = Some(6);
+        inv.add(torch_1, 10).unwrap();
+        inv.add(torch_2, 10).unwrap();
+
+        // First transition: torch_1 exhausted, removed
+        let result = inv.deplete_light_on_transition();
+        assert!(result.is_some(), "first torch should be removed");
+        assert_eq!(result.unwrap().id.as_str(), "torch_1");
+        assert_eq!(inv.item_count(), 1, "only torch_2 remains");
+
+        // Second transition: torch_2 decremented
+        let result = inv.deplete_light_on_transition();
+        assert!(result.is_none(), "second torch should survive");
+        let t2 = inv.find("torch_2").expect("torch_2 should exist");
+        assert_eq!(t2.uses_remaining, Some(5));
+    }
+
+    // --- Serde: uses_remaining persistence ---
+
+    #[test]
+    fn uses_remaining_serializes_when_some() {
+        let t = torch();
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(json.contains("\"uses_remaining\":6"), "uses_remaining should serialize as 6, got: {json}");
+    }
+
+    #[test]
+    fn uses_remaining_serializes_when_none() {
+        let s = sword();
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.contains("\"uses_remaining\":null"), "uses_remaining=None should serialize as null, got: {json}");
+    }
+
+    #[test]
+    fn uses_remaining_round_trips_some() {
+        let t = torch();
+        let json = serde_json::to_string(&t).unwrap();
+        let back: Item = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.uses_remaining, Some(6), "uses_remaining should round-trip as Some(6)");
+    }
+
+    #[test]
+    fn uses_remaining_round_trips_none() {
+        let s = sword();
+        let json = serde_json::to_string(&s).unwrap();
+        let back: Item = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.uses_remaining, None, "uses_remaining should round-trip as None");
+    }
+
+    #[test]
+    fn uses_remaining_defaults_to_none_when_missing_from_json() {
+        // Legacy items without uses_remaining field should deserialize with None
+        let json = r#"{"id":"old_sword","name":"Old Sword","description":"A rusty blade","category":"weapon","value":5,"weight":3.0,"rarity":"common","narrative_weight":0.3,"tags":["melee"],"equipped":false,"quantity":1}"#;
+        let item: Item = serde_json::from_str(json).unwrap();
+        assert_eq!(item.uses_remaining, None, "missing uses_remaining should default to None (infinite)");
+    }
+
+    #[test]
+    fn inventory_with_consumables_round_trips() {
+        let mut inv = Inventory::default();
+        inv.add(torch(), 10).unwrap();
+        inv.add(sword(), 10).unwrap();
+        inv.gold = 50;
+        let json = serde_json::to_string(&inv).unwrap();
+        let back: Inventory = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.item_count(), 2);
+        assert_eq!(back.gold, 50);
+        let t = back.find("torch_1").unwrap();
+        assert_eq!(t.uses_remaining, Some(6));
+        let s = back.find("sword_iron").unwrap();
+        assert_eq!(s.uses_remaining, None);
+    }
 }

@@ -2629,6 +2629,11 @@ pub struct CatalogItem {
     /// Narrative weight for how much the narrator should mention this item.
     #[serde(default)]
     pub narrative_weight: serde_json::Value,
+    /// Number of room transitions before this item is consumed.
+    /// Maps to `uses_remaining` on the game `Item` struct.
+    /// E.g., a torch with `resource_ticks: 6` lasts 6 room transitions.
+    #[serde(default)]
+    pub resource_ticks: Option<u32>,
 }
 
 /// Inventory philosophy configuration.

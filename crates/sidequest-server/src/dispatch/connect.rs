@@ -729,7 +729,7 @@ pub(crate) async fn dispatch_character_creation(
                                                     tags: catalog_item.tags.clone(),
                                                     equipped: false,
                                                     quantity: 1,
-                                                    uses_remaining: None,
+                                                    uses_remaining: catalog_item.resource_ticks,
                                                 });
                                             }
                                         } else {
