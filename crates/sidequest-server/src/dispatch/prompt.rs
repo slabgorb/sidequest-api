@@ -610,6 +610,40 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
+    // Inject conlang vocabulary — learned language knowledge (story 15-19)
+    {
+        let lang_fragments =
+            sidequest_game::query_all_language_knowledge(ctx.lore_store, ctx.player_id);
+        if !lang_fragments.is_empty() {
+            let conlang_text =
+                sidequest_game::format_language_knowledge_for_prompt(&lang_fragments);
+            if !conlang_text.is_empty() {
+                state_summary.push_str(&conlang_text);
+
+                // Collect unique language IDs for OTEL
+                let language_ids: Vec<&str> = lang_fragments
+                    .iter()
+                    .filter_map(|f| f.metadata().get("language_id").map(|s| s.as_str()))
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .collect();
+
+                WatcherEventBuilder::new("conlang", WatcherEventType::StateTransition)
+                    .field("event", "conlang_knowledge_injected")
+                    .field("vocab_count", lang_fragments.len())
+                    .field("language_count", language_ids.len())
+                    .field("languages", language_ids.join(", "))
+                    .send(ctx.state);
+
+                tracing::info!(
+                    vocab_count = lang_fragments.len(),
+                    language_count = language_ids.len(),
+                    "conlang.knowledge_injected_to_prompt"
+                );
+            }
+        }
+    }
+
     // Inject chase cinematography context (story 15-17)
     if let Some(ref chase_state) = ctx.chase_state {
         let chase_context = chase_state.format_context(vec![]);
