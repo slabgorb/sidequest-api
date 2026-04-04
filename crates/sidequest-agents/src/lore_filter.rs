@@ -8,6 +8,7 @@ use std::collections::{HashMap, VecDeque};
 
 use sidequest_game::npc::NpcRegistryEntry;
 use sidequest_genre::WorldGraph;
+use tracing::warn;
 
 use crate::agents::intent_router::Intent;
 
@@ -136,6 +137,15 @@ impl<'a> LoreFilter<'a> {
     ) -> Vec<LoreSelection> {
         let mut selections: HashMap<String, LoreSelection> = HashMap::new();
 
+        // Warn if current_node is not in the graph — all lore will be NameOnly.
+        let node_known = self.graph.nodes.iter().any(|n| n.id == current_node);
+        if !node_known && !self.graph.nodes.is_empty() {
+            warn!(
+                current_node = %current_node,
+                "lore_filter: current node not in world graph — all lore will be NameOnly"
+            );
+        }
+
         // Layer 1: Graph-distance-based detail for every node (closed-world).
         for node in &self.graph.nodes {
             let dist = self.graph_distance(current_node, &node.id);
@@ -170,6 +180,24 @@ impl<'a> LoreFilter<'a> {
             });
             entry.detail_level = DetailLevel::Full;
             entry.reason = format!("npc_presence:{}", npc.name);
+        }
+
+        // Layer 3: Intent-based enrichment — upgrade non-graph-distance entities
+        // whose category matches the intent. Graph-distance-placed locations keep
+        // their distance-based detail level (that's the primary signal).
+        let enriched_categories = self.enrichment_categories(intent);
+        if !enriched_categories.is_empty() {
+            for selection in selections.values_mut() {
+                let placed_by_graph = selection.reason.starts_with("graph_distance_")
+                    || selection.reason == "unreachable";
+                if !placed_by_graph
+                    && selection.detail_level < DetailLevel::Full
+                    && enriched_categories.contains(&selection.category.as_str())
+                {
+                    selection.detail_level = DetailLevel::Full;
+                    selection.reason = format!("intent_enrichment:{:?}", intent);
+                }
+            }
         }
 
         selections.into_values().collect()
@@ -248,7 +276,6 @@ impl LoreSelection {
             DetailLevel::Full => "full",
             DetailLevel::Summary => "summary",
             DetailLevel::NameOnly => "name_only",
-            _ => "unknown",
         }
     }
 }
