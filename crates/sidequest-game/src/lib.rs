@@ -122,8 +122,10 @@ pub use merchant::{
 };
 pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{
-    accumulate_lore, accumulate_lore_batch, cosine_similarity, format_lore_context,
-    query_language_knowledge, record_language_knowledge, record_name_knowledge,
+    accumulate_lore, accumulate_lore_batch, cosine_similarity,
+    format_language_knowledge_for_prompt, format_lore_context,
+    query_all_language_knowledge, query_language_knowledge,
+    record_language_knowledge, record_name_knowledge,
     seed_lore_from_char_creation, seed_lore_from_genre_pack, select_lore_for_prompt,
     summarize_lore_retrieval, FragmentSummary, LoreCategory, LoreFragment,
     LoreRetrievalSummary, LoreSource, LoreStore,

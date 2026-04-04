@@ -529,6 +529,7 @@ mod tests {
             equipped: false,
             quantity: 1,
             uses_remaining: Some(6),
+            state: ItemState::Carried,
         }
     }
 
@@ -544,6 +545,7 @@ mod tests {
             narrative_weight: 0.1,
             tags: vec!["light".to_string(), "consumable".to_string(), "fuel".to_string()],
             equipped: false,
+            state: ItemState::Carried,
             quantity: 1,
             uses_remaining: Some(12),
         }

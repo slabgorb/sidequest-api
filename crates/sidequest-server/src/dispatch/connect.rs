@@ -306,6 +306,50 @@ pub(crate) async fn dispatch_connect(
                                     }
                                 }
 
+                                // Materialize world from genre pack history for returning player (Story 15-18).
+                                // The saved snapshot may have advanced in maturity since last save;
+                                // re-materializing ensures world_history reflects current campaign maturity.
+                                {
+                                    let history_value = pack
+                                        .worlds
+                                        .get(world)
+                                        .and_then(|w| w.history.as_ref())
+                                        .cloned()
+                                        .unwrap_or(serde_json::Value::Null);
+                                    match sidequest_game::parse_history_chapters(&history_value) {
+                                        Ok(chapters) => {
+                                            let prev_maturity = snapshot.campaign_maturity.clone();
+                                            sidequest_game::materialize_world(snapshot, &chapters);
+                                            WatcherEventBuilder::new("world_materialization", WatcherEventType::StateTransition)
+                                                .field("event", "world_materialized")
+                                                .field("genre", genre)
+                                                .field("world", world)
+                                                .field("chapters_available", chapters.len())
+                                                .field("chapters_applied", snapshot.world_history.len())
+                                                .field("prev_maturity", format!("{:?}", prev_maturity))
+                                                .field("new_maturity", format!("{:?}", snapshot.campaign_maturity))
+                                                .field("trigger", "returning_player_reconnect")
+                                                .send(state);
+                                            tracing::info!(
+                                                genre = %genre,
+                                                world = %world,
+                                                chapters_available = chapters.len(),
+                                                chapters_applied = snapshot.world_history.len(),
+                                                maturity = ?snapshot.campaign_maturity,
+                                                "world_materialization.applied — returning player"
+                                            );
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                error = %e,
+                                                genre = %genre,
+                                                world = %world,
+                                                "world_materialization.parse_failed — returning player history chapters"
+                                            );
+                                        }
+                                    }
+                                }
+
                                 // Inject culture reference for returning player
                                 let cultures = pack
                                     .worlds
@@ -841,6 +885,16 @@ pub(crate) async fn dispatch_character_creation(
                                 ..Default::default()
                             }
                         });
+
+                        // OTEL event for new-player world materialization (Story 15-18)
+                        WatcherEventBuilder::new("world_materialization", WatcherEventType::StateTransition)
+                            .field("event", "world_materialized")
+                            .field("genre", genre.as_str())
+                            .field("world", world.as_str())
+                            .field("chapters_applied", snap.world_history.len())
+                            .field("maturity", format!("{:?}", snap.campaign_maturity))
+                            .field("trigger", "new_player_chargen")
+                            .send(state);
 
                         // Inject the chargen-produced character into the materialized snapshot
                         snap.characters = vec![character.clone()];

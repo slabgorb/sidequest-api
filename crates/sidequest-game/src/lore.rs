@@ -734,6 +734,68 @@ pub fn query_language_knowledge<'a>(
         .collect()
 }
 
+/// Query ALL language knowledge for a character across all languages.
+///
+/// Returns all [`LoreFragment`]s with category [`LoreCategory::Language`]
+/// for the given `character_id`, regardless of language.
+pub fn query_all_language_knowledge<'a>(
+    store: &'a LoreStore,
+    character_id: &str,
+) -> Vec<&'a LoreFragment> {
+    store
+        .query_by_category(&LoreCategory::Language)
+        .into_iter()
+        .filter(|f| {
+            f.metadata()
+                .get("character_id")
+                .map(|s| s.as_str())
+                == Some(character_id)
+        })
+        .collect()
+}
+
+/// Format language knowledge fragments into a narrator prompt section.
+///
+/// Groups learned morphemes and names by language, producing a vocabulary
+/// reference the narrator can use to weave constructed language terms into
+/// narration. Returns an empty string if no language knowledge exists.
+pub fn format_language_knowledge_for_prompt(fragments: &[&LoreFragment]) -> String {
+    if fragments.is_empty() {
+        return String::new();
+    }
+
+    // Group by language_id
+    let mut by_language: HashMap<&str, Vec<&LoreFragment>> = HashMap::new();
+    for frag in fragments {
+        if let Some(lang) = frag.metadata().get("language_id") {
+            by_language.entry(lang.as_str()).or_default().push(frag);
+        }
+    }
+
+    let mut lines = vec!["\n\nCONSTRUCTED LANGUAGE VOCABULARY:".to_string()];
+    lines.push(
+        "The character has learned these words and names. Use them naturally in narration \
+         — NPCs from the associated culture should speak with these terms."
+            .to_string(),
+    );
+
+    for (language_id, frags) in &by_language {
+        lines.push(format!("\n{}:", language_id));
+        for frag in frags {
+            let meta = frag.metadata();
+            if let Some(morpheme) = meta.get("morpheme") {
+                let meaning = meta.get("meaning").map(|s| s.as_str()).unwrap_or("?");
+                lines.push(format!("- {} = \"{}\"", morpheme, meaning));
+            } else if let Some(name) = meta.get("name") {
+                let gloss = meta.get("gloss").map(|s| s.as_str()).unwrap_or("?");
+                lines.push(format!("- {} (name) = \"{}\"", name, gloss));
+            }
+        }
+    }
+
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2899,5 +2961,98 @@ mod tests {
         record_name_knowledge(&mut store, &name, "char-1", 2).unwrap();
         let results = query_language_knowledge(&store, "char-1", "draconic");
         assert_eq!(results.len(), 2);
+    }
+
+    // --- query_all_language_knowledge (story 15-19) ---
+
+    #[test]
+    fn query_all_language_knowledge_returns_all_languages() {
+        let mut store = LoreStore::new();
+        let m1 = sample_morpheme("zar", "fire", "draconic");
+        let m2 = sample_morpheme("ael", "star", "elvish");
+        record_language_knowledge(&mut store, &m1, "char-1", 1).unwrap();
+        record_language_knowledge(&mut store, &m2, "char-1", 2).unwrap();
+        let results = query_all_language_knowledge(&store, "char-1");
+        assert_eq!(results.len(), 2);
+    }
+
+    #[test]
+    fn query_all_language_knowledge_excludes_other_characters() {
+        let mut store = LoreStore::new();
+        let m1 = sample_morpheme("zar", "fire", "draconic");
+        let m2 = sample_morpheme("dra", "dragon", "draconic");
+        record_language_knowledge(&mut store, &m1, "char-1", 1).unwrap();
+        record_language_knowledge(&mut store, &m2, "char-2", 2).unwrap();
+        let results = query_all_language_knowledge(&store, "char-1");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn query_all_language_knowledge_empty_store_returns_empty() {
+        let store = LoreStore::new();
+        let results = query_all_language_knowledge(&store, "char-1");
+        assert!(results.is_empty());
+    }
+
+    // --- format_language_knowledge_for_prompt (story 15-19) ---
+
+    #[test]
+    fn format_language_knowledge_empty_returns_empty_string() {
+        let result = format_language_knowledge_for_prompt(&[]);
+        assert_eq!(result, "");
+    }
+
+    #[test]
+    fn format_language_knowledge_includes_morpheme_and_meaning() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 1).unwrap();
+        let frags = query_all_language_knowledge(&store, "char-1");
+        let result = format_language_knowledge_for_prompt(&frags);
+        assert!(result.contains("zar"), "Should contain morpheme 'zar'");
+        assert!(result.contains("fire"), "Should contain meaning 'fire'");
+    }
+
+    #[test]
+    fn format_language_knowledge_includes_name_and_gloss() {
+        let mut store = LoreStore::new();
+        let name = sample_generated_name();
+        record_name_knowledge(&mut store, &name, "char-1", 1).unwrap();
+        let frags = query_all_language_knowledge(&store, "char-1");
+        let result = format_language_knowledge_for_prompt(&frags);
+        assert!(result.contains(&name.name), "Should contain name");
+        assert!(result.contains(&name.gloss), "Should contain gloss");
+    }
+
+    #[test]
+    fn format_language_knowledge_groups_by_language() {
+        let mut store = LoreStore::new();
+        let m1 = sample_morpheme("zar", "fire", "draconic");
+        let m2 = sample_morpheme("ael", "star", "elvish");
+        record_language_knowledge(&mut store, &m1, "char-1", 1).unwrap();
+        record_language_knowledge(&mut store, &m2, "char-1", 2).unwrap();
+        let frags = query_all_language_knowledge(&store, "char-1");
+        let result = format_language_knowledge_for_prompt(&frags);
+        assert!(
+            result.contains("draconic"),
+            "Should contain language 'draconic'"
+        );
+        assert!(
+            result.contains("elvish"),
+            "Should contain language 'elvish'"
+        );
+    }
+
+    #[test]
+    fn format_language_knowledge_has_header() {
+        let mut store = LoreStore::new();
+        let m = sample_morpheme("zar", "fire", "draconic");
+        record_language_knowledge(&mut store, &m, "char-1", 1).unwrap();
+        let frags = query_all_language_knowledge(&store, "char-1");
+        let result = format_language_knowledge_for_prompt(&frags);
+        assert!(
+            result.contains("CONSTRUCTED LANGUAGE VOCABULARY"),
+            "Should have section header"
+        );
     }
 }
