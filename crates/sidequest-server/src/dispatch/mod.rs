@@ -737,8 +737,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             .drain(..ctx.narration_history.len() - 20);
     }
 
-    // NPC registry + OCEAN personality shifts
-    update_npc_registry(ctx, &result, &clean_narration);
+    // NPC registry + OCEAN personality shifts + creature image detection
+    let creature_images = update_npc_registry(ctx, &result, &clean_narration);
+    for (creature_name, served_url) in &creature_images {
+        let msg = GameMessage::Image {
+            payload: sidequest_protocol::ImagePayload {
+                url: served_url.clone(),
+                description: format!("A {} appears", creature_name),
+                handout: true,
+                render_id: None,
+                tier: Some("portrait".to_string()),
+                scene_type: Some("exploration".to_string()),
+                generation_ms: Some(0),
+            },
+            player_id: String::new(),
+        };
+        let _ = ctx.tx.send(msg).await;
+    }
 
     // Monster Manual: match narration against Manual NPCs, mark Active (ADR-059)
     {
@@ -1226,11 +1241,15 @@ async fn handle_barrier(
 }
 
 /// Update NPC registry from structured narrator output and apply OCEAN personality shifts.
+/// Returns a list of (creature_name, served_url) for any pre-rendered bestiary
+/// images found for newly registered NPCs. The caller broadcasts these as
+/// `GameMessage::Image` (async send via `ctx.tx`).
 fn update_npc_registry(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
     _clean_narration: &str,
-) {
+) -> Vec<(String, String)> {
+    let mut creature_images: Vec<(String, String)> = Vec::new();
     let turn_approx = ctx.turn_manager.interaction() as u32;
     if !result.npcs_present.is_empty() {
         // Sort by name length descending so full names ("Toggler Copperjaw") register
@@ -1385,6 +1404,39 @@ fn update_npc_registry(
                     .field("archetype_source", &source)
                     .field("registry_size", ctx.npc_registry.len())
                     .send(ctx.state);
+
+                // Creature image fast path: check for pre-rendered bestiary image
+                // on first NPC registration. Images live in genre pack at
+                // images/creatures/{slug}.png, already served via /genre/{slug}/...
+                let creature_slug = npc.name
+                    .to_lowercase()
+                    .replace(' ', "_")
+                    .replace('\'', "")
+                    .replace('\u{2019}', "");
+                let creature_image_path = ctx
+                    .state
+                    .genre_packs_path()
+                    .join(ctx.genre_slug)
+                    .join("images")
+                    .join("creatures")
+                    .join(format!("{}.png", creature_slug));
+                if creature_image_path.exists() {
+                    let served_url = format!(
+                        "/genre/{}/images/creatures/{}.png",
+                        ctx.genre_slug, creature_slug
+                    );
+                    tracing::info!(
+                        creature = %npc.name,
+                        url = %served_url,
+                        "creature_image.served — pre-rendered bestiary image on first appearance"
+                    );
+                    creature_images.push((npc.name.clone(), served_url));
+                    WatcherEventBuilder::new("creature_image", WatcherEventType::StateTransition)
+                        .field("action", "creature_image_served")
+                        .field("creature", &npc.name)
+                        .field("slug", &creature_slug)
+                        .send(ctx.state);
+                }
             }
         }
     }
@@ -1430,6 +1482,8 @@ fn update_npc_registry(
             }
         }
     }
+
+    creature_images
 }
 
 /// Continuity validation — LLM-based check of narrator output against game state.
