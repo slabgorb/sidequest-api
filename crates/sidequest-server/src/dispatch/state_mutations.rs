@@ -111,6 +111,16 @@ pub(crate) async fn apply_state_mutations(
                             npc_name = %name,
                             "combat.npc_registered — combatant added to npc_registry"
                         );
+
+                        // Also add to snapshot.npcs so resolve_attack can find them.
+                        // Without this, NPC turns silently skip (npc_opt = None).
+                        if !ctx.snapshot.npcs.iter().any(|n| sidequest_game::combatant::Combatant::name(n).eq_ignore_ascii_case(name)) {
+                            ctx.snapshot.npcs.push(sidequest_game::Npc::combat_minimal(name, 10, 10, 1));
+                            tracing::info!(
+                                npc_name = %name,
+                                "combat.npc_added_to_snapshot — resolve_attack can now find this combatant"
+                            );
+                        }
                     }
                 }
 
