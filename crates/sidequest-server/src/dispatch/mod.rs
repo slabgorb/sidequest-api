@@ -407,6 +407,63 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         tracing::info!("Monster Manual content injected into game_state");
     }
 
+    // Story 15-26: NPC autonomous action selection — wire scenario between-turn processing
+    // into the dispatch pipeline so NPC actions are mechanically grounded, not LLM-improvised.
+    if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
+        if !scenario.is_resolved() {
+            let turn_number_u64 = turn_number as u64;
+            let events = scenario.process_between_turns(&mut ctx.snapshot.npcs, turn_number_u64);
+
+            let mut npc_action_lines: Vec<String> = Vec::new();
+            for event in &events {
+                match &event.event_type {
+                    sidequest_game::ScenarioEventType::NpcAction { npc_name, action } => {
+                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+                            .field("event", "npc_action_selected")
+                            .field("npc_name", npc_name)
+                            .field("action", format!("{:?}", action))
+                            .field("turn", turn_number)
+                            .field("tension", format!("{:.2}", scenario.tension()))
+                            .send(ctx.state);
+                        npc_action_lines.push(event.description.clone());
+                    }
+                    sidequest_game::ScenarioEventType::GossipSpread { claims_spread, contradictions_found } => {
+                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+                            .field("event", "gossip_propagated")
+                            .field("claims_spread", *claims_spread)
+                            .field("contradictions_found", *contradictions_found)
+                            .field("turn", turn_number)
+                            .send(ctx.state);
+                        npc_action_lines.push(event.description.clone());
+                    }
+                    sidequest_game::ScenarioEventType::ClueDiscovered { clue_id } => {
+                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+                            .field("event", "clue_discoverable")
+                            .field("clue_id", clue_id)
+                            .field("turn", turn_number)
+                            .send(ctx.state);
+                    }
+                    _ => {}
+                }
+            }
+
+            if !npc_action_lines.is_empty() {
+                state_summary.push_str("\n\n[NPC AUTONOMOUS ACTIONS THIS TURN]\n");
+                state_summary.push_str("The following NPC actions happened between turns. Weave these into your narration:\n");
+                for line in &npc_action_lines {
+                    state_summary.push_str(&format!("- {}\n", line));
+                }
+
+                WatcherEventBuilder::new("npc_actions", WatcherEventType::SubsystemExerciseSummary)
+                    .field("event", "npc_actions.injected")
+                    .field("action_count", npc_action_lines.len())
+                    .field("tension", format!("{:.2}", scenario.tension()))
+                    .field("turn", turn_number)
+                    .send(ctx.state);
+            }
+        }
+    }
+
     tracing::info!(
         raw = %ctx.action,
         "Prompt context built (preprocessor inlined into agent call)"
@@ -2363,6 +2420,45 @@ mod tests {
                 || production_code.contains("npc_registry_enriched"),
             "dispatch must emit npc.registry_enriched OTEL event so GM panel \
              can verify enrichment is running — story 15-14"
+        );
+    }
+
+    /// Story 15-26: Verify process_between_turns is called in the dispatch pipeline
+    /// so NPC autonomous actions are mechanically selected, not LLM-improvised.
+    #[test]
+    fn dispatch_pipeline_calls_process_between_turns() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("process_between_turns("),
+            "dispatch must call scenario_state.process_between_turns() to select \
+             NPC actions mechanically — story 15-26 (Pattern 5 fix)"
+        );
+    }
+
+    /// Story 15-26: Verify OTEL events are emitted for NPC action selection
+    /// so the GM panel can confirm actions are grounded, not improvised.
+    #[test]
+    fn dispatch_pipeline_emits_npc_action_otel() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("npc_action_selected"),
+            "dispatch must emit npc_action_selected OTEL event for each NPC \
+             autonomous action — story 15-26"
+        );
+    }
+
+    /// Story 15-26: Verify NPC actions are injected into narrator context
+    /// so the narrator writes around mechanical decisions, not inventing them.
+    #[test]
+    fn dispatch_pipeline_injects_npc_actions_into_prompt() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("NPC AUTONOMOUS ACTIONS THIS TURN"),
+            "dispatch must inject NPC action descriptions into state_summary \
+             for narrator context — story 15-26"
         );
     }
 }
