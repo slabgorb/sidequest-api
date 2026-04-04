@@ -804,6 +804,50 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // State mutations must run before delta computation (delta depends on patched state).
+    let mutation_result =
+        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
+    let tier_events = mutation_result.tier_events;
+
+    // Story 15-20: build narration state delta from current ctx locals via game-crate.
+    // Patch a temp snapshot with current locals so build_protocol_delta reads fresh values.
+    // Diff against before_snapshot (captured at dispatch entry) to detect what changed.
+    let narration_state_delta = {
+        let mut temp_state = ctx.snapshot.clone();
+        temp_state.location =
+            extract_location_header(narration_text).unwrap_or_else(|| ctx.current_location.clone());
+        temp_state.quest_log = ctx.quest_log.clone();
+        if let Some(ch) = temp_state.characters.first().cloned() {
+            let mut updated = ch;
+            updated.core.hp = *ctx.hp;
+            updated.core.max_hp = *ctx.max_hp;
+            updated.core.level = *ctx.level;
+            updated.core.inventory = ctx.inventory.clone();
+            temp_state.characters = vec![updated];
+        }
+        let snap_after = sidequest_game::delta::snapshot(&temp_state);
+        let narration_delta = sidequest_game::delta::compute_delta(&before_snapshot, &snap_after);
+        sidequest_game::build_protocol_delta(&narration_delta, &temp_state, &result.items_gained)
+    };
+
+    // Build response messages (narration, party status, inventory)
+    build_response_messages(
+        ctx,
+        &clean_narration,
+        narration_text,
+        &result,
+        &tier_events,
+        &effective_action,
+        &mut messages,
+        narration_state_delta,
+    )
+    .await;
+
+    // === Deferred post-narration work ===
+    // These operations write to fields consumed by the NEXT turn only, not the current one.
+    // Moved after build_response_messages so the client sees narration immediately
+    // instead of waiting ~15s for the Haiku continuity call + daemon embed round-trips.
+
     // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
     // Skip in combat — creature_smith output is structured, and the 18s Haiku call
     // doubles combat turn latency for marginal value.
@@ -812,10 +856,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     } else {
         tracing::info!("Skipping continuity validation — in_combat, creature_smith output is structured");
     }
-
-    let mutation_result =
-        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
-    let tier_events = mutation_result.tier_events;
 
     // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
     if let Some(ref lore_entries) = result.lore_established {
@@ -923,40 +963,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             }
         }
     }
-
-    // Story 15-20: build narration state delta from current ctx locals via game-crate.
-    // Patch a temp snapshot with current locals so build_protocol_delta reads fresh values.
-    // Diff against before_snapshot (captured at dispatch entry) to detect what changed.
-    let narration_state_delta = {
-        let mut temp_state = ctx.snapshot.clone();
-        temp_state.location =
-            extract_location_header(narration_text).unwrap_or_else(|| ctx.current_location.clone());
-        temp_state.quest_log = ctx.quest_log.clone();
-        if let Some(ch) = temp_state.characters.first().cloned() {
-            let mut updated = ch;
-            updated.core.hp = *ctx.hp;
-            updated.core.max_hp = *ctx.max_hp;
-            updated.core.level = *ctx.level;
-            updated.core.inventory = ctx.inventory.clone();
-            temp_state.characters = vec![updated];
-        }
-        let snap_after = sidequest_game::delta::snapshot(&temp_state);
-        let narration_delta = sidequest_game::delta::compute_delta(&before_snapshot, &snap_after);
-        sidequest_game::build_protocol_delta(&narration_delta, &temp_state, &result.items_gained)
-    };
-
-    // Build response messages (narration, party status, inventory)
-    build_response_messages(
-        ctx,
-        &clean_narration,
-        narration_text,
-        &result,
-        &tier_events,
-        &effective_action,
-        &mut messages,
-        narration_state_delta,
-    )
-    .await;
 
     drop(_state_update_guard);
 
