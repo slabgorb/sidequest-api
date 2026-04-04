@@ -267,7 +267,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_inventory_short_circuits() {
+    #[ignore] // calls real Claude CLI — run with cargo test -- --ignored
+    fn empty_inventory_acquires_nothing_from_bland_narration() {
         let result = extract_inventory_mutations(
             "I look around",
             "You see a dusty room.",
@@ -284,5 +285,36 @@ mod tests {
             &["Sword".to_string()],
         );
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn parse_acquired_item() {
+        let json = r#"[{"item_name": "Rusty Caps", "action": "acquired", "detail": "looted from body", "category": "treasure", "gold": null}]"#;
+        let result = parse_extraction_response(json).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].action, MutationAction::Acquired);
+        assert_eq!(result[0].category.as_deref(), Some("treasure"));
+        assert_eq!(result[0].gold, None);
+    }
+
+    #[test]
+    fn parse_gold_acquisition() {
+        let json = r#"[{"item_name": "caps", "action": "acquired", "detail": "found on body", "category": "treasure", "gold": 11}]"#;
+        let result = parse_extraction_response(json).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].action, MutationAction::Acquired);
+        assert_eq!(result[0].gold, Some(11));
+    }
+
+    #[test]
+    fn parse_mixed_mutations() {
+        let json = r#"[
+            {"item_name": "Healing Potion", "action": "consumed", "detail": "drank it"},
+            {"item_name": "Old Key", "action": "acquired", "detail": "found in chest", "category": "quest"}
+        ]"#;
+        let result = parse_extraction_response(json).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].action, MutationAction::Consumed);
+        assert_eq!(result[1].action, MutationAction::Acquired);
     }
 }
