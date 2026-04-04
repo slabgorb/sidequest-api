@@ -24,8 +24,9 @@ impl IntentClassifier for MockClassifier {
 
 #[test]
 fn intent_route_for_intent_has_correct_agent() {
+    // ADR-067: All intents route to narrator
     let route = IntentRoute::for_intent(Intent::Combat);
-    assert_eq!(route.agent_name(), "creature_smith");
+    assert_eq!(route.agent_name(), "narrator");
     assert_eq!(route.intent(), Intent::Combat);
 }
 
@@ -45,8 +46,9 @@ fn classify_with_classifier_combat() {
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Combat);
     let route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
-    assert_eq!(route.intent(), Intent::Combat);
-    assert_eq!(route.agent_name(), "creature_smith");
+    // ADR-067: State-based inference, no LLM. Default is Exploration.
+    assert_eq!(route.intent(), Intent::Exploration);
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
@@ -55,8 +57,9 @@ fn classify_with_classifier_dialogue() {
     let classifier = MockClassifier(Intent::Dialogue);
     let route =
         IntentRouter::classify_with_classifier("I talk to the merchant", &ctx, &classifier);
-    assert_eq!(route.intent(), Intent::Dialogue);
-    assert_eq!(route.agent_name(), "ensemble");
+    // ADR-067: All intents route to narrator, state-based defaults to Exploration
+    assert_eq!(route.intent(), Intent::Exploration);
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
@@ -70,6 +73,7 @@ fn classify_with_classifier_exploration() {
 
 #[test]
 fn classify_with_classifier_examine() {
+    // ADR-067: State-based inference ignores classifier, defaults to Exploration
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Examine);
     let route = IntentRouter::classify_with_classifier(
@@ -77,16 +81,17 @@ fn classify_with_classifier_examine() {
         &ctx,
         &classifier,
     );
-    assert_eq!(route.intent(), Intent::Examine);
+    assert_eq!(route.intent(), Intent::Exploration);
     assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
 fn classify_with_classifier_meta() {
+    // ADR-067: State-based inference ignores classifier, defaults to Exploration
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Meta);
     let route = IntentRouter::classify_with_classifier("save", &ctx, &classifier);
-    assert_eq!(route.intent(), Intent::Meta);
+    assert_eq!(route.intent(), Intent::Exploration);
     assert_eq!(route.agent_name(), "narrator");
 }
 
@@ -153,12 +158,13 @@ fn chase_takes_priority_over_combat() {
 }
 
 #[test]
-fn no_state_override_falls_through_to_classifier() {
+fn no_state_override_defaults_to_exploration() {
+    // ADR-067: Without state overrides, defaults to Exploration (narrator handles all)
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Combat);
     let route =
         IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
-    assert_eq!(route.intent(), Intent::Combat);
+    assert_eq!(route.intent(), Intent::Exploration);
 }
 
 // ============================================================================
@@ -179,11 +185,12 @@ fn empty_input_classifies_without_panic() {
 
 #[test]
 fn very_long_input_classifies_without_panic() {
+    // ADR-067: State-based inference, defaults to Exploration
     let long_input = "I ".to_string() + &"really ".repeat(1000) + "want to attack";
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Combat);
     let route = IntentRouter::classify_with_classifier(&long_input, &ctx, &classifier);
-    assert_eq!(route.intent(), Intent::Combat);
+    assert_eq!(route.intent(), Intent::Exploration);
 }
 
 #[test]
