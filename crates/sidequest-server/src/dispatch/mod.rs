@@ -92,6 +92,9 @@ pub(crate) struct DispatchContext<'a> {
     /// Room definitions for room_graph navigation mode (from cartography.rooms).
     /// Empty for region-based navigation.
     pub rooms: Vec<sidequest_genre::RoomDef>,
+    /// Hierarchical world graph for lore filtering (story 23-4).
+    /// Populated from cartography.world_graph when navigation_mode is Hierarchical.
+    pub world_graph: Option<sidequest_genre::WorldGraph>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     /// Genre pack affinity definitions — used by resolve_abilities() to map tiers to ability names.
@@ -498,6 +501,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         npc_registry: ctx.npc_registry.clone(),
         npcs: ctx.snapshot.npcs.clone(),
         current_location: ctx.current_location.clone(),
+        // Story 23-4: lore filtering by graph distance
+        world_graph: ctx.world_graph.clone(),
     };
     let result = ctx
         .state
@@ -2232,6 +2237,8 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         npc_registry: Vec::new(),
         npcs: Vec::new(),
         current_location: String::new(),
+        // Aside turns don't need lore filtering
+        world_graph: None,
     };
     let result = ctx
         .state

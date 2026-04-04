@@ -48,12 +48,24 @@ gracefully. A cornered bandit doesn't wait to be hit. A skilled duelist \
 doesn't miss because the player is low on HP. Fair means fair to everyone \
 at the table, including the NPCs.";
 
-/// Critical guardrail: output only narrative prose.
+/// Output format: prose + inline game_patch JSON block.
 const NARRATOR_OUTPUT_ONLY: &str = "\
-Output ONLY narrative prose. Do NOT emit any JSON blocks, fenced code blocks, \
-or structured data. All mechanical extraction (items, NPCs, footnotes, mood, \
-etc.) is handled by tool calls during narration. Your only job is to tell \
-the story.";
+Your response has TWO parts, in this exact order:\n\
+\n\
+PART 1 — NARRATIVE PROSE\n\
+Write 2-4 sentences of narrative prose. Start with a location header like \
+**The Collapsed Overpass**. This is what the player sees.\n\
+\n\
+PART 2 — STATE PATCH\n\
+After your prose, emit a fenced JSON block labeled game_patch containing \
+mechanical intents from this turn. Only include fields that changed.\n\
+Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
+mood, state_snapshot.\n\
+If nothing mechanical happened (pure dialogue, description), emit:\n\
+```game_patch\n\
+{}\n\
+```\n\
+ALWAYS emit the game_patch block. It is mandatory.";
 
 /// Output-style rules (Early/Format zone).
 const NARRATOR_OUTPUT_STYLE: &str = "\

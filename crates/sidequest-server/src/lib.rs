@@ -1782,6 +1782,15 @@ async fn dispatch_message(
                             .map(|pack| pack.progression.affinities.clone())
                             .unwrap_or_default()
                     },
+                    world_graph: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        let ws = session.world_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.worlds.get(ws).cloned())
+                            .and_then(|world| world.cartography.world_graph)
+                    },
                     aside,
                     opening_directive: None,
                     narrator_verbosity,

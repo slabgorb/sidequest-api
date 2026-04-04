@@ -475,6 +475,7 @@ map_resolution: null
 regions:
   toods_dome:
     name: Tood's Dome
+    summary: "Scrapborn trade-city and wasteland hub"
     description: A Scrapborn trade-city
     adjacent:
       - glass_flat
@@ -485,6 +486,7 @@ regions:
     settlements: []
   glass_flat:
     name: The Glass Flat
+    summary: "Vast plain of fused black glass"
     description: 40-mile-wide plain of fused black glass
     adjacent:
       - toods_dome
@@ -540,6 +542,7 @@ fn culture_deserializes_with_corpora_and_word_list_slots() {
     // Slots have two variants: corpora+lookback OR word_list
     let yaml = r#"
 name: Scrapborn
+summary: "Urban salvage-builders in the wasteland ruins"
 description: Urban ruin-dwellers who build from salvage
 slots:
   given_name:
@@ -628,9 +631,11 @@ geography: The Flickering Reach sprawls.
 cosmology: The people do not agree on gods.
 factions:
   - name: The Dome Syndicate
+    summary: "Scrapborn trade coalition controlling dome markets"
     description: Scrapborn trade coalition
     disposition: neutral
   - name: The Sealed Protocol
+    summary: "Vaultborn isolationist government sealed underground"
     description: Vaultborn isolationist government
     disposition: hostile
 "#;
