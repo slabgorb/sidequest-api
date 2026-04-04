@@ -102,6 +102,14 @@ struct RawBeatDef {
     reveals: Option<String>,
     #[serde(default)]
     resolution: Option<bool>,
+    #[serde(default)]
+    effect: Option<String>,
+    #[serde(default)]
+    consequence: Option<String>,
+    #[serde(default)]
+    requires: Option<String>,
+    #[serde(default)]
+    narrator_hint: Option<String>,
 }
 
 /// A single action available during a confrontation.
@@ -127,6 +135,18 @@ pub struct BeatDef {
     /// Whether this beat can resolve the confrontation.
     #[serde(default)]
     pub resolution: Option<bool>,
+    /// Narrative effect on success (e.g., "opponent disposition +5").
+    #[serde(default)]
+    pub effect: Option<String>,
+    /// What happens on resolution or critical failure.
+    #[serde(default)]
+    pub consequence: Option<String>,
+    /// Precondition for using this beat (e.g., "must have discovered relevant clue").
+    #[serde(default)]
+    pub requires: Option<String>,
+    /// Guidance for the narrator LLM when this beat is executed.
+    #[serde(default)]
+    pub narrator_hint: Option<String>,
 }
 
 impl TryFrom<RawBeatDef> for BeatDef {
@@ -144,6 +164,10 @@ impl TryFrom<RawBeatDef> for BeatDef {
             risk: raw.risk,
             reveals: raw.reveals,
             resolution: raw.resolution,
+            effect: raw.effect,
+            consequence: raw.consequence,
+            requires: raw.requires,
+            narrator_hint: raw.narrator_hint,
         })
     }
 }

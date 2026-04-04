@@ -632,6 +632,9 @@ impl StructuredEncounter {
             if beat.resolution.unwrap_or(false) {
                 desc.push_str(", resolves encounter");
             }
+            if let Some(ref hint) = beat.narrator_hint {
+                desc.push_str(&format!(", narrator_hint: {}", hint));
+            }
             lines.push(desc);
         }
 
