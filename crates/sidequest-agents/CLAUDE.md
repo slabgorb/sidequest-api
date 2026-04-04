@@ -2,7 +2,7 @@
 
 LLM agent orchestration via Claude CLI subprocess. **~8,100 LOC across 38 modules.**
 This crate handles intent classification, agent dispatch, prompt composition,
-response extraction, and sidecar tool parsing.
+response extraction, and post-narration tool result assembly.
 
 ## COMPLETE — Do Not Rewrite
 
@@ -41,11 +41,16 @@ response extraction, and sidecar tool parsing.
 - **Soul** — `prompt_framework/soul.rs` (131 LOC) — character personality embedding
   in prompts.
 
-### Sidecar Tools
-- **tools/** — tool definitions and sidecar parsers for narrator tool calls:
-  `assemble_turn`, `personality_event`, `play_sfx`, `quest_update`,
-  `resource_change`, `scene_render`, `set_intent`, `set_mood`, `tool_call_parser`.
-  Plus `preprocessors.rs` for input preprocessing.
+### Post-Narration Tools (ADR-057/059)
+- **tools/** — mechanical state change handlers that run alongside narration.
+  The narrator does NOT call these tools — they are invoked server-side.
+  `assemble_turn` merges tool results with narration (tool values win).
+  Modules: `assemble_turn`, `item_acquire`, `personality_event`, `play_sfx`,
+  `quest_update`, `resource_change`, `scene_render`, `set_intent`, `set_mood`,
+  `tool_call_parser`. Plus `preprocessors.rs` for input preprocessing.
+  **Note:** `tool_call_parser` reads sidecar JSONL files — this mechanism is
+  retained for tools that write results during processing, but the narrator
+  itself never calls `--allowedTools` (ADR-059 killed that approach).
 
 ### Support Systems
 - **TurnRecord** — `turn_record.rs` (150 LOC) — turn history & telemetry (story 3-2).
