@@ -1,0 +1,154 @@
+//! Character-related types: archetypes, creation scenes, visual style.
+
+use super::ocean::OceanProfile;
+use serde::{Deserialize, Serialize};
+use sidequest_protocol::NonBlankString;
+use std::collections::HashMap;
+
+// ═══════════════════════════════════════════════════════════
+// archetypes.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// An NPC archetype template.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct NpcArchetype {
+    /// Archetype name.
+    pub name: NonBlankString,
+    /// Description.
+    pub description: String,
+    /// Personality trait keywords.
+    pub personality_traits: Vec<String>,
+    /// Typical character classes.
+    pub typical_classes: Vec<String>,
+    /// Typical character races.
+    pub typical_races: Vec<String>,
+    /// Stat name → [min, max] ranges.
+    pub stat_ranges: HashMap<String, [i32; 2]>,
+    /// Starting inventory suggestions.
+    pub inventory_hints: Vec<String>,
+    /// Speech pattern descriptions.
+    pub dialogue_quirks: Vec<String>,
+    /// Default disposition value.
+    pub disposition_default: i32,
+    /// Item catalog references for starting gear.
+    #[serde(default)]
+    pub catalog_items: Vec<String>,
+    /// Optional OCEAN personality baseline for this archetype.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocean: Option<OceanProfile>,
+}
+
+// ═══════════════════════════════════════════════════════════
+// char_creation.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// A character creation scene with narrative choices.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CharCreationScene {
+    /// Scene identifier.
+    pub id: String,
+    /// Display title.
+    pub title: String,
+    /// Narrator text for this scene.
+    pub narration: String,
+    /// Player choices (may be empty for the final confirmation scene).
+    pub choices: Vec<CharCreationChoice>,
+    /// Genre-aware loading text shown while waiting for the next scene.
+    /// E.g. "The ripperdoc considers your words..."
+    #[serde(default)]
+    pub loading_text: Option<String>,
+    /// Whether this scene allows freeform text input.
+    #[serde(default)]
+    pub allows_freeform: Option<bool>,
+    /// Optional followup prompt — if present, the builder enters AwaitingFollowup
+    /// after a choice is made, waiting for the player's freeform elaboration.
+    #[serde(default)]
+    pub hook_prompt: Option<String>,
+}
+
+/// A choice within a character creation scene.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CharCreationChoice {
+    /// Display label.
+    pub label: String,
+    /// Description text.
+    pub description: String,
+    /// Game-mechanical effects of this choice.
+    pub mechanical_effects: MechanicalEffects,
+}
+
+/// Mechanical effects of a character creation choice.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MechanicalEffects {
+    /// Suggested class.
+    #[serde(default)]
+    pub class_hint: Option<String>,
+    /// Suggested race.
+    #[serde(default)]
+    pub race_hint: Option<String>,
+    /// Suggested mutation.
+    #[serde(default)]
+    pub mutation_hint: Option<String>,
+    /// Suggested starting item.
+    #[serde(default)]
+    pub item_hint: Option<String>,
+    /// Suggested affinity.
+    #[serde(default)]
+    pub affinity_hint: Option<String>,
+    /// Suggested training path.
+    #[serde(default)]
+    pub training_hint: Option<String>,
+    /// Background context.
+    #[serde(default)]
+    pub background: Option<String>,
+    /// Personality trait hint.
+    #[serde(default)]
+    pub personality_trait: Option<String>,
+    /// Emotional state hint.
+    #[serde(default)]
+    pub emotional_state: Option<String>,
+    /// Relationship hint.
+    #[serde(default)]
+    pub relationship: Option<String>,
+    /// Goals hint.
+    #[serde(default)]
+    pub goals: Option<String>,
+    /// Whether freeform input is allowed.
+    #[serde(default)]
+    pub allows_freeform: Option<bool>,
+    /// Rig type hint (vehicle-based genres).
+    #[serde(default)]
+    pub rig_type_hint: Option<String>,
+    /// Rig trait hint.
+    #[serde(default)]
+    pub rig_trait: Option<String>,
+    /// Catch phrase or hook.
+    #[serde(default, rename = "catch")]
+    pub catch_phrase: Option<String>,
+    /// Stat bonuses from this choice (e.g. {"Strength": 2, "Agility": -1}).
+    #[serde(default)]
+    pub stat_bonuses: HashMap<String, i32>,
+    /// Pronoun hint from character creation (e.g. "she/her", "he/him", "they/them").
+    #[serde(default)]
+    pub pronoun_hint: Option<String>,
+}
+
+// ═══════════════════════════════════════════════════════════
+// visual_style.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// Image generation style configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct VisualStyle {
+    /// Positive prompt suffix for image generation.
+    pub positive_suffix: String,
+    /// Negative prompt for image generation.
+    pub negative_prompt: String,
+    /// Preferred image generation model.
+    pub preferred_model: String,
+    /// Base random seed.
+    pub base_seed: u32,
+    /// Location-tag → style override mappings.
+    #[serde(default)]
+    pub visual_tag_overrides: HashMap<String, String>,
+}
