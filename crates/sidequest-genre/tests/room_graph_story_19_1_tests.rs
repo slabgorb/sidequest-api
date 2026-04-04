@@ -260,6 +260,7 @@ map_style: hand-drawn parchment fantasy cartography
 regions:
   kingshold:
     name: Kingshold
+    summary: "Fortified capital city and seat of power"
     description: The fortified capital city
     adjacent:
       - wildwood
@@ -269,6 +270,7 @@ regions:
         description: Seat of the king
   wildwood:
     name: The Wildwood
+    summary: "Ancient dark forest of mystery"
     description: An ancient and dark forest
     adjacent:
       - kingshold

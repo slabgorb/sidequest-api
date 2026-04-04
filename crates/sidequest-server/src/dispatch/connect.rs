@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use sidequest_game::builder::CharacterBuilder;
-use sidequest_genre::{GenreCode, GenreLoader};
+use sidequest_genre::GenreCode;
 use sidequest_protocol::{
     ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload, CharacterState,
     GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
@@ -47,10 +47,10 @@ pub(crate) async fn dispatch_connect(
     opening_directive: &mut Option<String>,
     state: &AppState,
     player_id: &str,
-    continuity_corrections: &mut String,
+    _continuity_corrections: &mut String,
     inventory: &mut sidequest_game::Inventory,
     snapshot: &mut sidequest_game::state::GameSnapshot,
-    tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
+    _tx: &tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
 ) -> Vec<GameMessage> {
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
@@ -729,6 +729,8 @@ pub(crate) async fn dispatch_character_creation(
                                                     tags: catalog_item.tags.clone(),
                                                     equipped: false,
                                                     quantity: 1,
+                                                    uses_remaining: catalog_item.resource_ticks,
+                                                    state: sidequest_game::ItemState::Carried,
                                                 });
                                             }
                                         } else {
@@ -753,6 +755,8 @@ pub(crate) async fn dispatch_character_creation(
                                                     tags: vec![],
                                                     equipped: false,
                                                     quantity: 1,
+                                                    uses_remaining: None,
+                                                    state: sidequest_game::ItemState::Carried,
                                                 });
                                             }
                                         }
@@ -771,7 +775,16 @@ pub(crate) async fn dispatch_character_creation(
                         }
                     }
 
-                    *character_json_store = Some(char_json.clone());
+                    // Rebuild char_json with post-loadout inventory.
+                    // The original char_json (line 674) was captured BEFORE starting
+                    // equipment was added. Everything downstream (snapshot, PlayerState,
+                    // CHARACTER_SHEET) reads from character_json — it must reflect
+                    // the full loadout, not just builder item_hints.
+                    {
+                        let mut updated_char = character.clone();
+                        updated_char.core.inventory = inventory.clone();
+                        *character_json_store = Some(serde_json::to_value(&updated_char).unwrap_or_default());
+                    }
                     tracing::info!(
                         char_name = %character.core.name,
                         hp = character.core.hp,
@@ -818,6 +831,12 @@ pub(crate) async fn dispatch_character_creation(
 
                         // Inject the chargen-produced character into the materialized snapshot
                         snap.characters = vec![character.clone()];
+                        // Sync post-loadout inventory into snapshot character.
+                        // The `character` object has only builder item_hints; the full
+                        // loadout from inventory.yaml was added to the `inventory` local.
+                        if let Some(ch) = snap.characters.first_mut() {
+                            ch.core.inventory = inventory.clone();
+                        }
 
                         // Room-graph mode: set starting location to entrance room (story 19-2)
                         let rooms_for_init: Vec<sidequest_genre::RoomDef> = match GenreCode::new(&genre) {
@@ -847,6 +866,33 @@ pub(crate) async fn dispatch_character_creation(
 
                         snap
                     };
+
+                    // Set initial current_location from snapshot (room-graph) or genre rules
+                    if !snapshot.location.is_empty() {
+                        *current_location = snapshot.location.clone();
+                    } else {
+                        // Fallback: use default_location from rules.yaml
+                        let default_loc = GenreCode::new(&genre)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.rules.default_location.clone())
+                            .unwrap_or_default();
+                        if !default_loc.is_empty() {
+                            *current_location = default_loc.clone();
+                            snapshot.location = default_loc.clone();
+                            snapshot.current_region = default_loc.clone();
+                            discovered_regions.push(default_loc);
+                            tracing::info!(
+                                location = %snapshot.location,
+                                "connect.default_location — set from rules.yaml"
+                            );
+                        }
+                    }
+                    // Seed discovered_regions from snapshot location
+                    if !current_location.is_empty() && !discovered_regions.iter().any(|r| r == current_location.as_str()) {
+                        discovered_regions.push(current_location.clone());
+                    }
+
                     if let Err(e) = state
                         .persistence()
                         .save(&genre, &world, &pname_for_save, &snapshot)
@@ -884,11 +930,26 @@ pub(crate) async fn dispatch_character_creation(
                     let ready = GameMessage::SessionEvent {
                         payload: SessionEventPayload {
                             event: "ready".to_string(),
-                            player_name: None,
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: None,
+                            player_name: player_name_store.clone(),
+                            genre: session.genre_slug().map(|s| s.to_string()),
+                            world: session.world_slug().map(|s| s.to_string()),
+                            has_character: Some(true),
+                            initial_state: Some(InitialState {
+                                characters: vec![sidequest_protocol::CharacterState {
+                                    name: character.core.name.as_str().to_string(),
+                                    hp: *character_hp,
+                                    max_hp: *character_max_hp,
+                                    level: *character_level as u32,
+                                    class: character.char_class.as_str().to_string(),
+                                    statuses: vec![],
+                                    inventory: inventory.carried()
+                                        .map(|i| i.name.as_str().to_string())
+                                        .collect(),
+                                }],
+                                location: current_location.clone(),
+                                quests: quest_log.clone(),
+                                turn_count: turn_manager.interaction() as u32,
+                            }),
                             css: None,
                             image_cooldown_seconds: None,
                             narrator_verbosity: None,
@@ -898,6 +959,14 @@ pub(crate) async fn dispatch_character_creation(
                     };
 
                     let intro_messages: Vec<GameMessage> = {
+                        // Monster Manual: load/seed for opening turn (ADR-059)
+                        let gs_mm = session.genre_slug().unwrap_or("");
+                        let ws_mm = session.world_slug().unwrap_or("");
+                        let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs_mm, ws_mm);
+                        if monster_manual.needs_seeding() && !gs_mm.is_empty() {
+                            super::pregen::seed_manual(state, gs_mm, &mut monster_manual);
+                        }
+
                         let mut ctx = super::DispatchContext {
                             action: opening_seed
                                 .as_deref()
@@ -973,6 +1042,15 @@ pub(crate) async fn dispatch_character_creation(
                                     .map(|pack| pack.progression.affinities.clone())
                                     .unwrap_or_default()
                             },
+                            world_graph: {
+                                let gs = session.genre_slug().unwrap_or("");
+                                let ws = session.world_slug().unwrap_or("");
+                                sidequest_genre::GenreCode::new(gs)
+                                    .ok()
+                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|pack| pack.worlds.get(ws).cloned())
+                                    .and_then(|world| world.cartography.world_graph)
+                            },
                             aside: false,
                             opening_directive: opening_directive.take(),
                             narrator_verbosity,
@@ -981,8 +1059,11 @@ pub(crate) async fn dispatch_character_creation(
                             achievement_tracker,
                             snapshot,
                             tx,
+                            monster_manual: &mut monster_manual,
                         };
-                        super::dispatch_player_action(&mut ctx).await
+                        let result = super::dispatch_player_action(&mut ctx).await;
+                        ctx.monster_manual.save();
+                        result
                     };
 
                     // Emit CHARACTER_SHEET for the UI overlay
@@ -1001,7 +1082,7 @@ pub(crate) async fn dispatch_character_creation(
                             backstory: character.backstory.as_str().to_string(),
                             personality: character.core.personality.as_str().to_string(),
                             pronouns: character.pronouns.clone(),
-                            equipment: character.core.inventory.items.iter().map(|i| {
+                            equipment: inventory.carried().map(|i| {
                                 if i.equipped {
                                     format!("{} [equipped]", i.name)
                                 } else {
@@ -1047,6 +1128,11 @@ pub(crate) async fn dispatch_character_creation(
                                 p.character_max_hp = character.core.max_hp;
                                 p.character_level = character.core.level as u32;
                                 p.character_class = character.char_class.as_str().to_string();
+                                p.inventory = inventory.clone();
+                                p.character_xp = character.core.xp;
+                                if let Some(ref cj) = *character_json_store {
+                                    p.character_json = Some(cj.clone());
+                                }
                             }
                             // Notify existing players that a new character has arrived
                             let arrival_text = format!(
@@ -1079,9 +1165,13 @@ pub(crate) async fn dispatch_character_creation(
                                     target_pid.clone(),
                                 );
                             }
-                            // Build and send targeted PARTY_STATUS to each session member
-                            // Each player gets their own player_id so the client HUD
-                            // shows the correct identity.
+                            // Build and send targeted PARTY_STATUS to OTHER session members.
+                            // The current player gets their PartyStatus from the opening
+                            // narration dispatch — sending here too causes duplicates.
+                            // Skip entirely for single-player (no other members to notify).
+                            if ss.players.len() <= 1 {
+                                tracing::debug!("Skipping connect PartyStatus — single player, dispatch will send");
+                            } else {
                             let members: Vec<PartyMember> = ss
                                 .players
                                 .iter()
@@ -1127,6 +1217,7 @@ pub(crate) async fn dispatch_character_creation(
                                     ss.send_to_player(party_msg, target_pid.clone());
                                 }
                             }
+                            } // end multiplayer PartyStatus
                             let pc = ss.player_count();
                             tracing::info!(
                                 player_id = %player_id,

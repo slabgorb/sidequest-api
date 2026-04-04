@@ -87,6 +87,8 @@ fn test_character() -> Character {
         tags: vec!["melee".to_string(), "blade".to_string()],
         equipped: true,
         quantity: 1,
+                uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     inventory.items.push(Item {
@@ -101,6 +103,8 @@ fn test_character() -> Character {
         tags: vec!["protection".to_string()],
         equipped: true,
         quantity: 1,
+                uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     inventory.items.push(Item {
@@ -115,6 +119,8 @@ fn test_character() -> Character {
         tags: vec!["camping".to_string()],
         equipped: false,
         quantity: 1,
+                uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     inventory.items.push(Item {
@@ -129,6 +135,8 @@ fn test_character() -> Character {
         tags: vec!["food".to_string()],
         equipped: false,
         quantity: 3,
+                uses_remaining: None,
+        state: sidequest_game::ItemState::Carried,
     });
 
     Character {

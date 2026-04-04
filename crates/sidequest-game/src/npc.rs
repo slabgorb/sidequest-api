@@ -60,6 +60,36 @@ pub struct Npc {
 }
 
 impl Npc {
+    /// Create a minimal NPC for combat — just enough for resolve_attack to work.
+    /// Full NPC data (appearance, personality, etc.) can be enriched later.
+    pub fn combat_minimal(name: &str, hp: i32, max_hp: i32, level: u32) -> Self {
+        Self {
+            core: CreatureCore {
+                name: NonBlankString::new(name).unwrap_or_else(|_| NonBlankString::new("Unknown").unwrap()),
+                description: NonBlankString::new("combatant").unwrap(),
+                personality: NonBlankString::new("hostile").unwrap(),
+                level,
+                hp,
+                max_hp,
+                ac: 10,
+                inventory: crate::Inventory::default(),
+                statuses: vec![],
+                xp: 0,
+            },
+            voice_id: None,
+            disposition: Disposition::new(-20), // hostile
+            location: None,
+            pronouns: None,
+            appearance: None,
+            age: None,
+            build: None,
+            height: None,
+            distinguishing_features: vec![],
+            ocean: None,
+            belief_state: BeliefState::default(),
+        }
+    }
+
     /// Get the NPC's current attitude based on disposition + OCEAN agreeableness offset.
     pub fn attitude(&self) -> Attitude {
         Disposition::new(self.effective_disposition()).attitude()

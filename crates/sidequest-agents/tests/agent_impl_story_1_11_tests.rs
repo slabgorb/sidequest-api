@@ -32,7 +32,7 @@ mod agent_trait_tests {
         let agent = NarratorAgent::new();
         assert_eq!(agent.name(), "narrator");
         assert!(!agent.system_prompt().is_empty());
-        assert!(agent.system_prompt().contains("<system>"));
+        assert!(agent.system_prompt().contains("Game Master"));
     }
 
     #[test]
@@ -98,11 +98,19 @@ mod agent_trait_tests {
     #[test]
     fn narrator_system_prompt_has_agency_rules() {
         let agent = NarratorAgent::new();
-        let prompt = agent.system_prompt();
-        // Narrator must never control the player character (port from Python)
+        let mut builder = ContextBuilder::new();
+        agent.build_context(&mut builder);
+        
+        // The agency rule is added via build_context in the structured template system (story 23-1).
+        // Verify it exists by checking the sections.
+        let sections = builder.build();
+        let has_agency_guardrail = sections
+            .iter()
+            .any(|s| s.content.contains("NEVER") || s.content.contains("Agency"));
+        
         assert!(
-            prompt.contains("NEVER") || prompt.contains("never"),
-            "Narrator system prompt must contain agency rules"
+            has_agency_guardrail,
+            "Narrator must have agency guardrail section in build_context"
         );
     }
 }

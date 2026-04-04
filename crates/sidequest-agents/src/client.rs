@@ -117,21 +117,23 @@ impl ClaudeClient {
         prompt: &str,
         model: &str,
     ) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, Some(model), &[])
+        self.send_impl(prompt, Some(model), &[], &std::collections::HashMap::new())
     }
 
-    /// Execute a subprocess call with tool access.
+    /// Execute a subprocess call with tool access and environment variables.
     ///
     /// Passes `--allowedTools <tools>` so the Claude CLI can execute tools
-    /// autonomously during the session. The CLI handles tool execution internally
-    /// and returns the final text result.
+    /// autonomously during the session. Sets extra env vars on the subprocess
+    /// (e.g., `SIDEQUEST_GENRE`, `SIDEQUEST_CONTENT_PATH`) so tool wrappers
+    /// can resolve paths from environment instead of CLI flags in the prompt.
     pub fn send_with_tools(
         &self,
         prompt: &str,
         model: &str,
         allowed_tools: &[String],
+        env_vars: &std::collections::HashMap<String, String>,
     ) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, Some(model), allowed_tools)
+        self.send_impl(prompt, Some(model), allowed_tools, env_vars)
     }
 
     /// Core subprocess execution — used by all send methods.
@@ -145,6 +147,7 @@ impl ClaudeClient {
         prompt: &str,
         model: Option<&str>,
         allowed_tools: &[String],
+        extra_env: &std::collections::HashMap<String, String>,
     ) -> Result<ClaudeResponse, ClaudeClientError> {
         use std::io::Read;
         use std::process::{Command, Stdio};
@@ -170,6 +173,7 @@ impl ClaudeClient {
         let mut cmd = Command::new(&self.command_path);
         if let Some(endpoint) = &self.otel_endpoint {
             cmd.env("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+                .env("OTEL_TRACES_EXPORTER", "otlp")
                 .env("OTEL_LOGS_EXPORTER", "otlp")
                 .env("OTEL_METRICS_EXPORTER", "otlp")
                 .env("OTEL_EXPORTER_OTLP_PROTOCOL", "http/json")
@@ -177,6 +181,10 @@ impl ClaudeClient {
                 .env("OTEL_LOG_TOOL_CONTENT", "1")
                 .env("OTEL_LOG_TOOL_DETAILS", "1")
                 .env("CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS", "3000");
+        }
+        // Apply extra environment variables (story 23-11: SIDEQUEST_GENRE, SIDEQUEST_CONTENT_PATH)
+        for (key, value) in extra_env {
+            cmd.env(key, value);
         }
         if let Some(m) = model {
             cmd.arg("--model").arg(m);
@@ -193,6 +201,16 @@ impl ClaudeClient {
             .arg("json")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        // Log the full command for debugging tool invocation issues
+        tracing::debug!(
+            command = %self.command_path,
+            model = %model_label,
+            allowed_tools = ?allowed_tools,
+            env_keys = ?extra_env.keys().collect::<Vec<_>>(),
+            prompt_len = prompt.len(),
+            "claude_cli.command_built"
+        );
 
         let mut child = cmd.spawn().map_err(|e| {
             tracing::error!(command = %self.command_path, model = %model_label, error = %e, "Failed to spawn subprocess");
@@ -296,7 +314,7 @@ impl ClaudeClient {
 
     /// Execute a synchronous subprocess call with the configured command and timeout.
     pub fn send(&self, prompt: &str) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, None, &[])
+        self.send_impl(prompt, None, &[], &std::collections::HashMap::new())
     }
 }
 

@@ -29,7 +29,6 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{EnvFilter, Registry};
 
 use sidequest_agents::orchestrator::GameService;
 use sidequest_game::builder::CharacterBuilder;
@@ -75,8 +74,7 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
 }
 use sidequest_genre::{GenreCache, GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload, CharacterState,
-    ErrorPayload, GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
+    ErrorPayload, GameMessage, PartyMember,
     PartyStatusPayload, SessionEventPayload, TurnStatusPayload,
 };
 
@@ -371,6 +369,10 @@ struct AppStateInner {
     /// Path to the sidequest-namegen binary for server-side NPC identity generation.
     /// None if the binary was not found at startup.
     namegen_binary_path: Option<PathBuf>,
+    /// Path to the sidequest-encountergen binary for server-side encounter generation.
+    encountergen_binary_path: Option<PathBuf>,
+    /// Path to the sidequest-loadoutgen binary for server-side loadout generation.
+    loadoutgen_binary_path: Option<PathBuf>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -529,6 +531,8 @@ impl AppState {
                 sessions: Mutex::new(HashMap::new()),
                 tts_disabled: false,
                 namegen_binary_path: None,
+                encountergen_binary_path: None,
+                loadoutgen_binary_path: None,
                 otel_endpoint: None,
             }),
         }
@@ -564,6 +568,15 @@ impl AppState {
         self.inner.tts_disabled
     }
 
+    /// Disable image rendering by dropping the render queue (builder-style).
+    /// In headless mode, no daemon connection is attempted and no IMAGE messages are broadcast.
+    pub fn with_render_disabled(mut self) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_render_disabled must be called before cloning")
+            .render_queue = None;
+        self
+    }
+
     /// Set the path to the sidequest-namegen binary for server-side NPC validation.
     pub fn with_namegen_binary(mut self, path: PathBuf) -> Self {
         Arc::get_mut(&mut self.inner)
@@ -575,6 +588,32 @@ impl AppState {
     /// Path to the sidequest-namegen binary, if available.
     pub fn namegen_binary_path(&self) -> Option<&Path> {
         self.inner.namegen_binary_path.as_deref()
+    }
+
+    /// Set the path to the sidequest-encountergen binary (builder-style).
+    pub fn with_encountergen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_encountergen_binary must be called before cloning")
+            .encountergen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-encountergen binary, if available.
+    pub fn encountergen_binary_path(&self) -> Option<&Path> {
+        self.inner.encountergen_binary_path.as_deref()
+    }
+
+    /// Set the path to the sidequest-loadoutgen binary (builder-style).
+    pub fn with_loadoutgen_binary(mut self, path: PathBuf) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_loadoutgen_binary must be called before cloning")
+            .loadoutgen_binary_path = Some(path);
+        self
+    }
+
+    /// Path to the sidequest-loadoutgen binary, if available.
+    pub fn loadoutgen_binary_path(&self) -> Option<&Path> {
+        self.inner.loadoutgen_binary_path.as_deref()
     }
 
     /// Set the OTEL endpoint for Claude subprocess telemetry (builder-style).
@@ -1447,6 +1486,10 @@ async fn dispatch_message(
                     ps.character_hp = *character_hp;
                     ps.character_max_hp = *character_max_hp;
                     ps.display_location = current_location.clone();
+                    ps.inventory = inventory.clone();
+                    ps.combat_state = combat_state.clone();
+                    ps.chase_state = chase_state.clone();
+                    ps.character_json = character_json.clone();
                     ps.region_id = ss_guard
                         .resolve_region(current_location)
                         .unwrap_or_default();
@@ -1666,6 +1709,15 @@ async fn dispatch_message(
             }
             {
                 let aside = payload.action.starts_with("(aside)") || payload.action.starts_with("/aside");
+
+                // Monster Manual: load from disk, seed if needed (ADR-059)
+                let gs = session.genre_slug().unwrap_or("");
+                let ws = session.world_slug().unwrap_or("");
+                let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs, ws);
+                if monster_manual.needs_seeding() && !gs.is_empty() {
+                    dispatch::pregen::seed_manual(state, gs, &mut monster_manual);
+                }
+
                 let mut ctx = dispatch::DispatchContext {
                     action: &payload.action,
                     char_name: character_name.as_deref().unwrap_or("Unknown"),
@@ -1730,6 +1782,15 @@ async fn dispatch_message(
                             .map(|pack| pack.progression.affinities.clone())
                             .unwrap_or_default()
                     },
+                    world_graph: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        let ws = session.world_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.worlds.get(ws).cloned())
+                            .and_then(|world| world.cartography.world_graph)
+                    },
                     aside,
                     opening_directive: None,
                     narrator_verbosity,
@@ -1738,8 +1799,14 @@ async fn dispatch_message(
                     achievement_tracker,
                     snapshot,
                     tx: &tx,
+                    monster_manual: &mut monster_manual,
                 };
-                dispatch::dispatch_player_action(&mut ctx).await
+                let result = dispatch::dispatch_player_action(&mut ctx).await;
+
+                // Save Manual after dispatch (entries may have been marked Active)
+                ctx.monster_manual.save();
+
+                result
             }
         }
         // Journal browse — on-demand KnownFact retrieval (story 9-13)

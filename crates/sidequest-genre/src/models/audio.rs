@@ -1,0 +1,210 @@
+//! Audio configuration from `audio.yaml` and voice presets from `voice_presets.yaml`.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+// ═══════════════════════════════════════════════════════════
+// audio.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// Audio configuration for music, SFX, and voice.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AudioConfig {
+    /// Mood → track list mappings.
+    pub mood_tracks: HashMap<String, Vec<MoodTrack>>,
+    /// SFX category → file path list.
+    pub sfx_library: HashMap<String, Vec<String>>,
+    /// Creature type → voice preset.
+    pub creature_voice_presets: HashMap<String, CreatureVoicePreset>,
+    /// Mixer volume settings.
+    pub mixer: MixerConfig,
+    /// Themed music collections.
+    #[serde(default)]
+    pub themes: Vec<AudioTheme>,
+    /// AI music generation configuration.
+    #[serde(default)]
+    pub ai_generation: Option<AudioAiGeneration>,
+    /// Mood keyword mappings (mood → keyword list).
+    #[serde(default)]
+    pub mood_keywords: HashMap<String, Vec<String>>,
+    /// Mixer defaults (alternative name for mixer in some packs).
+    #[serde(default)]
+    pub mixer_defaults: Option<MixerConfig>,
+}
+
+/// AI music generation configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AudioAiGeneration {
+    /// Whether AI generation is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Model name (e.g., "musicgen_small").
+    #[serde(default)]
+    pub model: Option<String>,
+    /// Maximum generation time in seconds.
+    #[serde(default)]
+    pub max_generation_time_s: Option<u32>,
+    /// Whether to cache generated audio.
+    #[serde(default)]
+    pub cache_generated: Option<bool>,
+}
+
+/// Default energy level for tracks without an explicit energy field.
+fn default_energy() -> f64 {
+    0.5
+}
+
+/// A single music track.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MoodTrack {
+    /// File path.
+    pub path: String,
+    /// Track title.
+    pub title: String,
+    /// Beats per minute.
+    pub bpm: u32,
+    /// Energy level (0.0–1.0) for mood intensity matching.
+    #[serde(default = "default_energy")]
+    pub energy: f64,
+}
+
+/// Voice preset for a creature type.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CreatureVoicePreset {
+    /// Creature type identifier.
+    pub creature_type: String,
+    /// Description of the voice.
+    pub description: String,
+    /// Pitch multiplier.
+    pub pitch: f64,
+    /// Rate multiplier.
+    pub rate: f64,
+    /// Audio effects chain.
+    #[serde(default)]
+    pub effects: Vec<AudioEffect>,
+}
+
+/// An audio effect in a processing chain.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AudioEffect {
+    /// Effect type (reverb, lowpass_filter, highpass_filter, compressor).
+    #[serde(rename = "type")]
+    pub effect_type: String,
+    /// Effect parameters (e.g., room_size, cutoff_frequency_hz).
+    #[serde(default)]
+    pub params: HashMap<String, f64>,
+}
+
+/// Mixer volume configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct MixerConfig {
+    /// Music volume (0.0–1.0).
+    pub music_volume: f64,
+    /// SFX volume (0.0–1.0).
+    pub sfx_volume: f64,
+    /// Voice volume (0.0–1.0).
+    pub voice_volume: f64,
+    /// Whether to duck music during voice.
+    pub duck_music_for_voice: bool,
+    /// Ducking amount in decibels.
+    pub duck_amount_db: f64,
+    /// Default crossfade duration in milliseconds.
+    pub crossfade_default_ms: u32,
+}
+
+/// A themed music collection with variations.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AudioTheme {
+    /// Theme name.
+    pub name: String,
+    /// Associated mood.
+    pub mood: String,
+    /// Base prompt text.
+    pub base_prompt: String,
+    /// Track variations.
+    pub variations: Vec<AudioVariation>,
+}
+
+/// A single variation within an audio theme.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AudioVariation {
+    /// Variation type (full, ambient, sparse, overture, resolution, tension_build).
+    #[serde(rename = "type")]
+    pub variation_type: String,
+    /// File path.
+    pub path: String,
+}
+
+impl AudioVariation {
+    /// Convert the string `variation_type` to the typed [`TrackVariation`] enum.
+    /// Defaults to [`TrackVariation::Full`] for unrecognized types.
+    pub fn as_variation(&self) -> TrackVariation {
+        match self.variation_type.as_str() {
+            "full" => TrackVariation::Full,
+            "overture" => TrackVariation::Overture,
+            "ambient" => TrackVariation::Ambient,
+            "sparse" => TrackVariation::Sparse,
+            "tension_build" => TrackVariation::TensionBuild,
+            "resolution" => TrackVariation::Resolution,
+            other => {
+                tracing::warn!(
+                    variation_type = %other,
+                    "unrecognized AudioVariation type, defaulting to Full"
+                );
+                TrackVariation::Full
+            }
+        }
+    }
+}
+
+/// Typed track variation — cinematic score cue categories.
+///
+/// Each variation represents a different energy/pacing role in the soundtrack.
+/// The [`MusicDirector`] selects a variation based on narrative context (session
+/// start, combat transitions, intensity, drama weight) then picks a track from
+/// the genre pack's themed variations for that category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum TrackVariation {
+    /// Default — peak dramatic moment.
+    Full,
+    /// First arrival, session start, major scene transition.
+    Overture,
+    /// Background during dialogue, quiet moments.
+    Ambient,
+    /// Low-intensity exploration, uncertainty.
+    Sparse,
+    /// Escalating stakes, approaching danger.
+    TensionBuild,
+    /// After combat ends, quest completion, winding down.
+    Resolution,
+}
+
+// ═══════════════════════════════════════════════════════════
+// voice_presets.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// TTS voice preset configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct VoicePresets {
+    /// Narrator voice configuration.
+    pub narrator: VoiceConfig,
+    /// Per-archetype voice configurations.
+    #[serde(default)]
+    pub characters: HashMap<String, VoiceConfig>,
+}
+
+/// A single TTS voice configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct VoiceConfig {
+    /// Piper ONNX model name.
+    pub model: String,
+    /// Pitch multiplier.
+    pub pitch: f64,
+    /// Rate multiplier.
+    pub rate: f64,
+    /// Audio effects chain.
+    #[serde(default)]
+    pub effects: Vec<AudioEffect>,
+}

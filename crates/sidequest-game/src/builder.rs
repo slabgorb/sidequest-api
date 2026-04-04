@@ -11,7 +11,7 @@ use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, 
 
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
-use crate::inventory::{Inventory, Item};
+use crate::inventory::{Inventory, Item, ItemState};
 
 // ============================================================================
 // Public types
@@ -612,6 +612,8 @@ impl CharacterBuilder {
                     tags: vec![],
                     equipped: true,
                     quantity: 1,
+                    uses_remaining: None,
+                    state: ItemState::Carried,
                 }
             })
             .collect();

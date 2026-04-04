@@ -100,6 +100,17 @@ pub(crate) async fn build_prompt_context(
         ctx.char_name, *ctx.hp, *ctx.max_hp, *ctx.level, *ctx.xp, ctx.genre_slug,
     );
 
+    // Death directive — the narrator MUST describe the character's death
+    if ctx.snapshot.player_dead || *ctx.hp <= 0 {
+        state_summary.push_str(
+            "\n\n⚠️ CHARACTER IS DEAD (HP 0). The character has fallen in combat. \
+             Narrate the death scene — describe how they fell, what killed them, \
+             and the finality of it. Do NOT continue the adventure. Do NOT let \
+             the character act, move, or speak. The session is over. End with \
+             a brief epitaph or closing line."
+        );
+    }
+
     // Inject party roster so the narrator knows which characters are player-controlled
     // and never puppets them (gives them dialogue, actions, or internal state).
     {
@@ -176,12 +187,18 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inventory — full if player references items, compact summary otherwise
-    if !ctx.inventory.items.is_empty() {
+    tracing::info!(
+        carried_count = ctx.inventory.item_count(),
+        ledger_size = ctx.inventory.ledger_size(),
+        gold = ctx.inventory.gold,
+        "prompt.inventory_check — building inventory section"
+    );
+    if ctx.inventory.item_count() > 0 {
         if relevance.references_inventory {
             // Full inventory with descriptions and rules
             state_summary.push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
             state_summary.push_str("\nThe player currently possesses EXACTLY these items:");
-            for item in &ctx.inventory.items {
+            for item in ctx.inventory.carried() {
                 let equipped_tag = if item.equipped { " [EQUIPPED]" } else { "" };
                 let qty_tag = if item.quantity > 1 {
                     format!(" (x{})", item.quantity)
@@ -205,7 +222,7 @@ pub(crate) async fn build_prompt_context(
             ));
         } else {
             // Compact: equipped items + count only
-            let equipped: Vec<String> = ctx.inventory.items.iter()
+            let equipped: Vec<String> = ctx.inventory.carried()
                 .filter(|i| i.equipped)
                 .map(|i| i.name.to_string())
                 .collect();
@@ -216,7 +233,7 @@ pub(crate) async fn build_prompt_context(
             };
             state_summary.push_str(&format!(
                 "\n\nInventory: {} items ({}), {} gold.",
-                ctx.inventory.items.len(), equipped_str, ctx.inventory.gold
+                ctx.inventory.item_count(), equipped_str, ctx.inventory.gold
             ));
         }
     } else {

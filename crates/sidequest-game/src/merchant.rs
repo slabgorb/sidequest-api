@@ -213,6 +213,8 @@ mod tests {
             tags: vec![],
             equipped: false,
             quantity: 1,
+            uses_remaining: None,
+            state: crate::inventory::ItemState::Carried,
         }
     }
 

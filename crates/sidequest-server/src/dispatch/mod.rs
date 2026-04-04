@@ -13,6 +13,7 @@
 mod audio;
 mod combat;
 pub(crate) mod connect;
+pub(crate) mod pregen;
 mod prompt;
 mod render;
 mod session_sync;
@@ -28,9 +29,9 @@ use tracing::Instrument;
 use sidequest_agents::orchestrator::TurnContext;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ActionRevealPayload, ChapterMarkerPayload, GameMessage, InventoryPayload, MapUpdatePayload,
-    NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload, PlayerActionEntry,
-    SessionEventPayload, ThinkingPayload, TurnStatusPayload,
+    ActionRevealPayload, ChapterMarkerPayload, GameMessage, InventoryPayload, ItemDepletedPayload,
+    MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
+    PlayerActionEntry, SessionEventPayload, ThinkingPayload, TurnStatusPayload,
 };
 
 use crate::extraction::{
@@ -91,6 +92,9 @@ pub(crate) struct DispatchContext<'a> {
     /// Room definitions for room_graph navigation mode (from cartography.rooms).
     /// Empty for region-based navigation.
     pub rooms: Vec<sidequest_genre::RoomDef>,
+    /// Hierarchical world graph for lore filtering (story 23-4).
+    /// Populated from cartography.world_graph when navigation_mode is Hierarchical.
+    pub world_graph: Option<sidequest_genre::WorldGraph>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     /// Genre pack affinity definitions — used by resolve_abilities() to map tiers to ability names.
@@ -104,6 +108,10 @@ pub(crate) struct DispatchContext<'a> {
     /// Direct sender to the client WebSocket writer — used to emit narration
     /// immediately before state cleanup completes (approach A streaming).
     pub tx: &'a tokio::sync::mpsc::Sender<sidequest_protocol::GameMessage>,
+    /// Monster Manual — persistent pre-generated content pool (ADR-059).
+    /// Loaded from `~/.sidequest/manuals/{genre}_{world}.json` on session start.
+    /// NPCs and encounters injected into game_state for narrator to reference.
+    pub monster_manual: &'a mut sidequest_game::monster_manual::MonsterManual,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -208,6 +216,140 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // Two-pass inventory extraction: classify the PREVIOUS turn's narration for
+    // item state transitions (consumed, sold, given, lost, destroyed). Runs before
+    // the narrator LLM call so mutations are visible in the current turn's prompt.
+    if let Some(prev_entry) = ctx.narration_history.last() {
+        let carried_names: Vec<String> = ctx.inventory.carried().map(|i| i.name.as_str().to_string()).collect();
+        if !carried_names.is_empty() {
+            // Split the history entry: "[CharName] Action: ...\nNarrator: ..."
+            let (prev_action, prev_narration) = prev_entry
+                .split_once("\nNarrator: ")
+                .map(|(a, n)| {
+                    let action = a.split_once("Action: ").map(|(_, act)| act).unwrap_or(a);
+                    (action.to_string(), n.to_string())
+                })
+                .unwrap_or_default();
+
+            if !prev_narration.is_empty() {
+                let mutations = sidequest_agents::inventory_extractor::extract_inventory_mutations_async(
+                    &prev_action,
+                    &prev_narration,
+                    &carried_names,
+                ).await;
+
+                use sidequest_agents::inventory_extractor::MutationAction;
+
+                for mutation in &mutations {
+                    if mutation.action == MutationAction::Acquired {
+                        // New item acquisition — add to inventory
+                        if let Some(gold) = mutation.gold {
+                            ctx.inventory.gold += gold;
+                            tracing::info!(
+                                gold_gained = gold,
+                                total_gold = ctx.inventory.gold,
+                                detail = %mutation.detail,
+                                "inventory.two_pass_gold_acquired"
+                            );
+                            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                .field("action", "gold_acquired")
+                                .field("gold_gained", gold)
+                                .field("total_gold", ctx.inventory.gold)
+                                .field("detail", &mutation.detail)
+                                .send(ctx.state);
+                        } else {
+                            let item_id = mutation.item_name
+                                .to_lowercase()
+                                .replace(' ', "_")
+                                .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+                            // Skip if already in inventory
+                            if ctx.inventory.find(&item_id).is_some() {
+                                continue;
+                            }
+                            let category = mutation.category.as_deref().unwrap_or("misc");
+                            if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
+                                sidequest_protocol::NonBlankString::new(&item_id),
+                                sidequest_protocol::NonBlankString::new(&mutation.item_name),
+                                sidequest_protocol::NonBlankString::new(&mutation.detail),
+                                sidequest_protocol::NonBlankString::new(category),
+                                sidequest_protocol::NonBlankString::new("common"),
+                            ) {
+                                let item = sidequest_game::Item {
+                                    id, name, description: desc, category: cat,
+                                    value: 0, weight: 1.0, rarity,
+                                    narrative_weight: 0.3,
+                                    tags: vec![], equipped: false, quantity: 1,
+                                    uses_remaining: None,
+                                    state: sidequest_game::ItemState::Carried,
+                                };
+                                let _ = ctx.inventory.add(item, 50);
+                                tracing::info!(
+                                    item_name = %mutation.item_name,
+                                    category = %category,
+                                    "inventory.two_pass_item_acquired"
+                                );
+                                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                    .field("action", "item_acquired")
+                                    .field("item_name", &mutation.item_name)
+                                    .field("category", category)
+                                    .field("carried_count", ctx.inventory.item_count())
+                                    .send(ctx.state);
+                            }
+                        }
+                        continue;
+                    }
+
+                    // State transition on existing item
+                    let item_lower = mutation.item_name.to_lowercase();
+                    let matched_id = ctx.inventory.carried()
+                        .find(|i| i.name.as_str().to_lowercase() == item_lower)
+                        .map(|i| i.id.as_str().to_string());
+
+                    if let Some(item_id) = matched_id {
+                        let new_state = match &mutation.action {
+                            MutationAction::Consumed => sidequest_game::ItemState::Consumed,
+                            MutationAction::Sold => sidequest_game::ItemState::Sold { to: mutation.detail.clone() },
+                            MutationAction::Given => sidequest_game::ItemState::Given { to: mutation.detail.clone() },
+                            MutationAction::Lost => sidequest_game::ItemState::Lost { reason: mutation.detail.clone() },
+                            MutationAction::Destroyed => sidequest_game::ItemState::Destroyed { reason: mutation.detail.clone() },
+                            MutationAction::Acquired => unreachable!(),
+                        };
+                        match ctx.inventory.transition(&item_id, new_state) {
+                            Ok(old_state) => {
+                                tracing::info!(
+                                    item_name = %mutation.item_name,
+                                    old_state = %old_state,
+                                    new_state = %mutation.action,
+                                    detail = %mutation.detail,
+                                    "inventory.two_pass_transition"
+                                );
+                                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                    .field("action", "two_pass_transition")
+                                    .field("item_name", &mutation.item_name)
+                                    .field("new_state", format!("{:?}", mutation.action))
+                                    .field("detail", &mutation.detail)
+                                    .field("carried_count", ctx.inventory.item_count())
+                                    .send(ctx.state);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    item_name = %mutation.item_name,
+                                    error = %e,
+                                    "inventory.two_pass_transition_failed"
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::debug!(
+                            item_name = %mutation.item_name,
+                            "inventory.two_pass_no_match — item not found in carried inventory"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Slash command interception — route /commands to mechanical handlers, not the LLM.
     if let Some(slash_messages) = slash::handle_slash_command(ctx) {
         return slash_messages;
@@ -222,7 +364,17 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // produces action_rewrite + action_flags in its JSON block. For prompt building, use
     // all-flags-on so no sections are gated out — the narrator has full context.
     let preprocessed = sidequest_game::PreprocessedAction {
-        you: format!("You {}", ctx.action),
+        you: {
+            let trimmed = ctx.action.trim_start();
+            if trimmed.starts_with("I ") || trimmed.starts_with("I'") {
+                // Already first-person — convert to second-person by replacing leading "I"
+                format!("You {}", &trimmed[2..])
+            } else if trimmed.starts_with("you ") || trimmed.starts_with("You ") {
+                trimmed.to_string()
+            } else {
+                format!("You {}", ctx.action)
+            }
+        },
         named: format!("{} {}", ctx.char_name, ctx.action),
         intent: ctx.action.to_string(),
         is_power_grab: false,
@@ -232,6 +384,29 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         references_location: true,
     };
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
+
+    // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
+    {
+        let nearby = ctx.monster_manual.format_nearby_npcs();
+        let creatures = ctx.monster_manual.format_area_creatures();
+        if !nearby.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&nearby);
+        }
+        if !creatures.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&creatures);
+        }
+        let _mm_span = tracing::info_span!(
+            "monster_manual.injected",
+            available_npcs = ctx.monster_manual.available_npcs().len(),
+            available_encounters = ctx.monster_manual.available_encounters().len(),
+            total_npcs = ctx.monster_manual.npcs.len(),
+            total_encounters = ctx.monster_manual.encounters.len(),
+        ).entered();
+        tracing::info!("Monster Manual content injected into game_state");
+    }
+
     tracing::info!(
         raw = %ctx.action,
         "Prompt context built (preprocessor inlined into agent call)"
@@ -326,6 +501,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         npc_registry: ctx.npc_registry.clone(),
         npcs: ctx.snapshot.npcs.clone(),
         current_location: ctx.current_location.clone(),
+        // Story 23-4: lore filtering by graph distance
+        world_graph: ctx.world_graph.clone(),
     };
     let result = ctx
         .state
@@ -340,7 +517,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     // Update preprocessed from inline agent output (approach A — no separate Haiku call).
-    let preprocessed = if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
+    let _preprocessed = if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
         tracing::info!(
             you = %rw.you, named = %rw.named, intent = %rw.intent,
             power_grab = flags.is_power_grab,
@@ -425,6 +602,33 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("to_room", &transition.to_room)
                         .field("exit_type", &transition.exit_type)
                         .send(ctx.state);
+
+                    // Story 19-10: Deplete active light source on room transition
+                    let remaining_before = ctx.inventory.items.iter()
+                        .find(|item| item.tags.iter().any(|t| t == "light"))
+                        .and_then(|item| item.uses_remaining)
+                        .unwrap_or(0);
+                    if let Some(depleted_item) = ctx.inventory.deplete_light_on_transition() {
+                        let item_name = depleted_item.name.as_str().to_owned();
+                        tracing::info!(
+                            name: "inventory.light_depleted",
+                            item_name = %item_name,
+                            remaining_before = remaining_before,
+                        );
+                        WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                            .field("event", "inventory.light_depleted")
+                            .field("item_name", &item_name)
+                            .field("remaining_before", &remaining_before.to_string())
+                            .send(ctx.state);
+                        messages.push(GameMessage::ItemDepleted {
+                            payload: ItemDepletedPayload {
+                                item_name,
+                                remaining_before,
+                            },
+                            player_id: ctx.player_id.to_string(),
+                        });
+                    }
+
                     true
                 }
                 Err(sidequest_game::room_movement::DispatchError::InvalidRoomTransition {
@@ -533,8 +737,46 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             .drain(..ctx.narration_history.len() - 20);
     }
 
-    // NPC registry + OCEAN personality shifts
-    update_npc_registry(ctx, &result, &clean_narration);
+    // NPC registry + OCEAN personality shifts + creature image detection
+    let creature_images = update_npc_registry(ctx, &result, &clean_narration);
+    for (creature_name, served_url) in &creature_images {
+        let msg = GameMessage::Image {
+            payload: sidequest_protocol::ImagePayload {
+                url: served_url.clone(),
+                description: format!("A {} appears", creature_name),
+                handout: true,
+                render_id: None,
+                tier: Some("portrait".to_string()),
+                scene_type: Some("exploration".to_string()),
+                generation_ms: Some(0),
+            },
+            player_id: String::new(),
+        };
+        let _ = ctx.tx.send(msg).await;
+    }
+
+    // Monster Manual: match narration against Manual NPCs, mark Active (ADR-059)
+    {
+        let mut activated = Vec::new();
+        for npc in &ctx.monster_manual.npcs {
+            if npc.state == sidequest_game::monster_manual::EntryState::Available
+                && clean_narration.contains(&npc.name)
+            {
+                activated.push(npc.name.clone());
+            }
+        }
+        for name in &activated {
+            ctx.monster_manual.mark_active(name, ctx.current_location);
+            tracing::info!(
+                npc_name = %name,
+                "monster_manual.npc_activated — narrator used pool NPC"
+            );
+            crate::WatcherEventBuilder::new("monster_manual", crate::WatcherEventType::StateTransition)
+                .field("action", "npc_activated")
+                .field("name", name)
+                .send(ctx.state);
+        }
+    }
 
     // Story 15-14: Enrich registry with structured NPC data (age, appearance, pronouns)
     // from GameSnapshot.npcs — update_npc_registry only gets regex-extracted data.
@@ -999,18 +1241,27 @@ async fn handle_barrier(
 }
 
 /// Update NPC registry from structured narrator output and apply OCEAN personality shifts.
+/// Returns a list of (creature_name, served_url) for any pre-rendered bestiary
+/// images found for newly registered NPCs. The caller broadcasts these as
+/// `GameMessage::Image` (async send via `ctx.tx`).
 fn update_npc_registry(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
-    clean_narration: &str,
-) {
+    _clean_narration: &str,
+) -> Vec<(String, String)> {
+    let mut creature_images: Vec<(String, String)> = Vec::new();
     let turn_approx = ctx.turn_manager.interaction() as u32;
     if !result.npcs_present.is_empty() {
+        // Sort by name length descending so full names ("Toggler Copperjaw") register
+        // before nicknames ("Toggler"). Prevents short-name fragments from creating
+        // duplicate entries that substring matching then fails to merge.
+        let mut npcs_sorted: Vec<_> = result.npcs_present.iter().collect();
+        npcs_sorted.sort_by(|a, b| b.name.len().cmp(&a.name.len()));
         tracing::info!(
-            count = result.npcs_present.len(),
+            count = npcs_sorted.len(),
             "npc_registry.structured — updating from narrator JSON"
         );
-        for npc in &result.npcs_present {
+        for npc in &npcs_sorted {
             if npc.name.is_empty() {
                 continue;
             }
@@ -1153,6 +1404,39 @@ fn update_npc_registry(
                     .field("archetype_source", &source)
                     .field("registry_size", ctx.npc_registry.len())
                     .send(ctx.state);
+
+                // Creature image fast path: check for pre-rendered bestiary image
+                // on first NPC registration. Images live in genre pack at
+                // images/creatures/{slug}.png, already served via /genre/{slug}/...
+                let creature_slug = npc.name
+                    .to_lowercase()
+                    .replace(' ', "_")
+                    .replace('\'', "")
+                    .replace('\u{2019}', "");
+                let creature_image_path = ctx
+                    .state
+                    .genre_packs_path()
+                    .join(ctx.genre_slug)
+                    .join("images")
+                    .join("creatures")
+                    .join(format!("{}.png", creature_slug));
+                if creature_image_path.exists() {
+                    let served_url = format!(
+                        "/genre/{}/images/creatures/{}.png",
+                        ctx.genre_slug, creature_slug
+                    );
+                    tracing::info!(
+                        creature = %npc.name,
+                        url = %served_url,
+                        "creature_image.served — pre-rendered bestiary image on first appearance"
+                    );
+                    creature_images.push((npc.name.clone(), served_url));
+                    WatcherEventBuilder::new("creature_image", WatcherEventType::StateTransition)
+                        .field("action", "creature_image_served")
+                        .field("creature", &npc.name)
+                        .field("slug", &creature_slug)
+                        .send(ctx.state);
+                }
             }
         }
     }
@@ -1198,6 +1482,8 @@ fn update_npc_registry(
             }
         }
     }
+
+    creature_images
 }
 
 /// Continuity validation — LLM-based check of narrator output against game state.
@@ -1214,8 +1500,7 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
 
     let inventory_items: Vec<String> = ctx
         .inventory
-        .items
-        .iter()
+        .carried()
         .map(|i| i.name.as_str().to_string())
         .collect();
 
@@ -1254,7 +1539,7 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
 async fn build_response_messages(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
-    narration_text: &str,
+    _narration_text: &str,
     result: &sidequest_agents::orchestrator::ActionResult,
     tier_events: &[sidequest_game::AffinityTierUpEvent],
     _effective_action: &str,
@@ -1396,8 +1681,7 @@ async fn build_response_messages(
         payload: InventoryPayload {
             items: ctx
                 .inventory
-                .items
-                .iter()
+                .carried()
                 .map(|item| sidequest_protocol::InventoryItem {
                     name: item.name.as_str().to_string(),
                     item_type: item.category.as_str().to_string(),
@@ -1407,6 +1691,41 @@ async fn build_response_messages(
                 })
                 .collect(),
             gold: ctx.inventory.gold,
+        },
+        player_id: ctx.player_id.to_string(),
+    });
+
+    // MAP_UPDATE — send every turn so the client always has current explored regions.
+    // Previously only sent on location change, leaving the client stale if location
+    // didn't change (headless driver showed "0 explored" despite 5 in game state).
+    let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty() {
+        sidequest_game::build_room_graph_explored(
+            &ctx.rooms,
+            &ctx.snapshot.discovered_rooms,
+            &ctx.snapshot.location,
+        )
+    } else {
+        ctx.discovered_regions
+            .iter()
+            .map(|name| sidequest_protocol::ExploredLocation {
+                name: name.clone(),
+                x: 0,
+                y: 0,
+                location_type: String::new(),
+                connections: vec![],
+                room_exits: vec![],
+                room_type: String::new(),
+                size: None,
+                is_current_room: name == ctx.current_location.as_str(),
+            })
+            .collect()
+    };
+    messages.push(GameMessage::MapUpdate {
+        payload: MapUpdatePayload {
+            current_location: ctx.current_location.clone(),
+            region: ctx.current_location.clone(),
+            explored: explored_locs,
+            fog_bounds: None,
         },
         player_id: ctx.player_id.to_string(),
     });
@@ -1424,6 +1743,17 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     ctx.snapshot.location = ctx.current_location.clone();
     ctx.snapshot.turn_manager = ctx.turn_manager.clone();
     ctx.snapshot.npc_registry = ctx.npc_registry.clone();
+    // Sync NPC HP from npc_registry back to snapshot.npcs so combat damage persists.
+    // Without this, snapshot.npcs retains stale HP values and enemy damage resets
+    // between turns (the HP changes only live in npc_registry during the turn).
+    for entry in ctx.npc_registry.iter() {
+        if let Some(npc) = ctx.snapshot.npcs.iter_mut().find(|n| {
+            n.core.name.as_str().eq_ignore_ascii_case(&entry.name)
+        }) {
+            npc.core.hp = entry.hp;
+            npc.core.max_hp = entry.max_hp;
+        }
+    }
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
     ctx.snapshot.axis_values = ctx.axis_values.clone();
     ctx.snapshot.combat = ctx.combat_state.clone();
@@ -1471,7 +1801,7 @@ async fn persist_game_state(
         return;
     }
 
-    // Append the current narration entry to ctx.snapshot
+    // Append the current narration entry to ctx.snapshot and persist to narrative_log table
     let narrative_entry = sidequest_game::NarrativeEntry {
         timestamp: 0,
         round: ctx.turn_manager.interaction() as u32,
@@ -1483,6 +1813,16 @@ async fn persist_game_state(
         entry_type: None,
     };
     ctx.snapshot.narrative_log.push(narrative_entry.clone());
+
+    // Write to append-only narrative_log table in SQLite
+    if let Err(e) = ctx
+        .state
+        .persistence()
+        .append_narrative(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &narrative_entry)
+        .await
+    {
+        tracing::warn!(error = %e, "Failed to append narrative log entry");
+    }
 
     // Emit encounter OTEL event if active
     if let Some(ref enc) = ctx.snapshot.encounter {
@@ -1837,8 +2177,7 @@ fn emit_telemetry(
             .collect();
         let inventory_names: Vec<String> = ctx
             .inventory
-            .items
-            .iter()
+            .carried()
             .map(|i| i.name.as_str().to_string())
             .collect();
         let active_tropes: Vec<serde_json::Value> = ctx
@@ -1952,6 +2291,8 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         npc_registry: Vec::new(),
         npcs: Vec::new(),
         current_location: String::new(),
+        // Aside turns don't need lore filtering
+        world_graph: None,
     };
     let result = ctx
         .state

@@ -18,6 +18,7 @@ tracing = { workspace = true }
 rusqlite = { workspace = true }
 ordered-float = { workspace = true }
 base64 = "0.22"
+dirs = "5"
 tokio = { workspace = true, features = ["time", "sync", "rt"] }
 rand = { workspace = true }
 

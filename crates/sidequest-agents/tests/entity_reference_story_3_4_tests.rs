@@ -131,6 +131,8 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
             tags: vec![],
             equipped: false,
             quantity: 1,
+            uses_remaining: None,
+            state: sidequest_game::ItemState::Carried,
         })
         .collect();
 

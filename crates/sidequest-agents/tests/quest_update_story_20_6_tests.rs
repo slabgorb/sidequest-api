@@ -257,13 +257,19 @@ fn narrator_prompt_omits_quest_protocol() {
 }
 
 /// The referral rule must be preserved — it's intent judgment, not crunch.
+/// Story 23-1: referral rule moved to Early/Guardrail section via build_context().
 #[test]
 fn narrator_prompt_retains_referral_rule() {
+    use sidequest_agents::agent::Agent;
+    use sidequest_agents::context_builder::ContextBuilder;
+
     let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
+    let mut builder = ContextBuilder::new();
+    narrator.build_context(&mut builder);
+    let composed = builder.compose();
 
     assert!(
-        prompt.contains("REFERRAL RULE") || prompt.contains("referral"),
+        composed.contains("Referral Rule") || composed.contains("REFERRAL RULE"),
         "referral rule must remain in narrator prompt — it's intent judgment, not crunch"
     );
 }

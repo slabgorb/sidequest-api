@@ -27,6 +27,7 @@ impl GenrePack {
         self.validate_achievements(&mut errors);
         self.validate_cartography(&mut errors);
         self.validate_room_graph(&mut errors);
+        self.validate_world_graph(&mut errors);
         self.validate_scenarios(&mut errors);
         self.validate_confrontations(&mut errors);
         errors.into_result()
@@ -158,13 +159,17 @@ impl GenrePack {
             .map(|s| s.to_uppercase())
             .collect();
 
-        // Collect all confrontation type IDs for escalates_to validation
-        let confrontation_types: HashSet<&str> = self
+        // Collect all confrontation type IDs for escalates_to validation.
+        // Include built-in engine encounter types (combat, chase) that exist
+        // as StructuredEncounter presets even without YAML declarations.
+        let mut confrontation_types: HashSet<&str> = self
             .rules
             .confrontations
             .iter()
             .map(|c| c.confrontation_type.as_str())
             .collect();
+        confrontation_types.insert("combat");
+        confrontation_types.insert("chase");
 
         for confrontation in &self.rules.confrontations {
             // Validate beat stat_check references
@@ -337,6 +342,113 @@ impl GenrePack {
                                 room.id
                             ),
                         });
+                    }
+                }
+            }
+        }
+    }
+
+    fn validate_world_graph(&self, errors: &mut ValidationErrors) {
+        use crate::models::NavigationMode;
+
+        for (world_slug, world) in &self.worlds {
+            if world.cartography.navigation_mode != NavigationMode::Hierarchical {
+                continue;
+            }
+
+            let world_graph = match world.cartography.world_graph.as_ref() {
+                Some(wg) => wg,
+                None => continue,
+            };
+
+            // Collect node IDs and check for duplicates
+            let mut seen_ids: HashSet<&str> = HashSet::new();
+            for node in &world_graph.nodes {
+                if !seen_ids.insert(node.id.as_str()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "world '{world_slug}' has duplicate world graph node ID '{}'",
+                            node.id
+                        ),
+                    });
+                }
+            }
+
+            let node_ids: HashSet<&str> = world_graph.nodes.iter().map(|n| n.id.as_str()).collect();
+
+            // Check starting_region references a valid world graph node
+            if !world.cartography.starting_region.is_empty()
+                && !node_ids.contains(world.cartography.starting_region.as_str())
+            {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has starting_region '{}' \
+                         which is not a valid world graph node",
+                        world.cartography.starting_region
+                    ),
+                });
+            }
+
+            // Check all edge endpoints reference existing nodes
+            for edge in &world_graph.edges {
+                if !node_ids.contains(edge.from.as_str()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "world graph edge in world '{world_slug}' has from '{}' \
+                             which is not a valid node",
+                            edge.from
+                        ),
+                    });
+                }
+                if !node_ids.contains(edge.to.as_str()) {
+                    errors.push(GenreError::ValidationError {
+                        message: format!(
+                            "world graph edge in world '{world_slug}' has to '{}' \
+                             which is not a valid node",
+                            edge.to
+                        ),
+                    });
+                }
+            }
+
+            // Validate sub-graphs
+            if let Some(sub_graphs) = world.cartography.sub_graphs.as_ref() {
+                for (parent_id, sub_graph) in sub_graphs {
+                    // Check parent exists in world graph
+                    if !node_ids.contains(parent_id.as_str()) {
+                        errors.push(GenreError::ValidationError {
+                            message: format!(
+                                "sub_graph '{parent_id}' in world '{world_slug}' \
+                                 references nonexistent world graph node"
+                            ),
+                        });
+                        continue;
+                    }
+
+                    // Collect sub-node IDs
+                    let sub_node_ids: HashSet<&str> =
+                        sub_graph.nodes.iter().map(|n| n.id.as_str()).collect();
+
+                    // Check sub-graph edge endpoints
+                    for edge in &sub_graph.edges {
+                        if !sub_node_ids.contains(edge.from.as_str()) {
+                            errors.push(GenreError::ValidationError {
+                                message: format!(
+                                    "sub_graph '{parent_id}' edge in world '{world_slug}' \
+                                     has from '{}' which is not a valid sub-node",
+                                    edge.from
+                                ),
+                            });
+                        }
+                        if !sub_node_ids.contains(edge.to.as_str()) {
+                            errors.push(GenreError::ValidationError {
+                                message: format!(
+                                    "sub_graph '{parent_id}' edge in world '{world_slug}' \
+                                     has to '{}' which is not a valid sub-node",
+                                    edge.to
+                                ),
+                            });
+                        }
                     }
                 }
             }

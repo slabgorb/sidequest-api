@@ -9,8 +9,9 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::agent::Agent;
+use crate::lore_filter::LoreFilter;
 use crate::tools::assemble_turn::assemble_turn;
-use crate::tools::tool_call_parser::parse_tool_results;
+// ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
 use crate::agents::creature_smith::CreatureSmithAgent;
 use crate::agents::dialectician::DialecticianAgent;
 use crate::agents::ensemble::EnsembleAgent;
@@ -101,6 +102,9 @@ pub struct NarratorPromptResult {
     pub allowed_tools: Vec<String>,
     /// The intent classification result, so callers don't need to re-classify.
     pub intent_route: IntentRoute,
+    /// Environment variables to set on the Claude CLI subprocess (story 23-11).
+    /// Contains `SIDEQUEST_GENRE` and `SIDEQUEST_CONTENT_PATH` when script tools are injected.
+    pub env_vars: HashMap<String, String>,
 }
 
 /// Configuration for a script tool binary (ADR-056).
@@ -202,6 +206,11 @@ impl Orchestrator {
         }
     }
 
+    /// Replace the SOUL data for testing (story 23-10).
+    pub fn set_soul_data(&mut self, soul: crate::prompt_framework::SoulData) {
+        self.soul_data = Some(soul);
+    }
+
     /// Register a script tool binary (ADR-056).
     pub fn register_script_tool(&mut self, name: &str, config: ScriptToolConfig) {
         info!(
@@ -217,10 +226,9 @@ impl Orchestrator {
     /// Returns tool spec strings that let the narrator invoke registered script tools
     /// via `Bash(...)`. Empty if no tools are configured.
     pub fn narrator_allowed_tools(&self) -> Vec<String> {
-        self.script_tools
-            .values()
-            .map(|cfg| format!("Bash({}:*)", cfg.binary_path))
-            .collect()
+        // ADR-059: No tools needed. Monster Manual injects data via game_state.
+        // Claude narrates, engine crunches. No --allowedTools passed to claude -p.
+        Vec::new()
     }
 
     /// Access the tension tracker (pacing engine).
@@ -272,7 +280,7 @@ impl Orchestrator {
             if !filtered.is_empty() {
                 builder.add_section(PromptSection::new(
                     "soul_principles",
-                    format!("## Guiding Principles\n{}", filtered),
+                    filtered,
                     AttentionZone::Early,
                     SectionCategory::Soul,
                 ));
@@ -294,104 +302,10 @@ impl Orchestrator {
             ));
         }
 
-        // Script tool instructions (Valley zone — available tools + commands)
-        if let Some(ref genre) = context.genre {
-            for (tool_name, cfg) in &self.script_tools {
-                let tool_section = match tool_name.as_str() {
-                    "encountergen" => format!(
-                        "[ENCOUNTER GENERATOR]\n\
-                         Generate enemy stat blocks from genre pack data.\n\n\
-                         Command:\n\
-                         ```\n\
-                         {} --genre-packs-path {} --genre {} [options]\n\
-                         ```\n\n\
-                         | Flag | Required | Description |\n\
-                         |------|----------|-------------|\n\
-                         | --tier | No | Power tier 1-4 (default: random 1-3) |\n\
-                         | --count | No | Number of enemies (default: 1) |\n\
-                         | --class | No | Character class (e.g., Mutant, Scavenger) |\n\
-                         | --culture | No | Culture for name generation |\n\
-                         | --archetype | No | Archetype (e.g., \"Wasteland Trader\") |\n\
-                         | --role | No | Role description (e.g., \"ambush predator\") |\n\
-                         | --context | No | Scene context for visual prompt |\n\n\
-                         When to call: any time new enemies enter the scene.\n\
-                         Pick flags based on narrative context — use --culture for the local faction, \
-                         --tier for the threat level, --role for the enemy's purpose in the scene.\n\n\
-                         Output: JSON with enemies[].{{name, class, level, hp, abilities, weaknesses, \
-                         stat_scores, visual_prompt, ...}}\n\n\
-                         Checklist after calling:\n\
-                         - [ ] Use the generated name in your narration\n\
-                         - [ ] Reference abilities from the abilities list (not invented ones)\n\
-                         - [ ] Include the enemy in npcs_present with is_new: true\n\
-                         - [ ] Set hp_changes in combat patch using the generated HP as the baseline\n\
-                         - [ ] The visual_prompt field goes to image generation automatically",
-                        cfg.binary_path, cfg.genre_packs_path, genre,
-                    ),
-                    "namegen" => format!(
-                        "[NPC GENERATOR]\n\
-                         Generate NPC identity from genre pack data.\n\n\
-                         Command:\n\
-                         ```\n\
-                         {} --genre-packs-path {} --genre {} [options]\n\
-                         ```\n\n\
-                         | Flag | Required | Description |\n\
-                         |------|----------|-------------|\n\
-                         | --culture | No | Culture/faction name |\n\
-                         | --archetype | No | Archetype name |\n\
-                         | --gender | No | male, female, nonbinary |\n\
-                         | --role | No | Role override |\n\
-                         | --description | No | Physical description hints |\n\n\
-                         When to call: any time a new NPC appears (is_new: true).\n\
-                         Pick --culture based on where the scene takes place.\n\n\
-                         Output: JSON with {{name, pronouns, culture, role, appearance, personality, \
-                         dialogue_quirks, history, ocean, inventory, trope_connections}}\n\n\
-                         Checklist after calling:\n\
-                         - [ ] Use the generated name exactly\n\
-                         - [ ] Use dialogue_quirks to flavor their speech\n\
-                         - [ ] Include in npcs_present with the generated details\n\
-                         - [ ] Reference their role and appearance in narration",
-                        cfg.binary_path, cfg.genre_packs_path, genre,
-                    ),
-                    "loadoutgen" => format!(
-                        "[STARTING LOADOUT GENERATOR]\n\
-                         Generate starting equipment and currency for a character.\n\n\
-                         Command:\n\
-                         ```\n\
-                         {} --genre-packs-path {} --genre {} --class <class_name>\n\
-                         ```\n\n\
-                         | Flag | Required | Description |\n\
-                         |------|----------|-------------|\n\
-                         | --class | Yes | Character class or archetype name |\n\
-                         | --tier | No | Power tier 1-4 (default: 1) |\n\n\
-                         When to call: at character creation completion or session start, \
-                         when introducing the character's starting gear.\n\n\
-                         Output: JSON with {{class, currency_name, starting_gold, equipment[], \
-                         narrative_hook, total_value}}\n\
-                         Each equipment item has: id, name, description, category, value, tags, lore.\n\n\
-                         Checklist after calling:\n\
-                         - [ ] Weave the narrative_hook into the opening scene naturally\n\
-                         - [ ] Reference specific items by name when the character uses them\n\
-                         - [ ] Use the currency_name for all money references\n\
-                         - [ ] Include equipment in the character's inventory state",
-                        cfg.binary_path, cfg.genre_packs_path, genre,
-                    ),
-                    unknown => {
-                        warn!(
-                            tool = %unknown,
-                            "Script tool registered but has no prompt section — narrator will not know how to use it"
-                        );
-                        continue;
-                    }
-                };
-                builder.add_section(PromptSection::new(
-                    &format!("script_tool_{}", tool_name),
-                    tool_section,
-                    AttentionZone::Valley,
-                    SectionCategory::State,
-                ));
-                script_tools_injected.push(tool_name.clone());
-            }
-        }
+        // Tool workflow (Primacy zone — mandatory procedure before narration)
+        // ADR-059: Tool infrastructure removed. Monster Manual injects NPC/encounter
+        // data into game_state via dispatch. No tool sections, no env vars, no PATH.
+        let env_vars: HashMap<String, String> = HashMap::new();
 
         // Game state section (Valley zone)
         if let Some(state) = &context.state_summary {
@@ -401,6 +315,40 @@ impl Orchestrator {
                 AttentionZone::Valley,
                 SectionCategory::State,
             ));
+        }
+
+        // Lore filtering by graph distance (Valley zone — story 23-4)
+        // When a hierarchical world graph is available, inject lore sections
+        // at detail levels determined by graph distance from current node.
+        if let Some(ref world_graph) = context.world_graph {
+            let filter = LoreFilter::new(world_graph);
+            let selections = filter.select_lore(
+                &context.current_location,
+                route.intent(),
+                &context.npc_registry,
+                &[], // Arc proximity: future enrichment via TropeState
+            );
+
+            let otel_summary = filter.format_otel_summary(&selections);
+            let _lore_span = tracing::info_span!(
+                "orchestrator.lore_filter",
+                current_node = %context.current_location,
+                intent = ?route.intent(),
+                total_selections = selections.len() as u64,
+                summary = %otel_summary,
+            )
+            .entered();
+
+            let lore_content = LoreFilter::format_prompt_section(&selections);
+
+            if !lore_content.is_empty() {
+                builder.add_section(PromptSection::new(
+                    "world_lore",
+                    format!("<world-lore>\n{}</world-lore>", lore_content),
+                    AttentionZone::Valley,
+                    SectionCategory::Context,
+                ));
+            }
         }
 
         // Merchant context injection (Valley zone — story 15-16)
@@ -551,6 +499,7 @@ impl Orchestrator {
             script_tools_injected,
             allowed_tools,
             intent_route: route,
+            env_vars,
         }
     }
 
@@ -576,6 +525,7 @@ impl GameService for Orchestrator {
         let prompt = prompt_result.prompt_text;
         let prompt_zone_breakdown = prompt_result.zone_breakdown;
         let allowed_tools = prompt_result.allowed_tools;
+        let mut env_vars = prompt_result.env_vars;
 
         // OTEL: report which script tools were injected into this turn's prompt
         if !prompt_result.script_tools_injected.is_empty() {
@@ -600,17 +550,8 @@ impl GameService for Orchestrator {
         );
 
         // Generate a unique session ID for the tool call sidecar file.
-        // Tool scripts write results here; we read them after the CLI call completes.
-        let sidecar_session_id = format!(
-            "turn-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        );
-
-        info!(action = %action, sidecar_session_id = %sidecar_session_id, "Invoking Claude CLI for narration");
+        // ADR-059: Sidecar mechanism removed. Monster Manual handles pre-generation.
+        info!(action = %action, "Invoking Claude CLI for narration");
 
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
@@ -630,7 +571,7 @@ impl GameService for Orchestrator {
         let send_result = {
             let _inf_guard = inference_span.enter();
             if has_tools {
-                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools)
+                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools, &env_vars)
             } else {
                 self.client.send_with_model(&prompt, narrator_model)
             }
@@ -707,9 +648,9 @@ impl GameService for Orchestrator {
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 span.record("is_degraded", false);
 
-                // ADR-057: assemble_turn merges extraction + preprocessor + tool results.
-                // Story 20-10: parse sidecar file for tool call results.
-                let tool_results = parse_tool_results(&sidecar_session_id);
+                // ADR-059: sidecar tool results removed. Monster Manual handles pre-generation.
+                // assemble_turn still merges extraction + preprocessor with default tool results.
+                let tool_results = crate::tools::assemble_turn::ToolCallResults::default();
 
                 if extraction.action_rewrite.is_none() {
                     warn!("action_rewrite absent from extraction — using default (empty rewrite)");
@@ -748,11 +689,46 @@ impl GameService for Orchestrator {
             }
             Err(e) => {
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
-                panic!(
-                    "CLAUDE CLI FAILED — agent={}, duration={}ms, error={}. \
-                     If the LLM is down, the game is down.",
-                    agent_str, agent_duration_ms, e
+                tracing::error!(
+                    agent = %agent_str,
+                    duration_ms = agent_duration_ms,
+                    error = %e,
+                    "CLAUDE CLI FAILED — returning degraded response (ADR-005)"
                 );
+                // ADR-005: graceful degradation. Return a degraded narration
+                // so the game loop continues. The player sees a brief pause
+                // message instead of a disconnection.
+                let degraded_narration = format!(
+                    "**{}**\n\nThe world holds its breath for a moment... \
+                     something shifts in the distance, but the moment passes.",
+                    context.current_location
+                );
+                ActionResult {
+                    narration: degraded_narration,
+                    combat_patch: None,
+                    chase_patch: None,
+                    is_degraded: true,
+                    classified_intent: Some(intent_str),
+                    agent_name: Some(agent_str),
+                    footnotes: vec![],
+                    items_gained: vec![],
+                    npcs_present: vec![],
+                    quest_updates: HashMap::new(),
+                    agent_duration_ms: Some(agent_duration_ms),
+                    token_count_in: None,
+                    token_count_out: None,
+                    visual_scene: None,
+                    scene_mood: None,
+                    personality_events: vec![],
+                    scene_intent: None,
+                    resource_deltas: HashMap::new(),
+                    zone_breakdown: Some(prompt_zone_breakdown),
+                    lore_established: None,
+                    merchant_transactions: vec![],
+                    sfx_triggers: vec![],
+                    action_rewrite: None,
+                    action_flags: None,
+                }
             }
         }
     }
@@ -989,6 +965,9 @@ pub struct TurnContext {
     pub npcs: Vec<Npc>,
     /// Player's current location for merchant context injection (story 15-16).
     pub current_location: String,
+    /// Hierarchical world graph for lore filtering (story 23-4).
+    /// When present, LoreFilter gates Valley zone lore injection by graph distance.
+    pub world_graph: Option<sidequest_genre::WorldGraph>,
 }
 
 /// Result of processing a player action through the full turn loop.

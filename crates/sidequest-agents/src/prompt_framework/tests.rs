@@ -535,7 +535,7 @@ fn soul_data_get_returns_none_for_missing() {
 }
 
 #[test]
-fn soul_data_as_prompt_text_formats_as_bullet_list() {
+fn soul_data_as_prompt_text_formats_as_important_blocks() {
     let content = r#"**Agency.** The player controls.
 
 **Living World.** NPCs act.
@@ -544,8 +544,8 @@ fn soul_data_as_prompt_text_formats_as_bullet_list() {
     let data = parse_soul_md(f.path());
     let text = data.as_prompt_text();
 
-    assert!(text.contains("- Agency: The player controls."));
-    assert!(text.contains("- Living World: NPCs act."));
+    assert!(text.contains("<important>\nAgency: The player controls.\n</important>"));
+    assert!(text.contains("<important>\nLiving World: NPCs act.\n</important>"));
 }
 
 #[test]

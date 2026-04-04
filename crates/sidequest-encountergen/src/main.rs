@@ -23,12 +23,12 @@ use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 #[derive(Parser)]
 #[command(name = "sidequest-encountergen", about = "Generate enemy encounter stat blocks from genre pack data")]
 struct Cli {
-    /// Path to the genre_packs/ directory.
-    #[arg(long)]
+    /// Path to the genre_packs/ directory. Also reads SIDEQUEST_CONTENT_PATH env var.
+    #[arg(long, env = "SIDEQUEST_CONTENT_PATH")]
     genre_packs_path: PathBuf,
 
-    /// Genre slug (e.g., mutant_wasteland).
-    #[arg(long)]
+    /// Genre slug (e.g., mutant_wasteland). Also reads SIDEQUEST_GENRE env var.
+    #[arg(long, env = "SIDEQUEST_GENRE")]
     genre: String,
 
     /// Power tier (1-4, maps to level ranges). Random if omitted.
@@ -152,7 +152,46 @@ fn main() {
     }
 
     let block = EncounterBlock { enemies };
-    println!("{}", serde_json::to_string_pretty(&block).unwrap());
+    let json = serde_json::to_string_pretty(&block).unwrap();
+    println!("{json}");
+
+    // Write sidecar JSONL so the orchestrator can see this tool was called.
+    write_sidecar(&block);
+}
+
+/// Write tool call records to the sidecar JSONL file for the orchestrator.
+fn write_sidecar(block: &EncounterBlock) {
+    let dir = match std::env::var("SIDEQUEST_TOOL_SIDECAR_DIR") {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let session_id = match std::env::var("SIDEQUEST_TOOL_SESSION_ID") {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let sidecar_path = std::path::PathBuf::from(&dir)
+        .join(format!("sidequest-tools-{session_id}.jsonl"));
+    let _ = std::fs::create_dir_all(&dir);
+
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&sidecar_path)
+    {
+        for enemy in &block.enemies {
+            let record = serde_json::json!({
+                "tool": "personality_event",
+                "result": {
+                    "npc": &enemy.name,
+                    "event_type": "introduced",
+                    "description": format!("enemy: {} (tier {})", &enemy.role, &enemy.tier_label)
+                }
+            });
+            let _ = writeln!(f, "{}", serde_json::to_string(&record).unwrap());
+        }
+    }
 }
 
 // ── Generation ──────────────────────────────────────────────

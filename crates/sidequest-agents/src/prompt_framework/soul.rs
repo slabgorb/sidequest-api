@@ -49,29 +49,42 @@ impl SoulData {
             .find(|p| p.name.to_lowercase() == lower)
     }
 
-    /// Format all principles as a bullet list for prompt injection.
+    /// Format all principles as `<important>` XML blocks for prompt injection.
     pub fn as_prompt_text(&self) -> String {
         self.principles
             .iter()
-            .map(|p| format!("- {}: {}", p.name, p.text))
+            .map(|p| format!("<important>\n{}: {}\n</important>", p.name, p.text))
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n\n")
     }
 
     /// Format principles for a specific agent, filtering by `<agents>` tags.
     /// Includes principles tagged `all` or containing the agent name.
     /// Excludes principles tagged `none`.
+    ///
+    /// For the narrator agent, excludes principles that overlap with narrator-specific
+    /// Primacy guardrails (story 23-10: Agency → narrator_agency, Genre Truth → narrator_consequences).
+    /// The narrator versions are richer (include multiplayer rules, NPC tactical behavior).
     pub fn as_prompt_text_for(&self, agent: &str) -> String {
         self.principles
             .iter()
             .filter(|p| {
-                p.agents.iter().any(|a| a == "all" || a == agent)
+                let agent_match = p.agents.iter().any(|a| a == "all" || a == agent);
+                // Narrator already has these as richer Primacy guardrails (story 23-10)
+                let narrator_excluded = agent == "narrator"
+                    && NARRATOR_COVERED_PRINCIPLES.iter().any(|&name| p.name == name);
+                agent_match && !narrator_excluded
             })
-            .map(|p| format!("- {}: {}", p.name, p.text))
+            .map(|p| format!("<important>\n{}: {}\n</important>", p.name, p.text))
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n\n")
     }
 }
+
+/// SOUL principles that the narrator agent already covers via Primacy guardrails (story 23-10).
+/// These are excluded from the narrator's SOUL injection to prevent double-injection.
+/// See epic-23 SOUL Overlap Map for the rationale.
+const NARRATOR_COVERED_PRINCIPLES: &[&str] = &["Agency", "Genre Truth"];
 
 /// Parse a SOUL.md file and return the structured data.
 ///
