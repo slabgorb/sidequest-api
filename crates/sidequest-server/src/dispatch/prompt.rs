@@ -355,13 +355,19 @@ pub(crate) async fn build_prompt_context(
                     for h in &hook_strs {
                         state_summary.push_str(&format!("- {}\n", h));
                     }
-                    state_summary.push_str("PROACTIVE MUTATION NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to be relevant, weave them into the narration subtly.\n");
                 } else {
                     state_summary.push_str(&format!(
                         "\nAbilities: {}.",
                         hook_strs.join(", ")
                     ));
                 }
+                // Bug #12: Always inject proactive mutation narration — not just when
+                // the player references an ability. The narrator should weave mutations
+                // into the scene whenever the context creates a natural opportunity,
+                // even (especially) when the player doesn't explicitly invoke them.
+                state_summary.push_str(
+                    " PROACTIVE ABILITY NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to manifest, weave subtle sensory hints into the narration (e.g., psychic whispers, glowing skin, heightened senses). Do NOT wait for the player to invoke them."
+                );
             }
         }
     }
