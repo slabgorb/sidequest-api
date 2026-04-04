@@ -354,6 +354,15 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// A resource reached its minimum value (story 19-6).
+    #[serde(rename = "RESOURCE_MIN_REACHED")]
+    ResourceMinReached {
+        /// The typed payload for this message.
+        payload: ResourceMinReachedPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1130,4 +1139,17 @@ pub struct ItemDepletedPayload {
     pub item_name: String,
     /// How many uses the item had before this final depletion (typically 1).
     pub remaining_before: u32,
+}
+
+/// Resource minimum reached payload — sent when a resource decays to its min value.
+///
+/// Story 19-6: Fired when `apply_decay_per_turn()` causes a resource to reach its
+/// declared minimum. Not re-fired if the resource was already at min.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResourceMinReachedPayload {
+    /// Name of the resource that reached its minimum.
+    pub resource_name: String,
+    /// The minimum value the resource reached.
+    pub min_value: f64,
 }
