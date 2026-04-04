@@ -158,6 +158,10 @@ pub struct Orchestrator {
     soul_data: Option<crate::prompt_framework::SoulData>,
     /// Script tool configurations (ADR-056). Keyed by tool name.
     script_tools: HashMap<String, ScriptToolConfig>,
+    /// Persistent narrator session ID (ADR-066). Set on first narrator call,
+    /// reused via `--resume` on subsequent turns. Mutex because `process_action`
+    /// takes `&self` (GameService trait constraint).
+    narrator_session_id: std::sync::Mutex<Option<String>>,
 }
 
 impl Orchestrator {
@@ -203,6 +207,7 @@ impl Orchestrator {
             troper: TroperAgent::new(),
             soul_data,
             script_tools: HashMap::new(),
+            narrator_session_id: std::sync::Mutex::new(None),
         }
     }
 
@@ -556,26 +561,63 @@ impl GameService for Orchestrator {
         let intent_str = route.intent().to_string();
         let agent_str = route.agent_name().to_string();
 
-        // Sonnet for narrator: 3x faster than Opus with acceptable quality.
-        // Mechanical consistency enforced by state systems (LoreStore, NPC registry, tropes),
-        // not by LLM memory. Structured extraction failures are soft (dropped field, not crash).
-        let narrator_model = "sonnet";
+        // ADR-066: Opus via persistent session (--resume). Session established on
+        // first call, resumed on subsequent turns. Opus with 1M context + server-side
+        // caching gives ~6s turns after warm-up vs ~22s with per-turn Sonnet rebuild.
+        let narrator_model = "opus";
         let has_tools = !allowed_tools.is_empty();
+
+        // Read current session ID (None on first turn)
+        let current_session_id = self.narrator_session_id.lock().unwrap().clone();
+        let is_first_turn = current_session_id.is_none();
+
+        // On first turn, the full prompt IS the system prompt + first action.
+        // On subsequent turns, only the action + state delta is sent.
+        let system_prompt_for_establish = if is_first_turn {
+            Some(prompt.clone())
+        } else {
+            None
+        };
+        // For resumed turns, send just the action context (state delta + player action).
+        // The system prompt and prior conversation are already in the session.
+        let send_prompt = if is_first_turn {
+            // First turn: prompt is the action part; system prompt carries the context
+            action.to_string()
+        } else {
+            prompt.clone()
+        };
+
         let inference_span = tracing::info_span!(
             "turn.agent_llm.inference",
             model = narrator_model,
-            prompt_len = prompt.len(),
+            prompt_len = send_prompt.len(),
             tool_use = has_tools,
+            persistent_session = true,
+            is_first_turn = is_first_turn,
         );
         let call_start = std::time::Instant::now();
         let send_result = {
             let _inf_guard = inference_span.enter();
-            if has_tools {
-                self.client.send_with_tools(&prompt, narrator_model, &allowed_tools, &env_vars)
-            } else {
-                self.client.send_with_model(&prompt, narrator_model)
-            }
+            self.client.send_with_session(
+                &send_prompt,
+                narrator_model,
+                current_session_id.as_deref(),
+                system_prompt_for_establish.as_deref(),
+                &allowed_tools,
+                &env_vars,
+            )
         };
+
+        // Store session ID from response (first turn establishes, subsequent echo it back)
+        if let Ok(ref response) = send_result {
+            if let Some(ref sid) = response.session_id {
+                let mut lock = self.narrator_session_id.lock().unwrap();
+                if lock.is_none() {
+                    tracing::info!(session_id = %sid, "narrator.session_established — persistent Opus session created");
+                }
+                *lock = Some(sid.clone());
+            }
+        }
         match send_result {
             Ok(response) => {
                 let raw_response = &response.text;

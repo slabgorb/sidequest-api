@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
 regex = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 sidequest-genre = { path = "../sidequest-genre" }

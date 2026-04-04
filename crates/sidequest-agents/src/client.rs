@@ -58,6 +58,9 @@ pub struct ClaudeResponse {
     pub input_tokens: Option<u64>,
     /// Output tokens produced (from `--output-format json` envelope).
     pub output_tokens: Option<u64>,
+    /// Session ID from persistent sessions (ADR-066). Returned by `--session-id`
+    /// on first turn, echoed back by `--resume` on subsequent turns.
+    pub session_id: Option<String>,
 }
 
 /// Claude CLI subprocess client with configurable timeout and command path.
@@ -134,6 +137,195 @@ impl ClaudeClient {
         env_vars: &std::collections::HashMap<String, String>,
     ) -> Result<ClaudeResponse, ClaudeClientError> {
         self.send_impl(prompt, Some(model), allowed_tools, env_vars)
+    }
+
+    /// Execute a persistent session call (ADR-066).
+    ///
+    /// If `session_id` is `Some`, resumes that session via `--resume`.
+    /// If `None`, creates a new session with a fresh UUID via `--session-id`
+    /// and includes `--system-prompt` for session establishment.
+    ///
+    /// Returns the session ID in `ClaudeResponse.session_id` for storage.
+    pub fn send_with_session(
+        &self,
+        prompt: &str,
+        model: &str,
+        session_id: Option<&str>,
+        system_prompt: Option<&str>,
+        allowed_tools: &[String],
+        env_vars: &std::collections::HashMap<String, String>,
+    ) -> Result<ClaudeResponse, ClaudeClientError> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+        use std::time::Instant;
+
+        let span = tracing::info_span!(
+            "agent.call.session",
+            model = %model,
+            session_id = tracing::field::Empty,
+            is_resume = tracing::field::Empty,
+            prompt_len = prompt.len(),
+            response_len = tracing::field::Empty,
+            duration_ms = tracing::field::Empty,
+            input_tokens = tracing::field::Empty,
+            output_tokens = tracing::field::Empty,
+            cost_usd = tracing::field::Empty,
+        );
+        let _guard = span.enter();
+
+        if prompt.trim().is_empty() {
+            return Err(ClaudeClientError::EmptyResponse);
+        }
+
+        let mut cmd = Command::new(&self.command_path);
+        if let Some(endpoint) = &self.otel_endpoint {
+            cmd.env("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
+                .env("OTEL_TRACES_EXPORTER", "otlp")
+                .env("OTEL_LOGS_EXPORTER", "otlp")
+                .env("OTEL_METRICS_EXPORTER", "otlp")
+                .env("OTEL_EXPORTER_OTLP_PROTOCOL", "http/json")
+                .env("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint)
+                .env("OTEL_LOG_TOOL_CONTENT", "1")
+                .env("OTEL_LOG_TOOL_DETAILS", "1")
+                .env("CLAUDE_CODE_OTEL_FLUSH_TIMEOUT_MS", "3000");
+        }
+        for (key, value) in env_vars {
+            cmd.env(key, value);
+        }
+        cmd.arg("--model").arg(model);
+
+        // Session management: --resume for existing sessions, --session-id for new ones
+        let is_resume = session_id.is_some();
+        span.record("is_resume", is_resume);
+        if let Some(sid) = session_id {
+            span.record("session_id", sid);
+            cmd.arg("--resume").arg(sid);
+            tracing::info!(session_id = %sid, "narrator.session_resume");
+        } else {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            span.record("session_id", new_id.as_str());
+            cmd.arg("--session-id").arg(&new_id);
+            if let Some(sp) = system_prompt {
+                cmd.arg("--system-prompt").arg(sp);
+            }
+            tracing::info!(session_id = %new_id, "narrator.session_create");
+        }
+
+        if !allowed_tools.is_empty() {
+            cmd.arg("--allowedTools");
+            for tool in allowed_tools {
+                cmd.arg(tool);
+            }
+        }
+
+        cmd.arg("-p")
+            .arg(prompt)
+            .arg("--output-format")
+            .arg("json")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = cmd.spawn().map_err(|e| {
+            tracing::error!(error = %e, "Failed to spawn narrator session subprocess");
+            ClaudeClientError::SubprocessFailed {
+                exit_code: None,
+                stderr: e.to_string(),
+            }
+        })?;
+
+        let start = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let mut stdout = String::new();
+                    let mut stderr = String::new();
+                    if let Some(mut out) = child.stdout.take() {
+                        out.read_to_string(&mut stdout).map_err(|e| {
+                            ClaudeClientError::SubprocessFailed {
+                                exit_code: status.code(),
+                                stderr: format!("stdout read error: {e}"),
+                            }
+                        })?;
+                    }
+                    if let Some(mut err) = child.stderr.take() {
+                        err.read_to_string(&mut stderr).map_err(|e| {
+                            ClaudeClientError::SubprocessFailed {
+                                exit_code: status.code(),
+                                stderr: format!("stderr read error: {e}"),
+                            }
+                        })?;
+                    }
+
+                    if !status.success() {
+                        return Err(ClaudeClientError::SubprocessFailed {
+                            exit_code: status.code(),
+                            stderr,
+                        });
+                    }
+
+                    let trimmed = stdout.trim().to_string();
+                    if trimmed.is_empty() {
+                        return Err(ClaudeClientError::EmptyResponse);
+                    }
+
+                    // Parse JSON envelope
+                    let mut input_tokens: Option<u64> = None;
+                    let mut output_tokens: Option<u64> = None;
+                    let mut resp_session_id: Option<String> = None;
+                    let text = if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&trimmed) {
+                        if let Some(usage) = envelope.get("usage") {
+                            if let Some(inp) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                                span.record("input_tokens", inp);
+                                input_tokens = Some(inp);
+                            }
+                            if let Some(out) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                                span.record("output_tokens", out);
+                                output_tokens = Some(out);
+                            }
+                        }
+                        if let Some(cost) = envelope.get("total_cost_usd").and_then(|v| v.as_f64()) {
+                            span.record("cost_usd", cost);
+                        }
+                        if let Some(sid) = envelope.get("session_id").and_then(|v| v.as_str()) {
+                            resp_session_id = Some(sid.to_string());
+                        }
+                        envelope.get("result")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&trimmed)
+                            .to_string()
+                    } else {
+                        trimmed
+                    };
+
+                    if text.is_empty() {
+                        return Err(ClaudeClientError::EmptyResponse);
+                    }
+                    span.record("response_len", text.len());
+                    span.record("duration_ms", start.elapsed().as_millis() as u64);
+                    return Ok(ClaudeResponse {
+                        text,
+                        input_tokens,
+                        output_tokens,
+                        session_id: resp_session_id,
+                    });
+                }
+                Ok(None) => {
+                    if start.elapsed() > self.timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        span.record("duration_ms", start.elapsed().as_millis() as u64);
+                        return Err(ClaudeClientError::Timeout { elapsed: start.elapsed() });
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(e) => {
+                    return Err(ClaudeClientError::SubprocessFailed {
+                        exit_code: None,
+                        stderr: e.to_string(),
+                    });
+                }
+            }
+        }
     }
 
     /// Core subprocess execution — used by all send methods.
@@ -258,6 +450,7 @@ impl ClaudeClient {
                     // Parse JSON envelope from --output-format json
                     let mut input_tokens: Option<u64> = None;
                     let mut output_tokens: Option<u64> = None;
+                    let mut session_id: Option<String> = None;
                     let text = if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&trimmed) {
                         // Extract token counts from usage block
                         if let Some(usage) = envelope.get("usage") {
@@ -272,6 +465,10 @@ impl ClaudeClient {
                         }
                         if let Some(cost) = envelope.get("total_cost_usd").and_then(|v| v.as_f64()) {
                             span.record("cost_usd", cost);
+                        }
+                        // Extract session ID for persistent sessions (ADR-066)
+                        if let Some(sid) = envelope.get("session_id").and_then(|v| v.as_str()) {
+                            session_id = Some(sid.to_string());
                         }
                         // Extract the actual text result
                         envelope.get("result")
@@ -288,7 +485,7 @@ impl ClaudeClient {
                     }
                     span.record("response_len", text.len());
                     span.record("duration_ms", start.elapsed().as_millis() as u64);
-                    return Ok(ClaudeResponse { text, input_tokens, output_tokens });
+                    return Ok(ClaudeResponse { text, input_tokens, output_tokens, session_id });
                 }
                 Ok(None) => {
                     if start.elapsed() > self.timeout {
