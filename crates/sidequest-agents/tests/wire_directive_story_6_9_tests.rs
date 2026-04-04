@@ -463,11 +463,12 @@ fn only_narrator_route_triggers_directive_injection() {
         "Exploration should route to narrator"
     );
 
+    // ADR-067: All intents route to narrator
     let combat_route = IntentRoute::for_intent(Intent::Combat);
     assert_eq!(
         combat_route.agent_name(),
-        "creature_smith",
-        "Combat should route to creature_smith"
+        "narrator",
+        "Combat should route to narrator (ADR-067: unified narrator)"
     );
 
     // The wiring should only inject directives when agent_name == "narrator"

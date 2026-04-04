@@ -30,17 +30,19 @@ use sidequest_game::tension_tracker::DeliveryMode;
 // ============================================================================
 
 #[test]
-fn combat_routes_to_creature_smith() {
+fn combat_routes_to_narrator() {
+    // ADR-067: All intents route to narrator
     let route = IntentRoute::for_intent(Intent::Combat);
     assert_eq!(route.intent(), Intent::Combat);
-    assert_eq!(route.agent_name(), "creature_smith");
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
-fn dialogue_routes_to_ensemble() {
+fn dialogue_routes_to_narrator() {
+    // ADR-067: All intents route to narrator
     let route = IntentRoute::for_intent(Intent::Dialogue);
     assert_eq!(route.intent(), Intent::Dialogue);
-    assert_eq!(route.agent_name(), "ensemble");
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
@@ -63,9 +65,10 @@ fn meta_routes_to_narrator() {
 }
 
 #[test]
-fn chase_routes_to_dialectician() {
+fn chase_routes_to_narrator() {
+    // ADR-067: All intents route to narrator
     let route = IntentRoute::for_intent(Intent::Chase);
-    assert_eq!(route.agent_name(), "dialectician");
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 // ============================================================================

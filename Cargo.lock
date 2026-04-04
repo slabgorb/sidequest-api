@@ -1291,6 +1291,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1414,6 +1415,17 @@ dependencies = [
  "tracing-chrome",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "sidequest-validate"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sidequest-genre",
 ]
 
 [[package]]

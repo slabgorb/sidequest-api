@@ -12,9 +12,7 @@ use crate::agent::Agent;
 use crate::lore_filter::LoreFilter;
 use crate::tools::assemble_turn::assemble_turn;
 // ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
-use crate::agents::creature_smith::CreatureSmithAgent;
-use crate::agents::dialectician::DialecticianAgent;
-use crate::agents::ensemble::EnsembleAgent;
+// ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into unified narrator
 use crate::agents::intent_router::{Intent, IntentRoute, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
@@ -153,13 +151,10 @@ pub struct Orchestrator {
     pub turn_id_counter: TurnIdCounter,
     /// Claude CLI client for LLM invocations.
     client: ClaudeClient,
-    /// Two-tier intent classifier (ADR-032: Haiku → narrator fallback).
+    /// State-based intent inference (ADR-067: no LLM classification).
     intent_router: IntentRouter,
-    /// Specialist agents — dispatched by intent classification.
+    /// Unified narrator agent (ADR-067: absorbs combat, chase, dialogue).
     narrator: NarratorAgent,
-    creature_smith: CreatureSmithAgent,
-    ensemble: EnsembleAgent,
-    dialectician: DialecticianAgent,
     /// Pacing engine — tracks drama weight across combat turns (Story 5-7).
     tension_tracker: TensionTracker,
     /// Genre-tunable pacing breakpoints (Story 5-7).
@@ -211,9 +206,6 @@ impl Orchestrator {
             intent_router: IntentRouter::new(client.clone()),
             client,
             narrator: NarratorAgent::new(),
-            creature_smith: CreatureSmithAgent::new(),
-            ensemble: EnsembleAgent::new(),
-            dialectician: DialecticianAgent::new(),
             tension_tracker: TensionTracker::new(),
             drama_thresholds: DramaThresholds::default(),
             troper: TroperAgent::new(),
@@ -294,13 +286,18 @@ impl Orchestrator {
         // === STATIC SECTIONS (Full tier only — already in session history on Delta) ===
 
         if is_full {
-            // Agent identity section (Primacy zone)
-            match route.agent_name() {
-                "creature_smith" => self.creature_smith.build_context(&mut builder),
-                "ensemble" => self.ensemble.build_context(&mut builder),
-                "dialectician" => self.dialectician.build_context(&mut builder),
-                _ => self.narrator.build_context(&mut builder),
-            };
+            // ADR-067: Always narrator identity (unified agent)
+            self.narrator.build_context(&mut builder);
+
+            // Conditional sections based on game state (ADR-067)
+            if context.in_combat {
+                self.narrator.build_combat_context(&mut builder);
+            }
+            if context.in_chase {
+                self.narrator.build_chase_context(&mut builder);
+            }
+            // Always inject dialogue rules — they're short and NPCs can appear anytime
+            self.narrator.build_dialogue_context(&mut builder);
 
             // SOUL principles (Early zone — high attention, after identity, before state)
             if let Some(ref soul) = self.soul_data {
@@ -572,16 +569,14 @@ impl GameService for Orchestrator {
             .entered();
         }
 
-        // Reuse intent classification from build_narrator_prompt (avoids double Haiku call).
+        // Reuse intent classification from build_narrator_prompt (ADR-067: state inference, no LLM).
         let route = prompt_result.intent_route;
         span.record("intent", route.intent().to_string().as_str());
         span.record("agent", route.agent_name());
         info!(
             intent = %route.intent(),
-            agent = %route.agent_name(),
-            source = %route.source(),
-            confidence = route.confidence(),
-            "Intent classified"
+            source = "state_inference",
+            "unified_narrator.intent_inferred"
         );
 
         // Generate a unique session ID for the tool call sidecar file.
@@ -671,51 +666,17 @@ impl GameService for Orchestrator {
                         "rag.items_gained_extracted"
                     );
                 }
-                // Extract combat patch from creature_smith responses
-                let combat_patch = if agent_str == "creature_smith" {
-                    match serde_json::from_str::<crate::patches::CombatPatch>(&raw_response)
-                        .or_else(|_| extract_fenced_json::<crate::patches::CombatPatch>(&raw_response))
-                    {
-                        Ok(patch) => {
-                            info!(
-                                in_combat = ?patch.in_combat,
-                                hp_changes = ?patch.hp_changes,
-                                drama_weight = ?patch.drama_weight,
-                                "combat.patch_extracted"
-                            );
-                            Some(patch)
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "combat.patch_extraction_failed — creature_smith response had no valid JSON");
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
+                // ADR-067: Always try combat patch extraction from game_patch
+                let combat_patch = extract_fenced_json::<crate::patches::CombatPatch>(raw_response).ok();
+                if let Some(ref p) = combat_patch {
+                    info!(in_combat = ?p.in_combat, hp_changes = ?p.hp_changes, "combat.patch_extracted");
+                }
 
-                // Extract chase patch from dialectician responses
-                let chase_patch = if agent_str == "dialectician" {
-                    match serde_json::from_str::<crate::patches::ChasePatch>(&raw_response)
-                        .or_else(|_| extract_fenced_json::<crate::patches::ChasePatch>(&raw_response))
-                    {
-                        Ok(patch) => {
-                            info!(
-                                in_chase = ?patch.in_chase,
-                                separation_delta = ?patch.separation_delta,
-                                roll = ?patch.roll,
-                                "chase.patch_extracted"
-                            );
-                            Some(patch)
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "chase.patch_extraction_failed — dialectician response had no valid JSON");
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
+                // ADR-067: Always try chase patch extraction from game_patch
+                let chase_patch = extract_fenced_json::<crate::patches::ChasePatch>(raw_response).ok();
+                if let Some(ref p) = chase_patch {
+                    info!(in_chase = ?p.in_chase, separation_delta = ?p.separation_delta, "chase.patch_extracted");
+                }
 
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 span.record("is_degraded", false);

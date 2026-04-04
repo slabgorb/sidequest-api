@@ -1,8 +1,8 @@
-//! Concrete agent implementations — all 8 agents for the SideQuest engine.
+//! Concrete agent implementations for the SideQuest engine.
+//!
+//! ADR-067: Unified narrator agent. CreatureSmith, Dialectician, and Ensemble
+//! have been absorbed into the narrator via conditional prompt sections.
 
-pub mod creature_smith;
-pub mod dialectician;
-pub mod ensemble;
 pub mod intent_router;
 pub mod narrator;
 pub mod resonator;

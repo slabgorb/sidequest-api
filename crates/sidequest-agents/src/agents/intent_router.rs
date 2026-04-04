@@ -1,13 +1,10 @@
-//! Intent router — LLM-based classification of player input to agent.
+//! Intent router — state-based inference of player intent (ADR-067).
 //!
-//! ADR-010: Intent-based agent routing. An LLM classifier routes each player
-//! input to a specialist agent based on intent and current game state.
-//!
-//! ADR-032: Haiku classifier with narrator ambiguity resolution.
-//! When Haiku is unavailable, the narrator handles intent resolution
-//! directly — no keyword fallback.
+//! ADR-067: Unified narrator agent. Intent classification no longer requires
+//! an LLM call. Combat and chase are inferred from game state; everything
+//! else goes to the narrator. The Intent enum and IntentRoute struct are
+//! retained for OTEL telemetry and conditional prompt section injection.
 
-use crate::client::ClaudeClient;
 use crate::context_builder::ContextBuilder;
 use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
 
@@ -92,18 +89,11 @@ pub struct IntentRoute {
 }
 
 impl IntentRoute {
-    /// Map an intent to its specialist agent name.
-    fn agent_for(intent: Intent) -> &'static str {
-        match intent {
-            Intent::Combat => "creature_smith",
-            Intent::Dialogue => "ensemble",
-            Intent::Exploration => "narrator",
-            Intent::Examine => "narrator",
-            Intent::Meta => "narrator",
-            Intent::Chase => "dialectician",
-            Intent::Backstory => "narrator",
-            Intent::Accusation => "narrator",
-        }
+    /// Map an intent to its agent name (ADR-067: unified narrator).
+    /// All intents route to the narrator. Combat/chase/dialogue rules
+    /// are injected as conditional prompt sections.
+    fn agent_for(_intent: Intent) -> &'static str {
+        "narrator"
     }
 
     /// Create a route for a given intent with full confidence.
@@ -209,172 +199,35 @@ pub trait IntentClassifier {
     fn classify(&self, input: &str, context: &crate::orchestrator::TurnContext) -> IntentRoute;
 }
 
-/// Haiku LLM classifier — calls `claude -p --model haiku` to classify player actions (ADR-032).
-pub struct HaikuClassifier {
-    client: ClaudeClient,
-}
-
-impl HaikuClassifier {
-    /// Create a new Haiku classifier with the given Claude client.
-    pub fn new(client: ClaudeClient) -> Self {
-        Self { client }
-    }
-
-    /// Build the classification prompt per ADR-032.
-    fn build_prompt(input: &str, context: &crate::orchestrator::TurnContext) -> String {
-        let state_context = context
-            .state_summary
-            .as_deref()
-            .unwrap_or("No scene context available.");
-
-        format!(
-            "You classify player actions in a tabletop RPG.\n\
-             Given the player's action and current scene context, return a JSON object:\n\
-             {{ \"intent\": \"<Combat|Dialogue|Exploration|Examine|Meta|Chase|Backstory|Accusation>\",\n\
-               \"confidence\": <0.0-1.0>,\n\
-               \"candidates\": [\"<intent>\", ...] }}\n\n\
-             Intent definitions:\n\
-             - Combat: attacking, defending, using combat abilities\n\
-             - Dialogue: talking to NPCs, asking questions of characters\n\
-             - Exploration: moving to new locations, looking around, picking up items,\n\
-               taking objects, opening doors, pulling levers, interacting with the world.\n\
-               If the player says \"take\", \"pick up\", \"grab\", \"pocket\", \"open\",\n\
-               \"use\", or \"pull\", it is Exploration, NOT Examine.\n\
-             - Examine: inspecting, looking at, or studying specific objects or details\n\
-               WITHOUT touching or changing them. Pure observation only.\n\
-             - Meta: save, help, status, out-of-character commands\n\
-             - Chase: pursuit, escape, fleeing\n\
-             - Backstory: the player describes their character's history, personality,\n\
-               appearance, possessions, memories, or identity. Includes introspection,\n\
-               recalling past events, describing keepsakes, or revealing personal details\n\
-               through dialogue or inner monologue. If the player is telling a story ABOUT\n\
-               their character rather than advancing the plot, it is Backstory.\n\
-             - Accusation: accusing an NPC of a crime or wrongdoing during a mystery/investigation\n\
-               scenario (e.g., \"I accuse the merchant of murder\")\n\n\
-             If the action clearly maps to one intent, return confidence >= 0.8.\n\
-             If the action is ambiguous (could be multiple intents), return\n\
-               intent set to your best guess, confidence < 0.5, and list the top candidates.\n\n\
-             Scene context: {state_context}\n\n\
-             Player action: {input}\n\n\
-             Return ONLY the JSON object, no other text."
-        )
-    }
-
-    /// Strip markdown code fences from LLM output (e.g., ```json ... ```).
-    fn strip_fences(raw: &str) -> &str {
-        let trimmed = raw.trim();
-        if let Some(rest) = trimmed.strip_prefix("```") {
-            // Skip optional language tag on first line
-            let after_tag = rest.find('\n').map(|i| &rest[i + 1..]).unwrap_or(rest);
-            after_tag.strip_suffix("```").unwrap_or(after_tag).trim()
-        } else {
-            trimmed
-        }
-    }
-
-    /// Parse the JSON response from Haiku into an IntentRoute.
-    fn parse_response(raw: &str) -> Option<IntentRoute> {
-        let value: serde_json::Value = serde_json::from_str(Self::strip_fences(raw)).ok()?;
-
-        let intent_str = value.get("intent")?.as_str()?;
-        let intent = match intent_str {
-            "Combat" => Intent::Combat,
-            "Dialogue" => Intent::Dialogue,
-            "Exploration" => Intent::Exploration,
-            "Examine" => Intent::Examine,
-            "Meta" => Intent::Meta,
-            "Chase" => Intent::Chase,
-            "Backstory" => Intent::Backstory,
-            "Accusation" => Intent::Accusation,
-            _ => return None,
-        };
-
-        let confidence = value.get("confidence")?.as_f64()?;
-        let confidence = confidence.clamp(0.0, 1.0);
-
-        let candidates: Vec<Intent> = value
-            .get("candidates")
-            .and_then(|c| c.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .filter_map(|s| match s {
-                        "Combat" => Some(Intent::Combat),
-                        "Dialogue" => Some(Intent::Dialogue),
-                        "Exploration" => Some(Intent::Exploration),
-                        "Examine" => Some(Intent::Examine),
-                        "Meta" => Some(Intent::Meta),
-                        "Chase" => Some(Intent::Chase),
-                        "Backstory" => Some(Intent::Backstory),
-                        "Accusation" => Some(Intent::Accusation),
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        IntentRoute::try_with_classification(intent, confidence, candidates, ClassificationSource::Haiku).ok()
-    }
-}
-
-impl IntentClassifier for HaikuClassifier {
-    fn classify(&self, input: &str, context: &crate::orchestrator::TurnContext) -> IntentRoute {
-        let prompt = Self::build_prompt(input, context);
-
-        match self.client.send_with_model(&prompt, "haiku") {
-            Ok(resp) => {
-                let raw = &resp.text;
-                match Self::parse_response(raw) {
-                    Some(route) => route,
-                    None => {
-                        tracing::warn!(
-                            raw_response = %raw,
-                            "Haiku returned unparseable response, routing to narrator"
-                        );
-                        IntentRoute::narrator_fallback()
-                    }
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "Haiku classifier unavailable, routing to narrator"
-                );
-                IntentRoute::narrator_fallback()
-            }
-        }
-    }
-}
-
-/// Routes player input to the appropriate agent via LLM classification.
-pub struct IntentRouter {
-    classifier: HaikuClassifier,
-}
+/// Routes player input to the narrator via state-based inference (ADR-067).
+///
+/// No LLM call. Combat and chase are detected from game state flags.
+/// Everything else is Exploration — the narrator handles all intents.
+pub struct IntentRouter;
 
 impl IntentRouter {
-    /// Create a new intent router with a Claude client.
-    pub fn new(client: ClaudeClient) -> Self {
-        let classifier = HaikuClassifier::new(client);
-        Self { classifier }
+    /// Create a new intent router (ADR-067: no Claude client needed).
+    pub fn new(_client: crate::client::ClaudeClient) -> Self {
+        Self
     }
 
-    /// Classify using the Haiku classifier wired into this router.
+    /// State-based intent inference (ADR-067).
     ///
-    /// This is the production entry point — called from the orchestrator's turn loop.
+    /// No LLM call. Combat/chase from state flags, everything else Exploration.
     pub fn classify(&self, input: &str, ctx: &crate::orchestrator::TurnContext) -> IntentRoute {
-        Self::classify_with_classifier(input, ctx, &self.classifier)
+        Self::classify_with_classifier(input, ctx, &NoOpClassifier)
     }
 
-    /// Classification pipeline (ADR-032).
+    /// Classification pipeline (ADR-067).
     ///
-    /// 1. State override (in_combat/in_chase) → immediate dispatch
-    /// 2. Haiku classifier → dispatch on result; narrator handles failures
+    /// 1. State override (in_chase/in_combat) -> immediate dispatch
+    /// 2. Default to Exploration (narrator handles everything)
     pub fn classify_with_classifier(
         input: &str,
         ctx: &crate::orchestrator::TurnContext,
-        classifier: &dyn IntentClassifier,
+        _classifier: &dyn IntentClassifier,
     ) -> IntentRoute {
-        // Fast path: state overrides bypass classification
+        // Fast path: state overrides
         if ctx.in_chase {
             let route = IntentRoute::with_classification(
                 Intent::Chase,
@@ -396,8 +249,13 @@ impl IntentRouter {
             return route;
         }
 
-        // Haiku classifier — narrator handles failures
-        let route = classifier.classify(input, ctx);
+        // Default: Exploration — narrator handles everything (ADR-067)
+        let route = IntentRoute::with_classification(
+            Intent::Exploration,
+            1.0,
+            vec![],
+            ClassificationSource::StateOverride,
+        );
         Self::emit_span(input, &route);
         route
     }
@@ -417,10 +275,9 @@ impl IntentRouter {
         .entered();
     }
 
-    /// Add ambiguity context to the narrator prompt when classification is ambiguous (ADR-032).
-    ///
-    /// When Haiku returns low confidence, the candidates are folded into the narrator's
-    /// prompt so it can resolve the ambiguity with full scene context.
+    /// Add ambiguity context to the narrator prompt when classification is ambiguous.
+    /// ADR-067: With state-based inference, ambiguity no longer occurs, but this
+    /// method is retained for API compatibility.
     pub fn add_ambiguity_context(builder: &mut ContextBuilder, route: &IntentRoute) {
         if !route.is_ambiguous() || route.candidates().is_empty() {
             return;
@@ -445,5 +302,14 @@ impl IntentRouter {
             AttentionZone::Late,
             SectionCategory::Context,
         ));
+    }
+}
+
+/// No-op classifier used internally — state overrides handle all classification (ADR-067).
+struct NoOpClassifier;
+
+impl IntentClassifier for NoOpClassifier {
+    fn classify(&self, _input: &str, _context: &crate::orchestrator::TurnContext) -> IntentRoute {
+        IntentRoute::for_intent(Intent::Exploration)
     }
 }
