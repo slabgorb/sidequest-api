@@ -654,11 +654,46 @@ impl GameService for Orchestrator {
             }
             Err(e) => {
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
-                panic!(
-                    "CLAUDE CLI FAILED — agent={}, duration={}ms, error={}. \
-                     If the LLM is down, the game is down.",
-                    agent_str, agent_duration_ms, e
+                tracing::error!(
+                    agent = %agent_str,
+                    duration_ms = agent_duration_ms,
+                    error = %e,
+                    "CLAUDE CLI FAILED — returning degraded response (ADR-005)"
                 );
+                // ADR-005: graceful degradation. Return a degraded narration
+                // so the game loop continues. The player sees a brief pause
+                // message instead of a disconnection.
+                let degraded_narration = format!(
+                    "**{}**\n\nThe world holds its breath for a moment... \
+                     something shifts in the distance, but the moment passes.",
+                    context.current_location
+                );
+                ActionResult {
+                    narration: degraded_narration,
+                    combat_patch: None,
+                    chase_patch: None,
+                    is_degraded: true,
+                    classified_intent: Some(intent_str),
+                    agent_name: Some(agent_str),
+                    footnotes: vec![],
+                    items_gained: vec![],
+                    npcs_present: vec![],
+                    quest_updates: HashMap::new(),
+                    agent_duration_ms: Some(agent_duration_ms),
+                    token_count_in: None,
+                    token_count_out: None,
+                    visual_scene: None,
+                    scene_mood: None,
+                    personality_events: vec![],
+                    scene_intent: None,
+                    resource_deltas: HashMap::new(),
+                    zone_breakdown: Some(prompt_zone_breakdown),
+                    lore_established: None,
+                    merchant_transactions: vec![],
+                    sfx_triggers: vec![],
+                    action_rewrite: None,
+                    action_flags: None,
+                }
             }
         }
     }
