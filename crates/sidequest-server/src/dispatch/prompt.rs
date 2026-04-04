@@ -431,6 +431,7 @@ pub(crate) async fn build_prompt_context(
                 }
             }
             state_summary.push_str("When the player moves through an exit, update the location header to the target room name.\n");
+            state_summary.push_str("IMPORTANT: When the player enters a new room, always end your narration by describing the visible exits and 2-3 obvious actions or points of interest. Players navigate by exits — without them, every turn becomes 'where can I go?'\n");
 
             WatcherEventBuilder::new("navigation", WatcherEventType::StateTransition)
                 .field("mode", "room_graph")
