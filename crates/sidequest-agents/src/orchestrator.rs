@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::agent::Agent;
+use crate::lore_filter::{DetailLevel, LoreFilter};
 use crate::tools::assemble_turn::assemble_turn;
 // ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
 use crate::agents::creature_smith::CreatureSmithAgent;
@@ -314,6 +315,76 @@ impl Orchestrator {
                 AttentionZone::Valley,
                 SectionCategory::State,
             ));
+        }
+
+        // Lore filtering by graph distance (Valley zone — story 23-4)
+        // When a hierarchical world graph is available, inject lore sections
+        // at detail levels determined by graph distance from current node.
+        if let Some(ref world_graph) = context.world_graph {
+            let filter = LoreFilter::new(world_graph);
+            let selections = filter.select_lore(
+                &context.current_location,
+                route.intent(),
+                &context.npc_registry,
+                &[], // Arc proximity: future enrichment via TropeState
+            );
+
+            let otel_summary = filter.format_otel_summary(&selections);
+            let _lore_span = tracing::info_span!(
+                "orchestrator.lore_filter",
+                current_node = %context.current_location,
+                intent = ?route.intent(),
+                total_selections = selections.len() as u64,
+                summary = %otel_summary,
+            )
+            .entered();
+
+            // Inject lore sections grouped by detail level
+            let full_lore: Vec<_> = selections
+                .iter()
+                .filter(|s| s.detail_level == DetailLevel::Full)
+                .collect();
+            let summary_lore: Vec<_> = selections
+                .iter()
+                .filter(|s| s.detail_level == DetailLevel::Summary)
+                .collect();
+            let name_only_lore: Vec<_> = selections
+                .iter()
+                .filter(|s| s.detail_level == DetailLevel::NameOnly)
+                .collect();
+
+            let mut lore_content = String::new();
+
+            if !full_lore.is_empty() {
+                lore_content.push_str("[NEARBY LORE — FULL DETAIL]\n");
+                for s in &full_lore {
+                    lore_content.push_str(&format!("- {} ({}): {}\n", s.entity_name, s.category, s.entity_id));
+                }
+            }
+
+            if !summary_lore.is_empty() {
+                lore_content.push_str("\n[DISTANT LORE — SUMMARY ONLY]\n");
+                for s in &summary_lore {
+                    lore_content.push_str(&format!("- {} ({})\n", s.entity_name, s.category));
+                }
+            }
+
+            if !name_only_lore.is_empty() {
+                let names: Vec<_> = name_only_lore.iter().map(|s| s.entity_name.as_str()).collect();
+                lore_content.push_str(&format!(
+                    "\n[KNOWN ENTITIES — NAMES ONLY (do not invent details)]\n{}\n",
+                    names.join(", ")
+                ));
+            }
+
+            if !lore_content.is_empty() {
+                builder.add_section(PromptSection::new(
+                    "world_lore",
+                    format!("<world-lore>\n{}</world-lore>", lore_content),
+                    AttentionZone::Valley,
+                    SectionCategory::Context,
+                ));
+            }
         }
 
         // Merchant context injection (Valley zone — story 15-16)
@@ -930,6 +1001,9 @@ pub struct TurnContext {
     pub npcs: Vec<Npc>,
     /// Player's current location for merchant context injection (story 15-16).
     pub current_location: String,
+    /// Hierarchical world graph for lore filtering (story 23-4).
+    /// When present, LoreFilter gates Valley zone lore injection by graph distance.
+    pub world_graph: Option<sidequest_genre::WorldGraph>,
 }
 
 /// Result of processing a player action through the full turn loop.

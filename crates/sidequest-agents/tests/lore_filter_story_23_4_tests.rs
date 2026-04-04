@@ -356,32 +356,60 @@ fn select_lore_returns_filter_summary_for_otel() {
 }
 
 // ============================================================================
-// AC-10: Integration — build_narrator_prompt uses LoreFilter
+// AC-10: Integration — build_narrator_prompt uses LoreFilter (WIRING TEST)
 // ============================================================================
 
-// This is a wiring test — verifies the filter is actually called in the
-// production prompt assembly path. Dev will need to wire this.
+use sidequest_agents::orchestrator::{Orchestrator, TurnContext};
+use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
+use tokio::sync::mpsc;
 
+/// WIRING TEST: build_narrator_prompt() injects filtered lore into prompt
+/// when TurnContext has a world_graph. Verifies the filter is called in the
+/// production code path — not just importable.
 #[test]
-fn orchestrator_build_narrator_prompt_uses_lore_filter() {
-    // When TurnContext has a world_graph, the prompt builder should use
-    // LoreFilter instead of dumping all lore.
-    //
-    // This test verifies the wiring exists by checking that the composed
-    // prompt contains filtered lore sections rather than a raw dump.
-    //
-    // The integration point is orchestrator.rs:build_narrator_prompt()
-    // which currently has no lore filtering. After 23-4, it should call
-    // LoreFilter::select_lore() and inject based on detail level.
-
-    // For now, this test just asserts the module is importable from
-    // orchestrator — the full integration test requires TurnContext
-    // to carry graph data, which Dev will add.
-    use sidequest_agents::lore_filter::LoreFilter;
+fn orchestrator_prompt_contains_world_lore_when_graph_present() {
+    let (tx, _rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
+    let orch = Orchestrator::new(tx);
     let graph = build_test_graph();
-    let _filter = LoreFilter::new(&graph);
-    // If this compiles and runs, the module is wired into the crate
-    assert!(true, "LoreFilter is importable and constructible");
+
+    let ctx = TurnContext {
+        world_graph: Some(graph),
+        current_location: "a".to_string(),
+        ..Default::default()
+    };
+
+    let result = orch.build_narrator_prompt("look around", &ctx);
+
+    // The prompt must contain the <world-lore> section injected by LoreFilter
+    assert!(
+        result.prompt_text.contains("<world-lore>"),
+        "Prompt must contain <world-lore> section when world_graph is present"
+    );
+    // Current node (a) should appear as full detail
+    assert!(
+        result.prompt_text.contains("Town A"),
+        "Current node's name must appear in lore section"
+    );
+    // Distant node (d) should appear in name-only list
+    assert!(
+        result.prompt_text.contains("KNOWN ENTITIES"),
+        "Name-only closed-world assertion section must be present"
+    );
+}
+
+/// WIRING TEST: no lore section when world_graph is None (backward compat).
+#[test]
+fn orchestrator_prompt_has_no_lore_without_graph() {
+    let (tx, _rx) = mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
+    let orch = Orchestrator::new(tx);
+
+    let ctx = TurnContext::default();
+    let result = orch.build_narrator_prompt("look around", &ctx);
+
+    assert!(
+        !result.prompt_text.contains("<world-lore>"),
+        "No <world-lore> section when world_graph is None"
+    );
 }
 
 // ============================================================================
