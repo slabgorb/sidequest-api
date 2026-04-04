@@ -366,6 +366,56 @@ impl GameSnapshot {
         }
     }
 
+    /// Apply decay_per_turn from all resource declarations (story 19-6).
+    ///
+    /// Builds a delta map from `resource_declarations` and applies via `apply_resource_deltas`.
+    /// Returns resources that *reached* min this tick (were above min before, at min after).
+    /// Resources already at min are not re-reported.
+    pub fn apply_decay_per_turn(&mut self) -> Vec<(String, f64)> {
+        // Snapshot pre-decay values and identify which are already at min
+        let pre_values: HashMap<String, f64> = self.resource_state.clone();
+        let at_min_before: std::collections::HashSet<String> = self
+            .resource_declarations
+            .iter()
+            .filter(|d| {
+                pre_values
+                    .get(&d.name)
+                    .map(|v| (*v - d.min).abs() < 1e-12)
+                    .unwrap_or(false)
+            })
+            .map(|d| d.name.clone())
+            .collect();
+
+        // Build deltas from declarations
+        let deltas: HashMap<String, f64> = self
+            .resource_declarations
+            .iter()
+            .filter(|d| d.decay_per_turn.abs() > 1e-12)
+            .map(|d| (d.name.clone(), d.decay_per_turn))
+            .collect();
+
+        if deltas.is_empty() {
+            return vec![];
+        }
+
+        self.apply_resource_deltas(&deltas);
+
+        // Find resources that just reached min (weren't at min before, are now)
+        self.resource_declarations
+            .iter()
+            .filter(|d| {
+                if at_min_before.contains(&d.name) {
+                    return false; // already at min, don't re-report
+                }
+                self.resource_state
+                    .get(&d.name)
+                    .map(|v| (*v - d.min).abs() < 1e-12)
+                    .unwrap_or(false)
+            })
+            .map(|d| (d.name.clone(), d.min))
+            .collect()
+    }
+
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {
