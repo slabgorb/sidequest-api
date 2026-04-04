@@ -139,6 +139,50 @@ pub(crate) fn strip_markdown_for_tts(text: &str) -> String {
     tts_clean.trim().to_string()
 }
 
+/// Strip fenced code blocks from narration text (e.g. ```game_patch ... ```).
+///
+/// The narrator emits structured JSON blocks (game_patch, etc.) inline with prose.
+/// These must be removed before the narration reaches the client or TTS pipeline.
+/// Returns the text with all fenced blocks removed and whitespace normalized.
+pub(crate) fn strip_fenced_blocks(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut inside_fence = false;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if !inside_fence && trimmed.starts_with("```") {
+            inside_fence = true;
+            continue;
+        }
+        if inside_fence {
+            if trimmed == "```" {
+                inside_fence = false;
+            }
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    // Collapse multiple blank lines left by removed blocks
+    let mut collapsed = String::with_capacity(result.len());
+    let mut blank_count = 0;
+    for line in result.lines() {
+        if line.trim().is_empty() {
+            blank_count += 1;
+            if blank_count <= 1 {
+                collapsed.push('\n');
+            }
+        } else {
+            blank_count = 0;
+            collapsed.push_str(line);
+            collapsed.push('\n');
+        }
+    }
+
+    collapsed.trim().to_string()
+}
+
 /// Convert a game-internal AudioCue to a protocol GameMessage for WebSocket broadcast.
 ///
 /// `genre_slug` is prepended to track paths so the client can fetch via `/genre/{slug}/{path}`.
