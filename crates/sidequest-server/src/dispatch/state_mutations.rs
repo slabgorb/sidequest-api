@@ -247,6 +247,24 @@ pub(crate) async fn apply_state_mutations(
                         );
                     }
 
+                    // Check player death after NPC attack
+                    if *ctx.hp <= 0 {
+                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                            .field("action", "player_death")
+                            .field("cause", "combat_damage")
+                            .field("final_hp", *ctx.hp)
+                            .field("round", ctx.combat_state.round())
+                            .send(ctx.state);
+                        tracing::warn!(
+                            hp = *ctx.hp,
+                            round = ctx.combat_state.round(),
+                            "combat.player_death — character has fallen"
+                        );
+                        ctx.combat_state.disengage();
+                        ctx.snapshot.player_dead = true;
+                        break;
+                    }
+
                     // Check victory/defeat after NPC attack
                     let npc_combatants: Vec<&dyn sidequest_game::combatant::Combatant> = ctx.snapshot.npcs.iter()
                         .filter(|n| ctx.combat_state.turn_order().iter().any(|t| t.eq_ignore_ascii_case(sidequest_game::combatant::Combatant::name(*n))))

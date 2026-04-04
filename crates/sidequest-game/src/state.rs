@@ -201,6 +201,11 @@ pub struct GameSnapshot {
     /// Empty in region mode. Serializes as sorted Vec for deterministic JSON.
     #[serde(default)]
     pub discovered_rooms: DiscoveredRooms,
+    /// True when the player character has died (HP reached 0 in combat).
+    /// Set by the death detection in state_mutations. Persists across saves
+    /// so the narrator can handle the death narration on the next turn.
+    #[serde(default)]
+    pub player_dead: bool,
 }
 
 /// Backward-compatible deserializer for active_tropes.
@@ -291,6 +296,8 @@ struct GameSnapshotRaw {
     resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
     #[serde(default)]
     discovered_rooms: DiscoveredRooms,
+    #[serde(default)]
+    player_dead: bool,
 }
 
 impl From<GameSnapshotRaw> for GameSnapshot {
@@ -336,6 +343,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             resource_state: raw.resource_state,
             resource_declarations: raw.resource_declarations,
             discovered_rooms: raw.discovered_rooms,
+            player_dead: raw.player_dead,
         }
     }
 }

@@ -100,6 +100,17 @@ pub(crate) async fn build_prompt_context(
         ctx.char_name, *ctx.hp, *ctx.max_hp, *ctx.level, *ctx.xp, ctx.genre_slug,
     );
 
+    // Death directive — the narrator MUST describe the character's death
+    if ctx.snapshot.player_dead || *ctx.hp <= 0 {
+        state_summary.push_str(
+            "\n\n⚠️ CHARACTER IS DEAD (HP 0). The character has fallen in combat. \
+             Narrate the death scene — describe how they fell, what killed them, \
+             and the finality of it. Do NOT continue the adventure. Do NOT let \
+             the character act, move, or speak. The session is over. End with \
+             a brief epitaph or closing line."
+        );
+    }
+
     // Inject party roster so the narrator knows which characters are player-controlled
     // and never puppets them (gives them dialogue, actions, or internal state).
     {

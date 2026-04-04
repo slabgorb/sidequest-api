@@ -1424,6 +1424,17 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     ctx.snapshot.location = ctx.current_location.clone();
     ctx.snapshot.turn_manager = ctx.turn_manager.clone();
     ctx.snapshot.npc_registry = ctx.npc_registry.clone();
+    // Sync NPC HP from npc_registry back to snapshot.npcs so combat damage persists.
+    // Without this, snapshot.npcs retains stale HP values and enemy damage resets
+    // between turns (the HP changes only live in npc_registry during the turn).
+    for entry in ctx.npc_registry.iter() {
+        if let Some(npc) = ctx.snapshot.npcs.iter_mut().find(|n| {
+            n.core.name.as_str().eq_ignore_ascii_case(&entry.name)
+        }) {
+            npc.core.hp = entry.hp;
+            npc.core.max_hp = entry.max_hp;
+        }
+    }
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
     ctx.snapshot.axis_values = ctx.axis_values.clone();
     ctx.snapshot.combat = ctx.combat_state.clone();
