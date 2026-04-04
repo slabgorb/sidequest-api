@@ -236,8 +236,12 @@ impl HaikuClassifier {
              Intent definitions:\n\
              - Combat: attacking, defending, using combat abilities\n\
              - Dialogue: talking to NPCs, asking questions of characters\n\
-             - Exploration: moving to new locations, looking around\n\
-             - Examine: inspecting specific objects or details\n\
+             - Exploration: moving to new locations, looking around, picking up items,\n\
+               taking objects, opening doors, pulling levers, interacting with the world.\n\
+               If the player says \"take\", \"pick up\", \"grab\", \"pocket\", \"open\",\n\
+               \"use\", or \"pull\", it is Exploration, NOT Examine.\n\
+             - Examine: inspecting, looking at, or studying specific objects or details\n\
+               WITHOUT touching or changing them. Pure observation only.\n\
              - Meta: save, help, status, out-of-character commands\n\
              - Chase: pursuit, escape, fleeing\n\
              - Backstory: the player describes their character's history, personality,\n\

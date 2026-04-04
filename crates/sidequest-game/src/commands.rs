@@ -62,7 +62,7 @@ impl CommandHandler for InventoryCommand {
 
         if inv.items.is_empty() && inv.gold == 0 {
             return CommandResult::Display(
-                "You carry nothing of note. Your pockets are as empty as the wasteland.".to_string(),
+                "You carry nothing of note. Your pockets are empty.".to_string(),
             );
         }
 
