@@ -1574,6 +1574,41 @@ async fn build_response_messages(
         },
         player_id: ctx.player_id.to_string(),
     });
+
+    // MAP_UPDATE — send every turn so the client always has current explored regions.
+    // Previously only sent on location change, leaving the client stale if location
+    // didn't change (headless driver showed "0 explored" despite 5 in game state).
+    let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty() {
+        sidequest_game::build_room_graph_explored(
+            &ctx.rooms,
+            &ctx.snapshot.discovered_rooms,
+            &ctx.snapshot.location,
+        )
+    } else {
+        ctx.discovered_regions
+            .iter()
+            .map(|name| sidequest_protocol::ExploredLocation {
+                name: name.clone(),
+                x: 0,
+                y: 0,
+                location_type: String::new(),
+                connections: vec![],
+                room_exits: vec![],
+                room_type: String::new(),
+                size: None,
+                is_current_room: name == ctx.current_location.as_str(),
+            })
+            .collect()
+    };
+    messages.push(GameMessage::MapUpdate {
+        payload: MapUpdatePayload {
+            current_location: ctx.current_location.clone(),
+            region: ctx.current_location.clone(),
+            explored: explored_locs,
+            fog_bounds: None,
+        },
+        player_id: ctx.player_id.to_string(),
+    });
 }
 
 /// Sync scattered DispatchContext locals into the canonical GameSnapshot.

@@ -930,11 +930,26 @@ pub(crate) async fn dispatch_character_creation(
                     let ready = GameMessage::SessionEvent {
                         payload: SessionEventPayload {
                             event: "ready".to_string(),
-                            player_name: None,
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: None,
+                            player_name: player_name_store.clone(),
+                            genre: session.genre_slug().map(|s| s.to_string()),
+                            world: session.world_slug().map(|s| s.to_string()),
+                            has_character: Some(true),
+                            initial_state: Some(InitialState {
+                                characters: vec![sidequest_protocol::CharacterState {
+                                    name: character.core.name.as_str().to_string(),
+                                    hp: *character_hp,
+                                    max_hp: *character_max_hp,
+                                    level: *character_level as u32,
+                                    class: character.char_class.as_str().to_string(),
+                                    statuses: vec![],
+                                    inventory: inventory.carried()
+                                        .map(|i| i.name.as_str().to_string())
+                                        .collect(),
+                                }],
+                                location: current_location.clone(),
+                                quests: quest_log.clone(),
+                                turn_count: turn_manager.interaction() as u32,
+                            }),
                             css: None,
                             image_cooldown_seconds: None,
                             narrator_verbosity: None,
