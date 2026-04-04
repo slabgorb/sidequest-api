@@ -9,7 +9,7 @@ use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 use crate::agent::Agent;
-use crate::lore_filter::{DetailLevel, LoreFilter};
+use crate::lore_filter::LoreFilter;
 use crate::tools::assemble_turn::assemble_turn;
 // ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
 use crate::agents::creature_smith::CreatureSmithAgent;
@@ -339,43 +339,7 @@ impl Orchestrator {
             )
             .entered();
 
-            // Inject lore sections grouped by detail level
-            let full_lore: Vec<_> = selections
-                .iter()
-                .filter(|s| s.detail_level == DetailLevel::Full)
-                .collect();
-            let summary_lore: Vec<_> = selections
-                .iter()
-                .filter(|s| s.detail_level == DetailLevel::Summary)
-                .collect();
-            let name_only_lore: Vec<_> = selections
-                .iter()
-                .filter(|s| s.detail_level == DetailLevel::NameOnly)
-                .collect();
-
-            let mut lore_content = String::new();
-
-            if !full_lore.is_empty() {
-                lore_content.push_str("[NEARBY LORE — FULL DETAIL]\n");
-                for s in &full_lore {
-                    lore_content.push_str(&format!("- {} ({}): {}\n", s.entity_name, s.category, s.entity_id));
-                }
-            }
-
-            if !summary_lore.is_empty() {
-                lore_content.push_str("\n[DISTANT LORE — SUMMARY ONLY]\n");
-                for s in &summary_lore {
-                    lore_content.push_str(&format!("- {} ({})\n", s.entity_name, s.category));
-                }
-            }
-
-            if !name_only_lore.is_empty() {
-                let names: Vec<_> = name_only_lore.iter().map(|s| s.entity_name.as_str()).collect();
-                lore_content.push_str(&format!(
-                    "\n[KNOWN ENTITIES — NAMES ONLY (do not invent details)]\n{}\n",
-                    names.join(", ")
-                ));
-            }
+            let lore_content = LoreFilter::format_prompt_section(&selections);
 
             if !lore_content.is_empty() {
                 builder.add_section(PromptSection::new(

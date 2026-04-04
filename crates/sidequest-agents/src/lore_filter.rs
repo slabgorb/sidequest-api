@@ -138,13 +138,10 @@ impl<'a> LoreFilter<'a> {
 
         // Layer 1: Graph-distance-based detail for every node (closed-world).
         for node in &self.graph.nodes {
-            let detail = match self.graph_distance(current_node, &node.id) {
-                Some(d) => self.detail_for_distance(d),
-                None => DetailLevel::NameOnly,
-            };
-            let reason = match self.graph_distance(current_node, &node.id) {
-                Some(d) => format!("graph_distance_{}", d),
-                None => "unreachable".to_string(),
+            let dist = self.graph_distance(current_node, &node.id);
+            let (detail, reason) = match dist {
+                Some(d) => (self.detail_for_distance(d), format!("graph_distance_{}", d)),
+                None => (DetailLevel::NameOnly, "unreachable".to_string()),
             };
             selections.insert(
                 node.id.clone(),
@@ -176,6 +173,42 @@ impl<'a> LoreFilter<'a> {
         }
 
         selections.into_values().collect()
+    }
+
+    /// Format selections as a prompt section string for the narrator's Valley zone.
+    ///
+    /// Groups by detail level: Full → Summary → NameOnly (closed-world assertion).
+    /// Returns empty string if no selections.
+    pub fn format_prompt_section(selections: &[LoreSelection]) -> String {
+        let mut content = String::new();
+
+        let full: Vec<_> = selections.iter().filter(|s| s.detail_level == DetailLevel::Full).collect();
+        let summary: Vec<_> = selections.iter().filter(|s| s.detail_level == DetailLevel::Summary).collect();
+        let name_only: Vec<_> = selections.iter().filter(|s| s.detail_level == DetailLevel::NameOnly).collect();
+
+        if !full.is_empty() {
+            content.push_str("[NEARBY LORE — FULL DETAIL]\n");
+            for s in &full {
+                content.push_str(&format!("- {} ({}): {}\n", s.entity_name, s.category, s.entity_id));
+            }
+        }
+
+        if !summary.is_empty() {
+            content.push_str("\n[DISTANT LORE — SUMMARY ONLY]\n");
+            for s in &summary {
+                content.push_str(&format!("- {} ({})\n", s.entity_name, s.category));
+            }
+        }
+
+        if !name_only.is_empty() {
+            let names: Vec<_> = name_only.iter().map(|s| s.entity_name.as_str()).collect();
+            content.push_str(&format!(
+                "\n[KNOWN ENTITIES — NAMES ONLY (do not invent details)]\n{}\n",
+                names.join(", ")
+            ));
+        }
+
+        content
     }
 
     /// Format selections as a human-readable OTEL summary string.
