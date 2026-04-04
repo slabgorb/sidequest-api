@@ -29,9 +29,9 @@ use tracing::Instrument;
 use sidequest_agents::orchestrator::TurnContext;
 use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ActionRevealPayload, ChapterMarkerPayload, GameMessage, InventoryPayload, MapUpdatePayload,
-    NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload, PlayerActionEntry,
-    SessionEventPayload, ThinkingPayload, TurnStatusPayload,
+    ActionRevealPayload, ChapterMarkerPayload, GameMessage, InventoryPayload, ItemDepletedPayload,
+    MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
+    PlayerActionEntry, SessionEventPayload, ThinkingPayload, TurnStatusPayload,
 };
 
 use crate::extraction::{
@@ -598,26 +598,27 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("exit_type", &transition.exit_type)
                         .send(ctx.state);
 
-                    // Story 19-5: Deplete active light source on room transition
+                    // Story 19-10: Deplete active light source on room transition
+                    let remaining_before = ctx.inventory.items.iter()
+                        .find(|item| item.tags.iter().any(|t| t == "light"))
+                        .and_then(|item| item.uses_remaining)
+                        .unwrap_or(0);
                     if let Some(depleted_item) = ctx.inventory.deplete_light_on_transition() {
                         let item_name = depleted_item.name.as_str().to_owned();
                         tracing::info!(
-                            name: "item.depleted",
+                            name: "inventory.light_depleted",
                             item_name = %item_name,
-                            item_id = %depleted_item.id.as_str(),
-                            category = "light",
+                            remaining_before = remaining_before,
                         );
                         WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
-                            .field("event", "item.depleted")
+                            .field("event", "inventory.light_depleted")
                             .field("item_name", &item_name)
-                            .field("item_id", depleted_item.id.as_str())
-                            .field("category", "light")
+                            .field("remaining_before", &remaining_before.to_string())
                             .send(ctx.state);
-                        messages.push(GameMessage::Narration {
-                            payload: NarrationPayload {
-                                text: format!("Your {} sputters and dies. The darkness closes in.", item_name),
-                                state_delta: None,
-                                footnotes: vec![],
+                        messages.push(GameMessage::ItemDepleted {
+                            payload: ItemDepletedPayload {
+                                item_name,
+                                remaining_before,
                             },
                             player_id: ctx.player_id.to_string(),
                         });
