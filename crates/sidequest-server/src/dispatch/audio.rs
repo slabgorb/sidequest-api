@@ -86,78 +86,102 @@ pub(crate) async fn process_audio(
         // Get turn_number for watcher event (approximate from turn_manager)
         let turn_approx = ctx.turn_manager.interaction();
 
-        if let Some(cue) = director.evaluate(clean_narration, &mood_ctx) {
-            tracing::info!(
-                mood = mood_key,
-                track = ?cue.track_id,
-                ctx.action = %cue.action,
-                volume = cue.volume,
-                "music_cue_produced"
-            );
+        match director.evaluate(clean_narration, &mood_ctx) {
+            sidequest_game::MusicEvalResult::Cue(cue) => {
+                tracing::info!(
+                    mood = mood_key,
+                    track = ?cue.track_id,
+                    ctx.action = %cue.action,
+                    volume = cue.volume,
+                    "music_cue_produced"
+                );
 
-            // Emit rich music telemetry to watcher
-            {
-                let mut builder = WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
+                // Emit rich music telemetry to watcher
+                {
+                    let mut builder = WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
+                        .field("turn_number", turn_approx)
+                        .field("mood_classified", mood_reasoning.classification.primary.as_key())
+                        .field("mood_reason", &mood_reasoning.reason)
+                        .field("narrator_scene_mood", mood_key)
+                        .field("intensity", mood_reasoning.classification.intensity)
+                        .field("confidence", mood_reasoning.classification.confidence);
+                    if !mood_reasoning.keyword_matches.is_empty() {
+                        builder = builder.field("keyword_matches",
+                            mood_reasoning.keyword_matches.iter()
+                                .map(|(mood, kw)| format!("{}:{}", mood, kw))
+                                .collect::<Vec<_>>());
+                    }
+                    // Story 12-1: variation telemetry from post-evaluate snapshot
+                    let post_telemetry = director.telemetry_snapshot();
+                    builder
+                        .field("track_selected", &cue.track_id)
+                        .field("variation", &post_telemetry.current_variation)
+                        .field("variation_reason", &post_telemetry.variation_reason)
+                        .field("previous_mood", &pre_telemetry.current_mood)
+                        .field("previous_track", &pre_telemetry.current_track)
+                        .field("action", cue.action.to_string())
+                        .field("volume", cue.volume)
+                        .field("rotation_history", &pre_telemetry.rotation_history)
+                        .field("tracks_per_mood", &pre_telemetry.tracks_per_mood)
+                        .send(ctx.state);
+                }
+
+                let mixer_cues = {
+                    let mut mixer_guard = ctx.audio_mixer.lock().await;
+                    if let Some(ref mut mixer) = *mixer_guard {
+                        mixer.apply_cue(cue)
+                    } else {
+                        vec![cue]
+                    }
+                };
+                tracing::info!(cue_count = mixer_cues.len(), "music_mixer_cues_ready");
+                for c in &mixer_cues {
+                    messages.push(audio_cue_to_game_message(
+                        c,
+                        ctx.player_id,
+                        ctx.genre_slug,
+                        Some(mood_key),
+                    ));
+                }
+            }
+            sidequest_game::MusicEvalResult::Suppressed { mood, intensity } => {
+                // Same mood, low intensity — intentional suppression, not an error
+                tracing::debug!(
+                    mood = %mood,
+                    intensity = intensity,
+                    "music.suppressed — same mood, intensity below threshold"
+                );
+                WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
                     .field("turn_number", turn_approx)
                     .field("mood_classified", mood_reasoning.classification.primary.as_key())
                     .field("mood_reason", &mood_reasoning.reason)
                     .field("narrator_scene_mood", mood_key)
-                    .field("intensity", mood_reasoning.classification.intensity)
-                    .field("confidence", mood_reasoning.classification.confidence);
-                if !mood_reasoning.keyword_matches.is_empty() {
-                    builder = builder.field("keyword_matches",
-                        mood_reasoning.keyword_matches.iter()
-                            .map(|(mood, kw)| format!("{}:{}", mood, kw))
-                            .collect::<Vec<_>>());
-                }
-                // Story 12-1: variation telemetry from post-evaluate snapshot
-                let post_telemetry = director.telemetry_snapshot();
-                builder
-                    .field("track_selected", &cue.track_id)
-                    .field("variation", &post_telemetry.current_variation)
-                    .field("variation_reason", &post_telemetry.variation_reason)
-                    .field("previous_mood", &pre_telemetry.current_mood)
-                    .field("previous_track", &pre_telemetry.current_track)
-                    .field("action", cue.action.to_string())
-                    .field("volume", cue.volume)
-                    .field("rotation_history", &pre_telemetry.rotation_history)
+                    .field("suppressed", true)
+                    .field("suppression_reason", "same_mood_low_intensity")
+                    .field("suppressed_mood", &mood)
+                    .field("suppressed_intensity", intensity)
+                    .field("current_mood", &pre_telemetry.current_mood)
+                    .field("current_track", &pre_telemetry.current_track)
+                    .send(ctx.state);
+            }
+            sidequest_game::MusicEvalResult::NoTrackFound { mood, variation } => {
+                // Genuine anomaly — mood/variation combo has no eligible tracks
+                tracing::warn!(
+                    mood = %mood,
+                    variation = %variation,
+                    "music.no_track_found — no eligible tracks for mood/variation"
+                );
+                WatcherEventBuilder::new("music_director", WatcherEventType::ValidationWarning)
+                    .field("turn_number", turn_approx)
+                    .field("mood_classified", mood_reasoning.classification.primary.as_key())
+                    .field("mood_reason", &mood_reasoning.reason)
+                    .field("narrator_scene_mood", mood_key)
+                    .field("no_track_mood", &mood)
+                    .field("no_track_variation", &variation)
+                    .field("available_moods", &pre_telemetry.available_moods)
                     .field("tracks_per_mood", &pre_telemetry.tracks_per_mood)
                     .send(ctx.state);
             }
-
-            let mixer_cues = {
-                let mut mixer_guard = ctx.audio_mixer.lock().await;
-                if let Some(ref mut mixer) = *mixer_guard {
-                    mixer.apply_cue(cue)
-                } else {
-                    vec![cue]
-                }
-            };
-            tracing::info!(cue_count = mixer_cues.len(), "music_mixer_cues_ready");
-            for c in &mixer_cues {
-                messages.push(audio_cue_to_game_message(
-                    c,
-                    ctx.player_id,
-                    ctx.genre_slug,
-                    Some(mood_key),
-                ));
-            }
-        } else {
-            // Mood didn't change — still emit telemetry so dashboard shows suppression
-            WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
-                .field("turn_number", turn_approx)
-                .field("mood_classified", mood_reasoning.classification.primary.as_key())
-                .field("mood_reason", &mood_reasoning.reason)
-                .field("narrator_scene_mood", mood_key)
-                .field("suppressed", true)
-                .field("suppression_reason", "same_mood_low_intensity")
-                .field("current_mood", &pre_telemetry.current_mood)
-                .field("current_track", &pre_telemetry.current_track)
-                .send(ctx.state);
-            tracing::warn!(
-                mood = mood_key,
-                "music_evaluate_returned_none — no cue produced"
-            );
         }
     } else {
         tracing::warn!("music_director_missing — audio cues skipped");

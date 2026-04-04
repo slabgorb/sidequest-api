@@ -113,6 +113,17 @@ pub struct AudioCue {
     pub volume: f32,
 }
 
+/// Result of a music evaluation — either a cue to play, or a reason it was suppressed.
+#[derive(Debug, Clone)]
+pub enum MusicEvalResult {
+    /// A cue was produced — play this track.
+    Cue(AudioCue),
+    /// Mood unchanged and intensity below threshold — intentional suppression.
+    Suppressed { mood: String, intensity: f32 },
+    /// Track lookup failed — no eligible tracks for this mood/variation combo.
+    NoTrackFound { mood: String, variation: String },
+}
+
 /// Result of mood classification.
 #[derive(Debug, Clone)]
 pub struct MoodClassification {
@@ -385,7 +396,7 @@ impl MusicDirector {
     }
 
     /// Evaluate narration text and game context, returning an AudioCue if the mood changed.
-    pub fn evaluate(&mut self, narration: &str, ctx: &MoodContext) -> Option<AudioCue> {
+    pub fn evaluate(&mut self, narration: &str, ctx: &MoodContext) -> MusicEvalResult {
         let span = tracing::info_span!(
             "music_evaluate",
             mood = tracing::field::Empty,
@@ -405,7 +416,10 @@ impl MusicDirector {
             && classification.intensity <= 0.8
         {
             span.record("mood_changed", false);
-            return None;
+            return MusicEvalResult::Suppressed {
+                mood: classification.primary.as_key().to_string(),
+                intensity: classification.intensity,
+            };
         }
 
         span.record("mood_changed", true);
@@ -417,9 +431,18 @@ impl MusicDirector {
         span.record("variation_reason", tracing::field::display(&reason));
 
         // Try themed tracks for the selected variation first
-        let track_path = self
+        let track_path = match self
             .select_themed_track(&classification, &variation)
-            .or_else(|| self.select_track(&classification).map(|t| t.path.clone()))?;
+            .or_else(|| self.select_track(&classification).map(|t| t.path.clone()))
+        {
+            Some(path) => path,
+            None => {
+                return MusicEvalResult::NoTrackFound {
+                    mood: classification.primary.as_key().to_string(),
+                    variation: format!("{:?}", variation),
+                };
+            }
+        };
 
         let action = Self::transition_action(self.current_mood.as_ref(), &classification.primary);
         let volume = Self::intensity_to_volume(classification.intensity);
@@ -438,7 +461,7 @@ impl MusicDirector {
         self.current_track = Some(track_path);
         self.current_variation = Some(variation);
         self.variation_reason = Some(reason);
-        Some(cue)
+        MusicEvalResult::Cue(cue)
     }
 
     /// Classify the mood from narration text and game state.
@@ -812,9 +835,11 @@ mod tests {
         assert_eq!(classification.confidence, 1.0);
 
         // Should also produce a cue
-        let cue = director.evaluate("A gentle breeze", &ctx);
-        assert!(cue.is_some());
-        let cue = cue.unwrap();
+        let result = director.evaluate("A gentle breeze", &ctx);
+        let cue = match result {
+            MusicEvalResult::Cue(c) => c,
+            other => panic!("Expected Cue, got {:?}", other),
+        };
         assert_eq!(cue.channel, AudioChannel::Music);
         assert!(cue.track_id.unwrap().contains("combat"));
     }
@@ -846,14 +871,14 @@ mod tests {
         };
 
         // First evaluation produces a cue
-        let cue1 = director.evaluate("Combat begins!", &ctx);
-        assert!(cue1.is_some());
+        let result1 = director.evaluate("Combat begins!", &ctx);
+        assert!(matches!(result1, MusicEvalResult::Cue(_)));
 
-        // Same mood, low intensity — no new cue
-        let cue2 = director.evaluate("The battle continues.", &ctx);
+        // Same mood, low intensity — suppressed
+        let result2 = director.evaluate("The battle continues.", &ctx);
         assert!(
-            cue2.is_none(),
-            "Same mood should not produce a new cue unless intensity >= 0.8"
+            matches!(result2, MusicEvalResult::Suppressed { .. }),
+            "Same mood should be suppressed unless intensity >= 0.8, got {:?}", result2
         );
     }
 
@@ -866,7 +891,10 @@ mod tests {
             in_combat: true,
             ..Default::default()
         };
-        let cue = director.evaluate("Fight!", &ctx).unwrap();
+        let cue = match director.evaluate("Fight!", &ctx) {
+            MusicEvalResult::Cue(c) => c,
+            other => panic!("Expected Cue, got {:?}", other),
+        };
         let track = cue.track_id.unwrap();
         assert!(
             track.contains("combat"),
@@ -889,7 +917,10 @@ mod tests {
             in_combat: true,
             ..Default::default()
         };
-        let cue = director.evaluate("Ambush!", &combat_ctx).unwrap();
+        let cue = match director.evaluate("Ambush!", &combat_ctx) {
+            MusicEvalResult::Cue(c) => c,
+            other => panic!("Expected Cue, got {:?}", other),
+        };
         assert_eq!(cue.action, AudioAction::Play, "Combat start should use Play (immediate)");
     }
 
@@ -907,10 +938,12 @@ mod tests {
 
         // End combat → exploration
         let explore_ctx = MoodContext::default();
-        let cue = director.evaluate("The enemies are defeated. You walk on.", &explore_ctx);
-        assert!(cue.is_some());
+        let cue = match director.evaluate("The enemies are defeated. You walk on.", &explore_ctx) {
+            MusicEvalResult::Cue(c) => c,
+            other => panic!("Expected Cue on mood change, got {:?}", other),
+        };
         assert_eq!(
-            cue.unwrap().action,
+            cue.action,
             AudioAction::FadeOut,
             "Combat → non-combat should use FadeOut"
         );
