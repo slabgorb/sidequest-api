@@ -448,9 +448,10 @@ fn cyclic_graph_does_not_infinite_loop() {
         ],
     };
     let filter = LoreFilter::new(&graph);
-    // Must terminate and return correct distance via shortest path
-    assert_eq!(filter.graph_distance("a", "c"), Some(2));
-    // Going the other way around the cycle should be 1 hop (C->A edge)
+    // Must terminate and return correct shortest-path distance.
+    // Bidirectional: A neighbors are {B, C} (C→A edge reversed), so A→C = 1.
+    assert_eq!(filter.graph_distance("a", "c"), Some(1));
+    // C→A is also 1 hop (direct forward edge C→A, or reverse of A→B... either way, 1)
     assert_eq!(filter.graph_distance("c", "a"), Some(1));
 }
 
