@@ -9,6 +9,8 @@ use std::collections::HashMap;
 pub struct Culture {
     /// Culture name.
     pub name: NonBlankString,
+    /// One-line summary (~10 tokens) for tiered lore retrieval safety net.
+    pub summary: String,
     /// Description.
     pub description: String,
     /// Named generation slots.
@@ -17,6 +19,13 @@ pub struct Culture {
     pub person_patterns: Vec<String>,
     /// Place name patterns using slot references.
     pub place_patterns: Vec<String>,
+}
+
+impl Culture {
+    /// One-line summary for narrator prompt RAG pipeline.
+    pub fn summary(&self) -> &str {
+        &self.summary
+    }
 }
 
 /// A name-generation slot — corpus-based, word-list-based, or file-based.

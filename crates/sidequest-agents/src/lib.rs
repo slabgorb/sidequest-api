@@ -16,6 +16,7 @@ pub mod exercise_tracker;
 pub mod footnotes;
 // format_helpers module removed — superseded by inline formatting in
 // sidequest-server::dispatch::prompt::build_prompt_context.
+pub mod lore_filter;
 pub mod orchestrator;
 pub mod patch_legality;
 pub mod patches;

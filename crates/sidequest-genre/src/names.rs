@@ -268,6 +268,7 @@ mod tests {
     fn test_culture() -> Culture {
         Culture {
             name: NonBlankString::new("Ember Isles").unwrap(),
+            summary: "Volcanic island culture inspired by fire".to_string(),
             description: "Fire nation".to_string(),
             slots: HashMap::from([
                 (

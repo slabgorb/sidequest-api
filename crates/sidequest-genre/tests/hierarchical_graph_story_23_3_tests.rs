@@ -340,11 +340,13 @@ map_style: hand-drawn parchment
 regions:
   kingshold:
     name: Kingshold
+    summary: "The capital city"
     description: The capital
     adjacent:
       - wildwood
   wildwood:
     name: The Wildwood
+    summary: "Dark ancient forest"
     description: Dark forest
     adjacent:
       - kingshold

@@ -325,6 +325,8 @@ pub struct CartographyConfig {
 pub struct Region {
     /// Display name.
     pub name: String,
+    /// One-line summary (~10 tokens) for tiered lore retrieval safety net.
+    pub summary: String,
     /// Description.
     pub description: String,
     /// Slugs of adjacent regions.
@@ -351,6 +353,13 @@ pub struct Region {
     /// Genre-specific region extensions (chase_profile, etc.).
     #[serde(flatten)]
     pub extras: HashMap<String, serde_json::Value>,
+}
+
+impl Region {
+    /// One-line summary for narrator prompt RAG pipeline.
+    pub fn summary(&self) -> &str {
+        &self.summary
+    }
 }
 
 /// A landmark — either a simple name string or a detailed object.

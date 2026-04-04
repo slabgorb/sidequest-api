@@ -54,6 +54,8 @@ pub struct WorldLore {
 pub struct Faction {
     /// Faction name.
     pub name: String,
+    /// One-line summary (~10 tokens) for tiered lore retrieval safety net.
+    pub summary: String,
     /// Description of the faction.
     pub description: String,
     /// Starting disposition toward the player.
@@ -62,4 +64,11 @@ pub struct Faction {
     /// Genre-specific faction extensions.
     #[serde(flatten)]
     pub extras: HashMap<String, serde_json::Value>,
+}
+
+impl Faction {
+    /// One-line summary for narrator prompt RAG pipeline.
+    pub fn summary(&self) -> &str {
+        &self.summary
+    }
 }
