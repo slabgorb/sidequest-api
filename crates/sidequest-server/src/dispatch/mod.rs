@@ -213,6 +213,80 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // Two-pass inventory extraction: classify the PREVIOUS turn's narration for
+    // item state transitions (consumed, sold, given, lost, destroyed). Runs before
+    // the narrator LLM call so mutations are visible in the current turn's prompt.
+    if let Some(prev_entry) = ctx.narration_history.last() {
+        let carried_names: Vec<String> = ctx.inventory.carried().map(|i| i.name.as_str().to_string()).collect();
+        if !carried_names.is_empty() {
+            // Split the history entry: "[CharName] Action: ...\nNarrator: ..."
+            let (prev_action, prev_narration) = prev_entry
+                .split_once("\nNarrator: ")
+                .map(|(a, n)| {
+                    let action = a.split_once("Action: ").map(|(_, act)| act).unwrap_or(a);
+                    (action.to_string(), n.to_string())
+                })
+                .unwrap_or_default();
+
+            if !prev_narration.is_empty() {
+                let mutations = sidequest_agents::inventory_extractor::extract_inventory_mutations_async(
+                    &prev_action,
+                    &prev_narration,
+                    &carried_names,
+                ).await;
+
+                for mutation in &mutations {
+                    // Fuzzy match: find carried item whose name matches (case-insensitive)
+                    let item_lower = mutation.item_name.to_lowercase();
+                    let matched_id = ctx.inventory.carried()
+                        .find(|i| i.name.as_str().to_lowercase() == item_lower)
+                        .map(|i| i.id.as_str().to_string());
+
+                    if let Some(item_id) = matched_id {
+                        use sidequest_agents::inventory_extractor::MutationAction;
+                        let new_state = match &mutation.action {
+                            MutationAction::Consumed => sidequest_game::ItemState::Consumed,
+                            MutationAction::Sold => sidequest_game::ItemState::Sold { to: mutation.detail.clone() },
+                            MutationAction::Given => sidequest_game::ItemState::Given { to: mutation.detail.clone() },
+                            MutationAction::Lost => sidequest_game::ItemState::Lost { reason: mutation.detail.clone() },
+                            MutationAction::Destroyed => sidequest_game::ItemState::Destroyed { reason: mutation.detail.clone() },
+                        };
+                        match ctx.inventory.transition(&item_id, new_state) {
+                            Ok(old_state) => {
+                                tracing::info!(
+                                    item_name = %mutation.item_name,
+                                    old_state = %old_state,
+                                    new_state = %mutation.action,
+                                    detail = %mutation.detail,
+                                    "inventory.two_pass_transition"
+                                );
+                                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                    .field("action", "two_pass_transition")
+                                    .field("item_name", &mutation.item_name)
+                                    .field("new_state", format!("{:?}", mutation.action))
+                                    .field("detail", &mutation.detail)
+                                    .field("carried_count", ctx.inventory.item_count())
+                                    .send(ctx.state);
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    item_name = %mutation.item_name,
+                                    error = %e,
+                                    "inventory.two_pass_transition_failed"
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::debug!(
+                            item_name = %mutation.item_name,
+                            "inventory.two_pass_no_match — item not found in carried inventory"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // Slash command interception — route /commands to mechanical handlers, not the LLM.
     if let Some(slash_messages) = slash::handle_slash_command(ctx) {
         return slash_messages;
