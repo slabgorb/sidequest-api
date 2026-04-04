@@ -85,6 +85,18 @@ pub struct ActionResult {
     pub action_flags: Option<ActionFlags>,
 }
 
+/// Narrator prompt tier (ADR-066). Controls how much context is included.
+/// Modeled after Pennyfarthing's prime tiered context system.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NarratorPromptTier {
+    /// Full context — first turn of a new session. Everything included.
+    Full,
+    /// Delta only — subsequent turns on a resumed session. Static context
+    /// (agent identity, SOUL, SFX library, verbosity rules) is already in
+    /// the conversation history. Only dynamic state + action sent.
+    Delta,
+}
+
 /// Result of building a narrator prompt without invoking the LLM.
 ///
 /// Extracted from `process_action()` so prompt content can be tested
@@ -265,30 +277,42 @@ impl Orchestrator {
     /// Returns the composed prompt text, zone breakdown, injected script tool names,
     /// and the `--allowedTools` specs for the Claude CLI.
     pub fn build_narrator_prompt(&self, action: &str, context: &TurnContext) -> NarratorPromptResult {
+        self.build_narrator_prompt_tiered(action, context, NarratorPromptTier::Full)
+    }
+
+    /// Build the narrator prompt with tiered context (ADR-066).
+    ///
+    /// `Full` includes everything (first turn). `Delta` skips static sections
+    /// that are already in the persistent session's conversation history.
+    pub fn build_narrator_prompt_tiered(&self, action: &str, context: &TurnContext, tier: NarratorPromptTier) -> NarratorPromptResult {
         let route = self.intent_router.classify(action, context);
 
         let mut builder = ContextBuilder::new();
         let mut script_tools_injected: Vec<String> = Vec::new();
+        let is_full = tier == NarratorPromptTier::Full;
 
-        // Agent identity section (Primacy zone)
-        match route.agent_name() {
-            "creature_smith" => self.creature_smith.build_context(&mut builder),
-            "ensemble" => self.ensemble.build_context(&mut builder),
-            "dialectician" => self.dialectician.build_context(&mut builder),
-            _ => self.narrator.build_context(&mut builder),
-        };
+        // === STATIC SECTIONS (Full tier only — already in session history on Delta) ===
 
-        // SOUL principles (Early zone — high attention, after identity, before state)
-        // Filtered per agent via <agents> tags in SOUL.md.
-        if let Some(ref soul) = self.soul_data {
-            let filtered = soul.as_prompt_text_for(route.agent_name());
-            if !filtered.is_empty() {
-                builder.add_section(PromptSection::new(
-                    "soul_principles",
-                    filtered,
-                    AttentionZone::Early,
-                    SectionCategory::Soul,
-                ));
+        if is_full {
+            // Agent identity section (Primacy zone)
+            match route.agent_name() {
+                "creature_smith" => self.creature_smith.build_context(&mut builder),
+                "ensemble" => self.ensemble.build_context(&mut builder),
+                "dialectician" => self.dialectician.build_context(&mut builder),
+                _ => self.narrator.build_context(&mut builder),
+            };
+
+            // SOUL principles (Early zone — high attention, after identity, before state)
+            if let Some(ref soul) = self.soul_data {
+                let filtered = soul.as_prompt_text_for(route.agent_name());
+                if !filtered.is_empty() {
+                    builder.add_section(PromptSection::new(
+                        "soul_principles",
+                        filtered,
+                        AttentionZone::Early,
+                        SectionCategory::Soul,
+                    ));
+                }
             }
         }
 
@@ -375,8 +399,8 @@ impl Orchestrator {
             ));
         }
 
-        // SFX library (Valley zone)
-        if !context.available_sfx.is_empty() {
+        // SFX library (Valley zone) — static, only on Full tier
+        if is_full && !context.available_sfx.is_empty() {
             let sfx_list = context.available_sfx.join(", ");
             builder.add_section(PromptSection::new(
                 "sfx_library",
@@ -392,8 +416,8 @@ impl Orchestrator {
             ));
         }
 
-        // Backstory capture directive
-        if route.intent() == Intent::Backstory {
+        // Backstory capture directive — static format, only on Full tier
+        if is_full && route.intent() == Intent::Backstory {
             builder.add_section(PromptSection::new(
                 "backstory_capture",
                 "## Backstory Capture Mode\n\
@@ -416,8 +440,8 @@ impl Orchestrator {
             ));
         }
 
-        // Narrator verbosity instruction (Late zone)
-        {
+        // Narrator verbosity + vocabulary (Late zone) — static format, only on Full tier
+        if is_full {
             use sidequest_protocol::NarratorVerbosity;
             let content = match context.narrator_verbosity {
                 NarratorVerbosity::Concise => {
@@ -446,10 +470,9 @@ impl Orchestrator {
                 AttentionZone::Late,
                 SectionCategory::Format,
             ));
-        }
 
-        // Narrator vocabulary instruction (Late zone)
-        {
+
+            // Narrator vocabulary instruction (Late zone)
             use sidequest_protocol::NarratorVocabulary;
             let content = match context.narrator_vocabulary {
                 NarratorVocabulary::Accessible => {
@@ -526,7 +549,14 @@ impl GameService for Orchestrator {
         let _guard = span.enter();
 
         // Build prompt via extracted method (story 15-27: testable prompt assembly).
-        let prompt_result = self.build_narrator_prompt(action, context);
+        // ADR-066: Use Delta tier on resumed sessions — static context already in history.
+        let current_session_exists = self.narrator_session_id.lock().unwrap().is_some();
+        let prompt_tier = if current_session_exists {
+            NarratorPromptTier::Delta
+        } else {
+            NarratorPromptTier::Full
+        };
+        let prompt_result = self.build_narrator_prompt_tiered(action, context, prompt_tier);
         let prompt = prompt_result.prompt_text;
         let prompt_zone_breakdown = prompt_result.zone_breakdown;
         let allowed_tools = prompt_result.allowed_tools;
