@@ -12,6 +12,8 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use sidequest_genre::ConfrontationDef;
+
 use crate::chase::ChaseState;
 use crate::chase_depth::{RigStats, RigType};
 use crate::combat::CombatState;
@@ -381,5 +383,278 @@ impl StructuredEncounter {
             mood_override: None,
             narrator_hints: vec![],
         }
+    }
+
+    /// Create a StructuredEncounter from a genre-pack ConfrontationDef.
+    ///
+    /// Maps the YAML-declared confrontation type onto the runtime encounter model:
+    /// - confrontation_type → encounter_type
+    /// - MetricDef → EncounterMetric (direction string → MetricDirection enum)
+    /// - SecondaryStatDef → SecondaryStats (default max 10, current = max)
+    /// - mood → mood_override
+    pub fn from_confrontation_def(def: &ConfrontationDef) -> Self {
+        let direction = match def.metric.direction.as_str() {
+            "ascending" => MetricDirection::Ascending,
+            "descending" => MetricDirection::Descending,
+            "bidirectional" => MetricDirection::Bidirectional,
+            _ => MetricDirection::Ascending,
+        };
+
+        let secondary_stats = if def.secondary_stats.is_empty() {
+            None
+        } else {
+            let mut stats = HashMap::new();
+            for stat_def in &def.secondary_stats {
+                let max = 10; // default max for confrontation secondary stats
+                stats.insert(
+                    stat_def.name.clone(),
+                    StatValue { current: max, max },
+                );
+            }
+            Some(SecondaryStats {
+                stats,
+                damage_tier: None,
+            })
+        };
+
+        Self {
+            encounter_type: def.confrontation_type.clone(),
+            metric: EncounterMetric {
+                name: def.metric.name.clone(),
+                current: def.metric.starting,
+                starting: def.metric.starting,
+                direction,
+                threshold_high: def.metric.threshold_high,
+                threshold_low: def.metric.threshold_low,
+            },
+            beat: 0,
+            structured_phase: Some(EncounterPhase::Setup),
+            secondary_stats,
+            actors: vec![],
+            outcome: None,
+            resolved: false,
+            mood_override: def.mood.clone(),
+            narrator_hints: vec![],
+        }
+    }
+
+    /// Apply a beat action to the encounter, mutating the primary metric.
+    ///
+    /// Looks up the beat by ID in the confrontation definition, applies its
+    /// metric_delta, increments the beat counter, checks for resolution
+    /// (threshold crossing or resolution flag), and updates the phase.
+    pub fn apply_beat(
+        &mut self,
+        beat_id: &str,
+        def: &ConfrontationDef,
+    ) -> Result<(), String> {
+        if self.resolved {
+            return Err("encounter is already resolved".to_string());
+        }
+
+        let beat = def
+            .beats
+            .iter()
+            .find(|b| b.id == beat_id)
+            .ok_or_else(|| format!("unknown beat id '{}'", beat_id))?;
+
+        // Apply metric delta, clamping to 0 for ascending metrics
+        self.metric.current += beat.metric_delta;
+        if self.metric.direction == MetricDirection::Ascending && self.metric.current < 0 {
+            self.metric.current = 0;
+        }
+
+        self.beat += 1;
+
+        // Check resolution: beat flag or threshold crossing
+        let is_resolution_beat = beat.resolution.unwrap_or(false);
+        let threshold_crossed = match self.metric.direction {
+            MetricDirection::Ascending => self
+                .metric
+                .threshold_high
+                .map_or(false, |t| self.metric.current >= t),
+            MetricDirection::Descending => self
+                .metric
+                .threshold_low
+                .map_or(false, |t| self.metric.current <= t),
+            MetricDirection::Bidirectional => {
+                let high = self
+                    .metric
+                    .threshold_high
+                    .map_or(false, |t| self.metric.current >= t);
+                let low = self
+                    .metric
+                    .threshold_low
+                    .map_or(false, |t| self.metric.current <= t);
+                high || low
+            }
+        };
+
+        if is_resolution_beat || threshold_crossed {
+            self.resolved = true;
+            self.structured_phase = Some(EncounterPhase::Resolution);
+        } else {
+            // Phase transitions by beat number (same arc as chase)
+            self.structured_phase = Some(match self.beat {
+                0 => EncounterPhase::Setup,
+                1 => EncounterPhase::Opening,
+                2..=4 => EncounterPhase::Escalation,
+                _ => EncounterPhase::Climax,
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Return the escalation target from the confrontation definition.
+    pub fn escalation_target(&self, def: &ConfrontationDef) -> Option<String> {
+        def.escalates_to.clone()
+    }
+
+    /// Produce a combat encounter from a resolved encounter, carrying actors.
+    ///
+    /// Returns None if the encounter is not yet resolved.
+    pub fn escalate_to_combat(&self) -> Option<StructuredEncounter> {
+        if !self.resolved {
+            return None;
+        }
+
+        let actors = self
+            .actors
+            .iter()
+            .map(|a| EncounterActor {
+                name: a.name.clone(),
+                role: "combatant".to_string(),
+            })
+            .collect();
+
+        Some(StructuredEncounter {
+            encounter_type: "combat".to_string(),
+            metric: EncounterMetric {
+                name: "hp".to_string(),
+                current: 0,
+                starting: 0,
+                direction: MetricDirection::Descending,
+                threshold_high: None,
+                threshold_low: Some(0),
+            },
+            beat: 0,
+            structured_phase: Some(EncounterPhase::Setup),
+            secondary_stats: None,
+            actors,
+            outcome: None,
+            resolved: false,
+            mood_override: Some("combat".to_string()),
+            narrator_hints: vec![],
+        })
+    }
+
+    /// Format narrator prompt context for a structured encounter.
+    ///
+    /// Produces a context block like `[STANDOFF]` or `[NEGOTIATION]`
+    /// with metric state, available beats, secondary stats, and
+    /// cinematography hints.
+    pub fn format_encounter_context(&self, def: &ConfrontationDef) -> String {
+        let type_upper = self.encounter_type.to_uppercase();
+        let phase_name = self
+            .structured_phase
+            .map(|p| format!("{:?}", p).to_uppercase())
+            .unwrap_or_else(|| "UNKNOWN".to_string());
+
+        let threshold = match self.metric.direction {
+            MetricDirection::Ascending => self
+                .metric
+                .threshold_high
+                .map(|t| format!("/{}", t))
+                .unwrap_or_default(),
+            MetricDirection::Descending => self
+                .metric
+                .threshold_low
+                .map(|t| format!("/{}", t))
+                .unwrap_or_default(),
+            MetricDirection::Bidirectional => {
+                let parts: Vec<String> = [
+                    self.metric.threshold_low.map(|t| format!("low:{}", t)),
+                    self.metric.threshold_high.map(|t| format!("high:{}", t)),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                if parts.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", parts.join(", "))
+                }
+            }
+        };
+
+        let mut lines = vec![
+            format!("[{}]", type_upper),
+            format!(
+                "Phase: {} | Beat: {} | {}: {}{}",
+                phase_name,
+                self.beat,
+                capitalize(&self.metric.name),
+                self.metric.current,
+                threshold,
+            ),
+        ];
+
+        // Secondary stats
+        if let Some(ref stats) = self.secondary_stats {
+            for (name, val) in &stats.stats {
+                lines.push(format!(
+                    "{}: {}/{} — spendable",
+                    capitalize(name),
+                    val.current,
+                    val.max,
+                ));
+            }
+        }
+
+        // Available beats
+        lines.push("Available:".to_string());
+        for (i, beat) in def.beats.iter().enumerate() {
+            let mut desc = format!("  {}. {} [{}]", i + 1, beat.label, beat.stat_check);
+            if beat.metric_delta != 0 {
+                let sign = if beat.metric_delta > 0 { "+" } else { "" };
+                desc.push_str(&format!(
+                    " ({} {}{})",
+                    self.metric.name, sign, beat.metric_delta
+                ));
+            }
+            if let Some(ref reveals) = beat.reveals {
+                desc.push_str(&format!(", reveals {}", reveals));
+            }
+            if let Some(ref risk) = beat.risk {
+                desc.push_str(&format!(", risk: {}", risk));
+            }
+            if beat.resolution.unwrap_or(false) {
+                desc.push_str(", resolves encounter");
+            }
+            lines.push(desc);
+        }
+
+        // Cinematography hints — close-up, slow-motion for tense encounters
+        let drama = self
+            .structured_phase
+            .map(|p| p.drama_weight())
+            .unwrap_or(0.7);
+        if drama >= 0.80 {
+            lines.push("Camera: Close-up, slow-motion | Pace: Peak intensity | Sentences: 2-4".to_string());
+        } else {
+            lines.push("Camera: Close-up | Pace: Building tension | Sentences: 2-4".to_string());
+        }
+
+        lines.join("\n")
+    }
+}
+
+/// Capitalize the first letter of a string.
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
     }
 }
