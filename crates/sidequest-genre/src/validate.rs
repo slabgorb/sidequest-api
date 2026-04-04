@@ -159,13 +159,17 @@ impl GenrePack {
             .map(|s| s.to_uppercase())
             .collect();
 
-        // Collect all confrontation type IDs for escalates_to validation
-        let confrontation_types: HashSet<&str> = self
+        // Collect all confrontation type IDs for escalates_to validation.
+        // Include built-in engine encounter types (combat, chase) that exist
+        // as StructuredEncounter presets even without YAML declarations.
+        let mut confrontation_types: HashSet<&str> = self
             .rules
             .confrontations
             .iter()
             .map(|c| c.confrontation_type.as_str())
             .collect();
+        confrontation_types.insert("combat");
+        confrontation_types.insert("chase");
 
         for confrontation in &self.rules.confrontations {
             // Validate beat stat_check references
