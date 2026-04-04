@@ -703,21 +703,41 @@ pub(crate) async fn dispatch_character_creation(
 
     match phase {
         "scene" => {
-            // Parse choice (1-based string → 0-based index)
             let choice_str = payload.choice.as_deref().unwrap_or("1");
-            let index = choice_str.parse::<usize>().unwrap_or(1).saturating_sub(1);
+
+            // Try parsing as 1-based numeric index first
+            let resolved_index = if let Ok(n) = choice_str.parse::<usize>() {
+                Some(n.saturating_sub(1))
+            } else {
+                // Not a number — try matching against choice labels (case-insensitive)
+                let scene = b.current_scene();
+                scene.choices.iter().position(|c| {
+                    c.label.eq_ignore_ascii_case(choice_str)
+                })
+            };
 
             WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
                 .field("phase", phase)
-                .field("choice_index", index)
+                .field("choice_raw", choice_str)
+                .field("resolved_index", format!("{:?}", resolved_index))
                 .field("player_id", player_id)
                 .send(state);
 
-            if let Err(e) = b.apply_choice(index) {
-                return vec![error_response(
-                    player_id,
-                    &format!("Invalid choice: {:?}", e),
-                )];
+            if let Some(index) = resolved_index {
+                if let Err(e) = b.apply_choice(index) {
+                    return vec![error_response(
+                        player_id,
+                        &format!("Invalid choice: {:?}", e),
+                    )];
+                }
+            } else {
+                // Freeform text input — use apply_freeform if the scene allows it
+                if let Err(e) = b.apply_freeform(choice_str) {
+                    return vec![error_response(
+                        player_id,
+                        &format!("Invalid freeform input: {:?}", e),
+                    )];
+                }
             }
 
             // Send the next scene or confirmation
