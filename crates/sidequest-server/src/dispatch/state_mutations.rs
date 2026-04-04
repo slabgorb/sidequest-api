@@ -60,7 +60,7 @@ pub(crate) async fn apply_state_mutations(
                     }
                     names
                 };
-                ctx.combat_state.engage(combatants);
+                ctx.combat_state.engage(combatants.clone());
                 tracing::info!(
                     turn_order = ?ctx.combat_state.turn_order(),
                     current_turn = ?ctx.combat_state.current_turn(),
@@ -72,6 +72,47 @@ pub(crate) async fn apply_state_mutations(
                     .field("current_turn", ctx.combat_state.current_turn())
                     .field("combatant_count", ctx.combat_state.turn_order().len())
                     .send(ctx.state);
+
+                // Register combatants in npc_registry so the CombatOverlay
+                // enemies list can look them up. Without this, enemies array
+                // is always empty because turn_order names don't match any
+                // registry entries.
+                for name in &combatants {
+                    if name.eq_ignore_ascii_case(ctx.char_name) {
+                        continue; // skip player character
+                    }
+                    if !ctx.npc_registry.iter().any(|e| e.name.eq_ignore_ascii_case(name)) {
+                        // Check Monster Manual for NPC data
+                        let (pronouns, role) = ctx.monster_manual
+                            .npcs.iter()
+                            .find(|n| n.name.eq_ignore_ascii_case(name))
+                            .map(|n| {
+                                let p = n.data.get("pronouns")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("they/them")
+                                    .to_string();
+                                (p, n.role.clone())
+                            })
+                            .unwrap_or_else(|| ("they/them".to_string(), "combatant".to_string()));
+                        ctx.npc_registry.push(crate::NpcRegistryEntry {
+                            name: name.clone(),
+                            pronouns,
+                            role,
+                            location: ctx.current_location.clone(),
+                            last_seen_turn: ctx.turn_manager.interaction() as u32,
+                            age: String::new(),
+                            appearance: String::new(),
+                            ocean_summary: String::new(),
+                            ocean: None,
+                            hp: 10,
+                            max_hp: 10,
+                        });
+                        tracing::info!(
+                            npc_name = %name,
+                            "combat.npc_registered — combatant added to npc_registry"
+                        );
+                    }
+                }
 
                 // Turn mode transition: FreePlay → Structured
                 let holder = ctx.shared_session_holder.lock().await;
@@ -162,11 +203,52 @@ pub(crate) async fn apply_state_mutations(
             }
         }
 
-        // Apply turn_order/current_turn updates (mid-combat changes)
+        // Remove dead combatants (HP ≤ 0) from turn order.
+        // This is the ONLY path that removes combatants — never by narrator omission.
+        if ctx.combat_state.in_combat() {
+            let dead_npcs: Vec<String> = ctx.npc_registry.iter()
+                .filter(|n| n.hp <= 0 && n.max_hp > 0) // hp=0 with max_hp>0 = confirmed dead
+                .map(|n| n.name.clone())
+                .collect();
+            if !dead_npcs.is_empty() {
+                let mut order = ctx.combat_state.turn_order().to_vec();
+                let before_len = order.len();
+                order.retain(|name| !dead_npcs.iter().any(|d| d.eq_ignore_ascii_case(name)));
+                if order.len() != before_len {
+                    ctx.combat_state.set_turn_order(order);
+                    for dead in &dead_npcs {
+                        tracing::info!(npc = %dead, "combat.combatant_killed — removed from turn order");
+                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                            .field("action", "combatant_killed")
+                            .field("npc", dead)
+                            .field("remaining_combatants", ctx.combat_state.turn_order().len())
+                            .send(ctx.state);
+                    }
+                }
+            }
+        }
+
+        // Apply turn_order/current_turn updates (mid-combat changes).
+        // Turn order is append-only: new combatants from the patch are added,
+        // but existing combatants are never removed by omission. Only explicit
+        // death (HP ≤ 0) or disengage removes combatants.
         if ctx.combat_state.in_combat() {
             if let Some(ref order) = combat_patch.turn_order {
-                if !order.is_empty() {
-                    ctx.combat_state.set_turn_order(order.clone());
+                let current = ctx.combat_state.turn_order().to_vec();
+                let mut merged = current.clone();
+                for name in order {
+                    if !merged.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+                        merged.push(name.clone());
+                        tracing::info!(combatant = %name, "combat.turn_order_added — new combatant joined");
+                    }
+                }
+                if merged.len() != current.len() {
+                    ctx.combat_state.set_turn_order(merged);
+                    WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
+                        .field("action", "turn_order_merged")
+                        .field("turn_order", ctx.combat_state.turn_order())
+                        .field("combatant_count", ctx.combat_state.turn_order().len())
+                        .send(ctx.state);
                 }
             }
             if let Some(ref turn) = combat_patch.current_turn {
