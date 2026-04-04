@@ -25,8 +25,8 @@ impl CommandHandler for StatusCommand {
             return CommandResult::Error("No character found".to_string());
         };
 
-        CommandResult::Display(format!(
-            "{} — Level {} {} {}\nHP: {}/{} | AC: {}\nLocation: {} ({})\n{}",
+        let mut output = format!(
+            "{} — Level {} {} {}\nHP: {}/{} | AC: {}\nLocation: {} ({})",
             ch.core.name,
             ch.core.level,
             ch.race,
@@ -36,8 +36,31 @@ impl CommandHandler for StatusCommand {
             ch.core.ac,
             state.location,
             state.current_region,
-            ch.narrative_state,
-        ))
+        );
+
+        // Bug #25: Include stat grid (Brawn, Reflexes, etc.) — previously missing
+        if !ch.stats.is_empty() {
+            output.push_str("\n\n");
+            let mut stats: Vec<_> = ch.stats.iter().collect();
+            stats.sort_by_key(|(k, _)| k.clone());
+            for (stat, value) in &stats {
+                output.push_str(&format!("  {:12} {}\n", stat, value));
+            }
+        }
+
+        // Abilities
+        if !ch.abilities.is_empty() {
+            output.push_str("\nAbilities:\n");
+            for ability in &ch.abilities {
+                output.push_str(&format!("  • {} — {}\n", ability.genre_description, ability.mechanical_effect));
+            }
+        }
+
+        if !ch.narrative_state.is_empty() {
+            output.push_str(&format!("\n{}", ch.narrative_state));
+        }
+
+        CommandResult::Display(output)
     }
 }
 

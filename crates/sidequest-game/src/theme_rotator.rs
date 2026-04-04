@@ -22,7 +22,9 @@ pub struct RotationConfig {
 impl Default for RotationConfig {
     fn default() -> Self {
         Self {
-            history_depth: 3,
+            // Bug #20: depth 3 was too shallow for 8+ tracks per mood — repeats
+            // within same selection window. Depth 6 ensures >75% rotation.
+            history_depth: 6,
             randomize: true,
         }
     }
@@ -101,8 +103,10 @@ impl ThemeRotator {
         });
 
         let selected = if self.config.randomize && eligible.len() > 1 {
-            // Pick randomly from the top candidates (up to 3 best energy matches)
-            let top_n = eligible.len().min(3);
+            // Pick randomly from the top candidates (up to 5 best energy matches).
+            // Bug #20: pool of 3 was too small — tracks repeated even when eligible
+            // pool had 5+ options because only top-3 energy matches were considered.
+            let top_n = eligible.len().min(5);
             let candidates = &eligible[..top_n];
             let idx = (0..candidates.len()).collect::<Vec<_>>();
             let &pick = idx.choose(&mut self.rng)?;

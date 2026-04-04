@@ -133,6 +133,8 @@ pub(crate) async fn build_prompt_context(
                 })
                 .collect();
 
+            // Always inject agency constraint — even single-player.
+            // Bug #1/#3: narrator puppeted PCs when constraint was multiplayer-only.
             if !other_pcs.is_empty() {
                 state_summary.push_str(&format!(
                     "\n\nParty: {}.",
@@ -144,20 +146,27 @@ pub(crate) async fn build_prompt_context(
                         co_located_names.join(", ")
                     ));
                 }
-                if turn_number <= 3 {
-                    // Full rules for early turns
-                    state_summary.push_str(concat!(
-                        "\n\nPLAYER AGENCY — ABSOLUTE RULE:\n",
-                        "Do NOT write dialogue, actions, thoughts, or internal state for ANY player character.\n",
-                        "Players control their OWN characters. You control the WORLD, NPCs, and narration only.\n",
-                        "PERSPECTIVE: Third-person omniscient. All characters named explicitly. Never use 'you'.",
-                    ));
-                } else {
-                    // Compressed reminder after turn 3
-                    state_summary.push_str(
-                        " PLAYER AGENCY: Do not write dialogue/actions/thoughts for player characters. Third-person only."
-                    );
-                }
+            }
+            // PC roster for the agency constraint — always includes the active player.
+            let mut all_pc_names: Vec<String> = vec![ctx.char_name.to_string()];
+            all_pc_names.extend(other_pcs.iter().cloned());
+            if turn_number <= 3 {
+                // Full rules for early turns
+                state_summary.push_str(&format!(
+                    "\n\nPLAYER AGENCY — ABSOLUTE RULE:\n\
+                     Player characters: {}\n\
+                     Do NOT write dialogue, actions, thoughts, or internal state for ANY player character.\n\
+                     Players control their OWN characters. You control the WORLD, NPCs, and narration only.\n\
+                     Do NOT script physical interactions between player characters (nudging, grabbing, etc.).\n\
+                     PERSPECTIVE: Third-person omniscient. All characters named explicitly. Never use 'you'.",
+                    all_pc_names.join(", ")
+                ));
+            } else {
+                // Compressed reminder after turn 3
+                state_summary.push_str(&format!(
+                    " PLAYER AGENCY: Player characters: {}. Do not write dialogue/actions/thoughts for them. No PC-to-PC physical scripting. Third-person only.",
+                    all_pc_names.join(", ")
+                ));
             }
         }
     }
@@ -346,13 +355,19 @@ pub(crate) async fn build_prompt_context(
                     for h in &hook_strs {
                         state_summary.push_str(&format!("- {}\n", h));
                     }
-                    state_summary.push_str("PROACTIVE MUTATION NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to be relevant, weave them into the narration subtly.\n");
                 } else {
                     state_summary.push_str(&format!(
                         "\nAbilities: {}.",
                         hook_strs.join(", ")
                     ));
                 }
+                // Bug #12: Always inject proactive mutation narration — not just when
+                // the player references an ability. The narrator should weave mutations
+                // into the scene whenever the context creates a natural opportunity,
+                // even (especially) when the player doesn't explicitly invoke them.
+                state_summary.push_str(
+                    " PROACTIVE ABILITY NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to manifest, weave subtle sensory hints into the narration (e.g., psychic whispers, glowing skin, heightened senses). Do NOT wait for the player to invoke them."
+                );
             }
         }
     }
