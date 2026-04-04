@@ -345,6 +345,15 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// A consumable item was fully depleted (story 19-10).
+    #[serde(rename = "ITEM_DEPLETED")]
+    ItemDepleted {
+        /// The typed payload for this message.
+        payload: ItemDepletedPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1108,4 +1117,17 @@ pub struct JournalEntry {
     pub confidence: String,
     /// Turn number when this fact was learned.
     pub learned_turn: u64,
+}
+
+/// Item depletion payload — sent when a consumable item is fully exhausted.
+///
+/// Story 19-10: Fired when `deplete_light_on_transition()` exhausts a light source
+/// during a room transition in room-graph mode.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ItemDepletedPayload {
+    /// Display name of the depleted item.
+    pub item_name: String,
+    /// How many uses the item had before this final depletion (typically 1).
+    pub remaining_before: u32,
 }
