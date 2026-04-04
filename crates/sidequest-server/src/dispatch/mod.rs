@@ -685,7 +685,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             }
         }
         for name in &activated {
-            ctx.monster_manual.mark_active(name);
+            ctx.monster_manual.mark_active(name, ctx.current_location);
             tracing::info!(
                 npc_name = %name,
                 "monster_manual.npc_activated — narrator used pool NPC"

@@ -40,6 +40,10 @@ pub struct ManualNpc {
     pub location_tags: Vec<String>,
     /// Lifecycle state.
     pub state: EntryState,
+    /// Location where this NPC was first activated (introduced in narration).
+    /// Used to anchor NPCs geographically — they don't follow the player everywhere.
+    #[serde(default)]
+    pub activated_location: Option<String>,
 }
 
 /// A pre-generated encounter block from sidequest-encountergen.
@@ -156,7 +160,7 @@ impl MonsterManual {
     // ── Lifecycle ───────────────────────────────────────────
 
     /// Mark an NPC as Active by name (case-insensitive).
-    pub fn mark_active(&mut self, name: &str) {
+    pub fn mark_active(&mut self, name: &str, location: &str) {
         let name_lower = name.to_lowercase();
         for npc in &mut self.npcs {
             if npc.name.to_lowercase() == name_lower
@@ -164,6 +168,9 @@ impl MonsterManual {
                 || name_lower.contains(&npc.name.to_lowercase())
             {
                 npc.state = EntryState::Active;
+                if npc.activated_location.is_none() {
+                    npc.activated_location = Some(location.to_string());
+                }
                 return;
             }
         }
@@ -200,23 +207,21 @@ impl MonsterManual {
 
     // ── Formatting for game_state injection ─────────────────
 
-    /// Format Available + Active NPCs for injection into the `<game_state>` section.
+    /// Format all non-Dormant NPCs for injection into the `<game_state>` section.
     ///
-    /// Output looks like:
-    /// ```text
-    /// NPCs nearby (not yet met by player):
-    ///   - Joch Glowvein (wasteland trader, Scrapborn) — blunt, quotes prices in three barter systems
-    /// ```
+    /// Each NPC includes their anchored location (if activated) so the narrator
+    /// can decide whether they're relevant to the current scene. No server-side
+    /// filtering — the room graph and narrator handle proximity.
     pub fn format_nearby_npcs(&self) -> String {
-        let available: Vec<_> = self.npcs.iter()
-            .filter(|n| n.state == EntryState::Available)
+        let relevant: Vec<_> = self.npcs.iter()
+            .filter(|n| n.state != EntryState::Dormant)
             .collect();
-        if available.is_empty() {
+        if relevant.is_empty() {
             return String::new();
         }
 
-        let mut lines = vec!["NPCs nearby (not yet met by player):".to_string()];
-        for npc in &available {
+        let mut lines = vec!["Known NPCs in this world:".to_string()];
+        for npc in &relevant {
             let ocean_summary = npc.data.get("ocean_summary")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
@@ -229,9 +234,14 @@ impl MonsterManual {
             } else {
                 format!("\n    Speech: {}", quirks.join("; "))
             };
+            let location_str = match (&npc.state, &npc.activated_location) {
+                (EntryState::Active, Some(loc)) => format!(" [at {}]", loc),
+                (EntryState::Active, None) => " [active, location unknown]".to_string(),
+                _ => " [not yet encountered]".to_string(),
+            };
             lines.push(format!(
-                "  - {} ({}, {}) — {}{}",
-                npc.name, npc.role, npc.culture, ocean_summary, quirk_str
+                "  - {} ({}, {}){} — {}{}",
+                npc.name, npc.role, npc.culture, location_str, ocean_summary, quirk_str
             ));
         }
         lines.join("\n")
@@ -307,6 +317,7 @@ impl MonsterManual {
             culture,
             location_tags,
             state: EntryState::Available,
+            activated_location: None,
         });
     }
 
@@ -379,9 +390,10 @@ mod tests {
 
         assert_eq!(manual.available_npcs().len(), 2);
 
-        manual.mark_active("A");
+        manual.mark_active("A", "The Collapsed Transit Hub");
         assert_eq!(manual.available_npcs().len(), 1);
         assert_eq!(manual.npcs[0].state, EntryState::Active);
+        assert_eq!(manual.npcs[0].activated_location.as_deref(), Some("The Collapsed Transit Hub"));
 
         manual.mark_all_dormant();
         assert_eq!(manual.npcs[0].state, EntryState::Dormant);
@@ -400,7 +412,7 @@ mod tests {
         }), vec![]);
 
         let output = manual.format_nearby_npcs();
-        assert!(output.contains("NPCs nearby"));
+        assert!(output.contains("Known NPCs"));
         assert!(output.contains("Krag Dustwelder"));
         assert!(output.contains("mechanic"));
         assert!(output.contains("quotes prices"));
