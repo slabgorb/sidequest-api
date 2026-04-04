@@ -1561,8 +1561,7 @@ async fn build_response_messages(
         payload: InventoryPayload {
             items: ctx
                 .inventory
-                .items
-                .iter()
+                .carried()
                 .map(|item| sidequest_protocol::InventoryItem {
                     name: item.name.as_str().to_string(),
                     item_type: item.category.as_str().to_string(),

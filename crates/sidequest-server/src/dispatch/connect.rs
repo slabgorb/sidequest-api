@@ -775,7 +775,16 @@ pub(crate) async fn dispatch_character_creation(
                         }
                     }
 
-                    *character_json_store = Some(char_json.clone());
+                    // Rebuild char_json with post-loadout inventory.
+                    // The original char_json (line 674) was captured BEFORE starting
+                    // equipment was added. Everything downstream (snapshot, PlayerState,
+                    // CHARACTER_SHEET) reads from character_json — it must reflect
+                    // the full loadout, not just builder item_hints.
+                    {
+                        let mut updated_char = character.clone();
+                        updated_char.core.inventory = inventory.clone();
+                        *character_json_store = Some(serde_json::to_value(&updated_char).unwrap_or_default());
+                    }
                     tracing::info!(
                         char_name = %character.core.name,
                         hp = character.core.hp,
@@ -822,6 +831,12 @@ pub(crate) async fn dispatch_character_creation(
 
                         // Inject the chargen-produced character into the materialized snapshot
                         snap.characters = vec![character.clone()];
+                        // Sync post-loadout inventory into snapshot character.
+                        // The `character` object has only builder item_hints; the full
+                        // loadout from inventory.yaml was added to the `inventory` local.
+                        if let Some(ch) = snap.characters.first_mut() {
+                            ch.core.inventory = inventory.clone();
+                        }
 
                         // Room-graph mode: set starting location to entrance room (story 19-2)
                         let rooms_for_init: Vec<sidequest_genre::RoomDef> = match GenreCode::new(&genre) {
@@ -1043,7 +1058,7 @@ pub(crate) async fn dispatch_character_creation(
                             backstory: character.backstory.as_str().to_string(),
                             personality: character.core.personality.as_str().to_string(),
                             pronouns: character.pronouns.clone(),
-                            equipment: character.core.inventory.items.iter().map(|i| {
+                            equipment: inventory.carried().map(|i| {
                                 if i.equipped {
                                     format!("{} [equipped]", i.name)
                                 } else {
@@ -1089,7 +1104,7 @@ pub(crate) async fn dispatch_character_creation(
                                 p.character_max_hp = character.core.max_hp;
                                 p.character_level = character.core.level as u32;
                                 p.character_class = character.char_class.as_str().to_string();
-                                p.inventory = character.core.inventory.clone();
+                                p.inventory = inventory.clone();
                                 p.character_xp = character.core.xp;
                                 if let Some(ref cj) = *character_json_store {
                                     p.character_json = Some(cj.clone());
