@@ -37,15 +37,17 @@ use sidequest_game::builder::CharacterBuilder;
 pub(crate) type NpcRegistryEntry = sidequest_game::NpcRegistryEntry;
 
 /// Wrapper for the daemon TTS client, implementing the TtsSynthesizer trait.
+/// Uses VoiceRouter to resolve speaker names to genre pack voice presets.
 pub(crate) struct DaemonSynthesizer {
     pub(crate) client: tokio::sync::Mutex<sidequest_daemon_client::DaemonClient>,
+    pub(crate) voice_router: std::sync::Arc<sidequest_game::VoiceRouter>,
 }
 
 impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
     fn synthesize(
         &self,
         text: &str,
-        _speaker: &str,
+        speaker: &str,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = Result<Vec<u8>, sidequest_game::tts_stream::TtsError>>
@@ -54,12 +56,20 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
         >,
     > {
         let text = text.to_string();
+        let assignment = self.voice_router.route(speaker);
+        tracing::info!(
+            speaker = %speaker,
+            voice_id = %assignment.voice_id,
+            engine = %assignment.engine,
+            speed = assignment.speed,
+            "tts.voice_resolved"
+        );
         Box::pin(async move {
             let params = sidequest_daemon_client::TtsParams {
                 text,
-                model: "kokoro".to_string(),
-                voice_id: "en_male_deep".to_string(),
-                speed: 0.95,
+                model: assignment.engine,
+                voice_id: assignment.voice_id,
+                speed: assignment.speed,
                 ..Default::default()
             };
             let mut client = self.client.lock().await;

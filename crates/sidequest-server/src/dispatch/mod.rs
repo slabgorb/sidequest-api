@@ -2052,6 +2052,21 @@ fn spawn_tts_pipeline(
         },
     };
 
+    // Build VoiceRouter from genre pack for TTS voice assignment
+    let voice_router_for_tts = {
+        let genre_dir = ctx.state.genre_packs_path().join(ctx.genre_slug);
+        match sidequest_genre::load_genre_pack(&genre_dir) {
+            Ok(pack) => {
+                let voice_presets = pack.voice_presets.as_ref();
+                std::sync::Arc::new(sidequest_game::VoiceRouter::new(voice_presets, &pack.audio))
+            }
+            Err(_) => {
+                // No genre pack or load error — use default narrator voice
+                std::sync::Arc::new(sidequest_game::VoiceRouter::new(None, &sidequest_genre::AudioConfig::empty()))
+            }
+        }
+    };
+
     let tts_span = tracing::info_span!(
         "tts.pipeline",
         segment_count = tts_segments.len(),
@@ -2066,6 +2081,7 @@ fn spawn_tts_pipeline(
         {
             Ok(client) => DaemonSynthesizer {
                 client: tokio::sync::Mutex::new(client),
+                voice_router: voice_router_for_tts,
             },
             Err(e) => {
                 tracing::warn!(error = %e, "TTS daemon unavailable — skipping voice synthesis");

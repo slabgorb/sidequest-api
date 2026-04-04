@@ -32,6 +32,29 @@ pub struct AudioConfig {
     pub mixer_defaults: Option<MixerConfig>,
 }
 
+impl AudioConfig {
+    /// Empty config with no tracks, SFX, or presets. Used when genre pack is unavailable.
+    pub fn empty() -> Self {
+        Self {
+            mood_tracks: HashMap::new(),
+            sfx_library: HashMap::new(),
+            creature_voice_presets: HashMap::new(),
+            mixer: MixerConfig {
+                music_volume: 0.8,
+                sfx_volume: 0.9,
+                voice_volume: 1.0,
+                duck_music_for_voice: true,
+                duck_amount_db: 3.0,
+                crossfade_default_ms: 500,
+            },
+            themes: Vec::new(),
+            ai_generation: None,
+            mood_keywords: HashMap::new(),
+            mixer_defaults: None,
+        }
+    }
+}
+
 /// AI music generation configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct AudioAiGeneration {
