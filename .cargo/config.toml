@@ -1,0 +1,16 @@
+# Cargo build configuration — optimized for development speed on M3 Max
+#
+# sccache: caches compiled artifacts across branches and clean builds.
+# Split debuginfo: faster linking by not embedding debug info in binaries.
+
+[build]
+rustc-wrapper = "sccache"
+
+[profile.dev]
+# Split debuginfo — much faster linking on macOS
+split-debuginfo = "unpacked"
+
+[profile.dev.package."*"]
+# Optimize dependencies even in dev mode — they rarely change,
+# and optimized deps run faster in tests (especially serde).
+opt-level = 1
