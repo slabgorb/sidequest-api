@@ -709,3 +709,22 @@ fn road_warrior_world_lore_has_extras() {
     // Road warrior lore uses setting/faction_relations format
     assert!(circuit.lore.extras.contains_key("setting") || circuit.lore.extras.contains_key("faction_relations"));
 }
+
+#[test]
+fn load_caverns_and_claudes_genre_pack() {
+    let path = genre_packs_path().join("caverns_and_claudes");
+    if !path.exists() {
+        return;
+    }
+
+    let pack = sidequest_genre::load_genre_pack(&path)
+        .expect("should load caverns_and_claudes");
+    assert_eq!(pack.meta.name.as_str(), "Caverns & Claudes");
+    assert!(!pack.cultures.is_empty(), "should have cultures");
+    assert!(!pack.tropes.is_empty(), "should have tropes");
+    assert!(pack.worlds.contains_key("mawdeep"), "should have mawdeep world");
+
+    let mawdeep = &pack.worlds["mawdeep"];
+    assert!(mawdeep.cartography.rooms.is_some(), "should have rooms");
+    assert!(!mawdeep.legends.is_empty(), "should have legends");
+}
