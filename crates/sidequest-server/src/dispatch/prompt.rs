@@ -187,6 +187,12 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inventory — full if player references items, compact summary otherwise
+    tracing::info!(
+        carried_count = ctx.inventory.item_count(),
+        ledger_size = ctx.inventory.ledger_size(),
+        gold = ctx.inventory.gold,
+        "prompt.inventory_check — building inventory section"
+    );
     if ctx.inventory.item_count() > 0 {
         if relevance.references_inventory {
             // Full inventory with descriptions and rules
