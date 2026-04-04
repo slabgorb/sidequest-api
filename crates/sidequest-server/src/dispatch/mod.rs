@@ -235,21 +235,81 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     &carried_names,
                 ).await;
 
+                use sidequest_agents::inventory_extractor::MutationAction;
+
                 for mutation in &mutations {
-                    // Fuzzy match: find carried item whose name matches (case-insensitive)
+                    if mutation.action == MutationAction::Acquired {
+                        // New item acquisition — add to inventory
+                        if let Some(gold) = mutation.gold {
+                            ctx.inventory.gold += gold;
+                            tracing::info!(
+                                gold_gained = gold,
+                                total_gold = ctx.inventory.gold,
+                                detail = %mutation.detail,
+                                "inventory.two_pass_gold_acquired"
+                            );
+                            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                .field("action", "gold_acquired")
+                                .field("gold_gained", gold)
+                                .field("total_gold", ctx.inventory.gold)
+                                .field("detail", &mutation.detail)
+                                .send(ctx.state);
+                        } else {
+                            let item_id = mutation.item_name
+                                .to_lowercase()
+                                .replace(' ', "_")
+                                .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+                            // Skip if already in inventory
+                            if ctx.inventory.find(&item_id).is_some() {
+                                continue;
+                            }
+                            let category = mutation.category.as_deref().unwrap_or("misc");
+                            if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
+                                sidequest_protocol::NonBlankString::new(&item_id),
+                                sidequest_protocol::NonBlankString::new(&mutation.item_name),
+                                sidequest_protocol::NonBlankString::new(&mutation.detail),
+                                sidequest_protocol::NonBlankString::new(category),
+                                sidequest_protocol::NonBlankString::new("common"),
+                            ) {
+                                let item = sidequest_game::Item {
+                                    id, name, description: desc, category: cat,
+                                    value: 0, weight: 1.0, rarity,
+                                    narrative_weight: 0.3,
+                                    tags: vec![], equipped: false, quantity: 1,
+                                    uses_remaining: None,
+                                    state: sidequest_game::ItemState::Carried,
+                                };
+                                let _ = ctx.inventory.add(item, 50);
+                                tracing::info!(
+                                    item_name = %mutation.item_name,
+                                    category = %category,
+                                    "inventory.two_pass_item_acquired"
+                                );
+                                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                    .field("action", "item_acquired")
+                                    .field("item_name", &mutation.item_name)
+                                    .field("category", category)
+                                    .field("carried_count", ctx.inventory.item_count())
+                                    .send(ctx.state);
+                            }
+                        }
+                        continue;
+                    }
+
+                    // State transition on existing item
                     let item_lower = mutation.item_name.to_lowercase();
                     let matched_id = ctx.inventory.carried()
                         .find(|i| i.name.as_str().to_lowercase() == item_lower)
                         .map(|i| i.id.as_str().to_string());
 
                     if let Some(item_id) = matched_id {
-                        use sidequest_agents::inventory_extractor::MutationAction;
                         let new_state = match &mutation.action {
                             MutationAction::Consumed => sidequest_game::ItemState::Consumed,
                             MutationAction::Sold => sidequest_game::ItemState::Sold { to: mutation.detail.clone() },
                             MutationAction::Given => sidequest_game::ItemState::Given { to: mutation.detail.clone() },
                             MutationAction::Lost => sidequest_game::ItemState::Lost { reason: mutation.detail.clone() },
                             MutationAction::Destroyed => sidequest_game::ItemState::Destroyed { reason: mutation.detail.clone() },
+                            MutationAction::Acquired => unreachable!(),
                         };
                         match ctx.inventory.transition(&item_id, new_state) {
                             Ok(old_state) => {

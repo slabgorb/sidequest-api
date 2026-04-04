@@ -29,6 +29,12 @@ pub struct InventoryMutation {
     /// Who or what was involved (merchant name, NPC name, cause of loss).
     #[serde(default)]
     pub detail: String,
+    /// Item category for acquired items (weapon, armor, tool, consumable, treasure, misc).
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Gold amount for currency acquisitions (caps, coins, credits).
+    #[serde(default)]
+    pub gold: Option<i64>,
 }
 
 /// The type of inventory mutation.
@@ -45,6 +51,8 @@ pub enum MutationAction {
     Lost,
     /// Item was destroyed (broken, burned, disintegrated).
     Destroyed,
+    /// Item was acquired (found, looted, received, bought, picked up).
+    Acquired,
 }
 
 impl std::fmt::Display for MutationAction {
@@ -55,6 +63,7 @@ impl std::fmt::Display for MutationAction {
             Self::Given => write!(f, "given"),
             Self::Lost => write!(f, "lost"),
             Self::Destroyed => write!(f, "destroyed"),
+            Self::Acquired => write!(f, "acquired"),
         }
     }
 }
@@ -67,7 +76,7 @@ pub fn extract_inventory_mutations(
     previous_narration: &str,
     carried_items: &[String],
 ) -> Vec<InventoryMutation> {
-    if carried_items.is_empty() || previous_narration.is_empty() {
+    if previous_narration.is_empty() {
         return vec![];
     }
 
@@ -129,38 +138,49 @@ fn build_extraction_prompt(
     narration: &str,
     carried_items: &[String],
 ) -> String {
+    let inventory_section = if carried_items.is_empty() {
+        "(empty)".to_string()
+    } else {
+        carried_items.join("\n")
+    };
     format!(
-        r#"You are an inventory tracker for a tabletop RPG. Given a player's ACTION, the NARRATOR's response, and the player's current INVENTORY, identify any items that changed hands or were used up.
+        r#"You are an inventory tracker for a tabletop RPG. Given a player's ACTION, the NARRATOR's response, and the player's current INVENTORY, identify items that changed state OR new items acquired.
 
 INVENTORY (items the player currently carries):
-{}
+{inventory_section}
 
 ACTION:
-{}
+{action}
 
 NARRATION:
-{}
+{narration}
 
-Did any inventory items change state? Only report items FROM THE INVENTORY LIST that were:
+Report TWO kinds of changes:
+
+1. **Existing items that changed state** (from the INVENTORY LIST):
 - **consumed**: eaten, drunk, injected, used up, spent, applied
 - **sold**: traded to a merchant for gold/currency
 - **given**: handed to an NPC or another player voluntarily
 - **lost**: stolen, confiscated, dropped accidentally, fell into a pit
 - **destroyed**: broken, burned, shattered, disintegrated
 
-Respond with a JSON array. Each entry:
-{{"item_name": "<name from inventory>", "action": "<consumed|sold|given|lost|destroyed>", "detail": "<who/what/why>"}}
+2. **New items acquired** (NOT in the inventory list):
+- **acquired**: found, looted, received, bought, picked up, taken from a body
 
-If NO items changed state, respond with: []
+Respond with a JSON array. Each entry:
+{{"item_name": "<item name>", "action": "<consumed|sold|given|lost|destroyed|acquired>", "detail": "<who/what/why>", "category": "<weapon|armor|tool|consumable|treasure|misc>", "gold": <number or null>}}
+
+For existing items (consumed/sold/given/lost/destroyed): category and gold can be null.
+For acquired items: category is required. If the item is currency (caps, coins, gold, credits), set gold to the amount and item_name to the currency name.
+
+If NOTHING changed, respond with: []
 
 RULES:
-- Only report items that are IN THE INVENTORY LIST. Do not invent items.
-- Only report if the narration CONFIRMS the item changed hands or was used. "I try to sell" is not a sale unless the narrator confirms the transaction.
-- Equipping, examining, or brandishing an item is NOT a state change.
-- Using a weapon to attack does NOT consume it (unless the narration says it broke)."#,
-        carried_items.join("\n"),
-        action,
-        narration
+- For state changes: only report items IN THE INVENTORY LIST.
+- For acquisitions: only report if the narration CONFIRMS the player received/found/took the item. "I search the body" is not acquisition unless the narrator describes finding something.
+- Equipping, examining, or brandishing is NOT a state change.
+- Using a weapon to attack does NOT consume it (unless the narration says it broke).
+- Currency/gold found should use the "acquired" action with a gold amount."#
     )
 }
 
