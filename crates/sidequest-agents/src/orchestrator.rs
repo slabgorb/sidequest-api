@@ -1356,6 +1356,8 @@ The vendors call out their wares as you pass.
     #[test]
     fn extract_combat_from_json_fence_fallback() {
         // Legacy path: creature_smith emits ```json``` blocks.
+        // extract_game_patch falls back to ```json``` too, so
+        // extract_combat_from_game_patch covers both fence types.
         let raw = r#"Combat narration here.
 
 ```json
@@ -1367,12 +1369,8 @@ The vendors call out their wares as you pass.
   "drama_weight": 0.4
 }
 ```"#;
-        // extract_combat_from_game_patch won't find it (no ```game_patch```)
-        let from_game_patch = extract_combat_from_game_patch(raw);
-        assert!(from_game_patch.is_none());
-        // But the fallback extract_fenced_json should
-        let fallback = extract_fenced_json::<crate::patches::CombatPatch>(raw).ok();
-        assert!(fallback.is_some());
-        assert_eq!(fallback.unwrap().in_combat, Some(true));
+        let patch = extract_combat_from_game_patch(raw);
+        assert!(patch.is_some(), "should extract from ```json``` fallback too");
+        assert_eq!(patch.unwrap().in_combat, Some(true));
     }
 }
