@@ -495,6 +495,28 @@ impl Orchestrator {
             ));
         }
 
+        // First-turn opening constraint (Recency zone, Full tier only).
+        // The opening narration after character creation tends to run long (~10 paragraphs).
+        // This tightens it to 3-4 short paragraphs that set the scene and prompt action.
+        if is_full {
+            builder.add_section(PromptSection::new(
+                "opening_scene_constraint",
+                "<opening-scene>\n\
+                 This is the OPENING SCENE — the player's first moment in the world.\n\
+                 Set the scene in 3-4 SHORT paragraphs maximum:\n\
+                 1. Where they are (one vivid detail, not a catalogue).\n\
+                 2. What's immediately happening around them.\n\
+                 3. One sensory hook — sound, smell, weather.\n\
+                 4. End with a prompt for their first action (a question, a choice, a threat).\n\
+                 Do NOT write a novel opening. Do NOT describe the world's history. \
+                 Do NOT list every feature of the environment. Drop the player IN and \
+                 let them explore. Under 500 characters of prose total.\n\
+                 </opening-scene>",
+                AttentionZone::Recency,
+                SectionCategory::Guardrail,
+            ));
+        }
+
         // Narrator vocabulary instruction (Late zone, Full tier only — stable across session)
         if is_full {
             use sidequest_protocol::NarratorVocabulary;
