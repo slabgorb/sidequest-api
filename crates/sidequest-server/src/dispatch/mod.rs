@@ -1102,6 +1102,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         sidequest_game::build_protocol_delta(&narration_delta, &temp_state, &result.items_gained)
     };
 
+    // Send RENDER_QUEUED *before* narration so the UI has the placeholder
+    // when it processes the NARRATION message.  Previously this ran in the
+    // media section after narration, so the placeholder never existed when
+    // buildSegments tried to match render_id → images fell to the bottom.
+    render::process_render(ctx, &clean_narration, narration_text, &result).await;
+
     // Build response messages (narration, party status, inventory)
     build_response_messages(
         ctx,
@@ -1275,7 +1281,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     );
     let _media_guard = media_span.enter();
 
-    render::process_render(ctx, &clean_narration, narration_text, &result).await;
+    // NOTE: process_render moved before build_response_messages (see above)
+    // so RENDER_QUEUED arrives at the UI before NARRATION text.
 
     let location_changed = *ctx.current_location != location_before_turn;
     audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, mutation_result.combat_just_ended).await;
