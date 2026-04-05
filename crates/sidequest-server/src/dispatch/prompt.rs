@@ -258,6 +258,33 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str("Reference active quests when narratively relevant. Quest state changes are handled via the quest_update tool.\n");
     }
 
+    // Inject character's discovered knowledge so narrator can reference it.
+    // Limits to most recent 20 facts to stay within token budget.
+    if let Some(ref cj) = ctx.character_json {
+        if let Some(facts) = cj.get("known_facts").and_then(|v| v.as_array()) {
+            let relevant: Vec<_> = facts.iter().rev().take(20).collect();
+            if !relevant.is_empty() {
+                state_summary.push_str("\n\n[CHARACTER KNOWLEDGE — facts this character has learned]\n");
+                for fact in &relevant {
+                    if let Some(content) = fact.get("content").and_then(|c| c.as_str()) {
+                        let cat = fact.get("category").and_then(|c| c.as_str()).unwrap_or("unknown");
+                        state_summary.push_str(&format!("- [{}] {}\n", cat, content));
+                    }
+                }
+                tracing::info!(
+                    facts_injected = relevant.len(),
+                    total_facts = facts.len(),
+                    "rag.known_facts_injected"
+                );
+                WatcherEventBuilder::new("rag", WatcherEventType::SubsystemExerciseSummary)
+                    .field("event", "rag.known_facts_injected")
+                    .field("injected", relevant.len())
+                    .field("total", facts.len())
+                    .send(ctx.state);
+            }
+        }
+    }
+
     // Resource state injection (story 16-1)
     if !ctx.resource_declarations.is_empty() {
         state_summary.push_str("\n\nGENRE RESOURCES — Current State:\n");

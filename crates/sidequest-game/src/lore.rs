@@ -635,6 +635,25 @@ impl std::fmt::Display for LoreCategory {
     }
 }
 
+/// Convert a protocol [`sidequest_protocol::FactCategory`] into a [`LoreCategory`].
+///
+/// This bridges the narrator's structured footnote output (which uses `FactCategory`)
+/// into the LoreStore's internal category taxonomy. Used when routing footnote
+/// discoveries through the RAG pipeline.
+impl From<sidequest_protocol::FactCategory> for LoreCategory {
+    fn from(cat: sidequest_protocol::FactCategory) -> Self {
+        match cat {
+            sidequest_protocol::FactCategory::Lore => LoreCategory::History,
+            sidequest_protocol::FactCategory::Place => LoreCategory::Geography,
+            sidequest_protocol::FactCategory::Person => LoreCategory::Character,
+            sidequest_protocol::FactCategory::Quest => LoreCategory::Event,
+            sidequest_protocol::FactCategory::Ability => LoreCategory::Item,
+            // FactCategory is #[non_exhaustive] — future variants default to Event.
+            _ => LoreCategory::Event,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Language knowledge — bridge between conlang and lore systems (story 11-10)
 // ---------------------------------------------------------------------------
