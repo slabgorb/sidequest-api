@@ -307,6 +307,28 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         continue;
                     }
 
+                    // Gold loss (spent, tossed, given away, etc.) — non-Acquired mutations
+                    if let Some(gold) = mutation.gold {
+                        if gold > 0 {
+                            ctx.inventory.gold -= gold;
+                            tracing::info!(
+                                gold_spent = gold,
+                                total_gold = ctx.inventory.gold,
+                                action = %mutation.action,
+                                detail = %mutation.detail,
+                                "inventory.two_pass_gold_spent"
+                            );
+                            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                .field("action", "gold_spent")
+                                .field("gold_spent", gold)
+                                .field("total_gold", ctx.inventory.gold)
+                                .field("mutation_action", format!("{}", mutation.action))
+                                .field("detail", &mutation.detail)
+                                .send(ctx.state);
+                            continue;
+                        }
+                    }
+
                     // State transition on existing item
                     let item_lower = mutation.item_name.to_lowercase();
                     let matched_id = ctx.inventory.carried()
