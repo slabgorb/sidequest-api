@@ -60,7 +60,14 @@ PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot.\n\
+mood, state_snapshot, in_combat, hp_changes, turn_order, current_turn, \
+drama_weight.\n\
+\n\
+Combat initiation: When the player attacks or a hostile encounter begins, \
+set in_combat: true and include turn_order (list of combatant names, \
+player first) and current_turn (whose turn it is). Include hp_changes \
+for any damage dealt (negative values = damage). Set drama_weight 0.0-1.0.\n\
+\n\
 If nothing mechanical happened (pure dialogue, description), emit:\n\
 ```game_patch\n\
 {}\n\

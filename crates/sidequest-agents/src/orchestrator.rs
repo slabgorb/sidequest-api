@@ -297,13 +297,6 @@ impl Orchestrator {
             // ADR-067: Always narrator identity (unified agent)
             self.narrator.build_context(&mut builder);
 
-            // Conditional sections based on game state (ADR-067)
-            if context.in_combat {
-                self.narrator.build_combat_context(&mut builder);
-            }
-            if context.in_chase {
-                self.narrator.build_chase_context(&mut builder);
-            }
             // Always inject dialogue rules — they're short and NPCs can appear anytime
             self.narrator.build_dialogue_context(&mut builder);
 
@@ -319,6 +312,16 @@ impl Orchestrator {
                     ));
                 }
             }
+        }
+
+        // === STATE-DEPENDENT SECTIONS (every tier — combat/chase can start mid-session) ===
+        // These are NOT static: combat may begin on turn 5 of a Delta-tier session.
+        // If gated behind is_full, the narrator never gets combat rules after turn 1.
+        if context.in_combat {
+            self.narrator.build_combat_context(&mut builder);
+        }
+        if context.in_chase {
+            self.narrator.build_chase_context(&mut builder);
         }
 
         // Trope beat directives (Early zone)
