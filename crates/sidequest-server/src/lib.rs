@@ -1725,7 +1725,7 @@ async fn dispatch_message(
                 let ws = session.world_slug().unwrap_or("");
                 let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs, ws);
                 if monster_manual.needs_seeding() && !gs.is_empty() {
-                    dispatch::pregen::seed_manual(state, gs, &mut monster_manual);
+                    dispatch::pregen::seed_manual(state, gs, ws, &mut monster_manual);
                 }
 
                 let mut ctx = dispatch::DispatchContext {

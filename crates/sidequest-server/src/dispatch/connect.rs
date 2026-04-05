@@ -1051,7 +1051,7 @@ pub(crate) async fn dispatch_character_creation(
                         let ws_mm = session.world_slug().unwrap_or("");
                         let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs_mm, ws_mm);
                         if monster_manual.needs_seeding() && !gs_mm.is_empty() {
-                            super::pregen::seed_manual(state, gs_mm, &mut monster_manual);
+                            super::pregen::seed_manual(state, gs_mm, ws_mm, &mut monster_manual);
                         }
 
                         let mut ctx = super::DispatchContext {
