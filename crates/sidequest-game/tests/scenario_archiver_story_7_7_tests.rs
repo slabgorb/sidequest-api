@@ -51,15 +51,15 @@ fn build_rich_scenario_state() -> ScenarioState {
 
     // Build a clue graph with dependencies
     let murder_weapon = ClueNode::new(
-        "murder_weapon",
-        "A bloody dagger found behind the bar",
+        "murder_weapon".to_string(),
+        "A bloody dagger found behind the bar".to_string(),
         ClueType::Physical,
         DiscoveryMethod::Search,
         ClueVisibility::Hidden,
     );
     let witness_testimony = ClueNode::new(
-        "witness_testimony",
-        "The guard saw someone near the docks",
+        "witness_testimony".to_string(),
+        "The guard saw someone near the docks".to_string(),
         ClueType::Testimonial,
         DiscoveryMethod::Interrogate,
         ClueVisibility::Obvious,
