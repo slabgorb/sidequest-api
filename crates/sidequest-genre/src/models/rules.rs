@@ -7,6 +7,17 @@ use std::collections::HashMap;
 // Resource declarations (story 16-1)
 // ═══════════════════════════════════════════════════════════
 
+/// A threshold on a resource declaration — fires an event when the value crosses below it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceThresholdDecl {
+    /// The value at which this threshold fires (crossed downward).
+    pub at: f64,
+    /// Event identifier emitted when this threshold is crossed.
+    pub event_id: String,
+    /// Hint text injected into narrator prompt when crossed.
+    pub narrator_hint: String,
+}
+
 /// Raw representation for deserialization with validation.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct ResourceDeclarationRaw {
@@ -17,6 +28,8 @@ struct ResourceDeclarationRaw {
     starting: f64,
     voluntary: bool,
     decay_per_turn: f64,
+    #[serde(default)]
+    thresholds: Vec<ResourceThresholdDecl>,
 }
 
 /// Genre resource declaration (e.g., Luck, Humanity, Heat).
@@ -41,6 +54,9 @@ pub struct ResourceDeclaration {
     pub voluntary: bool,
     /// Automatic change per turn (e.g., -0.1 for Heat decay). 0.0 = no decay.
     pub decay_per_turn: f64,
+    /// Thresholds that fire events when the value crosses below them (story 16-12).
+    #[serde(default)]
+    pub thresholds: Vec<ResourceThresholdDecl>,
 }
 
 impl TryFrom<ResourceDeclarationRaw> for ResourceDeclaration {
@@ -67,6 +83,7 @@ impl TryFrom<ResourceDeclarationRaw> for ResourceDeclaration {
             starting: raw.starting,
             voluntary: raw.voluntary,
             decay_per_turn: raw.decay_per_turn,
+            thresholds: raw.thresholds,
         })
     }
 }
@@ -327,18 +344,25 @@ pub struct RulesConfig {
     #[serde(default)]
     pub lethality: String,
     /// Magic system level.
+    #[serde(default)]
     pub magic_level: String,
     /// How ability scores are generated.
+    #[serde(default)]
     pub stat_generation: String,
     /// Point budget for point-buy generation.
+    #[serde(default)]
     pub point_buy_budget: u32,
     /// Names for the six ability scores.
+    #[serde(default)]
     pub ability_score_names: Vec<String>,
     /// Available character classes.
+    #[serde(default)]
     pub allowed_classes: Vec<String>,
     /// Available character races.
+    #[serde(default)]
     pub allowed_races: Vec<String>,
     /// Base HP per class.
+    #[serde(default)]
     pub class_hp_bases: HashMap<String, u32>,
     /// Default character class.
     #[serde(default)]

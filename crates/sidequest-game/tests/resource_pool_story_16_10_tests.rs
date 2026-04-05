@@ -27,7 +27,7 @@ fn make_pool(name: &str, current: f64, min: f64, max: f64) -> ResourcePool {
         voluntary: true,
         decay_per_turn: 0.0,
         thresholds: vec![],
-        fired_thresholds: Default::default(),
+
     }
 }
 
@@ -46,7 +46,7 @@ fn make_pool_with_thresholds(
         voluntary: true,
         decay_per_turn: 0.0,
         thresholds,
-        fired_thresholds: Default::default(),
+
     }
 }
 
@@ -83,7 +83,7 @@ fn resource_pool_json_roundtrip() {
                 narrator_hint: "Out of luck entirely.".to_string(),
             },
         ],
-        fired_thresholds: Default::default(),
+
     };
 
     let json = serde_json::to_string(&pool).unwrap();
@@ -642,7 +642,7 @@ fn resource_pool_decay_reduces_current() {
         voluntary: false,
         decay_per_turn: -0.5,
         thresholds: vec![],
-        fired_thresholds: Default::default(),
+
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -664,7 +664,7 @@ fn resource_pool_decay_clamps_to_min() {
         voluntary: false,
         decay_per_turn: -0.5,
         thresholds: vec![],
-        fired_thresholds: Default::default(),
+
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -686,7 +686,7 @@ fn resource_pool_positive_decay_increases() {
         voluntary: true,
         decay_per_turn: 1.0,
         thresholds: vec![],
-        fired_thresholds: Default::default(),
+
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -708,7 +708,7 @@ fn resource_pool_positive_decay_clamps_to_max() {
         voluntary: true,
         decay_per_turn: 1.0,
         thresholds: vec![],
-        fired_thresholds: Default::default(),
+
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
