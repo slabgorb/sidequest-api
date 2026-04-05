@@ -220,25 +220,23 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
-                        // PARTY_STATUS
+                        // PARTY_STATUS — single player reconnect sends only
+                        // the first character (the player's) to avoid duplication
+                        // from stale snapshot.characters entries.
                         {
-                            let members: Vec<PartyMember> = saved
-                                .snapshot
-                                .characters
-                                .iter()
-                                .map(|c| PartyMember {
-                                    player_id: player_id.to_string(),
-                                    name: player_name_store.as_deref().unwrap_or("Player").to_string(),
-                                    character_name: c.core.name.as_str().to_string(),
-                                    current_hp: c.core.hp,
-                                    max_hp: c.core.max_hp,
-                                    statuses: c.core.statuses.clone(),
-                                    class: c.char_class.as_str().to_string(),
-                                    level: c.core.level as u32,
-                                    portrait_url: None,
-                                    current_location: current_location.clone(),
-                                })
-                                .collect();
+                            let member = saved.snapshot.characters.first().map(|c| PartyMember {
+                                player_id: player_id.to_string(),
+                                name: player_name_store.as_deref().unwrap_or("Player").to_string(),
+                                character_name: c.core.name.as_str().to_string(),
+                                current_hp: c.core.hp,
+                                max_hp: c.core.max_hp,
+                                statuses: c.core.statuses.clone(),
+                                class: c.char_class.as_str().to_string(),
+                                level: c.core.level as u32,
+                                portrait_url: None,
+                                current_location: current_location.clone(),
+                            });
+                            let members = member.into_iter().collect();
                             responses.push(GameMessage::PartyStatus {
                                 payload: PartyStatusPayload { members },
                                 player_id: player_id.to_string(),
