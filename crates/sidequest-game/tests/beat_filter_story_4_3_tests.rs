@@ -325,7 +325,7 @@ fn duplicate_subject_suppressed() {
         0.1,
         20,
         100, // high burst limit so it won't trigger
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     )
     .expect("valid config");
 
@@ -365,7 +365,7 @@ fn different_subjects_not_treated_as_duplicates() {
         0.1,
         20,
         100,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     )
     .expect("valid config");
 
@@ -491,7 +491,7 @@ fn custom_config_overrides_default_threshold() {
         0.5, // high combat threshold
         20,
         3,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     )
     .expect("valid config");
 
@@ -529,10 +529,10 @@ fn default_config_has_expected_values() {
     );
     assert_eq!(config.combat_threshold(), 0.25, "Default combat threshold");
     assert_eq!(config.max_history(), 20, "Default max history");
-    assert_eq!(config.burst_limit(), 3, "Default burst limit");
+    assert_eq!(config.burst_limit(), 5, "Default burst limit");
     assert_eq!(
         config.burst_window(),
-        Duration::from_secs(60),
+        Duration::from_secs(120),
         "Default burst window"
     );
 }
@@ -549,7 +549,7 @@ fn history_pruned_to_max_history() {
         0.1,
         5,   // max_history = 5
         100, // high burst limit
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     )
     .expect("valid config");
 
@@ -640,7 +640,7 @@ fn config_rejects_weight_threshold_above_one() {
         0.25,
         20,
         3,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     );
     assert!(
         result.is_none(),
@@ -656,7 +656,7 @@ fn config_rejects_negative_weight_threshold() {
         0.25,
         20,
         3,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     );
     assert!(
         result.is_none(),
@@ -672,7 +672,7 @@ fn config_rejects_combat_threshold_above_weight_threshold() {
         0.6, // invalid: combat > weight
         20,
         3,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     );
     assert!(
         result.is_none(),
@@ -688,7 +688,7 @@ fn config_rejects_zero_max_history() {
         0.25,
         0, // invalid: 0
         3,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     );
     assert!(result.is_none(), "Zero max_history should be rejected");
 }
@@ -701,7 +701,7 @@ fn config_rejects_zero_burst_limit() {
         0.25,
         20,
         0, // invalid: 0
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     );
     assert!(result.is_none(), "Zero burst_limit should be rejected");
 }
@@ -714,7 +714,7 @@ fn config_accepts_valid_parameters() {
         0.25,
         20,
         3,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     );
     assert!(
         result.is_some(),
@@ -730,7 +730,7 @@ fn config_accepts_equal_thresholds() {
         0.4, // combat == weight, borderline valid
         20,
         3,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     );
     assert!(
         result.is_some(),
@@ -799,7 +799,7 @@ fn scene_transition_bypasses_cooldown() {
         0.1,
         20,
         100,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     )
     .expect("valid config");
 
@@ -826,7 +826,7 @@ fn player_request_bypasses_burst_limit() {
         0.1,
         20,
         1, // burst_limit = 1
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     )
     .expect("valid config");
 
@@ -853,7 +853,7 @@ fn clear_history_resets_all_tracking() {
         0.1,
         20,
         1,
-        Duration::from_secs(60),
+        Duration::from_secs(120),
     )
     .expect("valid config");
 
