@@ -53,7 +53,7 @@ const NARRATOR_OUTPUT_ONLY: &str = "\
 Your response has TWO parts, in this exact order:\n\
 \n\
 PART 1 — NARRATIVE PROSE\n\
-Write 2-3 sentences of narrative prose (NEVER more than 3 short paragraphs). Start with a location header like \
+Write narrative prose (length governed by the <length-limit> guardrail below). Start with a location header like \
 **The Collapsed Overpass**. This is what the player sees.\n\
 \n\
 PART 2 — STATE PATCH\n\
@@ -85,12 +85,14 @@ If nothing mechanical happened (pure dialogue, description), emit:\n\
 ALWAYS emit the game_patch block. It is mandatory.";
 
 /// Output-style rules (Early/Format zone).
+/// NOTE: Character-count limits live ONLY in the Recency-zone <length-limit>
+/// guardrail (injected by the orchestrator per-session verbosity setting).
+/// Do NOT duplicate numeric limits here — the LLM averages conflicting numbers.
 const NARRATOR_OUTPUT_STYLE: &str = "\
-HARD LIMIT: Narrative prose must be under 400 characters (~3-4 sentences). \
-This limit exists because longer responses break TTS pacing and make turns feel slow. \
-Count your characters. If you're over 400, cut.\n\
-- Most turns: 2-3 sentences. Movement, dialogue, simple actions = SHORT.
-- Big moments only (arrivals, reveals, combat start): up to 4 sentences max.
+Respect the <length-limit> guardrail — it is the single source of truth for prose length. \
+Shorter responses keep TTS pacing tight and turns snappy.\n\
+- Most turns: short. Movement, dialogue, simple actions = SHORT.
+- Big moments only (arrivals, reveals, combat start): slightly longer, but still within the limit.
 - VARY your length. Not every turn is the same size.
 - Fast action = short sentences. Quiet moments can breathe.
 - Dialogue is snappy, not embedded in description paragraphs.
