@@ -110,6 +110,25 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
         }
     }
 
+    // Replay stored watcher event history so late-connecting GM panels see past turns.
+    // This is the fix for OTEL dashboard showing 0 turns after an active session.
+    {
+        let history = state.get_watcher_history();
+        if !history.is_empty() {
+            tracing::info!(
+                event_count = history.len(),
+                "watcher.history_replay — sending stored events to late-connecting client"
+            );
+            for event in &history {
+                let json = serde_json::to_string(event).unwrap_or_default();
+                if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                    tracing::warn!("Watcher WebSocket closed during history replay");
+                    return;
+                }
+            }
+        }
+    }
+
     // Writer task: forward watcher broadcast events to this WebSocket client
     let writer_handle = tokio::spawn(async move {
         let mut event_count: u64 = 0;

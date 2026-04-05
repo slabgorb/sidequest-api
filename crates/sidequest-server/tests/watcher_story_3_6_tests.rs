@@ -344,11 +344,18 @@ async fn watcher_client_receives_broadcast_events() {
     // Give connection time to register
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    // Drain the handshake message that arrives on connect
+    let _handshake = timeout(Duration::from_secs(2), ws_stream.next())
+        .await
+        .expect("Should receive handshake within 2s")
+        .expect("Handshake stream should have a message")
+        .expect("Handshake message should not be an error");
+
     // Send a watcher event via broadcast
     let event = sample_watcher_event();
     broadcast_state.send_watcher_event(event);
 
-    // Client should receive the event as JSON
+    // Client should receive the event as JSON (after the handshake)
     let msg = timeout(Duration::from_secs(2), ws_stream.next())
         .await
         .expect("Should receive within 2s")
@@ -398,11 +405,17 @@ async fn multiple_watcher_clients_receive_same_event() {
     // Give connections time to register
     tokio::time::sleep(Duration::from_millis(100)).await;
 
+    // Drain handshake messages from both clients
+    let _h1 = timeout(Duration::from_secs(2), ws1.next()).await
+        .expect("Client 1 handshake timeout").expect("Client 1 handshake stream").expect("Client 1 handshake error");
+    let _h2 = timeout(Duration::from_secs(2), ws2.next()).await
+        .expect("Client 2 handshake timeout").expect("Client 2 handshake stream").expect("Client 2 handshake error");
+
     // Broadcast a watcher event
     let event = sample_watcher_event();
     broadcast_state.send_watcher_event(event);
 
-    // Both clients should receive it
+    // Both clients should receive the broadcast event (after handshake)
     let r1 = timeout(Duration::from_secs(2), ws1.next())
         .await
         .expect("Client 1 should receive within 2s")

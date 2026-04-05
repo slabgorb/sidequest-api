@@ -105,6 +105,9 @@ use sidequest_protocol::{
 // Watcher Telemetry Types (Story 3-6)
 // ---------------------------------------------------------------------------
 
+/// Maximum number of watcher events retained for replay to late-connecting GM panels.
+const WATCHER_HISTORY_CAP: usize = 500;
+
 /// A telemetry event streamed to `/ws/watcher` clients.
 ///
 /// This is a diagnostic data bag — no invariants to enforce, so fields are public.
@@ -379,6 +382,9 @@ struct AppStateInner {
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
     watcher_tx: broadcast::Sender<WatcherEvent>,
+    /// Accumulated watcher events for replay to late-connecting GM panels.
+    /// Capped at WATCHER_HISTORY_CAP to bound memory.
+    watcher_event_history: Mutex<Vec<WatcherEvent>>,
     persistence: sidequest_game::PersistenceHandle,
     render_queue: Option<sidequest_game::RenderQueue>,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
@@ -545,6 +551,7 @@ impl AppState {
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
                 watcher_tx,
+                watcher_event_history: Mutex::new(Vec::new()),
                 persistence,
                 render_queue: Some(render_queue),
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
@@ -782,8 +789,23 @@ impl AppState {
 
     /// Send a telemetry event to all connected watcher clients.
     /// Silently ignores the error when no subscribers are connected (zero overhead).
+    /// Also stores the event in history for replay to late-connecting watchers.
     pub fn send_watcher_event(&self, event: WatcherEvent) {
+        // Store in history for replay (bounded to WATCHER_HISTORY_CAP)
+        {
+            let mut history = self.inner.watcher_event_history.lock().unwrap();
+            if history.len() >= WATCHER_HISTORY_CAP {
+                let drain_count = history.len() - WATCHER_HISTORY_CAP + 1;
+                history.drain(..drain_count);
+            }
+            history.push(event.clone());
+        }
         let _ = self.inner.watcher_tx.send(event);
+    }
+
+    /// Return a snapshot of all stored watcher events for replay to late-connecting clients.
+    pub fn get_watcher_history(&self) -> Vec<WatcherEvent> {
+        self.inner.watcher_event_history.lock().unwrap().clone()
     }
 
     /// Broadcast binary data to all connected WebSocket clients.
