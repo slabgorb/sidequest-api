@@ -4,6 +4,7 @@ use std::collections::HashSet;
 
 use sidequest_agents::agents::troper::TroperAgent;
 use sidequest_game::achievement::Achievement;
+use sidequest_game::engagement::engagement_multiplier;
 use sidequest_game::trope::{FiredBeat, TropeEngine};
 use sidequest_protocol::GameMessage;
 
@@ -52,7 +53,9 @@ pub(crate) fn process_tropes(
             .send(ctx.state);
     }
 
-    // --- Phase 2: Trope engine tick ---
+    // --- Phase 2: Trope engine tick with engagement multiplier (story 6-3) ---
+    let multiplier = engagement_multiplier(ctx.snapshot.turns_since_meaningful) as f64;
+
     for ts in ctx.trope_states.iter() {
         tracing::debug!(
             trope_id = %ts.trope_definition_id(),
@@ -63,16 +66,19 @@ pub(crate) fn process_tropes(
         );
     }
 
-    let (fired, earned) = TropeEngine::tick_and_check_achievements(
+    let (fired, earned) = TropeEngine::tick_and_check_achievements_with_multiplier(
         ctx.trope_states,
         ctx.trope_defs,
         ctx.achievement_tracker,
+        multiplier,
     );
 
     tracing::info!(
         active_tropes = ctx.trope_states.len(),
         fired_beats = fired.len(),
         achievements_earned = earned.len(),
+        engagement_multiplier = multiplier,
+        turns_since_meaningful = ctx.snapshot.turns_since_meaningful,
         "Trope tick complete"
     );
 
@@ -83,6 +89,8 @@ pub(crate) fn process_tropes(
         .field("activations_from_llm", activations.len())
         .field("beats_fired", fired.len())
         .field("achievements_earned", earned.len())
+        .field("engagement_multiplier", multiplier)
+        .field("turns_since_meaningful", ctx.snapshot.turns_since_meaningful)
         .send(ctx.state);
 
     for ts in ctx.trope_states.iter() {

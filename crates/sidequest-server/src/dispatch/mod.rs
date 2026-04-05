@@ -11,6 +11,7 @@
 //! - `tropes` — trope engine (activation, tick, escalation)
 
 mod audio;
+pub(crate) mod catch_up;
 mod combat;
 pub(crate) mod connect;
 pub(crate) mod pregen;
@@ -572,6 +573,26 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
     if let Some(ref agent) = result.agent_name {
         turn_span.record("agent", agent.as_str());
+    }
+
+    // Story 6-3: Update engagement counter based on intent classification.
+    // Meaningful actions (Combat, Dialogue, Chase) reset the counter;
+    // non-meaningful actions (Exploration, Examine, Meta) increment it.
+    // The counter drives the trope tick multiplier via engagement_multiplier().
+    {
+        let is_meaningful = result.classified_intent.as_deref()
+            .map(|i| matches!(i, "Combat" | "Dialogue" | "Chase"))
+            .unwrap_or(false);
+        if is_meaningful {
+            ctx.snapshot.turns_since_meaningful = 0;
+        } else {
+            ctx.snapshot.turns_since_meaningful += 1;
+        }
+        tracing::info!(
+            turns_since_meaningful = ctx.snapshot.turns_since_meaningful,
+            is_meaningful = is_meaningful,
+            "engagement.counter_updated"
+        );
     }
 
     // Update preprocessed from inline agent output (approach A — no separate Haiku call).
