@@ -561,6 +561,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         current_location: ctx.current_location.clone(),
         // Story 23-4: lore filtering by graph distance
         world_graph: ctx.world_graph.clone(),
+        // Story 15-18: progressive world materialization
+        history_chapters: ctx.snapshot.world_history.clone(),
+        campaign_maturity: ctx.snapshot.campaign_maturity.clone(),
     };
     let result = ctx
         .state
@@ -2396,6 +2399,9 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         current_location: String::new(),
         // Aside turns don't need lore filtering
         world_graph: None,
+        // Aside turns don't need world materialization
+        history_chapters: Vec::new(),
+        campaign_maturity: sidequest_game::world_materialization::CampaignMaturity::default(),
     };
     let result = ctx
         .state
