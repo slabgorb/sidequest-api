@@ -4,6 +4,7 @@
 //! selects an appropriate music track from the genre pack and emits an
 //! [`AudioCue`] for the client to play.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -15,39 +16,68 @@ use crate::theme_rotator::{RotationConfig, ThemeRotator};
 // Core types
 // ───────────────────────────────────────────────────────────────────
 
-/// Music mood categories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Mood {
-    /// Active combat encounter.
-    Combat,
-    /// Exploring the world.
-    Exploration,
-    /// Rising stakes, approaching danger.
-    Tension,
-    /// Victory, quest completion.
-    Triumph,
-    /// Loss, mourning.
-    Sorrow,
-    /// Unknown, investigation.
-    Mystery,
-    /// Rest, safe haven.
-    Calm,
-}
+/// String-keyed mood type. Replaces the old hardcoded `Mood` enum to support
+/// genre-specific mood keys (e.g. "standoff", "saloon") alongside the 7 core moods.
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub struct MoodKey(Cow<'static, str>);
 
-impl Mood {
-    /// Return the lowercase string key used in genre pack YAML (e.g. "combat").
-    pub fn as_key(&self) -> &'static str {
-        match self {
-            Mood::Combat => "combat",
-            Mood::Exploration => "exploration",
-            Mood::Tension => "tension",
-            Mood::Triumph => "triumph",
-            Mood::Sorrow => "sorrow",
-            Mood::Mystery => "mystery",
-            Mood::Calm => "calm",
-        }
+impl MoodKey {
+    /// Core mood: active combat encounter.
+    pub const COMBAT: MoodKey = MoodKey(Cow::Borrowed("combat"));
+    /// Core mood: exploring the world.
+    pub const EXPLORATION: MoodKey = MoodKey(Cow::Borrowed("exploration"));
+    /// Core mood: rising stakes, approaching danger.
+    pub const TENSION: MoodKey = MoodKey(Cow::Borrowed("tension"));
+    /// Core mood: victory, quest completion.
+    pub const TRIUMPH: MoodKey = MoodKey(Cow::Borrowed("triumph"));
+    /// Core mood: loss, mourning.
+    pub const SORROW: MoodKey = MoodKey(Cow::Borrowed("sorrow"));
+    /// Core mood: unknown, investigation.
+    pub const MYSTERY: MoodKey = MoodKey(Cow::Borrowed("mystery"));
+    /// Core mood: rest, safe haven.
+    pub const CALM: MoodKey = MoodKey(Cow::Borrowed("calm"));
+
+    /// The lowercase string key (e.g. "combat", "standoff").
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Check if this is one of the 7 core moods.
+    pub fn is_core(&self) -> bool {
+        matches!(
+            self.as_str(),
+            "combat" | "exploration" | "tension" | "triumph" | "sorrow" | "mystery" | "calm"
+        )
     }
 }
+
+impl From<&str> for MoodKey {
+    fn from(s: &str) -> Self {
+        MoodKey(Cow::Owned(s.to_lowercase()))
+    }
+}
+
+impl std::fmt::Debug for MoodKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MoodKey(\"{}\")", self.as_str())
+    }
+}
+
+impl Serialize for MoodKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for MoodKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        Ok(MoodKey::from(s.as_str()))
+    }
+}
+
+/// Backward-compatible type alias. Prefer [`MoodKey`] for new code.
+pub type Mood = MoodKey;
 
 /// Audio channel for cue targeting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -128,7 +158,7 @@ pub enum MusicEvalResult {
 #[derive(Debug, Clone)]
 pub struct MoodClassification {
     /// Primary mood detected.
-    pub primary: Mood,
+    pub primary: MoodKey,
     /// Intensity level (0.0–1.0).
     pub intensity: f32,
     /// Classification confidence (0.0–1.0).
@@ -198,11 +228,13 @@ pub struct MusicDirector {
     mood_tracks: HashMap<String, Vec<MoodTrack>>,
     /// Per-mood, per-variation themed track index.
     themed_tracks: HashMap<String, HashMap<TrackVariation, Vec<MoodTrack>>>,
-    current_mood: Option<Mood>,
+    current_mood: Option<MoodKey>,
     current_track: Option<String>,
     current_variation: Option<TrackVariation>,
     variation_reason: Option<String>,
     rotator: ThemeRotator,
+    /// Mood alias mappings from genre pack audio.yaml.
+    mood_aliases: HashMap<String, String>,
 }
 
 impl MusicDirector {
@@ -302,6 +334,7 @@ impl MusicDirector {
             current_variation: None,
             variation_reason: None,
             rotator: ThemeRotator::new(RotationConfig::default()),
+            mood_aliases: audio_config.mood_aliases.clone(),
         }
     }
 
@@ -322,7 +355,7 @@ impl MusicDirector {
         classification: &MoodClassification,
         ctx: &MoodContext,
     ) -> TrackVariation {
-        let mood_key = classification.primary.as_key();
+        let mood_key = classification.primary.as_str();
 
         let preferred = self.score_variation(classification, ctx);
 
@@ -409,7 +442,7 @@ impl MusicDirector {
         let _guard = span.enter();
 
         let classification = self.classify_mood_inner(narration, ctx);
-        span.record("mood", classification.primary.as_key());
+        span.record("mood", classification.primary.as_str());
 
         // Only emit a cue if mood actually changed (or intensity is very high)
         if self.current_mood.as_ref() == Some(&classification.primary)
@@ -417,7 +450,7 @@ impl MusicDirector {
         {
             span.record("mood_changed", false);
             return MusicEvalResult::Suppressed {
-                mood: classification.primary.as_key().to_string(),
+                mood: classification.primary.as_str().to_string(),
                 intensity: classification.intensity,
             };
         }
@@ -438,7 +471,7 @@ impl MusicDirector {
             Some(path) => path,
             None => {
                 return MusicEvalResult::NoTrackFound {
-                    mood: classification.primary.as_key().to_string(),
+                    mood: classification.primary.as_str().to_string(),
                     variation: format!("{:?}", variation),
                 };
             }
@@ -464,6 +497,48 @@ impl MusicDirector {
         MusicEvalResult::Cue(cue)
     }
 
+    /// Evaluate with a pre-computed mood classification. Used when the caller
+    /// already knows the mood (e.g. from a confrontation's declared mood string).
+    pub fn evaluate_narration_with_classification(
+        &mut self,
+        classification: &MoodClassification,
+        ctx: &MoodContext,
+    ) -> MusicEvalResult {
+        let mood_key = classification.primary.as_str();
+
+        // Select variation based on narrative context
+        let variation = self.select_variation(classification, ctx);
+
+        // Try themed tracks for the selected variation first
+        let track_path = match self
+            .select_themed_track(classification, &variation)
+            .or_else(|| self.select_track(classification).map(|t| t.path.clone()))
+        {
+            Some(path) => path,
+            None => {
+                return MusicEvalResult::NoTrackFound {
+                    mood: mood_key.to_string(),
+                    variation: format!("{:?}", variation),
+                };
+            }
+        };
+
+        let action = Self::transition_action(self.current_mood.as_ref(), &classification.primary);
+        let volume = Self::intensity_to_volume(classification.intensity);
+
+        let cue = AudioCue {
+            channel: AudioChannel::Music,
+            action,
+            track_id: Some(track_path.clone()),
+            volume,
+        };
+
+        self.current_mood = Some(classification.primary.clone());
+        self.current_track = Some(track_path);
+        self.current_variation = Some(variation);
+        MusicEvalResult::Cue(cue)
+    }
+
     /// Classify the mood from narration text and game state.
     pub fn classify_mood(&self, narration: &str, ctx: &MoodContext) -> MoodClassification {
         let span = tracing::info_span!(
@@ -475,7 +550,7 @@ impl MusicDirector {
         let _guard = span.enter();
 
         let result = self.classify_mood_inner(narration, ctx);
-        span.record("mood", result.primary.as_key());
+        span.record("mood", result.primary.as_str());
         span.record("intensity", result.intensity as f64);
         span.record("confidence", result.confidence as f64);
         result
@@ -483,10 +558,10 @@ impl MusicDirector {
 
     /// Inner classification logic (extracted so span wraps the full result).
     fn classify_mood_inner(&self, _narration: &str, ctx: &MoodContext) -> MoodClassification {
-        // Encounter mood override takes highest priority
-        if let Some(ref mood_key) = ctx.encounter_mood_override {
+        // Encounter mood override takes highest priority — resolve through alias chain
+        if let Some(ref mood_str) = ctx.encounter_mood_override {
             return MoodClassification {
-                primary: Self::key_to_mood(mood_key),
+                primary: self.resolve_mood(mood_str),
                 intensity: 0.85,
                 confidence: 0.95,
             };
@@ -494,28 +569,28 @@ impl MusicDirector {
         // State-based overrides take priority
         if ctx.in_combat {
             return MoodClassification {
-                primary: Mood::Combat,
+                primary: MoodKey::COMBAT,
                 intensity: 0.8,
                 confidence: 1.0,
             };
         }
         if ctx.in_chase {
             return MoodClassification {
-                primary: Mood::Tension,
+                primary: MoodKey::TENSION,
                 intensity: 0.9,
                 confidence: 1.0,
             };
         }
         if ctx.quest_completed {
             return MoodClassification {
-                primary: Mood::Triumph,
+                primary: MoodKey::TRIUMPH,
                 intensity: 0.7,
                 confidence: 0.9,
             };
         }
         if ctx.npc_died {
             return MoodClassification {
-                primary: Mood::Sorrow,
+                primary: MoodKey::SORROW,
                 intensity: 0.7,
                 confidence: 0.8,
             };
@@ -523,7 +598,7 @@ impl MusicDirector {
         // Low health adds tension
         if ctx.party_health_pct > 0.0 && ctx.party_health_pct < 0.3 {
             return MoodClassification {
-                primary: Mood::Tension,
+                primary: MoodKey::TENSION,
                 intensity: 0.6,
                 confidence: 0.7,
             };
@@ -534,7 +609,7 @@ impl MusicDirector {
         // used for OTEL telemetry comparison. Default to Exploration at low confidence
         // so the telemetry clearly shows "no mechanical mood detected."
         MoodClassification {
-            primary: Mood::Exploration,
+            primary: MoodKey::EXPLORATION,
             intensity: 0.4,
             confidence: 0.2,
         }
@@ -548,7 +623,7 @@ impl MusicDirector {
         classification: &MoodClassification,
         variation: &TrackVariation,
     ) -> Option<String> {
-        let mood_key = classification.primary.as_key();
+        let mood_key = classification.primary.as_str();
         let tracks = self
             .themed_tracks
             .get(mood_key)?
@@ -607,37 +682,49 @@ impl MusicDirector {
     }
 
     /// Select a track for the classified mood using the theme rotator (legacy flat lookup).
-    /// Tries the primary key first, then genre pack aliases (e.g. "rest" for "calm").
+    /// Tries the primary key first, then resolves through alias chain, then hardcoded
+    /// fallbacks for genre packs that use different names.
     fn select_track(&mut self, classification: &MoodClassification) -> Option<&MoodTrack> {
-        let mood_key = classification.primary.as_key();
-        // Try primary key, then fallback aliases for genre packs that use different names
-        let fallbacks: &[&str] = match classification.primary {
-            Mood::Calm => &["rest", "teahouse"],
-            Mood::Mystery => &["spirit", "tension"],
-            Mood::Exploration => &["teahouse"],
+        let mood_key = classification.primary.as_str();
+
+        // Try primary key first
+        if let Some(tracks) = self.mood_tracks.get(mood_key) {
+            return self.rotator.select(mood_key, tracks, classification.intensity);
+        }
+
+        // Try resolving through alias chain to find tracks
+        let resolved = self.resolve_mood(mood_key);
+        let resolved_key = resolved.as_str();
+        if resolved_key != mood_key {
+            if let Some(tracks) = self.mood_tracks.get(resolved_key) {
+                return self.rotator.select(resolved_key, tracks, classification.intensity);
+            }
+        }
+
+        // Legacy hardcoded fallbacks for genre packs that use different names
+        let fallbacks: &[&str] = match mood_key {
+            "calm" => &["rest", "teahouse"],
+            "mystery" => &["spirit", "tension"],
+            "exploration" => &["teahouse"],
             _ => &[],
         };
-        // Track which key the tracks actually came from so the rotator
-        // records history under the correct bucket.
-        let (actual_key, tracks) = if let Some(t) = self.mood_tracks.get(mood_key) {
-            (mood_key, t)
-        } else if let Some((alias, t)) = fallbacks.iter().find_map(|alias| {
+        if let Some((alias, tracks)) = fallbacks.iter().find_map(|alias| {
             self.mood_tracks.get(*alias).map(|t| (*alias, t))
         }) {
-            (alias, t)
-        } else {
-            return None;
-        };
-        self.rotator
-            .select(actual_key, tracks, classification.intensity)
+            return self.rotator.select(alias, tracks, classification.intensity);
+        }
+
+        None
     }
 
     /// Determine the audio transition action based on mood change.
-    fn transition_action(old: Option<&Mood>, new: &Mood) -> AudioAction {
-        match (old, new) {
-            (None, _) => AudioAction::FadeIn,
-            (Some(Mood::Combat), m) if *m != Mood::Combat => AudioAction::FadeOut,
-            (_, Mood::Combat) => AudioAction::Play,
+    fn transition_action(old: Option<&MoodKey>, new: &MoodKey) -> AudioAction {
+        match old {
+            None => AudioAction::FadeIn,
+            Some(old_mood) if old_mood == &MoodKey::COMBAT && *new != MoodKey::COMBAT => {
+                AudioAction::FadeOut
+            }
+            _ if *new == MoodKey::COMBAT => AudioAction::Play,
             _ => AudioAction::FadeIn,
         }
     }
@@ -647,25 +734,67 @@ impl MusicDirector {
         (0.3 + intensity * 0.7).clamp(0.3, 1.0)
     }
 
-    /// Convert a string mood key to the Mood enum.
-    /// Handles genre pack aliases (e.g. "rest" → Calm, "spirit" → Mystery).
-    fn key_to_mood(key: &str) -> Mood {
-        match key {
-            "combat" => Mood::Combat,
-            "tension" => Mood::Tension,
-            "triumph" => Mood::Triumph,
-            "sorrow" => Mood::Sorrow,
-            "mystery" | "spirit" => Mood::Mystery,
-            "calm" | "rest" | "teahouse" => Mood::Calm,
-            _ => Mood::Exploration,
+    /// Resolve a mood string through the alias chain to a final MoodKey.
+    ///
+    /// Resolution order:
+    /// 1. If the key matches a core mood, return it directly.
+    /// 2. If the key has direct tracks in the genre pack, use the key as-is.
+    /// 3. Walk the alias chain (with cycle protection and depth limit of 16).
+    /// 4. Fall back to exploration if nothing resolves.
+    pub fn resolve_mood(&self, key: &str) -> MoodKey {
+        let normalized = key.to_lowercase();
+
+        // Core moods resolve immediately
+        if MoodKey::from(normalized.as_str()).is_core() {
+            return MoodKey::from(normalized.as_str());
         }
+
+        // If tracks exist for this key directly, use it as-is
+        if self.mood_tracks.contains_key(&normalized) {
+            return MoodKey::from(normalized.as_str());
+        }
+
+        // Walk alias chain with cycle protection
+        let mut current = normalized.clone();
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(current.clone());
+        let max_depth = 16;
+
+        for _ in 0..max_depth {
+            if let Some(target) = self.mood_aliases.get(&current) {
+                let target_lower = target.to_lowercase();
+                if visited.contains(&target_lower) {
+                    // Cycle detected — fall back to exploration
+                    return MoodKey::EXPLORATION;
+                }
+                visited.insert(target_lower.clone());
+
+                // Check if the alias target is a core mood
+                if MoodKey::from(target_lower.as_str()).is_core() {
+                    return MoodKey::from(target_lower.as_str());
+                }
+
+                // Check if the alias target has direct tracks
+                if self.mood_tracks.contains_key(&target_lower) {
+                    return MoodKey::from(target_lower.as_str());
+                }
+
+                current = target_lower;
+            } else {
+                // No alias found — fall back to exploration
+                return MoodKey::EXPLORATION;
+            }
+        }
+
+        // Depth limit reached — fall back to exploration
+        MoodKey::EXPLORATION
     }
 
     /// Return the current mood, current track, and per-mood rotation history
     /// for OTEL dashboard telemetry.
     pub fn telemetry_snapshot(&self) -> MusicTelemetry {
         MusicTelemetry {
-            current_mood: self.current_mood.map(|m| m.as_key().to_string()),
+            current_mood: self.current_mood.as_ref().map(|m| m.as_str().to_string()),
             current_track: self.current_track.clone(),
             rotation_history: self.rotator.history_snapshot(),
             available_moods: self.mood_tracks.keys().cloned().collect(),
@@ -680,50 +809,50 @@ impl MusicDirector {
     /// Classify mood and return both the classification result and the keyword matches
     /// that led to it (for OTEL telemetry).
     pub fn classify_mood_with_reasoning(&self, _narration: &str, ctx: &MoodContext) -> MoodClassificationWithReason {
-        // Encounter mood override takes highest priority
-        if let Some(ref mood_key) = ctx.encounter_mood_override {
+        // Encounter mood override takes highest priority — resolve through alias chain
+        if let Some(ref mood_str) = ctx.encounter_mood_override {
             return MoodClassificationWithReason {
                 classification: MoodClassification {
-                    primary: Self::key_to_mood(mood_key),
+                    primary: self.resolve_mood(mood_str),
                     intensity: 0.85,
                     confidence: 0.95,
                 },
-                reason: format!("encounter_override: {}", mood_key),
+                reason: format!("encounter_override: {}", mood_str),
                 keyword_matches: vec![],
             };
         }
         // State-based overrides
         if ctx.in_combat {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: Mood::Combat, intensity: 0.8, confidence: 1.0 },
+                classification: MoodClassification { primary: MoodKey::COMBAT, intensity: 0.8, confidence: 1.0 },
                 reason: "state_override: in_combat".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.in_chase {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: Mood::Tension, intensity: 0.9, confidence: 1.0 },
+                classification: MoodClassification { primary: MoodKey::TENSION, intensity: 0.9, confidence: 1.0 },
                 reason: "state_override: in_chase".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.quest_completed {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: Mood::Triumph, intensity: 0.7, confidence: 0.9 },
+                classification: MoodClassification { primary: MoodKey::TRIUMPH, intensity: 0.7, confidence: 0.9 },
                 reason: "state_override: quest_completed".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.npc_died {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: Mood::Sorrow, intensity: 0.7, confidence: 0.8 },
+                classification: MoodClassification { primary: MoodKey::SORROW, intensity: 0.7, confidence: 0.8 },
                 reason: "state_override: npc_died".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.party_health_pct > 0.0 && ctx.party_health_pct < 0.3 {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: Mood::Tension, intensity: 0.6, confidence: 0.7 },
+                classification: MoodClassification { primary: MoodKey::TENSION, intensity: 0.6, confidence: 0.7 },
                 reason: format!("state_override: low_health ({}%)", (ctx.party_health_pct * 100.0) as u8),
                 keyword_matches: vec![],
             };
@@ -732,7 +861,7 @@ impl MusicDirector {
         // No state-based override. Narrator's scene_mood is used for track selection
         // in the dispatch pipeline. This telemetry classification defaults to Exploration.
         MoodClassificationWithReason {
-            classification: MoodClassification { primary: Mood::Exploration, intensity: 0.4, confidence: 0.2 },
+            classification: MoodClassification { primary: MoodKey::EXPLORATION, intensity: 0.4, confidence: 0.2 },
             reason: "default: no state override, defer to narrator scene_mood".to_string(),
             keyword_matches: vec![],
         }
@@ -818,6 +947,7 @@ mod tests {
             themes: vec![],
             ai_generation: None,
             mixer_defaults: None,
+            mood_aliases: HashMap::new(),
         }
     }
 
@@ -831,7 +961,7 @@ mod tests {
             ..Default::default()
         };
         let classification = director.classify_mood("A gentle breeze blows through the meadow", &ctx);
-        assert_eq!(classification.primary, Mood::Combat);
+        assert_eq!(classification.primary, MoodKey::COMBAT);
         assert_eq!(classification.confidence, 1.0);
 
         // Should also produce a cue
@@ -857,7 +987,7 @@ mod tests {
             "The warrior draws his sword and charges into the fight, clashing blades",
             &ctx,
         );
-        assert_eq!(classification.primary, Mood::Exploration);
+        assert_eq!(classification.primary, MoodKey::EXPLORATION);
     }
 
     #[test]
@@ -971,7 +1101,7 @@ mod tests {
 
         let ctx = MoodContext::default();
         let classification = director.classify_mood("Some unclassifiable text about nothing in particular", &ctx);
-        assert_eq!(classification.primary, Mood::Exploration);
+        assert_eq!(classification.primary, MoodKey::EXPLORATION);
     }
 
     #[test]
@@ -984,7 +1114,7 @@ mod tests {
             ..Default::default()
         };
         let classification = director.classify_mood("Running through meadows", &ctx);
-        assert_eq!(classification.primary, Mood::Tension);
+        assert_eq!(classification.primary, MoodKey::TENSION);
     }
 
     #[test]
@@ -997,7 +1127,7 @@ mod tests {
             ..Default::default()
         };
         let classification = director.classify_mood("You hand over the letter", &ctx);
-        assert_eq!(classification.primary, Mood::Triumph);
+        assert_eq!(classification.primary, MoodKey::TRIUMPH);
     }
 
     #[test]

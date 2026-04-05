@@ -30,6 +30,11 @@ pub struct AudioConfig {
     /// Mixer defaults (alternative name for mixer in some packs).
     #[serde(default)]
     pub mixer_defaults: Option<MixerConfig>,
+    /// Mood alias mappings (custom_mood → core_mood or another alias).
+    /// Genre packs declare these in audio.yaml to map genre-specific moods
+    /// (e.g. "standoff", "saloon") to core moods ("tension", "calm").
+    #[serde(default)]
+    pub mood_aliases: HashMap<String, String>,
 }
 
 impl AudioConfig {
@@ -51,6 +56,7 @@ impl AudioConfig {
             ai_generation: None,
             mood_keywords: HashMap::new(),
             mixer_defaults: None,
+            mood_aliases: HashMap::new(),
         }
     }
 }

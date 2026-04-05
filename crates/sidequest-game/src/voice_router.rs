@@ -205,6 +205,7 @@ mod tests {
             ai_generation: None,
             mood_keywords: HashMap::new(),
             mixer_defaults: None,
+            mood_aliases: HashMap::new(),
         }
     }
 
