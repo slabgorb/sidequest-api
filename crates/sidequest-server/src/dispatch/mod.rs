@@ -611,6 +611,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     };
 
+    // Recalculate maturity from current turn count — the snapshot's stored
+    // value is only set at connect/materialize time and goes stale as turns
+    // progress (e.g., turn 6 should be EARLY, not FRESH).
+    let live_maturity = sidequest_game::world_materialization::CampaignMaturity::from_snapshot(&ctx.snapshot);
+    if live_maturity != ctx.snapshot.campaign_maturity {
+        tracing::info!(
+            stored = ?ctx.snapshot.campaign_maturity,
+            live = ?live_maturity,
+            turn = ctx.snapshot.turn_manager.round(),
+            "campaign_maturity.advanced — recalculated from turn count"
+        );
+    }
+
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
@@ -630,7 +643,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         world_graph: ctx.world_graph.clone(),
         // Story 15-18: progressive world materialization
         history_chapters: ctx.snapshot.world_history.clone(),
-        campaign_maturity: ctx.snapshot.campaign_maturity.clone(),
+        campaign_maturity: live_maturity,
         // Multiplayer action attribution — narrator knows WHO is acting
         character_name: ctx.char_name.to_string(),
     };

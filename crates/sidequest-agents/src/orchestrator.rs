@@ -383,13 +383,14 @@ impl Orchestrator {
         }
 
         // Progressive world materialization (story 15-18)
-        // WorldBuilderAgent filters history chapters by maturity and injects
-        // materialized world description + OTEL span (world.materialized).
+        // Only inject narrator-facing world context (maturity tag + materialized
+        // history chapters). Does NOT include the world builder's system prompt —
+        // that would leak agent instructions into the narrator's context.
         if !context.history_chapters.is_empty() {
             let world_agent = WorldBuilderAgent::new()
                 .with_maturity(context.campaign_maturity.clone())
                 .with_chapters(context.history_chapters.clone());
-            world_agent.build_context(&mut builder);
+            world_agent.inject_world_context(&mut builder);
         }
 
         // Lore filtering by graph distance (Valley zone — story 23-4)
