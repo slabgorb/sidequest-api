@@ -511,6 +511,9 @@ impl Orchestrator {
                  Do NOT write a novel opening. Do NOT describe the world's history. \
                  Do NOT list every feature of the environment. Drop the player IN and \
                  let them explore. Under 500 characters of prose total.\n\
+                 MANDATORY: Your game_patch MUST include a visual_scene for this opening \
+                 turn — it is the first illustration the player sees. Use tier \
+                 \"landscape\" and describe the opening vista.\n\
                  </opening-scene>",
                 AttentionZone::Recency,
                 SectionCategory::Guardrail,
@@ -721,8 +724,12 @@ impl GameService for Orchestrator {
                         "rag.items_gained_extracted"
                     );
                 }
-                // ADR-067: Always try combat patch extraction from game_patch
-                let combat_patch = extract_fenced_json::<crate::patches::CombatPatch>(raw_response).ok();
+                // ADR-067: Always try combat patch extraction from game_patch.
+                // Primary path: extract from the parsed game_patch block (narrator emits
+                // ```game_patch```, not ```json```, so extract_fenced_json misses it).
+                // Fallback: try extract_fenced_json for backwards compat with ```json``` blocks.
+                let combat_patch = extract_combat_from_game_patch(raw_response)
+                    .or_else(|| extract_fenced_json::<crate::patches::CombatPatch>(raw_response).ok());
                 if let Some(ref p) = combat_patch {
                     info!(in_combat = ?p.in_combat, hp_changes = ?p.hp_changes, "combat.patch_extracted");
                 }
@@ -903,6 +910,22 @@ struct GamePatchExtraction {
     action_rewrite: Option<ActionRewrite>,
     #[serde(default)]
     action_flags: Option<ActionFlags>,
+    // Combat fields — narrator emits these in game_patch when combat starts/continues.
+    // Without these, the narrator's in_combat:true was silently dropped and combat
+    // never initiated (chicken-and-egg: IntentRouter needs in_combat to inject combat
+    // rules, but narrator needs to SET in_combat first via these fields).
+    #[serde(default)]
+    in_combat: Option<bool>,
+    #[serde(default)]
+    hp_changes: Option<HashMap<String, i32>>,
+    #[serde(default)]
+    turn_order: Option<Vec<String>>,
+    #[serde(default)]
+    current_turn: Option<String>,
+    #[serde(default)]
+    drama_weight: Option<f64>,
+    #[serde(default)]
+    advance_round: Option<bool>,
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -928,6 +951,34 @@ fn extract_game_patch(raw: &str) -> GamePatchExtraction {
     }
     // No structured data — return empty defaults
     GamePatchExtraction::default()
+}
+
+/// Extract a CombatPatch from the ```game_patch``` block if combat fields are present.
+///
+/// The narrator emits combat fields (in_combat, hp_changes, turn_order, etc.) inside
+/// the same ```game_patch``` block as other structured data. GamePatchExtraction now
+/// captures these fields; this function maps them to a CombatPatch if any are set.
+/// Returns None if no combat-relevant fields were emitted.
+fn extract_combat_from_game_patch(raw: &str) -> Option<crate::patches::CombatPatch> {
+    let patch = extract_game_patch(raw);
+    // Only produce a CombatPatch if at least one combat field is present.
+    if patch.in_combat.is_none()
+        && patch.hp_changes.is_none()
+        && patch.turn_order.is_none()
+        && patch.current_turn.is_none()
+        && patch.drama_weight.is_none()
+    {
+        return None;
+    }
+    Some(crate::patches::CombatPatch {
+        in_combat: patch.in_combat,
+        hp_changes: patch.hp_changes,
+        turn_order: patch.turn_order,
+        current_turn: patch.current_turn,
+        drama_weight: patch.drama_weight,
+        advance_round: patch.advance_round.unwrap_or(false),
+        available_actions: None,
+    })
 }
 
 // ============================================================================
@@ -1249,5 +1300,79 @@ pub fn inject_merchant_context(
             AttentionZone::Valley,
             SectionCategory::State,
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_combat_from_game_patch_block() {
+        // Narrator emits combat fields inside ```game_patch``` — this was the bug.
+        // extract_fenced_json only found ```json``` blocks, so combat initiation
+        // from the narrator was silently dropped.
+        let raw = r#"**The Collapsed Overpass**
+
+You grab the sharpened rebar and charge at the synth.
+
+```game_patch
+{
+  "in_combat": true,
+  "turn_order": ["Kael", "Synth Sentry"],
+  "current_turn": "Kael",
+  "hp_changes": {"Synth Sentry": -4},
+  "drama_weight": 0.6,
+  "npcs_present": [{"name": "Synth Sentry", "role": "enemy", "is_new": true}]
+}
+```"#;
+        let patch = extract_combat_from_game_patch(raw);
+        assert!(patch.is_some(), "should extract CombatPatch from game_patch block");
+        let p = patch.unwrap();
+        assert_eq!(p.in_combat, Some(true));
+        assert_eq!(p.turn_order.as_ref().unwrap().len(), 2);
+        assert_eq!(p.current_turn.as_deref(), Some("Kael"));
+        assert_eq!(*p.hp_changes.as_ref().unwrap().get("Synth Sentry").unwrap(), -4);
+        assert!((p.drama_weight.unwrap() - 0.6).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn extract_combat_returns_none_when_no_combat_fields() {
+        // Normal exploration turn — no combat fields in game_patch.
+        let raw = r#"**The Market Square**
+
+The vendors call out their wares as you pass.
+
+```game_patch
+{
+  "mood": "lively",
+  "npcs_present": [{"name": "Old Jens", "role": "vendor", "is_new": false}]
+}
+```"#;
+        let patch = extract_combat_from_game_patch(raw);
+        assert!(patch.is_none(), "should return None when no combat fields present");
+    }
+
+    #[test]
+    fn extract_combat_from_json_fence_fallback() {
+        // Legacy path: creature_smith emits ```json``` blocks.
+        let raw = r#"Combat narration here.
+
+```json
+{
+  "in_combat": true,
+  "turn_order": ["Player", "Goblin"],
+  "current_turn": "Player",
+  "hp_changes": {"Goblin": -8},
+  "drama_weight": 0.4
+}
+```"#;
+        // extract_combat_from_game_patch won't find it (no ```game_patch```)
+        let from_game_patch = extract_combat_from_game_patch(raw);
+        assert!(from_game_patch.is_none());
+        // But the fallback extract_fenced_json should
+        let fallback = extract_fenced_json::<crate::patches::CombatPatch>(raw).ok();
+        assert!(fallback.is_some());
+        assert_eq!(fallback.unwrap().in_combat, Some(true));
     }
 }

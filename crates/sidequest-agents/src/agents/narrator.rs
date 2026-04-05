@@ -53,7 +53,7 @@ const NARRATOR_OUTPUT_ONLY: &str = "\
 Your response has TWO parts, in this exact order:\n\
 \n\
 PART 1 — NARRATIVE PROSE\n\
-Write 2-4 sentences of narrative prose. Start with a location header like \
+Write 2-3 sentences of narrative prose (NEVER more than 3 short paragraphs). Start with a location header like \
 **The Collapsed Overpass**. This is what the player sees.\n\
 \n\
 PART 2 — STATE PATCH\n\
@@ -61,7 +61,17 @@ After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
 mood, state_snapshot, in_combat, hp_changes, turn_order, current_turn, \
-drama_weight.\n\
+drama_weight, visual_scene.\n\
+\n\
+visual_scene: Include this on EVERY turn where the setting changes, a new \
+location is entered, or a visually significant event occurs (combat start, \
+dramatic reveal, new NPC appearance). Format:\n\
+  \"visual_scene\": { \"subject\": \"<1-sentence image prompt, max 100 chars>\", \
+\"tier\": \"landscape|portrait|scene_illustration\", \"mood\": \
+\"ominous|tense|mystical|dramatic|melancholic|atmospheric\", \"tags\": [\"location\", \
+\"combat\", \"magic\", \"special_effect\", \"character\", \"atmosphere\"] }\n\
+tier: landscape for environments, portrait for NPC focus, scene_illustration for action.\n\
+subject: Describe what to PAINT — the visual composition, not the narrative.\n\
 \n\
 Combat initiation: When the player attacks or a hostile encounter begins, \
 set in_combat: true and include turn_order (list of combatant names, \
