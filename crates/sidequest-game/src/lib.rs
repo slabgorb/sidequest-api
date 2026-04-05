@@ -55,6 +55,7 @@ pub mod preprocessor;
 pub mod prerender;
 pub mod progression;
 pub mod render_queue;
+pub mod resource_pool;
 pub mod room_movement;
 pub mod scenario_archiver;
 pub mod scenario_state;
@@ -160,6 +161,10 @@ pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
 pub use room_movement::{apply_validated_move, build_room_graph_explored, init_room_graph_location, validate_room_transition, DispatchError, RoomTransition};
+pub use resource_pool::{
+    ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult, ResourcePool,
+    ResourceThreshold,
+};
 pub use state::{
     broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, DiscoveredRooms,
     GameSnapshot, NpcPatch, WorldStatePatch,
