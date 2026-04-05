@@ -162,8 +162,8 @@ pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
 pub use room_movement::{apply_validated_move, build_room_graph_explored, init_room_graph_location, validate_room_transition, DispatchError, RoomTransition};
 pub use resource_pool::{
-    mint_threshold_fact, ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult,
-    ResourcePool, ResourceThreshold, ThresholdEvent,
+    mint_threshold_lore, ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult,
+    ResourcePool, ResourceThreshold,
 };
 pub use state::{
     broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, DiscoveredRooms,
