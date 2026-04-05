@@ -922,6 +922,71 @@ pub(crate) async fn dispatch_character_creation(
                             ch.core.inventory = inventory.clone();
                         }
 
+                        // Scenario initialization: bind ScenarioPack → ScenarioState if available
+                        if let Ok(gc) = GenreCode::new(&genre) {
+                            if let Ok(pack) = state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                                if !pack.scenarios.is_empty() {
+                                    // Pick the first scenario (future: player/DM selection)
+                                    if let Some((_scenario_id, scenario_pack)) = pack.scenarios.iter().next() {
+                                        let scenario_state = sidequest_game::scenario_state::ScenarioState::from_genre_pack(scenario_pack);
+                                        tracing::info!(
+                                            genre = %genre,
+                                            world = %world,
+                                            scenario = %_scenario_id,
+                                            guilty_npc = %scenario_state.guilty_npc(),
+                                            npc_roles = scenario_state.npc_roles().len(),
+                                            "scenario.initialized — bound ScenarioPack to session"
+                                        );
+
+                                        // Initialize scenario NPC belief states from pack data
+                                        for snpc in &scenario_pack.npcs {
+                                            if let Some(npc) = snap.npcs.iter_mut().find(|n| n.core.name.as_str() == snpc.name) {
+                                                for fact in &snpc.initial_beliefs.facts {
+                                                    npc.belief_state.add_belief(
+                                                        sidequest_game::belief_state::Belief::Fact {
+                                                            subject: snpc.name.clone(),
+                                                            content: fact.clone(),
+                                                            turn_learned: 0,
+                                                            source: sidequest_game::belief_state::BeliefSource::Witnessed,
+                                                        },
+                                                    );
+                                                }
+                                                for suspicion in &snpc.initial_beliefs.suspicions {
+                                                    npc.belief_state.add_belief(
+                                                        sidequest_game::belief_state::Belief::suspicion(
+                                                            suspicion.target.clone(),
+                                                            suspicion.basis.clone(),
+                                                            0,
+                                                            sidequest_game::belief_state::BeliefSource::Inferred,
+                                                            suspicion.confidence as f32,
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        snap.scenario_state = Some(scenario_state);
+
+                                        // Store scenario pack in shared session for pressure event/scene budget checks
+                                        if let Ok(holder) = shared_session_holder.try_lock() {
+                                            if let Some(ref ss_arc) = *holder {
+                                                if let Ok(mut ss) = ss_arc.try_lock() {
+                                                    ss.active_scenario = Some(scenario_pack.clone());
+                                                }
+                                            }
+                                        }
+
+                                        crate::WatcherEventBuilder::new("scenario", crate::WatcherEventType::StateTransition)
+                                            .field("event", "scenario_initialized")
+                                            .field("genre", genre.as_str())
+                                            .field("world", world.as_str())
+                                            .field("scenario_id", _scenario_id.as_str())
+                                            .send(state);
+                                    }
+                                }
+                            }
+                        }
+
                         // Room-graph mode: set starting location to entrance room (story 19-2)
                         let rooms_for_init: Vec<sidequest_genre::RoomDef> = match GenreCode::new(&genre) {
                             Ok(gc) => match state.genre_cache().get_or_load(&gc, state.genre_loader()) {

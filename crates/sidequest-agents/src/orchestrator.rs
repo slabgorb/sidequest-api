@@ -518,7 +518,7 @@ impl Orchestrator {
         // Player action section (Recency zone)
         builder.add_section(PromptSection::new(
             "player_action",
-            format!("The player says: {}", action),
+            format!("{} says: {}", context.character_name, action),
             AttentionZone::Recency,
             SectionCategory::Action,
         ));
@@ -1111,6 +1111,8 @@ pub struct TurnContext {
     pub history_chapters: Vec<sidequest_game::world_materialization::HistoryChapter>,
     /// Current campaign maturity for world materialization filtering (story 15-18).
     pub campaign_maturity: sidequest_game::world_materialization::CampaignMaturity,
+    /// Character name of the acting player (multiplayer action attribution).
+    pub character_name: String,
 }
 
 /// Result of processing a player action through the full turn loop.

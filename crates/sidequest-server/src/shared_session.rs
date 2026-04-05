@@ -127,6 +127,12 @@ pub struct SharedGameSession {
     /// active perceptual effects (blinded, charmed, etc.).
     pub perception_filters: HashMap<String, PerceptionFilter>,
 
+    // --- Scenario ---
+    /// Active scenario pack for pressure events and scene budget (multiplayer-shared).
+    pub active_scenario: Option<sidequest_genre::ScenarioPack>,
+    /// Scene counter for pressure event triggering.
+    pub scene_count: u32,
+
     // --- Cartography ---
     /// Region registry from cartography.yaml: region_id → display name (lowercase for matching).
     pub region_names: Vec<(String, String)>,
@@ -161,6 +167,8 @@ impl SharedGameSession {
             turn_mode: TurnMode::default(),
             turn_barrier: None,
             perception_filters: HashMap::new(),
+            active_scenario: None,
+            scene_count: 0,
             region_names: vec![],
             players: HashMap::new(),
             session_tx,
