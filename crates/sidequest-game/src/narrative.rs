@@ -80,9 +80,15 @@ pub fn generate_recap(
         ));
     }
 
-    // Entry bullets
+    // Entry bullets — truncate long entries to keep recap concise
     for entry in entries {
-        recap.push_str(&format!("- {}\n", entry.content));
+        let content = if entry.content.len() > 200 {
+            let truncated = &entry.content[..entry.content.floor_char_boundary(200)];
+            format!("{}...", truncated)
+        } else {
+            entry.content.clone()
+        };
+        recap.push_str(&format!("- {}\n", content));
     }
 
     // Location footer
