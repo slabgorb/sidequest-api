@@ -3,6 +3,9 @@
 //! Pure functions that parse narrator output for location headers,
 //! TTS-clean text, and audio cue conversion.
 
+use regex::Regex;
+use std::sync::LazyLock;
+
 use sidequest_protocol::{AudioCuePayload, GameMessage};
 
 /// Extract a location name from the first few lines of narration text.
@@ -139,6 +142,76 @@ pub(crate) fn strip_markdown_for_tts(text: &str) -> String {
     tts_clean.trim().to_string()
 }
 
+// ---------------------------------------------------------------------------
+// Combat bracket patterns — compiled once, reused forever
+// ---------------------------------------------------------------------------
+
+/// Matches lines that are entirely a bracketed combat/mechanical annotation.
+/// Examples:
+///   [COMBAT: Riissor the Rotting — Synth (HP 12) | Kael HP 8/8]
+///   [Kael's charge — first strike lands. Riissor takes 2 damage. HP: 10/12]
+///   [Combat Round 3]
+///   [Initiative: Kael, Riissor]
+///   [HP: 10/12]
+///
+/// Pattern: a line whose trimmed content starts with `[` and ends with `]`,
+/// AND contains at least one combat keyword (COMBAT, HP, damage, round, initiative,
+/// strike, attack, defend, takes, deals).
+static COMBAT_BRACKET_LINE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)^\s*\[(?:[^\]]*(?:COMBAT|HP[:\s]|damage|round|initiative|strike|attack|defend|takes\s+\d|deals\s+\d)[^\]]*)\]\s*$"
+    ).unwrap()
+});
+
+/// Strip bracketed combat/mechanical annotations from narration text.
+///
+/// The narrator LLM sometimes emits inline bracketed lines like
+/// `[COMBAT: Enemy — Type (HP 12) | Player HP 8/8]` or
+/// `[Player's charge — first strike lands. Enemy takes 2 damage. HP: 10/12]`
+/// mixed into prose. These are mechanical data that belongs in the CombatOverlay
+/// (delivered via CombatEvent messages), not in narration text.
+///
+/// Strips entire lines that match the combat bracket pattern, then collapses
+/// any resulting double-blank-lines.
+pub(crate) fn strip_combat_brackets(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut stripped_count = 0u32;
+
+    for line in text.lines() {
+        if COMBAT_BRACKET_LINE.is_match(line) {
+            stripped_count += 1;
+            continue;
+        }
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    if stripped_count > 0 {
+        tracing::debug!(
+            stripped_count,
+            "combat_brackets.stripped from narration"
+        );
+    }
+
+    // Collapse multiple blank lines left by removed brackets
+    let mut collapsed = String::with_capacity(result.len());
+    let mut blank_count = 0;
+    for line in result.lines() {
+        if line.trim().is_empty() {
+            blank_count += 1;
+            if blank_count <= 1 {
+                collapsed.push('\n');
+            }
+        } else {
+            blank_count = 0;
+            collapsed.push_str(line);
+            collapsed.push('\n');
+        }
+    }
+
+    collapsed.trim().to_string()
+}
+
 /// Strip fenced code blocks from narration text (e.g. ```game_patch ... ```).
 ///
 /// The narrator emits structured JSON blocks (game_patch, etc.) inline with prose.
@@ -214,5 +287,80 @@ pub(crate) fn audio_cue_to_game_message(
             crossfade_ms: None,
         },
         player_id: player_id.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_combat_brackets_removes_combat_header() {
+        let input = "The creature lunges forward.\n\
+                      [COMBAT: Riissor the Rotting — Synth (HP 12) | Kael HP 8/8]\n\
+                      You barely dodge the blow.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "The creature lunges forward.\nYou barely dodge the blow.");
+    }
+
+    #[test]
+    fn strip_combat_brackets_removes_damage_line() {
+        let input = "Your blade connects with a sickening crack.\n\
+                      [Kael's charge — first strike lands. Riissor takes 2 damage. HP: 10/12]\n\
+                      The creature staggers backward.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "Your blade connects with a sickening crack.\nThe creature staggers backward.");
+    }
+
+    #[test]
+    fn strip_combat_brackets_removes_round_marker() {
+        let input = "[Combat Round 3]\nSwords clash in the dim hallway.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "Swords clash in the dim hallway.");
+    }
+
+    #[test]
+    fn strip_combat_brackets_preserves_non_combat_brackets() {
+        // Inline brackets (not on their own line) are preserved
+        let input = "He said [something odd] and walked away.\n\
+                      The [ancient rune] glowed faintly.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "He said [something odd] and walked away.\nThe [ancient rune] glowed faintly.");
+    }
+
+    #[test]
+    fn strip_combat_brackets_preserves_dialogue_with_brackets() {
+        let input = "\"[I'll never surrender,]\" she growled.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "\"[I'll never surrender,]\" she growled.");
+    }
+
+    #[test]
+    fn strip_combat_brackets_removes_hp_only_line() {
+        let input = "Blood drips from the wound.\n[HP: 6/12]\nYou press on.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "Blood drips from the wound.\nYou press on.");
+    }
+
+    #[test]
+    fn strip_combat_brackets_removes_initiative_line() {
+        let input = "[Initiative: Kael, Riissor, Brenna]\nThe fight begins.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "The fight begins.");
+    }
+
+    #[test]
+    fn strip_combat_brackets_no_change_when_clean() {
+        let input = "The tavern is warm and inviting.\nA bard plays softly in the corner.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn strip_combat_brackets_whole_line_non_combat_bracket_preserved() {
+        // A line that IS a bracket but has no combat keywords is preserved
+        let input = "[The ancient prophecy speaks of a chosen one]\nYou continue reading.";
+        let result = strip_combat_brackets(input);
+        assert_eq!(result, "[The ancient prophecy speaks of a chosen one]\nYou continue reading.");
     }
 }
