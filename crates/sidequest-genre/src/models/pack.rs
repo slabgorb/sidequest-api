@@ -83,6 +83,32 @@ pub struct World {
     pub history: Option<serde_json::Value>,
     /// Raw legends data (preserves origin_myth and other map-format data).
     pub legends_raw: Option<serde_json::Value>,
+    /// Portrait manifest — rich appearance descriptions for NPC portrait generation.
+    /// Loaded from `portrait_manifest.yaml` if present.
+    pub portrait_manifest: Vec<PortraitManifestEntry>,
+}
+
+/// A character entry in a portrait manifest — provides rich visual descriptions
+/// for Flux portrait generation with identity consistency.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PortraitManifestEntry {
+    /// Character name (must match NPC registry name).
+    pub name: String,
+    /// Character role (e.g., "Senior Lamplighter and Fragment Researcher").
+    #[serde(default)]
+    pub role: String,
+    /// Character type: npc_major, npc_supporting, player.
+    #[serde(default, rename = "type")]
+    pub character_type: String,
+    /// Detailed physical appearance for Flux prompt.
+    #[serde(default)]
+    pub appearance: String,
+    /// Cultural/fashion context for visual consistency.
+    #[serde(default)]
+    pub culture_aesthetic: String,
+    /// Genre-specific visual elements (magical auras, tech, etc.).
+    #[serde(default)]
+    pub element_visual: String,
 }
 
 // ═══════════════════════════════════════════════════════════

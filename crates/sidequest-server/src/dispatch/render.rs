@@ -138,10 +138,24 @@ pub(crate) async fn process_render(
             };
             // Send visual_scene subject as prompt — no narration, daemon skips SubjectExtractor
             match queue
-                .enqueue(subject, &art_style, &model, &neg_prompt, "")
+                .enqueue(subject.clone(), &art_style, &model, &neg_prompt, "")
                 .await
             {
-                Ok(r) => tracing::info!(result = ?r, "Render job enqueued"),
+                Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {
+                    tracing::info!(%job_id, "Render job enqueued");
+                    // Notify UI to show placeholder shimmer while Flux generates
+                    let dims = sidequest_game::tier_to_dimensions(subject.tier());
+                    let _ = ctx.tx.send(sidequest_protocol::GameMessage::RenderQueued {
+                        payload: sidequest_protocol::RenderQueuedPayload {
+                            render_id: job_id.to_string(),
+                            tier: format!("{:?}", subject.tier()).to_lowercase(),
+                            width: dims.width,
+                            height: dims.height,
+                        },
+                        player_id: ctx.player_id.to_string(),
+                    }).await;
+                }
+                Ok(r) => tracing::info!(result = ?r, "Render job deduplicated"),
                 Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),
             }
         }

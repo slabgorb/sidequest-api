@@ -180,6 +180,18 @@ fn load_single_world(
     let history: Option<serde_json::Value> =
         load_yaml_optional(&world_path.join("history.yaml"))?;
 
+    // Portrait manifest — rich appearance descriptions for NPC portrait generation.
+    let portrait_manifest: Vec<PortraitManifestEntry> = {
+        #[derive(serde::Deserialize)]
+        struct PortraitManifestWrapper {
+            #[serde(default)]
+            characters: Vec<PortraitManifestEntry>,
+        }
+        load_yaml_optional::<PortraitManifestWrapper>(&world_path.join("portrait_manifest.yaml"))?
+            .map(|w| w.characters)
+            .unwrap_or_default()
+    };
+
     Ok(World {
         config,
         lore,
@@ -191,6 +203,7 @@ fn load_single_world(
         visual_style,
         history,
         legends_raw,
+        portrait_manifest,
     })
 }
 
