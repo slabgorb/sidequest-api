@@ -345,8 +345,12 @@ pub(crate) async fn build_prompt_context(
         }
 
         // Abilities — full with rules if player references them, name-only list otherwise
+        // Filter out lore anchor placeholders ("faction: auto-filled from genre pack")
         if let Some(hooks) = cj.get("hooks").and_then(|h| h.as_array()) {
-            let hook_strs: Vec<&str> = hooks.iter().filter_map(|v| v.as_str()).collect();
+            let hook_strs: Vec<&str> = hooks.iter()
+                .filter_map(|v| v.as_str())
+                .filter(|s| !s.contains("auto-filled"))
+                .collect();
             if !hook_strs.is_empty() {
                 if relevance.references_ability {
                     state_summary.push_str("\n\nABILITY CONSTRAINTS — THIS IS A HARD RULE:\n");

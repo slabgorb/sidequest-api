@@ -123,22 +123,18 @@ impl PromptRegistry {
         let content = match verbosity {
             NarratorVerbosity::Concise => {
                 "[NARRATION LENGTH]\n\
-                 Keep descriptions to 1-2 sentences. Prioritize action and \
-                 consequence over atmosphere. No extended scene-setting or \
-                 sensory elaboration. Be direct."
+                 HARD LIMIT: Under 200 characters. 1-2 sentences max. \
+                 Action and consequence only. No scene-setting."
             }
             NarratorVerbosity::Standard => {
                 "[NARRATION LENGTH]\n\
-                 Use standard descriptive prose — balanced detail and pacing. \
-                 Include enough atmosphere to set the scene without belaboring it. \
-                 2-4 sentences per beat is typical."
+                 HARD LIMIT: Under 400 characters (~3-4 sentences). \
+                 One action, one scene beat. Balanced detail and pacing."
             }
             NarratorVerbosity::Verbose => {
                 "[NARRATION LENGTH]\n\
-                 Elaborate with sensory details and world-building. Paint the \
-                 scene with sights, sounds, smells, and texture. Take time to \
-                 establish atmosphere and let moments breathe. 4-6+ sentences \
-                 per beat."
+                 HARD LIMIT: Under 600 characters (~4-6 sentences). \
+                 Richer atmosphere and sensory detail, but still concise."
             }
         };
 
