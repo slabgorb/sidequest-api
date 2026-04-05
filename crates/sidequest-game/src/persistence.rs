@@ -295,7 +295,7 @@ impl SessionStore for SqliteStore {
             last_played: Utc::now(),
         });
         // Rich recap with character names and location (story F3)
-        let entries = self.recent_narrative(20)?;
+        let entries = self.recent_narrative(3)?;
         let character_names: Vec<String> = snapshot
             .characters
             .iter()
@@ -353,11 +353,17 @@ impl SessionStore for SqliteStore {
     }
 
     fn generate_recap(&self) -> Result<Option<String>, PersistError> {
-        let entries = self.recent_narrative(20)?;
+        let entries = self.recent_narrative(3)?;
         if entries.is_empty() { return Ok(None); }
         let mut recap = String::from("Previously On...\n\n");
         for entry in &entries {
-            recap.push_str(&format!("- {}\n", entry.content));
+            let content = if entry.content.len() > 200 {
+                let truncated = &entry.content[..entry.content.floor_char_boundary(200)];
+                format!("{}...", truncated)
+            } else {
+                entry.content.clone()
+            };
+            recap.push_str(&format!("- {}\n", content));
         }
         Ok(Some(recap))
     }

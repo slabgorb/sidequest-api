@@ -29,7 +29,6 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
-use tracing_subscriber::prelude::*;
 
 use sidequest_agents::orchestrator::GameService;
 use sidequest_game::builder::CharacterBuilder;
@@ -104,6 +103,9 @@ use sidequest_protocol::{
 // ---------------------------------------------------------------------------
 // Watcher Telemetry Types (Story 3-6)
 // ---------------------------------------------------------------------------
+
+/// Maximum number of watcher events retained for replay to late-connecting GM panels.
+const WATCHER_HISTORY_CAP: usize = 500;
 
 /// A telemetry event streamed to `/ws/watcher` clients.
 ///
@@ -379,6 +381,9 @@ struct AppStateInner {
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
     watcher_tx: broadcast::Sender<WatcherEvent>,
+    /// Accumulated watcher events for replay to late-connecting GM panels.
+    /// Capped at WATCHER_HISTORY_CAP to bound memory.
+    watcher_event_history: Mutex<Vec<WatcherEvent>>,
     persistence: sidequest_game::PersistenceHandle,
     render_queue: Option<sidequest_game::RenderQueue>,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
@@ -545,6 +550,7 @@ impl AppState {
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
                 watcher_tx,
+                watcher_event_history: Mutex::new(Vec::new()),
                 persistence,
                 render_queue: Some(render_queue),
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
@@ -729,21 +735,25 @@ impl AppState {
         let mut sessions = self.inner.sessions.lock().unwrap();
         let remaining = if let Some(session_arc) = sessions.get(&key).cloned() {
             if let Ok(mut session) = session_arc.try_lock() {
-                session.players.remove(player_id);
+                let was_present = session.players.remove(player_id).is_some();
                 // Remove player from barrier roster if active
                 if let Some(ref barrier) = session.turn_barrier {
                     let _ = barrier.remove_player(player_id);
                 }
                 let remaining = session.players.len();
-                // Transition TurnMode when dropping back to solo
-                let old_mode = std::mem::take(&mut session.turn_mode);
-                session.turn_mode = old_mode.apply(
-                    sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                        player_count: remaining,
-                    },
-                );
-                if !session.turn_mode.should_use_barrier() {
-                    session.turn_barrier = None;
+                // Transition TurnMode when dropping back to solo —
+                // only if we actually removed a player (skip for
+                // superseded connections from reconnect)
+                if was_present {
+                    let old_mode = std::mem::take(&mut session.turn_mode);
+                    session.turn_mode = old_mode.apply(
+                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                            player_count: remaining,
+                        },
+                    );
+                    if !session.turn_mode.should_use_barrier() {
+                        session.turn_barrier = None;
+                    }
                 }
                 remaining
             } else {
@@ -778,8 +788,23 @@ impl AppState {
 
     /// Send a telemetry event to all connected watcher clients.
     /// Silently ignores the error when no subscribers are connected (zero overhead).
+    /// Also stores the event in history for replay to late-connecting watchers.
     pub fn send_watcher_event(&self, event: WatcherEvent) {
+        // Store in history for replay (bounded to WATCHER_HISTORY_CAP)
+        {
+            let mut history = self.inner.watcher_event_history.lock().unwrap();
+            if history.len() >= WATCHER_HISTORY_CAP {
+                let drain_count = history.len() - WATCHER_HISTORY_CAP + 1;
+                history.drain(..drain_count);
+            }
+            history.push(event.clone());
+        }
         let _ = self.inner.watcher_tx.send(event);
+    }
+
+    /// Return a snapshot of all stored watcher events for replay to late-connecting clients.
+    pub fn get_watcher_history(&self) -> Vec<WatcherEvent> {
+        self.inner.watcher_event_history.lock().unwrap().clone()
     }
 
     /// Broadcast binary data to all connected WebSocket clients.
@@ -1373,79 +1398,90 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             if let Some(ss_arc) = sessions.get(&key).cloned() {
                 drop(sessions);
                 if let Ok(mut ss) = ss_arc.try_lock() {
-                    // Send departure narration to remaining players (mirrors join narration)
-                    let departure_name = ss
-                        .players
-                        .get(&player_id_str)
-                        .and_then(|ps| ps.character_name.clone())
-                        .or_else(|| player_name_for_session.clone())
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    let departure_text = format!("{} has left the scene.", departure_name);
-                    let remaining_pids: Vec<String> = ss
-                        .players
-                        .keys()
-                        .filter(|pid| pid.as_str() != &*player_id_str)
-                        .cloned()
-                        .collect();
-                    for target_pid in &remaining_pids {
-                        ss.send_to_player(
-                            GameMessage::Narration {
-                                payload: sidequest_protocol::NarrationPayload {
-                                    text: departure_text.clone(),
-                                    state_delta: None,
-                                    footnotes: vec![],
+                    // Only fire departure if this player_id is still registered
+                    // in the shared session. A reconnect from the same player_name
+                    // transfers the PlayerState to a new player_id and removes the
+                    // old one, so the superseded connection should NOT emit departure.
+                    if ss.players.contains_key(&player_id_str) {
+                        // Send departure narration to remaining players (mirrors join narration)
+                        let departure_name = ss
+                            .players
+                            .get(&player_id_str)
+                            .and_then(|ps| ps.character_name.clone())
+                            .or_else(|| player_name_for_session.clone())
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        let departure_text = format!("{} has left the scene.", departure_name);
+                        let remaining_pids: Vec<String> = ss
+                            .players
+                            .keys()
+                            .filter(|pid| pid.as_str() != &*player_id_str)
+                            .cloned()
+                            .collect();
+                        for target_pid in &remaining_pids {
+                            ss.send_to_player(
+                                GameMessage::Narration {
+                                    payload: sidequest_protocol::NarrationPayload {
+                                        text: departure_text.clone(),
+                                        state_delta: None,
+                                        footnotes: vec![],
+                                    },
+                                    player_id: target_pid.clone(),
                                 },
-                                player_id: target_pid.clone(),
-                            },
-                            target_pid.clone(),
-                        );
-                        ss.send_to_player(
-                            GameMessage::NarrationEnd {
-                                payload: sidequest_protocol::NarrationEndPayload {
-                                    state_delta: None,
+                                target_pid.clone(),
+                            );
+                            ss.send_to_player(
+                                GameMessage::NarrationEnd {
+                                    payload: sidequest_protocol::NarrationEndPayload {
+                                        state_delta: None,
+                                    },
+                                    player_id: target_pid.clone(),
                                 },
-                                player_id: target_pid.clone(),
+                                target_pid.clone(),
+                            );
+                        }
+
+                        let leave_msg = GameMessage::SessionEvent {
+                            payload: SessionEventPayload {
+                                event: "player_left".to_string(),
+                                player_name: player_name_for_session.clone(),
+                                genre: None,
+                                world: None,
+                                has_character: None,
+                                initial_state: None,
+                                css: None,
+                                image_cooldown_seconds: None,
+                                narrator_verbosity: None,
+                                narrator_vocabulary: None,
                             },
-                            target_pid.clone(),
+                            player_id: player_id_str.clone(),
+                        };
+                        ss.broadcast(leave_msg);
+
+                        // Transition turn mode when player leaves
+                        let remaining_count = ss.player_count().saturating_sub(1);
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode.apply(
+                            sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                                player_count: remaining_count,
+                            },
                         );
-                    }
-
-                    let leave_msg = GameMessage::SessionEvent {
-                        payload: SessionEventPayload {
-                            event: "player_left".to_string(),
-                            player_name: player_name_for_session.clone(),
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: None,
-                            css: None,
-                            image_cooldown_seconds: None,
-                            narrator_verbosity: None,
-                            narrator_vocabulary: None,
-                        },
-                        player_id: player_id_str.clone(),
-                    };
-                    ss.broadcast(leave_msg);
-
-                    // Transition turn mode when player leaves
-                    let remaining_count = ss.player_count().saturating_sub(1);
-                    let old_mode = std::mem::take(&mut ss.turn_mode);
-                    ss.turn_mode = old_mode.apply(
-                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                            player_count: remaining_count,
-                        },
-                    );
-                    tracing::info!(
-                        new_mode = ?ss.turn_mode,
-                        remaining_players = remaining_count,
-                        "Turn mode transitioned on player leave"
-                    );
-                    // Remove player from barrier roster and tear down if back to FreePlay
-                    if let Some(ref barrier) = ss.turn_barrier {
-                        let _ = barrier.remove_player(&player_id_str);
-                    }
-                    if !ss.turn_mode.should_use_barrier() {
-                        ss.turn_barrier = None;
+                        tracing::info!(
+                            new_mode = ?ss.turn_mode,
+                            remaining_players = remaining_count,
+                            "Turn mode transitioned on player leave"
+                        );
+                        // Remove player from barrier roster and tear down if back to FreePlay
+                        if let Some(ref barrier) = ss.turn_barrier {
+                            let _ = barrier.remove_player(&player_id_str);
+                        }
+                        if !ss.turn_mode.should_use_barrier() {
+                            ss.turn_barrier = None;
+                        }
+                    } else {
+                        tracing::info!(
+                            player_id = %player_id_str,
+                            "Skipping departure — player_id was superseded by reconnect"
+                        );
                     }
                 }
             }

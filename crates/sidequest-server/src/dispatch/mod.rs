@@ -36,8 +36,8 @@ use sidequest_protocol::{
 };
 
 use crate::extraction::{
-    audio_cue_to_game_message, extract_location_header, strip_fenced_blocks,
-    strip_location_header, strip_markdown_for_tts,
+    audio_cue_to_game_message, extract_location_header, strip_combat_brackets,
+    strip_fenced_blocks, strip_fourth_wall, strip_location_header, strip_markdown_for_tts,
 };
 use crate::{
     shared_session, AppState, DaemonSynthesizer, NpcRegistryEntry, Severity, WatcherEventBuilder,
@@ -228,7 +228,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // the narrator LLM call so mutations are visible in the current turn's prompt.
     if let Some(prev_entry) = ctx.narration_history.last() {
         let carried_names: Vec<String> = ctx.inventory.carried().map(|i| i.name.as_str().to_string()).collect();
-        if !carried_names.is_empty() {
+        // FIX: removed carried_names.is_empty() guard that blocked first-item acquisition
+        {
             // Split the history entry: "[CharName] Action: ...\nNarrator: ..."
             let (prev_action, prev_narration) = prev_entry
                 .split_once("\nNarrator: ")
@@ -394,8 +395,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
     {
-        let nearby = ctx.monster_manual.format_nearby_npcs();
-        let creatures = ctx.monster_manual.format_area_creatures();
+        let nearby = ctx.monster_manual.format_nearby_npcs(ctx.current_location);
+        let creatures = ctx.monster_manual.format_area_creatures(ctx.combat_state.in_combat());
         if !nearby.is_empty() {
             state_summary.push_str("\n\n");
             state_summary.push_str(&nearby);
@@ -405,14 +406,20 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             state_summary.push_str("\n\n");
             state_summary.push_str(&creatures);
         }
+        let npcs_injected = if nearby.is_empty() { 0 } else { nearby.lines().count() };
+        let creatures_injected = if creatures.is_empty() { 0 } else { creatures.lines().count() };
         let _mm_span = tracing::info_span!(
             "monster_manual.injected",
             available_npcs = ctx.monster_manual.available_npcs().len(),
             available_encounters = ctx.monster_manual.available_encounters().len(),
             total_npcs = ctx.monster_manual.npcs.len(),
             total_encounters = ctx.monster_manual.encounters.len(),
+            npcs_injected = npcs_injected,
+            creatures_injected = creatures_injected,
+            in_combat = ctx.combat_state.in_combat(),
+            location = %ctx.current_location,
         ).entered();
-        tracing::info!("Monster Manual content injected into game_state");
+        tracing::info!("Monster Manual content injected (location-filtered)");
     }
 
     // Story 15-26: NPC autonomous action selection — wire scenario between-turn processing
@@ -694,6 +701,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("sfx_trigger_count", result.sfx_triggers.len())
         .field("has_new_npcs", result.npcs_present.iter().any(|n| n.is_new))
         .field("items_gained_count", result.items_gained.len())
+        .field("extraction_tier", &result.prompt_tier)
         .send(ctx.state);
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
@@ -916,10 +924,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    let clean_narration = strip_fenced_blocks(&strip_location_header(narration_text))
-        .replace("</s>", "")
-        .replace("<|endoftext|>", "")
-        .replace("<|end|>", "");
+    let clean_narration = strip_fourth_wall(
+            &strip_combat_brackets(
+                &strip_fenced_blocks(&strip_location_header(narration_text))
+            )
+            .replace("</s>", "")
+            .replace("<|endoftext|>", "")
+            .replace("<|end|>", ""),
+        );
 
     // Accumulate narration history for context on subsequent turns.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
@@ -1100,6 +1112,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         sidequest_game::build_protocol_delta(&narration_delta, &temp_state, &result.items_gained)
     };
 
+    // Send RENDER_QUEUED *before* narration so the UI has the placeholder
+    // when it processes the NARRATION message.  Previously this ran in the
+    // media section after narration, so the placeholder never existed when
+    // buildSegments tried to match render_id → images fell to the bottom.
+    render::process_render(ctx, &clean_narration, narration_text, &result).await;
+
     // Build response messages (narration, party status, inventory)
     build_response_messages(
         ctx,
@@ -1119,12 +1137,28 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // instead of waiting ~15s for the Haiku continuity call + daemon embed round-trips.
 
     // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
-    // Skip in combat — creature_smith output is structured, and the 18s Haiku call
-    // doubles combat turn latency for marginal value.
-    if !ctx.combat_state.in_combat() {
-        validate_continuity(ctx, &clean_narration).await;
-    } else {
-        tracing::info!("Skipping continuity validation — in_combat, creature_smith output is structured");
+    // Gate: only call when there's meaningful state to validate against.
+    // The validator's value is catching dead NPC resurrection and inventory
+    // contradictions. Without dead NPCs, the ~15-22s Haiku subprocess call
+    // returns zero contradictions almost every time — pure waste.
+    {
+        let dead_npcs_exist = ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0);
+        let in_combat = ctx.combat_state.in_combat();
+        if in_combat {
+            tracing::info!("continuity.skipped — in_combat, creature_smith output is structured");
+            WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
+                .field("action", "skipped")
+                .field("reason", "in_combat")
+                .send(ctx.state);
+        } else if !dead_npcs_exist {
+            tracing::info!("continuity.skipped — no dead NPCs, contradiction risk near-zero");
+            WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
+                .field("action", "skipped")
+                .field("reason", "no_dead_npcs")
+                .send(ctx.state);
+        } else {
+            validate_continuity(ctx, &clean_narration).await;
+        }
     }
 
     // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
@@ -1273,7 +1307,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     );
     let _media_guard = media_span.enter();
 
-    render::process_render(ctx, &clean_narration, narration_text, &result).await;
+    // NOTE: process_render moved before build_response_messages (see above)
+    // so RENDER_QUEUED arrives at the UI before NARRATION text.
 
     let location_changed = *ctx.current_location != location_before_turn;
     audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, mutation_result.combat_just_ended).await;
@@ -1947,7 +1982,7 @@ async fn accumulate_and_persist_lore(
 
 /// Continuity validation — LLM-based check of narrator output against game state.
 ///
-/// Uses Haiku classification to detect contradictions rather than keyword matching.
+/// Uses Sonnet classification to detect contradictions rather than keyword matching.
 /// Runs via spawn_blocking so it doesn't block the tokio runtime.
 async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &str) {
     let dead_npcs: Vec<String> = ctx
@@ -1963,6 +1998,14 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
         .map(|i| i.name.as_str().to_string())
         .collect();
 
+    let character_description: String = ctx
+        .character_json
+        .as_ref()
+        .and_then(|cj| cj.get("description"))
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_string();
+
     let validation_result =
         sidequest_agents::continuity_validator::validate_continuity_llm_async(
             clean_narration,
@@ -1970,6 +2013,7 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
             &dead_npcs,
             &inventory_items,
             "", // time_of_day not tracked in dispatch context yet
+            &character_description,
         )
         .await;
 
@@ -2347,13 +2391,23 @@ async fn persist_game_state(
     ctx.snapshot.narrative_log.push(narrative_entry.clone());
 
     // Write to append-only narrative_log table in SQLite
-    if let Err(e) = ctx
+    match ctx
         .state
         .persistence()
         .append_narrative(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &narrative_entry)
         .await
     {
-        tracing::warn!(error = %e, "Failed to append narrative log entry");
+        Ok(()) => {
+            WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
+                .field("event", "persistence.narrative_appended")
+                .field("turn", ctx.turn_manager.interaction())
+                .field("length", clean_narration.len())
+                .field("player", ctx.player_name_for_save)
+                .send(ctx.state);
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to append narrative log entry");
+        }
     }
 
     // Emit encounter OTEL event if active
@@ -2403,31 +2457,10 @@ async fn persist_game_state(
                 .field("turn", ctx.turn_manager.interaction())
                 .send(ctx.state);
 
-            // Also write to the dedicated narrative_log SQLite table
-            // (enables recent_narrative() for "Previously On..." reconnect recaps)
-            match ctx
-                .state
-                .persistence()
-                .append_narrative(
-                    ctx.genre_slug,
-                    ctx.world_slug,
-                    ctx.player_name_for_save,
-                    &narrative_entry,
-                )
-                .await
-            {
-                Ok(()) => {
-                    WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
-                        .field("event", "persistence.narrative_appended")
-                        .field("turn", ctx.turn_manager.interaction())
-                        .field("length", clean_narration.len())
-                        .field("player", ctx.player_name_for_save)
-                        .send(ctx.state);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to append narrative to SQLite table");
-                }
-            }
+            // NOTE: append_narrative is already called above (line ~2358) right
+            // after the entry is created.  A duplicate call here was causing
+            // every narration row to be written twice, which produced repeated
+            // paragraphs in the "Previously On..." recap on session resume.
         }
         Err(e) => {
             tracing::error!(error = %e, "Failed to persist game state");
@@ -2865,7 +2898,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
             .send(ctx.state);
     }
 
-    let narration_text = strip_fenced_blocks(&strip_location_header(&result.narration));
+    let narration_text = strip_fourth_wall(&strip_combat_brackets(&strip_fenced_blocks(&strip_location_header(&result.narration))));
 
     vec![
         GameMessage::Narration {

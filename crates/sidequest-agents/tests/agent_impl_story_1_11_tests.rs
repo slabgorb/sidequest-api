@@ -172,6 +172,7 @@ mod agent_types_tests {
             action_flags: None,
             sfx_triggers: vec![],
             merchant_transactions: vec![],
+            prompt_tier: String::new(),
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -320,6 +321,7 @@ mod game_service_tests {
             action_flags: None,
             sfx_triggers: vec![],
             merchant_transactions: vec![],
+            prompt_tier: String::new(),
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -370,6 +372,7 @@ mod error_handling_tests {
             action_flags: None,
             sfx_triggers: vec![],
             merchant_transactions: vec![],
+            prompt_tier: String::new(),
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

@@ -10,8 +10,8 @@ use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
-    CharacterState, GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
-    PartyStatusPayload, SessionEventPayload,
+    CharacterState, GameMessage, InitialState, MapUpdatePayload, NarrationEndPayload,
+    NarrationPayload, PartyMember, PartyStatusPayload, SessionEventPayload,
 };
 
 use crate::npc_context;
@@ -168,7 +168,10 @@ pub(crate) async fn dispatch_connect(
                                         .iter()
                                         .map(|(k, v)| (k.clone(), *v))
                                         .collect(),
-                                    abilities: character.hooks.clone(),
+                                    abilities: character.hooks.iter()
+                                        .filter(|s| !s.contains("auto-filled"))
+                                        .cloned()
+                                        .collect(),
                                     backstory: character.backstory.as_str().to_string(),
                                     personality: character.core.personality.as_str().to_string(),
                                     pronouns: character.pronouns.clone(),
@@ -241,6 +244,64 @@ pub(crate) async fn dispatch_connect(
                                 payload: PartyStatusPayload { members },
                                 player_id: player_id.to_string(),
                             });
+                        }
+
+                        // MAP_UPDATE — replay explored map state so the client
+                        // can show the Automapper overlay immediately on reconnect.
+                        // Without this the M hotkey stays gated on null mapData.
+                        {
+                            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = {
+                                // Try room graph mode first
+                                let rooms: Vec<sidequest_genre::RoomDef> = GenreCode::new(genre)
+                                    .ok()
+                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|pack| pack.worlds.get(world).cloned())
+                                    .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                    .and_then(|w| w.cartography.rooms.clone())
+                                    .unwrap_or_default();
+                                if !rooms.is_empty() {
+                                    sidequest_game::build_room_graph_explored(
+                                        &rooms,
+                                        &saved.snapshot.discovered_rooms,
+                                        &saved.snapshot.location,
+                                    )
+                                } else {
+                                    saved.snapshot.discovered_regions
+                                        .iter()
+                                        .map(|name| sidequest_protocol::ExploredLocation {
+                                            name: name.clone(),
+                                            x: 0,
+                                            y: 0,
+                                            location_type: String::new(),
+                                            connections: vec![],
+                                            room_exits: vec![],
+                                            room_type: String::new(),
+                                            size: None,
+                                            is_current_room: name == &saved.snapshot.location,
+                                        })
+                                        .collect()
+                                }
+                            };
+                            let explored_count = explored_locs.len();
+                            responses.push(GameMessage::MapUpdate {
+                                payload: MapUpdatePayload {
+                                    current_location: saved.snapshot.location.clone(),
+                                    region: saved.snapshot.current_region.clone(),
+                                    explored: explored_locs,
+                                    fog_bounds: None,
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                            tracing::info!(
+                                explored_count,
+                                location = %saved.snapshot.location,
+                                "map_update.reconnect — replayed explored state for automapper"
+                            );
+                            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
+                                .field("event", "map_update.reconnect")
+                                .field("explored_count", explored_count)
+                                .field("location", saved.snapshot.location.as_str())
+                                .send(state);
                         }
 
                         // Initialize audio subsystems for returning player
@@ -584,7 +645,7 @@ pub(crate) async fn start_character_creation(
     // Select a random opening hook if the genre pack provides them
     if !pack.openings.is_empty() {
         use rand::Rng;
-        let idx = rand::thread_rng().gen_range(0..pack.openings.len());
+        let idx = rand::rng().random_range(0..pack.openings.len());
         let hook = &pack.openings[idx];
 
         // Build opening directive — injected into Early zone on turn 0 only via DispatchContext
@@ -741,9 +802,21 @@ pub(crate) async fn dispatch_character_creation(
             vec![b.to_scene_message(player_id)]
         }
         "confirmation" => {
-            // Build the character
-            let pname = player_name_store.as_deref().unwrap_or("Player");
-            match b.build(pname) {
+            // Build the character — use the name from the name-entry scene if available,
+            // otherwise fall back to player connection name, then "Player".
+            let name_from_scene = b.character_name().map(|s| s.to_string());
+            let char_name = name_from_scene.clone()
+                .or_else(|| payload.choice.clone())
+                .unwrap_or_else(|| player_name_store.as_deref().unwrap_or("Player").to_string());
+
+            WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                .field("event", "name_resolved")
+                .field("char_name", char_name.as_str())
+                .field("source", if name_from_scene.is_some() { "name_scene" } else if payload.choice.is_some() { "payload" } else { "player_name_fallback" })
+                .field("player_id", player_id)
+                .send(state);
+
+            match b.build(&char_name) {
                 Ok(character) => {
                     let char_json = serde_json::to_value(&character).unwrap_or_default();
 
@@ -1229,7 +1302,10 @@ pub(crate) async fn dispatch_character_creation(
                                 .iter()
                                 .map(|(k, v)| (k.clone(), *v))
                                 .collect(),
-                            abilities: character.hooks.clone(),
+                            abilities: character.hooks.iter()
+                                .filter(|s| !s.contains("auto-filled"))
+                                .cloned()
+                                .collect(),
                             backstory: character.backstory.as_str().to_string(),
                             personality: character.core.personality.as_str().to_string(),
                             pronouns: character.pronouns.clone(),
@@ -1282,55 +1358,106 @@ pub(crate) async fn dispatch_character_creation(
                                 ));
                             }
 
-                            let ps = shared_session::PlayerState::new(
-                                player_name_store
-                                    .clone()
-                                    .unwrap_or_else(|| "Player".to_string()),
-                            );
-                            ss.players.insert(player_id.to_string(), ps);
-                            // Populate character data on the PlayerState
-                            if let Some(p) = ss.players.get_mut(player_id) {
-                                p.character_name = Some(character.core.name.as_str().to_string());
-                                p.character_hp = character.core.hp;
-                                p.character_max_hp = character.core.max_hp;
-                                p.character_level = character.core.level as u32;
-                                p.character_class = character.char_class.as_str().to_string();
-                                p.inventory = inventory.clone();
-                                p.character_xp = character.core.xp;
-                                if let Some(ref cj) = *character_json_store {
-                                    p.character_json = Some(cj.clone());
-                                }
-                            }
-                            // Notify existing players that a new character has arrived
-                            let arrival_text = format!(
-                                "{} has entered the scene.",
-                                character.core.name.as_str()
-                            );
-                            let existing_pids: Vec<String> = ss
+                            // Reconnect detection: if a player with the same
+                            // player_name already exists under a different player_id,
+                            // this is a tab-duplicate or page-refresh reconnect.
+                            // Transfer the old PlayerState to the new player_id and
+                            // suppress arrival/departure narration.
+                            let connecting_name = player_name_store
+                                .clone()
+                                .unwrap_or_else(|| "Player".to_string());
+                            let old_pid = ss
                                 .players
-                                .keys()
-                                .filter(|pid| pid.as_str() != player_id)
-                                .cloned()
-                                .collect();
-                            for target_pid in &existing_pids {
-                                ss.send_to_player(
-                                    GameMessage::Narration {
-                                        payload: NarrationPayload {
-                                            text: arrival_text.clone(),
-                                            state_delta: None,
-                                            footnotes: vec![],
+                                .iter()
+                                .find(|(pid, ps)| {
+                                    pid.as_str() != player_id && ps.player_name == connecting_name
+                                })
+                                .map(|(pid, _)| pid.clone());
+                            let is_reconnect = old_pid.is_some();
+                            if let Some(ref old) = old_pid {
+                                // Transfer existing PlayerState to the new player_id,
+                                // so accumulated state (HP, inventory, location) is preserved.
+                                if let Some(mut transferred) = ss.players.remove(old) {
+                                    // Update character data from the (possibly restored) save
+                                    transferred.character_name = Some(character.core.name.as_str().to_string());
+                                    transferred.character_hp = character.core.hp;
+                                    transferred.character_max_hp = character.core.max_hp;
+                                    transferred.character_level = character.core.level as u32;
+                                    transferred.character_class = character.char_class.as_str().to_string();
+                                    transferred.inventory = inventory.clone();
+                                    transferred.character_xp = character.core.xp;
+                                    if let Some(ref cj) = *character_json_store {
+                                        transferred.character_json = Some(cj.clone());
+                                    }
+                                    ss.players.insert(player_id.to_string(), transferred);
+                                }
+                                // Update barrier roster: swap old player_id for new one
+                                if let Some(ref barrier) = ss.turn_barrier {
+                                    let _ = barrier.remove_player(old);
+                                }
+                                tracing::info!(
+                                    old_player_id = %old,
+                                    new_player_id = %player_id,
+                                    player_name = %connecting_name,
+                                    "Reconnect detected — transferred PlayerState to new connection"
+                                );
+                                WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                                    .field("event", "player_reconnect")
+                                    .field("old_player_id", old.as_str())
+                                    .field("new_player_id", player_id)
+                                    .field("player_name", connecting_name.as_str())
+                                    .send(state);
+                            }
+
+                            if !is_reconnect {
+                                let ps = shared_session::PlayerState::new(
+                                    connecting_name.clone(),
+                                );
+                                ss.players.insert(player_id.to_string(), ps);
+                                // Populate character data on the PlayerState
+                                if let Some(p) = ss.players.get_mut(player_id) {
+                                    p.character_name = Some(character.core.name.as_str().to_string());
+                                    p.character_hp = character.core.hp;
+                                    p.character_max_hp = character.core.max_hp;
+                                    p.character_level = character.core.level as u32;
+                                    p.character_class = character.char_class.as_str().to_string();
+                                    p.inventory = inventory.clone();
+                                    p.character_xp = character.core.xp;
+                                    if let Some(ref cj) = *character_json_store {
+                                        p.character_json = Some(cj.clone());
+                                    }
+                                }
+                                // Notify existing players that a new character has arrived
+                                let arrival_text = format!(
+                                    "{} has entered the scene.",
+                                    character.core.name.as_str()
+                                );
+                                let existing_pids: Vec<String> = ss
+                                    .players
+                                    .keys()
+                                    .filter(|pid| pid.as_str() != player_id)
+                                    .cloned()
+                                    .collect();
+                                for target_pid in &existing_pids {
+                                    ss.send_to_player(
+                                        GameMessage::Narration {
+                                            payload: NarrationPayload {
+                                                text: arrival_text.clone(),
+                                                state_delta: None,
+                                                footnotes: vec![],
+                                            },
+                                            player_id: target_pid.clone(),
                                         },
-                                        player_id: target_pid.clone(),
-                                    },
-                                    target_pid.clone(),
-                                );
-                                ss.send_to_player(
-                                    GameMessage::NarrationEnd {
-                                        payload: NarrationEndPayload { state_delta: None },
-                                        player_id: target_pid.clone(),
-                                    },
-                                    target_pid.clone(),
-                                );
+                                        target_pid.clone(),
+                                    );
+                                    ss.send_to_player(
+                                        GameMessage::NarrationEnd {
+                                            payload: NarrationEndPayload { state_delta: None },
+                                            player_id: target_pid.clone(),
+                                        },
+                                        target_pid.clone(),
+                                    );
+                                }
                             }
                             // Build and send targeted PARTY_STATUS to OTHER session members.
                             // The current player gets their PartyStatus from the opening
