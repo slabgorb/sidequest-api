@@ -729,21 +729,25 @@ impl AppState {
         let mut sessions = self.inner.sessions.lock().unwrap();
         let remaining = if let Some(session_arc) = sessions.get(&key).cloned() {
             if let Ok(mut session) = session_arc.try_lock() {
-                session.players.remove(player_id);
+                let was_present = session.players.remove(player_id).is_some();
                 // Remove player from barrier roster if active
                 if let Some(ref barrier) = session.turn_barrier {
                     let _ = barrier.remove_player(player_id);
                 }
                 let remaining = session.players.len();
-                // Transition TurnMode when dropping back to solo
-                let old_mode = std::mem::take(&mut session.turn_mode);
-                session.turn_mode = old_mode.apply(
-                    sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                        player_count: remaining,
-                    },
-                );
-                if !session.turn_mode.should_use_barrier() {
-                    session.turn_barrier = None;
+                // Transition TurnMode when dropping back to solo —
+                // only if we actually removed a player (skip for
+                // superseded connections from reconnect)
+                if was_present {
+                    let old_mode = std::mem::take(&mut session.turn_mode);
+                    session.turn_mode = old_mode.apply(
+                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                            player_count: remaining,
+                        },
+                    );
+                    if !session.turn_mode.should_use_barrier() {
+                        session.turn_barrier = None;
+                    }
                 }
                 remaining
             } else {
@@ -1373,79 +1377,90 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             if let Some(ss_arc) = sessions.get(&key).cloned() {
                 drop(sessions);
                 if let Ok(mut ss) = ss_arc.try_lock() {
-                    // Send departure narration to remaining players (mirrors join narration)
-                    let departure_name = ss
-                        .players
-                        .get(&player_id_str)
-                        .and_then(|ps| ps.character_name.clone())
-                        .or_else(|| player_name_for_session.clone())
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    let departure_text = format!("{} has left the scene.", departure_name);
-                    let remaining_pids: Vec<String> = ss
-                        .players
-                        .keys()
-                        .filter(|pid| pid.as_str() != &*player_id_str)
-                        .cloned()
-                        .collect();
-                    for target_pid in &remaining_pids {
-                        ss.send_to_player(
-                            GameMessage::Narration {
-                                payload: sidequest_protocol::NarrationPayload {
-                                    text: departure_text.clone(),
-                                    state_delta: None,
-                                    footnotes: vec![],
+                    // Only fire departure if this player_id is still registered
+                    // in the shared session. A reconnect from the same player_name
+                    // transfers the PlayerState to a new player_id and removes the
+                    // old one, so the superseded connection should NOT emit departure.
+                    if ss.players.contains_key(&player_id_str) {
+                        // Send departure narration to remaining players (mirrors join narration)
+                        let departure_name = ss
+                            .players
+                            .get(&player_id_str)
+                            .and_then(|ps| ps.character_name.clone())
+                            .or_else(|| player_name_for_session.clone())
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        let departure_text = format!("{} has left the scene.", departure_name);
+                        let remaining_pids: Vec<String> = ss
+                            .players
+                            .keys()
+                            .filter(|pid| pid.as_str() != &*player_id_str)
+                            .cloned()
+                            .collect();
+                        for target_pid in &remaining_pids {
+                            ss.send_to_player(
+                                GameMessage::Narration {
+                                    payload: sidequest_protocol::NarrationPayload {
+                                        text: departure_text.clone(),
+                                        state_delta: None,
+                                        footnotes: vec![],
+                                    },
+                                    player_id: target_pid.clone(),
                                 },
-                                player_id: target_pid.clone(),
-                            },
-                            target_pid.clone(),
-                        );
-                        ss.send_to_player(
-                            GameMessage::NarrationEnd {
-                                payload: sidequest_protocol::NarrationEndPayload {
-                                    state_delta: None,
+                                target_pid.clone(),
+                            );
+                            ss.send_to_player(
+                                GameMessage::NarrationEnd {
+                                    payload: sidequest_protocol::NarrationEndPayload {
+                                        state_delta: None,
+                                    },
+                                    player_id: target_pid.clone(),
                                 },
-                                player_id: target_pid.clone(),
+                                target_pid.clone(),
+                            );
+                        }
+
+                        let leave_msg = GameMessage::SessionEvent {
+                            payload: SessionEventPayload {
+                                event: "player_left".to_string(),
+                                player_name: player_name_for_session.clone(),
+                                genre: None,
+                                world: None,
+                                has_character: None,
+                                initial_state: None,
+                                css: None,
+                                image_cooldown_seconds: None,
+                                narrator_verbosity: None,
+                                narrator_vocabulary: None,
                             },
-                            target_pid.clone(),
+                            player_id: player_id_str.clone(),
+                        };
+                        ss.broadcast(leave_msg);
+
+                        // Transition turn mode when player leaves
+                        let remaining_count = ss.player_count().saturating_sub(1);
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode.apply(
+                            sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                                player_count: remaining_count,
+                            },
                         );
-                    }
-
-                    let leave_msg = GameMessage::SessionEvent {
-                        payload: SessionEventPayload {
-                            event: "player_left".to_string(),
-                            player_name: player_name_for_session.clone(),
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: None,
-                            css: None,
-                            image_cooldown_seconds: None,
-                            narrator_verbosity: None,
-                            narrator_vocabulary: None,
-                        },
-                        player_id: player_id_str.clone(),
-                    };
-                    ss.broadcast(leave_msg);
-
-                    // Transition turn mode when player leaves
-                    let remaining_count = ss.player_count().saturating_sub(1);
-                    let old_mode = std::mem::take(&mut ss.turn_mode);
-                    ss.turn_mode = old_mode.apply(
-                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                            player_count: remaining_count,
-                        },
-                    );
-                    tracing::info!(
-                        new_mode = ?ss.turn_mode,
-                        remaining_players = remaining_count,
-                        "Turn mode transitioned on player leave"
-                    );
-                    // Remove player from barrier roster and tear down if back to FreePlay
-                    if let Some(ref barrier) = ss.turn_barrier {
-                        let _ = barrier.remove_player(&player_id_str);
-                    }
-                    if !ss.turn_mode.should_use_barrier() {
-                        ss.turn_barrier = None;
+                        tracing::info!(
+                            new_mode = ?ss.turn_mode,
+                            remaining_players = remaining_count,
+                            "Turn mode transitioned on player leave"
+                        );
+                        // Remove player from barrier roster and tear down if back to FreePlay
+                        if let Some(ref barrier) = ss.turn_barrier {
+                            let _ = barrier.remove_player(&player_id_str);
+                        }
+                        if !ss.turn_mode.should_use_barrier() {
+                            ss.turn_barrier = None;
+                        }
+                    } else {
+                        tracing::info!(
+                            player_id = %player_id_str,
+                            "Skipping departure — player_id was superseded by reconnect"
+                        );
                     }
                 }
             }

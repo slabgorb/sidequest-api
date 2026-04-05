@@ -1282,55 +1282,106 @@ pub(crate) async fn dispatch_character_creation(
                                 ));
                             }
 
-                            let ps = shared_session::PlayerState::new(
-                                player_name_store
-                                    .clone()
-                                    .unwrap_or_else(|| "Player".to_string()),
-                            );
-                            ss.players.insert(player_id.to_string(), ps);
-                            // Populate character data on the PlayerState
-                            if let Some(p) = ss.players.get_mut(player_id) {
-                                p.character_name = Some(character.core.name.as_str().to_string());
-                                p.character_hp = character.core.hp;
-                                p.character_max_hp = character.core.max_hp;
-                                p.character_level = character.core.level as u32;
-                                p.character_class = character.char_class.as_str().to_string();
-                                p.inventory = inventory.clone();
-                                p.character_xp = character.core.xp;
-                                if let Some(ref cj) = *character_json_store {
-                                    p.character_json = Some(cj.clone());
-                                }
-                            }
-                            // Notify existing players that a new character has arrived
-                            let arrival_text = format!(
-                                "{} has entered the scene.",
-                                character.core.name.as_str()
-                            );
-                            let existing_pids: Vec<String> = ss
+                            // Reconnect detection: if a player with the same
+                            // player_name already exists under a different player_id,
+                            // this is a tab-duplicate or page-refresh reconnect.
+                            // Transfer the old PlayerState to the new player_id and
+                            // suppress arrival/departure narration.
+                            let connecting_name = player_name_store
+                                .clone()
+                                .unwrap_or_else(|| "Player".to_string());
+                            let old_pid = ss
                                 .players
-                                .keys()
-                                .filter(|pid| pid.as_str() != player_id)
-                                .cloned()
-                                .collect();
-                            for target_pid in &existing_pids {
-                                ss.send_to_player(
-                                    GameMessage::Narration {
-                                        payload: NarrationPayload {
-                                            text: arrival_text.clone(),
-                                            state_delta: None,
-                                            footnotes: vec![],
+                                .iter()
+                                .find(|(pid, ps)| {
+                                    pid.as_str() != player_id && ps.player_name == connecting_name
+                                })
+                                .map(|(pid, _)| pid.clone());
+                            let is_reconnect = old_pid.is_some();
+                            if let Some(ref old) = old_pid {
+                                // Transfer existing PlayerState to the new player_id,
+                                // so accumulated state (HP, inventory, location) is preserved.
+                                if let Some(mut transferred) = ss.players.remove(old) {
+                                    // Update character data from the (possibly restored) save
+                                    transferred.character_name = Some(character.core.name.as_str().to_string());
+                                    transferred.character_hp = character.core.hp;
+                                    transferred.character_max_hp = character.core.max_hp;
+                                    transferred.character_level = character.core.level as u32;
+                                    transferred.character_class = character.char_class.as_str().to_string();
+                                    transferred.inventory = inventory.clone();
+                                    transferred.character_xp = character.core.xp;
+                                    if let Some(ref cj) = *character_json_store {
+                                        transferred.character_json = Some(cj.clone());
+                                    }
+                                    ss.players.insert(player_id.to_string(), transferred);
+                                }
+                                // Update barrier roster: swap old player_id for new one
+                                if let Some(ref barrier) = ss.turn_barrier {
+                                    let _ = barrier.remove_player(old);
+                                }
+                                tracing::info!(
+                                    old_player_id = %old,
+                                    new_player_id = %player_id,
+                                    player_name = %connecting_name,
+                                    "Reconnect detected — transferred PlayerState to new connection"
+                                );
+                                WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                                    .field("event", "player_reconnect")
+                                    .field("old_player_id", old.as_str())
+                                    .field("new_player_id", player_id)
+                                    .field("player_name", connecting_name.as_str())
+                                    .send(state);
+                            }
+
+                            if !is_reconnect {
+                                let ps = shared_session::PlayerState::new(
+                                    connecting_name.clone(),
+                                );
+                                ss.players.insert(player_id.to_string(), ps);
+                                // Populate character data on the PlayerState
+                                if let Some(p) = ss.players.get_mut(player_id) {
+                                    p.character_name = Some(character.core.name.as_str().to_string());
+                                    p.character_hp = character.core.hp;
+                                    p.character_max_hp = character.core.max_hp;
+                                    p.character_level = character.core.level as u32;
+                                    p.character_class = character.char_class.as_str().to_string();
+                                    p.inventory = inventory.clone();
+                                    p.character_xp = character.core.xp;
+                                    if let Some(ref cj) = *character_json_store {
+                                        p.character_json = Some(cj.clone());
+                                    }
+                                }
+                                // Notify existing players that a new character has arrived
+                                let arrival_text = format!(
+                                    "{} has entered the scene.",
+                                    character.core.name.as_str()
+                                );
+                                let existing_pids: Vec<String> = ss
+                                    .players
+                                    .keys()
+                                    .filter(|pid| pid.as_str() != player_id)
+                                    .cloned()
+                                    .collect();
+                                for target_pid in &existing_pids {
+                                    ss.send_to_player(
+                                        GameMessage::Narration {
+                                            payload: NarrationPayload {
+                                                text: arrival_text.clone(),
+                                                state_delta: None,
+                                                footnotes: vec![],
+                                            },
+                                            player_id: target_pid.clone(),
                                         },
-                                        player_id: target_pid.clone(),
-                                    },
-                                    target_pid.clone(),
-                                );
-                                ss.send_to_player(
-                                    GameMessage::NarrationEnd {
-                                        payload: NarrationEndPayload { state_delta: None },
-                                        player_id: target_pid.clone(),
-                                    },
-                                    target_pid.clone(),
-                                );
+                                        target_pid.clone(),
+                                    );
+                                    ss.send_to_player(
+                                        GameMessage::NarrationEnd {
+                                            payload: NarrationEndPayload { state_delta: None },
+                                            player_id: target_pid.clone(),
+                                        },
+                                        target_pid.clone(),
+                                    );
+                                }
                             }
                             // Build and send targeted PARTY_STATUS to OTHER session members.
                             // The current player gets their PartyStatus from the opening
