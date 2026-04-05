@@ -1079,6 +1079,29 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         *ctx.pending_trope_context = troper.build_beats_context();
     }
 
+    // Epic 16: Resource pool decay — apply per-turn decay and mint threshold lore
+    {
+        let crossed = ctx.snapshot.apply_pool_decay();
+        if !crossed.is_empty() {
+            sidequest_game::mint_threshold_lore(&crossed, ctx.lore_store, turn_number as u64);
+            for threshold in &crossed {
+                WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
+                    .field("event", "resource_pool.threshold_crossed")
+                    .field("event_id", &threshold.event_id)
+                    .field("narrator_hint", &threshold.narrator_hint)
+                    .field("at", threshold.at)
+                    .field("source", "decay")
+                    .field("turn", turn_number)
+                    .send(ctx.state);
+                tracing::info!(
+                    event_id = %threshold.event_id,
+                    at = threshold.at,
+                    "resource_pool.threshold_crossed_by_decay"
+                );
+            }
+        }
+    }
+
     drop(_system_tick_guard);
 
     let media_span = tracing::info_span!(

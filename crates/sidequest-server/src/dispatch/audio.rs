@@ -86,7 +86,29 @@ pub(crate) async fn process_audio(
         // Get turn_number for watcher event (approximate from turn_manager)
         let turn_approx = ctx.turn_manager.interaction();
 
-        match director.evaluate(clean_narration, &mood_ctx) {
+        // Epic 16: Faction-aware music routing
+        // FactionContext sources: location faction from snapshot, NPC factions from registry
+        // (NPC faction field not yet wired — use default for now, location is available)
+        let faction_ctx = sidequest_game::FactionContext {
+            location_faction: if ctx.snapshot.location.is_empty() {
+                None
+            } else {
+                // Location faction would come from cartography metadata — not yet available
+                None
+            },
+            actor_factions: vec![],
+            player_reputation: None,
+        };
+
+        // Use faction-aware evaluation when faction themes exist in the genre's audio config
+        let has_factions = !director.faction_themes_empty();
+        let eval_result = if has_factions {
+            director.evaluate_with_faction(clean_narration, &mood_ctx, &faction_ctx)
+        } else {
+            director.evaluate(clean_narration, &mood_ctx)
+        };
+
+        match eval_result {
             sidequest_game::MusicEvalResult::Cue(cue) => {
                 tracing::info!(
                     mood = mood_key,

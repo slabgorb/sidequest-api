@@ -733,29 +733,59 @@ pub(crate) async fn apply_state_mutations(
         }
     }
 
-    // Resource delta application (story 16-1)
+    // Resource delta application (story 16-1 + epic 16 ResourcePool wiring)
     if !result.resource_deltas.is_empty() {
+        let turn = ctx.turn_manager.interaction() as u64;
         for (name, delta) in &result.resource_deltas {
-            if let Some(current) = ctx.resource_state.get_mut(name) {
-                *current += delta;
-                // Clamp to bounds if declaration exists
-                if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
-                    *current = current.clamp(decl.min, decl.max);
-                }
-                tracing::info!(resource = %name, delta = %delta, new_value = %current, "resource.delta_applied");
-                {
-                    let decl = ctx.resource_declarations.iter().find(|d| d.name == *name);
-                    let mut builder = WatcherEventBuilder::new("resource", WatcherEventType::StateTransition)
+            // Epic 16: Apply via formal ResourcePool on snapshot (with threshold→lore pipeline)
+            let op = if *delta >= 0.0 {
+                sidequest_game::ResourcePatchOp::Add
+            } else {
+                sidequest_game::ResourcePatchOp::Subtract
+            };
+            let value = delta.abs();
+            match ctx.snapshot.process_resource_patch_with_lore(name, op, value, ctx.lore_store, turn) {
+                Ok(patch_result) => {
+                    // Sync old resource_state map for backward compat
+                    if let Some(pool) = ctx.snapshot.resources.get(name) {
+                        ctx.resource_state.insert(name.clone(), pool.current);
+                    }
+                    let mut builder = WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
+                        .field("event", "resource_pool.patched")
                         .field("resource", name)
                         .field("delta", delta)
-                        .field("new_value", *current);
-                    if let Some(decl) = decl {
+                        .field("old_value", patch_result.old_value)
+                        .field("new_value", patch_result.new_value)
+                        .field("turn", turn);
+                    if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
                         builder = builder.field("max", decl.max).field("label", &decl.label);
                     }
+                    if !patch_result.crossed_thresholds.is_empty() {
+                        builder = builder.field("thresholds_crossed",
+                            patch_result.crossed_thresholds.iter().map(|t| t.event_id.clone()).collect::<Vec<_>>());
+                    }
                     builder.send(ctx.state);
+                    tracing::info!(
+                        resource = %name,
+                        delta = %delta,
+                        old = patch_result.old_value,
+                        new = patch_result.new_value,
+                        thresholds_crossed = patch_result.crossed_thresholds.len(),
+                        "resource_pool.delta_applied"
+                    );
                 }
-            } else {
-                tracing::debug!(resource = %name, "resource.delta_ignored — resource not in state");
+                Err(e) => {
+                    // Pool doesn't exist on snapshot — fall back to legacy resource_state
+                    if let Some(current) = ctx.resource_state.get_mut(name) {
+                        *current += delta;
+                        if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
+                            *current = current.clamp(decl.min, decl.max);
+                        }
+                        tracing::info!(resource = %name, delta = %delta, new_value = %current, "resource.delta_applied_legacy");
+                    } else {
+                        tracing::debug!(resource = %name, error = %e, "resource.delta_ignored — not in pool or state");
+                    }
+                }
             }
         }
     }

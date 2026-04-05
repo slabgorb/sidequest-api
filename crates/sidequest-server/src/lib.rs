@@ -1225,7 +1225,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut quest_log: HashMap<String, String> = HashMap::new();
     let mut genie_wishes: Vec<sidequest_game::GenieWish> = vec![];
     let mut resource_state: HashMap<String, f64> = HashMap::new();
-    let resource_declarations: Vec<sidequest_genre::ResourceDeclaration> = vec![];
+    let mut resource_declarations: Vec<sidequest_genre::ResourceDeclaration> = vec![];
     let mut achievement_tracker = sidequest_game::achievement::AchievementTracker::default();
     // Canonical game snapshot — carried through the dispatch pipeline (story 15-8).
     let mut snapshot = sidequest_game::state::GameSnapshot::default();
@@ -1302,6 +1302,33 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         response_count = responses.len(),
                         "dispatch_message.returned"
                     );
+
+                    // Epic 16: Load resource declarations from genre pack after connect
+                    if resource_declarations.is_empty() {
+                        if let (Some(genre), Some(_world)) = (session.genre_slug(), session.world_slug()) {
+                            if let Ok(genre_code) = GenreCode::new(genre) {
+                                if let Ok(pack) = state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
+                                    resource_declarations = pack.rules.resources.clone();
+                                    if !resource_declarations.is_empty() {
+                                        snapshot.init_resource_pools(&resource_declarations);
+                                        tracing::info!(
+                                            genre = %genre,
+                                            resource_count = resource_declarations.len(),
+                                            pool_names = ?resource_declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
+                                            "resource_pools.initialized — genre resources loaded into snapshot"
+                                        );
+                                        WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
+                                            .field("event", "resource_pools.initialized")
+                                            .field("genre", genre)
+                                            .field("count", resource_declarations.len())
+                                            .field("pools", resource_declarations.iter().map(|r| r.name.clone()).collect::<Vec<_>>())
+                                            .send(&state);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     for resp in responses {
                         if let Err(e) = tx.send(resp).await {
                             tracing::error!(player_id = %player_id_str, error = %e, "Failed to send response to client");
