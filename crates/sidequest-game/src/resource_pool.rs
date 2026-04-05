@@ -211,8 +211,19 @@ impl GameSnapshot {
     }
 
     /// Initialize resource pools from genre pack declarations.
+    ///
+    /// Converts genre-pack threshold declarations into game-engine ResourceThresholds.
     pub fn init_resource_pools(&mut self, declarations: &[sidequest_genre::ResourceDeclaration]) {
         for decl in declarations {
+            let thresholds = decl
+                .thresholds
+                .iter()
+                .map(|t| ResourceThreshold {
+                    at: t.at,
+                    event_id: t.event_id.clone(),
+                    narrator_hint: t.narrator_hint.clone(),
+                })
+                .collect();
             let pool = ResourcePool {
                 name: decl.name.clone(),
                 current: decl.starting,
@@ -220,10 +231,39 @@ impl GameSnapshot {
                 max: decl.max,
                 voluntary: decl.voluntary,
                 decay_per_turn: decl.decay_per_turn,
-                thresholds: vec![],
+                thresholds,
             };
             self.resources.insert(decl.name.clone(), pool);
         }
+    }
+
+    /// Convenience method: apply a resource patch by name, op, and value.
+    pub fn apply_resource_patch_by_name(
+        &mut self,
+        name: &str,
+        op: ResourcePatchOp,
+        value: f64,
+    ) -> Result<ResourcePatchResult, ResourcePatchError> {
+        let patch = ResourcePatch {
+            resource_name: name.to_string(),
+            operation: op,
+            value,
+        };
+        self.apply_resource_patch(&patch)
+    }
+
+    /// Apply a resource patch and mint LoreFragments for any threshold crossings (story 16-11).
+    pub fn process_resource_patch_with_lore(
+        &mut self,
+        name: &str,
+        op: ResourcePatchOp,
+        value: f64,
+        store: &mut LoreStore,
+        turn: u64,
+    ) -> Result<ResourcePatchResult, ResourcePatchError> {
+        let result = self.apply_resource_patch_by_name(name, op, value)?;
+        mint_threshold_lore(&result.crossed_thresholds, store, turn);
+        Ok(result)
     }
 
 }
