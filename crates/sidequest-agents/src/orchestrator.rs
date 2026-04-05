@@ -316,6 +316,32 @@ impl Orchestrator {
             }
         }
 
+        // === GENRE IDENTITY (every tier — narrator MUST always know the genre) ===
+        // Without this, the LLM has no genre context and may break character by asking
+        // the player what genre they're in. Injected in Primacy zone for maximum attention.
+        // Fix: playtest-2026-04-05 — narrator broke fourth wall asking "What genre is Ashgate Square in?"
+        if let Some(ref genre_slug) = context.genre {
+            let genre_display = genre_slug.replace('_', " ");
+            let _genre_span = tracing::info_span!(
+                "orchestrator.genre_identity_injection",
+                genre = %genre_slug,
+                tier = ?tier,
+            )
+            .entered();
+            builder.add_section(PromptSection::new(
+                "genre_identity",
+                format!(
+                    "<genre>\nYou are narrating a {} game. This is the genre — \
+                     use its tone, vocabulary, tropes, and conventions in every response. \
+                     Never ask the player what genre, setting, or system they are playing. \
+                     You already know.\n</genre>",
+                    genre_display
+                ),
+                AttentionZone::Primacy,
+                SectionCategory::Identity,
+            ));
+        }
+
         // === STATE-DEPENDENT SECTIONS (every tier — combat/chase can start mid-session) ===
         // These are NOT static: combat may begin on turn 5 of a Delta-tier session.
         // If gated behind is_full, the narrator never gets combat rules after turn 1.

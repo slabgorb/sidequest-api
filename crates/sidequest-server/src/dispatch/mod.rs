@@ -37,7 +37,7 @@ use sidequest_protocol::{
 
 use crate::extraction::{
     audio_cue_to_game_message, extract_location_header, strip_combat_brackets,
-    strip_fenced_blocks, strip_location_header, strip_markdown_for_tts,
+    strip_fenced_blocks, strip_fourth_wall, strip_location_header, strip_markdown_for_tts,
 };
 use crate::{
     shared_session, AppState, DaemonSynthesizer, NpcRegistryEntry, Severity, WatcherEventBuilder,
@@ -395,8 +395,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
     {
-        let nearby = ctx.monster_manual.format_nearby_npcs();
-        let creatures = ctx.monster_manual.format_area_creatures();
+        let nearby = ctx.monster_manual.format_nearby_npcs(ctx.current_location);
+        let creatures = ctx.monster_manual.format_area_creatures(ctx.combat_state.in_combat());
         if !nearby.is_empty() {
             state_summary.push_str("\n\n");
             state_summary.push_str(&nearby);
@@ -406,14 +406,20 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             state_summary.push_str("\n\n");
             state_summary.push_str(&creatures);
         }
+        let npcs_injected = if nearby.is_empty() { 0 } else { nearby.lines().count() };
+        let creatures_injected = if creatures.is_empty() { 0 } else { creatures.lines().count() };
         let _mm_span = tracing::info_span!(
             "monster_manual.injected",
             available_npcs = ctx.monster_manual.available_npcs().len(),
             available_encounters = ctx.monster_manual.available_encounters().len(),
             total_npcs = ctx.monster_manual.npcs.len(),
             total_encounters = ctx.monster_manual.encounters.len(),
+            npcs_injected = npcs_injected,
+            creatures_injected = creatures_injected,
+            in_combat = ctx.combat_state.in_combat(),
+            location = %ctx.current_location,
         ).entered();
-        tracing::info!("Monster Manual content injected into game_state");
+        tracing::info!("Monster Manual content injected (location-filtered)");
     }
 
     // Story 15-26: NPC autonomous action selection — wire scenario between-turn processing
@@ -918,12 +924,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    let clean_narration = strip_combat_brackets(
-            &strip_fenced_blocks(&strip_location_header(narration_text))
-        )
-        .replace("</s>", "")
-        .replace("<|endoftext|>", "")
-        .replace("<|end|>", "");
+    let clean_narration = strip_fourth_wall(
+            &strip_combat_brackets(
+                &strip_fenced_blocks(&strip_location_header(narration_text))
+            )
+            .replace("</s>", "")
+            .replace("<|endoftext|>", "")
+            .replace("<|end|>", ""),
+        );
 
     // Accumulate narration history for context on subsequent turns.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
@@ -2890,7 +2898,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
             .send(ctx.state);
     }
 
-    let narration_text = strip_combat_brackets(&strip_fenced_blocks(&strip_location_header(&result.narration)));
+    let narration_text = strip_fourth_wall(&strip_combat_brackets(&strip_fenced_blocks(&strip_location_header(&result.narration))));
 
     vec![
         GameMessage::Narration {
