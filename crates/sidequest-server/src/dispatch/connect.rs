@@ -168,7 +168,10 @@ pub(crate) async fn dispatch_connect(
                                         .iter()
                                         .map(|(k, v)| (k.clone(), *v))
                                         .collect(),
-                                    abilities: character.hooks.clone(),
+                                    abilities: character.hooks.iter()
+                                        .filter(|s| !s.contains("auto-filled"))
+                                        .cloned()
+                                        .collect(),
                                     backstory: character.backstory.as_str().to_string(),
                                     personality: character.core.personality.as_str().to_string(),
                                     pronouns: character.pronouns.clone(),
@@ -642,7 +645,7 @@ pub(crate) async fn start_character_creation(
     // Select a random opening hook if the genre pack provides them
     if !pack.openings.is_empty() {
         use rand::Rng;
-        let idx = rand::thread_rng().gen_range(0..pack.openings.len());
+        let idx = rand::rng().random_range(0..pack.openings.len());
         let hook = &pack.openings[idx];
 
         // Build opening directive — injected into Early zone on turn 0 only via DispatchContext
@@ -799,9 +802,21 @@ pub(crate) async fn dispatch_character_creation(
             vec![b.to_scene_message(player_id)]
         }
         "confirmation" => {
-            // Build the character
-            let pname = player_name_store.as_deref().unwrap_or("Player");
-            match b.build(pname) {
+            // Build the character — use the name from the name-entry scene if available,
+            // otherwise fall back to player connection name, then "Player".
+            let name_from_scene = b.character_name().map(|s| s.to_string());
+            let char_name = name_from_scene.clone()
+                .or_else(|| payload.choice.clone())
+                .unwrap_or_else(|| player_name_store.as_deref().unwrap_or("Player").to_string());
+
+            WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                .field("event", "name_resolved")
+                .field("char_name", char_name.as_str())
+                .field("source", if name_from_scene.is_some() { "name_scene" } else if payload.choice.is_some() { "payload" } else { "player_name_fallback" })
+                .field("player_id", player_id)
+                .send(state);
+
+            match b.build(&char_name) {
                 Ok(character) => {
                     let char_json = serde_json::to_value(&character).unwrap_or_default();
 
@@ -1287,7 +1302,10 @@ pub(crate) async fn dispatch_character_creation(
                                 .iter()
                                 .map(|(k, v)| (k.clone(), *v))
                                 .collect(),
-                            abilities: character.hooks.clone(),
+                            abilities: character.hooks.iter()
+                                .filter(|s| !s.contains("auto-filled"))
+                                .cloned()
+                                .collect(),
                             backstory: character.backstory.as_str().to_string(),
                             personality: character.core.personality.as_str().to_string(),
                             pronouns: character.pronouns.clone(),

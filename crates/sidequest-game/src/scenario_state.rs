@@ -145,7 +145,7 @@ impl ScenarioState {
             .filter(|s| s.can_be_guilty)
             .map(|s| s.id.as_str())
             .collect();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let guilty_npc = guilty_candidates
             .choose(&mut rng)
             .map(|s| s.to_string())

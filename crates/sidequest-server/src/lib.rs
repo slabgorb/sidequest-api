@@ -29,7 +29,6 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
-use tracing_subscriber::prelude::*;
 
 use sidequest_agents::orchestrator::GameService;
 use sidequest_game::builder::CharacterBuilder;

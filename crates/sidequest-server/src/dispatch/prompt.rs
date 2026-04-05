@@ -456,6 +456,8 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inject known locations so the narrator uses canonical place names
+    // Only current location + discovered regions — the narrator doesn't need
+    // the full world atlas to narrate the current scene.
     if !ctx.discovered_regions.is_empty() {
         state_summary.push_str("\n\nKNOWN LOCATIONS IN THIS WORLD:\n");
         state_summary.push_str("Use ONLY these location names when referring to places the party has visited or heard about. Do NOT invent new settlement names.\n");
@@ -463,26 +465,47 @@ pub(crate) async fn build_prompt_context(
             state_summary.push_str(&format!("- {}\n", region));
         }
     }
-    // Also inject cartography region names from the shared session (if available)
+    // Inject unvisited cartography locations, filtered by adjacency when a world
+    // graph is available. Without a graph, cap at 5 to avoid dumping the full atlas.
     {
         let holder = ctx.shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
             if !ss.region_names.is_empty() {
-                if ctx.discovered_regions.is_empty() {
-                    state_summary.push_str("\n\nWORLD LOCATIONS (from cartography):\n");
-                    state_summary
-                        .push_str("Use these canonical location names. Do NOT invent new ones.\n");
-                } else {
-                    state_summary.push_str("Additional world locations (not yet visited):\n");
-                }
-                for (region_id, _display_name) in &ss.region_names {
-                    if !ctx
-                        .discovered_regions
+                // Collect undiscovered region IDs
+                let undiscovered: Vec<&str> = ss.region_names.iter()
+                    .filter(|(region_id, _)| !ctx.discovered_regions
                         .iter()
-                        .any(|r| r.to_lowercase() == *region_id)
-                    {
-                        state_summary.push_str(&format!("- {}\n", region_id));
+                        .any(|r| r.to_lowercase() == *region_id))
+                    .map(|(region_id, _)| region_id.as_str())
+                    .collect();
+
+                if !undiscovered.is_empty() {
+                    // Filter by adjacency if world graph is available
+                    let filtered: Vec<&str> = if let Some(ref wg) = ctx.world_graph {
+                        let neighbors: Vec<&str> = wg.neighbors(&ctx.current_location).collect();
+                        undiscovered.into_iter()
+                            .filter(|r| neighbors.iter().any(|n| {
+                                n.to_lowercase() == r.to_lowercase()
+                                    || n.to_lowercase().contains(&r.to_lowercase())
+                                    || r.to_lowercase().contains(&n.to_lowercase())
+                            }))
+                            .collect()
+                    } else {
+                        // No graph — cap at 5 nearest (by order in the list)
+                        undiscovered.into_iter().take(5).collect()
+                    };
+
+                    if !filtered.is_empty() {
+                        if ctx.discovered_regions.is_empty() {
+                            state_summary.push_str("\n\nNEARBY LOCATIONS (from cartography):\n");
+                            state_summary.push_str("Use these canonical location names. Do NOT invent new ones.\n");
+                        } else {
+                            state_summary.push_str("Nearby locations (not yet visited):\n");
+                        }
+                        for region_id in &filtered {
+                            state_summary.push_str(&format!("- {}\n", region_id));
+                        }
                     }
                 }
             }
@@ -517,10 +540,14 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inject tone context from narrative axes (story F2/F10)
-    if let Some(ref ac) = ctx.axes_config {
-        let tone_text = sidequest_game::format_tone_context(ac, ctx.axis_values);
-        if !tone_text.is_empty() {
-            state_summary.push_str(&tone_text);
+    // Tone directives are static — only inject on first 3 turns (establishing session).
+    // After that they're in conversation history via the persistent narrator session.
+    if turn_number <= 3 {
+        if let Some(ref ac) = ctx.axes_config {
+            let tone_text = sidequest_game::format_tone_context(ac, ctx.axis_values);
+            if !tone_text.is_empty() {
+                state_summary.push_str(&tone_text);
+            }
         }
     }
 

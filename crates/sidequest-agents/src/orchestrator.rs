@@ -290,7 +290,7 @@ impl Orchestrator {
         let route = self.intent_router.classify(action, context);
 
         let mut builder = ContextBuilder::new();
-        let mut script_tools_injected: Vec<String> = Vec::new();
+        let script_tools_injected: Vec<String> = Vec::new();
         let is_full = tier == NarratorPromptTier::Full;
 
         // === STATIC SECTIONS (Full tier only — already in session history on Delta) ===
@@ -641,7 +641,7 @@ impl GameService for Orchestrator {
         let prompt = prompt_result.prompt_text;
         let prompt_zone_breakdown = prompt_result.zone_breakdown;
         let allowed_tools = prompt_result.allowed_tools;
-        let mut env_vars = prompt_result.env_vars;
+        let env_vars = prompt_result.env_vars;
 
         // OTEL: report which script tools were injected into this turn's prompt
         if !prompt_result.script_tools_injected.is_empty() {

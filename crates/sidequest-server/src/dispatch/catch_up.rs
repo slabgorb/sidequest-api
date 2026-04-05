@@ -4,7 +4,7 @@
 //! `ClaudeClient` for the actual LLM call.
 
 use sidequest_agents::client::ClaudeClient;
-use sidequest_game::catch_up::{CatchUpError, CatchUpGenerator, CatchUpResult, GenerationStrategy, TurnSummary};
+use sidequest_game::catch_up::{CatchUpError, CatchUpGenerator, GenerationStrategy, TurnSummary};
 use sidequest_game::character::Character;
 use sidequest_protocol::{GameMessage, NarrationEndPayload, NarrationPayload};
 

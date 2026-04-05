@@ -42,7 +42,7 @@ impl CommandHandler for StatusCommand {
         if !ch.stats.is_empty() {
             output.push_str("\n\n");
             let mut stats: Vec<_> = ch.stats.iter().collect();
-            stats.sort_by_key(|(k, _)| k.clone());
+            stats.sort_by_key(|(k, _)| (*k).clone());
             for (stat, value) in &stats {
                 output.push_str(&format!("  {:12} {}\n", stat, value));
             }
