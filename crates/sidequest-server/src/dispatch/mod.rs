@@ -228,7 +228,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // the narrator LLM call so mutations are visible in the current turn's prompt.
     if let Some(prev_entry) = ctx.narration_history.last() {
         let carried_names: Vec<String> = ctx.inventory.carried().map(|i| i.name.as_str().to_string()).collect();
-        if !carried_names.is_empty() {
+        // FIX: removed carried_names.is_empty() guard that blocked first-item acquisition
+        {
             // Split the history entry: "[CharName] Action: ...\nNarrator: ..."
             let (prev_action, prev_narration) = prev_entry
                 .split_once("\nNarrator: ")
