@@ -958,6 +958,7 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/genres", get(list_genres))
+        .route("/api/voices", get(list_voices))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
         .nest_service("/genre", genre_assets)
@@ -1026,6 +1027,28 @@ async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serd
     }
 
     Json(genres)
+}
+
+/// GET /api/voices — list available Kokoro TTS voices from the daemon.
+///
+/// Returns: `{ "voices": ["af_alloy", "am_adam", ...] }`
+/// Falls back to empty list if daemon is unavailable.
+#[tracing::instrument(skip_all)]
+async fn list_voices() -> Json<serde_json::Value> {
+    let config = sidequest_daemon_client::DaemonConfig::default();
+    match sidequest_daemon_client::DaemonClient::connect(config).await {
+        Ok(mut client) => match client.list_voices().await {
+            Ok(voices) => Json(serde_json::json!({ "voices": voices })),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to list voices from daemon");
+                Json(serde_json::json!({ "voices": [], "error": e.to_string() }))
+            }
+        },
+        Err(e) => {
+            tracing::warn!(error = %e, "Daemon unavailable for voice listing");
+            Json(serde_json::json!({ "voices": [], "error": "daemon unavailable" }))
+        }
+    }
 }
 
 /// GET /ws — WebSocket upgrade handler.
