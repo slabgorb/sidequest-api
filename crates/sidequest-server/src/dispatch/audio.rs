@@ -205,6 +205,50 @@ pub(crate) async fn process_audio(
                     .send(ctx.state);
             }
         }
+
+        // Mood-driven image generation: when mood shifts, trigger a scene render.
+        // Only fires when the classified mood differs from the previous mood,
+        // preventing duplicate renders on stable moods.
+        if pre_telemetry.current_mood.as_deref() != Some(mood_key) {
+            if let Some(ref queue) = ctx.state.inner.render_queue {
+                let mood_subject = sidequest_game::RenderSubject::new(
+                    vec![],
+                    sidequest_game::SceneType::Exploration,
+                    sidequest_game::SubjectTier::Scene,
+                    format!("{} atmosphere, {}", mood_key, ctx.current_location),
+                    0.5,
+                );
+                if let Some(subject) = mood_subject {
+                    let (art_style, neg_prompt) = match ctx.visual_style {
+                        Some(ref vs) => (vs.positive_suffix.clone(), vs.negative_prompt.clone()),
+                        None => ("oil_painting".to_string(), String::new()),
+                    };
+                    match queue.enqueue(subject.clone(), &art_style, "flux-dev", &neg_prompt, "").await {
+                        Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {
+                            tracing::info!(%job_id, old_mood = ?pre_telemetry.current_mood, new_mood = %mood_key, "mood_image.queued — mood shift triggered scene render");
+                            let dims = sidequest_game::tier_to_dimensions(subject.tier());
+                            let _ = ctx.tx.send(sidequest_protocol::GameMessage::RenderQueued {
+                                payload: sidequest_protocol::RenderQueuedPayload {
+                                    render_id: job_id.to_string(),
+                                    tier: "scene".to_string(),
+                                    width: dims.width,
+                                    height: dims.height,
+                                },
+                                player_id: ctx.player_id.to_string(),
+                            }).await;
+                            WatcherEventBuilder::new("mood_image", WatcherEventType::StateTransition)
+                                .field("action", "mood_image_queued")
+                                .field("old_mood", &pre_telemetry.current_mood.as_deref().unwrap_or("none"))
+                                .field("new_mood", mood_key)
+                                .field("location", &*ctx.current_location)
+                                .send(ctx.state);
+                        }
+                        Ok(_) => {}
+                        Err(e) => tracing::warn!(error = %e, "mood_image.enqueue_failed"),
+                    }
+                }
+            }
+        }
     } else {
         tracing::warn!("music_director_missing — audio cues skipped");
     }

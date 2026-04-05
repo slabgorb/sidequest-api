@@ -213,6 +213,24 @@ pub enum GameMessage {
         player_id: String,
     },
 
+    /// Structured encounter state for confrontation overlay (standoffs, chases, negotiations).
+    #[serde(rename = "CONFRONTATION")]
+    Confrontation {
+        /// The typed payload for this message.
+        payload: ConfrontationPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
+    /// Render job queued — tells UI to show a placeholder shimmer.
+    #[serde(rename = "RENDER_QUEUED")]
+    RenderQueued {
+        /// The typed payload for this message.
+        payload: RenderQueuedPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
     /// Image delivery (portraits, handouts, scene art).
     #[serde(rename = "IMAGE")]
     Image {
@@ -655,6 +673,93 @@ pub struct CombatEventPayload {
     pub turn_order: Vec<String>,
     /// Who's acting now.
     pub current_turn: String,
+}
+
+/// Render job queued — sent when a render is submitted to the daemon.
+/// The UI can show a shimmer placeholder while waiting for the actual IMAGE.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenderQueuedPayload {
+    /// Unique render job ID (matches render_id on the eventual IMAGE message).
+    pub render_id: String,
+    /// Image tier ("portrait", "landscape", "scene_illustration", etc.).
+    pub tier: String,
+    /// Expected width in pixels.
+    pub width: u32,
+    /// Expected height in pixels.
+    pub height: u32,
+}
+
+/// Structured encounter state for the confrontation overlay.
+///
+/// Maps directly to the UI's ConfrontationData interface. Sent when
+/// a structured encounter (standoff, chase, negotiation) starts, updates,
+/// or ends. Null/empty actors signals encounter end.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfrontationPayload {
+    /// Encounter type key (e.g., "chase", "standoff", "negotiation").
+    #[serde(rename = "type")]
+    pub encounter_type: String,
+    /// Display label (e.g., "High-Speed Chase").
+    pub label: String,
+    /// Category (e.g., "combat", "social", "pursuit").
+    pub category: String,
+    /// Participants and their roles.
+    pub actors: Vec<ConfrontationActor>,
+    /// Primary metric being tracked.
+    pub metric: ConfrontationMetric,
+    /// Available beat options for the player.
+    #[serde(default)]
+    pub beats: Vec<ConfrontationBeat>,
+    /// Optional secondary stats (vehicle stats, etc.).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secondary_stats: Option<serde_json::Value>,
+    /// Genre pack slug (for theming).
+    pub genre_slug: String,
+    /// Current mood (for atmosphere).
+    #[serde(default)]
+    pub mood: String,
+    /// Whether the encounter is active (false = overlay should dismiss).
+    #[serde(default = "default_true")]
+    pub active: bool,
+}
+
+fn default_true() -> bool { true }
+
+/// A participant in a confrontation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfrontationActor {
+    pub name: String,
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portrait_url: Option<String>,
+}
+
+/// Primary metric being tracked in a confrontation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfrontationMetric {
+    pub name: String,
+    pub current: i32,
+    pub starting: i32,
+    pub direction: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_high: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_low: Option<i32>,
+}
+
+/// A beat option the player can choose during a confrontation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfrontationBeat {
+    pub id: String,
+    pub label: String,
+    #[serde(default)]
+    pub metric_delta: i32,
+    #[serde(default)]
+    pub stat_check: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub risk: Option<String>,
+    #[serde(default)]
+    pub resolution: bool,
 }
 
 /// Image delivery payload.

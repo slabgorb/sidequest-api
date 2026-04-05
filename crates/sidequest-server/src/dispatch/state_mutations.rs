@@ -106,6 +106,7 @@ pub(crate) async fn apply_state_mutations(
                             ocean: None,
                             hp: 10,
                             max_hp: 10,
+                            portrait_url: None,
                         });
                         tracing::info!(
                             npc_name = %name,

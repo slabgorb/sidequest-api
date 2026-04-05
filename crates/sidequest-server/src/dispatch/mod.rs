@@ -750,6 +750,50 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     turn_number as u64,
                     std::collections::HashMap::new(),
                 ).await;
+
+                // POI image fast path: check for pre-rendered landscape image
+                // on first location discovery. Images live in genre pack at
+                // images/poi/{slug}.png, served via /genre/{slug}/...
+                let location_slug = location
+                    .to_lowercase()
+                    .replace(' ', "_")
+                    .replace('\'', "")
+                    .replace('\u{2019}', "");
+                let poi_image_path = ctx
+                    .state
+                    .genre_packs_path()
+                    .join(ctx.genre_slug)
+                    .join("images")
+                    .join("poi")
+                    .join(format!("{}.png", location_slug));
+                if poi_image_path.exists() {
+                    let served_url = format!(
+                        "/genre/{}/images/poi/{}.png",
+                        ctx.genre_slug, location_slug
+                    );
+                    tracing::info!(
+                        location = %location,
+                        url = %served_url,
+                        "poi_image.served — pre-rendered landscape on first discovery"
+                    );
+                    messages.push(GameMessage::Image {
+                        payload: sidequest_protocol::ImagePayload {
+                            url: served_url.clone(),
+                            description: format!("{}", location),
+                            handout: true,
+                            render_id: None,
+                            tier: Some("landscape".to_string()),
+                            scene_type: Some("discovery".to_string()),
+                            generation_ms: Some(0),
+                        },
+                        player_id: ctx.player_id.to_string(),
+                    });
+                    WatcherEventBuilder::new("poi_image", WatcherEventType::StateTransition)
+                        .field("action", "poi_image_served")
+                        .field("location", &location)
+                        .field("slug", &location_slug)
+                        .send(ctx.state);
+                }
             }
             tracing::info!(
                 location = %location,
@@ -1310,9 +1354,10 @@ async fn handle_barrier(
 }
 
 /// Update NPC registry from structured narrator output and apply OCEAN personality shifts.
-/// Returns a list of (creature_name, served_url) for any pre-rendered bestiary
-/// images found for newly registered NPCs. The caller broadcasts these as
-/// `GameMessage::Image` (async send via `ctx.tx`).
+/// Returns a list of (npc_name, served_url) for any pre-rendered images found
+/// for newly registered NPCs. Checks both `images/creatures/` (bestiary) and
+/// `images/portraits/` (NPC portraits) in the genre pack. The caller broadcasts
+/// these as `GameMessage::Image` (async send via `ctx.tx`).
 fn update_npc_registry(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
@@ -1451,6 +1496,69 @@ fn update_npc_registry(
                     "npc_registry.new — registered with {} identity",
                     if validated { "namegen-enriched" } else { "fallback" }
                 );
+                // Pre-rendered image lookup: check creature → portrait in genre pack.
+                // Resolve URL before pushing NpcRegistryEntry so portrait_url is set at creation.
+                let npc_slug = npc.name
+                    .to_lowercase()
+                    .replace(' ', "_")
+                    .replace('\'', "")
+                    .replace('\u{2019}', "");
+                let mut npc_image_url: Option<String> = None;
+
+                // 1. Creature image (bestiary art — priority)
+                let creature_image_path = ctx
+                    .state
+                    .genre_packs_path()
+                    .join(ctx.genre_slug)
+                    .join("images")
+                    .join("creatures")
+                    .join(format!("{}.png", npc_slug));
+                if creature_image_path.exists() {
+                    let served_url = format!(
+                        "/genre/{}/images/creatures/{}.png",
+                        ctx.genre_slug, npc_slug
+                    );
+                    tracing::info!(
+                        creature = %npc.name,
+                        url = %served_url,
+                        "creature_image.served — pre-rendered bestiary image on first appearance"
+                    );
+                    creature_images.push((npc.name.clone(), served_url.clone()));
+                    npc_image_url = Some(served_url);
+                    WatcherEventBuilder::new("creature_image", WatcherEventType::StateTransition)
+                        .field("action", "creature_image_served")
+                        .field("creature", &npc.name)
+                        .field("slug", &npc_slug)
+                        .send(ctx.state);
+                } else {
+                    // 2. NPC portrait (character art — fallback)
+                    let portrait_image_path = ctx
+                        .state
+                        .genre_packs_path()
+                        .join(ctx.genre_slug)
+                        .join("images")
+                        .join("portraits")
+                        .join(format!("{}.png", npc_slug));
+                    if portrait_image_path.exists() {
+                        let served_url = format!(
+                            "/genre/{}/images/portraits/{}.png",
+                            ctx.genre_slug, npc_slug
+                        );
+                        tracing::info!(
+                            npc = %npc.name,
+                            url = %served_url,
+                            "npc_portrait.served — pre-rendered portrait on first appearance"
+                        );
+                        creature_images.push((npc.name.clone(), served_url.clone()));
+                        npc_image_url = Some(served_url);
+                        WatcherEventBuilder::new("npc_portrait", WatcherEventType::StateTransition)
+                            .field("action", "npc_portrait_served")
+                            .field("npc", &npc.name)
+                            .field("slug", &npc_slug)
+                            .send(ctx.state);
+                    }
+                }
+
                 ctx.npc_registry.push(NpcRegistryEntry {
                     name: npc.name.clone(),
                     pronouns: npc.pronouns.clone(),
@@ -1463,6 +1571,7 @@ fn update_npc_registry(
                     ocean: Some(ocean_profile),
                     hp: 0,
                     max_hp: 0,
+                    portrait_url: npc_image_url,
                 });
                 WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
                     .field("action", "npc_registered")
@@ -1473,39 +1582,6 @@ fn update_npc_registry(
                     .field("archetype_source", &source)
                     .field("registry_size", ctx.npc_registry.len())
                     .send(ctx.state);
-
-                // Creature image fast path: check for pre-rendered bestiary image
-                // on first NPC registration. Images live in genre pack at
-                // images/creatures/{slug}.png, already served via /genre/{slug}/...
-                let creature_slug = npc.name
-                    .to_lowercase()
-                    .replace(' ', "_")
-                    .replace('\'', "")
-                    .replace('\u{2019}', "");
-                let creature_image_path = ctx
-                    .state
-                    .genre_packs_path()
-                    .join(ctx.genre_slug)
-                    .join("images")
-                    .join("creatures")
-                    .join(format!("{}.png", creature_slug));
-                if creature_image_path.exists() {
-                    let served_url = format!(
-                        "/genre/{}/images/creatures/{}.png",
-                        ctx.genre_slug, creature_slug
-                    );
-                    tracing::info!(
-                        creature = %npc.name,
-                        url = %served_url,
-                        "creature_image.served — pre-rendered bestiary image on first appearance"
-                    );
-                    creature_images.push((npc.name.clone(), served_url));
-                    WatcherEventBuilder::new("creature_image", WatcherEventType::StateTransition)
-                        .field("action", "creature_image_served")
-                        .field("creature", &npc.name)
-                        .field("slug", &creature_slug)
-                        .send(ctx.state);
-                }
             }
         }
     }
@@ -1923,6 +1999,57 @@ async fn build_response_messages(
         },
         player_id: ctx.player_id.to_string(),
     });
+
+    // Confrontation overlay — broadcast structured encounter state.
+    // Syncs from live combat/chase state so the UI shows the overlay.
+    let encounter = if ctx.combat_state.in_combat() {
+        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+    } else if let Some(ref cs) = ctx.chase_state {
+        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
+    } else {
+        None
+    };
+    if let Some(ref enc) = encounter {
+        let actors: Vec<sidequest_protocol::ConfrontationActor> = enc.actors.iter().map(|a| {
+            let portrait = ctx.npc_registry.iter()
+                .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
+                .and_then(|e| e.portrait_url.clone());
+            sidequest_protocol::ConfrontationActor {
+                name: a.name.clone(),
+                role: a.role.clone(),
+                portrait_url: portrait,
+            }
+        }).collect();
+        let metric = &enc.metric;
+        let direction_str = match metric.direction {
+            sidequest_game::MetricDirection::Ascending => "ascending",
+            sidequest_game::MetricDirection::Descending => "descending",
+            sidequest_game::MetricDirection::Bidirectional => "bidirectional",
+            _ => "ascending",
+        };
+        messages.push(GameMessage::Confrontation {
+            payload: sidequest_protocol::ConfrontationPayload {
+                encounter_type: enc.encounter_type.clone(),
+                label: enc.encounter_type.replace('_', " "),
+                category: enc.encounter_type.clone(),
+                actors,
+                metric: sidequest_protocol::ConfrontationMetric {
+                    name: metric.name.clone(),
+                    current: metric.current,
+                    starting: metric.starting,
+                    direction: direction_str.to_string(),
+                    threshold_high: metric.threshold_high,
+                    threshold_low: metric.threshold_low,
+                },
+                beats: vec![],
+                secondary_stats: enc.secondary_stats.as_ref().and_then(|ss| serde_json::to_value(ss).ok()),
+                genre_slug: ctx.genre_slug.to_string(),
+                mood: enc.mood_override.clone().unwrap_or_default(),
+                active: !enc.resolved,
+            },
+            player_id: ctx.player_id.to_string(),
+        });
+    }
 }
 
 /// Sync scattered DispatchContext locals into the canonical GameSnapshot.
@@ -1960,6 +2087,8 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     } else {
         None
     };
+
+
     ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
     ctx.snapshot.active_tropes = ctx.trope_states.clone();
     ctx.snapshot.achievement_tracker = ctx.achievement_tracker.clone();

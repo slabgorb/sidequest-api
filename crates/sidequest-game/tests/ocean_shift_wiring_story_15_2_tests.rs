@@ -34,6 +34,7 @@ fn make_entry(name: &str, ocean: OceanProfile) -> NpcRegistryEntry {
         ocean: Some(ocean),
         hp: 0,
         max_hp: 0,
+        portrait_url: None,
     }
 }
 
@@ -50,6 +51,7 @@ fn make_entry_no_ocean(name: &str) -> NpcRegistryEntry {
         ocean: None,
         hp: 0,
         max_hp: 0,
+        portrait_url: None,
     }
 }
 
