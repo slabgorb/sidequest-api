@@ -56,6 +56,7 @@ pub mod prerender;
 pub mod progression;
 pub mod render_queue;
 pub mod room_movement;
+pub mod scenario_archiver;
 pub mod scenario_state;
 pub mod scene_relevance;
 pub mod scene_directive;
