@@ -67,7 +67,7 @@ fn turn_context_has_campaign_maturity_field() {
 
 #[test]
 fn narrator_prompt_includes_materialized_world_when_chapters_present() {
-    let orchestrator = Orchestrator::new();
+    let orchestrator = Orchestrator::new_for_test();
     let ctx = TurnContext {
         history_chapters: all_tier_chapters(),
         campaign_maturity: CampaignMaturity::Early,
@@ -93,7 +93,7 @@ fn narrator_prompt_includes_materialized_world_when_chapters_present() {
 
 #[test]
 fn narrator_prompt_filters_chapters_by_maturity() {
-    let orchestrator = Orchestrator::new();
+    let orchestrator = Orchestrator::new_for_test();
     let ctx = TurnContext {
         history_chapters: all_tier_chapters(),
         campaign_maturity: CampaignMaturity::Early,
@@ -123,7 +123,7 @@ fn narrator_prompt_filters_chapters_by_maturity() {
 
 #[test]
 fn narrator_prompt_no_materialization_when_no_chapters() {
-    let orchestrator = Orchestrator::new();
+    let orchestrator = Orchestrator::new_for_test();
     let ctx = TurnContext {
         history_chapters: Vec::new(),
         campaign_maturity: CampaignMaturity::Mid,
@@ -148,7 +148,7 @@ fn orchestrator_uses_world_builder_agent_for_materialization() {
     // The orchestrator should use WorldBuilderAgent (not inline logic)
     // to produce the materialized world context. This ensures the agent's
     // OTEL span (world.materialized) fires during normal prompt building.
-    let orchestrator = Orchestrator::new();
+    let orchestrator = Orchestrator::new_for_test();
     let ctx = TurnContext {
         history_chapters: all_tier_chapters(),
         campaign_maturity: CampaignMaturity::Veteran,

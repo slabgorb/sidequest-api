@@ -16,6 +16,7 @@ use crate::tools::assemble_turn::assemble_turn;
 use crate::agents::intent_router::{Intent, IntentRoute, IntentRouter};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
+use crate::agents::world_builder::WorldBuilderAgent;
 use crate::client::ClaudeClient;
 use crate::context_builder::{ContextBuilder, ZoneBreakdown};
 use crate::prompt_framework::{parse_soul_md, AttentionZone, PromptSection, SectionCategory};
@@ -215,6 +216,13 @@ impl Orchestrator {
         }
     }
 
+    /// Create an orchestrator for testing — no watcher channel needed.
+    /// Uses a bounded channel internally but the receiver is dropped immediately.
+    pub fn new_for_test() -> Self {
+        let (tx, _rx) = mpsc::channel(1);
+        Self::new(tx)
+    }
+
     /// Replace the SOUL data for testing (story 23-10).
     pub fn set_soul_data(&mut self, soul: crate::prompt_framework::SoulData) {
         self.soul_data = Some(soul);
@@ -341,6 +349,16 @@ impl Orchestrator {
                 AttentionZone::Valley,
                 SectionCategory::State,
             ));
+        }
+
+        // Progressive world materialization (story 15-18)
+        // WorldBuilderAgent filters history chapters by maturity and injects
+        // materialized world description + OTEL span (world.materialized).
+        if !context.history_chapters.is_empty() {
+            let world_agent = WorldBuilderAgent::new()
+                .with_maturity(context.campaign_maturity.clone())
+                .with_chapters(context.history_chapters.clone());
+            world_agent.build_context(&mut builder);
         }
 
         // Lore filtering by graph distance (Valley zone — story 23-4)
@@ -997,6 +1015,11 @@ pub struct TurnContext {
     /// Hierarchical world graph for lore filtering (story 23-4).
     /// When present, LoreFilter gates Valley zone lore injection by graph distance.
     pub world_graph: Option<sidequest_genre::WorldGraph>,
+    /// History chapters from genre pack for progressive world materialization (story 15-18).
+    /// Filtered by campaign_maturity in the prompt builder via WorldBuilderAgent.
+    pub history_chapters: Vec<sidequest_game::world_materialization::HistoryChapter>,
+    /// Current campaign maturity for world materialization filtering (story 15-18).
+    pub campaign_maturity: sidequest_game::world_materialization::CampaignMaturity,
 }
 
 /// Result of processing a player action through the full turn loop.
