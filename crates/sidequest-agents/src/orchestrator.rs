@@ -810,10 +810,81 @@ fn extract_fenced_json<T: serde::de::DeserializeOwned>(input: &str) -> Result<T,
     serde_json::from_str::<T>("")
 }
 
-/// Remove a ```json ... ``` fenced block from narration so the player sees clean prose.
+/// Remove fenced code blocks (```json, ```game_patch, or bare ```) from narration
+/// so the player sees clean prose.
 fn strip_json_fence(input: &str) -> String {
-    let re = regex::Regex::new(r"(?s)```(?:json)?\s*\n[\s\S]*?\n```").unwrap();
+    let re = regex::Regex::new(r"(?s)```(?:json|game_patch)?\s*\n[\s\S]*?\n```").unwrap();
     re.replace(input, "").trim().to_string()
+}
+
+// ============================================================================
+// ADR-059 follow-up: game_patch structured extraction
+//
+// The narrator emits a ```game_patch { ... }``` block every turn. ADR-057 said
+// structured data would come from tool call sidecars; ADR-059 removed sidecars.
+// This extraction parses the game_patch block directly instead of returning
+// empty defaults.
+// ============================================================================
+
+/// All structured fields the narrator may emit in a ```game_patch``` block.
+/// Every field has `#[serde(default)]` so partial blocks parse cleanly.
+#[derive(Debug, Default, serde::Deserialize)]
+struct GamePatchExtraction {
+    #[serde(default)]
+    footnotes: Vec<sidequest_protocol::Footnote>,
+    #[serde(default)]
+    items_gained: Vec<sidequest_protocol::ItemGained>,
+    /// `npcs_present` and `npcs_met` are both valid labels from the narrator.
+    #[serde(default, alias = "npcs_met")]
+    npcs_present: Vec<NpcMention>,
+    #[serde(default)]
+    quest_updates: HashMap<String, String>,
+    #[serde(default)]
+    visual_scene: Option<VisualScene>,
+    /// `scene_mood` and `mood` are both valid labels from the narrator.
+    #[serde(default, alias = "mood")]
+    scene_mood: Option<String>,
+    #[serde(default)]
+    personality_events: Vec<PersonalityEvent>,
+    #[serde(default)]
+    scene_intent: Option<String>,
+    #[serde(default)]
+    resource_deltas: HashMap<String, f64>,
+    #[serde(default)]
+    lore_established: Option<Vec<String>>,
+    #[serde(default)]
+    merchant_transactions: Vec<MerchantTransactionExtracted>,
+    #[serde(default)]
+    sfx_triggers: Vec<String>,
+    #[serde(default)]
+    action_rewrite: Option<ActionRewrite>,
+    #[serde(default)]
+    action_flags: Option<ActionFlags>,
+}
+
+/// Extract and parse the ```game_patch``` block from a raw narrator response.
+///
+/// Tries ```game_patch first, then falls back to ```json, then returns defaults.
+fn extract_game_patch(raw: &str) -> GamePatchExtraction {
+    // Primary: ```game_patch ... ```
+    if let Some(start) = raw.find("```game_patch") {
+        let after_label = start + "```game_patch".len();
+        if let Some(rel_end) = raw[after_label..].find("```") {
+            let json_str = raw[after_label..after_label + rel_end].trim();
+            match serde_json::from_str::<GamePatchExtraction>(json_str) {
+                Ok(patch) => return patch,
+                Err(e) => {
+                    tracing::warn!(error = %e, "game_patch block found but failed to parse");
+                }
+            }
+        }
+    }
+    // Fallback: ```json ... ```
+    if let Ok(patch) = extract_fenced_json::<GamePatchExtraction>(raw) {
+        return patch;
+    }
+    // No structured data — return empty defaults
+    GamePatchExtraction::default()
 }
 
 // ============================================================================
@@ -944,34 +1015,54 @@ pub struct NarratorExtraction {
     pub action_flags: Option<ActionFlags>,
 }
 
-/// Extract the narrator's prose from a raw response.
+/// Extract the narrator's prose and all structured fields from a raw response.
 ///
-/// ADR-057 (story 20-8): The narrator produces pure prose. All structured data
-/// (footnotes, items, NPCs, mood, etc.) comes from tool calls collected by
-/// `assemble_turn`. This function strips any residual JSON fences and returns
-/// the prose with empty structured fields.
+/// The narrator emits a ```game_patch { ... }``` block every turn containing
+/// footnotes, items, NPCs, mood, etc. This function parses that block and maps
+/// it to `NarratorExtraction`, then strips the fence from the returned prose.
 fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
     let span = tracing::info_span!("rag.prose_cleanup", raw_len = raw.len());
     let _guard = span.enter();
+
+    // Parse game_patch before stripping (strip_json_fence returns a new String,
+    // so `raw` is still intact here).
+    let patch = extract_game_patch(raw);
+
+    // Log extraction counts for OTEL visibility.
+    info!(
+        footnotes = patch.footnotes.len(),
+        items_gained = patch.items_gained.len(),
+        npcs_present = patch.npcs_present.len(),
+        quest_updates = patch.quest_updates.len(),
+        personality_events = patch.personality_events.len(),
+        sfx_triggers = patch.sfx_triggers.len(),
+        resource_deltas = patch.resource_deltas.len(),
+        has_visual_scene = patch.visual_scene.is_some(),
+        has_scene_mood = patch.scene_mood.is_some(),
+        has_lore = patch.lore_established.is_some(),
+        has_action_rewrite = patch.action_rewrite.is_some(),
+        has_action_flags = patch.action_flags.is_some(),
+        "game_patch.extracted"
+    );
 
     let prose = strip_json_fence(raw);
 
     NarratorExtraction {
         prose,
-        footnotes: vec![],
-        items_gained: vec![],
-        npcs_present: vec![],
-        quest_updates: HashMap::new(),
-        visual_scene: None,
-        scene_mood: None,
-        personality_events: vec![],
-        scene_intent: None,
-        resource_deltas: HashMap::new(),
-        lore_established: None,
-        merchant_transactions: vec![],
-        sfx_triggers: vec![],
-        action_rewrite: None,
-        action_flags: None,
+        footnotes: patch.footnotes,
+        items_gained: patch.items_gained,
+        npcs_present: patch.npcs_present,
+        quest_updates: patch.quest_updates,
+        visual_scene: patch.visual_scene,
+        scene_mood: patch.scene_mood,
+        personality_events: patch.personality_events,
+        scene_intent: patch.scene_intent,
+        resource_deltas: patch.resource_deltas,
+        lore_established: patch.lore_established,
+        merchant_transactions: patch.merchant_transactions,
+        sfx_triggers: patch.sfx_triggers,
+        action_rewrite: patch.action_rewrite,
+        action_flags: patch.action_flags,
     }
 }
 

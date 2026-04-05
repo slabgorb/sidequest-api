@@ -1195,11 +1195,27 @@ pub(crate) async fn dispatch_character_creation(
                         player_id: player_id.to_string(),
                     };
 
+                    // Catch-up context — extracted from shared session while lock
+                    // is held, used for LLM generation after lock is released.
+                    let mut catch_up_context: Option<(Vec<String>, String, String)> = None;
+
                     // Add player to shared session and broadcast PARTY_STATUS
                     {
                         let holder = shared_session_holder.lock().await;
                         if let Some(ref ss_arc) = *holder {
                             let mut ss = ss_arc.lock().await;
+
+                            // Story 8-8: Capture context for catch-up narration before
+                            // releasing the lock. Only needed when joining an in-progress
+                            // session (narration_history is non-empty).
+                            if !ss.narration_history.is_empty() {
+                                catch_up_context = Some((
+                                    ss.narration_history.clone(),
+                                    ss.current_location.clone(),
+                                    ss.world_context.clone(),
+                                ));
+                            }
+
                             let ps = shared_session::PlayerState::new(
                                 player_name_store
                                     .clone()
@@ -1374,6 +1390,21 @@ pub(crate) async fn dispatch_character_creation(
                         }
                     }
 
+                    // Story 8-8: Generate catch-up narration for mid-session joins.
+                    // Done AFTER releasing shared session lock (Claude CLI call is slow).
+                    let catch_up_messages = if let Some((history, location, genre_voice)) = catch_up_context {
+                        super::catch_up::generate_catch_up_messages(
+                            state,
+                            &character,
+                            &history,
+                            &location,
+                            &genre_voice,
+                            player_id,
+                        ).unwrap_or_default()
+                    } else {
+                        vec![]
+                    };
+
                     // "ready" must come AFTER intro_messages.  The auto-turn
                     // ("I look around") sends its NARRATION inline via ctx.tx
                     // inside dispatch_player_action, so by the time we reach
@@ -1388,6 +1419,9 @@ pub(crate) async fn dispatch_character_creation(
                         backstory_narration,
                         backstory_end,
                     ];
+                    // Catch-up narration slots in after backstory, before intro/ready.
+                    // The joining player sees: backstory → "here's what's been happening" → opening scene.
+                    msgs.extend(catch_up_messages);
                     msgs.extend(intro_messages);
                     msgs.push(ready);
                     msgs
