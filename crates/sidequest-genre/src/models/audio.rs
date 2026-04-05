@@ -35,6 +35,9 @@ pub struct AudioConfig {
     /// (e.g. "standoff", "saloon") to core moods ("tension", "calm").
     #[serde(default)]
     pub mood_aliases: HashMap<String, String>,
+    /// Faction-specific music themes with trigger conditions.
+    #[serde(default)]
+    pub faction_themes: Vec<FactionThemeDef>,
 }
 
 impl AudioConfig {
@@ -57,8 +60,34 @@ impl AudioConfig {
             mood_keywords: HashMap::new(),
             mixer_defaults: None,
             mood_aliases: HashMap::new(),
+            faction_themes: Vec::new(),
         }
     }
+}
+
+/// A faction-specific music theme with trigger conditions.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FactionThemeDef {
+    /// Faction identifier (e.g. "bosozoku", "lowriders").
+    pub faction_id: String,
+    /// The track to play when this faction theme is triggered.
+    pub track: MoodTrack,
+    /// Conditions that trigger this faction theme.
+    pub triggers: FactionTriggers,
+}
+
+/// Trigger conditions for a faction theme.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FactionTriggers {
+    /// Trigger when the player is in a location controlled by this faction.
+    #[serde(default)]
+    pub location: bool,
+    /// Trigger when an NPC of this faction is present in a confrontation.
+    #[serde(default)]
+    pub npc_present: bool,
+    /// Trigger when player reputation with this faction meets or exceeds this threshold.
+    #[serde(default)]
+    pub reputation_threshold: Option<i32>,
 }
 
 /// AI music generation configuration.

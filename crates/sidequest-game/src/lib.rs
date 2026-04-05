@@ -133,8 +133,9 @@ pub use lore::{
     LoreRetrievalSummary, LoreSource, LoreStore,
 };
 pub use music_director::{
-    AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodClassificationWithReason,
-    MoodContext, MoodKey, MusicDirector, MusicEvalResult, MusicTelemetry,
+    AudioAction, AudioChannel, AudioCue, FactionContext, Mood, MoodClassification,
+    MoodClassificationWithReason, MoodContext, MoodKey, MusicDirector, MusicEvalResult,
+    MusicTelemetry,
 };
 pub use sidequest_genre::TrackVariation;
 pub use narrative::NarrativeEntry;

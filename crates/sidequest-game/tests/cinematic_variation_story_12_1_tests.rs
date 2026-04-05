@@ -59,6 +59,7 @@ fn config_without_themes() -> AudioConfig {
         ai_generation: None,
         mixer_defaults: None,
         mood_aliases: HashMap::new(),
+        faction_themes: Vec::new(),
     }
 }
 
