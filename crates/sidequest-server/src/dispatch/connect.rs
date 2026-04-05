@@ -10,8 +10,8 @@ use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
-    CharacterState, GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
-    PartyStatusPayload, SessionEventPayload,
+    CharacterState, GameMessage, InitialState, MapUpdatePayload, NarrationEndPayload,
+    NarrationPayload, PartyMember, PartyStatusPayload, SessionEventPayload,
 };
 
 use crate::npc_context;
@@ -241,6 +241,64 @@ pub(crate) async fn dispatch_connect(
                                 payload: PartyStatusPayload { members },
                                 player_id: player_id.to_string(),
                             });
+                        }
+
+                        // MAP_UPDATE — replay explored map state so the client
+                        // can show the Automapper overlay immediately on reconnect.
+                        // Without this the M hotkey stays gated on null mapData.
+                        {
+                            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = {
+                                // Try room graph mode first
+                                let rooms: Vec<sidequest_genre::RoomDef> = GenreCode::new(genre)
+                                    .ok()
+                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|pack| pack.worlds.get(world).cloned())
+                                    .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                    .and_then(|w| w.cartography.rooms.clone())
+                                    .unwrap_or_default();
+                                if !rooms.is_empty() {
+                                    sidequest_game::build_room_graph_explored(
+                                        &rooms,
+                                        &saved.snapshot.discovered_rooms,
+                                        &saved.snapshot.location,
+                                    )
+                                } else {
+                                    saved.snapshot.discovered_regions
+                                        .iter()
+                                        .map(|name| sidequest_protocol::ExploredLocation {
+                                            name: name.clone(),
+                                            x: 0,
+                                            y: 0,
+                                            location_type: String::new(),
+                                            connections: vec![],
+                                            room_exits: vec![],
+                                            room_type: String::new(),
+                                            size: None,
+                                            is_current_room: name == &saved.snapshot.location,
+                                        })
+                                        .collect()
+                                }
+                            };
+                            let explored_count = explored_locs.len();
+                            responses.push(GameMessage::MapUpdate {
+                                payload: MapUpdatePayload {
+                                    current_location: saved.snapshot.location.clone(),
+                                    region: saved.snapshot.current_region.clone(),
+                                    explored: explored_locs,
+                                    fog_bounds: None,
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                            tracing::info!(
+                                explored_count,
+                                location = %saved.snapshot.location,
+                                "map_update.reconnect — replayed explored state for automapper"
+                            );
+                            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
+                                .field("event", "map_update.reconnect")
+                                .field("explored_count", explored_count)
+                                .field("location", saved.snapshot.location.as_str())
+                                .send(state);
                         }
 
                         // Initialize audio subsystems for returning player
