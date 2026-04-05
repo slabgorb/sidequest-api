@@ -1974,7 +1974,7 @@ async fn accumulate_and_persist_lore(
 
 /// Continuity validation — LLM-based check of narrator output against game state.
 ///
-/// Uses Haiku classification to detect contradictions rather than keyword matching.
+/// Uses Sonnet classification to detect contradictions rather than keyword matching.
 /// Runs via spawn_blocking so it doesn't block the tokio runtime.
 async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &str) {
     let dead_npcs: Vec<String> = ctx
@@ -1990,6 +1990,14 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
         .map(|i| i.name.as_str().to_string())
         .collect();
 
+    let character_description: String = ctx
+        .character_json
+        .as_ref()
+        .and_then(|cj| cj.get("description"))
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_string();
+
     let validation_result =
         sidequest_agents::continuity_validator::validate_continuity_llm_async(
             clean_narration,
@@ -1997,6 +2005,7 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
             &dead_npcs,
             &inventory_items,
             "", // time_of_day not tracked in dispatch context yet
+            &character_description,
         )
         .await;
 
