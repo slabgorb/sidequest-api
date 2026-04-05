@@ -2356,13 +2356,23 @@ async fn persist_game_state(
     ctx.snapshot.narrative_log.push(narrative_entry.clone());
 
     // Write to append-only narrative_log table in SQLite
-    if let Err(e) = ctx
+    match ctx
         .state
         .persistence()
         .append_narrative(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &narrative_entry)
         .await
     {
-        tracing::warn!(error = %e, "Failed to append narrative log entry");
+        Ok(()) => {
+            WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
+                .field("event", "persistence.narrative_appended")
+                .field("turn", ctx.turn_manager.interaction())
+                .field("length", clean_narration.len())
+                .field("player", ctx.player_name_for_save)
+                .send(ctx.state);
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to append narrative log entry");
+        }
     }
 
     // Emit encounter OTEL event if active
@@ -2412,31 +2422,10 @@ async fn persist_game_state(
                 .field("turn", ctx.turn_manager.interaction())
                 .send(ctx.state);
 
-            // Also write to the dedicated narrative_log SQLite table
-            // (enables recent_narrative() for "Previously On..." reconnect recaps)
-            match ctx
-                .state
-                .persistence()
-                .append_narrative(
-                    ctx.genre_slug,
-                    ctx.world_slug,
-                    ctx.player_name_for_save,
-                    &narrative_entry,
-                )
-                .await
-            {
-                Ok(()) => {
-                    WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
-                        .field("event", "persistence.narrative_appended")
-                        .field("turn", ctx.turn_manager.interaction())
-                        .field("length", clean_narration.len())
-                        .field("player", ctx.player_name_for_save)
-                        .send(ctx.state);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to append narrative to SQLite table");
-                }
-            }
+            // NOTE: append_narrative is already called above (line ~2358) right
+            // after the entry is created.  A duplicate call here was causing
+            // every narration row to be written twice, which produced repeated
+            // paragraphs in the "Previously On..." recap on session resume.
         }
         Err(e) => {
             tracing::error!(error = %e, "Failed to persist game state");
