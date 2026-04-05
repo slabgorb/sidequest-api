@@ -96,6 +96,10 @@ pub trait SessionStore {
     fn recent_narrative(&self, limit: usize) -> Result<Vec<NarrativeEntry>, PersistError>;
     /// Generate a "Previously On..." recap from recent entries.
     fn generate_recap(&self) -> Result<Option<String>, PersistError>;
+    /// Save scenario archive JSON for a session.
+    fn save_scenario(&self, session_id: &str, json: &str) -> Result<(), PersistError>;
+    /// Load scenario archive JSON for a session, or None if not saved.
+    fn load_scenario(&self, session_id: &str) -> Result<Option<String>, PersistError>;
 }
 
 /// Entry returned by `SqliteStore::list_saves()`.
@@ -222,7 +226,12 @@ impl SqliteStore {
                 metadata_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
-            CREATE INDEX IF NOT EXISTS idx_lore_category ON lore_fragments(category);",
+            CREATE INDEX IF NOT EXISTS idx_lore_category ON lore_fragments(category);
+            CREATE TABLE IF NOT EXISTS scenario_archive (
+                session_id TEXT PRIMARY KEY,
+                scenario_json TEXT NOT NULL,
+                saved_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
         )?;
         Ok(())
     }
@@ -351,6 +360,27 @@ impl SessionStore for SqliteStore {
             recap.push_str(&format!("- {}\n", entry.content));
         }
         Ok(Some(recap))
+    }
+
+    fn save_scenario(&self, session_id: &str, json: &str) -> Result<(), PersistError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO scenario_archive (session_id, scenario_json, saved_at)
+             VALUES (?1, ?2, datetime('now'))",
+            params![session_id, json],
+        )?;
+        Ok(())
+    }
+
+    fn load_scenario(&self, session_id: &str) -> Result<Option<String>, PersistError> {
+        let result: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT scenario_json FROM scenario_archive WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(result)
     }
 }
 

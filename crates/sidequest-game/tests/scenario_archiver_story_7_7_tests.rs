@@ -18,7 +18,7 @@ use std::sync::Arc;
 use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
 use sidequest_game::clue_activation::{ClueNode, ClueType, ClueVisibility, DiscoveryMethod};
 use sidequest_game::npc_actions::ScenarioRole;
-use sidequest_game::persistence::SqliteStore;
+use sidequest_game::persistence::{SessionStore, SqliteStore};
 use sidequest_game::scenario_archiver::{
     ArchiveError, ScenarioArchiver, VersionedScenario, SCENARIO_FORMAT_VERSION,
 };
