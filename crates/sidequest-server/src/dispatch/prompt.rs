@@ -145,6 +145,30 @@ pub(crate) async fn build_prompt_context(
                         " Co-located: {}.",
                         co_located_names.join(", ")
                     ));
+                    // Enrich with mechanical context for co-located PCs so the narrator
+                    // can write mechanically-aware party interactions.
+                    let co_located_pids = ss.co_located_players(ctx.player_id);
+                    for pid in &co_located_pids {
+                        if let Some(ps) = ss.players.get(pid.as_str()) {
+                            if let Some(ref name) = ps.character_name {
+                                state_summary.push_str(&format!(
+                                    "\n  {} — {} Lv{}, HP {}/{}",
+                                    name,
+                                    if ps.character_class.is_empty() { "Unknown" } else { &ps.character_class },
+                                    ps.character_level,
+                                    ps.character_hp,
+                                    ps.character_max_hp,
+                                ));
+                            }
+                        }
+                    }
+
+                    // OTEL: party context injection
+                    crate::WatcherEventBuilder::new("party_context", crate::WatcherEventType::StateTransition)
+                        .field("event", "party_context_injected")
+                        .field("co_located_count", co_located_pids.len())
+                        .field("co_located_names", co_located_names.join(", ").as_str())
+                        .send(ctx.state);
                 }
             }
             // PC roster for the agency constraint — always includes the active player.

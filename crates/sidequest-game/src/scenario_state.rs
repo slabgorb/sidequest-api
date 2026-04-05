@@ -78,6 +78,115 @@ pub struct ScenarioState {
 }
 
 impl ScenarioState {
+    /// Initialize a ScenarioState from a genre pack's ScenarioPack.
+    ///
+    /// Converts genre-level types to game-level types:
+    /// - ClueGraph nodes → game ClueNode with typed enums
+    /// - AssignmentMatrix suspects → NPC role assignments (Guilty/Witness/Innocent)
+    /// - ScenarioNpc adjacency → gossip propagation graph
+    ///
+    /// Selects a random guilty NPC from the `can_be_guilty` suspects.
+    pub fn from_genre_pack(pack: &sidequest_genre::ScenarioPack) -> Self {
+        use rand::seq::IndexedRandom;
+
+        // Convert genre ClueGraph → game ClueGraph
+        let game_nodes: Vec<crate::clue_activation::ClueNode> = pack
+            .clue_graph
+            .nodes
+            .iter()
+            .map(|gn| {
+                let clue_type = match gn.clue_type.to_lowercase().as_str() {
+                    "physical" => crate::clue_activation::ClueType::Physical,
+                    "testimonial" => crate::clue_activation::ClueType::Testimonial,
+                    "behavioral" => crate::clue_activation::ClueType::Behavioral,
+                    "deduction" => crate::clue_activation::ClueType::Deduction,
+                    _ => crate::clue_activation::ClueType::Physical,
+                };
+                let discovery = match gn.discovery_method.to_lowercase().as_str() {
+                    "forensic" => crate::clue_activation::DiscoveryMethod::Forensic,
+                    "interrogate" => crate::clue_activation::DiscoveryMethod::Interrogate,
+                    "search" => crate::clue_activation::DiscoveryMethod::Search,
+                    "observe" => crate::clue_activation::DiscoveryMethod::Observe,
+                    _ => crate::clue_activation::DiscoveryMethod::Search,
+                };
+                let visibility = match gn.visibility.to_lowercase().as_str() {
+                    "obvious" => crate::clue_activation::ClueVisibility::Obvious,
+                    "hidden" => crate::clue_activation::ClueVisibility::Hidden,
+                    "requires_skill" => crate::clue_activation::ClueVisibility::RequiresSkill,
+                    _ => crate::clue_activation::ClueVisibility::Hidden,
+                };
+                let mut node = crate::clue_activation::ClueNode::new(
+                    gn.id.clone(),
+                    gn.description.clone(),
+                    clue_type,
+                    discovery,
+                    visibility,
+                );
+                for req in &gn.requires {
+                    node.add_requirement(req.clone());
+                }
+                for imp in &gn.implicates {
+                    node.add_implication(imp.clone());
+                }
+                node.set_red_herring(gn.red_herring);
+                for loc in &gn.locations {
+                    node.add_location(loc.clone());
+                }
+                node
+            })
+            .collect();
+        let clue_graph = ClueGraph::new(game_nodes);
+
+        // Select guilty NPC from assignment matrix
+        let guilty_candidates: Vec<&str> = pack
+            .assignment_matrix
+            .suspects
+            .iter()
+            .filter(|s| s.can_be_guilty)
+            .map(|s| s.id.as_str())
+            .collect();
+        let mut rng = rand::thread_rng();
+        let guilty_npc = guilty_candidates
+            .choose(&mut rng)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                // Fallback: first NPC if no suspects marked can_be_guilty
+                pack.npcs
+                    .first()
+                    .map(|n| n.id.clone())
+                    .unwrap_or_else(|| "unknown".to_string())
+            });
+
+        // Build NPC role assignments
+        let mut npc_roles: HashMap<String, ScenarioRole> = HashMap::new();
+        for snpc in &pack.npcs {
+            let role = if snpc.id == guilty_npc {
+                ScenarioRole::Guilty
+            } else {
+                // Check if this NPC has initial suspicions → they're a witness
+                if !snpc.initial_beliefs.suspicions.is_empty() {
+                    ScenarioRole::Witness
+                } else {
+                    ScenarioRole::Innocent
+                }
+            };
+            npc_roles.insert(snpc.name.clone(), role);
+        }
+
+        // Build adjacency graph for gossip (fully connected for now —
+        // all NPCs can gossip with all others in the same scenario).
+        let npc_names: Vec<String> = pack.npcs.iter().map(|n| n.name.clone()).collect();
+        let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+        for name in &npc_names {
+            adjacency.insert(
+                name.clone(),
+                npc_names.iter().filter(|n| *n != name).cloned().collect(),
+            );
+        }
+
+        Self::new(clue_graph, npc_roles, guilty_npc, adjacency)
+    }
+
     /// Create a new scenario state from components.
     ///
     /// Called during scenario initialization when a ScenarioPack is bound

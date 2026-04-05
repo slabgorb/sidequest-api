@@ -472,6 +472,59 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // Scenario pressure events and scene budget — check SharedGameSession
+    {
+        let holder = ctx.shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let mut ss = ss_arc.lock().await;
+            if let Some(ref scenario_pack) = ss.active_scenario {
+                // Check for pressure events at this scene count
+                for pressure_event in &scenario_pack.pacing.pressure_events {
+                    if pressure_event.at_scene == ss.scene_count {
+                        state_summary.push_str(&format!(
+                            "\n\n[PRESSURE EVENT] {}\nWeave this event into the narration naturally.\n",
+                            pressure_event.event,
+                        ));
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "pressure_event_triggered")
+                            .field("at_scene", pressure_event.at_scene)
+                            .field("description", pressure_event.event.as_str())
+                            .send(ctx.state);
+                    }
+                }
+                // Check escalation beats by trope progression
+                if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
+                    let progress = scenario.tension() as f64;
+                    for beat in &scenario_pack.pacing.escalation_beats {
+                        if (progress - beat.at).abs() < 0.05 {
+                            state_summary.push_str(&format!(
+                                "\n[ESCALATION] {}\n",
+                                beat.inject,
+                            ));
+                            WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                                .field("event", "escalation_beat")
+                                .field("at_threshold", format!("{:.2}", beat.at))
+                                .field("inject", beat.inject.as_str())
+                                .send(ctx.state);
+                        }
+                    }
+                }
+                // Scene budget warning
+                let budget = scenario_pack.pacing.scene_budget;
+                if ss.scene_count >= budget.saturating_sub(2) && ss.scene_count < budget {
+                    state_summary.push_str(
+                        "\n[PACING] The scenario is nearing its conclusion. Begin steering toward resolution.\n",
+                    );
+                } else if ss.scene_count >= budget {
+                    state_summary.push_str(
+                        "\n[PACING] The scenario has exceeded its scene budget. Push hard toward a climactic resolution.\n",
+                    );
+                }
+                ss.scene_count += 1;
+            }
+        }
+    }
+
     tracing::info!(
         raw = %ctx.action,
         "Prompt context built (preprocessor inlined into agent call)"
@@ -571,6 +624,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         // Story 15-18: progressive world materialization
         history_chapters: ctx.snapshot.world_history.clone(),
         campaign_maturity: ctx.snapshot.campaign_maturity.clone(),
+        // Multiplayer action attribution — narrator knows WHO is acting
+        character_name: ctx.char_name.to_string(),
     };
     let result = ctx
         .state
@@ -1290,6 +1345,40 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .unwrap_or("Adventurer")
         .to_string();
 
+    // Perception filter population — map player's current status effects to
+    // perceptual effects so multiplayer narration rewriting activates (story 8-6).
+    if let Some(character) = ctx.snapshot.characters.first() {
+        let perceptual_effects = map_statuses_to_perceptual_effects(&character.core.statuses);
+        if !perceptual_effects.is_empty() {
+            let holder = ctx.shared_session_holder.lock().await;
+            if let Some(ref ss_arc) = *holder {
+                let mut ss = ss_arc.lock().await;
+                let char_name = character.core.name.as_str().to_string();
+                ss.perception_filters.insert(
+                    ctx.player_id.to_string(),
+                    sidequest_game::perception::PerceptionFilter::new(char_name, perceptual_effects.clone()),
+                );
+                WatcherEventBuilder::new("perception", WatcherEventType::StateTransition)
+                    .field("event", "perception_filter_set")
+                    .field("player_id", ctx.player_id)
+                    .field("effects", sidequest_game::perception::PerceptionRewriter::describe_effects(&perceptual_effects).as_str())
+                    .send(ctx.state);
+            }
+        } else {
+            // Clear any stale filter if no perceptual effects remain
+            let holder = ctx.shared_session_holder.lock().await;
+            if let Some(ref ss_arc) = *holder {
+                let mut ss = ss_arc.lock().await;
+                if ss.perception_filters.remove(ctx.player_id).is_some() {
+                    WatcherEventBuilder::new("perception", WatcherEventType::StateTransition)
+                        .field("event", "perception_filter_cleared")
+                        .field("player_id", ctx.player_id)
+                        .send(ctx.state);
+                }
+            }
+        }
+    }
+
     session_sync::sync_back_to_shared_session(
         ctx,
         &messages,
@@ -1303,6 +1392,45 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 }
 
 // ── Inline helpers extracted from dispatch_player_action ──────────────────
+
+/// Map free-text status effect strings to typed perceptual effects.
+/// Status strings are set by the narrator and stored on CreatureCore.statuses.
+/// Perceptual effects drive per-player narration rewriting in multiplayer.
+fn map_statuses_to_perceptual_effects(
+    statuses: &[String],
+) -> Vec<sidequest_game::perception::PerceptualEffect> {
+    use sidequest_game::perception::PerceptualEffect;
+
+    statuses
+        .iter()
+        .filter_map(|s| {
+            let lower = s.to_lowercase();
+            if lower.contains("blind") {
+                Some(PerceptualEffect::Blinded)
+            } else if lower.contains("deaf") {
+                Some(PerceptualEffect::Deafened)
+            } else if lower.contains("hallucin") {
+                Some(PerceptualEffect::Hallucinating)
+            } else if lower.contains("charm") {
+                // Extract source if format is "Charmed by <name>"
+                let source = lower
+                    .strip_prefix("charmed by ")
+                    .unwrap_or("unknown")
+                    .to_string();
+                Some(PerceptualEffect::Charmed { source })
+            } else if lower.contains("dominat") || lower.contains("possess") {
+                let controller = lower
+                    .strip_prefix("dominated by ")
+                    .or_else(|| lower.strip_prefix("possessed by "))
+                    .unwrap_or("unknown")
+                    .to_string();
+                Some(PerceptualEffect::Dominated { controller })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 /// Handle turn barrier coordination for structured/cinematic multiplayer turns.
 async fn handle_barrier(
@@ -2716,6 +2844,8 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         // Aside turns don't need world materialization
         history_chapters: Vec::new(),
         campaign_maturity: sidequest_game::world_materialization::CampaignMaturity::default(),
+        // Multiplayer action attribution
+        character_name: ctx.char_name.to_string(),
     };
     let result = ctx
         .state

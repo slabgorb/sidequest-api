@@ -1373,6 +1373,43 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             if let Some(ss_arc) = sessions.get(&key).cloned() {
                 drop(sessions);
                 if let Ok(mut ss) = ss_arc.try_lock() {
+                    // Send departure narration to remaining players (mirrors join narration)
+                    let departure_name = ss
+                        .players
+                        .get(&player_id_str)
+                        .and_then(|ps| ps.character_name.clone())
+                        .or_else(|| player_name_for_session.clone())
+                        .unwrap_or_else(|| "Unknown".to_string());
+                    let departure_text = format!("{} has left the scene.", departure_name);
+                    let remaining_pids: Vec<String> = ss
+                        .players
+                        .keys()
+                        .filter(|pid| pid.as_str() != &*player_id_str)
+                        .cloned()
+                        .collect();
+                    for target_pid in &remaining_pids {
+                        ss.send_to_player(
+                            GameMessage::Narration {
+                                payload: sidequest_protocol::NarrationPayload {
+                                    text: departure_text.clone(),
+                                    state_delta: None,
+                                    footnotes: vec![],
+                                },
+                                player_id: target_pid.clone(),
+                            },
+                            target_pid.clone(),
+                        );
+                        ss.send_to_player(
+                            GameMessage::NarrationEnd {
+                                payload: sidequest_protocol::NarrationEndPayload {
+                                    state_delta: None,
+                                },
+                                player_id: target_pid.clone(),
+                            },
+                            target_pid.clone(),
+                        );
+                    }
+
                     let leave_msg = GameMessage::SessionEvent {
                         payload: SessionEventPayload {
                             event: "player_left".to_string(),
