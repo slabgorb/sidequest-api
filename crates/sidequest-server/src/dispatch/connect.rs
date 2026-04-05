@@ -1144,6 +1144,8 @@ pub(crate) async fn dispatch_character_creation(
                             snapshot,
                             tx,
                             monster_manual: &mut monster_manual,
+                            morpheme_glossaries: Vec::new(),
+                            name_banks: Vec::new(),
                         };
                         let result = super::dispatch_player_action(&mut ctx).await;
                         ctx.monster_manual.save();

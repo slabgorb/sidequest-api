@@ -1872,6 +1872,8 @@ async fn dispatch_message(
                     snapshot,
                     tx: &tx,
                     monster_manual: &mut monster_manual,
+                    morpheme_glossaries: Vec::new(),
+                    name_banks: Vec::new(),
                 };
                 let result = dispatch::dispatch_player_action(&mut ctx).await;
 

@@ -113,6 +113,12 @@ pub(crate) struct DispatchContext<'a> {
     /// Loaded from `~/.sidequest/manuals/{genre}_{world}.json` on session start.
     /// NPCs and encounters injected into game_state for narrator to reference.
     pub monster_manual: &'a mut sidequest_game::monster_manual::MonsterManual,
+    /// Morpheme glossaries from genre pack conlang definitions (story 15-19).
+    /// Used to detect conlang vocabulary in narration text and record to lore store.
+    pub morpheme_glossaries: Vec<sidequest_game::MorphemeGlossary>,
+    /// Name banks from genre pack conlang definitions (story 15-19).
+    /// Injected into narrator prompt context for name consistency.
+    pub name_banks: Vec<sidequest_game::NameBank>,
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -889,6 +895,81 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("npc_name", name)
                         .field("fields_added", fields_added)
                         .send(ctx.state);
+                }
+            }
+        }
+    }
+
+    // Story 15-19: Record conlang name knowledge for newly discovered NPCs
+    // with names matching loaded name bank entries.
+    {
+        let turn = ctx.turn_manager.interaction();
+        for npc in &result.npcs_present {
+            if !npc.is_new {
+                continue;
+            }
+            for bank in &ctx.name_banks {
+                for generated_name in &bank.names {
+                    if npc.name.contains(&generated_name.name) {
+                        if let Ok(_frag_id) = sidequest_game::record_name_knowledge(
+                            ctx.lore_store,
+                            generated_name,
+                            ctx.player_id,
+                            turn,
+                        ) {
+                            WatcherEventBuilder::new(
+                                "conlang",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("event", "name_recorded")
+                            .field("name", &generated_name.name)
+                            .field("language_id", &generated_name.language_id)
+                            .field("gloss", &generated_name.gloss)
+                            .send(ctx.state);
+
+                            tracing::info!(
+                                name = %generated_name.name,
+                                language_id = %generated_name.language_id,
+                                "conlang.name_recorded"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Story 15-19: Record conlang morphemes detected in narration text.
+    // Scans each word of clean_narration against loaded morpheme glossaries.
+    {
+        let turn = ctx.turn_manager.interaction();
+        let narration_lower = clean_narration.to_lowercase();
+        for glossary in &ctx.morpheme_glossaries {
+            for word in narration_lower.split_whitespace() {
+                let trimmed = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if let Some(morpheme) = glossary.lookup(trimmed) {
+                    if let Ok(_frag_id) = sidequest_game::record_language_knowledge(
+                        ctx.lore_store,
+                        morpheme,
+                        ctx.player_id,
+                        turn,
+                    ) {
+                        WatcherEventBuilder::new("conlang", WatcherEventType::StateTransition)
+                            .field("event", "morpheme_learned")
+                            .field("character_id", ctx.player_id)
+                            .field("language_id", &morpheme.language_id)
+                            .field("morpheme", &morpheme.morpheme)
+                            .send(ctx.state);
+
+                        tracing::info!(
+                            morpheme = %morpheme.morpheme,
+                            language_id = %morpheme.language_id,
+                            "conlang.morpheme_learned"
+                        );
+                    }
                 }
             }
         }
