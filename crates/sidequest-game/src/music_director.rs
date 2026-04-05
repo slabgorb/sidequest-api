@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use sidequest_genre::{AudioConfig, MoodTrack, TrackVariation};
+pub use sidequest_genre::FactionThemeDef;
 
 use crate::theme_rotator::{RotationConfig, ThemeRotator};
 
@@ -192,6 +193,18 @@ pub struct MoodContext {
     pub session_start: bool,
 }
 
+/// Context for faction-based music selection. Provides location faction,
+/// confrontation actor factions, and player reputation for faction theme triggering.
+#[derive(Debug, Clone, Default)]
+pub struct FactionContext {
+    /// Faction controlling the current location (if any).
+    pub location_faction: Option<String>,
+    /// Factions of actors in an active confrontation.
+    pub actor_factions: Vec<String>,
+    /// Player reputation with a specific faction: (faction_id, reputation_score).
+    pub player_reputation: Option<(String, i32)>,
+}
+
 /// OTEL telemetry snapshot for the music director's current state.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MusicTelemetry {
@@ -235,6 +248,8 @@ pub struct MusicDirector {
     rotator: ThemeRotator,
     /// Mood alias mappings from genre pack audio.yaml.
     mood_aliases: HashMap<String, String>,
+    /// Faction theme definitions from genre pack audio.yaml.
+    faction_themes: Vec<FactionThemeDef>,
 }
 
 impl MusicDirector {
@@ -335,6 +350,7 @@ impl MusicDirector {
             variation_reason: None,
             rotator: ThemeRotator::new(RotationConfig::default()),
             mood_aliases: audio_config.mood_aliases.clone(),
+            faction_themes: audio_config.faction_themes.clone(),
         }
     }
 
@@ -537,6 +553,76 @@ impl MusicDirector {
         self.current_track = Some(track_path);
         self.current_variation = Some(variation);
         MusicEvalResult::Cue(cue)
+    }
+
+    /// Evaluate narration with faction context. If a faction theme matches the
+    /// faction context (location faction, actor factions, or reputation threshold),
+    /// it overrides mood-based selection. Otherwise falls back to normal mood evaluation.
+    pub fn evaluate_with_faction(
+        &mut self,
+        narration: &str,
+        mood_ctx: &MoodContext,
+        faction_ctx: &FactionContext,
+    ) -> MusicEvalResult {
+        // Try to find a matching faction theme
+        if let Some(theme) = self.find_matching_faction_theme(faction_ctx) {
+            let track_path = theme.track.path.clone();
+            let faction_id = theme.faction_id.clone();
+            let action = Self::transition_action(self.current_mood.as_ref(), &MoodKey::COMBAT);
+            let cue = AudioCue {
+                channel: AudioChannel::Music,
+                action: AudioAction::FadeIn,
+                track_id: Some(track_path.clone()),
+                volume: 0.8,
+            };
+            tracing::info!(
+                faction = %faction_id,
+                track = %track_path,
+                "faction theme selected, overriding mood-based selection"
+            );
+            self.current_track = Some(track_path);
+            return MusicEvalResult::Cue(cue);
+        }
+
+        // No faction match — fall back to normal mood-based evaluation
+        self.evaluate(narration, mood_ctx)
+    }
+
+    /// Find the first faction theme matching the given faction context.
+    ///
+    /// Priority: location faction → actor factions → reputation threshold.
+    fn find_matching_faction_theme(&self, ctx: &FactionContext) -> Option<&FactionThemeDef> {
+        // Check location faction
+        if let Some(ref loc_faction) = ctx.location_faction {
+            if let Some(theme) = self.faction_themes.iter().find(|t| {
+                t.faction_id == *loc_faction && t.triggers.location
+            }) {
+                return Some(theme);
+            }
+        }
+
+        // Check actor factions (first match wins)
+        for actor_faction in &ctx.actor_factions {
+            if let Some(theme) = self.faction_themes.iter().find(|t| {
+                t.faction_id == *actor_faction && t.triggers.npc_present
+            }) {
+                return Some(theme);
+            }
+        }
+
+        // Check reputation threshold
+        if let Some((ref faction_id, reputation)) = ctx.player_reputation {
+            if let Some(theme) = self.faction_themes.iter().find(|t| {
+                t.faction_id == *faction_id
+                    && t.triggers
+                        .reputation_threshold
+                        .map_or(false, |thresh| reputation >= thresh)
+            }) {
+                return Some(theme);
+            }
+        }
+
+        None
     }
 
     /// Classify the mood from narration text and game state.
@@ -948,6 +1034,7 @@ mod tests {
             ai_generation: None,
             mixer_defaults: None,
             mood_aliases: HashMap::new(),
+            faction_themes: Vec::new(),
         }
     }
 

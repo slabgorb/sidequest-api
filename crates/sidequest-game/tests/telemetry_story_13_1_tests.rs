@@ -690,6 +690,7 @@ fn test_audio_config() -> sidequest_genre::AudioConfig {
         mood_keywords: HashMap::new(),
         mixer_defaults: None,
         mood_aliases: HashMap::new(),
+        faction_themes: Vec::new(),
     }
 }
 

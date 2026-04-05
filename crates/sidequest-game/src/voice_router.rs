@@ -206,6 +206,7 @@ mod tests {
             mood_keywords: HashMap::new(),
             mixer_defaults: None,
             mood_aliases: HashMap::new(),
+            faction_themes: Vec::new(),
         }
     }
 
