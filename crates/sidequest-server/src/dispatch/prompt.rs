@@ -690,6 +690,16 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
+    // Story 15-19: Inject genre pack name banks for narrator reference.
+    // Provides pre-generated conlang names the narrator can use for consistency.
+    for bank in &ctx.name_banks {
+        let bank_text = sidequest_game::format_name_bank_for_prompt(bank, 20);
+        if !bank_text.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&bank_text);
+        }
+    }
+
     // Inject chase cinematography context (story 15-17)
     if let Some(ref chase_state) = ctx.chase_state {
         let chase_context = chase_state.format_context(vec![]);
