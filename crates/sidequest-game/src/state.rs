@@ -28,8 +28,8 @@ use crate::merchant::{
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
 pub use crate::resource_pool::{
-    ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult, ResourcePool,
-    ResourceThreshold,
+    mint_threshold_fact, ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult,
+    ResourcePool, ResourceThreshold, ThresholdEvent,
 };
 use crate::scenario_state::ScenarioState;
 use crate::trope::TropeState;
