@@ -940,109 +940,21 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
+    // lore_established is Vec<String> from narrator output — category defaults to Event.
+    // Structured lore_established (with per-entry categories) requires narrator prompt changes — follow-up.
     if let Some(ref lore_entries) = result.lore_established {
         for entry in lore_entries {
             if entry.trim().is_empty() {
                 continue;
             }
-            match sidequest_game::accumulate_lore(
-                ctx.lore_store,
+            tracing::info!("lore.fragment_category=Event (lore_established is unstructured Vec<String> — follow-up required for per-entry categories)");
+            accumulate_and_persist_lore(
+                ctx,
                 entry,
                 sidequest_game::lore::LoreCategory::Event,
                 turn_number as u64,
                 std::collections::HashMap::new(),
-            ) {
-                Ok(fragment_id) => {
-                    // AC-5: OTEL lore.fragment_accumulated
-                    let category = "event";
-                    let token_estimate = entry.len().div_ceil(4);
-                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                        .field("event", "lore.fragment_accumulated")
-                        .field("fragment_id", &fragment_id)
-                        .field("category", category)
-                        .field("turn", turn_number)
-                        .field("token_estimate", token_estimate)
-                        .send(ctx.state);
-                    tracing::info!(
-                        fragment_id = %fragment_id,
-                        category = category,
-                        turn = turn_number,
-                        token_estimate = token_estimate,
-                        "lore.fragment_accumulated"
-                    );
-
-                    // Story 15-24: Persist lore fragment to SQLite for cross-session survival.
-                    let persist_fragment = sidequest_game::LoreFragment::new(
-                        fragment_id.clone(),
-                        sidequest_game::lore::LoreCategory::Event,
-                        entry.clone(),
-                        sidequest_game::LoreSource::GameEvent,
-                        Some(turn_number as u64),
-                        std::collections::HashMap::new(),
-                    );
-                    match ctx.state.persistence().append_lore_fragment(
-                        ctx.genre_slug,
-                        ctx.world_slug,
-                        ctx.player_name_for_save,
-                        &persist_fragment,
-                    ).await {
-                        Ok(()) => {
-                            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                                .field("event", "lore.fragment_persisted")
-                                .field("fragment_id", &fragment_id)
-                                .field("category", category)
-                                .send(ctx.state);
-                            tracing::info!(fragment_id = %fragment_id, "lore.fragment_persisted");
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.fragment_persist_failed");
-                        }
-                    }
-
-                    // AC-3: Call daemon embed() to generate embedding for the new fragment.
-                    // AC-6: Emit lore.embedding_generated with fragment_id at call site.
-                    let config = sidequest_daemon_client::DaemonConfig::default();
-                    if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
-                        let embed_params = sidequest_daemon_client::EmbedParams {
-                            text: entry.clone(),
-                        };
-                        match client.embed(embed_params).await {
-                            Ok(embed_result) => {
-                                // Attach embedding to fragment in store
-                                if let Err(e) = ctx.lore_store.set_embedding(&fragment_id, embed_result.embedding) {
-                                    tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
-                                } else {
-                                    // AC-6: OTEL lore.embedding_generated
-                                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                                        .field("event", "lore.embedding_generated")
-                                        .field("fragment_id", &fragment_id)
-                                        .field("latency_ms", embed_result.latency_ms)
-                                        .field("model", &embed_result.model)
-                                        .send(ctx.state);
-                                }
-                            }
-                            Err(e) => {
-                                // Daemon unavailable — fragment stored without embedding.
-                                // Semantic search degrades to keyword fallback. Not silent:
-                                // we log it loudly.
-                                tracing::warn!(
-                                    error = %e,
-                                    fragment_id = %fragment_id,
-                                    "lore.embedding_generation_failed — fragment stored without embedding"
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            fragment_id = %fragment_id,
-                            "lore.daemon_connect_failed — fragment stored without embedding"
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "lore.accumulate_failed");
-                }
-            }
+            ).await;
         }
     }
 
@@ -1597,6 +1509,111 @@ fn update_npc_registry(
     creature_images
 }
 
+/// Accumulate a lore fragment: in-memory store + SQLite persistence + embedding generation.
+///
+/// Used by both the lore_established narrator output and the footnote RAG pipeline.
+/// Emits OTEL watcher events at each step. Returns the fragment_id on success, None on failure.
+async fn accumulate_and_persist_lore(
+    ctx: &mut DispatchContext<'_>,
+    text: &str,
+    category: sidequest_game::lore::LoreCategory,
+    turn: u64,
+    metadata: std::collections::HashMap<String, String>,
+) -> Option<String> {
+    match sidequest_game::accumulate_lore(
+        ctx.lore_store,
+        text,
+        category.clone(),
+        turn,
+        metadata.clone(),
+    ) {
+        Ok(fragment_id) => {
+            let category_str = category.to_string();
+            let token_estimate = text.len().div_ceil(4);
+            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                .field("event", "lore.fragment_accumulated")
+                .field("fragment_id", &fragment_id)
+                .field("category", &category_str)
+                .field("turn", turn)
+                .field("token_estimate", token_estimate)
+                .send(ctx.state);
+            tracing::info!(
+                fragment_id = %fragment_id,
+                category = %category_str,
+                turn = turn,
+                token_estimate = token_estimate,
+                "lore.fragment_accumulated"
+            );
+
+            let persist_fragment = sidequest_game::LoreFragment::new(
+                fragment_id.clone(),
+                category,
+                text.to_string(),
+                sidequest_game::LoreSource::GameEvent,
+                Some(turn),
+                metadata,
+            );
+            match ctx.state.persistence().append_lore_fragment(
+                ctx.genre_slug,
+                ctx.world_slug,
+                ctx.player_name_for_save,
+                &persist_fragment,
+            ).await {
+                Ok(()) => {
+                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                        .field("event", "lore.fragment_persisted")
+                        .field("fragment_id", &fragment_id)
+                        .field("category", &category_str)
+                        .send(ctx.state);
+                    tracing::info!(fragment_id = %fragment_id, "lore.fragment_persisted");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.fragment_persist_failed");
+                }
+            }
+
+            let config = sidequest_daemon_client::DaemonConfig::default();
+            if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
+                let embed_params = sidequest_daemon_client::EmbedParams {
+                    text: text.to_string(),
+                };
+                match client.embed(embed_params).await {
+                    Ok(embed_result) => {
+                        if let Err(e) = ctx.lore_store.set_embedding(&fragment_id, embed_result.embedding) {
+                            tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
+                        } else {
+                            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                                .field("event", "lore.embedding_generated")
+                                .field("fragment_id", &fragment_id)
+                                .field("latency_ms", embed_result.latency_ms)
+                                .field("model", &embed_result.model)
+                                .send(ctx.state);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            fragment_id = %fragment_id,
+                            "lore.embedding_generation_failed — fragment stored without embedding"
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    fragment_id = %fragment_id,
+                    "lore.daemon_connect_failed — fragment stored without embedding"
+                );
+            }
+
+            Some(fragment_id)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "lore.accumulate_failed");
+            None
+        }
+    }
+}
+
 /// Continuity validation — LLM-based check of narrator output against game state.
 ///
 /// Uses Haiku classification to detect contradictions rather than keyword matching.
@@ -1723,6 +1740,26 @@ async fn build_response_messages(
                     );
                 }
             }
+
+            // Route footnote discoveries into world LoreStore for RAG pipeline.
+            // This ensures narrator can reference footnote-sourced knowledge in future turns.
+            let turn = ctx.turn_manager.interaction() as u64;
+            for df in &discovered {
+                let lore_cat: sidequest_game::lore::LoreCategory = df.fact.category.into();
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("source".to_string(), format!("{:?}", df.fact.source));
+                meta.insert("character".to_string(), df.character_name.clone());
+                meta.insert("confidence".to_string(), format!("{:?}", df.fact.confidence));
+                accumulate_and_persist_lore(ctx, &df.fact.content, lore_cat, turn, meta).await;
+            }
+
+            // OTEL: footnotes processed with lore accumulation
+            WatcherEventBuilder::new("rag", WatcherEventType::SubsystemExerciseSummary)
+                .field("event", "rag.footnotes_to_lore")
+                .field("total_footnotes", result.footnotes.len())
+                .field("new_facts", discovered.len())
+                .field("character", ctx.char_name)
+                .send(ctx.state);
         }
     }
 
