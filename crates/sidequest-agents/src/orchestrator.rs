@@ -82,6 +82,8 @@ pub struct ActionResult {
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
     pub action_flags: Option<ActionFlags>,
+    /// Narrator prompt tier used for this turn (ADR-066): "full" or "delta".
+    pub prompt_tier: String,
 }
 
 /// Narrator prompt tier (ADR-066). Controls how much context is included.
@@ -458,35 +460,43 @@ impl Orchestrator {
             ));
         }
 
-        // Narrator verbosity + vocabulary (Late zone) — static format, only on Full tier
-        if is_full {
+        // Narrator verbosity (Recency zone) — injected on EVERY turn, not just Full.
+        // Length limits must be in the highest-attention zone to prevent verbose responses.
+        {
             use sidequest_protocol::NarratorVerbosity;
             let content = match context.narrator_verbosity {
                 NarratorVerbosity::Concise => {
-                    "[NARRATION LENGTH]\n\
-                     HARD LIMIT: Under 200 characters. 1-2 sentences max. \
-                     Action and consequence only. No scene-setting."
+                    "<length-limit>\n\
+                     HARD LIMIT: 2-3 sentences, under 200 characters of prose. \
+                     Action and consequence only. No scene-setting. No paragraphs. \
+                     If your prose exceeds 200 characters, DELETE and rewrite shorter.\n\
+                     </length-limit>"
                 }
                 NarratorVerbosity::Standard => {
-                    "[NARRATION LENGTH]\n\
-                     HARD LIMIT: Under 400 characters (~3-4 sentences). \
-                     One action, one scene beat. Balanced detail and pacing."
+                    "<length-limit>\n\
+                     HARD LIMIT: 2-3 short paragraphs, under 400 characters of prose. \
+                     One action, one scene beat. If your prose exceeds 400 characters, \
+                     DELETE and rewrite shorter. Most turns should be 2-3 sentences.\n\
+                     </length-limit>"
                 }
                 NarratorVerbosity::Verbose => {
-                    "[NARRATION LENGTH]\n\
-                     HARD LIMIT: Under 600 characters (~4-6 sentences). \
-                     Richer atmosphere and sensory detail, but still concise."
+                    "<length-limit>\n\
+                     HARD LIMIT: 2-3 paragraphs, under 600 characters of prose. \
+                     Richer atmosphere and sensory detail, but still concise. \
+                     If your prose exceeds 600 characters, DELETE and rewrite shorter.\n\
+                     </length-limit>"
                 }
             };
             builder.add_section(PromptSection::new(
                 "narrator_verbosity",
                 content,
-                AttentionZone::Late,
-                SectionCategory::Format,
+                AttentionZone::Recency,
+                SectionCategory::Guardrail,
             ));
+        }
 
-
-            // Narrator vocabulary instruction (Late zone)
+        // Narrator vocabulary instruction (Late zone, Full tier only — stable across session)
+        if is_full {
             use sidequest_protocol::NarratorVocabulary;
             let content = match context.narrator_vocabulary {
                 NarratorVocabulary::Accessible => {
@@ -559,6 +569,7 @@ impl GameService for Orchestrator {
             intent = tracing::field::Empty,
             agent = tracing::field::Empty,
             is_degraded = tracing::field::Empty,
+            prompt_tier = tracing::field::Empty,
         );
         let _guard = span.enter();
 
@@ -570,6 +581,11 @@ impl GameService for Orchestrator {
         } else {
             NarratorPromptTier::Full
         };
+        let prompt_tier_str = match prompt_tier {
+            NarratorPromptTier::Full => "full",
+            NarratorPromptTier::Delta => "delta",
+        };
+        span.record("prompt_tier", prompt_tier_str);
         let prompt_result = self.build_narrator_prompt_tiered(action, context, prompt_tier);
         let prompt = prompt_result.prompt_text;
         let prompt_zone_breakdown = prompt_result.zone_breakdown;
@@ -734,6 +750,7 @@ impl GameService for Orchestrator {
                     token_count_in: response.input_tokens.map(|v| v as usize),
                     token_count_out: response.output_tokens.map(|v| v as usize),
                     zone_breakdown: Some(prompt_zone_breakdown),
+                    prompt_tier: prompt_tier_str.to_string(),
                     ..base
                 }
             }
@@ -773,6 +790,7 @@ impl GameService for Orchestrator {
                     scene_intent: None,
                     resource_deltas: HashMap::new(),
                     zone_breakdown: Some(prompt_zone_breakdown),
+                    prompt_tier: prompt_tier_str.to_string(),
                     lore_established: None,
                     merchant_transactions: vec![],
                     sfx_triggers: vec![],

@@ -695,6 +695,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("sfx_trigger_count", result.sfx_triggers.len())
         .field("has_new_npcs", result.npcs_present.iter().any(|n| n.is_new))
         .field("items_gained_count", result.items_gained.len())
+        .field("extraction_tier", &result.prompt_tier)
         .send(ctx.state);
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
@@ -1128,12 +1129,28 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // instead of waiting ~15s for the Haiku continuity call + daemon embed round-trips.
 
     // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
-    // Skip in combat — creature_smith output is structured, and the 18s Haiku call
-    // doubles combat turn latency for marginal value.
-    if !ctx.combat_state.in_combat() {
-        validate_continuity(ctx, &clean_narration).await;
-    } else {
-        tracing::info!("Skipping continuity validation — in_combat, creature_smith output is structured");
+    // Gate: only call when there's meaningful state to validate against.
+    // The validator's value is catching dead NPC resurrection and inventory
+    // contradictions. Without dead NPCs, the ~15-22s Haiku subprocess call
+    // returns zero contradictions almost every time — pure waste.
+    {
+        let dead_npcs_exist = ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0);
+        let in_combat = ctx.combat_state.in_combat();
+        if in_combat {
+            tracing::info!("continuity.skipped — in_combat, creature_smith output is structured");
+            WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
+                .field("action", "skipped")
+                .field("reason", "in_combat")
+                .send(ctx.state);
+        } else if !dead_npcs_exist {
+            tracing::info!("continuity.skipped — no dead NPCs, contradiction risk near-zero");
+            WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
+                .field("action", "skipped")
+                .field("reason", "no_dead_npcs")
+                .send(ctx.state);
+        } else {
+            validate_continuity(ctx, &clean_narration).await;
+        }
     }
 
     // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
