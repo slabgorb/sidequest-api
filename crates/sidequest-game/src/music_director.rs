@@ -820,6 +820,11 @@ impl MusicDirector {
         (0.3 + intensity * 0.7).clamp(0.3, 1.0)
     }
 
+    /// Check whether any faction themes are configured.
+    pub fn faction_themes_empty(&self) -> bool {
+        self.faction_themes.is_empty()
+    }
+
     /// Resolve a mood string through the alias chain to a final MoodKey.
     ///
     /// Resolution order:
