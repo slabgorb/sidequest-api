@@ -9,8 +9,8 @@ use std::sync::Arc;
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
-    ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload, CharacterState,
-    GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
+    AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
+    CharacterState, GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
     PartyStatusPayload, SessionEventPayload,
 };
 
@@ -275,6 +275,10 @@ pub(crate) async fn dispatch_connect(
 
                                 tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
 
+                                // Send genre-pack mixer config so the frontend
+                                // initializes channel volumes per-genre.
+                                responses.push(mixer_config_cue(&pack.audio.mixer, player_id));
+
                                 // Seed lore store from genre pack (story 11-4)
                                 let lore_count =
                                     sidequest_game::seed_lore_from_genre_pack(lore_store, &pack);
@@ -373,7 +377,7 @@ pub(crate) async fn dispatch_connect(
                         // Save file exists but no game state — treat as new player
                         tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
                         responses.push(connected_msg);
-                        if let Some(scene_msg) = start_character_creation(
+                        responses.extend(start_character_creation(
                             builder,
                             trope_defs,
                             world_context,
@@ -390,15 +394,12 @@ pub(crate) async fn dispatch_connect(
                             state,
                             player_id,
                         )
-                        .await
-                        {
-                            responses.push(scene_msg);
-                        }
+                        .await);
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
                         responses.push(connected_msg);
-                        if let Some(scene_msg) = start_character_creation(
+                        responses.extend(start_character_creation(
                             builder,
                             trope_defs,
                             world_context,
@@ -415,16 +416,13 @@ pub(crate) async fn dispatch_connect(
                             state,
                             player_id,
                         )
-                        .await
-                        {
-                            responses.push(scene_msg);
-                        }
+                        .await);
                     }
                 }
             } else {
                 // New player — send connected, then start character creation
                 responses.push(connected_msg);
-                if let Some(scene_msg) = start_character_creation(
+                responses.extend(start_character_creation(
                     builder,
                     trope_defs,
                     world_context,
@@ -441,10 +439,7 @@ pub(crate) async fn dispatch_connect(
                     state,
                     player_id,
                 )
-                .await
-                {
-                    responses.push(scene_msg);
-                }
+                .await);
             }
 
             // Send theme_css SESSION_EVENT if the genre pack has a client_theme.css
@@ -495,12 +490,12 @@ pub(crate) async fn start_character_creation(
     world_slug: &str,
     state: &AppState,
     player_id: &str,
-) -> Option<GameMessage> {
+) -> Vec<GameMessage> {
     let genre_code = match GenreCode::new(genre) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(genre = %genre, error = %e, "Invalid genre code");
-            return None;
+            return vec![];
         }
     };
 
@@ -508,7 +503,7 @@ pub(crate) async fn start_character_creation(
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(genre = %genre, error = %e, "Failed to load genre pack");
-            return None;
+            return vec![];
         }
     };
 
@@ -623,20 +618,24 @@ pub(crate) async fn start_character_creation(
 
     if scenes.is_empty() {
         tracing::warn!(genre = %genre, "No character creation scenes with choices");
-        return None;
+        return vec![];
     }
 
     let b = match CharacterBuilder::try_new(scenes, &pack.rules) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = ?e, "Failed to create CharacterBuilder");
-            return None;
+            return vec![];
         }
     };
 
     let scene_msg = b.to_scene_message(player_id);
     *builder = Some(b);
-    Some(scene_msg)
+
+    // Send genre-pack mixer config so the frontend initializes per-genre volumes.
+    let mut msgs = vec![mixer_config_cue(&pack.audio.mixer, player_id)];
+    msgs.push(scene_msg);
+    msgs
 }
 
 /// Handle CHARACTER_CREATION messages (client choices).
@@ -1436,5 +1435,25 @@ pub(crate) async fn dispatch_character_creation(
             player_id,
             &format!("Unexpected creation phase: {}", phase),
         )],
+    }
+}
+
+/// Build an AUDIO_CUE with action "configure" carrying genre-pack mixer volumes.
+/// Sent once on session connect so the frontend initializes per-genre channel levels.
+fn mixer_config_cue(mixer: &sidequest_genre::MixerConfig, player_id: &str) -> GameMessage {
+    GameMessage::AudioCue {
+        payload: AudioCuePayload {
+            mood: None,
+            music_track: None,
+            sfx_triggers: vec![],
+            channel: None,
+            action: Some("configure".to_string()),
+            volume: None,
+            music_volume: Some(mixer.music_volume as f32),
+            sfx_volume: Some(mixer.sfx_volume as f32),
+            voice_volume: Some(mixer.voice_volume as f32),
+            crossfade_ms: Some(mixer.crossfade_default_ms),
+        },
+        player_id: player_id.to_string(),
     }
 }

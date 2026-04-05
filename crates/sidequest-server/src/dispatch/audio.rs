@@ -87,15 +87,32 @@ pub(crate) async fn process_audio(
         let turn_approx = ctx.turn_manager.interaction();
 
         // Epic 16: Faction-aware music routing
-        // FactionContext sources: location faction from snapshot, NPC factions from registry
-        // (NPC faction field not yet wired — use default for now, location is available)
+        // Location faction: look up controlled_by from cartography regions for current location.
+        let location_faction = if !ctx.snapshot.location.is_empty() {
+            use sidequest_genre::GenreCode;
+            GenreCode::new(ctx.genre_slug)
+                .ok()
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .and_then(|pack| pack.worlds.get(ctx.world_slug).cloned())
+                .and_then(|world| {
+                    // Match by region name (case-insensitive) against cartography regions
+                    let loc_lower = ctx.snapshot.location.to_lowercase();
+                    world.cartography.regions.values()
+                        .find(|r| r.name.to_lowercase() == loc_lower)
+                        .and_then(|r| r.controlled_by.clone())
+                })
+        } else {
+            None
+        };
+
+        if let Some(ref faction) = location_faction {
+            tracing::info!(faction = %faction, location = %ctx.snapshot.location, "faction.location_resolved");
+        }
+
+        // NPC faction field not yet on NpcRegistryEntry — actor_factions remains empty
+        // until the NPC model tracks faction membership.
         let faction_ctx = sidequest_game::FactionContext {
-            location_faction: if ctx.snapshot.location.is_empty() {
-                None
-            } else {
-                // Location faction would come from cartography metadata — not yet available
-                None
-            },
+            location_faction,
             actor_factions: vec![],
             player_reputation: None,
         };
@@ -265,6 +282,10 @@ pub(crate) async fn process_audio(
                     channel: Some("sfx".to_string()),
                     action: Some("play".to_string()),
                     volume: Some(0.7),
+                    music_volume: None,
+                    sfx_volume: None,
+                    voice_volume: None,
+                    crossfade_ms: None,
                 },
                 player_id: ctx.player_id.to_string(),
             });

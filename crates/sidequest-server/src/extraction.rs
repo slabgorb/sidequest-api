@@ -208,6 +208,10 @@ pub(crate) fn audio_cue_to_game_message(
             channel: Some(cue.channel.to_string()),
             action: Some(cue.action.to_string()),
             volume: Some(cue.volume),
+            music_volume: None,
+            sfx_volume: None,
+            voice_volume: None,
+            crossfade_ms: None,
         },
         player_id: player_id.to_string(),
     }

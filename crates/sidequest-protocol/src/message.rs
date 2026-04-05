@@ -696,12 +696,25 @@ pub struct AudioCuePayload {
     /// Audio channel: "music", "sfx", "ambience".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel: Option<String>,
-    /// Audio action: "play", "fade_in", "fade_out", "duck", "restore", "stop".
+    /// Audio action: "play", "fade_in", "fade_out", "duck", "restore", "stop", "configure".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action: Option<String>,
     /// Volume level (0.0–1.0).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub volume: Option<f32>,
+    /// Genre-pack mixer config: music channel volume (0.0–1.0).
+    /// Sent with action "configure" on session connect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music_volume: Option<f32>,
+    /// Genre-pack mixer config: SFX channel volume (0.0–1.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sfx_volume: Option<f32>,
+    /// Genre-pack mixer config: voice channel volume (0.0–1.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_volume: Option<f32>,
+    /// Genre-pack mixer config: crossfade duration in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crossfade_ms: Option<u32>,
 }
 
 /// WebRTC voice signaling payload.

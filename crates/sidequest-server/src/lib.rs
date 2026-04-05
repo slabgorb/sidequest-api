@@ -62,14 +62,26 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
             voice_id = %assignment.voice_id,
             engine = %assignment.engine,
             speed = assignment.speed,
+            pitch = assignment.pitch,
+            effects_count = assignment.effects.len(),
             "tts.voice_resolved"
         );
         Box::pin(async move {
+            let effects: Vec<sidequest_daemon_client::TtsEffect> = assignment
+                .effects
+                .iter()
+                .map(|e| sidequest_daemon_client::TtsEffect {
+                    effect_type: e.effect_type.clone(),
+                    params: e.params.clone(),
+                })
+                .collect();
             let params = sidequest_daemon_client::TtsParams {
                 text,
                 model: assignment.engine,
                 voice_id: assignment.voice_id,
                 speed: assignment.speed,
+                pitch: assignment.pitch,
+                effects,
                 ..Default::default()
             };
             let mut client = self.client.lock().await;
