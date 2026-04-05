@@ -742,6 +742,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             *ctx.current_location = location.clone();
             if is_new {
                 ctx.discovered_regions.push(location.clone());
+                let summary = format!("Discovered {} on turn {}", location, turn_number);
+                accumulate_and_persist_lore(
+                    ctx,
+                    &summary,
+                    sidequest_game::lore::LoreCategory::Geography,
+                    turn_number as u64,
+                    std::collections::HashMap::new(),
+                ).await;
             }
             tracing::info!(
                 location = %location,
@@ -960,6 +968,21 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     drop(_state_update_guard);
 
+    // Record combat resolution as a lore event when combat ends this turn.
+    if mutation_result.combat_just_ended {
+        let summary = format!(
+            "Combat at {} concluded on turn {}",
+            ctx.current_location, turn_number
+        );
+        accumulate_and_persist_lore(
+            ctx,
+            &summary,
+            sidequest_game::lore::LoreCategory::Event,
+            turn_number as u64,
+            std::collections::HashMap::new(),
+        ).await;
+    }
+
     let system_tick_span = tracing::info_span!(
         "turn.system_tick",
         combat_changed = tracing::field::Empty,
@@ -999,6 +1022,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     system_tick_span.record("tropes_fired", fired_beats.len() as u64);
     system_tick_span.record("achievements_earned", earned_achievements.len() as u64);
 
+    // Collect beat summaries for lore persistence before fired_beats is consumed by troper.
+    let beat_lore_entries: Vec<(String, String)> = fired_beats
+        .iter()
+        .filter(|b| !b.beat.event.is_empty())
+        .map(|b| {
+            let summary = format!("{}: {}", b.trope_name, b.beat.event);
+            (summary, b.trope_id.clone())
+        })
+        .collect();
+
     // Format beat context for NEXT turn's narrator prompt injection.
     // Beats fire after narration, so they inform the next turn — same as Python's
     // _pending_escalation_beats pattern.
@@ -1013,6 +1046,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         troper.set_trope_definitions(ctx.trope_defs.to_vec());
         troper.set_trope_states(ctx.trope_states.clone());
         *ctx.pending_trope_context = troper.build_beats_context();
+    }
+
+    // Persist trope beat descriptions as lore entries (Option B: collected before troper consumed them).
+    for (summary, trope_id) in beat_lore_entries {
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("trope_id".to_string(), trope_id);
+        accumulate_and_persist_lore(
+            ctx,
+            &summary,
+            sidequest_game::lore::LoreCategory::Event,
+            turn_number as u64,
+            meta,
+        ).await;
     }
 
     // Epic 16: Resource pool decay — apply per-turn decay and mint threshold lore
