@@ -3,6 +3,7 @@
 //! Exposes `build_router()`, `AppState`, and server lifecycle functions for the binary and tests.
 //! The server depends on the `GameService` trait facade — never on game internals.
 
+pub(crate) mod debug_api;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -971,6 +972,7 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/genres", get(list_genres))
         .route("/api/voices", get(list_voices))
+        .route("/api/debug/state", get(debug_api::debug_state))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
         .nest_service("/genre", genre_assets)
