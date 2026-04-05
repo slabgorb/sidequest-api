@@ -72,7 +72,7 @@ pub(crate) async fn process_audio(
                 mood
             }
             None => {
-                let classified = mood_reasoning.classification.primary.as_key();
+                let classified = mood_reasoning.classification.primary.as_str();
                 tracing::info!(
                     mood = classified,
                     in_combat = mood_ctx.in_combat,
@@ -100,7 +100,7 @@ pub(crate) async fn process_audio(
                 {
                     let mut builder = WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
                         .field("turn_number", turn_approx)
-                        .field("mood_classified", mood_reasoning.classification.primary.as_key())
+                        .field("mood_classified", mood_reasoning.classification.primary.as_str())
                         .field("mood_reason", &mood_reasoning.reason)
                         .field("narrator_scene_mood", mood_key)
                         .field("intensity", mood_reasoning.classification.intensity)
@@ -153,7 +153,7 @@ pub(crate) async fn process_audio(
                 );
                 WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
                     .field("turn_number", turn_approx)
-                    .field("mood_classified", mood_reasoning.classification.primary.as_key())
+                    .field("mood_classified", mood_reasoning.classification.primary.as_str())
                     .field("mood_reason", &mood_reasoning.reason)
                     .field("narrator_scene_mood", mood_key)
                     .field("suppressed", true)
@@ -173,7 +173,7 @@ pub(crate) async fn process_audio(
                 );
                 WatcherEventBuilder::new("music_director", WatcherEventType::ValidationWarning)
                     .field("turn_number", turn_approx)
-                    .field("mood_classified", mood_reasoning.classification.primary.as_key())
+                    .field("mood_classified", mood_reasoning.classification.primary.as_str())
                     .field("mood_reason", &mood_reasoning.reason)
                     .field("narrator_scene_mood", mood_key)
                     .field("no_track_mood", &mood)
