@@ -89,7 +89,7 @@ set in_combat: true and include turn_order (list of combatant names, \
 player first) and current_turn (whose turn it is). Include hp_changes \
 for any damage dealt (negative values = damage). Set drama_weight 0.0-1.0.\n\
 \n\
-Example — player enters a new area and meets an NPC:\n\
+Example A — exploration (new area + NPC):\n\
 ```game_patch\n\
 {\n\
   \"location\": \"{{location_name}}\",\n\
@@ -108,7 +108,37 @@ Example — player enters a new area and meets an NPC:\n\
 }\n\
 ```\n\
 \n\
-If nothing mechanical happened (pure dialogue, description), emit:\n\
+Example B — combat round:\n\
+```game_patch\n\
+{\n\
+  \"in_combat\": true,\n\
+  \"hp_changes\": {\"{{player_name}}\": {{negative_damage}}, \"{{enemy_name}}\": {{negative_damage}}},\n\
+  \"turn_order\": [\"{{player_name}}\", \"{{enemy_name}}\"],\n\
+  \"current_turn\": \"{{enemy_name}}\",\n\
+  \"drama_weight\": {{0.0_to_1.0}},\n\
+  \"visual_scene\": {\n\
+    \"subject\": \"{{combat action image prompt, max 100 chars}}\",\n\
+    \"tier\": \"scene_illustration\",\n\
+    \"mood\": \"dramatic\",\n\
+    \"tags\": [\"combat\"]\n\
+  },\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{fact revealed during combat, e.g. enemy weakness}}\", \"category\": \"Lore\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+\n\
+Example C — pure dialogue (no mechanical changes):\n\
+```game_patch\n\
+{\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{fact learned from conversation}}\", \"category\": \"{{category}}\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+Note: even dialogue-only turns should include footnotes if the player learned something.\n\
+\n\
+If nothing mechanical happened AND no new knowledge was revealed, emit:\n\
 ```game_patch\n\
 {}\n\
 ```\n\
