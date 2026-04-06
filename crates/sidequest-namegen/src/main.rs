@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use rand::Rng;
 use serde::Serialize;
-use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype, OceanProfile};
+use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 
 #[derive(Parser)]
 #[command(name = "sidequest-namegen", about = "Generate a complete NPC identity from genre pack data")]
