@@ -51,7 +51,7 @@ pub(crate) async fn build_prompt_context(
                 WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
                     .field("event", "trope_activated")
                     .field("trope_id", id)
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -168,7 +168,7 @@ pub(crate) async fn build_prompt_context(
                         .field("event", "party_context_injected")
                         .field("co_located_count", co_located_pids.len())
                         .field("co_located_names", co_located_names.join(", ").as_str())
-                        .send(ctx.state);
+                        .send();
                 }
             }
             // PC roster for the agency constraint — always includes the active player.
@@ -304,7 +304,7 @@ pub(crate) async fn build_prompt_context(
                     .field("event", "rag.known_facts_injected")
                     .field("injected", relevant.len())
                     .field("total", facts.len())
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -346,7 +346,7 @@ pub(crate) async fn build_prompt_context(
                 .field("beat", enc.beat)
                 .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
                 .field("hint_count", enc.narrator_hints.len())
-                .send(ctx.state);
+                .send();
             state_summary.push_str(&format!(
                 "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
                 enc.encounter_type,
@@ -530,7 +530,7 @@ pub(crate) async fn build_prompt_context(
                 .field("mode", "room_graph")
                 .field("current_room", &current_room.id)
                 .field("exit_count", current_room.exits.len())
-                .send(ctx.state);
+                .send();
         }
     }
 
@@ -579,7 +579,7 @@ pub(crate) async fn build_prompt_context(
                 .field("count", all_abilities.len())
                 .field("tiers_active", tiers_active)
                 .field("ability_names", all_abilities.join(", "))
-                .send(ctx.state);
+                .send();
             tracing::info!(
                 count = all_abilities.len(),
                 tiers_active = tiers_active,
@@ -674,7 +674,7 @@ pub(crate) async fn build_prompt_context(
             .field("query_hint", ctx.current_location.as_str())
             .field("fallback_to_keyword", fallback_to_keyword)
             .field("selected_count", selected.len())
-            .send(ctx.state);
+            .send();
 
         // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
         let lore_summary = sidequest_game::summarize_lore_retrieval(
@@ -692,7 +692,7 @@ pub(crate) async fn build_prompt_context(
             .field("rejected", &lore_summary.rejected)
             .field("total_fragments", lore_summary.total_fragments)
             .field_opt("context_hint", &lore_summary.context_hint)
-            .send(ctx.state);
+            .send();
 
         if !selected.is_empty() {
             let lore_text = sidequest_game::format_lore_context(&selected);
@@ -730,7 +730,7 @@ pub(crate) async fn build_prompt_context(
                     .field("vocab_count", lang_fragments.len())
                     .field("language_count", language_ids.len())
                     .field("languages", language_ids.join(", "))
-                    .send(ctx.state);
+                    .send();
 
                 tracing::info!(
                     vocab_count = lang_fragments.len(),
@@ -767,7 +767,7 @@ pub(crate) async fn build_prompt_context(
                 .field("danger_level", beat.terrain_danger)
                 .field("camera", format!("{:?}", cine.camera))
                 .field("sentence_range", format!("{}-{}", cine.sentence_range.0, cine.sentence_range.1))
-                .send(ctx.state);
+                .send();
 
             tracing::info!(
                 phase = ?beat.phase,
@@ -797,7 +797,7 @@ pub(crate) async fn build_prompt_context(
         .field("references_ability", relevance.references_ability)
         .field("references_npc", relevance.references_npc)
         .field("references_location", relevance.references_location)
-        .send(ctx.state);
+        .send();
 
     state_summary
 }

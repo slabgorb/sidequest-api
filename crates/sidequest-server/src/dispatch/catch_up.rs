@@ -76,7 +76,7 @@ pub(crate) fn generate_catch_up_messages(
                 .field("player_id", player_id)
                 .field("is_fallback", result.is_fallback())
                 .field("history_turns", narration_history.len())
-                .send(state);
+                .send();
 
             Some(vec![
                 GameMessage::Narration {

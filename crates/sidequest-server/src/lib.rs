@@ -101,138 +101,16 @@ use sidequest_protocol::{
 };
 
 // ---------------------------------------------------------------------------
-// Watcher Telemetry Types (Story 3-6)
+// Watcher Telemetry — re-exported from sidequest-telemetry (Story 3-6)
 // ---------------------------------------------------------------------------
 
 /// Maximum number of watcher events retained for replay to late-connecting GM panels.
 const WATCHER_HISTORY_CAP: usize = 500;
 
-/// A telemetry event streamed to `/ws/watcher` clients.
-///
-/// This is a diagnostic data bag — no invariants to enforce, so fields are public.
-/// Serializes to JSON for the WebSocket stream.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WatcherEvent {
-    /// When the event occurred.
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    /// Which subsystem emitted this event (e.g. "agent", "validation", "game").
-    pub component: String,
-    /// The kind of telemetry event.
-    pub event_type: WatcherEventType,
-    /// Log severity.
-    pub severity: Severity,
-    /// Arbitrary key-value fields for event-specific data.
-    pub fields: HashMap<String, serde_json::Value>,
-}
-
-/// Kinds of telemetry events streamed to watchers.
-///
-/// Will grow as new observability features land — hence `#[non_exhaustive]`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum WatcherEventType {
-    /// An agent span has opened (work started).
-    AgentSpanOpen,
-    /// An agent span has closed (work finished).
-    AgentSpanClose,
-    /// A validation rule fired a warning.
-    ValidationWarning,
-    /// Summary of which subsystems were exercised in a turn.
-    SubsystemExerciseSummary,
-    /// A gap in expected coverage was detected.
-    CoverageGap,
-    /// Result of a JSON extraction from LLM output.
-    JsonExtractionResult,
-    /// A game state machine transition occurred.
-    StateTransition,
-    /// A full turn has completed (from orchestrator TurnRecord bridge).
-    TurnComplete,
-    /// A lore retrieval operation completed (story 18-4).
-    LoreRetrieval,
-    /// A prompt was assembled with zone breakdown (story 18-6).
-    PromptAssembled,
-    /// Game state snapshot was captured.
-    GameStateSnapshot,
-}
-
-/// Severity levels for watcher telemetry events.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum Severity {
-    /// Informational.
-    Info,
-    /// Warning.
-    Warn,
-    /// Error.
-    Error,
-}
-
-/// Builder for WatcherEvent — eliminates hand-built HashMap boilerplate.
-///
-/// Usage:
-/// ```ignore
-/// WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-///     .field("action", "combat_tick")
-///     .field("in_combat", true)
-///     .field("round", ctx.combat_state.round())
-///     .severity(Severity::Warn)  // optional, defaults to Info
-///     .send(&ctx.state);
-/// ```
-pub struct WatcherEventBuilder {
-    component: String,
-    event_type: WatcherEventType,
-    severity: Severity,
-    fields: HashMap<String, serde_json::Value>,
-    timestamp_override: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl WatcherEventBuilder {
-    pub fn new(component: &str, event_type: WatcherEventType) -> Self {
-        Self {
-            component: component.to_string(),
-            event_type,
-            severity: Severity::Info,
-            fields: HashMap::new(),
-            timestamp_override: None,
-        }
-    }
-
-    pub fn field(mut self, key: &str, value: impl serde::Serialize) -> Self {
-        self.fields.insert(key.to_string(), serde_json::json!(value));
-        self
-    }
-
-    /// Add a field only if the Option is Some.
-    pub fn field_opt(mut self, key: &str, value: &Option<impl serde::Serialize>) -> Self {
-        if let Some(v) = value {
-            self.fields.insert(key.to_string(), serde_json::json!(v));
-        }
-        self
-    }
-
-    pub fn severity(mut self, severity: Severity) -> Self {
-        self.severity = severity;
-        self
-    }
-
-    /// Override the auto-generated timestamp (default: `chrono::Utc::now()`).
-    pub fn timestamp(mut self, ts: chrono::DateTime<chrono::Utc>) -> Self {
-        self.timestamp_override = Some(ts);
-        self
-    }
-
-    pub fn send(self, state: &AppState) {
-        state.send_watcher_event(WatcherEvent {
-            timestamp: self.timestamp_override.unwrap_or_else(chrono::Utc::now),
-            component: self.component,
-            event_type: self.event_type,
-            severity: self.severity,
-            fields: self.fields,
-        });
-    }
-}
+// Re-export all telemetry types so existing `use crate::{WatcherEvent, ...}` still works.
+pub use sidequest_telemetry::{
+    emit as emit_watcher_event, WatcherEvent, WatcherEventBuilder, WatcherEventType, Severity,
+};
 
 // Tracing / Telemetry — extracted to tracing_setup.rs
 pub use tracing_setup::{init_tracing, tracing_subscriber_for_test, build_subscriber_with_filter};
@@ -380,7 +258,6 @@ struct AppStateInner {
     connections: Mutex<HashMap<PlayerId, mpsc::Sender<GameMessage>>>,
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
-    watcher_tx: broadcast::Sender<WatcherEvent>,
     /// Accumulated watcher events for replay to late-connecting GM panels.
     /// Capped at WATCHER_HISTORY_CAP to bound memory.
     watcher_event_history: Mutex<Vec<WatcherEvent>>,
@@ -419,8 +296,10 @@ impl AppState {
         save_dir: PathBuf,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
-        let (watcher_tx, _) = broadcast::channel(256);
         let (binary_broadcast_tx, _) = broadcast::channel(64);
+
+        // Initialize the global telemetry channel (idempotent).
+        sidequest_telemetry::init_global_channel();
 
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
@@ -549,7 +428,6 @@ impl AppState {
                 connections: Mutex::new(HashMap::new()),
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
-                watcher_tx,
                 watcher_event_history: Mutex::new(Vec::new()),
                 persistence,
                 render_queue: Some(render_queue),
@@ -781,25 +659,23 @@ impl AppState {
         self.inner.broadcast_tx.send(msg)
     }
 
-    /// Subscribe to the watcher telemetry broadcast channel.
+    /// Subscribe to the global watcher telemetry channel.
     pub fn subscribe_watcher(&self) -> broadcast::Receiver<WatcherEvent> {
-        self.inner.watcher_tx.subscribe()
+        sidequest_telemetry::subscribe_global()
+            .expect("telemetry channel not initialized — call init_global_channel() first")
     }
 
-    /// Send a telemetry event to all connected watcher clients.
-    /// Silently ignores the error when no subscribers are connected (zero overhead).
-    /// Also stores the event in history for replay to late-connecting watchers.
-    pub fn send_watcher_event(&self, event: WatcherEvent) {
-        // Store in history for replay (bounded to WATCHER_HISTORY_CAP)
-        {
-            let mut history = self.inner.watcher_event_history.lock().unwrap();
-            if history.len() >= WATCHER_HISTORY_CAP {
-                let drain_count = history.len() - WATCHER_HISTORY_CAP + 1;
-                history.drain(..drain_count);
-            }
-            history.push(event.clone());
+    /// Store a telemetry event in replay history.
+    ///
+    /// The global channel handles broadcasting; this method is for the
+    /// history-capture task that stores events for late-connecting GM panels.
+    pub fn store_watcher_event(&self, event: WatcherEvent) {
+        let mut history = self.inner.watcher_event_history.lock().unwrap();
+        if history.len() >= WATCHER_HISTORY_CAP {
+            let drain_count = history.len() - WATCHER_HISTORY_CAP + 1;
+            history.drain(..drain_count);
         }
-        let _ = self.inner.watcher_tx.send(event);
+        history.push(event);
     }
 
     /// Return a snapshot of all stored watcher events for replay to late-connecting clients.
@@ -1361,7 +1237,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                                             .field("genre", genre)
                                             .field("count", resource_declarations.len())
                                             .field("pools", resource_declarations.iter().map(|r| r.name.clone()).collect::<Vec<_>>())
-                                            .send(&state);
+                                            .send();
                                     }
                                 }
                             }
@@ -1496,7 +1372,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             .field("event", "session_left")
             .field("session_key", &key)
             .field("remaining_players", remaining)
-            .send(&state);
+            .send();
     }
     state.remove_connection(&player_id);
     writer_handle.abort();
@@ -1990,7 +1866,7 @@ async fn dispatch_message(
                 .field("character", char_name)
                 .field("entry_count", entries.len())
                 .field("category_filter", format!("{:?}", payload.category))
-                .send(state);
+                .send();
 
             vec![GameMessage::JournalResponse {
                 payload: sidequest_protocol::JournalResponsePayload { entries },

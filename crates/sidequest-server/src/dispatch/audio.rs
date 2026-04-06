@@ -55,7 +55,7 @@ pub(crate) async fn process_audio(
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                 .field("action", "mood_override")
                 .field("override_mood", mood_override)
-                .send(ctx.state);
+                .send();
         }
 
         // Get telemetry snapshot BEFORE evaluate() changes state
@@ -162,7 +162,7 @@ pub(crate) async fn process_audio(
                         .field("volume", cue.volume)
                         .field("rotation_history", &pre_telemetry.rotation_history)
                         .field("tracks_per_mood", &pre_telemetry.tracks_per_mood)
-                        .send(ctx.state);
+                        .send();
                 }
 
                 let mixer_cues = {
@@ -201,7 +201,7 @@ pub(crate) async fn process_audio(
                     .field("suppressed_intensity", intensity)
                     .field("current_mood", &pre_telemetry.current_mood)
                     .field("current_track", &pre_telemetry.current_track)
-                    .send(ctx.state);
+                    .send();
             }
             sidequest_game::MusicEvalResult::NoTrackFound { mood, variation } => {
                 // Genuine anomaly — mood/variation combo has no eligible tracks
@@ -219,7 +219,7 @@ pub(crate) async fn process_audio(
                     .field("no_track_variation", &variation)
                     .field("available_moods", &pre_telemetry.available_moods)
                     .field("tracks_per_mood", &pre_telemetry.tracks_per_mood)
-                    .send(ctx.state);
+                    .send();
             }
         }
 
@@ -258,7 +258,7 @@ pub(crate) async fn process_audio(
                                 .field("old_mood", &pre_telemetry.current_mood.as_deref().unwrap_or("none"))
                                 .field("new_mood", mood_key)
                                 .field("location", &*ctx.current_location)
-                                .send(ctx.state);
+                                .send();
                         }
                         Ok(_) => {}
                         Err(e) => tracing::warn!(error = %e, "mood_image.enqueue_failed"),
@@ -303,7 +303,7 @@ pub(crate) async fn process_audio(
                 .field("action", "sfx_invalid_ids")
                 .field("invalid_ids", &invalid_ids)
                 .field("requested", &result.sfx_triggers)
-                .send(ctx.state);
+                .send();
         }
 
         if !resolved_paths.is_empty() {
@@ -317,7 +317,7 @@ pub(crate) async fn process_audio(
                 .field("requested_ids", &result.sfx_triggers)
                 .field("resolved_paths", &resolved_paths)
                 .field("count", resolved_paths.len())
-                .send(ctx.state);
+                .send();
             messages.push(GameMessage::AudioCue {
                 payload: sidequest_protocol::AudioCuePayload {
                     mood: None,
