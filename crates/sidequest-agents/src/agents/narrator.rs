@@ -61,7 +61,7 @@ After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
 mood, state_snapshot, in_combat, hp_changes, turn_order, current_turn, \
-drama_weight, visual_scene.\n\
+drama_weight, visual_scene, footnotes.\n\
 \n\
 visual_scene: Include this on EVERY turn where the setting changes, a new \
 location is entered, or a visually significant event occurs (combat start, \
@@ -73,10 +73,40 @@ dramatic reveal, new NPC appearance). Format:\n\
 tier: landscape for environments, portrait for NPC focus, scene_illustration for action.\n\
 subject: Describe what to PAINT — the visual composition, not the narrative.\n\
 \n\
+footnotes: Array of knowledge discoveries the player learned this turn. Include \
+whenever the narration reveals new lore, introduces a named NPC, mentions a \
+location, references a quest objective, or describes a character ability. Format:\n\
+  \"footnotes\": [{\"summary\": \"<concise third-person fact>\", \
+\"category\": \"Lore|Place|Person|Quest|Ability\", \"is_new\": true}]\n\
+summary: One sentence, third person (e.g., \"The Crimson Gate guards the eastern pass\").\n\
+category: Lore (world history/mythology), Place (locations), Person (NPCs/factions), \
+Quest (objectives/tasks), Ability (skills/powers).\n\
+is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
+Include footnotes generously — they feed the player's knowledge journal.\n\
+\n\
 Combat initiation: When the player attacks or a hostile encounter begins, \
 set in_combat: true and include turn_order (list of combatant names, \
 player first) and current_turn (whose turn it is). Include hp_changes \
 for any damage dealt (negative values = damage). Set drama_weight 0.0-1.0.\n\
+\n\
+Example — player enters a new area and meets an NPC:\n\
+```game_patch\n\
+{\n\
+  \"location\": \"{{location_name}}\",\n\
+  \"npcs_met\": [\"{{npc_name}}\"],\n\
+  \"mood\": \"{{mood}}\",\n\
+  \"visual_scene\": {\n\
+    \"subject\": \"{{1-sentence image prompt, max 100 chars}}\",\n\
+    \"tier\": \"landscape|portrait|scene_illustration\",\n\
+    \"mood\": \"{{mood_tag}}\",\n\
+    \"tags\": [\"location\", \"atmosphere\"]\n\
+  },\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{concise third-person fact about the place}}\", \"category\": \"Place\", \"is_new\": true},\n\
+    {\"summary\": \"{{concise third-person fact about the NPC}}\", \"category\": \"Person\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
 \n\
 If nothing mechanical happened (pure dialogue, description), emit:\n\
 ```game_patch\n\
