@@ -1,0 +1,18 @@
+[package]
+name = "sidequest-promptpreview"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Narrator prompt preview — renders the full composed prompt from real Rust types"
+
+[[bin]]
+name = "sidequest-promptpreview"
+path = "src/main.rs"
+
+[dependencies]
+sidequest-agents = { path = "../sidequest-agents" }
+sidequest-genre = { path = "../sidequest-genre" }
+sidequest-protocol = { path = "../sidequest-protocol" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -50,7 +50,7 @@ pub(crate) fn process_tropes(
             .field("event", "trope_activated")
             .field("trope_id", id)
             .field("trigger", "llm_evaluation")
-            .send(ctx.state);
+            .send();
     }
 
     // --- Phase 2: Trope engine tick with engagement multiplier (story 6-3) ---
@@ -91,7 +91,7 @@ pub(crate) fn process_tropes(
         .field("achievements_earned", earned.len())
         .field("engagement_multiplier", multiplier)
         .field("turns_since_meaningful", ctx.snapshot.turns_since_meaningful)
-        .send(ctx.state);
+        .send();
 
     for ts in ctx.trope_states.iter() {
         tracing::debug!(
@@ -114,7 +114,7 @@ pub(crate) fn process_tropes(
             .field("trope", &beat.trope_name)
             .field("trope_id", &beat.trope_id)
             .field("threshold", beat.beat.at)
-            .send(ctx.state);
+            .send();
     }
 
     // --- Phase 4: Broadcast earned achievements + emit watcher events ---
@@ -139,7 +139,7 @@ pub(crate) fn process_tropes(
             .field("achievement_name", &achievement.name)
             .field("trope_id", &achievement.trope_id)
             .field("trigger_type", &achievement.trigger_status)
-            .send(ctx.state);
+            .send();
     }
 
     span.record("beats_fired", fired.len() as u64);

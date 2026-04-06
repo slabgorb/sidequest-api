@@ -88,7 +88,7 @@ pub(crate) async fn process_render(
             .field("action", "scene_relevance_rejected")
             .field("reason", verdict.reason())
             .field("prompt", subject.prompt_fragment())
-            .send(ctx.state);
+            .send();
         return;
     }
 

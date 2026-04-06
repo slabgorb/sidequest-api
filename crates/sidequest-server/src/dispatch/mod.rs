@@ -164,7 +164,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .field("session_key", format!("{}:{}", ctx.genre_slug, ctx.world_slug))
                     .field("player_id", ctx.player_id)
                     .field("party_size", pc)
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -185,7 +185,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("action", ctx.action)
         .field("player", ctx.char_name)
         .field("turn_number", turn_number)
-        .send(ctx.state);
+        .send();
 
     // TURN_STATUS "active" — tell all players whose turn it is BEFORE the LLM call.
     {
@@ -264,7 +264,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 .field("gold_gained", gold)
                                 .field("total_gold", ctx.inventory.gold)
                                 .field("detail", &mutation.detail)
-                                .send(ctx.state);
+                                .send();
                         } else {
                             let item_id = mutation.item_name
                                 .to_lowercase()
@@ -301,7 +301,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     .field("item_name", &mutation.item_name)
                                     .field("category", category)
                                     .field("carried_count", ctx.inventory.item_count())
-                                    .send(ctx.state);
+                                    .send();
                             }
                         }
                         continue;
@@ -324,7 +324,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 .field("total_gold", ctx.inventory.gold)
                                 .field("mutation_action", format!("{}", mutation.action))
                                 .field("detail", &mutation.detail)
-                                .send(ctx.state);
+                                .send();
                             continue;
                         }
                     }
@@ -359,7 +359,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     .field("new_state", format!("{:?}", mutation.action))
                                     .field("detail", &mutation.detail)
                                     .field("carried_count", ctx.inventory.item_count())
-                                    .send(ctx.state);
+                                    .send();
                             }
                             Err(e) => {
                                 tracing::warn!(
@@ -461,7 +461,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("action", format!("{:?}", action))
                             .field("turn", turn_number)
                             .field("tension", format!("{:.2}", scenario.tension()))
-                            .send(ctx.state);
+                            .send();
                         npc_action_lines.push(event.description.clone());
                     }
                     sidequest_game::ScenarioEventType::GossipSpread { claims_spread, contradictions_found } => {
@@ -470,7 +470,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("claims_spread", *claims_spread)
                             .field("contradictions_found", *contradictions_found)
                             .field("turn", turn_number)
-                            .send(ctx.state);
+                            .send();
                         npc_action_lines.push(event.description.clone());
                     }
                     sidequest_game::ScenarioEventType::ClueDiscovered { clue_id } => {
@@ -478,7 +478,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("event", "clue_discoverable")
                             .field("clue_id", clue_id)
                             .field("turn", turn_number)
-                            .send(ctx.state);
+                            .send();
                     }
                     _ => {}
                 }
@@ -496,7 +496,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .field("action_count", npc_action_lines.len())
                     .field("tension", format!("{:.2}", scenario.tension()))
                     .field("turn", turn_number)
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -518,7 +518,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("event", "pressure_event_triggered")
                             .field("at_scene", pressure_event.at_scene)
                             .field("description", pressure_event.event.as_str())
-                            .send(ctx.state);
+                            .send();
                     }
                 }
                 // Check escalation beats by trope progression
@@ -534,7 +534,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 .field("event", "escalation_beat")
                                 .field("at_threshold", format!("{:.2}", beat.at))
                                 .field("inject", beat.inject.as_str())
-                                .send(ctx.state);
+                                .send();
                         }
                     }
                 }
@@ -737,7 +737,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("has_new_npcs", result.npcs_present.iter().any(|n| n.is_new))
         .field("items_gained_count", result.items_gained.len())
         .field("extraction_tier", &result.prompt_tier)
-        .send(ctx.state);
+        .send();
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
     if let Some(ref zb) = result.zone_breakdown {
@@ -750,7 +750,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             .field("section_count", section_count)
             .field("zones", &zb.zones)
             .field("full_prompt", &zb.full_prompt)
-            .send(ctx.state);
+            .send();
     }
 
     let agent_done = std::time::Instant::now();
@@ -787,7 +787,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("from_room", &transition.from_room)
                         .field("to_room", &transition.to_room)
                         .field("exit_type", &transition.exit_type)
-                        .send(ctx.state);
+                        .send();
 
                     // Story 19-10: Deplete active light source on room transition
                     let remaining_before = ctx.inventory.items.iter()
@@ -805,7 +805,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("event", "inventory.light_depleted")
                             .field("item_name", &item_name)
                             .field("remaining_before", &remaining_before.to_string())
-                            .send(ctx.state);
+                            .send();
                         messages.push(GameMessage::ItemDepleted {
                             payload: ItemDepletedPayload {
                                 item_name,
@@ -833,7 +833,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("attempted_room", &to_room)
                         .field("current_room", &from_room)
                         .field("reason", &reason)
-                        .send(ctx.state);
+                        .send();
                     false
                 }
             }
@@ -896,7 +896,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("action", "poi_image_served")
                         .field("location", &location)
                         .field("slug", &location_slug)
-                        .send(ctx.state);
+                        .send();
                 }
             }
             tracing::info!(
@@ -909,7 +909,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .field("event", "location_changed")
                 .field("location", &location)
                 .field("turn_number", turn_number)
-                .send(ctx.state);
+                .send();
             messages.push(GameMessage::ChapterMarker {
                 payload: ChapterMarkerPayload {
                     title: Some(location.clone()),
@@ -1016,7 +1016,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             crate::WatcherEventBuilder::new("monster_manual", crate::WatcherEventType::StateTransition)
                 .field("action", "npc_activated")
                 .field("name", name)
-                .send(ctx.state);
+                .send();
         }
     }
 
@@ -1040,7 +1040,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("event", "npc.registry_enriched")
                         .field("npc_name", name)
                         .field("fields_added", fields_added)
-                        .send(ctx.state);
+                        .send();
                 }
             }
         }
@@ -1071,7 +1071,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("name", &generated_name.name)
                             .field("language_id", &generated_name.language_id)
                             .field("gloss", &generated_name.gloss)
-                            .send(ctx.state);
+                            .send();
 
                             tracing::info!(
                                 name = %generated_name.name,
@@ -1108,7 +1108,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("character_id", ctx.player_id)
                             .field("language_id", &morpheme.language_id)
                             .field("morpheme", &morpheme.morpheme)
-                            .send(ctx.state);
+                            .send();
 
                         tracing::info!(
                             morpheme = %morpheme.morpheme,
@@ -1184,13 +1184,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
                 .field("action", "skipped")
                 .field("reason", "in_combat")
-                .send(ctx.state);
+                .send();
         } else if !dead_npcs_exist {
             tracing::info!("continuity.skipped — no dead NPCs, contradiction risk near-zero");
             WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
                 .field("action", "skipped")
                 .field("reason", "no_dead_npcs")
-                .send(ctx.state);
+                .send();
         } else {
             validate_continuity(ctx, &clean_narration).await;
         }
@@ -1323,7 +1323,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .field("at", threshold.at)
                     .field("source", "decay")
                     .field("turn", turn_number)
-                    .send(ctx.state);
+                    .send();
                 tracing::info!(
                     event_id = %threshold.event_id,
                     at = threshold.at,
@@ -1432,7 +1432,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .field("event", "perception_filter_set")
                     .field("player_id", ctx.player_id)
                     .field("effects", sidequest_game::perception::PerceptionRewriter::describe_effects(&perceptual_effects).as_str())
-                    .send(ctx.state);
+                    .send();
             }
         } else {
             // Clear any stale filter if no perceptual effects remain
@@ -1443,7 +1443,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     WatcherEventBuilder::new("perception", WatcherEventType::StateTransition)
                         .field("event", "perception_filter_cleared")
                         .field("player_id", ctx.player_id)
-                        .send(ctx.state);
+                        .send();
                 }
             }
         }
@@ -1808,7 +1808,7 @@ fn update_npc_registry(
                         .field("action", "creature_image_served")
                         .field("creature", &npc.name)
                         .field("slug", &npc_slug)
-                        .send(ctx.state);
+                        .send();
                 } else {
                     // 2. NPC portrait (character art — fallback)
                     let portrait_image_path = ctx
@@ -1834,7 +1834,7 @@ fn update_npc_registry(
                             .field("action", "npc_portrait_served")
                             .field("npc", &npc.name)
                             .field("slug", &npc_slug)
-                            .send(ctx.state);
+                            .send();
                     }
                 }
 
@@ -1860,7 +1860,7 @@ fn update_npc_registry(
                     .field("namegen_validated", validated)
                     .field("archetype_source", &source)
                     .field("registry_size", ctx.npc_registry.len())
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -1870,7 +1870,7 @@ fn update_npc_registry(
         .field("npcs_in_narration", result.npcs_present.len())
         .field("registry_size", ctx.npc_registry.len())
         .field("turn", ctx.turn_manager.interaction())
-        .send(ctx.state);
+        .send();
 
     // OCEAN personality shifts — typed directly from narrator's structured JSON block.
     // No keyword matching. The narrator emits event_type as a typed enum variant.
@@ -1937,7 +1937,7 @@ async fn accumulate_and_persist_lore(
                 .field("category", &category_str)
                 .field("turn", turn)
                 .field("token_estimate", token_estimate)
-                .send(ctx.state);
+                .send();
             tracing::info!(
                 fragment_id = %fragment_id,
                 category = %category_str,
@@ -1965,7 +1965,7 @@ async fn accumulate_and_persist_lore(
                         .field("event", "lore.fragment_persisted")
                         .field("fragment_id", &fragment_id)
                         .field("category", &category_str)
-                        .send(ctx.state);
+                        .send();
                     tracing::info!(fragment_id = %fragment_id, "lore.fragment_persisted");
                 }
                 Err(e) => {
@@ -1988,7 +1988,7 @@ async fn accumulate_and_persist_lore(
                                 .field("fragment_id", &fragment_id)
                                 .field("latency_ms", embed_result.latency_ms)
                                 .field("model", &embed_result.model)
-                                .send(ctx.state);
+                                .send();
                         }
                     }
                     Err(e) => {
@@ -2169,7 +2169,7 @@ async fn build_response_messages(
                 .field("total_footnotes", result.footnotes.len())
                 .field("new_facts", discovered.len())
                 .field("character", ctx.char_name)
-                .send(ctx.state);
+                .send();
         }
     }
 
@@ -2438,7 +2438,7 @@ async fn persist_game_state(
                 .field("turn", ctx.turn_manager.interaction())
                 .field("length", clean_narration.len())
                 .field("player", ctx.player_name_for_save)
-                .send(ctx.state);
+                .send();
         }
         Err(e) => {
             tracing::warn!(error = %e, "Failed to append narrative log entry");
@@ -2458,7 +2458,7 @@ async fn persist_game_state(
             .field("actor_count", enc.actors.len())
             .field_opt("mood_override", &enc.mood_override)
             .field_opt("outcome", &enc.outcome)
-            .send(ctx.state);
+            .send();
     }
 
     // Save ctx.snapshot directly — no load round-trip needed (story 15-8)
@@ -2490,7 +2490,7 @@ async fn persist_game_state(
                 .field("save_latency_ms", elapsed_ms)
                 .field("player", ctx.player_name_for_save)
                 .field("turn", ctx.turn_manager.interaction())
-                .send(ctx.state);
+                .send();
 
             // NOTE: append_narrative is already called above (line ~2358) right
             // after the entry is created.  A duplicate call here was causing
@@ -2504,7 +2504,7 @@ async fn persist_game_state(
                 .field("error", &format!("{e}"))
                 .field("player", ctx.player_name_for_save)
                 .field("turn", ctx.turn_manager.interaction())
-                .send(ctx.state);
+                .send();
         }
     }
 }
@@ -2548,7 +2548,7 @@ fn spawn_tts_pipeline(
             .field("segment_count", tts_segments.len())
             .field("total_chars", tts_segments.iter().map(|s| s.text.len()).sum::<usize>())
             .field_opt("first_segment", &first_preview)
-            .send(ctx.state);
+            .send();
     }
 
     let player_id_for_tts = ctx.player_id.to_string();
@@ -2824,7 +2824,7 @@ fn emit_telemetry(
         WatcherEventBuilder::new("game", WatcherEventType::GameStateSnapshot)
             .field("turn_number", turn_approx)
             .field("snapshot", &snapshot)
-            .send(ctx.state);
+            .send();
     }
 
     // Build timing spans for flame chart visualization
@@ -2859,7 +2859,7 @@ fn emit_telemetry(
         if result.is_degraded {
             builder = builder.severity(Severity::Warn);
         }
-        builder.send(ctx.state);
+        builder.send();
     }
 }
 
@@ -2930,7 +2930,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
             .field("section_count", section_count)
             .field("zones", &zb.zones)
             .field("full_prompt", &zb.full_prompt)
-            .send(ctx.state);
+            .send();
     }
 
     let narration_text = strip_fourth_wall(&strip_combat_brackets(&strip_fenced_blocks(&strip_location_header(&result.narration))));

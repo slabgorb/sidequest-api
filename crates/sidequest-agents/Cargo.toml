@@ -10,6 +10,7 @@ repository.workspace = true
 sidequest-protocol = { path = "../sidequest-protocol" }
 sidequest-game = { path = "../sidequest-game" }
 sidequest-genre = { path = "../sidequest-genre" }
+sidequest-telemetry = { path = "../sidequest-telemetry" }
 tokio = { workspace = true, features = ["process", "sync"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

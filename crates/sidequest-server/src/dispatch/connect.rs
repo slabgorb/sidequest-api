@@ -301,7 +301,7 @@ pub(crate) async fn dispatch_connect(
                                 .field("event", "map_update.reconnect")
                                 .field("explored_count", explored_count)
                                 .field("location", saved.snapshot.location.as_str())
-                                .send(state);
+                                .send();
                         }
 
                         // Initialize audio subsystems for returning player
@@ -392,7 +392,7 @@ pub(crate) async fn dispatch_connect(
                                                 .field("prev_maturity", format!("{:?}", prev_maturity))
                                                 .field("new_maturity", format!("{:?}", snapshot.campaign_maturity))
                                                 .field("trigger", "returning_player_reconnect")
-                                                .send(state);
+                                                .send();
                                             tracing::info!(
                                                 genre = %genre,
                                                 world = %world,
@@ -779,7 +779,7 @@ pub(crate) async fn dispatch_character_creation(
                 .field("choice_raw", choice_str)
                 .field("resolved_index", format!("{:?}", resolved_index))
                 .field("player_id", player_id)
-                .send(state);
+                .send();
 
             if let Some(index) = resolved_index {
                 if let Err(e) = b.apply_choice(index) {
@@ -814,7 +814,7 @@ pub(crate) async fn dispatch_character_creation(
                 .field("char_name", char_name.as_str())
                 .field("source", if name_from_scene.is_some() { "name_scene" } else if payload.choice.is_some() { "payload" } else { "player_name_fallback" })
                 .field("player_id", player_id)
-                .send(state);
+                .send();
 
             match b.build(&char_name) {
                 Ok(character) => {
@@ -826,7 +826,7 @@ pub(crate) async fn dispatch_character_creation(
                         .field("class", character.char_class.as_str())
                         .field("race", character.race.as_str())
                         .field("hp", character.core.hp)
-                        .send(state);
+                        .send();
 
                     // Store character data — sync ALL mutable fields from the built character
                     *character_name_store = Some(character.core.name.as_str().to_string());
@@ -984,7 +984,7 @@ pub(crate) async fn dispatch_character_creation(
                             .field("chapters_applied", snap.world_history.len())
                             .field("maturity", format!("{:?}", snap.campaign_maturity))
                             .field("trigger", "new_player_chargen")
-                            .send(state);
+                            .send();
 
                         // Inject the chargen-produced character into the materialized snapshot
                         snap.characters = vec![character.clone()];
@@ -1054,7 +1054,7 @@ pub(crate) async fn dispatch_character_creation(
                                             .field("genre", genre.as_str())
                                             .field("world", world.as_str())
                                             .field("scenario_id", _scenario_id.as_str())
-                                            .send(state);
+                                            .send();
                                     }
                                 }
                             }
@@ -1406,7 +1406,7 @@ pub(crate) async fn dispatch_character_creation(
                                     .field("old_player_id", old.as_str())
                                     .field("new_player_id", player_id)
                                     .field("player_name", connecting_name.as_str())
-                                    .send(state);
+                                    .send();
                             }
 
                             if !is_reconnect {
@@ -1522,7 +1522,7 @@ pub(crate) async fn dispatch_character_creation(
                                 .field("event", "session_joined")
                                 .field("session_key", format!("{}:{}", genre, world))
                                 .field("player_count", pc)
-                                .send(state);
+                                .send();
 
                             // Transition turn mode when a player joins
                             let old_mode = std::mem::take(&mut ss.turn_mode);
