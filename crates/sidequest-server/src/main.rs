@@ -5,6 +5,7 @@
 
 use clap::Parser;
 use sidequest_agents::orchestrator::Orchestrator;
+use sidequest_agents::exercise_tracker::SubsystemTracker;
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 use sidequest_server::{create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType};
 
@@ -115,7 +116,12 @@ async fn turn_record_bridge(
 ) {
     tracing::info!("turn record bridge started, awaiting TurnRecords");
 
+    // Story 26-2: SubsystemTracker accumulates agent invocation counts.
+    // Summary every 10 turns, coverage gap warning after 20 turns.
+    let mut tracker = SubsystemTracker::new(10, 20);
+
     while let Some(record) = rx.recv().await {
+        tracker.record(&record.agent_name);
         tracing::info!(
             turn_id = record.turn_id,
             intent = %record.classified_intent,
@@ -165,6 +171,29 @@ async fn turn_record_bridge(
             builder = builder.severity(Severity::Warn);
         }
         builder.send();
+
+        // Story 26-2: Emit SubsystemExerciseSummary at tracker's summary interval.
+        if tracker.turn_count % tracker.summary_interval == 0 {
+            let histogram: Vec<serde_json::Value> = tracker.histogram().iter()
+                .map(|(name, count)| serde_json::json!({"agent": name, "count": count}))
+                .collect();
+            WatcherEventBuilder::new("watcher", WatcherEventType::SubsystemExerciseSummary)
+                .field("turn_count", tracker.turn_count)
+                .field("histogram", &histogram)
+                .send();
+        }
+
+        // Story 26-2: Emit CoverageGap warning when threshold is reached.
+        if tracker.turn_count == tracker.gap_threshold {
+            let uncovered = tracker.uncovered_agents();
+            if !uncovered.is_empty() {
+                WatcherEventBuilder::new("watcher", WatcherEventType::CoverageGap)
+                    .field("missing_agents", &uncovered)
+                    .field("turns", tracker.turn_count)
+                    .severity(Severity::Warn)
+                    .send();
+            }
+        }
     }
 
     tracing::info!("turn record bridge shutting down (channel closed)");
