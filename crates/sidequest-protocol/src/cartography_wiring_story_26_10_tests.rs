@@ -245,7 +245,6 @@ fn map_update_payload_accessible_from_crate_root() {
         region: "test".into(),
         explored: vec![],
         fog_bounds: None,
+        cartography: None,
     };
-    // When cartography field is added, this construction should still work
-    // (cartography should default to None).
 }

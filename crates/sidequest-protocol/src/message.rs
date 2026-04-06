@@ -659,6 +659,57 @@ pub struct MapUpdatePayload {
     /// Fog of war bounds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fog_bounds: Option<FogBounds>,
+    /// Cartography metadata from genre pack — navigation structure, regions, routes.
+    /// Sent on session connect and location changes so the UI can render the world map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cartography: Option<CartographyMetadata>,
+}
+
+/// Cartography metadata for the map overlay (story 26-10).
+/// Wire-format subset of the genre pack's CartographyConfig — carries only
+/// the fields the UI needs to render the world map.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CartographyMetadata {
+    /// Navigation mode — "region", "room_graph", or "hierarchical".
+    pub navigation_mode: String,
+    /// Starting region slug.
+    #[serde(default)]
+    pub starting_region: String,
+    /// Regions keyed by slug.
+    #[serde(default)]
+    pub regions: HashMap<String, CartographyRegion>,
+    /// Routes between regions.
+    #[serde(default)]
+    pub routes: Vec<CartographyRoute>,
+}
+
+/// A region in the cartography metadata (wire format for UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRegion {
+    /// Display name.
+    pub name: String,
+    /// Description.
+    #[serde(default)]
+    pub description: String,
+    /// Adjacent region slugs.
+    #[serde(default)]
+    pub adjacent: Vec<String>,
+}
+
+/// A route between regions in the cartography metadata (wire format for UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRoute {
+    /// Route name.
+    pub name: String,
+    /// Description.
+    #[serde(default)]
+    pub description: String,
+    /// Source region slug.
+    #[serde(default)]
+    pub from_id: Option<String>,
+    /// Destination region slug.
+    #[serde(default)]
+    pub to_id: Option<String>,
 }
 
 /// Combat state for the combat overlay.

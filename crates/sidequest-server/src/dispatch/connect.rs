@@ -337,12 +337,43 @@ pub(crate) async fn dispatch_connect(
                                 }
                             };
                             let explored_count = explored_locs.len();
+                            let cartography_meta: Option<sidequest_protocol::CartographyMetadata> = GenreCode::new(genre)
+                                .ok()
+                                .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                .and_then(|pack| pack.worlds.get(world).cloned())
+                                .map(|w| {
+                                    let nav_mode = match w.cartography.navigation_mode {
+                                        sidequest_genre::NavigationMode::Region => "region",
+                                        sidequest_genre::NavigationMode::RoomGraph => "room_graph",
+                                        sidequest_genre::NavigationMode::Hierarchical => "hierarchical",
+                                    };
+                                    sidequest_protocol::CartographyMetadata {
+                                        navigation_mode: nav_mode.to_string(),
+                                        starting_region: w.cartography.starting_region.clone(),
+                                        regions: w.cartography.regions.iter().map(|(slug, r)| {
+                                            (slug.clone(), sidequest_protocol::CartographyRegion {
+                                                name: r.name.clone(),
+                                                description: r.description.clone(),
+                                                adjacent: r.adjacent.clone(),
+                                            })
+                                        }).collect(),
+                                        routes: w.cartography.routes.iter().map(|r| {
+                                            sidequest_protocol::CartographyRoute {
+                                                name: r.name.clone(),
+                                                description: r.description.clone(),
+                                                from_id: r.from_id.clone(),
+                                                to_id: r.to_id.clone(),
+                                            }
+                                        }).collect(),
+                                    }
+                                });
                             responses.push(GameMessage::MapUpdate {
                                 payload: MapUpdatePayload {
                                     current_location: saved.snapshot.location.clone(),
                                     region: saved.snapshot.current_region.clone(),
                                     explored: explored_locs,
                                     fog_bounds: None,
+                                    cartography: cartography_meta,
                                 },
                                 player_id: player_id.to_string(),
                             });
@@ -1340,6 +1371,40 @@ pub(crate) async fn dispatch_character_creation(
                                     .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
                                     .and_then(|pack| pack.worlds.get(ws).cloned())
                                     .and_then(|world| world.cartography.world_graph)
+                            },
+                            cartography_metadata: {
+                                let gs = session.genre_slug().unwrap_or("");
+                                let ws = session.world_slug().unwrap_or("");
+                                sidequest_genre::GenreCode::new(gs)
+                                    .ok()
+                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|pack| pack.worlds.get(ws).cloned())
+                                    .map(|world| {
+                                        let nav_mode = match world.cartography.navigation_mode {
+                                            sidequest_genre::NavigationMode::Region => "region",
+                                            sidequest_genre::NavigationMode::RoomGraph => "room_graph",
+                                            sidequest_genre::NavigationMode::Hierarchical => "hierarchical",
+                                        };
+                                        sidequest_protocol::CartographyMetadata {
+                                            navigation_mode: nav_mode.to_string(),
+                                            starting_region: world.cartography.starting_region.clone(),
+                                            regions: world.cartography.regions.iter().map(|(slug, r)| {
+                                                (slug.clone(), sidequest_protocol::CartographyRegion {
+                                                    name: r.name.clone(),
+                                                    description: r.description.clone(),
+                                                    adjacent: r.adjacent.clone(),
+                                                })
+                                            }).collect(),
+                                            routes: world.cartography.routes.iter().map(|r| {
+                                                sidequest_protocol::CartographyRoute {
+                                                    name: r.name.clone(),
+                                                    description: r.description.clone(),
+                                                    from_id: r.from_id.clone(),
+                                                    to_id: r.to_id.clone(),
+                                                }
+                                            }).collect(),
+                                        }
+                                    })
                             },
                             aside: false,
                             opening_directive: opening_directive.take(),
