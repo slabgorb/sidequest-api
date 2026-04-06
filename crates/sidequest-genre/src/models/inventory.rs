@@ -73,12 +73,34 @@ pub struct CatalogItem {
     pub resource_ticks: Option<u32>,
 }
 
+/// Whether inventory limits are enforced by item count or total weight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CarryMode {
+    /// Limit by number of carried items (existing behavior).
+    Count,
+    /// Limit by total weight of carried items.
+    Weight,
+}
+
+impl Default for CarryMode {
+    fn default() -> Self {
+        Self::Count
+    }
+}
+
 /// Inventory philosophy configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InventoryPhilosophy {
-    /// Maximum carry weight.
+    /// Maximum number of carried items (count-based limit).
     #[serde(default)]
     pub carry_limit: Option<u32>,
+    /// Whether to enforce count-based or weight-based limits.
+    #[serde(default)]
+    pub carry_mode: CarryMode,
+    /// Maximum total weight when carry_mode is Weight.
+    #[serde(default)]
+    pub weight_limit: Option<f64>,
     /// Item categories that are restricted.
     #[serde(default)]
     pub restricted_categories: Vec<String>,

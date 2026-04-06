@@ -319,11 +319,11 @@ fn overweight_error_display() {
 
 #[test]
 fn inventory_philosophy_with_weight_mode_deserializes() {
-    use sidequest_genre::models::inventory::InventoryPhilosophy;
+    use sidequest_genre::InventoryPhilosophy;
     use sidequest_game::inventory::CarryMode;
     let yaml = r#"
 carry_limit: 20
-carry_mode: Weight
+carry_mode: weight
 weight_limit: 100.0
 "#;
     let phil: InventoryPhilosophy = serde_yaml::from_str(yaml).unwrap();
@@ -334,7 +334,7 @@ weight_limit: 100.0
 
 #[test]
 fn inventory_philosophy_defaults_to_count_mode() {
-    use sidequest_genre::models::inventory::InventoryPhilosophy;
+    use sidequest_genre::InventoryPhilosophy;
     use sidequest_game::inventory::CarryMode;
     let yaml = r#"
 carry_limit: 20

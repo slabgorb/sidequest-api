@@ -118,6 +118,9 @@ impl Item {
     }
 }
 
+// Re-export CarryMode from genre crate for convenience.
+pub use sidequest_genre::CarryMode;
+
 /// Error when an inventory operation fails.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum InventoryError {
@@ -132,6 +135,16 @@ pub enum InventoryError {
     /// Item not found by ID.
     #[error("item not found: {0}")]
     NotFound(String),
+    /// Adding item would exceed weight limit.
+    #[error("overweight: {current_weight} + {item_weight} exceeds limit {limit}")]
+    Overweight {
+        /// Current total weight of carried items.
+        current_weight: f64,
+        /// Weight of the item being added (weight × quantity).
+        item_weight: f64,
+        /// Maximum weight limit.
+        limit: f64,
+    },
 }
 
 /// A character's inventory ledger — append-only item history and gold.
@@ -169,6 +182,45 @@ impl Inventory {
         }
         self.items.push(item);
         Ok(())
+    }
+
+    /// Add an item with weight-based limit. Rejects if total weight would exceed limit.
+    pub fn add_weighted(&mut self, item: Item, weight_limit: f64) -> Result<(), InventoryError> {
+        let current = self.total_weight();
+        let item_weight = item.weight * item.quantity as f64;
+        if current + item_weight > weight_limit {
+            return Err(InventoryError::Overweight {
+                current_weight: current,
+                item_weight,
+                limit: weight_limit,
+            });
+        }
+        self.items.push(item);
+        Ok(())
+    }
+
+    /// Total weight of all carried items (weight × quantity per item).
+    pub fn total_weight(&self) -> f64 {
+        self.items
+            .iter()
+            .filter(|i| i.state.is_carried())
+            .map(|i| i.weight * i.quantity as f64)
+            .sum()
+    }
+
+    /// Whether total carried weight is at or over the given weight limit.
+    pub fn is_overencumbered(&self, weight_limit: f64) -> bool {
+        self.total_weight() >= weight_limit
+    }
+
+    /// Encumbrance multiplier for trope tick stacking.
+    /// Returns 1.5 when overencumbered, 1.0 otherwise.
+    pub fn encumbrance_multiplier(&self, weight_limit: f64) -> f64 {
+        if self.is_overencumbered(weight_limit) {
+            1.5
+        } else {
+            1.0
+        }
     }
 
     /// Transition an item to a new state. Returns the item's previous state,
