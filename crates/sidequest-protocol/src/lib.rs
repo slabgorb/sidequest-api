@@ -35,3 +35,7 @@ mod narrator_vocabulary_story_14_4_tests;
 #[cfg(test)]
 #[path = "journal_story_9_13_tests.rs"]
 mod journal_story_9_13_tests;
+
+#[cfg(test)]
+#[path = "cartography_wiring_story_26_10_tests.rs"]
+mod cartography_wiring_story_26_10_tests;
