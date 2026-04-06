@@ -784,6 +784,20 @@ impl PersistenceWorker {
                             Ok(json) => {
                                 if let Err(e) = store.save_scenario(&session_id, &json) {
                                     tracing::warn!(error = %e, "Failed to archive scenario state");
+                                } else {
+                                    tracing::info!(
+                                        session_id = %session_id,
+                                        version = crate::scenario_archiver::SCENARIO_FORMAT_VERSION,
+                                        "scenario_archive.saved"
+                                    );
+                                    sidequest_telemetry::WatcherEventBuilder::new(
+                                        "persistence",
+                                        sidequest_telemetry::WatcherEventType::SubsystemExerciseSummary,
+                                    )
+                                    .field("event", "scenario_archive_saved")
+                                    .field("session_id", &session_id)
+                                    .field("version", crate::scenario_archiver::SCENARIO_FORMAT_VERSION)
+                                    .send();
                                 }
                             }
                             Err(e) => tracing::warn!(error = %e, "Failed to serialize scenario state"),
@@ -809,7 +823,19 @@ impl PersistenceWorker {
                                 match serde_json::from_str::<crate::scenario_archiver::VersionedScenario>(&json) {
                                     Ok(versioned) if versioned.version == crate::scenario_archiver::SCENARIO_FORMAT_VERSION => {
                                         session.snapshot.scenario_state = Some(versioned.state);
-                                        tracing::info!("Scenario state restored from archive");
+                                        tracing::info!(
+                                            session_id = %session_id,
+                                            version = versioned.version,
+                                            "scenario_archive.restored"
+                                        );
+                                        sidequest_telemetry::WatcherEventBuilder::new(
+                                            "persistence",
+                                            sidequest_telemetry::WatcherEventType::SubsystemExerciseSummary,
+                                        )
+                                        .field("event", "scenario_archive_restored")
+                                        .field("session_id", &session_id)
+                                        .field("version", versioned.version)
+                                        .send();
                                     }
                                     Ok(versioned) => {
                                         tracing::warn!(
