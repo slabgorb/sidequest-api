@@ -200,7 +200,7 @@ async fn app_state_has_watcher_broadcast_channel() {
 
     // Send an event through the channel
     let event = sample_watcher_event();
-    state.send_watcher_event(event.clone());
+    sidequest_telemetry::emit(event.clone());
 
     // Should receive the event
     let received = timeout(Duration::from_millis(100), rx.recv())
@@ -223,7 +223,7 @@ async fn watcher_broadcast_delivers_to_multiple_subscribers() {
     let mut rx2 = state.subscribe_watcher();
 
     let event = sample_watcher_event();
-    state.send_watcher_event(event.clone());
+    sidequest_telemetry::emit(event.clone());
 
     let r1 = timeout(Duration::from_millis(100), rx1.recv())
         .await
@@ -246,7 +246,7 @@ async fn watcher_broadcast_no_subscribers_does_not_panic() {
 
     // No subscribers — this must not panic
     let event = sample_watcher_event();
-    state.send_watcher_event(event);
+    sidequest_telemetry::emit(event);
     // If we reach here without panic, the test passes
 }
 
@@ -324,7 +324,6 @@ async fn watcher_client_receives_broadcast_events() {
     use tokio_tungstenite::connect_async;
 
     let state = test_app_state();
-    let broadcast_state = state.clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -353,7 +352,7 @@ async fn watcher_client_receives_broadcast_events() {
 
     // Send a watcher event via broadcast
     let event = sample_watcher_event();
-    broadcast_state.send_watcher_event(event);
+    sidequest_telemetry::emit(event);
 
     // Client should receive the event as JSON (after the handshake)
     let msg = timeout(Duration::from_secs(2), ws_stream.next())
@@ -385,7 +384,6 @@ async fn multiple_watcher_clients_receive_same_event() {
     use tokio_tungstenite::connect_async;
 
     let state = test_app_state();
-    let broadcast_state = state.clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -413,7 +411,7 @@ async fn multiple_watcher_clients_receive_same_event() {
 
     // Broadcast a watcher event
     let event = sample_watcher_event();
-    broadcast_state.send_watcher_event(event);
+    sidequest_telemetry::emit(event);
 
     // Both clients should receive the broadcast event (after handshake)
     let r1 = timeout(Duration::from_secs(2), ws1.next())
@@ -457,7 +455,6 @@ async fn watcher_disconnect_does_not_affect_game_ws() {
     use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 
     let state = test_app_state();
-    let broadcast_state = state.clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -516,7 +513,6 @@ async fn watcher_events_do_not_leak_to_game_clients() {
     use tokio_tungstenite::connect_async;
 
     let state = test_app_state();
-    let broadcast_state = state.clone();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -537,7 +533,7 @@ async fn watcher_events_do_not_leak_to_game_clients() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Send a watcher event
-    broadcast_state.send_watcher_event(sample_watcher_event());
+    sidequest_telemetry::emit(sample_watcher_event());
 
     // Watcher should receive it
     let watcher_msg = timeout(Duration::from_secs(2), watcher_ws.next())

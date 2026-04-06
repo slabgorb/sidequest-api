@@ -107,6 +107,14 @@ pub(crate) async fn dispatch_connect(
                         // Restore canonical snapshot for dispatch pipeline (story 15-8)
                         *snapshot = saved.snapshot.clone();
 
+                        // Story 26-8: emit location restore event for GM panel visibility
+                        WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
+                            .field("event", "location.restored")
+                            .field("location", saved.snapshot.location.as_str())
+                            .field("discovered_regions", saved.snapshot.discovered_regions.len())
+                            .field("source", "save_file")
+                            .send();
+
                         // Transition session to Playing
                         if let Err(e) = session.complete_character_creation() {
                             tracing::error!(error = %e, state = %session.state_name(), "Failed to transition session to Playing on reconnect");
@@ -1084,6 +1092,13 @@ pub(crate) async fn dispatch_character_creation(
                                 discovered_rooms = snap.discovered_rooms.len(),
                                 "room_graph.init — entrance room set"
                             );
+                            // Story 26-8: emit initial location event for GM panel
+                            WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
+                                .field("event", "location.initialized")
+                                .field("location", snap.location.as_str())
+                                .field("mode", "room_graph")
+                                .field("source", "entrance_room")
+                                .send();
                         }
 
                         snap
@@ -1108,6 +1123,13 @@ pub(crate) async fn dispatch_character_creation(
                                 location = %snapshot.location,
                                 "connect.default_location — set from rules.yaml"
                             );
+                            // Story 26-8: emit initial location event for GM panel
+                            WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
+                                .field("event", "location.initialized")
+                                .field("location", snapshot.location.as_str())
+                                .field("mode", "region")
+                                .field("source", "rules_yaml")
+                                .send();
                         }
                     }
                     // Seed discovered_regions from snapshot location
