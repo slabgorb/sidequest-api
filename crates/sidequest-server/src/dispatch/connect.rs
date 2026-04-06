@@ -104,8 +104,8 @@ pub(crate) async fn dispatch_connect(
                                 let facts_count = restored.known_facts.len();
 
                                 // Move values into mutable references
-                                *character_json_store = restored.character_json;
-                                *character_name_store = Some(restored.character_name);
+                                *character_json_store = Some(restored.character_json);
+                                *character_name_store = Some(restored.character_name.as_str().to_string());
                                 *character_hp = hp;
                                 *character_max_hp = max_hp;
                                 *inventory = restored.inventory;
