@@ -1,6 +1,6 @@
 # sidequest-game — Feature Inventory
 
-The core game engine crate. **~23,700 LOC across 59 modules.** Almost everything
+The core game engine crate. **~26,700 LOC across 71 modules.** Almost everything
 you're looking for is already here. Read this before writing any code.
 
 ## COMPLETE — Do Not Rewrite
