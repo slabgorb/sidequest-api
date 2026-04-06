@@ -838,7 +838,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 }
             }
         } else {
-            true // Region mode — no validation
+            // Region mode — no room graph validation, but emit transition event
+            // so the GM panel has from/to visibility (story 26-8).
+            let from_location = ctx.current_location.clone();
+            WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
+                .field("event", "region.transition")
+                .field("from_location", &from_location)
+                .field("to_location", &location)
+                .field("mode", "region")
+                .send();
+            true
         };
 
         if location_valid {
@@ -846,6 +855,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             *ctx.current_location = location.clone();
             if is_new {
                 ctx.discovered_regions.push(location.clone());
+                // Story 26-8: emit discovery event for GM panel visibility
+                WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
+                    .field("event", "region.discovery")
+                    .field("location", &location)
+                    .field("turn_number", turn_number)
+                    .field("total_discovered", ctx.discovered_regions.len())
+                    .send();
                 let summary = format!("Discovered {} on turn {}", location, turn_number);
                 accumulate_and_persist_lore(
                     ctx,
