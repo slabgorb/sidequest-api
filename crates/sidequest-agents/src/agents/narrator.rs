@@ -53,27 +53,106 @@ const NARRATOR_OUTPUT_ONLY: &str = "\
 Your response has TWO parts, in this exact order:\n\
 \n\
 PART 1 — NARRATIVE PROSE\n\
-Write 2-4 sentences of narrative prose. Start with a location header like \
+Write narrative prose (length governed by the <length-limit> guardrail below). Start with a location header like \
 **The Collapsed Overpass**. This is what the player sees.\n\
 \n\
 PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot.\n\
-If nothing mechanical happened (pure dialogue, description), emit:\n\
+mood, state_snapshot, in_combat, hp_changes, turn_order, current_turn, \
+drama_weight, visual_scene, footnotes.\n\
+\n\
+visual_scene: Include this on EVERY turn where the setting changes, a new \
+location is entered, or a visually significant event occurs (combat start, \
+dramatic reveal, new NPC appearance). Format:\n\
+  \"visual_scene\": { \"subject\": \"<1-sentence image prompt, max 100 chars>\", \
+\"tier\": \"landscape|portrait|scene_illustration\", \"mood\": \
+\"ominous|tense|mystical|dramatic|melancholic|atmospheric\", \"tags\": [\"location\", \
+\"combat\", \"magic\", \"special_effect\", \"character\", \"atmosphere\"] }\n\
+tier: landscape for environments, portrait for NPC focus, scene_illustration for action.\n\
+subject: Describe what to PAINT — the visual composition, not the narrative.\n\
+\n\
+footnotes: Array of knowledge discoveries the player learned this turn. Include \
+whenever the narration reveals new lore, introduces a named NPC, mentions a \
+location, references a quest objective, or describes a character ability. Format:\n\
+  \"footnotes\": [{\"summary\": \"<concise third-person fact>\", \
+\"category\": \"Lore|Place|Person|Quest|Ability\", \"is_new\": true}]\n\
+summary: One sentence, third person (e.g., \"The Crimson Gate guards the eastern pass\").\n\
+category: Lore (world history/mythology), Place (locations), Person (NPCs/factions), \
+Quest (objectives/tasks), Ability (skills/powers).\n\
+is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
+Include footnotes generously — they feed the player's knowledge journal.\n\
+\n\
+Combat initiation: When the player attacks or a hostile encounter begins, \
+set in_combat: true and include turn_order (list of combatant names, \
+player first) and current_turn (whose turn it is). Include hp_changes \
+for any damage dealt (negative values = damage). Set drama_weight 0.0-1.0.\n\
+\n\
+Example A — exploration (new area + NPC):\n\
+```game_patch\n\
+{\n\
+  \"location\": \"{{location_name}}\",\n\
+  \"npcs_met\": [\"{{npc_name}}\"],\n\
+  \"mood\": \"{{mood}}\",\n\
+  \"visual_scene\": {\n\
+    \"subject\": \"{{1-sentence image prompt, max 100 chars}}\",\n\
+    \"tier\": \"landscape|portrait|scene_illustration\",\n\
+    \"mood\": \"{{mood_tag}}\",\n\
+    \"tags\": [\"location\", \"atmosphere\"]\n\
+  },\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{concise third-person fact about the place}}\", \"category\": \"Place\", \"is_new\": true},\n\
+    {\"summary\": \"{{concise third-person fact about the NPC}}\", \"category\": \"Person\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+\n\
+Example B — combat round:\n\
+```game_patch\n\
+{\n\
+  \"in_combat\": true,\n\
+  \"hp_changes\": {\"{{player_name}}\": {{negative_damage}}, \"{{enemy_name}}\": {{negative_damage}}},\n\
+  \"turn_order\": [\"{{player_name}}\", \"{{enemy_name}}\"],\n\
+  \"current_turn\": \"{{enemy_name}}\",\n\
+  \"drama_weight\": {{0.0_to_1.0}},\n\
+  \"visual_scene\": {\n\
+    \"subject\": \"{{combat action image prompt, max 100 chars}}\",\n\
+    \"tier\": \"scene_illustration\",\n\
+    \"mood\": \"dramatic\",\n\
+    \"tags\": [\"combat\"]\n\
+  },\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{fact revealed during combat, e.g. enemy weakness}}\", \"category\": \"Lore\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+\n\
+Example C — pure dialogue (no mechanical changes):\n\
+```game_patch\n\
+{\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{fact learned from conversation}}\", \"category\": \"{{category}}\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+Note: even dialogue-only turns should include footnotes if the player learned something.\n\
+\n\
+If nothing mechanical happened AND no new knowledge was revealed, emit:\n\
 ```game_patch\n\
 {}\n\
 ```\n\
 ALWAYS emit the game_patch block. It is mandatory.";
 
 /// Output-style rules (Early/Format zone).
+/// NOTE: Character-count limits live ONLY in the Recency-zone <length-limit>
+/// guardrail (injected by the orchestrator per-session verbosity setting).
+/// Do NOT duplicate numeric limits here — the LLM averages conflicting numbers.
 const NARRATOR_OUTPUT_STYLE: &str = "\
-HARD LIMIT: Narrative prose must be under 400 characters (~3-4 sentences). \
-This limit exists because longer responses break TTS pacing and make turns feel slow. \
-Count your characters. If you're over 400, cut.\n\
-- Most turns: 2-3 sentences. Movement, dialogue, simple actions = SHORT.
-- Big moments only (arrivals, reveals, combat start): up to 4 sentences max.
+Respect the <length-limit> guardrail — it is the single source of truth for prose length. \
+Shorter responses keep TTS pacing tight and turns snappy.\n\
+- Most turns: short. Movement, dialogue, simple actions = SHORT.
+- Big moments only (arrivals, reveals, combat start): slightly longer, but still within the limit.
 - VARY your length. Not every turn is the same size.
 - Fast action = short sentences. Quiet moments can breathe.
 - Dialogue is snappy, not embedded in description paragraphs.

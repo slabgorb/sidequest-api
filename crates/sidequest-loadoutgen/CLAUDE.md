@@ -1,7 +1,7 @@
 # sidequest-loadoutgen — Feature Inventory
 
 CLI binary that generates starting equipment sets from genre pack inventory
-catalogs. **~230 LOC, single file (`main.rs`), fully complete.**
+catalogs. **~270 LOC, single file (`main.rs`), fully complete.**
 
 ## COMPLETE — Do Not Rewrite
 

@@ -493,7 +493,6 @@ fn fragment_to_summary(frag: &LoreFragment) -> FragmentSummary {
         LoreCategory::Event => "event",
         LoreCategory::Language => "language",
         LoreCategory::Custom(s) => s.as_str(),
-        _ => "unknown",
     };
     FragmentSummary {
         id: frag.id().to_string(),

@@ -4,7 +4,7 @@
 //! `ClaudeClient` for the actual LLM call.
 
 use sidequest_agents::client::ClaudeClient;
-use sidequest_game::catch_up::{CatchUpError, CatchUpGenerator, CatchUpResult, GenerationStrategy, TurnSummary};
+use sidequest_game::catch_up::{CatchUpError, CatchUpGenerator, GenerationStrategy, TurnSummary};
 use sidequest_game::character::Character;
 use sidequest_protocol::{GameMessage, NarrationEndPayload, NarrationPayload};
 
@@ -76,7 +76,7 @@ pub(crate) fn generate_catch_up_messages(
                 .field("player_id", player_id)
                 .field("is_fallback", result.is_fallback())
                 .field("history_turns", narration_history.len())
-                .send(state);
+                .send();
 
             Some(vec![
                 GameMessage::Narration {

@@ -9,9 +9,9 @@ use std::sync::Arc;
 use sidequest_game::builder::CharacterBuilder;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
-    ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload, CharacterState,
-    GameMessage, InitialState, NarrationEndPayload, NarrationPayload, PartyMember,
-    PartyStatusPayload, SessionEventPayload,
+    AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
+    CharacterState, GameMessage, InitialState, MapUpdatePayload, NarrationEndPayload,
+    NarrationPayload, PartyMember, PartyStatusPayload, SessionEventPayload,
 };
 
 use crate::npc_context;
@@ -168,7 +168,10 @@ pub(crate) async fn dispatch_connect(
                                         .iter()
                                         .map(|(k, v)| (k.clone(), *v))
                                         .collect(),
-                                    abilities: character.hooks.clone(),
+                                    abilities: character.hooks.iter()
+                                        .filter(|s| !s.contains("auto-filled"))
+                                        .cloned()
+                                        .collect(),
                                     backstory: character.backstory.as_str().to_string(),
                                     personality: character.core.personality.as_str().to_string(),
                                     pronouns: character.pronouns.clone(),
@@ -243,6 +246,64 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
+                        // MAP_UPDATE — replay explored map state so the client
+                        // can show the Automapper overlay immediately on reconnect.
+                        // Without this the M hotkey stays gated on null mapData.
+                        {
+                            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = {
+                                // Try room graph mode first
+                                let rooms: Vec<sidequest_genre::RoomDef> = GenreCode::new(genre)
+                                    .ok()
+                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|pack| pack.worlds.get(world).cloned())
+                                    .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                    .and_then(|w| w.cartography.rooms.clone())
+                                    .unwrap_or_default();
+                                if !rooms.is_empty() {
+                                    sidequest_game::build_room_graph_explored(
+                                        &rooms,
+                                        &saved.snapshot.discovered_rooms,
+                                        &saved.snapshot.location,
+                                    )
+                                } else {
+                                    saved.snapshot.discovered_regions
+                                        .iter()
+                                        .map(|name| sidequest_protocol::ExploredLocation {
+                                            name: name.clone(),
+                                            x: 0,
+                                            y: 0,
+                                            location_type: String::new(),
+                                            connections: vec![],
+                                            room_exits: vec![],
+                                            room_type: String::new(),
+                                            size: None,
+                                            is_current_room: name == &saved.snapshot.location,
+                                        })
+                                        .collect()
+                                }
+                            };
+                            let explored_count = explored_locs.len();
+                            responses.push(GameMessage::MapUpdate {
+                                payload: MapUpdatePayload {
+                                    current_location: saved.snapshot.location.clone(),
+                                    region: saved.snapshot.current_region.clone(),
+                                    explored: explored_locs,
+                                    fog_bounds: None,
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                            tracing::info!(
+                                explored_count,
+                                location = %saved.snapshot.location,
+                                "map_update.reconnect — replayed explored state for automapper"
+                            );
+                            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
+                                .field("event", "map_update.reconnect")
+                                .field("explored_count", explored_count)
+                                .field("location", saved.snapshot.location.as_str())
+                                .send();
+                        }
+
                         // Initialize audio subsystems for returning player
                         if let Ok(genre_code) = GenreCode::new(genre) {
                             if let Ok(pack) = state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
@@ -274,6 +335,10 @@ pub(crate) async fn dispatch_connect(
                                 tracing::info!(count = trope_defs.len(), genre = %genre, "Loaded trope definitions for returning player");
 
                                 tracing::info!(genre = %genre, "Audio subsystems initialized for returning player");
+
+                                // Send genre-pack mixer config so the frontend
+                                // initializes channel volumes per-genre.
+                                responses.push(mixer_config_cue(&pack.audio.mixer, player_id));
 
                                 // Seed lore store from genre pack (story 11-4)
                                 let lore_count =
@@ -327,7 +392,7 @@ pub(crate) async fn dispatch_connect(
                                                 .field("prev_maturity", format!("{:?}", prev_maturity))
                                                 .field("new_maturity", format!("{:?}", snapshot.campaign_maturity))
                                                 .field("trigger", "returning_player_reconnect")
-                                                .send(state);
+                                                .send();
                                             tracing::info!(
                                                 genre = %genre,
                                                 world = %world,
@@ -373,7 +438,7 @@ pub(crate) async fn dispatch_connect(
                         // Save file exists but no game state — treat as new player
                         tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
                         responses.push(connected_msg);
-                        if let Some(scene_msg) = start_character_creation(
+                        responses.extend(start_character_creation(
                             builder,
                             trope_defs,
                             world_context,
@@ -390,15 +455,12 @@ pub(crate) async fn dispatch_connect(
                             state,
                             player_id,
                         )
-                        .await
-                        {
-                            responses.push(scene_msg);
-                        }
+                        .await);
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
                         responses.push(connected_msg);
-                        if let Some(scene_msg) = start_character_creation(
+                        responses.extend(start_character_creation(
                             builder,
                             trope_defs,
                             world_context,
@@ -415,16 +477,13 @@ pub(crate) async fn dispatch_connect(
                             state,
                             player_id,
                         )
-                        .await
-                        {
-                            responses.push(scene_msg);
-                        }
+                        .await);
                     }
                 }
             } else {
                 // New player — send connected, then start character creation
                 responses.push(connected_msg);
-                if let Some(scene_msg) = start_character_creation(
+                responses.extend(start_character_creation(
                     builder,
                     trope_defs,
                     world_context,
@@ -441,10 +500,7 @@ pub(crate) async fn dispatch_connect(
                     state,
                     player_id,
                 )
-                .await
-                {
-                    responses.push(scene_msg);
-                }
+                .await);
             }
 
             // Send theme_css SESSION_EVENT if the genre pack has a client_theme.css
@@ -495,12 +551,12 @@ pub(crate) async fn start_character_creation(
     world_slug: &str,
     state: &AppState,
     player_id: &str,
-) -> Option<GameMessage> {
+) -> Vec<GameMessage> {
     let genre_code = match GenreCode::new(genre) {
         Ok(c) => c,
         Err(e) => {
             tracing::warn!(genre = %genre, error = %e, "Invalid genre code");
-            return None;
+            return vec![];
         }
     };
 
@@ -508,7 +564,7 @@ pub(crate) async fn start_character_creation(
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(genre = %genre, error = %e, "Failed to load genre pack");
-            return None;
+            return vec![];
         }
     };
 
@@ -589,7 +645,7 @@ pub(crate) async fn start_character_creation(
     // Select a random opening hook if the genre pack provides them
     if !pack.openings.is_empty() {
         use rand::Rng;
-        let idx = rand::thread_rng().gen_range(0..pack.openings.len());
+        let idx = rand::rng().random_range(0..pack.openings.len());
         let hook = &pack.openings[idx];
 
         // Build opening directive — injected into Early zone on turn 0 only via DispatchContext
@@ -623,20 +679,24 @@ pub(crate) async fn start_character_creation(
 
     if scenes.is_empty() {
         tracing::warn!(genre = %genre, "No character creation scenes with choices");
-        return None;
+        return vec![];
     }
 
     let b = match CharacterBuilder::try_new(scenes, &pack.rules) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = ?e, "Failed to create CharacterBuilder");
-            return None;
+            return vec![];
         }
     };
 
     let scene_msg = b.to_scene_message(player_id);
     *builder = Some(b);
-    Some(scene_msg)
+
+    // Send genre-pack mixer config so the frontend initializes per-genre volumes.
+    let mut msgs = vec![mixer_config_cue(&pack.audio.mixer, player_id)];
+    msgs.push(scene_msg);
+    msgs
 }
 
 /// Handle CHARACTER_CREATION messages (client choices).
@@ -719,7 +779,7 @@ pub(crate) async fn dispatch_character_creation(
                 .field("choice_raw", choice_str)
                 .field("resolved_index", format!("{:?}", resolved_index))
                 .field("player_id", player_id)
-                .send(state);
+                .send();
 
             if let Some(index) = resolved_index {
                 if let Err(e) = b.apply_choice(index) {
@@ -742,9 +802,21 @@ pub(crate) async fn dispatch_character_creation(
             vec![b.to_scene_message(player_id)]
         }
         "confirmation" => {
-            // Build the character
-            let pname = player_name_store.as_deref().unwrap_or("Player");
-            match b.build(pname) {
+            // Build the character — use the name from the name-entry scene if available,
+            // otherwise fall back to player connection name, then "Player".
+            let name_from_scene = b.character_name().map(|s| s.to_string());
+            let char_name = name_from_scene.clone()
+                .or_else(|| payload.choice.clone())
+                .unwrap_or_else(|| player_name_store.as_deref().unwrap_or("Player").to_string());
+
+            WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                .field("event", "name_resolved")
+                .field("char_name", char_name.as_str())
+                .field("source", if name_from_scene.is_some() { "name_scene" } else if payload.choice.is_some() { "payload" } else { "player_name_fallback" })
+                .field("player_id", player_id)
+                .send();
+
+            match b.build(&char_name) {
                 Ok(character) => {
                     let char_json = serde_json::to_value(&character).unwrap_or_default();
 
@@ -754,7 +826,7 @@ pub(crate) async fn dispatch_character_creation(
                         .field("class", character.char_class.as_str())
                         .field("race", character.race.as_str())
                         .field("hp", character.core.hp)
-                        .send(state);
+                        .send();
 
                     // Store character data — sync ALL mutable fields from the built character
                     *character_name_store = Some(character.core.name.as_str().to_string());
@@ -912,7 +984,7 @@ pub(crate) async fn dispatch_character_creation(
                             .field("chapters_applied", snap.world_history.len())
                             .field("maturity", format!("{:?}", snap.campaign_maturity))
                             .field("trigger", "new_player_chargen")
-                            .send(state);
+                            .send();
 
                         // Inject the chargen-produced character into the materialized snapshot
                         snap.characters = vec![character.clone()];
@@ -921,6 +993,71 @@ pub(crate) async fn dispatch_character_creation(
                         // loadout from inventory.yaml was added to the `inventory` local.
                         if let Some(ch) = snap.characters.first_mut() {
                             ch.core.inventory = inventory.clone();
+                        }
+
+                        // Scenario initialization: bind ScenarioPack → ScenarioState if available
+                        if let Ok(gc) = GenreCode::new(&genre) {
+                            if let Ok(pack) = state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                                if !pack.scenarios.is_empty() {
+                                    // Pick the first scenario (future: player/DM selection)
+                                    if let Some((_scenario_id, scenario_pack)) = pack.scenarios.iter().next() {
+                                        let scenario_state = sidequest_game::scenario_state::ScenarioState::from_genre_pack(scenario_pack);
+                                        tracing::info!(
+                                            genre = %genre,
+                                            world = %world,
+                                            scenario = %_scenario_id,
+                                            guilty_npc = %scenario_state.guilty_npc(),
+                                            npc_roles = scenario_state.npc_roles().len(),
+                                            "scenario.initialized — bound ScenarioPack to session"
+                                        );
+
+                                        // Initialize scenario NPC belief states from pack data
+                                        for snpc in &scenario_pack.npcs {
+                                            if let Some(npc) = snap.npcs.iter_mut().find(|n| n.core.name.as_str() == snpc.name) {
+                                                for fact in &snpc.initial_beliefs.facts {
+                                                    npc.belief_state.add_belief(
+                                                        sidequest_game::belief_state::Belief::Fact {
+                                                            subject: snpc.name.clone(),
+                                                            content: fact.clone(),
+                                                            turn_learned: 0,
+                                                            source: sidequest_game::belief_state::BeliefSource::Witnessed,
+                                                        },
+                                                    );
+                                                }
+                                                for suspicion in &snpc.initial_beliefs.suspicions {
+                                                    npc.belief_state.add_belief(
+                                                        sidequest_game::belief_state::Belief::suspicion(
+                                                            suspicion.target.clone(),
+                                                            suspicion.basis.clone(),
+                                                            0,
+                                                            sidequest_game::belief_state::BeliefSource::Inferred,
+                                                            suspicion.confidence as f32,
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                        }
+
+                                        snap.scenario_state = Some(scenario_state);
+
+                                        // Store scenario pack in shared session for pressure event/scene budget checks
+                                        if let Ok(holder) = shared_session_holder.try_lock() {
+                                            if let Some(ref ss_arc) = *holder {
+                                                if let Ok(mut ss) = ss_arc.try_lock() {
+                                                    ss.active_scenario = Some(scenario_pack.clone());
+                                                }
+                                            }
+                                        }
+
+                                        crate::WatcherEventBuilder::new("scenario", crate::WatcherEventType::StateTransition)
+                                            .field("event", "scenario_initialized")
+                                            .field("genre", genre.as_str())
+                                            .field("world", world.as_str())
+                                            .field("scenario_id", _scenario_id.as_str())
+                                            .send();
+                                    }
+                                }
+                            }
                         }
 
                         // Room-graph mode: set starting location to entrance room (story 19-2)
@@ -1145,6 +1282,8 @@ pub(crate) async fn dispatch_character_creation(
                             snapshot,
                             tx,
                             monster_manual: &mut monster_manual,
+                            morpheme_glossaries: Vec::new(),
+                            name_banks: Vec::new(),
                         };
                         let result = super::dispatch_player_action(&mut ctx).await;
                         ctx.monster_manual.save();
@@ -1163,7 +1302,10 @@ pub(crate) async fn dispatch_character_creation(
                                 .iter()
                                 .map(|(k, v)| (k.clone(), *v))
                                 .collect(),
-                            abilities: character.hooks.clone(),
+                            abilities: character.hooks.iter()
+                                .filter(|s| !s.contains("auto-filled"))
+                                .cloned()
+                                .collect(),
                             backstory: character.backstory.as_str().to_string(),
                             personality: character.core.personality.as_str().to_string(),
                             pronouns: character.pronouns.clone(),
@@ -1216,55 +1358,106 @@ pub(crate) async fn dispatch_character_creation(
                                 ));
                             }
 
-                            let ps = shared_session::PlayerState::new(
-                                player_name_store
-                                    .clone()
-                                    .unwrap_or_else(|| "Player".to_string()),
-                            );
-                            ss.players.insert(player_id.to_string(), ps);
-                            // Populate character data on the PlayerState
-                            if let Some(p) = ss.players.get_mut(player_id) {
-                                p.character_name = Some(character.core.name.as_str().to_string());
-                                p.character_hp = character.core.hp;
-                                p.character_max_hp = character.core.max_hp;
-                                p.character_level = character.core.level as u32;
-                                p.character_class = character.char_class.as_str().to_string();
-                                p.inventory = inventory.clone();
-                                p.character_xp = character.core.xp;
-                                if let Some(ref cj) = *character_json_store {
-                                    p.character_json = Some(cj.clone());
-                                }
-                            }
-                            // Notify existing players that a new character has arrived
-                            let arrival_text = format!(
-                                "{} has entered the scene.",
-                                character.core.name.as_str()
-                            );
-                            let existing_pids: Vec<String> = ss
+                            // Reconnect detection: if a player with the same
+                            // player_name already exists under a different player_id,
+                            // this is a tab-duplicate or page-refresh reconnect.
+                            // Transfer the old PlayerState to the new player_id and
+                            // suppress arrival/departure narration.
+                            let connecting_name = player_name_store
+                                .clone()
+                                .unwrap_or_else(|| "Player".to_string());
+                            let old_pid = ss
                                 .players
-                                .keys()
-                                .filter(|pid| pid.as_str() != player_id)
-                                .cloned()
-                                .collect();
-                            for target_pid in &existing_pids {
-                                ss.send_to_player(
-                                    GameMessage::Narration {
-                                        payload: NarrationPayload {
-                                            text: arrival_text.clone(),
-                                            state_delta: None,
-                                            footnotes: vec![],
+                                .iter()
+                                .find(|(pid, ps)| {
+                                    pid.as_str() != player_id && ps.player_name == connecting_name
+                                })
+                                .map(|(pid, _)| pid.clone());
+                            let is_reconnect = old_pid.is_some();
+                            if let Some(ref old) = old_pid {
+                                // Transfer existing PlayerState to the new player_id,
+                                // so accumulated state (HP, inventory, location) is preserved.
+                                if let Some(mut transferred) = ss.players.remove(old) {
+                                    // Update character data from the (possibly restored) save
+                                    transferred.character_name = Some(character.core.name.as_str().to_string());
+                                    transferred.character_hp = character.core.hp;
+                                    transferred.character_max_hp = character.core.max_hp;
+                                    transferred.character_level = character.core.level as u32;
+                                    transferred.character_class = character.char_class.as_str().to_string();
+                                    transferred.inventory = inventory.clone();
+                                    transferred.character_xp = character.core.xp;
+                                    if let Some(ref cj) = *character_json_store {
+                                        transferred.character_json = Some(cj.clone());
+                                    }
+                                    ss.players.insert(player_id.to_string(), transferred);
+                                }
+                                // Update barrier roster: swap old player_id for new one
+                                if let Some(ref barrier) = ss.turn_barrier {
+                                    let _ = barrier.remove_player(old);
+                                }
+                                tracing::info!(
+                                    old_player_id = %old,
+                                    new_player_id = %player_id,
+                                    player_name = %connecting_name,
+                                    "Reconnect detected — transferred PlayerState to new connection"
+                                );
+                                WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                                    .field("event", "player_reconnect")
+                                    .field("old_player_id", old.as_str())
+                                    .field("new_player_id", player_id)
+                                    .field("player_name", connecting_name.as_str())
+                                    .send();
+                            }
+
+                            if !is_reconnect {
+                                let ps = shared_session::PlayerState::new(
+                                    connecting_name.clone(),
+                                );
+                                ss.players.insert(player_id.to_string(), ps);
+                                // Populate character data on the PlayerState
+                                if let Some(p) = ss.players.get_mut(player_id) {
+                                    p.character_name = Some(character.core.name.as_str().to_string());
+                                    p.character_hp = character.core.hp;
+                                    p.character_max_hp = character.core.max_hp;
+                                    p.character_level = character.core.level as u32;
+                                    p.character_class = character.char_class.as_str().to_string();
+                                    p.inventory = inventory.clone();
+                                    p.character_xp = character.core.xp;
+                                    if let Some(ref cj) = *character_json_store {
+                                        p.character_json = Some(cj.clone());
+                                    }
+                                }
+                                // Notify existing players that a new character has arrived
+                                let arrival_text = format!(
+                                    "{} has entered the scene.",
+                                    character.core.name.as_str()
+                                );
+                                let existing_pids: Vec<String> = ss
+                                    .players
+                                    .keys()
+                                    .filter(|pid| pid.as_str() != player_id)
+                                    .cloned()
+                                    .collect();
+                                for target_pid in &existing_pids {
+                                    ss.send_to_player(
+                                        GameMessage::Narration {
+                                            payload: NarrationPayload {
+                                                text: arrival_text.clone(),
+                                                state_delta: None,
+                                                footnotes: vec![],
+                                            },
+                                            player_id: target_pid.clone(),
                                         },
-                                        player_id: target_pid.clone(),
-                                    },
-                                    target_pid.clone(),
-                                );
-                                ss.send_to_player(
-                                    GameMessage::NarrationEnd {
-                                        payload: NarrationEndPayload { state_delta: None },
-                                        player_id: target_pid.clone(),
-                                    },
-                                    target_pid.clone(),
-                                );
+                                        target_pid.clone(),
+                                    );
+                                    ss.send_to_player(
+                                        GameMessage::NarrationEnd {
+                                            payload: NarrationEndPayload { state_delta: None },
+                                            player_id: target_pid.clone(),
+                                        },
+                                        target_pid.clone(),
+                                    );
+                                }
                             }
                             // Build and send targeted PARTY_STATUS to OTHER session members.
                             // The current player gets their PartyStatus from the opening
@@ -1329,7 +1522,7 @@ pub(crate) async fn dispatch_character_creation(
                                 .field("event", "session_joined")
                                 .field("session_key", format!("{}:{}", genre, world))
                                 .field("player_count", pc)
-                                .send(state);
+                                .send();
 
                             // Transition turn mode when a player joins
                             let old_mode = std::mem::take(&mut ss.turn_mode);
@@ -1436,5 +1629,25 @@ pub(crate) async fn dispatch_character_creation(
             player_id,
             &format!("Unexpected creation phase: {}", phase),
         )],
+    }
+}
+
+/// Build an AUDIO_CUE with action "configure" carrying genre-pack mixer volumes.
+/// Sent once on session connect so the frontend initializes per-genre channel levels.
+fn mixer_config_cue(mixer: &sidequest_genre::MixerConfig, player_id: &str) -> GameMessage {
+    GameMessage::AudioCue {
+        payload: AudioCuePayload {
+            mood: None,
+            music_track: None,
+            sfx_triggers: vec![],
+            channel: None,
+            action: Some("configure".to_string()),
+            volume: None,
+            music_volume: Some(mixer.music_volume as f32),
+            sfx_volume: Some(mixer.sfx_volume as f32),
+            voice_volume: Some(mixer.voice_volume as f32),
+            crossfade_ms: Some(mixer.crossfade_default_ms),
+        },
+        player_id: player_id.to_string(),
     }
 }

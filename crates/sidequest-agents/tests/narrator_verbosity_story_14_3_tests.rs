@@ -8,9 +8,9 @@
 //!
 //! ACs tested:
 //!   AC4: Narrator system prompt receives verbosity instruction
-//!     - Concise = "keep descriptions to 1-2 sentences"
-//!     - Standard = "standard descriptive prose"
-//!     - Verbose = "elaborate with sensory details and world-building"
+//!     - Concise = hard limit under 200 characters
+//!     - Standard = hard limit under 400 characters, 2-3 paragraphs
+//!     - Verbose = hard limit under 600 characters, richer detail
 //!   AC3: Default is Standard for multiplayer, Verbose for solo
 
 use sidequest_agents::prompt_framework::{
@@ -29,8 +29,8 @@ fn verbosity_concise_injects_short_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("1-2 sentences"),
-        "concise mode must instruct 1-2 sentence narration, got: {composed}"
+        composed.contains("under 200 characters"),
+        "concise mode must enforce 200 char limit, got: {composed}"
     );
 }
 
@@ -41,8 +41,8 @@ fn verbosity_standard_injects_standard_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("standard") || composed.contains("Standard"),
-        "standard mode must reference standard prose, got: {composed}"
+        composed.contains("2-3 short paragraphs") || composed.contains("400 characters"),
+        "standard mode must reference standard prose length limits, got: {composed}"
     );
 }
 
@@ -53,36 +53,36 @@ fn verbosity_verbose_injects_elaborate_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("sensory detail") || composed.contains("world-building") || composed.contains("elaborate"),
-        "verbose mode must instruct elaborate narration, got: {composed}"
+        composed.contains("sensory detail") || composed.contains("600 characters"),
+        "verbose mode must instruct elaborate narration with 600 char limit, got: {composed}"
     );
 }
 
 // =========================================================================
-// Verify section placement: Late zone (pacing-adjacent), Format category
+// Verify section placement: Recency zone (highest attention), Guardrail category
 // =========================================================================
 
 #[test]
-fn verbosity_section_placed_in_late_zone() {
+fn verbosity_section_placed_in_recency_zone() {
     let mut registry = PromptRegistry::new();
     registry.register_verbosity_section("narrator", NarratorVerbosity::Concise);
 
-    let sections = registry.get_sections("narrator", None, Some(AttentionZone::Late));
+    let sections = registry.get_sections("narrator", None, Some(AttentionZone::Recency));
     assert!(
         sections.iter().any(|s| s.name == "narrator_verbosity"),
-        "verbosity section should be in Late zone"
+        "verbosity section should be in Recency zone for maximum attention"
     );
 }
 
 #[test]
-fn verbosity_section_has_format_category() {
+fn verbosity_section_has_guardrail_category() {
     let mut registry = PromptRegistry::new();
     registry.register_verbosity_section("narrator", NarratorVerbosity::Standard);
 
-    let sections = registry.get_sections("narrator", Some(SectionCategory::Format), None);
+    let sections = registry.get_sections("narrator", Some(SectionCategory::Guardrail), None);
     assert!(
         sections.iter().any(|s| s.name == "narrator_verbosity"),
-        "verbosity section should have Format category"
+        "verbosity section should have Guardrail category"
     );
 }
 
@@ -97,7 +97,7 @@ fn verbosity_applies_to_creature_smith() {
 
     let composed = registry.compose("creature_smith");
     assert!(
-        composed.contains("1-2 sentences"),
+        composed.contains("under 200 characters"),
         "creature_smith should also receive verbosity instruction"
     );
 }
@@ -178,7 +178,7 @@ fn verbosity_composes_with_pacing_section() {
         "pacing section should be present"
     );
     assert!(
-        composed.contains("1-2 sentences"),
+        composed.contains("under 200 characters"),
         "verbosity section should be present alongside pacing"
     );
 }

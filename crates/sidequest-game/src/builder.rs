@@ -296,6 +296,26 @@ impl CharacterBuilder {
         &self.results
     }
 
+    /// Extract the character name from the name-entry scene (last scene with
+    /// no choices where the player typed freeform text).
+    pub fn character_name(&self) -> Option<&str> {
+        // The name scene is the last scene with no choices
+        if let Some(last_scene) = self.scenes.last() {
+            if last_scene.choices.is_empty() {
+                // Find the corresponding result (last result)
+                if let Some(result) = self.results.last() {
+                    if let SceneInputType::Freeform(ref text) = result.input_type {
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            return Some(trimmed);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Get the current hook prompt text, if awaiting followup.
     pub fn current_hook_prompt(&self) -> Option<&str> {
         match &self.phase {
@@ -436,7 +456,9 @@ impl CharacterBuilder {
         };
 
         let scene = &self.scenes[scene_index];
-        if scene.allows_freeform != Some(true) {
+        // Allow freeform for scenes that explicitly allow it OR for scenes with
+        // no choices (name-entry scenes at the end of chargen).
+        if scene.allows_freeform != Some(true) && !scene.choices.is_empty() {
             return Err(BuilderError::FreeformNotAllowed);
         }
 
@@ -597,12 +619,13 @@ impl CharacterBuilder {
             .enumerate()
             .map(|(i, hint)| {
                 let id_str = hint.to_lowercase().replace(' ', "_");
+                let display_name = humanize_snake_case(hint);
                 Item {
                     id: NonBlankString::new(&id_str)
                         .unwrap_or_else(|_| NonBlankString::new(&format!("item_{}", i)).unwrap()),
-                    name: NonBlankString::new(hint)
+                    name: NonBlankString::new(&display_name)
                         .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
-                    description: NonBlankString::new(&format!("Starting equipment: {}", hint))
+                    description: NonBlankString::new(&format!("Starting equipment: {}", display_name))
                         .unwrap(),
                     category: NonBlankString::new("weapon").unwrap(),
                     value: 10,
@@ -689,6 +712,20 @@ impl CharacterBuilder {
                     })
                     .collect();
 
+                // If this is the last scene and has no choices, it's a name-entry scene
+                let is_name_scene = choices.is_empty()
+                    && *scene_index == self.scenes.len() - 1;
+                let input_type = if is_name_scene {
+                    "name".to_string()
+                } else {
+                    "choice".to_string()
+                };
+                let allows_freeform = if is_name_scene {
+                    Some(true)
+                } else {
+                    scene.allows_freeform
+                };
+
                 GameMessage::CharacterCreation {
                     payload: CharacterCreationPayload {
                         phase: "scene".to_string(),
@@ -698,8 +735,8 @@ impl CharacterBuilder {
                         summary: None,
                         message: None,
                         choices: Some(choices),
-                        allows_freeform: scene.allows_freeform,
-                        input_type: Some("choice".to_string()),
+                        allows_freeform,
+                        input_type: Some(input_type),
                         loading_text: scene.loading_text.clone(),
                         character_preview: None,
                         choice: None,
@@ -728,24 +765,26 @@ impl CharacterBuilder {
             },
             BuilderPhase::Confirmation => {
                 let acc = self.accumulated();
-                let mut parts = vec![
-                    format!(
-                        "{}: {}",
-                        self.race_label,
-                        acc.race_hint.as_deref().unwrap_or("Unknown")
-                    ),
-                    format!(
-                        "{}: {}",
-                        self.class_label,
-                        acc.class_hint.as_deref().unwrap_or("Unknown")
-                    ),
-                    format!(
-                        "Personality: {}",
-                        acc.personality_trait.as_deref().unwrap_or("Unknown")
-                    ),
-                ];
+                let mut parts = Vec::new();
+                if let Some(name) = self.character_name() {
+                    parts.push(format!("Name: {}", name));
+                }
+                parts.push(format!(
+                    "{}: {}",
+                    self.race_label,
+                    acc.race_hint.as_deref().unwrap_or("Unknown")
+                ));
+                parts.push(format!(
+                    "{}: {}",
+                    self.class_label,
+                    acc.class_hint.as_deref().unwrap_or("Unknown")
+                ));
+                parts.push(format!(
+                    "Personality: {}",
+                    acc.personality_trait.as_deref().unwrap_or("Unknown")
+                ));
                 if let Some(ref m) = acc.mutation_hint {
-                    parts.push(format!("Mutation: {}", m));
+                    parts.push(format!("Mutation: {}", humanize_snake_case(m)));
                 }
                 if let Some(ref a) = acc.affinity_hint {
                     parts.push(format!("Affinity: {}", a));
@@ -757,7 +796,10 @@ impl CharacterBuilder {
                     parts.push(format!("Rig Trait: {}", rt));
                 }
                 if !acc.item_hints.is_empty() {
-                    parts.push(format!("Equipment: {}", acc.item_hints.join(", ")));
+                    let display_items: Vec<String> = acc.item_hints.iter()
+                        .map(|h| humanize_snake_case(h))
+                        .collect();
+                    parts.push(format!("Equipment: {}", display_items.join(", ")));
                 }
                 if let Some(bg) = &acc.background {
                     parts.push(format!("\nBackstory: {}", bg));
@@ -923,6 +965,25 @@ fn extract_hooks(scene_id: &str, effects: &MechanicalEffects) -> Vec<NarrativeHo
     }
 
     hooks
+}
+
+/// Convert a snake_case identifier to Title Case display name.
+/// E.g. "natural_armor" → "Natural Armor", "mystery_compass" → "Mystery Compass".
+fn humanize_snake_case(s: &str) -> String {
+    s.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(c) => {
+                    let mut result = c.to_uppercase().to_string();
+                    result.extend(chars);
+                    result
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn extract_anchors(scene_id: &str, effects: &MechanicalEffects) -> Vec<LoreAnchor> {

@@ -48,7 +48,7 @@ pub(crate) async fn process_combat_and_chase(
             .filter(|n| !n.eq_ignore_ascii_case(ctx.char_name))
             .count())
         .field("damage_log_len", ctx.combat_state.damage_log().len())
-        .send(ctx.state);
+        .send();
 
     if now_in_combat {
         ctx.combat_state.tick_effects();
@@ -72,7 +72,7 @@ pub(crate) async fn process_combat_and_chase(
                 .field("action", "status_effects_active")
                 .field("effects", &active_effects)
                 .field("effect_count", active_effects.len())
-                .send(ctx.state);
+                .send();
         }
     }
 

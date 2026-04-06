@@ -8,7 +8,7 @@
 //! The narrator treats game_state as world truth and uses pool names naturally.
 //! No XML casting tags, no meta-instructions. World data in the world data section.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -207,55 +207,77 @@ impl MonsterManual {
 
     // ── Formatting for game_state injection ─────────────────
 
-    /// Format all non-Dormant NPCs for injection into the `<game_state>` section.
+    /// Format location-relevant NPCs for injection into the `<game_state>` section.
     ///
-    /// Each NPC includes their anchored location (if activated) so the narrator
-    /// can decide whether they're relevant to the current scene. No server-side
-    /// filtering — the room graph and narrator handle proximity.
-    pub fn format_nearby_npcs(&self) -> String {
-        let relevant: Vec<_> = self.npcs.iter()
-            .filter(|n| n.state != EntryState::Dormant)
+    /// Only includes NPCs that are:
+    /// - Active at the current location (full profile with personality + speech)
+    /// - Available but not yet encountered (name + role only, max 3)
+    ///
+    /// Dormant NPCs at other locations are omitted entirely — the narrator
+    /// doesn't need the full world roster to narrate the current scene.
+    pub fn format_nearby_npcs(&self, current_location: &str) -> String {
+        let loc_lower = current_location.to_lowercase();
+
+        // Active NPCs at current location → full profiles
+        let at_location: Vec<_> = self.npcs.iter()
+            .filter(|n| n.state == EntryState::Active)
+            .filter(|n| n.activated_location.as_ref()
+                .map(|l| l.to_lowercase().contains(&loc_lower) || loc_lower.contains(&l.to_lowercase()))
+                .unwrap_or(true)) // Active with no location → assume present
             .collect();
-        if relevant.is_empty() {
+
+        // Available NPCs → name-only, capped at 3 so the narrator knows who exists
+        let available: Vec<_> = self.npcs.iter()
+            .filter(|n| n.state == EntryState::Available)
+            .take(3)
+            .collect();
+
+        if at_location.is_empty() && available.is_empty() {
             return String::new();
         }
 
-        let mut lines = vec!["Known NPCs in this world:".to_string()];
-        for npc in &relevant {
-            let ocean_summary = npc.data.get("ocean_summary")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let quirks: Vec<&str> = npc.data.get("dialogue_quirks")
-                .and_then(|v| v.as_array())
-                .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(2).collect())
-                .unwrap_or_default();
-            let quirk_str = if quirks.is_empty() {
-                String::new()
-            } else {
-                format!("\n    Speech: {}", quirks.join("; "))
-            };
-            let location_str = match (&npc.state, &npc.activated_location) {
-                (EntryState::Active, Some(loc)) => format!(" [at {}]", loc),
-                (EntryState::Active, None) => " [active, location unknown]".to_string(),
-                _ => " [not yet encountered]".to_string(),
-            };
-            lines.push(format!(
-                "  - {} ({}, {}){} — {}{}",
-                npc.name, npc.role, npc.culture, location_str, ocean_summary, quirk_str
-            ));
+        let mut lines = Vec::new();
+
+        if !at_location.is_empty() {
+            lines.push("NPCs present at this location:".to_string());
+            for npc in &at_location {
+                let ocean_summary = npc.data.get("ocean_summary")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let quirks: Vec<&str> = npc.data.get("dialogue_quirks")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(2).collect())
+                    .unwrap_or_default();
+                let quirk_str = if quirks.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n    Speech: {}", quirks.join("; "))
+                };
+                lines.push(format!(
+                    "  - {} ({}, {}) — {}{}",
+                    npc.name, npc.role, npc.culture, ocean_summary, quirk_str
+                ));
+            }
         }
+
+        if !available.is_empty() {
+            let names: Vec<String> = available.iter()
+                .map(|n| format!("{} ({})", n.name, n.role))
+                .collect();
+            lines.push(format!("Other known NPCs: {}", names.join(", ")));
+        }
+
         lines.join("\n")
     }
 
-    /// Format Available encounters for injection into `<game_state>`.
+    /// Format encounters for injection into `<game_state>`.
     ///
-    /// Output looks like:
-    /// ```text
-    /// Hostile creatures in the area:
-    ///   - Salt Burrower (tier 2, HP 14) — eyeless ambush predator
-    ///     Abilities: Burrow Ambush, Mandible Crush. Weakness: bright light, fire.
-    /// ```
-    pub fn format_area_creatures(&self) -> String {
+    /// When `in_combat` is true, includes full stat blocks (abilities + weaknesses)
+    /// for all available encounters — the narrator needs them for combat resolution.
+    ///
+    /// When not in combat, includes only name + tier for at most 2 encounters.
+    /// The narrator doesn't need 8 creature stat blocks to describe a marketplace.
+    pub fn format_area_creatures(&self, in_combat: bool) -> String {
         let available: Vec<_> = self.encounters.iter()
             .filter(|e| e.state == EntryState::Available)
             .collect();
@@ -264,7 +286,8 @@ impl MonsterManual {
         }
 
         let mut lines = vec!["Hostile creatures in the area:".to_string()];
-        for enc in &available {
+        let limit = if in_combat { available.len() } else { 2 };
+        for enc in available.iter().take(limit) {
             if let Some(enemies) = enc.data.get("enemies").and_then(|v| v.as_array()) {
                 for enemy in enemies {
                     let name = enemy.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
@@ -272,24 +295,27 @@ impl MonsterManual {
                     let tier_label = enemy.get("tier_label").and_then(|v| v.as_str()).unwrap_or("?");
                     let hp = enemy.get("hp").and_then(|v| v.as_u64()).unwrap_or(0);
                     let role = enemy.get("role").and_then(|v| v.as_str()).unwrap_or("");
-                    let abilities: Vec<&str> = enemy.get("abilities")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(3).collect())
-                        .unwrap_or_default();
-                    let weaknesses: Vec<&str> = enemy.get("weaknesses")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(2).collect())
-                        .unwrap_or_default();
                     lines.push(format!(
                         "  - {} ({}, {}, HP {}) — {}",
                         name, class, tier_label, hp, role
                     ));
-                    if !abilities.is_empty() || !weaknesses.is_empty() {
-                        lines.push(format!(
-                            "    Abilities: {}. Weakness: {}.",
-                            abilities.join(", "),
-                            weaknesses.join(", ")
-                        ));
+                    // Full stat blocks only during combat
+                    if in_combat {
+                        let abilities: Vec<&str> = enemy.get("abilities")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(3).collect())
+                            .unwrap_or_default();
+                        let weaknesses: Vec<&str> = enemy.get("weaknesses")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(2).collect())
+                            .unwrap_or_default();
+                        if !abilities.is_empty() || !weaknesses.is_empty() {
+                            lines.push(format!(
+                                "    Abilities: {}. Weakness: {}.",
+                                abilities.join(", "),
+                                weaknesses.join(", ")
+                            ));
+                        }
                     }
                 }
             }
@@ -401,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn format_nearby_npcs_output() {
+    fn format_nearby_npcs_filters_by_location() {
         let mut manual = MonsterManual::new("mutant_wasteland", "flickering_reach");
         manual.add_npc(serde_json::json!({
             "name": "Krag Dustwelder",
@@ -410,16 +436,32 @@ mod tests {
             "ocean_summary": "blunt and competitive",
             "dialogue_quirks": ["quotes prices", "mentions danger casually"]
         }), vec![]);
+        manual.add_npc(serde_json::json!({
+            "name": "Zara Volt",
+            "role": "trader",
+            "culture": "Vaultborn",
+            "ocean_summary": "calm and shrewd"
+        }), vec![]);
 
-        let output = manual.format_nearby_npcs();
-        assert!(output.contains("Known NPCs"));
+        // Mark Krag active at the hub
+        manual.mark_active("Krag Dustwelder", "The Hub");
+
+        // At the hub: should see Krag's full profile, Zara as available name-only
+        let output = manual.format_nearby_npcs("The Hub");
+        assert!(output.contains("NPCs present at this location"));
         assert!(output.contains("Krag Dustwelder"));
-        assert!(output.contains("mechanic"));
-        assert!(output.contains("quotes prices"));
+        assert!(output.contains("quotes prices")); // full profile for active
+        assert!(output.contains("Other known NPCs"));
+        assert!(output.contains("Zara Volt"));
+
+        // At a different location: Krag is active elsewhere, not included
+        let output2 = manual.format_nearby_npcs("The Market");
+        assert!(!output2.contains("Krag Dustwelder"));
+        assert!(output2.contains("Zara Volt")); // available name-only
     }
 
     #[test]
-    fn format_area_creatures_output() {
+    fn format_area_creatures_combat_vs_exploration() {
         let mut manual = MonsterManual::new("mutant_wasteland", "flickering_reach");
         manual.add_encounter(serde_json::json!({
             "enemies": [{
@@ -433,10 +475,17 @@ mod tests {
             }]
         }), 2, vec![]);
 
-        let output = manual.format_area_creatures();
+        // In combat: full stat blocks
+        let output = manual.format_area_creatures(true);
         assert!(output.contains("Hostile creatures"));
         assert!(output.contains("Salt Burrower"));
         assert!(output.contains("Burrow Ambush"));
         assert!(output.contains("bright light"));
+
+        // Not in combat: name + tier only, no abilities/weaknesses
+        let output2 = manual.format_area_creatures(false);
+        assert!(output2.contains("Salt Burrower"));
+        assert!(!output2.contains("Burrow Ambush"));
+        assert!(!output2.contains("bright light"));
     }
 }

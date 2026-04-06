@@ -122,19 +122,25 @@ impl PromptRegistry {
 
         let content = match verbosity {
             NarratorVerbosity::Concise => {
-                "[NARRATION LENGTH]\n\
-                 HARD LIMIT: Under 200 characters. 1-2 sentences max. \
-                 Action and consequence only. No scene-setting."
+                "<length-limit>\n\
+                 HARD LIMIT: 2-3 sentences, under 200 characters of prose. \
+                 Action and consequence only. No scene-setting. No paragraphs. \
+                 If your prose exceeds 200 characters, DELETE and rewrite shorter.\n\
+                 </length-limit>"
             }
             NarratorVerbosity::Standard => {
-                "[NARRATION LENGTH]\n\
-                 HARD LIMIT: Under 400 characters (~3-4 sentences). \
-                 One action, one scene beat. Balanced detail and pacing."
+                "<length-limit>\n\
+                 HARD LIMIT: 2-3 short paragraphs, under 400 characters of prose. \
+                 One action, one scene beat. If your prose exceeds 400 characters, \
+                 DELETE and rewrite shorter. Most turns should be 2-3 sentences.\n\
+                 </length-limit>"
             }
             NarratorVerbosity::Verbose => {
-                "[NARRATION LENGTH]\n\
-                 HARD LIMIT: Under 600 characters (~4-6 sentences). \
-                 Richer atmosphere and sensory detail, but still concise."
+                "<length-limit>\n\
+                 HARD LIMIT: 2-3 paragraphs, under 600 characters of prose. \
+                 Richer atmosphere and sensory detail, but still concise. \
+                 If your prose exceeds 600 characters, DELETE and rewrite shorter.\n\
+                 </length-limit>"
             }
         };
 
@@ -143,8 +149,8 @@ impl PromptRegistry {
             PromptSection::new(
                 "narrator_verbosity",
                 content,
-                AttentionZone::Late,
-                SectionCategory::Format,
+                AttentionZone::Recency,
+                SectionCategory::Guardrail,
             ),
         );
     }

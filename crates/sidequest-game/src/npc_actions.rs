@@ -200,7 +200,7 @@ fn weighted_select(options: &[(NpcAction, f32)], rng: &mut impl Rng) -> NpcActio
         return NpcAction::ActNormal;
     }
 
-    let mut roll: f32 = rng.gen::<f32>() * total_weight;
+    let mut roll: f32 = rng.random::<f32>() * total_weight;
     for (action, weight) in options {
         roll -= weight;
         if roll <= 0.0 {

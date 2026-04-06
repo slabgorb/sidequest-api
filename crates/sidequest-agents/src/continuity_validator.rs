@@ -1,6 +1,6 @@
 //! LLM-based continuity validation — replaces keyword substring matching.
 //!
-//! Uses a Haiku classification call to detect contradictions between narrator
+//! Uses a Sonnet classification call to detect contradictions between narrator
 //! prose and canonical game state. Returns structured ContradictionCategory
 //! results that feed into the next turn's prompt corrections.
 
@@ -11,13 +11,13 @@ use tracing::{info, warn};
 
 use crate::client::ClaudeClient;
 
-/// Haiku model for fast validation.
-const HAIKU_MODEL: &str = "haiku";
+/// Sonnet model for reliable validation (Haiku produced too many false positives).
+const SONNET_MODEL: &str = "sonnet";
 
 /// Timeout — validation must not block the game loop.
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Validate narrator text against game state using Haiku classification.
+/// Validate narrator text against game state using Sonnet classification.
 ///
 /// Returns a `ValidationResult` with any contradictions found. On LLM failure,
 /// returns an empty result (no corrections) rather than blocking.
@@ -27,15 +27,23 @@ pub fn validate_continuity_llm(
     dead_npcs: &[String],
     inventory_items: &[String],
     time_of_day: &str,
+    character_description: &str,
 ) -> ValidationResult {
+    let prompt = build_validation_prompt(narration, location, dead_npcs, inventory_items, time_of_day, character_description);
+
+    // Fast path: if the prompt builder found no state facts worth checking,
+    // skip the LLM call entirely (~15-22s saved per turn).
+    if prompt.is_empty() {
+        info!("continuity.skipped — no state facts to validate");
+        return ValidationResult::default();
+    }
+
     let client = ClaudeClient::with_timeout(VALIDATE_TIMEOUT);
 
-    let prompt = build_validation_prompt(narration, location, dead_npcs, inventory_items, time_of_day);
-
-    let span = tracing::info_span!("continuity.llm_validation", model = HAIKU_MODEL);
+    let span = tracing::info_span!("continuity.llm_validation", model = SONNET_MODEL);
     let result = {
         let _guard = span.enter();
-        client.send_with_model(&prompt, HAIKU_MODEL)
+        client.send_with_model(&prompt, SONNET_MODEL)
     };
 
     match result {
@@ -69,15 +77,17 @@ pub async fn validate_continuity_llm_async(
     dead_npcs: &[String],
     inventory_items: &[String],
     time_of_day: &str,
+    character_description: &str,
 ) -> ValidationResult {
     let narration = narration.to_string();
     let location = location.to_string();
     let dead_npcs = dead_npcs.to_vec();
     let inventory_items = inventory_items.to_vec();
     let time_of_day = time_of_day.to_string();
+    let character_description = character_description.to_string();
 
     match tokio::task::spawn_blocking(move || {
-        validate_continuity_llm(&narration, &location, &dead_npcs, &inventory_items, &time_of_day)
+        validate_continuity_llm(&narration, &location, &dead_npcs, &inventory_items, &time_of_day, &character_description)
     })
     .await
     {
@@ -95,6 +105,7 @@ fn build_validation_prompt(
     dead_npcs: &[String],
     inventory_items: &[String],
     time_of_day: &str,
+    character_description: &str,
 ) -> String {
     let mut state_facts = Vec::new();
 
@@ -109,6 +120,9 @@ fn build_validation_prompt(
     }
     if !time_of_day.is_empty() {
         state_facts.push(format!("Time of day: {time_of_day}"));
+    }
+    if !character_description.is_empty() {
+        state_facts.push(format!("Character description (physical traits, mutations, innate features — NOT inventory): {character_description}"));
     }
 
     if state_facts.is_empty() {
@@ -135,14 +149,14 @@ If there are NO contradictions, respond with an empty array: []
 IMPORTANT:
 - The narrator does NOT need to explicitly name the location every turn. Only flag if the narration describes being in a DIFFERENT place.
 - A dead NPC being MENTIONED is fine (memories, references). Flag only if they ACT, SPEAK, or are described as alive.
-- Inventory: only flag if the narration has the player USING an item they don't possess.
+- Inventory: only flag if the narration has the player USING an item they don't possess. Do NOT flag character mutations, physical traits, innate abilities, or bodily features (e.g., "chitinous armor", "bioluminescent markings") as missing inventory — these are part of the character's body, not carried items.
 - Time: only flag if narration describes daylight during night or vice versa."#,
         state_facts.join("\n"),
         narration
     )
 }
 
-/// Parse the Haiku response into Contradiction structs.
+/// Parse the Sonnet response into Contradiction structs.
 fn parse_validation_response(response: &str) -> Option<Vec<Contradiction>> {
     // Try direct parse
     if let Ok(entries) = serde_json::from_str::<Vec<RawContradiction>>(response) {
@@ -230,16 +244,19 @@ mod tests {
             &["Gork".to_string()],
             &["Rusty Sword".to_string()],
             "night",
+            "A mutant with chitinous armor patches",
         );
         assert!(prompt.contains("The Rusty Tankard"));
         assert!(prompt.contains("Gork"));
         assert!(prompt.contains("Rusty Sword"));
         assert!(prompt.contains("night"));
+        assert!(prompt.contains("chitinous armor patches"));
+        assert!(prompt.contains("NOT inventory"));
     }
 
     #[test]
     fn prompt_skips_empty_facts() {
-        let prompt = build_validation_prompt("test", "", &[], &[], "");
+        let prompt = build_validation_prompt("test", "", &[], &[], "", "");
         assert!(prompt.is_empty());
     }
 }

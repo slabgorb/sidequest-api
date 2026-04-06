@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (watcher_tx, watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let mut orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
+    let orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
 
     // ADR-059: Tool binaries are now called server-side by dispatch/pregen.rs,
     // not registered on the orchestrator for narrator tool calls.
@@ -79,10 +79,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Spawn the turn record bridge — receives TurnRecords from the orchestrator (hot path)
     // and broadcasts them as WatcherEvents to the GM dashboard (cold path).
-    let bridge_state = state.clone();
     tokio::spawn(async move {
-        turn_record_bridge(watcher_rx, bridge_state).await;
+        turn_record_bridge(watcher_rx).await;
     });
+
+    // Spawn history capture — subscribes to the global telemetry channel and
+    // stores events for replay to late-connecting GM panels.
+    {
+        let history_state = state.clone();
+        let mut history_rx = state.subscribe_watcher();
+        tokio::spawn(async move {
+            while let Ok(event) = history_rx.recv().await {
+                history_state.store_watcher_event(event);
+            }
+        });
+    }
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -101,7 +112,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// becomes visible to the GM dashboard.
 async fn turn_record_bridge(
     mut rx: tokio::sync::mpsc::Receiver<TurnRecord>,
-    state: AppState,
 ) {
     tracing::info!("turn record bridge started, awaiting TurnRecords");
 
@@ -154,7 +164,7 @@ async fn turn_record_bridge(
         if record.is_degraded {
             builder = builder.severity(Severity::Warn);
         }
-        builder.send(&state);
+        builder.send();
     }
 
     tracing::info!("turn record bridge shutting down (channel closed)");

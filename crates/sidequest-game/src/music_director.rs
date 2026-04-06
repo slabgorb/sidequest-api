@@ -568,7 +568,7 @@ impl MusicDirector {
         if let Some(theme) = self.find_matching_faction_theme(faction_ctx) {
             let track_path = theme.track.path.clone();
             let faction_id = theme.faction_id.clone();
-            let action = Self::transition_action(self.current_mood.as_ref(), &MoodKey::COMBAT);
+            let _action = Self::transition_action(self.current_mood.as_ref(), &MoodKey::COMBAT);
             let cue = AudioCue {
                 channel: AudioChannel::Music,
                 action: AudioAction::FadeIn,

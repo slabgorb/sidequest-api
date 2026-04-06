@@ -89,7 +89,7 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
         WatcherEventBuilder::new("game", WatcherEventType::AgentSpanClose)
             .field("slash_command", ctx.action)
             .field("result_len", text.len())
-            .send(ctx.state);
+            .send();
 
         return Some(vec![
             GameMessage::Narration {

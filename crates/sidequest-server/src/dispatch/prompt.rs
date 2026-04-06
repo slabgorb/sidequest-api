@@ -51,7 +51,7 @@ pub(crate) async fn build_prompt_context(
                 WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
                     .field("event", "trope_activated")
                     .field("trope_id", id)
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -145,6 +145,30 @@ pub(crate) async fn build_prompt_context(
                         " Co-located: {}.",
                         co_located_names.join(", ")
                     ));
+                    // Enrich with mechanical context for co-located PCs so the narrator
+                    // can write mechanically-aware party interactions.
+                    let co_located_pids = ss.co_located_players(ctx.player_id);
+                    for pid in &co_located_pids {
+                        if let Some(ps) = ss.players.get(pid.as_str()) {
+                            if let Some(ref name) = ps.character_name {
+                                state_summary.push_str(&format!(
+                                    "\n  {} — {} Lv{}, HP {}/{}",
+                                    name,
+                                    if ps.character_class.is_empty() { "Unknown" } else { &ps.character_class },
+                                    ps.character_level,
+                                    ps.character_hp,
+                                    ps.character_max_hp,
+                                ));
+                            }
+                        }
+                    }
+
+                    // OTEL: party context injection
+                    crate::WatcherEventBuilder::new("party_context", crate::WatcherEventType::StateTransition)
+                        .field("event", "party_context_injected")
+                        .field("co_located_count", co_located_pids.len())
+                        .field("co_located_names", co_located_names.join(", ").as_str())
+                        .send();
                 }
             }
             // PC roster for the agency constraint — always includes the active player.
@@ -280,7 +304,7 @@ pub(crate) async fn build_prompt_context(
                     .field("event", "rag.known_facts_injected")
                     .field("injected", relevant.len())
                     .field("total", facts.len())
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -322,7 +346,7 @@ pub(crate) async fn build_prompt_context(
                 .field("beat", enc.beat)
                 .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
                 .field("hint_count", enc.narrator_hints.len())
-                .send(ctx.state);
+                .send();
             state_summary.push_str(&format!(
                 "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
                 enc.encounter_type,
@@ -432,6 +456,8 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inject known locations so the narrator uses canonical place names
+    // Only current location + discovered regions — the narrator doesn't need
+    // the full world atlas to narrate the current scene.
     if !ctx.discovered_regions.is_empty() {
         state_summary.push_str("\n\nKNOWN LOCATIONS IN THIS WORLD:\n");
         state_summary.push_str("Use ONLY these location names when referring to places the party has visited or heard about. Do NOT invent new settlement names.\n");
@@ -439,26 +465,47 @@ pub(crate) async fn build_prompt_context(
             state_summary.push_str(&format!("- {}\n", region));
         }
     }
-    // Also inject cartography region names from the shared session (if available)
+    // Inject unvisited cartography locations, filtered by adjacency when a world
+    // graph is available. Without a graph, cap at 5 to avoid dumping the full atlas.
     {
         let holder = ctx.shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
             if !ss.region_names.is_empty() {
-                if ctx.discovered_regions.is_empty() {
-                    state_summary.push_str("\n\nWORLD LOCATIONS (from cartography):\n");
-                    state_summary
-                        .push_str("Use these canonical location names. Do NOT invent new ones.\n");
-                } else {
-                    state_summary.push_str("Additional world locations (not yet visited):\n");
-                }
-                for (region_id, _display_name) in &ss.region_names {
-                    if !ctx
-                        .discovered_regions
+                // Collect undiscovered region IDs
+                let undiscovered: Vec<&str> = ss.region_names.iter()
+                    .filter(|(region_id, _)| !ctx.discovered_regions
                         .iter()
-                        .any(|r| r.to_lowercase() == *region_id)
-                    {
-                        state_summary.push_str(&format!("- {}\n", region_id));
+                        .any(|r| r.to_lowercase() == *region_id))
+                    .map(|(region_id, _)| region_id.as_str())
+                    .collect();
+
+                if !undiscovered.is_empty() {
+                    // Filter by adjacency if world graph is available
+                    let filtered: Vec<&str> = if let Some(ref wg) = ctx.world_graph {
+                        let neighbors: Vec<&str> = wg.neighbors(&ctx.current_location).collect();
+                        undiscovered.into_iter()
+                            .filter(|r| neighbors.iter().any(|n| {
+                                n.to_lowercase() == r.to_lowercase()
+                                    || n.to_lowercase().contains(&r.to_lowercase())
+                                    || r.to_lowercase().contains(&n.to_lowercase())
+                            }))
+                            .collect()
+                    } else {
+                        // No graph — cap at 5 nearest (by order in the list)
+                        undiscovered.into_iter().take(5).collect()
+                    };
+
+                    if !filtered.is_empty() {
+                        if ctx.discovered_regions.is_empty() {
+                            state_summary.push_str("\n\nNEARBY LOCATIONS (from cartography):\n");
+                            state_summary.push_str("Use these canonical location names. Do NOT invent new ones.\n");
+                        } else {
+                            state_summary.push_str("Nearby locations (not yet visited):\n");
+                        }
+                        for region_id in &filtered {
+                            state_summary.push_str(&format!("- {}\n", region_id));
+                        }
                     }
                 }
             }
@@ -483,7 +530,7 @@ pub(crate) async fn build_prompt_context(
                 .field("mode", "room_graph")
                 .field("current_room", &current_room.id)
                 .field("exit_count", current_room.exits.len())
-                .send(ctx.state);
+                .send();
         }
     }
 
@@ -493,10 +540,14 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inject tone context from narrative axes (story F2/F10)
-    if let Some(ref ac) = ctx.axes_config {
-        let tone_text = sidequest_game::format_tone_context(ac, ctx.axis_values);
-        if !tone_text.is_empty() {
-            state_summary.push_str(&tone_text);
+    // Tone directives are static — only inject on first 3 turns (establishing session).
+    // After that they're in conversation history via the persistent narrator session.
+    if turn_number <= 3 {
+        if let Some(ref ac) = ctx.axes_config {
+            let tone_text = sidequest_game::format_tone_context(ac, ctx.axis_values);
+            if !tone_text.is_empty() {
+                state_summary.push_str(&tone_text);
+            }
         }
     }
 
@@ -528,7 +579,7 @@ pub(crate) async fn build_prompt_context(
                 .field("count", all_abilities.len())
                 .field("tiers_active", tiers_active)
                 .field("ability_names", all_abilities.join(", "))
-                .send(ctx.state);
+                .send();
             tracing::info!(
                 count = all_abilities.len(),
                 tiers_active = tiers_active,
@@ -623,7 +674,7 @@ pub(crate) async fn build_prompt_context(
             .field("query_hint", ctx.current_location.as_str())
             .field("fallback_to_keyword", fallback_to_keyword)
             .field("selected_count", selected.len())
-            .send(ctx.state);
+            .send();
 
         // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
         let lore_summary = sidequest_game::summarize_lore_retrieval(
@@ -641,7 +692,7 @@ pub(crate) async fn build_prompt_context(
             .field("rejected", &lore_summary.rejected)
             .field("total_fragments", lore_summary.total_fragments)
             .field_opt("context_hint", &lore_summary.context_hint)
-            .send(ctx.state);
+            .send();
 
         if !selected.is_empty() {
             let lore_text = sidequest_game::format_lore_context(&selected);
@@ -679,7 +730,7 @@ pub(crate) async fn build_prompt_context(
                     .field("vocab_count", lang_fragments.len())
                     .field("language_count", language_ids.len())
                     .field("languages", language_ids.join(", "))
-                    .send(ctx.state);
+                    .send();
 
                 tracing::info!(
                     vocab_count = lang_fragments.len(),
@@ -687,6 +738,16 @@ pub(crate) async fn build_prompt_context(
                     "conlang.knowledge_injected_to_prompt"
                 );
             }
+        }
+    }
+
+    // Story 15-19: Inject genre pack name banks for narrator reference.
+    // Provides pre-generated conlang names the narrator can use for consistency.
+    for bank in &ctx.name_banks {
+        let bank_text = sidequest_game::format_name_bank_for_prompt(bank, 20);
+        if !bank_text.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&bank_text);
         }
     }
 
@@ -706,7 +767,7 @@ pub(crate) async fn build_prompt_context(
                 .field("danger_level", beat.terrain_danger)
                 .field("camera", format!("{:?}", cine.camera))
                 .field("sentence_range", format!("{}-{}", cine.sentence_range.0, cine.sentence_range.1))
-                .send(ctx.state);
+                .send();
 
             tracing::info!(
                 phase = ?beat.phase,
@@ -736,7 +797,7 @@ pub(crate) async fn build_prompt_context(
         .field("references_ability", relevance.references_ability)
         .field("references_npc", relevance.references_npc)
         .field("references_location", relevance.references_location)
-        .send(ctx.state);
+        .send();
 
     state_summary
 }

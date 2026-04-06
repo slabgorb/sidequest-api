@@ -187,5 +187,6 @@ pub fn assemble_turn(
         // Preprocessor values always win — narrator's action_rewrite/action_flags are discarded
         action_rewrite: Some(rewrite),
         action_flags: Some(flags),
+        prompt_tier: String::new(),
     }
 }

@@ -35,7 +35,7 @@ pub(crate) async fn apply_state_mutations(
             .field("current_turn", &combat_patch.current_turn)
             .field("drama_weight", &combat_patch.drama_weight)
             .field("advance_round", combat_patch.advance_round)
-            .send(ctx.state);
+            .send();
         let was_in_combat = ctx.combat_state.in_combat();
 
         // Combat start → engage() with player + NPCs from the patch (not all known NPCs)
@@ -71,7 +71,7 @@ pub(crate) async fn apply_state_mutations(
                     .field("turn_order", ctx.combat_state.turn_order())
                     .field("current_turn", ctx.combat_state.current_turn())
                     .field("combatant_count", ctx.combat_state.turn_order().len())
-                    .send(ctx.state);
+                    .send();
 
                 // Register combatants in npc_registry so the CombatOverlay
                 // enemies list can look them up. Without this, enemies array
@@ -106,6 +106,7 @@ pub(crate) async fn apply_state_mutations(
                             ocean: None,
                             hp: 10,
                             max_hp: 10,
+                            portrait_url: None,
                         });
                         tracing::info!(
                             npc_name = %name,
@@ -149,7 +150,7 @@ pub(crate) async fn apply_state_mutations(
                 tracing::info!("combat.disengaged");
                 WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
                     .field("action", "combat_ended")
-                    .send(ctx.state);
+                    .send();
 
                 // Turn mode transition: Structured → FreePlay
                 let holder = ctx.shared_session_holder.lock().await;
@@ -188,7 +189,7 @@ pub(crate) async fn apply_state_mutations(
                         .field("old_hp", old_hp)
                         .field("new_hp", *ctx.hp)
                         .field("max_hp", *ctx.max_hp)
-                        .send(ctx.state);
+                        .send();
                 } else if let Some(npc) = ctx.npc_registry.iter_mut().find(|n| n.name.to_lowercase() == target_lower) {
                     // Initialize NPC max_hp on first damage if not yet set
                     if npc.max_hp == 0 {
@@ -208,7 +209,7 @@ pub(crate) async fn apply_state_mutations(
                         .field("old_hp", old_npc_hp)
                         .field("new_hp", npc.hp)
                         .field("max_hp", npc.max_hp)
-                        .send(ctx.state);
+                        .send();
                 }
             }
         }
@@ -232,7 +233,7 @@ pub(crate) async fn apply_state_mutations(
                             .field("action", "combatant_killed")
                             .field("npc", dead)
                             .field("remaining_combatants", ctx.combat_state.turn_order().len())
-                            .send(ctx.state);
+                            .send();
                     }
                 }
             }
@@ -258,7 +259,7 @@ pub(crate) async fn apply_state_mutations(
                         .field("action", "turn_order_merged")
                         .field("turn_order", ctx.combat_state.turn_order())
                         .field("combatant_count", ctx.combat_state.turn_order().len())
-                        .send(ctx.state);
+                        .send();
                 }
             }
             if let Some(ref turn) = combat_patch.current_turn {
@@ -282,7 +283,7 @@ pub(crate) async fn apply_state_mutations(
                 .field("round", ctx.combat_state.round())
                 .field("current_turn", ctx.combat_state.current_turn())
                 .field("turn_order", ctx.combat_state.turn_order())
-                .send(ctx.state);
+                .send();
 
             // NPC turns — resolve attacks for each NPC until it's the player's turn again.
             // Without this, combat is an asskicking simulator: the player attacks every turn
@@ -329,7 +330,7 @@ pub(crate) async fn apply_state_mutations(
                             .field("damage", event.damage)
                             .field("target_hp_after", *ctx.hp)
                             .field("round", event.round)
-                            .send(ctx.state);
+                            .send();
                         tracing::info!(
                             attacker = %event.attacker,
                             target = %event.target,
@@ -346,7 +347,7 @@ pub(crate) async fn apply_state_mutations(
                             .field("cause", "combat_damage")
                             .field("final_hp", *ctx.hp)
                             .field("round", ctx.combat_state.round())
-                            .send(ctx.state);
+                            .send();
                         tracing::warn!(
                             hp = *ctx.hp,
                             round = ctx.combat_state.round(),
@@ -370,7 +371,7 @@ pub(crate) async fn apply_state_mutations(
                             .field("action", "combat_outcome")
                             .field("outcome", format!("{:?}", outcome))
                             .field("round", ctx.combat_state.round())
-                            .send(ctx.state);
+                            .send();
                         tracing::info!(outcome = ?outcome, "combat.outcome_reached");
                         ctx.combat_state.disengage();
                         break;
@@ -400,7 +401,7 @@ pub(crate) async fn apply_state_mutations(
                 WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
                     .field("action", "chase_started")
                     .field("chase_type", format!("{:?}", chase_type))
-                    .send(ctx.state);
+                    .send();
             } else if !in_chase && ctx.chase_state.is_some() {
                 // Resolve chase
                 if let Some(ref cs) = ctx.chase_state {
@@ -409,7 +410,7 @@ pub(crate) async fn apply_state_mutations(
                         .field("action", "chase_resolved")
                         .field("rounds", cs.round())
                         .field("final_separation", cs.separation())
-                        .send(ctx.state);
+                        .send();
                 }
                 *ctx.chase_state = None;
             }
@@ -443,7 +444,7 @@ pub(crate) async fn apply_state_mutations(
                 .field("round", cs.round())
                 .field("separation", cs.separation())
                 .field_opt("separation_delta", &chase_patch.separation_delta)
-                .send(ctx.state);
+                .send();
 
             // Auto-resolve: mark as resolved but keep state alive for audio mood.
             // Chase state is only cleared when narrator explicitly sends in_chase: false.
@@ -454,7 +455,7 @@ pub(crate) async fn apply_state_mutations(
                 WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
                     .field("action", "chase_auto_resolved")
                     .field("note", "state retained — awaiting narrator in_chase=false to clear")
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -638,7 +639,7 @@ pub(crate) async fn apply_state_mutations(
                             .field("item", &tx.item_name)
                             .field("price", tx.price)
                             .field("merchant", &requests[i].merchant_name)
-                            .send(ctx.state);
+                            .send();
                         tracing::info!(
                             item = %tx.item_name,
                             price = tx.price,
@@ -729,7 +730,7 @@ pub(crate) async fn apply_state_mutations(
                 .field("item_name", &item_def.name)
                 .field("category", &valid_cat)
                 .field("inventory_size", ctx.inventory.items.len())
-                .send(ctx.state);
+                .send();
         }
     }
 
@@ -764,7 +765,7 @@ pub(crate) async fn apply_state_mutations(
                         builder = builder.field("thresholds_crossed",
                             patch_result.crossed_thresholds.iter().map(|t| t.event_id.clone()).collect::<Vec<_>>());
                     }
-                    builder.send(ctx.state);
+                    builder.send();
                     tracing::info!(
                         resource = %name,
                         delta = %delta,
