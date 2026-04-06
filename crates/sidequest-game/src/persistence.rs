@@ -771,7 +771,26 @@ impl PersistenceWorker {
         match cmd {
             PersistenceCommand::Save { genre_slug, world_slug, player_name, snapshot, reply } => {
                 let _span = tracing::info_span!("persistence_save", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
-                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.save(&snapshot));
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| {
+                    store.save(&snapshot)?;
+                    // Story 26-6: Archive scenario state alongside main snapshot.
+                    if let Some(ref scenario) = snapshot.scenario_state {
+                        let session_id = format!("{}/{}/{}", genre_slug, world_slug, player_name);
+                        let versioned = crate::scenario_archiver::VersionedScenario {
+                            version: crate::scenario_archiver::SCENARIO_FORMAT_VERSION,
+                            state: scenario.clone(),
+                        };
+                        match serde_json::to_string(&versioned) {
+                            Ok(json) => {
+                                if let Err(e) = store.save_scenario(&session_id, &json) {
+                                    tracing::warn!(error = %e, "Failed to archive scenario state");
+                                }
+                            }
+                            Err(e) => tracing::warn!(error = %e, "Failed to serialize scenario state"),
+                        }
+                    }
+                    Ok(())
+                });
                 match &result {
                     Ok(()) => tracing::info!("Session saved"),
                     Err(e) => tracing::warn!(error = %e, "Save failed"),
@@ -780,7 +799,34 @@ impl PersistenceWorker {
             }
             PersistenceCommand::Load { genre_slug, world_slug, player_name, reply } => {
                 let _span = tracing::info_span!("persistence_load", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
-                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.load());
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| {
+                    let mut saved = store.load()?;
+                    // Story 26-6: Restore scenario state from versioned archive.
+                    if let Some(ref mut session) = saved {
+                        let session_id = format!("{}/{}/{}", genre_slug, world_slug, player_name);
+                        match store.load_scenario(&session_id) {
+                            Ok(Some(json)) => {
+                                match serde_json::from_str::<crate::scenario_archiver::VersionedScenario>(&json) {
+                                    Ok(versioned) if versioned.version == crate::scenario_archiver::SCENARIO_FORMAT_VERSION => {
+                                        session.snapshot.scenario_state = Some(versioned.state);
+                                        tracing::info!("Scenario state restored from archive");
+                                    }
+                                    Ok(versioned) => {
+                                        tracing::warn!(
+                                            expected = crate::scenario_archiver::SCENARIO_FORMAT_VERSION,
+                                            found = versioned.version,
+                                            "Scenario archive version mismatch — skipping restore"
+                                        );
+                                    }
+                                    Err(e) => tracing::warn!(error = %e, "Failed to deserialize scenario archive"),
+                                }
+                            }
+                            Ok(None) => {} // No archived scenario — normal for non-scenario sessions
+                            Err(e) => tracing::warn!(error = %e, "Failed to load scenario archive"),
+                        }
+                    }
+                    Ok(saved)
+                });
                 match &result {
                     Ok(Some(_)) => tracing::info!("Session loaded"),
                     Ok(None) => tracing::debug!("No saved session found"),
