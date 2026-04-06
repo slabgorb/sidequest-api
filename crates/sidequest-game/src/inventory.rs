@@ -136,7 +136,7 @@ pub enum InventoryError {
     #[error("item not found: {0}")]
     NotFound(String),
     /// Adding item would exceed weight limit.
-    #[error("overweight: {current_weight} + {item_weight} exceeds limit {limit}")]
+    #[error("overweight: {current_weight:.1} + {item_weight:.1} exceeds limit {limit:.1}")]
     Overweight {
         /// Current total weight of carried items.
         current_weight: f64,

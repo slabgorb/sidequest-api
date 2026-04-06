@@ -119,6 +119,46 @@ pub(crate) struct DispatchContext<'a> {
     /// Name banks from genre pack conlang definitions (story 15-19).
     /// Injected into narrator prompt context for name consistency.
     pub name_banks: Vec<sidequest_game::NameBank>,
+    /// Inventory carry mode from genre pack (Count or Weight). Story 19-7.
+    pub carry_mode: sidequest_game::inventory::CarryMode,
+    /// Weight limit when carry_mode is Weight. Story 19-7.
+    pub weight_limit: Option<f64>,
+}
+
+impl<'a> DispatchContext<'a> {
+    /// Add an item respecting the genre pack's carry mode (story 19-7).
+    /// In Count mode, uses the hardcoded carry limit (50).
+    /// In Weight mode, checks against weight_limit from InventoryPhilosophy.
+    /// Add an item respecting the genre pack's carry mode (story 19-7).
+    /// In Count mode, uses the hardcoded carry limit (50).
+    /// In Weight mode, checks against weight_limit from InventoryPhilosophy.
+    pub fn add_item(&mut self, item: sidequest_game::Item) -> Result<(), sidequest_game::inventory::InventoryError> {
+        let result = match self.carry_mode {
+            sidequest_game::inventory::CarryMode::Count => {
+                self.inventory.add(item, 50)
+            }
+            sidequest_game::inventory::CarryMode::Weight => {
+                let limit = self.weight_limit.unwrap_or(f64::INFINITY);
+                self.inventory.add_weighted(item, limit)
+            }
+            _ => {
+                // #[non_exhaustive] future variants — fall back to count-based
+                tracing::warn!(carry_mode = ?self.carry_mode, "Unknown carry mode, falling back to count-based");
+                self.inventory.add(item, 50)
+            }
+        };
+        if let Err(ref e) = result {
+            if matches!(e, sidequest_game::inventory::InventoryError::Overweight { .. }) {
+                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                    .field("event", "item_rejected_overweight")
+                    .field("total_weight", self.inventory.total_weight())
+                    .field("weight_limit", self.weight_limit.unwrap_or(0.0))
+                    .field("error", format!("{e}"))
+                    .send();
+            }
+        }
+        result
+    }
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -290,7 +330,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     uses_remaining: None,
                                     state: sidequest_game::ItemState::Carried,
                                 };
-                                let _ = ctx.inventory.add(item, 50);
+                                let _ = ctx.add_item(item);
                                 tracing::info!(
                                     item_name = %mutation.item_name,
                                     category = %category,

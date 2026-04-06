@@ -54,7 +54,28 @@ pub(crate) fn process_tropes(
     }
 
     // --- Phase 2: Trope engine tick with engagement multiplier (story 6-3) ---
-    let multiplier = engagement_multiplier(ctx.snapshot.turns_since_meaningful) as f64;
+    // Compose engagement multiplier with encumbrance multiplier (story 19-7).
+    // When overencumbered in room_graph mode, tropes tick 1.5x faster.
+    let engagement = engagement_multiplier(ctx.snapshot.turns_since_meaningful) as f64;
+    let encumbrance = if !ctx.rooms.is_empty() {
+        // room_graph mode — apply encumbrance multiplier
+        ctx.weight_limit
+            .map(|wl| ctx.inventory.encumbrance_multiplier(wl))
+            .unwrap_or(1.0)
+    } else {
+        1.0
+    };
+    let multiplier = engagement * encumbrance;
+
+    if encumbrance > 1.0 {
+        WatcherEventBuilder::new("encumbrance", WatcherEventType::StateTransition)
+            .field("event", "overencumbered_trope_tick")
+            .field("total_weight", ctx.inventory.total_weight())
+            .field("weight_limit", ctx.weight_limit.unwrap_or(0.0))
+            .field("encumbrance_multiplier", encumbrance)
+            .field("combined_multiplier", multiplier)
+            .send();
+    }
 
     for ts in ctx.trope_states.iter() {
         tracing::debug!(

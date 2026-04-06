@@ -76,6 +76,7 @@ pub struct CatalogItem {
 /// Whether inventory limits are enforced by item count or total weight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum CarryMode {
     /// Limit by number of carried items (existing behavior).
     Count,

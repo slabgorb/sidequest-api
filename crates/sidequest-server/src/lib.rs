@@ -1825,6 +1825,30 @@ async fn dispatch_message(
                     monster_manual: &mut monster_manual,
                     morpheme_glossaries: Vec::new(),
                     name_banks: Vec::new(),
+                    carry_mode: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .map(|pack| {
+                                pack.inventory.as_ref()
+                                    .and_then(|inv| inv.philosophy.as_ref())
+                                    .map(|phil| phil.carry_mode)
+                                    .unwrap_or_default()
+                            })
+                            .unwrap_or_default()
+                    },
+                    weight_limit: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| {
+                                pack.inventory.as_ref()
+                                    .and_then(|inv| inv.philosophy.as_ref())
+                                    .and_then(|phil| phil.weight_limit)
+                            })
+                    },
                 };
                 let result = dispatch::dispatch_player_action(&mut ctx).await;
 
