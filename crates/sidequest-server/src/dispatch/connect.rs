@@ -11,8 +11,9 @@ use sidequest_game::session_restore;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
-    CharacterState, GameMessage, InitialState, MapUpdatePayload, NarrationEndPayload,
-    NarrationPayload, PartyMember, PartyStatusPayload, SessionEventPayload,
+    CharacterState, GameMessage, InitialState, InventoryPayload, MapUpdatePayload,
+    NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
+    SessionEventPayload,
 };
 
 use crate::npc_context;
@@ -152,6 +153,33 @@ pub(crate) async fn dispatch_connect(
                         *axis_values = saved.snapshot.axis_values.clone();
                         // Restore canonical snapshot for dispatch pipeline (story 15-8)
                         *snapshot = saved.snapshot.clone();
+
+                        // Backfill discovered_rooms for stale saves that predate room_graph wiring.
+                        // If navigation_mode is RoomGraph but discovered_rooms is empty, seed
+                        // the entrance room so the Automapper has something to render.
+                        if snapshot.discovered_rooms.is_empty() {
+                            let rooms_for_backfill: Vec<sidequest_genre::RoomDef> = GenreCode::new(genre)
+                                .ok()
+                                .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                .and_then(|pack| pack.worlds.get(world).cloned())
+                                .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                .and_then(|w| w.cartography.rooms.clone())
+                                .unwrap_or_default();
+                            if !rooms_for_backfill.is_empty() {
+                                sidequest_game::room_movement::init_room_graph_location(snapshot, &rooms_for_backfill);
+                                *current_location = snapshot.location.clone();
+                                tracing::info!(
+                                    location = %snapshot.location,
+                                    discovered_rooms = snapshot.discovered_rooms.len(),
+                                    "room_graph.backfill — seeded entrance for stale save"
+                                );
+                                WatcherEventBuilder::new("room_graph", WatcherEventType::StateTransition)
+                                    .field("event", "room_graph.backfill")
+                                    .field("location", snapshot.location.as_str())
+                                    .field("source", "stale_save")
+                                    .send();
+                            }
+                        }
 
                         // Story 26-8: emit location restore event for GM panel visibility
                         WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
@@ -357,6 +385,29 @@ pub(crate) async fn dispatch_connect(
                                 .field("location", saved.snapshot.location.as_str())
                                 .send();
                         }
+
+                        // INVENTORY — replay carried items so the client panel populates
+                        responses.push(GameMessage::Inventory {
+                            payload: InventoryPayload {
+                                items: inventory
+                                    .carried()
+                                    .map(|item| sidequest_protocol::InventoryItem {
+                                        name: item.name.as_str().to_string(),
+                                        item_type: item.category.as_str().to_string(),
+                                        equipped: item.equipped,
+                                        quantity: item.quantity,
+                                        description: item.description.as_str().to_string(),
+                                    })
+                                    .collect(),
+                                gold: inventory.gold,
+                            },
+                            player_id: player_id.to_string(),
+                        });
+                        WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                            .field("event", "inventory.reconnect")
+                            .field("item_count", inventory.carried().count())
+                            .field("gold", inventory.gold as usize)
+                            .send();
 
                         // Initialize audio subsystems for returning player
                         if let Ok(genre_code) = GenreCode::new(genre) {
