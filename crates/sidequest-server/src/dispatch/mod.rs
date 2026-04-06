@@ -708,6 +708,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         campaign_maturity: live_maturity,
         // Multiplayer action attribution — narrator knows WHO is acting
         character_name: ctx.char_name.to_string(),
+        // Genre-specific prompt templates from prompts.yaml
+        genre_prompts: {
+            let gs = ctx.genre_slug;
+            sidequest_genre::GenreCode::new(gs)
+                .ok()
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .map(|pack| pack.prompts.clone())
+        },
     };
     let result = ctx
         .state
@@ -807,12 +815,38 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
-        // Room-graph mode: validate + apply transition via canonical function (story 19-2).
+        // Room-graph mode: resolve display name → room ID, then validate + apply.
         // Region mode (rooms empty): always valid — no room graph to check.
+        let resolved_location = if !ctx.rooms.is_empty() {
+            match sidequest_game::room_movement::resolve_room_id(&location, &ctx.rooms) {
+                Some(id) => {
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::StateTransition)
+                        .field("event", "room_graph.name_resolved")
+                        .field("input", &location)
+                        .field("resolved_id", id)
+                        .send();
+                    id.to_string()
+                }
+                None => {
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::ValidationWarning)
+                        .field("event", "room_graph.name_unresolved")
+                        .field("input", &location)
+                        .send();
+                    tracing::warn!(
+                        name: "room_graph.name_unresolved",
+                        input = %location,
+                        "narrator used unknown room name — falling through to validation"
+                    );
+                    location.clone()
+                }
+            }
+        } else {
+            location.clone()
+        };
         let location_valid = if !ctx.rooms.is_empty() {
             match sidequest_game::room_movement::apply_validated_move(
                 ctx.snapshot,
-                &location,
+                &resolved_location,
                 &ctx.rooms,
             ) {
                 Ok(transition) => {
@@ -891,8 +925,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         };
 
         if location_valid {
+            // In room_graph mode, use the resolved room ID as current_location
+            // so build_room_graph_explored can match it. In region mode, use display name.
+            let canonical_location = if !ctx.rooms.is_empty() {
+                resolved_location.clone()
+            } else {
+                location.clone()
+            };
             let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
-            *ctx.current_location = location.clone();
+            *ctx.current_location = canonical_location;
             if is_new {
                 ctx.discovered_regions.push(location.clone());
                 // Story 26-8: emit discovery event for GM panel visibility
@@ -2317,12 +2358,25 @@ async fn build_response_messages(
     // MAP_UPDATE — send every turn so the client always has current explored regions.
     // Previously only sent on location change, leaving the client stale if location
     // didn't change (headless driver showed "0 explored" despite 5 in game state).
+    tracing::debug!(
+        rooms_count = ctx.rooms.len(),
+        discovered_rooms_count = ctx.snapshot.discovered_rooms.len(),
+        discovered_rooms = ?ctx.snapshot.discovered_rooms,
+        current_location = %ctx.snapshot.location,
+        "map_update.debug — room graph state"
+    );
     let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty() {
-        sidequest_game::build_room_graph_explored(
+        let locs = sidequest_game::build_room_graph_explored(
             &ctx.rooms,
             &ctx.snapshot.discovered_rooms,
             &ctx.snapshot.location,
-        )
+        );
+        tracing::debug!(
+            explored_count = locs.len(),
+            room_exits_total = locs.iter().map(|l| l.room_exits.len()).sum::<usize>(),
+            "map_update.debug — room graph explored result"
+        );
+        locs
     } else {
         ctx.discovered_regions
             .iter()
@@ -2975,6 +3029,14 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         campaign_maturity: sidequest_game::world_materialization::CampaignMaturity::default(),
         // Multiplayer action attribution
         character_name: ctx.char_name.to_string(),
+        // Aside turns still need genre voice for consistent tone
+        genre_prompts: {
+            let gs = ctx.genre_slug;
+            sidequest_genre::GenreCode::new(gs)
+                .ok()
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .map(|pack| pack.prompts.clone())
+        },
     };
     let result = ctx
         .state

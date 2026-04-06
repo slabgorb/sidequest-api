@@ -342,6 +342,130 @@ impl Orchestrator {
             ));
         }
 
+        // === GENRE PROMPT TEMPLATES (from prompts.yaml) ===
+        if let Some(ref gp) = context.genre_prompts {
+            // Narrator voice — Full tier only (establishes voice for persistent session)
+            if is_full && !gp.narrator.is_empty() {
+                builder.add_section(PromptSection::new(
+                    "genre_narrator_voice",
+                    format!("<genre-voice>\n{}\n</genre-voice>", gp.narrator),
+                    AttentionZone::Primacy,
+                    SectionCategory::Identity,
+                ));
+            }
+
+            // NPC behavior — Full tier only (stable across session)
+            if is_full && !gp.npc.is_empty() {
+                builder.add_section(PromptSection::new(
+                    "genre_npc_voice",
+                    format!("<genre-npc>\n{}\n</genre-npc>", gp.npc),
+                    AttentionZone::Early,
+                    SectionCategory::Genre,
+                ));
+            }
+
+            // World state tracking — Full tier only
+            if is_full && !gp.world_state.is_empty() {
+                builder.add_section(PromptSection::new(
+                    "genre_world_state",
+                    format!("<genre-world-state>\n{}\n</genre-world-state>", gp.world_state),
+                    AttentionZone::Early,
+                    SectionCategory::Genre,
+                ));
+            }
+
+            // Combat — every tier (combat can start mid-session)
+            if context.in_combat && !gp.combat.is_empty() {
+                builder.add_section(PromptSection::new(
+                    "genre_combat_voice",
+                    format!("<genre-combat>\n{}\n</genre-combat>", gp.combat),
+                    AttentionZone::Early,
+                    SectionCategory::Genre,
+                ));
+            }
+
+            // Chase — every tier (chase can start mid-session)
+            if context.in_chase {
+                if let Some(ref chase) = gp.chase {
+                    if !chase.is_empty() {
+                        builder.add_section(PromptSection::new(
+                            "genre_chase_voice",
+                            format!("<genre-chase>\n{}\n</genre-chase>", chase),
+                            AttentionZone::Early,
+                            SectionCategory::Genre,
+                        ));
+                    }
+                }
+            }
+
+            // Extraction — every tier (extraction can trigger mid-session)
+            if let Some(ref extraction) = gp.extraction {
+                if !extraction.is_empty() {
+                    builder.add_section(PromptSection::new(
+                        "genre_extraction",
+                        format!("<genre-extraction>\n{}\n</genre-extraction>", extraction),
+                        AttentionZone::Valley,
+                        SectionCategory::Genre,
+                    ));
+                }
+            }
+
+            // Keeper monologue — Full tier only
+            if is_full {
+                if let Some(ref keeper) = gp.keeper_monologue {
+                    if !keeper.is_empty() {
+                        builder.add_section(PromptSection::new(
+                            "genre_keeper_monologue",
+                            format!("<genre-keeper>\n{}\n</genre-keeper>", keeper),
+                            AttentionZone::Valley,
+                            SectionCategory::Genre,
+                        ));
+                    }
+                }
+            }
+
+            // Town — Full tier only
+            if is_full {
+                if let Some(ref town) = gp.town {
+                    if !town.is_empty() {
+                        builder.add_section(PromptSection::new(
+                            "genre_town",
+                            format!("<genre-town>\n{}\n</genre-town>", town),
+                            AttentionZone::Valley,
+                            SectionCategory::Genre,
+                        ));
+                    }
+                }
+            }
+
+            // Chargen — Full tier only
+            if is_full {
+                if let Some(ref chargen) = gp.chargen {
+                    if !chargen.is_empty() {
+                        builder.add_section(PromptSection::new(
+                            "genre_chargen",
+                            format!("<genre-chargen>\n{}\n</genre-chargen>", chargen),
+                            AttentionZone::Valley,
+                            SectionCategory::Genre,
+                        ));
+                    }
+                }
+            }
+
+            // Transition hints — Full tier only (stable vocabulary)
+            if is_full && !gp.transition_hints.is_empty() {
+                let hints: Vec<String> = gp.transition_hints.iter()
+                    .map(|(k, v)| format!("  {}: \"{}\"", k, v))
+                    .collect();
+                builder.add_section(PromptSection::new(
+                    "genre_transition_hints",
+                    format!("transition_hints:\n{}", hints.join("\n")),
+                    AttentionZone::Late,
+                    SectionCategory::Format,
+                ));
+            }
+        }
+
         // === STATE-DEPENDENT SECTIONS (every tier — combat/chase can start mid-session) ===
         // These are NOT static: combat may begin on turn 5 of a Delta-tier session.
         // If gated behind is_full, the narrator never gets combat rules after turn 1.
@@ -1234,6 +1358,9 @@ pub struct TurnContext {
     pub campaign_maturity: sidequest_game::world_materialization::CampaignMaturity,
     /// Character name of the acting player (multiplayer action attribution).
     pub character_name: String,
+    /// Genre-specific prompt templates from prompts.yaml.
+    /// Injected contextually: narrator voice on Full tier, combat/npc/world_state per state.
+    pub genre_prompts: Option<sidequest_genre::Prompts>,
 }
 
 /// Result of processing a player action through the full turn loop.
