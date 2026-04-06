@@ -1888,20 +1888,25 @@ fn update_npc_registry(
                 turn_approx,
             );
             if !applied.is_empty() {
-                tracing::info!(
-                    events = personality_events.len(),
-                    shifts_applied = applied.len(),
-                    shift_log_entries = shift_log.shifts().len(),
-                    "ocean_shift.applied — NPC personalities evolved from narrative events"
-                );
+                // Summary WatcherEvent for GM panel
+                WatcherEventBuilder::new("ocean", WatcherEventType::StateTransition)
+                    .field("event", "ocean.shift_applied")
+                    .field("shifts_applied", applied.len())
+                    .field("personality_events", personality_events.len())
+                    .field("shift_log_entries", shift_log.shifts().len())
+                    .field("turn", turn_approx)
+                    .send();
+
+                // Per-proposal WatcherEvents for detailed GM panel inspection
                 for proposal in &applied {
-                    tracing::debug!(
-                        npc = %proposal.npc_name,
-                        dimension = ?proposal.dimension,
-                        delta = proposal.delta,
-                        cause = %proposal.cause,
-                        "ocean_shift.detail"
-                    );
+                    WatcherEventBuilder::new("ocean", WatcherEventType::StateTransition)
+                        .field("event", "ocean.shift_proposed")
+                        .field("npc_name", &proposal.npc_name)
+                        .field("dimension", format!("{:?}", proposal.dimension))
+                        .field("delta", format!("{:.2}", proposal.delta))
+                        .field("cause", &proposal.cause)
+                        .field("turn", turn_approx)
+                        .send();
                 }
             }
         }
