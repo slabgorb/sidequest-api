@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use sidequest_game::builder::CharacterBuilder;
+use sidequest_game::session_restore;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
     AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
@@ -89,14 +90,59 @@ pub(crate) async fn dispatch_connect(
                         }
                         responses.push(connected_msg);
 
-                        // Extract character data from saved snapshot
-                        if let Some(character) = saved.snapshot.characters.first() {
-                            *character_json_store =
-                                Some(serde_json::to_value(character).unwrap_or_default());
-                            *character_name_store = Some(character.core.name.as_str().to_string());
-                            *character_hp = character.core.hp;
-                            *character_max_hp = character.core.max_hp;
-                            *inventory = character.core.inventory.clone();
+                        // Extract complete character state from saved snapshot (story 18-9, story 26-3).
+                        // session_restore ensures ALL character state is restored, not just base attributes.
+                        match session_restore::extract_character_state(&saved.snapshot) {
+                            Some(restored) => {
+                                // Capture values for telemetry before moving them
+                                let char_name = restored.character_name.clone();
+                                let level = restored.level;
+                                let hp = restored.hp;
+                                let max_hp = restored.max_hp;
+                                let ac = restored.ac;
+                                let inv_count = restored.inventory.items.len();
+                                let facts_count = restored.known_facts.len();
+
+                                // Move values into mutable references
+                                *character_json_store = Some(restored.character_json);
+                                *character_name_store = Some(restored.character_name.as_str().to_string());
+                                *character_hp = hp;
+                                *character_max_hp = max_hp;
+                                *inventory = restored.inventory;
+
+                                // Emit OTEL span for session restore (story 26-3)
+                                WatcherEventBuilder::new("session_restore", WatcherEventType::StateTransition)
+                                    .field("event", "character_restored")
+                                    .field("character_name", char_name.as_str())
+                                    .field("level", level)
+                                    .field("hp", hp)
+                                    .field("max_hp", max_hp)
+                                    .field("ac", ac)
+                                    .field("inventory_count", inv_count)
+                                    .field("facts_count", facts_count)
+                                    .field("player", pname)
+                                    .field("genre", genre)
+                                    .field("world", world)
+                                    .send();
+
+                                tracing::info!(
+                                    character = %char_name,
+                                    level = level,
+                                    hp = hp,
+                                    inventory_count = inv_count,
+                                    facts_count = facts_count,
+                                    "session_restore.character_restored"
+                                );
+                            }
+                            None => {
+                                tracing::error!(
+                                    player = %pname,
+                                    genre = %genre,
+                                    world = %world,
+                                    "session_restore.character_missing — no characters in saved snapshot"
+                                );
+                                return vec![error_response(player_id, "Saved game corrupted: no character data found")];
+                            }
                         }
                         // Restore location, regions, turn state, and NPC registry from snapshot
                         *current_location = saved.snapshot.location.clone();

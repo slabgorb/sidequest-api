@@ -418,7 +418,7 @@ fn extract_character_state_returns_character_name() {
     let result = extract_character_state(&snapshot).unwrap();
 
     assert_eq!(
-        result.character_name, "Kael Stormwind",
+        result.character_name.as_str(), "Kael Stormwind",
         "Character name must be extracted"
     );
 }
@@ -429,13 +429,14 @@ fn extract_character_state_returns_character_json() {
     let result = extract_character_state(&snapshot).unwrap();
 
     // The full character JSON must be available for the dispatch loop
+    // character_json is now non-optional — serde failure returns None from extract_character_state
     assert!(
-        result.character_json.is_some(),
-        "Character JSON must be present for dispatch context"
+        result.character_json.is_object(),
+        "Character JSON must be a valid object for dispatch context"
     );
 
     // Round-trip: deserialize back and verify known_facts survive
-    let json = result.character_json.unwrap();
+    let json = result.character_json;
     let roundtripped: Character = serde_json::from_value(json).unwrap();
     assert_eq!(
         roundtripped.known_facts.len(),
@@ -486,7 +487,7 @@ fn end_to_end_save_load_extract_roundtrip() {
         .expect("Must extract character from loaded snapshot");
 
     // Verify ALL character state fields
-    assert_eq!(state.character_name, "Kael Stormwind");
+    assert_eq!(state.character_name.as_str(), "Kael Stormwind");
     assert_eq!(state.level, 5);
     assert_eq!(state.xp, 1200);
     assert_eq!(state.hp, 38);
@@ -495,7 +496,7 @@ fn end_to_end_save_load_extract_roundtrip() {
     assert_eq!(state.inventory.items.len(), 3);
     assert_eq!(state.inventory.gold, 150);
     assert_eq!(state.known_facts.len(), 4);
-    assert!(state.character_json.is_some());
+    assert!(state.character_json.is_object());
 
     // Verify item details survived the full pipeline
     let sword = state.inventory.find("sword_iron").unwrap();
