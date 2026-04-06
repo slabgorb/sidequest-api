@@ -1,7 +1,7 @@
 # sidequest-namegen — Feature Inventory
 
 CLI binary that generates complete NPC identity blocks from genre pack data.
-**~310 LOC, single file (`main.rs`), fully complete.**
+**~370 LOC, single file (`main.rs`), fully complete.**
 
 ## COMPLETE — Do Not Rewrite
 

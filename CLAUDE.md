@@ -13,7 +13,7 @@ This is a personal project under the `slabgorb` GitHub account.
 ## SideQuest System Overview
 
 Four repos compose the SideQuest Rust rewrite:
-- **sidequest-api** — Rust game engine and WebSocket API (workspace with 9 crates)
+- **sidequest-api** — Rust game engine and WebSocket API (workspace with 10 crates)
 - **sidequest-ui** — React/TypeScript game client
 - **sidequest-daemon** — Python media services (image gen, TTS, audio)
 - **sidequest-content** — Genre packs (YAML configs, audio, images, world data)
@@ -85,24 +85,25 @@ tell whether it's engaged or whether Claude is just improvising.
 
 ## Architecture Decision Index (docs/adr/)
 
-Before designing or modifying a subsystem, check the relevant ADR:
+Before designing or modifying a subsystem, check the relevant ADR (68 total):
 
 | Domain | ADRs |
 |--------|------|
 | Core architecture | 001 (Claude CLI only), 002 (SOUL principles), 005 (background-first), 006 (graceful degradation) |
 | Genre packs | 003 (pack architecture), 004 (lazy binding) |
-| Prompt engineering | 008 (three-tier taxonomy), 009 (attention-aware zones) |
-| Agent system | 010 (intent routing), 011 (JSON patches), 012 (session mgmt), 013 (lazy extraction) |
+| Prompt engineering | 008 (three-tier taxonomy), 009 (attention-aware zones), 066 (persistent Opus sessions / Full vs Delta tier) |
+| Agent system | 010 (intent routing), 011 (JSON patches), 012 (session mgmt), 013 (lazy extraction), 057 (narrator-crunch separation), 059 (monster manual server-side pregen), 067 (unified narrator agent — no keyword matching) |
 | Characters | 007 (unified model), 014 (diamonds/coal), 015 (builder FSM), 016 (three-mode chargen) |
 | Combat / chase | 017 (cinematic chase), 033 (confrontation resource pools) |
-| World / NPCs | 018 (trope engine), 019 (cartography), 020 (NPC disposition), 022 (world maturity) |
-| Progression | 021 (four-track progression) |
-| Narrative pacing | 024 (dual-track tension), 025 (pacing detection) |
+| World / NPCs | 018 (trope engine), 019 (cartography), 020 (NPC disposition), 022 (world maturity), 055 (room graph navigation) |
+| Progression | 021 (four-track progression), 052 (narrative axis system) |
+| Narrative pacing | 024 (dual-track tension), 025 (pacing detection), 050 (image pacing throttle), 051 (two-tier turn counter) |
 | Session persistence | 023 (state + recap) |
-| Frontend / protocol | 026 (client state mirror), 027 (reactive state messaging) |
-| Multiplayer | 028 (perception rewriter), 029 (guest NPC players), 030 (scenario packs) |
-| Telemetry | 031 (game watcher semantic telemetry) |
-| Media | 032 (genre LoRA style training), 034 (portrait identity consistency) |
+| Frontend / protocol | 026 (client state mirror), 027 (reactive state messaging), 054 (WebRTC voice chat disabled), 065 (protocol message decomposition) |
+| Multiplayer | 028 (perception rewriter), 029 (guest NPC players), 030 (scenario packs), 053 (scenario system) |
+| Telemetry | 031 (game watcher semantic telemetry), 058 (Claude subprocess OTEL passthrough) |
+| Media | 032 (genre LoRA style training), 034 (portrait identity consistency), 056 (script tool generators) |
+| Codebase structure | 060 (genre models decomposition), 061 (lore module decomposition), 062 (server lib extraction), 063 (dispatch handler splitting), 064 (game crate domain modules), 068 (magic literal extraction) |
 
 ## Spoiler Protection
 
@@ -137,15 +138,16 @@ The ML stack (image gen, TTS, audio) stays in Python as a sidecar daemon.
 
 | Crate | Role |
 |-------|------|
-| `sidequest-protocol` | GameMessage, typed payloads (serde) — ~2.9k LOC |
-| `sidequest-genre` | YAML genre pack loader, models, validation — ~4.3k LOC |
-| `sidequest-game` | State, characters, combat, chase, tropes, audio, rendering — ~23.7k LOC |
-| `sidequest-agents` | Claude CLI subprocess orchestration, prompt framework, tools — ~8.1k LOC |
-| `sidequest-daemon-client` | Unix socket client for Python media daemon — ~520 LOC |
-| `sidequest-server` | axum HTTP/WebSocket, sessions, dispatch pipeline — ~8.7k LOC |
-| `sidequest-encountergen` | CLI: enemy stat block generator from genre pack data — ~550 LOC |
-| `sidequest-loadoutgen` | CLI: starting equipment generator from genre pack data — ~230 LOC |
-| `sidequest-namegen` | CLI: NPC identity block generator from genre pack data — ~310 LOC |
+| `sidequest-protocol` | GameMessage, typed payloads (serde) — ~3.5k LOC |
+| `sidequest-genre` | YAML genre pack loader, models, validation — ~4.8k LOC |
+| `sidequest-game` | State, characters, combat, chase, tropes, audio, rendering — ~26.7k LOC |
+| `sidequest-agents` | Claude CLI subprocess orchestration, prompt framework, tools — ~10.1k LOC |
+| `sidequest-daemon-client` | Unix socket client for Python media daemon — ~570 LOC |
+| `sidequest-server` | axum HTTP/WebSocket, sessions, dispatch pipeline — ~11.7k LOC |
+| `sidequest-encountergen` | CLI: enemy stat block generator from genre pack data — ~710 LOC |
+| `sidequest-loadoutgen` | CLI: starting equipment generator from genre pack data — ~270 LOC |
+| `sidequest-namegen` | CLI: NPC identity block generator from genre pack data — ~370 LOC |
+| `sidequest-validate` | CLI: genre pack YAML schema validator — ~280 LOC |
 
 Each crate has its own CLAUDE.md with a feature inventory. Read those before modifying a crate.
 

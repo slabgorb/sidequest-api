@@ -1,6 +1,6 @@
 # sidequest-encountergen — Feature Inventory
 
-CLI binary that generates enemy stat blocks from genre pack data. **~550 LOC,
+CLI binary that generates enemy stat blocks from genre pack data. **~710 LOC,
 single file (`main.rs`), fully complete.**
 
 ## COMPLETE — Do Not Rewrite
