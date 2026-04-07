@@ -338,12 +338,18 @@ pub(crate) async fn build_prompt_context(
             WatcherEventBuilder::new("encounter", WatcherEventType::AgentSpanOpen)
                 .field("action", "context_injected")
                 .field("encounter_type", &enc.encounter_type)
-                .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)).unwrap_or_else(|| "none".to_string()))
+                .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)).unwrap_or_else(|| "unphased".to_string()))
                 .field("beat_count", def.beats.len())
                 .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
                 .send();
             state_summary.push_str("\n\n");
             state_summary.push_str(&enc.format_encounter_context(def));
+        } else {
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("action", "confrontation_def_missing")
+                .field("encounter_type", &enc.encounter_type)
+                .field("available_defs", ctx.confrontation_defs.len())
+                .send();
         }
     }
 
