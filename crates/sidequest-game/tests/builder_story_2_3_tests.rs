@@ -221,6 +221,7 @@ fn test_rules() -> RulesConfig {
         class_label: None,
         confrontations: vec![],
         resources: vec![],
+        xp_affinity: None,
     }
 }
 

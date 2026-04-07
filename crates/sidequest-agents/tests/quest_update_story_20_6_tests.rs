@@ -69,6 +69,7 @@ fn extraction_with_quests() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 
@@ -89,6 +90,7 @@ fn extraction_no_quests() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 

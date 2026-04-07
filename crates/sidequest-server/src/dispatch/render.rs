@@ -46,7 +46,7 @@ pub(crate) async fn process_render(
     } else {
         // SubjectExtractor fallback — parse narration text for render subjects.
         let extraction_ctx = sidequest_game::ExtractionContext {
-            in_combat: ctx.combat_state.in_combat(),
+            in_combat: ctx.in_combat(),
             known_npcs: ctx.npc_registry.iter().map(|e| e.name.clone()).collect(),
             current_location: ctx.current_location.clone(),
             recent_subjects: vec![],
@@ -70,7 +70,7 @@ pub(crate) async fn process_render(
 
     // Scene relevance validation — reject prompts that don't match the current scene
     let relevance_ctx = sidequest_game::ExtractionContext {
-        in_combat: ctx.combat_state.in_combat(),
+        in_combat: ctx.in_combat(),
         known_npcs: ctx.npc_registry.iter().map(|e| e.name.clone()).collect(),
         current_location: ctx.current_location.clone(),
         recent_subjects: vec![],
@@ -93,7 +93,7 @@ pub(crate) async fn process_render(
     }
 
     let filter_ctx = sidequest_game::FilterContext {
-        in_combat: ctx.combat_state.in_combat(),
+        in_combat: ctx.in_combat(),
         scene_transition: extract_location_header(narration_text).is_some(),
         player_requested: false,
     };

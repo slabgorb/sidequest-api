@@ -12,9 +12,6 @@ use sidequest_protocol::NonBlankString;
 use crate::achievement::AchievementTracker;
 use crate::axis::AxisValue;
 use crate::character::Character;
-use crate::chase::{ChaseState, ChaseType};
-use crate::chase_depth::{ChaseActor, RigStats, RigType};
-use crate::combat::CombatState;
 use crate::consequence::GenieWish;
 use crate::combatant::Combatant;
 use crate::creature_core::CreatureCore;
@@ -37,7 +34,7 @@ use crate::turn::TurnManager;
 use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
 use sidequest_protocol::{
-    CharacterState, ChapterMarkerPayload, CombatEnemy, CombatEventPayload, ExploredLocation,
+    CharacterState, ChapterMarkerPayload, ExploredLocation,
     GameMessage, MapUpdatePayload, PartyMember, PartyStatusPayload,
 };
 
@@ -126,12 +123,6 @@ pub struct GameSnapshot {
     pub notes: Vec<String>,
     /// Narrative history.
     pub narrative_log: Vec<NarrativeEntry>,
-    /// Active combat state.
-    pub combat: CombatState,
-    /// Active chase sequence (None if no chase in progress).
-    /// Kept for backward compatibility with ChasePatch system.
-    #[serde(default)]
-    pub chase: Option<ChaseState>,
     /// Active structured encounter (story 16-2).
     /// Generalizes ChaseState — supports standoffs, negotiations, ship combat, etc.
     /// Old saves with a `chase` field are migrated to this field during deserialization.
@@ -257,10 +248,6 @@ struct GameSnapshotRaw {
     #[serde(default)]
     narrative_log: Vec<NarrativeEntry>,
     #[serde(default)]
-    combat: CombatState,
-    #[serde(default)]
-    chase: Option<ChaseState>,
-    #[serde(default)]
     encounter: Option<StructuredEncounter>,
     #[serde(default, deserialize_with = "deserialize_trope_states")]
     active_tropes: Vec<TropeState>,
@@ -312,13 +299,6 @@ struct GameSnapshotRaw {
 
 impl From<GameSnapshotRaw> for GameSnapshot {
     fn from(raw: GameSnapshotRaw) -> Self {
-        // Migrate: if encounter is absent but chase is present, convert chase → encounter
-        let encounter = raw.encounter.or_else(|| {
-            raw.chase
-                .as_ref()
-                .map(StructuredEncounter::from_chase_state)
-        });
-
         Self {
             genre_slug: raw.genre_slug,
             world_slug: raw.world_slug,
@@ -329,9 +309,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             quest_log: raw.quest_log,
             notes: raw.notes,
             narrative_log: raw.narrative_log,
-            combat: raw.combat,
-            chase: raw.chase,
-            encounter,
+            encounter: raw.encounter,
             active_tropes: raw.active_tropes,
             atmosphere: raw.atmosphere,
             current_region: raw.current_region,
@@ -650,129 +628,7 @@ impl GameSnapshot {
         );
     }
 
-    /// Apply a combat patch.
-    /// Emits a tracing span with patch_type and fields_changed (story 3-1).
-    pub fn apply_combat_patch(&mut self, patch: &CombatPatch) {
-        let span = tracing::info_span!(
-            "apply_combat_patch",
-            patch_type = "combat",
-            fields_changed = tracing::field::Empty,
-        );
-        let _guard = span.enter();
-
-        let mut changed = Vec::new();
-        if patch.advance_round {
-            self.combat.advance_round();
-            changed.push("round");
-        }
-        if let Some(active) = patch.in_combat {
-            self.combat.set_in_combat(active);
-            changed.push("in_combat");
-        }
-        if let Some(ref order) = patch.turn_order {
-            self.combat.set_turn_order(order.clone());
-            changed.push("turn_order");
-        }
-        if let Some(ref turn) = patch.current_turn {
-            self.combat.set_current_turn(turn.clone());
-            changed.push("current_turn");
-        }
-        if let Some(ref actions) = patch.available_actions {
-            self.combat.set_available_actions(actions.clone());
-            changed.push("available_actions");
-        }
-        if let Some(weight) = patch.drama_weight {
-            self.combat.set_drama_weight(weight);
-            changed.push("drama_weight");
-        }
-        if let Some(ref hp) = patch.hp_changes {
-            for (name, delta) in hp {
-                self.apply_hp_change(name, *delta);
-            }
-            changed.push("hp_changes");
-        }
-
-        span.record(
-            "fields_changed",
-            &tracing::field::display(&changed.join(",")),
-        );
-    }
-
-    /// Apply a chase patch (start a chase or record a roll).
-    /// Emits a tracing span with patch_type and fields_changed (story 3-1).
-    pub fn apply_chase_patch(&mut self, patch: &ChasePatch) {
-        let span = tracing::info_span!(
-            "apply_chase_patch",
-            patch_type = "chase",
-            fields_changed = tracing::field::Empty,
-        );
-        let _guard = span.enter();
-
-        let mut changed = Vec::new();
-        if let Some((chase_type, threshold)) = patch.start {
-            self.chase = Some(ChaseState::new(chase_type, threshold));
-            changed.push("chase_started");
-        }
-        if let Some((chase_type, threshold, rig_type, goal)) = patch.start_vehicle {
-            self.chase =
-                Some(ChaseState::new_vehicle_chase(chase_type, threshold, rig_type, goal));
-            changed.push("vehicle_chase_started");
-        }
-        if let Some(roll) = patch.roll {
-            if let Some(ref mut chase) = self.chase {
-                chase.record_roll(roll);
-                changed.push("escape_roll");
-            }
-        }
-        if let Some(sep) = patch.separation {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_separation(sep);
-                changed.push("separation");
-            }
-        }
-        if let Some(ref phase) = patch.phase {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_phase(phase.clone());
-                changed.push("phase");
-            }
-        }
-        if let Some(ref event) = patch.event {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_event(event.clone());
-                changed.push("event");
-            }
-        }
-        if let Some(ref rig) = patch.rig {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_rig(rig.clone());
-                changed.push("rig");
-            }
-        }
-        if let Some(ref actors) = patch.actors {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_actors(actors.clone());
-                changed.push("actors");
-            }
-        }
-        if patch.advance_beat {
-            if let Some(ref mut chase) = self.chase {
-                chase.advance_beat();
-                changed.push("beat_advanced");
-            }
-        }
-        if patch.abandon {
-            if let Some(ref mut chase) = self.chase {
-                chase.abandon();
-                changed.push("abandoned");
-            }
-        }
-
-        span.record(
-            "fields_changed",
-            &tracing::field::display(&changed.join(",")),
-        );
-    }
-
+    /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     ///
     /// Each request is resolved using the named NPC's disposition for pricing.
@@ -935,56 +791,8 @@ where
     }
 }
 
-/// Patch for combat state.
-/// Story 2-7: Extended with in_combat, hp_changes, turn_order, etc.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CombatPatch {
-    /// Whether to advance the combat round.
-    #[serde(default)]
-    pub advance_round: bool,
-    /// Whether combat is active.
-    pub in_combat: Option<bool>,
-    /// Per-combatant HP deltas.
-    pub hp_changes: Option<HashMap<String, i32>>,
-    /// Turn order.
-    pub turn_order: Option<Vec<String>>,
-    /// Current turn holder.
-    pub current_turn: Option<String>,
-    /// Available player actions.
-    pub available_actions: Option<Vec<String>>,
-    /// Drama weight for pacing.
-    pub drama_weight: Option<f64>,
-}
-
-/// Patch for chase state.
-/// Story 2-7: Extended with separation, phase, event.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChasePatch {
-    /// Start a new chase with (type, escape_threshold).
-    pub start: Option<(ChaseType, f64)>,
-    /// Start a vehicle chase with (type, threshold, rig_type, goal).
-    pub start_vehicle: Option<(ChaseType, f64, RigType, i32)>,
-    /// Record an escape roll.
-    pub roll: Option<f64>,
-    /// Distance between pursuer and quarry.
-    pub separation: Option<i32>,
-    /// Current chase phase.
-    pub phase: Option<String>,
-    /// Chase event description.
-    pub event: Option<String>,
-    /// Set rig stats (C1).
-    pub rig: Option<RigStats>,
-    /// Set crew assignments (C2).
-    pub actors: Option<Vec<ChaseActor>>,
-    /// Advance to next beat (C3). If true, calls advance_beat().
-    #[serde(default)]
-    pub advance_beat: bool,
-    /// Abandon the chase (C3).
-    #[serde(default)]
-    pub abandon: bool,
-}
+// CombatPatch and ChasePatch deleted in story 28-9.
+// StructuredEncounter is the sole encounter mutation model.
 
 /// Generate reactive GameMessages from a state delta (ADR-027).
 ///
@@ -1050,40 +858,13 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 region: state.current_region.clone(),
                 explored,
                 fog_bounds: None,
+                cartography: None,
             },
             player_id: String::new(),
         });
     }
 
-    // COMBAT_EVENT if combat state changed
-    if delta.combat_changed() {
-        messages.push(GameMessage::CombatEvent {
-            payload: CombatEventPayload {
-                in_combat: state.combat.in_combat(),
-                enemies: state
-                    .npcs
-                    .iter()
-                    .filter(|n| n.disposition.attitude() == crate::disposition::Attitude::Hostile)
-                    .map(|n| CombatEnemy {
-                        name: n.name().to_string(),
-                        hp: Combatant::hp(n),
-                        max_hp: Combatant::max_hp(n),
-                        ac: Some(Combatant::ac(n)),
-                        status_effects: state.combat.effects_on(n.name())
-                            .iter()
-                            .map(|e| sidequest_protocol::StatusEffectInfo {
-                                kind: format!("{:?}", e.kind()),
-                                remaining_rounds: e.remaining_rounds(),
-                            })
-                            .collect(),
-                    })
-                    .collect(),
-                turn_order: state.combat.turn_order().to_vec(),
-                current_turn: state.combat.current_turn().unwrap_or("").to_string(),
-            },
-            player_id: String::new(),
-        });
-    }
+    // COMBAT_EVENT removed in story 28-9 — ConfrontationPayload replaces it.
 
     messages
 }

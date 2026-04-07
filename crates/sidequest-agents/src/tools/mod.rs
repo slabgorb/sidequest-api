@@ -9,8 +9,6 @@
 
 pub mod assemble_turn;
 pub mod item_acquire;
-pub mod lore_mark;
-pub mod merchant_transact;
 pub mod personality_event;
 pub mod play_sfx;
 pub mod preprocessors;

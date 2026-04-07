@@ -193,11 +193,6 @@ impl Args {
         self.headless
     }
 
-    /// Whether trace-level logging is enabled.
-    pub fn trace(&self) -> bool {
-        self.trace
-    }
-
     /// OTEL endpoint for Claude subprocess telemetry.
     pub fn otel_endpoint(&self) -> Option<&str> {
         self.otel_endpoint.as_deref()
@@ -460,23 +455,6 @@ impl AppState {
         }
     }
 
-    /// Create AppState with a GameService, save directory, and headless flag.
-    ///
-    /// In headless mode, TTS and image rendering are skipped.
-    pub fn new_with_options(
-        game_service: Box<dyn GameService>,
-        genre_packs_path: PathBuf,
-        save_dir: PathBuf,
-        headless: bool,
-    ) -> Self {
-        let state = Self::new_with_game_service(game_service, genre_packs_path, save_dir);
-        if headless {
-            state.with_tts_disabled(true)
-        } else {
-            state
-        }
-    }
-
     /// Disable TTS voice synthesis (builder-style).
     pub fn with_tts_disabled(mut self, disabled: bool) -> Self {
         Arc::get_mut(&mut self.inner)
@@ -531,11 +509,6 @@ impl AppState {
             .expect("with_loadoutgen_binary must be called before cloning")
             .loadoutgen_binary_path = Some(path);
         self
-    }
-
-    /// Path to the sidequest-loadoutgen binary, if available.
-    pub fn loadoutgen_binary_path(&self) -> Option<&Path> {
-        self.inner.loadoutgen_binary_path.as_deref()
     }
 
     /// Set the OTEL endpoint for Claude subprocess telemetry (builder-style).
@@ -1132,8 +1105,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut character_xp: u32 = 0;
     let mut current_location: String = String::new();
     let mut inventory = sidequest_game::Inventory::default();
-    let mut combat_state = sidequest_game::combat::CombatState::default();
-    let mut chase_state: Option<sidequest_game::ChaseState> = None;
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
@@ -1193,8 +1164,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut character_xp,
                         &mut current_location,
                         &mut inventory,
-                        &mut combat_state,
-                        &mut chase_state,
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
@@ -1414,8 +1383,6 @@ async fn dispatch_message(
     character_xp: &mut u32,
     current_location: &mut String,
     inventory: &mut sidequest_game::Inventory,
-    combat_state: &mut sidequest_game::combat::CombatState,
-    chase_state: &mut Option<sidequest_game::ChaseState>,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
@@ -1525,8 +1492,6 @@ async fn dispatch_message(
                     ps.character_max_hp = *character_max_hp;
                     ps.display_location = current_location.clone();
                     ps.inventory = inventory.clone();
-                    ps.combat_state = combat_state.clone();
-                    ps.chase_state = chase_state.clone();
                     ps.character_json = character_json.clone();
                     ps.region_id = ss_guard
                         .resolve_region(current_location)
@@ -1695,8 +1660,6 @@ async fn dispatch_message(
                 character_xp,
                 current_location,
                 inventory,
-                combat_state,
-                chase_state,
                 trope_states,
                 trope_defs,
                 world_context,
@@ -1770,8 +1733,6 @@ async fn dispatch_message(
                     current_location,
                     inventory,
                     character_json,
-                    combat_state,
-                    chase_state,
                     trope_states,
                     trope_defs,
                     world_context,
@@ -1828,6 +1789,40 @@ async fn dispatch_message(
                             .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
                             .and_then(|pack| pack.worlds.get(ws).cloned())
                             .and_then(|world| world.cartography.world_graph)
+                    },
+                    cartography_metadata: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        let ws = session.world_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.worlds.get(ws).cloned())
+                            .map(|world| {
+                                let nav_mode = match world.cartography.navigation_mode {
+                                    sidequest_genre::NavigationMode::Region => "region",
+                                    sidequest_genre::NavigationMode::RoomGraph => "room_graph",
+                                    sidequest_genre::NavigationMode::Hierarchical => "hierarchical",
+                                };
+                                sidequest_protocol::CartographyMetadata {
+                                    navigation_mode: nav_mode.to_string(),
+                                    starting_region: world.cartography.starting_region.clone(),
+                                    regions: world.cartography.regions.iter().map(|(slug, r)| {
+                                        (slug.clone(), sidequest_protocol::CartographyRegion {
+                                            name: r.name.clone(),
+                                            description: r.description.clone(),
+                                            adjacent: r.adjacent.clone(),
+                                        })
+                                    }).collect(),
+                                    routes: world.cartography.routes.iter().map(|r| {
+                                        sidequest_protocol::CartographyRoute {
+                                            name: r.name.clone(),
+                                            description: r.description.clone(),
+                                            from_id: r.from_id.clone(),
+                                            to_id: r.to_id.clone(),
+                                        }
+                                    }).collect(),
+                                }
+                            })
                     },
                     confrontation_defs: {
                         let gs = session.genre_slug().unwrap_or("");

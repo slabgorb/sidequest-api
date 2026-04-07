@@ -204,14 +204,7 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Combat state for combat overlay.
-    #[serde(rename = "COMBAT_EVENT")]
-    CombatEvent {
-        /// The typed payload for this message.
-        payload: CombatEventPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
+    // CombatEvent variant removed in story 28-9. Confrontation replaces it.
 
     /// Structured encounter state for confrontation overlay (standoffs, chases, negotiations).
     #[serde(rename = "CONFRONTATION")]
@@ -659,21 +652,60 @@ pub struct MapUpdatePayload {
     /// Fog of war bounds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fog_bounds: Option<FogBounds>,
+    /// Cartography metadata from genre pack — navigation structure, regions, routes.
+    /// Sent on session connect and location changes so the UI can render the world map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cartography: Option<CartographyMetadata>,
 }
 
-/// Combat state for the combat overlay.
+/// Cartography metadata for the map overlay (story 26-10).
+/// Wire-format subset of the genre pack's CartographyConfig — carries only
+/// the fields the UI needs to render the world map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CombatEventPayload {
-    /// Whether combat is active.
-    pub in_combat: bool,
-    /// Active enemies.
-    pub enemies: Vec<CombatEnemy>,
-    /// Initiative order.
-    pub turn_order: Vec<String>,
-    /// Who's acting now.
-    pub current_turn: String,
+pub struct CartographyMetadata {
+    /// Navigation mode — "region", "room_graph", or "hierarchical".
+    pub navigation_mode: String,
+    /// Starting region slug.
+    #[serde(default)]
+    pub starting_region: String,
+    /// Regions keyed by slug.
+    #[serde(default)]
+    pub regions: HashMap<String, CartographyRegion>,
+    /// Routes between regions.
+    #[serde(default)]
+    pub routes: Vec<CartographyRoute>,
 }
+
+/// A region in the cartography metadata (wire format for UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRegion {
+    /// Display name.
+    pub name: String,
+    /// Description.
+    #[serde(default)]
+    pub description: String,
+    /// Adjacent region slugs.
+    #[serde(default)]
+    pub adjacent: Vec<String>,
+}
+
+/// A route between regions in the cartography metadata (wire format for UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRoute {
+    /// Route name.
+    pub name: String,
+    /// Description.
+    #[serde(default)]
+    pub description: String,
+    /// Source region slug.
+    #[serde(default)]
+    pub from_id: Option<String>,
+    /// Destination region slug.
+    #[serde(default)]
+    pub to_id: Option<String>,
+}
+
+// CombatEventPayload deleted in story 28-9 — ConfrontationPayload replaces it.
 
 /// Render job queued — sent when a render is submitted to the daemon.
 /// The UI can show a shimmer placeholder while waiting for the actual IMAGE.

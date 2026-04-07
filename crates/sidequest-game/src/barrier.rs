@@ -379,16 +379,6 @@ impl TurnBarrier {
         self.inner.session.lock().unwrap().named_actions()
     }
 
-    /// Attempt to claim resolution for this turn. Returns `true` exactly once
-    /// per barrier resolution — the first caller wins and should run the narrator.
-    /// All subsequent callers get `false` and should retrieve the stored result.
-    pub fn try_claim_resolution(&self) -> bool {
-        let mut claimed_flag = self.inner.resolution_claimed.lock().unwrap();
-        let result = !*claimed_flag;
-        *claimed_flag = true;
-        result
-    }
-
     /// Store the narration result after the claiming handler runs the narrator.
     /// Non-claiming handlers retrieve this via `get_resolution_narration()`.
     pub fn store_resolution_narration(&self, narration: String) {
@@ -459,7 +449,20 @@ impl TurnBarrier {
         
         // Track this turn as resolved
         *self.inner.last_resolved_turn.lock().unwrap() = current_turn;
-        
+
+        // OTEL: barrier resolution telemetry
+        let player_count = session.player_count();
+        let submitted = player_count - missing.len();
+        {
+            let span = tracing::info_span!(
+                "barrier.resolved",
+                player_count = player_count,
+                submitted = submitted,
+                timed_out = timed_out,
+            );
+            let _guard = span.enter();
+        }
+
         TurnBarrierResult {
             claimed_resolution,
             timed_out,

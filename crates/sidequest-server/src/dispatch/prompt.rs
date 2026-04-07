@@ -332,44 +332,24 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str("When narrative events affect these resources, include resource_deltas in your JSON block.\n");
     }
 
-    // Structured encounter context — covers both combat and chase via StructuredEncounter
-    {
-        let encounter = if ctx.combat_state.in_combat() {
-            Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-        } else {
-            ctx.chase_state.as_ref().map(sidequest_game::StructuredEncounter::from_chase_state)
-        };
-        if let Some(ref enc) = encounter {
+    // Structured encounter context via format_encounter_context() (story 28-4)
+    if let Some(ref enc) = ctx.snapshot.encounter {
+        if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type) {
             WatcherEventBuilder::new("encounter", WatcherEventType::AgentSpanOpen)
-                .field("action", "prompt_injection")
+                .field("action", "context_injected")
                 .field("encounter_type", &enc.encounter_type)
-                .field("beat", enc.beat)
+                .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)).unwrap_or_else(|| "unphased".to_string()))
+                .field("beat_count", def.beats.len())
                 .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
-                .field("hint_count", enc.narrator_hints.len())
                 .send();
-            state_summary.push_str(&format!(
-                "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
-                enc.encounter_type,
-                enc.beat,
-                enc.metric.name,
-                enc.metric.current,
-                enc.metric.threshold_high.or(enc.metric.threshold_low).unwrap_or(0),
-            ));
-            if let Some(phase) = enc.structured_phase {
-                state_summary.push_str(&format!(" | phase: {:?}", phase));
-            }
-            if !enc.actors.is_empty() {
-                let actor_list: Vec<String> = enc.actors.iter()
-                    .map(|a| format!("{} ({})", a.name, a.role))
-                    .collect();
-                state_summary.push_str(&format!("\nParticipants: {}", actor_list.join(", ")));
-            }
-            if !enc.narrator_hints.is_empty() {
-                state_summary.push_str("\nEncounter context:");
-                for hint in &enc.narrator_hints {
-                    state_summary.push_str(&format!("\n- {}", hint));
-                }
-            }
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&enc.format_encounter_context(def));
+        } else {
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("action", "confrontation_def_missing")
+                .field("encounter_type", &enc.encounter_type)
+                .field("available_defs", ctx.confrontation_defs.len())
+                .send();
         }
     }
 
@@ -614,12 +594,33 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str(&npc_context);
     }
 
+    // Story 7-9: Scenario context injection — tension, clues, NPC suspicions.
+    // Uses format_narrator_context() from ScenarioState to give the narrator
+    // awareness of the active scenario's state.
+    if let Some(ref scenario_state) = ctx.snapshot.scenario_state {
+        if !scenario_state.is_resolved() {
+            let scenario_context = scenario_state.format_narrator_context(&ctx.snapshot.npcs);
+            if !scenario_context.is_empty() {
+                state_summary.push_str("\n\n[SCENARIO STATE]\n");
+                state_summary.push_str(&scenario_context);
+                state_summary.push('\n');
+
+                WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                    .field("event", "scenario.context_injected")
+                    .field("tension", format!("{:.2}", scenario_state.tension()))
+                    .field("clues_discovered", scenario_state.discovered_clues().len())
+                    .field("resolved", scenario_state.is_resolved())
+                    .send();
+            }
+        }
+    }
+
     // Inject lore context from genre pack — budget-aware selection (story 11-4)
     {
         // Prioritize lore categories based on current game state
-        let priority_cats: Vec<sidequest_game::LoreCategory> = if ctx.combat_state.in_combat() {
+        let priority_cats: Vec<sidequest_game::LoreCategory> = if ctx.in_combat() {
             vec![sidequest_game::LoreCategory::Event, sidequest_game::LoreCategory::Character]
-        } else if ctx.chase_state.is_some() {
+        } else if ctx.in_chase() {
             vec![sidequest_game::LoreCategory::Geography]
         } else {
             vec![] // default: Geography/Faction prioritized by the selector
@@ -751,31 +752,8 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
-    // Inject chase cinematography context (story 15-17)
-    if let Some(ref chase_state) = ctx.chase_state {
-        let chase_context = chase_state.format_context(vec![]);
-        if !chase_context.is_empty() {
-            state_summary.push_str("\n\n");
-            state_summary.push_str(&chase_context);
-
-            // OTEL: chase.context_injected — GM panel verification
-            let beat = chase_state.current_beat(vec![]);
-            let cine = sidequest_game::cinematography_for_phase(beat.phase);
-            WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                .field("event", "chase.context_injected")
-                .field("phase", format!("{:?}", beat.phase))
-                .field("danger_level", beat.terrain_danger)
-                .field("camera", format!("{:?}", cine.camera))
-                .field("sentence_range", format!("{}-{}", cine.sentence_range.0, cine.sentence_range.1))
-                .send();
-
-            tracing::info!(
-                phase = ?beat.phase,
-                danger = beat.terrain_danger,
-                "chase.context_injected_to_prompt"
-            );
-        }
-    }
+    // Chase cinematography context injection removed in story 28-9.
+    // Encounter context is now injected via format_encounter_context() (story 28-4).
 
     // Inject continuity corrections from the previous turn (if any)
     if !ctx.continuity_corrections.is_empty() {

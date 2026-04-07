@@ -18,7 +18,33 @@
 //! Story 5-7: Pacing hints — PacingHint, DeliveryMode, DramaThresholds,
 //! and TensionTracker::pacing_hint() for narrator prompt injection.
 
-use crate::combat::RoundResult;
+/// Result of resolving one combat round — used for tension classification.
+/// Moved from combat.rs (deleted in story 28-9).
+#[derive(Debug, Clone)]
+pub struct RoundResult {
+    /// Which round was resolved.
+    pub round: u32,
+    /// Damage events that occurred.
+    pub damage_events: Vec<DamageEvent>,
+    /// Status effects that were applied this round.
+    pub effects_applied: Vec<String>,
+    /// Status effects that expired this round.
+    pub effects_expired: Vec<String>,
+}
+
+/// A damage event within a combat round — used for tension classification.
+/// Moved from combat.rs (deleted in story 28-9).
+#[derive(Debug, Clone)]
+pub struct DamageEvent {
+    /// Who dealt the damage.
+    pub attacker: String,
+    /// Who received the damage.
+    pub target: String,
+    /// Amount of damage dealt.
+    pub damage: i32,
+    /// Which round this occurred in.
+    pub round: u32,
+}
 
 // Re-export DramaThresholds from genre crate (canonical definition lives there
 // since it's loaded from genre-pack YAML; game crate consumes it).

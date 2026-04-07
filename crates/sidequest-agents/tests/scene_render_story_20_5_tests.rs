@@ -74,6 +74,7 @@ fn extraction_with_visual_scene() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 
@@ -94,6 +95,7 @@ fn extraction_without_visual_scene() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 

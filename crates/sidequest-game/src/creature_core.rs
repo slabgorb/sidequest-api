@@ -6,7 +6,6 @@
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
-use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::combatant::Combatant;
 use crate::hp::clamp_hp;
@@ -46,18 +45,16 @@ impl CreatureCore {
     pub fn apply_hp_delta(&mut self, delta: i32) {
         let old_hp = self.hp;
         self.hp = clamp_hp(self.hp, delta, self.max_hp);
-        let clamped = (self.hp as i64) != (old_hp as i64 + delta as i64);
-
-        // OTEL: creature.hp_delta
-        WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
-            .field("action", "hp_delta")
-            .field("name", self.name.as_str())
-            .field("old_hp", old_hp)
-            .field("new_hp", self.hp)
-            .field("delta", delta)
-            .field("max_hp", self.max_hp)
-            .field("clamped", clamped)
-            .send();
+        let clamped = self.hp != old_hp + delta;
+        let span = tracing::info_span!(
+            "creature.hp_delta",
+            name = %self.name,
+            old_hp = old_hp,
+            new_hp = self.hp,
+            delta = delta,
+            clamped = clamped,
+        );
+        let _guard = span.enter();
     }
 }
 
