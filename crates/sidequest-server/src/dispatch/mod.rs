@@ -12,7 +12,6 @@
 
 mod audio;
 pub(crate) mod catch_up;
-mod combat;
 pub(crate) mod connect;
 pub(crate) mod pregen;
 mod prompt;
@@ -59,8 +58,6 @@ pub(crate) struct DispatchContext<'a> {
     pub current_location: &'a mut String,
     pub inventory: &'a mut sidequest_game::Inventory,
     pub character_json: &'a mut Option<serde_json::Value>,
-    pub combat_state: &'a mut sidequest_game::combat::CombatState,
-    pub chase_state: &'a mut Option<sidequest_game::ChaseState>,
     pub trope_states: &'a mut Vec<sidequest_game::trope::TropeState>,
     pub trope_defs: &'a [sidequest_genre::TropeDefinition],
     pub world_context: &'a str,
@@ -162,6 +159,24 @@ impl<'a> DispatchContext<'a> {
         }
         result
     }
+
+    /// Whether any encounter is active (not resolved).
+    /// Story 28-9: replaces `combat_state.in_combat() || chase_state.is_some()`.
+    pub fn in_encounter(&self) -> bool {
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved)
+    }
+
+    /// Whether a combat-type encounter is active.
+    /// Story 28-9: replaces `combat_state.in_combat()`.
+    pub fn in_combat(&self) -> bool {
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "combat")
+    }
+
+    /// Whether a chase-type encounter is active.
+    /// Story 28-9: replaces `chase_state.is_some()`.
+    pub fn in_chase(&self) -> bool {
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "chase")
+    }
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -196,8 +211,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 ctx.level,
                 ctx.xp,
                 ctx.inventory,
-                ctx.combat_state,
-                ctx.chase_state,
                 ctx.character_json,
             );
             let pc = ss.player_count();
@@ -457,20 +470,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         references_location: true,
     };
     // Sync StructuredEncounter before prompt context so format_encounter_context() can use it
-    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
-        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-    } else if let Some(ref cs) = ctx.chase_state {
-        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-    } else {
-        None
-    };
+    // encounter sync bridge removed in story 28-9 — encounter is maintained directly via apply_beat().
 
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
 
     // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
     {
         let nearby = ctx.monster_manual.format_nearby_npcs(ctx.current_location);
-        let creatures = ctx.monster_manual.format_area_creatures(ctx.combat_state.in_combat());
+        let creatures = ctx.monster_manual.format_area_creatures(ctx.in_combat());
         if !nearby.is_empty() {
             state_summary.push_str("\n\n");
             state_summary.push_str(&nearby);
@@ -490,7 +497,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             total_encounters = ctx.monster_manual.encounters.len(),
             npcs_injected = npcs_injected,
             creatures_injected = creatures_injected,
-            in_combat = ctx.combat_state.in_combat(),
+            in_combat = ctx.in_combat(),
             location = %ctx.current_location,
         ).entered();
         tracing::info!("Monster Manual content injected (location-filtered)");
@@ -706,8 +713,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
-        in_combat: ctx.combat_state.in_combat(),
-        in_chase: ctx.chase_state.is_some(),
+        in_combat: ctx.in_combat(),
+        in_chase: ctx.in_chase(),
         narrator_verbosity: ctx.narrator_verbosity,
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: trope_beat_directives,
@@ -1244,12 +1251,38 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // apply_beat() on the live StructuredEncounter. The beat's stat_check drives
     // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
     // beat_selection will be populated by story 28-6 (narrator outputs beat selections).
+    //
+    // Story 28-9: encounter_just_resolved is computed here (after beat dispatch),
+    // not inside apply_state_mutations, because dispatch_beat_selection is what
+    // actually sets encounter.resolved = true via apply_beat().
+    let encounter_active_before_beat = ctx.in_encounter();
     if let Some(ref beat_id) = result.scene_intent {
         // Temporary: scene_intent carries beat_id until story 28-6 adds dedicated field.
         // Only dispatch if there's an active encounter.
         if ctx.snapshot.encounter.is_some() {
             dispatch_beat_selection(ctx, beat_id);
         }
+    }
+    let encounter_active_after_beat = ctx.in_encounter();
+    let encounter_just_resolved = encounter_active_before_beat && !encounter_active_after_beat;
+    let encounter_just_started = !encounter_active_before_beat && encounter_active_after_beat;
+
+    // OTEL: encounter state transitions (story 28-9)
+    if encounter_just_resolved {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.resolved")
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
+            .field("turn", turn_number)
+            .send();
+        // Clear resolved encounter so the overlay doesn't keep broadcasting
+        ctx.snapshot.encounter = None;
+    }
+    if encounter_just_started {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.started")
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
+            .field("turn", turn_number)
+            .send();
     }
 
     // Story 15-20: build narration state delta from current ctx locals via game-crate.
@@ -1304,7 +1337,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // returns zero contradictions almost every time — pure waste.
     {
         let dead_npcs_exist = ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0);
-        let in_combat = ctx.combat_state.in_combat();
+        let in_combat = ctx.in_combat();
         if in_combat {
             tracing::info!("continuity.skipped — in_combat, creature_smith output is structured");
             WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
@@ -1343,10 +1376,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     drop(_state_update_guard);
 
-    // Record combat resolution as a lore event when combat ends this turn.
-    if mutation_result.combat_just_ended {
+    // Record encounter resolution as a lore event when encounter resolves this turn.
+    if encounter_just_resolved {
         let summary = format!(
-            "Combat at {} concluded on turn {}",
+            "Encounter at {} concluded on turn {}",
             ctx.current_location, turn_number
         );
         accumulate_and_persist_lore(
@@ -1360,19 +1393,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let system_tick_span = tracing::info_span!(
         "turn.system_tick",
-        combat_changed = tracing::field::Empty,
         tropes_fired = tracing::field::Empty,
         achievements_earned = tracing::field::Empty,
     );
     let _system_tick_guard = system_tick_span.enter();
 
-    let combat_active = ctx.combat_state.in_combat();
-    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages, mutation_result.combat_just_ended, mutation_result.combat_just_started)
-        .instrument(tracing::info_span!(
-            "turn.system_tick.combat",
-            in_combat = combat_active,
-        ))
-        .await;
+    // process_combat_and_chase deleted in story 28-9 — beat system handles encounters.
 
     let (fired_beats, earned_achievements) = {
         // Initialize TropeState for each definition if empty.  Definitions
@@ -1472,7 +1498,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // so RENDER_QUEUED arrives at the UI before NARRATION text.
 
     let location_changed = *ctx.current_location != location_before_turn;
-    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, mutation_result.combat_just_ended).await;
+    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, encounter_just_resolved).await;
 
     // Record this interaction in the turn manager
     ctx.turn_manager.record_interaction();
@@ -1498,8 +1524,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             game_delta.npcs_changed(),
             game_delta.location_changed(),
             game_delta.quest_log_changed(),
-            game_delta.combat_changed(),
-            game_delta.chase_changed(),
             game_delta.atmosphere_changed(),
             game_delta.regions_changed(),
             game_delta.tropes_changed(),
@@ -2433,15 +2457,8 @@ async fn build_response_messages(
     });
 
     // Confrontation overlay — broadcast structured encounter state.
-    // Syncs from live combat/chase state so the UI shows the overlay.
-    let encounter = if ctx.combat_state.in_combat() {
-        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-    } else if let Some(ref cs) = ctx.chase_state {
-        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-    } else {
-        None
-    };
-    if let Some(ref enc) = encounter {
+    // Story 28-9: encounter is maintained directly, no bridge needed.
+    if let Some(ref enc) = ctx.snapshot.encounter {
         let actors: Vec<sidequest_protocol::ConfrontationActor> = enc.actors.iter().map(|a| {
             let portrait = ctx.npc_registry.iter()
                 .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
@@ -2528,16 +2545,7 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     }
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
     ctx.snapshot.axis_values = ctx.axis_values.clone();
-    ctx.snapshot.combat = ctx.combat_state.clone();
-    ctx.snapshot.chase = ctx.chase_state.clone();
-    // Sync StructuredEncounter from live combat/chase state
-    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
-        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-    } else if let Some(ref cs) = ctx.chase_state {
-        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-    } else {
-        None
-    };
+    // combat/chase sync removed in story 28-9 — encounter is maintained directly via apply_beat().
 
 
     ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
@@ -2729,8 +2737,8 @@ fn spawn_tts_pipeline(
     let genre_slug_for_tts = ctx.genre_slug.to_string();
     let tts_segments_for_prerender = tts_segments.clone();
     let prerender_ctx = sidequest_game::PrerenderContext {
-        in_combat: ctx.combat_state.in_combat(),
-        combatant_names: if ctx.combat_state.in_combat() {
+        in_combat: ctx.in_combat(),
+        combatant_names: if ctx.in_combat() {
             result
                 .npcs_present
                 .iter()
@@ -2980,7 +2988,7 @@ fn emit_telemetry(
             "inventory": inventory_names,
             "npc_registry": npc_data,
             "active_tropes": active_tropes,
-            "in_combat": ctx.combat_state.in_combat(),
+            "in_combat": ctx.in_combat(),
             "player_id": ctx.player_id,
             "character": ctx.char_name,
         });
@@ -3046,13 +3054,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         references_location: false,
     };
     // Sync StructuredEncounter before prompt context so format_encounter_context() can use it
-    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
-        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-    } else if let Some(ref cs) = ctx.chase_state {
-        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-    } else {
-        None
-    };
+    // encounter sync bridge removed in story 28-9 — encounter is maintained directly via apply_beat().
 
     let mut state_summary = prompt::build_prompt_context(ctx, &aside_relevance).await;
     state_summary.push_str(concat!(
@@ -3067,8 +3069,8 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
 
     let context = TurnContext {
         state_summary: Some(state_summary),
-        in_combat: ctx.combat_state.in_combat(),
-        in_chase: ctx.chase_state.is_some(),
+        in_combat: ctx.in_combat(),
+        in_chase: ctx.in_chase(),
         narrator_verbosity: ctx.narrator_verbosity,
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: None,

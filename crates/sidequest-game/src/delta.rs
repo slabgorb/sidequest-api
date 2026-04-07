@@ -24,8 +24,6 @@ pub struct StateSnapshot {
     time_of_day: String,
     quest_log_json: String,
     notes_json: String,
-    combat_json: String,
-    chase_json: String,
     active_tropes_json: String,
     atmosphere: String,
     #[allow(dead_code)]
@@ -45,8 +43,6 @@ pub fn snapshot(state: &GameSnapshot) -> StateSnapshot {
         time_of_day: state.time_of_day.clone(),
         quest_log_json: to_json(&state.quest_log),
         notes_json: to_json(&state.notes),
-        combat_json: to_json(&state.combat),
-        chase_json: to_json(&state.chase),
         active_tropes_json: to_json(&state.active_tropes),
         atmosphere: state.atmosphere.clone(),
         current_region: state.current_region.clone(),
@@ -69,8 +65,6 @@ pub struct StateDelta {
     time_of_day: bool,
     quest_log: bool,
     notes: bool,
-    combat: bool,
-    chase: bool,
     tropes: bool,
     atmosphere: bool,
     regions: bool,
@@ -98,8 +92,6 @@ pub fn compute_delta(before: &StateSnapshot, after: &StateSnapshot) -> StateDelt
         time_of_day: before.time_of_day != after.time_of_day,
         quest_log: before.quest_log_json != after.quest_log_json,
         notes: before.notes_json != after.notes_json,
-        combat: before.combat_json != after.combat_json,
-        chase: before.chase_json != after.chase_json,
         tropes: before.active_tropes_json != after.active_tropes_json,
         atmosphere: before.atmosphere != after.atmosphere,
         regions: before.discovered_regions_json != after.discovered_regions_json,
@@ -132,12 +124,6 @@ pub fn compute_delta(before: &StateSnapshot, after: &StateSnapshot) -> StateDelt
     }
     if delta.notes {
         changed.push("notes");
-    }
-    if delta.combat {
-        changed.push("combat");
-    }
-    if delta.chase {
-        changed.push("chase");
     }
     if delta.tropes {
         changed.push("tropes");
@@ -176,8 +162,6 @@ impl StateDelta {
             && !self.time_of_day
             && !self.quest_log
             && !self.notes
-            && !self.combat
-            && !self.chase
             && !self.tropes
             && !self.atmosphere
             && !self.regions
@@ -209,16 +193,6 @@ impl StateDelta {
     /// Whether quest log changed.
     pub fn quest_log_changed(&self) -> bool {
         self.quest_log
-    }
-
-    /// Whether combat state changed.
-    pub fn combat_changed(&self) -> bool {
-        self.combat
-    }
-
-    /// Whether chase state changed.
-    pub fn chase_changed(&self) -> bool {
-        self.chase
     }
 
     /// Whether atmosphere changed.

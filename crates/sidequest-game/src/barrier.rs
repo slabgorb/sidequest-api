@@ -459,7 +459,20 @@ impl TurnBarrier {
         
         // Track this turn as resolved
         *self.inner.last_resolved_turn.lock().unwrap() = current_turn;
-        
+
+        // OTEL: barrier resolution telemetry
+        let player_count = session.player_count();
+        let submitted = player_count - missing.len();
+        {
+            let span = tracing::info_span!(
+                "barrier.resolved",
+                player_count = player_count,
+                submitted = submitted,
+                timed_out = timed_out,
+            );
+            let _guard = span.enter();
+        }
+
         TurnBarrierResult {
             claimed_resolution,
             timed_out,

@@ -1,7 +1,8 @@
-//! Typed patch structs for agent output — WorldStatePatch, CombatPatch, ChasePatch.
+//! Typed patch structs for agent output — WorldStatePatch.
 //!
 //! Port lesson #4: Typed patches replace the Python god-object's 255-line apply_patch().
 //! ADR-011: Structured patches, not freeform text.
+//! CombatPatch and ChasePatch removed in story 28-9 — StructuredEncounter replaces them.
 
 use std::collections::HashMap;
 
@@ -38,42 +39,5 @@ pub struct WorldStatePatch {
     pub lore_established: Option<Vec<String>>,
 }
 
-/// Patch produced by the CreatureSmith agent for combat state mutations.
-/// Note: no deny_unknown_fields — creature_smith may include inline preprocessor
-/// fields (action_rewrite, action_flags) in the same JSON block.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct CombatPatch {
-    /// Whether combat is active.
-    pub in_combat: Option<bool>,
-    /// Per-combatant HP deltas.
-    pub hp_changes: Option<HashMap<String, i32>>,
-    /// Turn order.
-    pub turn_order: Option<Vec<String>>,
-    /// Current turn holder.
-    pub current_turn: Option<String>,
-    /// Available player actions.
-    pub available_actions: Option<Vec<String>>,
-    /// Drama weight for pacing.
-    pub drama_weight: Option<f64>,
-    /// Whether to advance the combat round.
-    #[serde(default)]
-    pub advance_round: bool,
-}
-
-/// Patch produced by the Dialectician agent for chase state mutations.
-/// Note: no deny_unknown_fields — same reason as CombatPatch.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ChasePatch {
-    /// Whether a chase is active. true to start, false to resolve.
-    pub in_chase: Option<bool>,
-    /// Chase type: "footrace", "stealth", or "negotiation".
-    pub chase_type: Option<String>,
-    /// Change in separation distance (positive = gap widens, negative = gap closes).
-    pub separation_delta: Option<i32>,
-    /// Current chase phase description.
-    pub phase: Option<String>,
-    /// Chase event description for this beat.
-    pub event: Option<String>,
-    /// Escape roll result (0.0 to 1.0). Used for mechanical resolution.
-    pub roll: Option<f64>,
-}
+// CombatPatch and ChasePatch deleted in story 28-9.
+// StructuredEncounter (via beat selections) is the sole encounter mutation model.
