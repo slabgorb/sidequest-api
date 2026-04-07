@@ -116,6 +116,21 @@ pub use sidequest_telemetry::{
 pub use tracing_setup::{init_tracing, tracing_subscriber_for_test, build_subscriber_with_filter};
 
 // ---------------------------------------------------------------------------
+// Confrontation Defs — lookup helper (Story 28-1)
+// ---------------------------------------------------------------------------
+
+/// Find a ConfrontationDef by encounter_type string.
+///
+/// Used by dispatch to look up genre-declared encounter types (combat, chase,
+/// standoff, negotiation, etc.) from the defs loaded at session start.
+pub fn find_confrontation_def<'a>(
+    defs: &'a [sidequest_genre::ConfrontationDef],
+    encounter_type: &str,
+) -> Option<&'a sidequest_genre::ConfrontationDef> {
+    defs.iter().find(|d| d.confrontation_type == encounter_type)
+}
+
+// ---------------------------------------------------------------------------
 // CLI Args
 // ---------------------------------------------------------------------------
 
@@ -1814,6 +1829,14 @@ async fn dispatch_message(
                             .and_then(|pack| pack.worlds.get(ws).cloned())
                             .and_then(|world| world.cartography.world_graph)
                     },
+                    confrontation_defs: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .map(|pack| pack.rules.confrontations.clone())
+                            .unwrap_or_default()
+                    },
                     aside,
                     opening_directive: None,
                     narrator_verbosity,
@@ -1850,6 +1873,16 @@ async fn dispatch_message(
                             })
                     },
                 };
+                // OTEL: log loaded confrontation defs (story 28-1)
+                if !ctx.confrontation_defs.is_empty() {
+                    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                        .field("action", "defs_loaded")
+                        .field("genre", ctx.genre_slug)
+                        .field("count", ctx.confrontation_defs.len())
+                        .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
+                        .send();
+                }
+
                 let result = dispatch::dispatch_player_action(&mut ctx).await;
 
                 // Save Manual after dispatch (entries may have been marked Active)

@@ -1392,6 +1392,14 @@ pub(crate) async fn dispatch_character_creation(
                                     .and_then(|pack| pack.worlds.get(ws).cloned())
                                     .and_then(|world| world.cartography.world_graph)
                             },
+                            confrontation_defs: {
+                                let gs = session.genre_slug().unwrap_or("");
+                                sidequest_genre::GenreCode::new(gs)
+                                    .ok()
+                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .map(|pack| pack.rules.confrontations.clone())
+                                    .unwrap_or_default()
+                            },
                             aside: false,
                             opening_directive: opening_directive.take(),
                             narrator_verbosity,
@@ -1428,6 +1436,15 @@ pub(crate) async fn dispatch_character_creation(
                                     })
                             },
                         };
+                        // OTEL: log loaded confrontation defs (story 28-1)
+                        if !ctx.confrontation_defs.is_empty() {
+                            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                                .field("action", "defs_loaded")
+                                .field("genre", ctx.genre_slug)
+                                .field("count", ctx.confrontation_defs.len())
+                                .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
+                                .send();
+                        }
                         let result = super::dispatch_player_action(&mut ctx).await;
                         ctx.monster_manual.save();
                         result
