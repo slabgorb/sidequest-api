@@ -96,6 +96,10 @@ pub trait SessionStore {
     fn recent_narrative(&self, limit: usize) -> Result<Vec<NarrativeEntry>, PersistError>;
     /// Generate a "Previously On..." recap from recent entries.
     fn generate_recap(&self) -> Result<Option<String>, PersistError>;
+    /// Save scenario archive JSON for a session.
+    fn save_scenario(&self, session_id: &str, json: &str) -> Result<(), PersistError>;
+    /// Load scenario archive JSON for a session, or None if not saved.
+    fn load_scenario(&self, session_id: &str) -> Result<Option<String>, PersistError>;
 }
 
 /// Entry returned by `SqliteStore::list_saves()`.
@@ -222,7 +226,12 @@ impl SqliteStore {
                 metadata_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
-            CREATE INDEX IF NOT EXISTS idx_lore_category ON lore_fragments(category);",
+            CREATE INDEX IF NOT EXISTS idx_lore_category ON lore_fragments(category);
+            CREATE TABLE IF NOT EXISTS scenario_archive (
+                session_id TEXT PRIMARY KEY,
+                scenario_json TEXT NOT NULL,
+                saved_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );",
         )?;
         Ok(())
     }
@@ -286,7 +295,7 @@ impl SessionStore for SqliteStore {
             last_played: Utc::now(),
         });
         // Rich recap with character names and location (story F3)
-        let entries = self.recent_narrative(20)?;
+        let entries = self.recent_narrative(3)?;
         let character_names: Vec<String> = snapshot
             .characters
             .iter()
@@ -344,13 +353,40 @@ impl SessionStore for SqliteStore {
     }
 
     fn generate_recap(&self) -> Result<Option<String>, PersistError> {
-        let entries = self.recent_narrative(20)?;
+        let entries = self.recent_narrative(3)?;
         if entries.is_empty() { return Ok(None); }
         let mut recap = String::from("Previously On...\n\n");
         for entry in &entries {
-            recap.push_str(&format!("- {}\n", entry.content));
+            let content = if entry.content.len() > 200 {
+                let truncated = &entry.content[..entry.content.floor_char_boundary(200)];
+                format!("{}...", truncated)
+            } else {
+                entry.content.clone()
+            };
+            recap.push_str(&format!("- {}\n", content));
         }
         Ok(Some(recap))
+    }
+
+    fn save_scenario(&self, session_id: &str, json: &str) -> Result<(), PersistError> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO scenario_archive (session_id, scenario_json, saved_at)
+             VALUES (?1, ?2, datetime('now'))",
+            params![session_id, json],
+        )?;
+        Ok(())
+    }
+
+    fn load_scenario(&self, session_id: &str) -> Result<Option<String>, PersistError> {
+        let result: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT scenario_json FROM scenario_archive WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .ok();
+        Ok(result)
     }
 }
 
@@ -515,6 +551,17 @@ pub enum PersistenceCommand {
         /// Reply channel.
         reply: oneshot::Sender<Result<Vec<LoreFragment>, PersistError>>,
     },
+    /// Delete a saved session (permadeath wipe).
+    Delete {
+        /// Genre slug for the session.
+        genre_slug: String,
+        /// World slug for the session.
+        world_slug: String,
+        /// Player name for session isolation.
+        player_name: String,
+        /// Reply channel.
+        reply: oneshot::Sender<Result<(), PersistError>>,
+    },
     /// Graceful shutdown.
     Shutdown,
 }
@@ -581,6 +628,19 @@ impl PersistenceHandle {
         }).await;
         if sent.is_err() { return false; }
         reply_rx.await.unwrap_or(false)
+    }
+
+    /// Delete a saved session (permadeath wipe). Removes the .db file and evicts the store cache.
+    #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
+    pub async fn delete(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<(), PersistError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(PersistenceCommand::Delete {
+            genre_slug: genre_slug.to_string(),
+            world_slug: world_slug.to_string(),
+            player_name: player_name.to_string(),
+            reply: reply_tx,
+        }).await.map_err(|_| PersistError::WorkerGone)?;
+        reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
     /// List all saved sessions under the save directory.
@@ -711,7 +771,40 @@ impl PersistenceWorker {
         match cmd {
             PersistenceCommand::Save { genre_slug, world_slug, player_name, snapshot, reply } => {
                 let _span = tracing::info_span!("persistence_save", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
-                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.save(&snapshot));
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| {
+                    store.save(&snapshot)?;
+                    // Story 26-6: Archive scenario state alongside main snapshot.
+                    if let Some(ref scenario) = snapshot.scenario_state {
+                        let session_id = format!("{}/{}/{}", genre_slug, world_slug, player_name);
+                        let versioned = crate::scenario_archiver::VersionedScenario {
+                            version: crate::scenario_archiver::SCENARIO_FORMAT_VERSION,
+                            state: scenario.clone(),
+                        };
+                        match serde_json::to_string(&versioned) {
+                            Ok(json) => {
+                                if let Err(e) = store.save_scenario(&session_id, &json) {
+                                    tracing::warn!(error = %e, "Failed to archive scenario state");
+                                } else {
+                                    tracing::info!(
+                                        session_id = %session_id,
+                                        version = crate::scenario_archiver::SCENARIO_FORMAT_VERSION,
+                                        "scenario_archive.saved"
+                                    );
+                                    sidequest_telemetry::WatcherEventBuilder::new(
+                                        "persistence",
+                                        sidequest_telemetry::WatcherEventType::SubsystemExerciseSummary,
+                                    )
+                                    .field("event", "scenario_archive_saved")
+                                    .field("session_id", &session_id)
+                                    .field("version", crate::scenario_archiver::SCENARIO_FORMAT_VERSION)
+                                    .send();
+                                }
+                            }
+                            Err(e) => tracing::warn!(error = %e, "Failed to serialize scenario state"),
+                        }
+                    }
+                    Ok(())
+                });
                 match &result {
                     Ok(()) => tracing::info!("Session saved"),
                     Err(e) => tracing::warn!(error = %e, "Save failed"),
@@ -720,7 +813,46 @@ impl PersistenceWorker {
             }
             PersistenceCommand::Load { genre_slug, world_slug, player_name, reply } => {
                 let _span = tracing::info_span!("persistence_load", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
-                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.load());
+                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| {
+                    let mut saved = store.load()?;
+                    // Story 26-6: Restore scenario state from versioned archive.
+                    if let Some(ref mut session) = saved {
+                        let session_id = format!("{}/{}/{}", genre_slug, world_slug, player_name);
+                        match store.load_scenario(&session_id) {
+                            Ok(Some(json)) => {
+                                match serde_json::from_str::<crate::scenario_archiver::VersionedScenario>(&json) {
+                                    Ok(versioned) if versioned.version == crate::scenario_archiver::SCENARIO_FORMAT_VERSION => {
+                                        session.snapshot.scenario_state = Some(versioned.state);
+                                        tracing::info!(
+                                            session_id = %session_id,
+                                            version = versioned.version,
+                                            "scenario_archive.restored"
+                                        );
+                                        sidequest_telemetry::WatcherEventBuilder::new(
+                                            "persistence",
+                                            sidequest_telemetry::WatcherEventType::SubsystemExerciseSummary,
+                                        )
+                                        .field("event", "scenario_archive_restored")
+                                        .field("session_id", &session_id)
+                                        .field("version", versioned.version)
+                                        .send();
+                                    }
+                                    Ok(versioned) => {
+                                        tracing::warn!(
+                                            expected = crate::scenario_archiver::SCENARIO_FORMAT_VERSION,
+                                            found = versioned.version,
+                                            "Scenario archive version mismatch — skipping restore"
+                                        );
+                                    }
+                                    Err(e) => tracing::warn!(error = %e, "Failed to deserialize scenario archive"),
+                                }
+                            }
+                            Ok(None) => {} // No archived scenario — normal for non-scenario sessions
+                            Err(e) => tracing::warn!(error = %e, "Failed to load scenario archive"),
+                        }
+                    }
+                    Ok(saved)
+                });
                 match &result {
                     Ok(Some(_)) => tracing::info!("Session loaded"),
                     Ok(None) => tracing::debug!("No saved session found"),
@@ -744,6 +876,24 @@ impl PersistenceWorker {
             }
             PersistenceCommand::LoadLoreFragments { genre_slug, world_slug, player_name, reply } => {
                 let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.load_lore_fragments());
+                let _ = reply.send(result);
+            }
+            PersistenceCommand::Delete { genre_slug, world_slug, player_name, reply } => {
+                let _span = tracing::info_span!("persistence_delete", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
+                // Evict cached store so the Connection is dropped before we delete the file
+                let key = Self::store_key(&genre_slug, &world_slug, &player_name);
+                self.stores.remove(&key);
+                let db_path = self.db_path(&genre_slug, &world_slug, &player_name);
+                let result = if db_path.exists() {
+                    std::fs::remove_file(&db_path)
+                        .map_err(|e| PersistError::Database(format!("failed to delete save: {}", e)))
+                } else {
+                    Ok(())
+                };
+                match &result {
+                    Ok(()) => tracing::info!("Save deleted (permadeath)"),
+                    Err(e) => tracing::warn!(error = %e, "Delete failed"),
+                }
                 let _ = reply.send(result);
             }
             PersistenceCommand::ListSaves { reply } => {

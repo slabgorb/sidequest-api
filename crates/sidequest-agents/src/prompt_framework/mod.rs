@@ -122,23 +122,25 @@ impl PromptRegistry {
 
         let content = match verbosity {
             NarratorVerbosity::Concise => {
-                "[NARRATION LENGTH]\n\
-                 Keep descriptions to 1-2 sentences. Prioritize action and \
-                 consequence over atmosphere. No extended scene-setting or \
-                 sensory elaboration. Be direct."
+                "<length-limit>\n\
+                 HARD LIMIT: 2-3 sentences, under 200 characters of prose. \
+                 Action and consequence only. No scene-setting. No paragraphs. \
+                 If your prose exceeds 200 characters, DELETE and rewrite shorter.\n\
+                 </length-limit>"
             }
             NarratorVerbosity::Standard => {
-                "[NARRATION LENGTH]\n\
-                 Use standard descriptive prose — balanced detail and pacing. \
-                 Include enough atmosphere to set the scene without belaboring it. \
-                 2-4 sentences per beat is typical."
+                "<length-limit>\n\
+                 HARD LIMIT: 2-3 short paragraphs, under 400 characters of prose. \
+                 One action, one scene beat. If your prose exceeds 400 characters, \
+                 DELETE and rewrite shorter. Most turns should be 2-3 sentences.\n\
+                 </length-limit>"
             }
             NarratorVerbosity::Verbose => {
-                "[NARRATION LENGTH]\n\
-                 Elaborate with sensory details and world-building. Paint the \
-                 scene with sights, sounds, smells, and texture. Take time to \
-                 establish atmosphere and let moments breathe. 4-6+ sentences \
-                 per beat."
+                "<length-limit>\n\
+                 HARD LIMIT: 2-3 paragraphs, under 600 characters of prose. \
+                 Richer atmosphere and sensory detail, but still concise. \
+                 If your prose exceeds 600 characters, DELETE and rewrite shorter.\n\
+                 </length-limit>"
             }
         };
 
@@ -147,8 +149,8 @@ impl PromptRegistry {
             PromptSection::new(
                 "narrator_verbosity",
                 content,
-                AttentionZone::Late,
-                SectionCategory::Format,
+                AttentionZone::Recency,
+                SectionCategory::Guardrail,
             ),
         );
     }

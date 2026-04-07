@@ -129,7 +129,7 @@ fn vocabulary_composes_with_verbosity_section() {
     let composed = registry.compose("narrator");
     // Both sections should be present — verbosity controls length, vocabulary controls diction
     assert!(
-        composed.contains("1-2 sentences"),
+        composed.contains("under 200 characters"),
         "verbosity section should be present"
     );
     assert!(

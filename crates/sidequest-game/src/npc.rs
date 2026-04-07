@@ -488,6 +488,7 @@ mod tests {
             ocean: None,
             hp: 0,
             max_hp: 0,
+            portrait_url: None,
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "she/her");
@@ -510,6 +511,7 @@ mod tests {
             ocean: None,
             hp: 0,
             max_hp: 0,
+            portrait_url: None,
         }];
         enrich_registry_from_npcs(&mut registry, &npcs);
         assert_eq!(registry[0].pronouns, "they/them"); // unchanged
@@ -557,6 +559,11 @@ pub struct NpcRegistryEntry {
     /// Maximum HP (set when NPC enters combat).
     #[serde(default)]
     pub max_hp: i32,
+    /// URL of this NPC's portrait image (pre-rendered or daemon-generated).
+    /// Set on first encounter when a matching image is found. Used for dedup
+    /// (skip re-generation) and for ConfrontationOverlay actor portraits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portrait_url: Option<String>,
 }
 
 /// Enrich registry entries with physical description data from full Npc structs.

@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use rand::Rng;
 use serde::Serialize;
-use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype, OceanProfile};
+use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 
 #[derive(Parser)]
 #[command(name = "sidequest-namegen", about = "Generate a complete NPC identity from genre pack data")]
@@ -229,6 +229,9 @@ fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &
     // Trope connections
     let trope_connections = match_tropes(&pack.tropes, archetype, culture);
 
+    // Select a random subset of dialogue quirks (3) so each NPC gets a unique voice
+    let dialogue_quirks = select_quirk_subset(&archetype.dialogue_quirks, 3, rng);
+
     NpcBlock {
         name,
         pronouns,
@@ -240,7 +243,7 @@ fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &
         role,
         appearance,
         personality: archetype.personality_traits.clone(),
-        dialogue_quirks: archetype.dialogue_quirks.clone(),
+        dialogue_quirks,
         history,
         ocean,
         ocean_summary,
@@ -249,6 +252,16 @@ fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &
         stat_ranges: archetype.stat_ranges.clone(),
         trope_connections,
     }
+}
+
+/// Select a random subset of `count` dialogue quirks from the pool.
+/// If the pool has fewer than `count` entries, returns all of them (shuffled).
+fn select_quirk_subset(quirks: &[String], count: usize, rng: &mut impl Rng) -> Vec<String> {
+    use rand::seq::SliceRandom;
+    let mut pool = quirks.to_vec();
+    pool.shuffle(rng);
+    pool.truncate(count);
+    pool
 }
 
 fn jitter_ocean(archetype: &NpcArchetype, rng: &mut impl Rng) -> OceanValues {

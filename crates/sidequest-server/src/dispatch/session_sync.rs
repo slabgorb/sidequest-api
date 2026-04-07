@@ -35,7 +35,7 @@ pub(crate) async fn sync_back_to_shared_session(
             .field("player_count", ss.player_count())
             .field("npc_count", ctx.npc_registry.len())
             .field("location", ctx.current_location.as_str())
-            .send(ctx.state);
+            .send();
 
         // Sync acting player's character data to PlayerState for other players' PARTY_STATUS
         if let Some(ps) = ss.players.get_mut(ctx.player_id) {

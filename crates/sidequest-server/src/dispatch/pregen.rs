@@ -41,6 +41,7 @@ fn generate_encounter(
     binary: &std::path::Path,
     genre_packs_path: &std::path::Path,
     genre: &str,
+    world: &str,
     tier: Option<u32>,
     count: u32,
 ) -> Option<serde_json::Value> {
@@ -51,6 +52,9 @@ fn generate_encounter(
         .arg(genre)
         .arg("--count")
         .arg(count.to_string());
+    if !world.is_empty() {
+        cmd.arg("--world").arg(world);
+    }
     if let Some(t) = tier {
         cmd.arg("--tier").arg(t.to_string());
     }
@@ -67,9 +71,11 @@ fn generate_encounter(
 
 /// Seed a MonsterManual with NPCs and encounters from tool binaries.
 ///
-/// Examines the genre pack's cultures and generates 1 NPC per culture (up to 4).
+/// Examines the genre pack's cultures and generates 3 NPCs per culture (up to 12 total).
 /// Generates 2 encounter blocks (tier 1 and tier 2).
-pub fn seed_manual(state: &AppState, genre: &str, manual: &mut MonsterManual) {
+/// When `world` is provided, encountergen reads `worlds/{world}/creatures.yaml` for
+/// creature definitions instead of generating humanoid NPCs from rules.yaml.
+pub fn seed_manual(state: &AppState, genre: &str, world: &str, manual: &mut MonsterManual) {
     let span = tracing::info_span!(
         "pregen.seed_manual",
         genre = %genre,
@@ -94,9 +100,11 @@ pub fn seed_manual(state: &AppState, genre: &str, manual: &mut MonsterManual) {
             })
             .unwrap_or_default();
 
+        const NPCS_PER_CULTURE: usize = 3;
+
         if cultures.is_empty() {
             // No cultures found — generate without culture flag
-            for _ in 0..3 {
+            for _ in 0..(NPCS_PER_CULTURE * 3) {
                 if let Some(data) = generate_npc(namegen_binary, genre_packs_path, genre, None) {
                     tracing::info!(
                         name = data.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
@@ -107,15 +115,17 @@ pub fn seed_manual(state: &AppState, genre: &str, manual: &mut MonsterManual) {
             }
         } else {
             for culture in &cultures {
-                if let Some(data) =
-                    generate_npc(namegen_binary, genre_packs_path, genre, Some(culture))
-                {
-                    tracing::info!(
-                        name = data.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
-                        culture = %culture,
-                        "pregen.npc_generated"
-                    );
-                    manual.add_npc(data, vec![]);
+                for _ in 0..NPCS_PER_CULTURE {
+                    if let Some(data) =
+                        generate_npc(namegen_binary, genre_packs_path, genre, Some(culture))
+                    {
+                        tracing::info!(
+                            name = data.get("name").and_then(|v| v.as_str()).unwrap_or("?"),
+                            culture = %culture,
+                            "pregen.npc_generated"
+                        );
+                        manual.add_npc(data, vec![]);
+                    }
                 }
             }
         }
@@ -127,7 +137,7 @@ pub fn seed_manual(state: &AppState, genre: &str, manual: &mut MonsterManual) {
     if let Some(encountergen_binary) = state.encountergen_binary_path() {
         for tier in [1u32, 2] {
             if let Some(data) =
-                generate_encounter(encountergen_binary, genre_packs_path, genre, Some(tier), 2)
+                generate_encounter(encountergen_binary, genre_packs_path, genre, world, Some(tier), 2)
             {
                 tracing::info!(tier = tier, "pregen.encounter_generated");
                 manual.add_encounter(data, tier, vec![]);

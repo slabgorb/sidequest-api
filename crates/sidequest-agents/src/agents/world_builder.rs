@@ -162,6 +162,32 @@ impl WorldBuilderAgent {
         &self.maturity
     }
 
+    /// Inject only narrator-facing world context (maturity + materialized content)
+    /// into the prompt builder. Does NOT include the world builder's own system
+    /// prompt / identity — that would be agent cross-contamination.
+    ///
+    /// Use this instead of `build_context()` when composing the narrator's prompt.
+    pub fn inject_world_context(&self, builder: &mut ContextBuilder) {
+        // World state section (Early zone) — maturity + existing world knowledge
+        builder.add_section(PromptSection::new(
+            "world_maturity",
+            self.maturity_context(),
+            AttentionZone::Early,
+            SectionCategory::State,
+        ));
+
+        // Materialized world description (Early zone) — progressive content
+        // from history chapters filtered by current maturity level.
+        if let Some(materialized) = self.materialized_world_context() {
+            builder.add_section(PromptSection::new(
+                "world_materialization",
+                materialized,
+                AttentionZone::Early,
+                SectionCategory::State,
+            ));
+        }
+    }
+
     /// Format the maturity tier as a lowercase string for prompt injection.
     fn maturity_label(&self) -> &str {
         match &self.maturity {
@@ -437,6 +463,29 @@ mod tests {
         assert_eq!(state.len(), 1);
         assert!(state[0].content.contains("Market Square"));
         assert!(state[0].content.contains("EARLY"));
+    }
+
+    #[test]
+    fn inject_world_context_excludes_identity() {
+        let agent = WorldBuilderAgent::new()
+            .with_maturity(CampaignMaturity::Early)
+            .with_locations(vec!["Market Square".into()]);
+        let mut builder = ContextBuilder::new();
+        agent.inject_world_context(&mut builder);
+
+        // No identity section — world builder system prompt must not leak
+        let identity = builder.sections_by_category(SectionCategory::Identity);
+        assert_eq!(identity.len(), 0, "inject_world_context must not include identity section");
+
+        // State section should still have maturity + locations
+        let state = builder.sections_by_category(SectionCategory::State);
+        assert_eq!(state.len(), 1);
+        assert!(state[0].content.contains("Market Square"));
+        assert!(state[0].content.contains("EARLY"));
+        // Must not contain WORLD_BUILDER agent instructions
+        assert!(!state[0].content.contains("WORLD_BUILDER agent"));
+        assert!(!state[0].content.contains("OUTPUT FORMAT"));
+        assert!(!state[0].content.contains("```json"));
     }
 
     #[test]

@@ -181,6 +181,7 @@ fn resource_declaration_yaml_roundtrip() {
         starting: 3.0,
         voluntary: true,
         decay_per_turn: 0.0,
+        thresholds: vec![],
     };
     let yaml = serde_yaml::to_string(&decl).unwrap();
     let restored: ResourceDeclaration = serde_yaml::from_str(&yaml).unwrap();

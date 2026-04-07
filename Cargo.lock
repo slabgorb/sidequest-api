@@ -1286,11 +1286,13 @@ dependencies = [
  "sidequest-game",
  "sidequest-genre",
  "sidequest-protocol",
+ "sidequest-telemetry",
  "tempfile",
  "thiserror",
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -1313,6 +1315,7 @@ dependencies = [
  "rand 0.9.2",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sidequest-genre",
 ]
 
@@ -1331,6 +1334,7 @@ dependencies = [
  "serde_yaml",
  "sidequest-genre",
  "sidequest-protocol",
+ "sidequest-telemetry",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1376,6 +1380,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidequest-promptpreview"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "sidequest-agents",
+ "sidequest-genre",
+ "sidequest-protocol",
+]
+
+[[package]]
 name = "sidequest-protocol"
 version = "0.1.0"
 dependencies = [
@@ -1405,6 +1421,7 @@ dependencies = [
  "sidequest-game",
  "sidequest-genre",
  "sidequest-protocol",
+ "sidequest-telemetry",
  "thiserror",
  "tokio",
  "tokio-tungstenite",
@@ -1414,6 +1431,27 @@ dependencies = [
  "tracing-chrome",
  "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "sidequest-telemetry"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "sidequest-validate"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sidequest-genre",
 ]
 
 [[package]]

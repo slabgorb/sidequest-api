@@ -58,6 +58,11 @@ pub struct BeatFilterConfig {
     max_history: usize,
     burst_limit: u32,
     burst_window: Duration,
+    /// How long a subject hash stays "active" for duplicate suppression.
+    /// After this duration, the same subject can be rendered again.
+    /// Default: 5 minutes. Prevents permanent suppression when staying
+    /// in one location for extended gameplay.
+    dedup_window: Duration,
 }
 
 impl BeatFilterConfig {
@@ -99,7 +104,14 @@ impl BeatFilterConfig {
             max_history,
             burst_limit,
             burst_window,
+            dedup_window: Duration::from_secs(300),
         })
+    }
+
+    /// Create a config with a custom dedup window.
+    pub fn with_dedup_window(mut self, dedup_window: Duration) -> Self {
+        self.dedup_window = dedup_window;
+        self
     }
 
     /// Minimum narrative weight to trigger a render (normal mode).
@@ -131,6 +143,11 @@ impl BeatFilterConfig {
     pub fn burst_window(&self) -> Duration {
         self.burst_window
     }
+
+    /// Time window for duplicate subject suppression.
+    pub fn dedup_window(&self) -> Duration {
+        self.dedup_window
+    }
 }
 
 impl Default for BeatFilterConfig {
@@ -140,8 +157,9 @@ impl Default for BeatFilterConfig {
             cooldown: Duration::from_secs(15),
             combat_threshold: 0.25,
             max_history: 20,
-            burst_limit: 3,
-            burst_window: Duration::from_secs(60),
+            burst_limit: 5,
+            burst_window: Duration::from_secs(120),
+            dedup_window: Duration::from_secs(300),
         }
     }
 }
@@ -208,7 +226,13 @@ impl BeatFilter {
     /// 2. Weight threshold (combat-aware)
     /// 3. Cooldown timer
     /// 4. Burst rate limit
-    /// 5. Duplicate subject suppression
+    /// 5. Duplicate subject suppression (time-bounded by dedup_window)
+    #[tracing::instrument(name = "beat_filter.evaluate", skip_all, fields(
+        weight = subject.narrative_weight(),
+        in_combat = context.in_combat,
+        scene_transition = context.scene_transition,
+        history_len = self.render_history.len(),
+    ))]
     pub fn evaluate(&mut self, subject: &RenderSubject, context: &FilterContext) -> FilterDecision {
         let now = Instant::now();
 
@@ -265,15 +289,21 @@ impl BeatFilter {
             };
         }
 
-        // 5. Duplicate subject suppression
+        // 5. Duplicate subject suppression (time-bounded)
+        // Only suppress if the same subject was rendered within the dedup window.
+        // Without this time bound, subjects rendered early in a session would
+        // permanently block re-renders at the same location — the root cause of
+        // "images stop generating after turn 2."
         let subject_hash = hash_subject(subject);
-        if self
-            .render_history
-            .iter()
-            .any(|r| r.subject_hash == subject_hash)
-        {
+        if self.render_history.iter().any(|r| {
+            r.subject_hash == subject_hash
+                && now.duration_since(r.timestamp) < self.config.dedup_window
+        }) {
             return FilterDecision::Suppress {
-                reason: "duplicate subject in history".into(),
+                reason: format!(
+                    "duplicate subject in history (dedup window {}s)",
+                    self.config.dedup_window.as_secs()
+                ),
             };
         }
 

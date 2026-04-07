@@ -51,7 +51,7 @@ pub(crate) async fn build_prompt_context(
                 WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
                     .field("event", "trope_activated")
                     .field("trope_id", id)
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -133,6 +133,8 @@ pub(crate) async fn build_prompt_context(
                 })
                 .collect();
 
+            // Always inject agency constraint — even single-player.
+            // Bug #1/#3: narrator puppeted PCs when constraint was multiplayer-only.
             if !other_pcs.is_empty() {
                 state_summary.push_str(&format!(
                     "\n\nParty: {}.",
@@ -143,21 +145,52 @@ pub(crate) async fn build_prompt_context(
                         " Co-located: {}.",
                         co_located_names.join(", ")
                     ));
+                    // Enrich with mechanical context for co-located PCs so the narrator
+                    // can write mechanically-aware party interactions.
+                    let co_located_pids = ss.co_located_players(ctx.player_id);
+                    for pid in &co_located_pids {
+                        if let Some(ps) = ss.players.get(pid.as_str()) {
+                            if let Some(ref name) = ps.character_name {
+                                state_summary.push_str(&format!(
+                                    "\n  {} — {} Lv{}, HP {}/{}",
+                                    name,
+                                    if ps.character_class.is_empty() { "Unknown" } else { &ps.character_class },
+                                    ps.character_level,
+                                    ps.character_hp,
+                                    ps.character_max_hp,
+                                ));
+                            }
+                        }
+                    }
+
+                    // OTEL: party context injection
+                    crate::WatcherEventBuilder::new("party_context", crate::WatcherEventType::StateTransition)
+                        .field("event", "party_context_injected")
+                        .field("co_located_count", co_located_pids.len())
+                        .field("co_located_names", co_located_names.join(", ").as_str())
+                        .send();
                 }
-                if turn_number <= 3 {
-                    // Full rules for early turns
-                    state_summary.push_str(concat!(
-                        "\n\nPLAYER AGENCY — ABSOLUTE RULE:\n",
-                        "Do NOT write dialogue, actions, thoughts, or internal state for ANY player character.\n",
-                        "Players control their OWN characters. You control the WORLD, NPCs, and narration only.\n",
-                        "PERSPECTIVE: Third-person omniscient. All characters named explicitly. Never use 'you'.",
-                    ));
-                } else {
-                    // Compressed reminder after turn 3
-                    state_summary.push_str(
-                        " PLAYER AGENCY: Do not write dialogue/actions/thoughts for player characters. Third-person only."
-                    );
-                }
+            }
+            // PC roster for the agency constraint — always includes the active player.
+            let mut all_pc_names: Vec<String> = vec![ctx.char_name.to_string()];
+            all_pc_names.extend(other_pcs.iter().cloned());
+            if turn_number <= 3 {
+                // Full rules for early turns
+                state_summary.push_str(&format!(
+                    "\n\nPLAYER AGENCY — ABSOLUTE RULE:\n\
+                     Player characters: {}\n\
+                     Do NOT write dialogue, actions, thoughts, or internal state for ANY player character.\n\
+                     Players control their OWN characters. You control the WORLD, NPCs, and narration only.\n\
+                     Do NOT script physical interactions between player characters (nudging, grabbing, etc.).\n\
+                     PERSPECTIVE: Third-person omniscient. All characters named explicitly. Never use 'you'.",
+                    all_pc_names.join(", ")
+                ));
+            } else {
+                // Compressed reminder after turn 3
+                state_summary.push_str(&format!(
+                    " PLAYER AGENCY: Player characters: {}. Do not write dialogue/actions/thoughts for them. No PC-to-PC physical scripting. Third-person only.",
+                    all_pc_names.join(", ")
+                ));
             }
         }
     }
@@ -249,6 +282,33 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str("Reference active quests when narratively relevant. Quest state changes are handled via the quest_update tool.\n");
     }
 
+    // Inject character's discovered knowledge so narrator can reference it.
+    // Limits to most recent 20 facts to stay within token budget.
+    if let Some(ref cj) = ctx.character_json {
+        if let Some(facts) = cj.get("known_facts").and_then(|v| v.as_array()) {
+            let relevant: Vec<_> = facts.iter().rev().take(20).collect();
+            if !relevant.is_empty() {
+                state_summary.push_str("\n\n[CHARACTER KNOWLEDGE — facts this character has learned]\n");
+                for fact in &relevant {
+                    if let Some(content) = fact.get("content").and_then(|c| c.as_str()) {
+                        let cat = fact.get("category").and_then(|c| c.as_str()).unwrap_or("unknown");
+                        state_summary.push_str(&format!("- [{}] {}\n", cat, content));
+                    }
+                }
+                tracing::info!(
+                    facts_injected = relevant.len(),
+                    total_facts = facts.len(),
+                    "rag.known_facts_injected"
+                );
+                WatcherEventBuilder::new("rag", WatcherEventType::SubsystemExerciseSummary)
+                    .field("event", "rag.known_facts_injected")
+                    .field("injected", relevant.len())
+                    .field("total", facts.len())
+                    .send();
+            }
+        }
+    }
+
     // Resource state injection (story 16-1)
     if !ctx.resource_declarations.is_empty() {
         state_summary.push_str("\n\nGENRE RESOURCES — Current State:\n");
@@ -286,7 +346,7 @@ pub(crate) async fn build_prompt_context(
                 .field("beat", enc.beat)
                 .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
                 .field("hint_count", enc.narrator_hints.len())
-                .send(ctx.state);
+                .send();
             state_summary.push_str(&format!(
                 "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
                 enc.encounter_type,
@@ -336,8 +396,12 @@ pub(crate) async fn build_prompt_context(
         }
 
         // Abilities — full with rules if player references them, name-only list otherwise
+        // Filter out lore anchor placeholders ("faction: auto-filled from genre pack")
         if let Some(hooks) = cj.get("hooks").and_then(|h| h.as_array()) {
-            let hook_strs: Vec<&str> = hooks.iter().filter_map(|v| v.as_str()).collect();
+            let hook_strs: Vec<&str> = hooks.iter()
+                .filter_map(|v| v.as_str())
+                .filter(|s| !s.contains("auto-filled"))
+                .collect();
             if !hook_strs.is_empty() {
                 if relevance.references_ability {
                     state_summary.push_str("\n\nABILITY CONSTRAINTS — THIS IS A HARD RULE:\n");
@@ -346,13 +410,19 @@ pub(crate) async fn build_prompt_context(
                     for h in &hook_strs {
                         state_summary.push_str(&format!("- {}\n", h));
                     }
-                    state_summary.push_str("PROACTIVE MUTATION NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to be relevant, weave them into the narration subtly.\n");
                 } else {
                     state_summary.push_str(&format!(
                         "\nAbilities: {}.",
                         hook_strs.join(", ")
                     ));
                 }
+                // Bug #12: Always inject proactive mutation narration — not just when
+                // the player references an ability. The narrator should weave mutations
+                // into the scene whenever the context creates a natural opportunity,
+                // even (especially) when the player doesn't explicitly invoke them.
+                state_summary.push_str(
+                    " PROACTIVE ABILITY NARRATION: When the scene naturally creates an opportunity for the character's abilities/mutations to manifest, weave subtle sensory hints into the narration (e.g., psychic whispers, glowing skin, heightened senses). Do NOT wait for the player to invoke them."
+                );
             }
         }
     }
@@ -386,6 +456,8 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inject known locations so the narrator uses canonical place names
+    // Only current location + discovered regions — the narrator doesn't need
+    // the full world atlas to narrate the current scene.
     if !ctx.discovered_regions.is_empty() {
         state_summary.push_str("\n\nKNOWN LOCATIONS IN THIS WORLD:\n");
         state_summary.push_str("Use ONLY these location names when referring to places the party has visited or heard about. Do NOT invent new settlement names.\n");
@@ -393,26 +465,47 @@ pub(crate) async fn build_prompt_context(
             state_summary.push_str(&format!("- {}\n", region));
         }
     }
-    // Also inject cartography region names from the shared session (if available)
+    // Inject unvisited cartography locations, filtered by adjacency when a world
+    // graph is available. Without a graph, cap at 5 to avoid dumping the full atlas.
     {
         let holder = ctx.shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
             if !ss.region_names.is_empty() {
-                if ctx.discovered_regions.is_empty() {
-                    state_summary.push_str("\n\nWORLD LOCATIONS (from cartography):\n");
-                    state_summary
-                        .push_str("Use these canonical location names. Do NOT invent new ones.\n");
-                } else {
-                    state_summary.push_str("Additional world locations (not yet visited):\n");
-                }
-                for (region_id, _display_name) in &ss.region_names {
-                    if !ctx
-                        .discovered_regions
+                // Collect undiscovered region IDs
+                let undiscovered: Vec<&str> = ss.region_names.iter()
+                    .filter(|(region_id, _)| !ctx.discovered_regions
                         .iter()
-                        .any(|r| r.to_lowercase() == *region_id)
-                    {
-                        state_summary.push_str(&format!("- {}\n", region_id));
+                        .any(|r| r.to_lowercase() == *region_id))
+                    .map(|(region_id, _)| region_id.as_str())
+                    .collect();
+
+                if !undiscovered.is_empty() {
+                    // Filter by adjacency if world graph is available
+                    let filtered: Vec<&str> = if let Some(ref wg) = ctx.world_graph {
+                        let neighbors: Vec<&str> = wg.neighbors(&ctx.current_location).collect();
+                        undiscovered.into_iter()
+                            .filter(|r| neighbors.iter().any(|n| {
+                                n.to_lowercase() == r.to_lowercase()
+                                    || n.to_lowercase().contains(&r.to_lowercase())
+                                    || r.to_lowercase().contains(&n.to_lowercase())
+                            }))
+                            .collect()
+                    } else {
+                        // No graph — cap at 5 nearest (by order in the list)
+                        undiscovered.into_iter().take(5).collect()
+                    };
+
+                    if !filtered.is_empty() {
+                        if ctx.discovered_regions.is_empty() {
+                            state_summary.push_str("\n\nNEARBY LOCATIONS (from cartography):\n");
+                            state_summary.push_str("Use these canonical location names. Do NOT invent new ones.\n");
+                        } else {
+                            state_summary.push_str("Nearby locations (not yet visited):\n");
+                        }
+                        for region_id in &filtered {
+                            state_summary.push_str(&format!("- {}\n", region_id));
+                        }
                     }
                 }
             }
@@ -431,12 +524,13 @@ pub(crate) async fn build_prompt_context(
                 }
             }
             state_summary.push_str("When the player moves through an exit, update the location header to the target room name.\n");
+            state_summary.push_str("IMPORTANT: When the player enters a new room, always end your narration by describing the visible exits and 2-3 obvious actions or points of interest. Players navigate by exits — without them, every turn becomes 'where can I go?'\n");
 
             WatcherEventBuilder::new("navigation", WatcherEventType::StateTransition)
                 .field("mode", "room_graph")
                 .field("current_room", &current_room.id)
                 .field("exit_count", current_room.exits.len())
-                .send(ctx.state);
+                .send();
         }
     }
 
@@ -446,10 +540,14 @@ pub(crate) async fn build_prompt_context(
     }
 
     // Inject tone context from narrative axes (story F2/F10)
-    if let Some(ref ac) = ctx.axes_config {
-        let tone_text = sidequest_game::format_tone_context(ac, ctx.axis_values);
-        if !tone_text.is_empty() {
-            state_summary.push_str(&tone_text);
+    // Tone directives are static — only inject on first 3 turns (establishing session).
+    // After that they're in conversation history via the persistent narrator session.
+    if turn_number <= 3 {
+        if let Some(ref ac) = ctx.axes_config {
+            let tone_text = sidequest_game::format_tone_context(ac, ctx.axis_values);
+            if !tone_text.is_empty() {
+                state_summary.push_str(&tone_text);
+            }
         }
     }
 
@@ -481,7 +579,7 @@ pub(crate) async fn build_prompt_context(
                 .field("count", all_abilities.len())
                 .field("tiers_active", tiers_active)
                 .field("ability_names", all_abilities.join(", "))
-                .send(ctx.state);
+                .send();
             tracing::info!(
                 count = all_abilities.len(),
                 tiers_active = tiers_active,
@@ -576,7 +674,7 @@ pub(crate) async fn build_prompt_context(
             .field("query_hint", ctx.current_location.as_str())
             .field("fallback_to_keyword", fallback_to_keyword)
             .field("selected_count", selected.len())
-            .send(ctx.state);
+            .send();
 
         // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
         let lore_summary = sidequest_game::summarize_lore_retrieval(
@@ -594,7 +692,7 @@ pub(crate) async fn build_prompt_context(
             .field("rejected", &lore_summary.rejected)
             .field("total_fragments", lore_summary.total_fragments)
             .field_opt("context_hint", &lore_summary.context_hint)
-            .send(ctx.state);
+            .send();
 
         if !selected.is_empty() {
             let lore_text = sidequest_game::format_lore_context(&selected);
@@ -606,6 +704,50 @@ pub(crate) async fn build_prompt_context(
             );
             state_summary.push_str("\n\n");
             state_summary.push_str(&lore_text);
+        }
+    }
+
+    // Inject conlang vocabulary — learned language knowledge (story 15-19)
+    {
+        let lang_fragments =
+            sidequest_game::query_all_language_knowledge(ctx.lore_store, ctx.player_id);
+        if !lang_fragments.is_empty() {
+            let conlang_text =
+                sidequest_game::format_language_knowledge_for_prompt(&lang_fragments);
+            if !conlang_text.is_empty() {
+                state_summary.push_str(&conlang_text);
+
+                // Collect unique language IDs for OTEL
+                let language_ids: Vec<&str> = lang_fragments
+                    .iter()
+                    .filter_map(|f| f.metadata().get("language_id").map(|s| s.as_str()))
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .collect();
+
+                WatcherEventBuilder::new("conlang", WatcherEventType::StateTransition)
+                    .field("event", "conlang_knowledge_injected")
+                    .field("vocab_count", lang_fragments.len())
+                    .field("language_count", language_ids.len())
+                    .field("languages", language_ids.join(", "))
+                    .send();
+
+                tracing::info!(
+                    vocab_count = lang_fragments.len(),
+                    language_count = language_ids.len(),
+                    "conlang.knowledge_injected_to_prompt"
+                );
+            }
+        }
+    }
+
+    // Story 15-19: Inject genre pack name banks for narrator reference.
+    // Provides pre-generated conlang names the narrator can use for consistency.
+    for bank in &ctx.name_banks {
+        let bank_text = sidequest_game::format_name_bank_for_prompt(bank, 20);
+        if !bank_text.is_empty() {
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&bank_text);
         }
     }
 
@@ -625,7 +767,7 @@ pub(crate) async fn build_prompt_context(
                 .field("danger_level", beat.terrain_danger)
                 .field("camera", format!("{:?}", cine.camera))
                 .field("sentence_range", format!("{}-{}", cine.sentence_range.0, cine.sentence_range.1))
-                .send(ctx.state);
+                .send();
 
             tracing::info!(
                 phase = ?beat.phase,
@@ -655,7 +797,7 @@ pub(crate) async fn build_prompt_context(
         .field("references_ability", relevance.references_ability)
         .field("references_npc", relevance.references_npc)
         .field("references_location", relevance.references_location)
-        .send(ctx.state);
+        .send();
 
     state_summary
 }

@@ -61,22 +61,105 @@ pub fn assemble_turn(
     flags: ActionFlags,
     tool_results: ToolCallResults,
 ) -> ActionResult {
+    let span = tracing::info_span!("turn.assemble");
+    let _guard = span.enter();
+
+    let mut override_count: u32 = 0;
+
     // Scene mood: tool call > narrator extraction
+    if tool_results.scene_mood.is_some() {
+        tracing::info!(
+            source = "tool_call",
+            value = %tool_results.scene_mood.as_ref().unwrap(),
+            "assemble.override.scene_mood"
+        );
+        override_count += 1;
+    }
     let scene_mood = tool_results.scene_mood.or(extraction.scene_mood);
+
     // Scene intent: tool call > narrator extraction
+    if tool_results.scene_intent.is_some() {
+        tracing::info!(
+            source = "tool_call",
+            value = %tool_results.scene_intent.as_ref().unwrap(),
+            "assemble.override.scene_intent"
+        );
+        override_count += 1;
+    }
     let scene_intent = tool_results.scene_intent.or(extraction.scene_intent);
+
     // Visual scene: tool call > narrator extraction
+    if tool_results.visual_scene.is_some() {
+        tracing::info!(source = "tool_call", "assemble.override.visual_scene");
+        override_count += 1;
+    }
     let visual_scene = tool_results.visual_scene.or(extraction.visual_scene);
+
     // Quest updates: tool calls > narrator extraction
+    if tool_results.quest_updates.is_some() {
+        tracing::info!(
+            source = "tool_call",
+            count = tool_results.quest_updates.as_ref().unwrap().len(),
+            "assemble.override.quest_updates"
+        );
+        override_count += 1;
+    }
     let quest_updates = tool_results.quest_updates.unwrap_or(extraction.quest_updates);
+
     // Personality events: tool calls > narrator extraction
+    if tool_results.personality_events.is_some() {
+        tracing::info!(
+            source = "tool_call",
+            count = tool_results.personality_events.as_ref().unwrap().len(),
+            "assemble.override.personality_events"
+        );
+        override_count += 1;
+    }
     let personality_events = tool_results.personality_events.unwrap_or(extraction.personality_events);
+
     // Resource deltas: tool calls > narrator extraction
+    if tool_results.resource_deltas.is_some() {
+        tracing::info!(
+            source = "tool_call",
+            count = tool_results.resource_deltas.as_ref().unwrap().len(),
+            "assemble.override.resource_deltas"
+        );
+        override_count += 1;
+    }
     let resource_deltas = tool_results.resource_deltas.unwrap_or(extraction.resource_deltas);
+
     // SFX triggers: tool calls > narrator extraction
+    if tool_results.sfx_triggers.is_some() {
+        tracing::info!(
+            source = "tool_call",
+            count = tool_results.sfx_triggers.as_ref().unwrap().len(),
+            "assemble.override.sfx_triggers"
+        );
+        override_count += 1;
+    }
     let sfx_triggers = tool_results.sfx_triggers.unwrap_or(extraction.sfx_triggers);
+
     // Items gained: tool calls > narrator extraction
+    if tool_results.items_acquired.is_some() {
+        tracing::info!(
+            source = "tool_call",
+            count = tool_results.items_acquired.as_ref().unwrap().len(),
+            "assemble.override.items_acquired"
+        );
+        override_count += 1;
+    }
     let items_gained = tool_results.items_acquired.unwrap_or(extraction.items_gained);
+
+    tracing::info!(
+        tool_overrides = override_count,
+        narration_len = extraction.prose.len(),
+        items_count = items_gained.len(),
+        npcs_count = extraction.npcs_present.len(),
+        quests_count = quest_updates.len(),
+        personality_events_count = personality_events.len(),
+        resource_deltas_count = resource_deltas.len(),
+        "assemble.complete"
+    );
 
     ActionResult {
         narration: extraction.prose,
@@ -104,5 +187,6 @@ pub fn assemble_turn(
         // Preprocessor values always win — narrator's action_rewrite/action_flags are discarded
         action_rewrite: Some(rewrite),
         action_flags: Some(flags),
+        prompt_tier: String::new(),
     }
 }

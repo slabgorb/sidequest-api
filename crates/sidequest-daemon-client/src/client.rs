@@ -225,6 +225,29 @@ impl DaemonClient {
         Ok(embed_result)
     }
 
+    /// List available Kokoro TTS voices from the daemon.
+    pub async fn list_voices(&mut self) -> Result<Vec<String>, DaemonError> {
+        let resp = self
+            .request(
+                "list_voices",
+                &serde_json::json!({}),
+                self.config.default_timeout,
+            )
+            .await?;
+        let voices = resp
+            .result
+            .as_ref()
+            .and_then(|r| r.get("voices"))
+            .and_then(|v| v.as_array())
+            .map(|arr: &Vec<serde_json::Value>| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+        Ok(voices)
+    }
+
     /// Request a graceful daemon shutdown.
     pub async fn shutdown(&mut self) -> Result<(), DaemonError> {
         self.request(

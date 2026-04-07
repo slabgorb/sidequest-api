@@ -5,6 +5,7 @@
 
 use clap::Parser;
 use sidequest_agents::orchestrator::Orchestrator;
+use sidequest_agents::exercise_tracker::SubsystemTracker;
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 use sidequest_server::{create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType};
 
@@ -23,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (watcher_tx, watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let mut orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
+    let orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
 
     // ADR-059: Tool binaries are now called server-side by dispatch/pregen.rs,
     // not registered on the orchestrator for narrator tool calls.
@@ -79,10 +80,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Spawn the turn record bridge — receives TurnRecords from the orchestrator (hot path)
     // and broadcasts them as WatcherEvents to the GM dashboard (cold path).
-    let bridge_state = state.clone();
     tokio::spawn(async move {
-        turn_record_bridge(watcher_rx, bridge_state).await;
+        turn_record_bridge(watcher_rx).await;
     });
+
+    // Spawn history capture — subscribes to the global telemetry channel and
+    // stores events for replay to late-connecting GM panels.
+    {
+        let history_state = state.clone();
+        let mut history_rx = state.subscribe_watcher();
+        tokio::spawn(async move {
+            while let Ok(event) = history_rx.recv().await {
+                history_state.store_watcher_event(event);
+            }
+        });
+    }
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -101,11 +113,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// becomes visible to the GM dashboard.
 async fn turn_record_bridge(
     mut rx: tokio::sync::mpsc::Receiver<TurnRecord>,
-    state: AppState,
 ) {
     tracing::info!("turn record bridge started, awaiting TurnRecords");
 
+    // Story 26-2: SubsystemTracker accumulates agent invocation counts.
+    // Summary every 10 turns, coverage gap warning after 20 turns.
+    let mut tracker = SubsystemTracker::new(10, 20);
+
     while let Some(record) = rx.recv().await {
+        tracker.record(&record.agent_name);
         tracing::info!(
             turn_id = record.turn_id,
             intent = %record.classified_intent,
@@ -154,7 +170,30 @@ async fn turn_record_bridge(
         if record.is_degraded {
             builder = builder.severity(Severity::Warn);
         }
-        builder.send(&state);
+        builder.send();
+
+        // Story 26-2: Emit SubsystemExerciseSummary at tracker's summary interval.
+        if tracker.turn_count % tracker.summary_interval == 0 {
+            let histogram: Vec<serde_json::Value> = tracker.histogram().iter()
+                .map(|(name, count)| serde_json::json!({"agent": name, "count": count}))
+                .collect();
+            WatcherEventBuilder::new("watcher", WatcherEventType::SubsystemExerciseSummary)
+                .field("turn_count", tracker.turn_count)
+                .field("histogram", &histogram)
+                .send();
+        }
+
+        // Story 26-2: Emit CoverageGap warning when threshold is reached.
+        if tracker.turn_count == tracker.gap_threshold {
+            let uncovered = tracker.uncovered_agents();
+            if !uncovered.is_empty() {
+                WatcherEventBuilder::new("watcher", WatcherEventType::CoverageGap)
+                    .field("missing_agents", &uncovered)
+                    .field("turns", tracker.turn_count)
+                    .severity(Severity::Warn)
+                    .send();
+            }
+        }
     }
 
     tracing::info!("turn record bridge shutting down (channel closed)");

@@ -53,29 +53,112 @@ const NARRATOR_OUTPUT_ONLY: &str = "\
 Your response has TWO parts, in this exact order:\n\
 \n\
 PART 1 — NARRATIVE PROSE\n\
-Write 2-4 sentences of narrative prose. Start with a location header like \
+Write narrative prose (length governed by the <length-limit> guardrail below). Start with a location header like \
 **The Collapsed Overpass**. This is what the player sees.\n\
 \n\
 PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot.\n\
-If nothing mechanical happened (pure dialogue, description), emit:\n\
+mood, state_snapshot, in_combat, hp_changes, turn_order, current_turn, \
+drama_weight, visual_scene, footnotes.\n\
+\n\
+visual_scene: Include this on EVERY turn where the setting changes, a new \
+location is entered, or a visually significant event occurs (combat start, \
+dramatic reveal, new NPC appearance). Format:\n\
+  \"visual_scene\": { \"subject\": \"<1-sentence image prompt, max 100 chars>\", \
+\"tier\": \"landscape|portrait|scene_illustration\", \"mood\": \
+\"ominous|tense|mystical|dramatic|melancholic|atmospheric\", \"tags\": [\"location\", \
+\"combat\", \"magic\", \"special_effect\", \"character\", \"atmosphere\"] }\n\
+tier: landscape for environments, portrait for NPC focus, scene_illustration for action.\n\
+subject: Describe what to PAINT — the visual composition, not the narrative.\n\
+\n\
+footnotes: Array of knowledge discoveries the player learned this turn. Include \
+whenever the narration reveals new lore, introduces a named NPC, mentions a \
+location, references a quest objective, or describes a character ability. Format:\n\
+  \"footnotes\": [{\"summary\": \"<concise third-person fact>\", \
+\"category\": \"Lore|Place|Person|Quest|Ability\", \"is_new\": true}]\n\
+summary: One sentence, third person (e.g., \"The Crimson Gate guards the eastern pass\").\n\
+category: Lore (world history/mythology), Place (locations), Person (NPCs/factions), \
+Quest (objectives/tasks), Ability (skills/powers).\n\
+is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
+Include footnotes generously — they feed the player's knowledge journal.\n\
+\n\
+Combat initiation: When the player attacks or a hostile encounter begins, \
+set in_combat: true and include turn_order (list of combatant names, \
+player first) and current_turn (whose turn it is). Include hp_changes \
+for any damage dealt (negative values = damage). Set drama_weight 0.0-1.0.\n\
+\n\
+Example A — exploration (new area + NPC):\n\
+```game_patch\n\
+{\n\
+  \"location\": \"{{location_name}}\",\n\
+  \"npcs_met\": [\"{{npc_name}}\"],\n\
+  \"mood\": \"{{mood}}\",\n\
+  \"visual_scene\": {\n\
+    \"subject\": \"{{1-sentence image prompt, max 100 chars}}\",\n\
+    \"tier\": \"landscape|portrait|scene_illustration\",\n\
+    \"mood\": \"{{mood_tag}}\",\n\
+    \"tags\": [\"location\", \"atmosphere\"]\n\
+  },\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{concise third-person fact about the place}}\", \"category\": \"Place\", \"is_new\": true},\n\
+    {\"summary\": \"{{concise third-person fact about the NPC}}\", \"category\": \"Person\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+\n\
+Example B — combat round:\n\
+```game_patch\n\
+{\n\
+  \"in_combat\": true,\n\
+  \"hp_changes\": {\"{{player_name}}\": {{negative_damage}}, \"{{enemy_name}}\": {{negative_damage}}},\n\
+  \"turn_order\": [\"{{player_name}}\", \"{{enemy_name}}\"],\n\
+  \"current_turn\": \"{{enemy_name}}\",\n\
+  \"drama_weight\": {{0.0_to_1.0}},\n\
+  \"visual_scene\": {\n\
+    \"subject\": \"{{combat action image prompt, max 100 chars}}\",\n\
+    \"tier\": \"scene_illustration\",\n\
+    \"mood\": \"dramatic\",\n\
+    \"tags\": [\"combat\"]\n\
+  },\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{fact revealed during combat, e.g. enemy weakness}}\", \"category\": \"Lore\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+\n\
+Example C — pure dialogue (no mechanical changes):\n\
+```game_patch\n\
+{\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{fact learned from conversation}}\", \"category\": \"{{category}}\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+Note: even dialogue-only turns should include footnotes if the player learned something.\n\
+\n\
+If nothing mechanical happened AND no new knowledge was revealed, emit:\n\
 ```game_patch\n\
 {}\n\
 ```\n\
 ALWAYS emit the game_patch block. It is mandatory.";
 
 /// Output-style rules (Early/Format zone).
+/// NOTE: Character-count limits live ONLY in the Recency-zone <length-limit>
+/// guardrail (injected by the orchestrator per-session verbosity setting).
+/// Do NOT duplicate numeric limits here — the LLM averages conflicting numbers.
 const NARRATOR_OUTPUT_STYLE: &str = "\
-- Most turns: 2-3 sentences. Movement, dialogue, simple actions = SHORT.
-- Big moments only (arrivals, reveals, combat start): up to 5-6 sentences.
+Respect the <length-limit> guardrail — it is the single source of truth for prose length. \
+Shorter responses keep TTS pacing tight and turns snappy.\n\
+- Most turns: short. Movement, dialogue, simple actions = SHORT.
+- Big moments only (arrivals, reveals, combat start): slightly longer, but still within the limit.
 - VARY your length. Not every turn is the same size.
 - Fast action = short sentences. Quiet moments can breathe.
 - Dialogue is snappy, not embedded in description paragraphs.
 - End on a hook the player can react to. Not a prose flourish.
 - Think tweet-length beats, not novel paragraphs.
+- One action, one scene beat. If the player enters a room, describe what they see and exits — don't narrate their inventory management.
 - First line: location header like **The Collapsed Overpass**
 - Blank line, then prose.";
 
@@ -87,6 +170,82 @@ Check active quests — if a quest says \"(from: X)\" and the player is now \
 talking to Y, do NOT have Y send the player back to X for the same objective. \
 Advance the quest instead.";
 
+/// Combat narration rules — absorbed from creature_smith.rs (ADR-067).
+/// Injected conditionally when game state indicates active combat.
+const NARRATOR_COMBAT_RULES: &str = "\
+COMBAT NARRATION RULES (active combat):\n\
+- 2-4 sentences per combat beat. Fast, kinetic, visceral.\n\
+- Describe the action, the impact, the consequence. No preamble.\n\
+- Vary intensity: a punch is one sentence, a critical hit is three.\n\
+- Sound, motion, pain. Not poetry.\n\
+- End on what's happening NOW — the next threat, the opening, the choice.\n\
+- Describe what happens mechanically through narration, not stats.\n\
+  \"The blade catches your shoulder — you feel the sting\" not \"You take 4 damage\".\n\
+- Show enemy reactions — they dodge, stagger, snarl, flee.\n\
+- Make the player feel the weight of their choices.\n\
+- NEVER control the player character's actions, thoughts, or feelings.\n\
+- Describe what enemies do. Let the player decide their response.\n\
+\n\
+[Strict Ability Enforcement — MANDATORY]\n\
+Combat is mechanical. There is NO Rule-of-Cool and NO degraded success for\n\
+abilities a character does not possess.\n\
+- A character may ONLY use abilities listed in their known_abilities.\n\
+- If a player attempts an action requiring an ability NOT in known_abilities,\n\
+  the action FAILS outright. Do NOT allow partial success or a weaker version.\n\
+- Narrate the failure in-fiction and apply appropriate consequences.\n\
+- Never invent, improvise, or grant abilities mid-combat. The character sheet is\n\
+  the single source of truth.\n\
+\n\
+[Combat State Patch — MANDATORY]\n\
+Your game_patch JSON block MUST include these combat fields:\n\
+- in_combat: boolean — true during combat, false when combat ends\n\
+- hp_changes: character/enemy name to HP CHANGE (negative = damage, positive = healing)\n\
+- turn_order: combatant names in initiative order (include on first round or when order changes)\n\
+- current_turn: who is acting now\n\
+- drama_weight: 0.0 (trivial) to 1.0 (climactic) — current tension level\n\
+- advance_round: true to end the current combat round, false otherwise";
+
+/// Chase narration rules — absorbed from dialectician.rs (ADR-067).
+/// Injected conditionally when game state indicates active chase.
+const NARRATOR_CHASE_RULES: &str = "\
+CHASE NARRATION RULES (active chase):\n\
+- 2-3 sentences. FAST. Breathless. Urgent.\n\
+- Short sentences for sprinting. Fragments are fine.\n\
+- \"Left. The alley narrows. Something crashes behind you.\"\n\
+- Each beat is a decision point — fork in the road, obstacle, closing gap.\n\
+- End on the choice: \"The fence or the fire escape?\"\n\
+- Tension builds through environment, not description.\n\
+- Obstacles are physical: fences, crowds, rubble, locked doors.\n\
+- The pursuer is always close. Make the player feel it.\n\
+- Every turn the gap changes — closing or opening.\n\
+- NEVER decide the player's escape route or action.\n\
+- Describe the situation and threat. Let the player choose.\n\
+\n\
+[Chase State Patch — MANDATORY]\n\
+Your game_patch JSON block MUST include these chase fields:\n\
+- in_chase: boolean — true during chase, false when chase ends (escape or capture)\n\
+- chase_type: one of \"footrace\", \"stealth\", \"negotiation\" (include on first round)\n\
+- separation_delta: integer — positive means gap widens (good for runner), negative means closer\n\
+- phase: brief description of the current chase phase\n\
+- event: what happened this beat (obstacle, shortcut, near-miss)\n\
+- roll: 0.0 to 1.0 — how well the escape attempt went this round";
+
+/// Dialogue narration rules — absorbed from ensemble.rs (ADR-067).
+/// Injected conditionally when NPCs are likely present in the scene.
+const NARRATOR_DIALOGUE_RULES: &str = "\
+DIALOGUE NARRATION RULES (NPC interaction):\n\
+- 2-4 sentences. Dialogue is SNAPPY.\n\
+- NPCs speak in character — dialect, vocabulary, attitude.\n\
+- One exchange per response. Not a full conversation tree.\n\
+- Show body language between lines: \"She leans back, arms crossed.\"\n\
+- End on the NPC's last line or reaction — leave space for the player to respond.\n\
+- Each NPC has a distinct voice. A merchant doesn't sound like a guard.\n\
+- NPCs have opinions, secrets, and agendas. They don't just answer questions.\n\
+- Hostile NPCs can refuse, lie, or threaten. Friendly ones can joke or help.\n\
+- Short exchanges. Real people don't monologue.\n\
+- NEVER speak for the player character. Only NPCs talk.\n\
+- Present what the NPC says and does. Let the player decide their reply.";
+
 pub struct NarratorAgent {
     identity: String,
 }
@@ -96,6 +255,39 @@ impl NarratorAgent {
         Self {
             identity: NARRATOR_IDENTITY.to_string(),
         }
+    }
+
+    /// Inject combat-specific narration rules into the prompt (ADR-067).
+    /// Called by the orchestrator when `TurnContext.in_combat` is true.
+    pub fn build_combat_context(&self, builder: &mut ContextBuilder) {
+        builder.add_section(PromptSection::new(
+            "narrator_combat_rules",
+            format!("<combat-rules>\n{}\n</combat-rules>", NARRATOR_COMBAT_RULES),
+            AttentionZone::Early,
+            SectionCategory::Guardrail,
+        ));
+    }
+
+    /// Inject chase-specific narration rules into the prompt (ADR-067).
+    /// Called by the orchestrator when `TurnContext.in_chase` is true.
+    pub fn build_chase_context(&self, builder: &mut ContextBuilder) {
+        builder.add_section(PromptSection::new(
+            "narrator_chase_rules",
+            format!("<chase-rules>\n{}\n</chase-rules>", NARRATOR_CHASE_RULES),
+            AttentionZone::Early,
+            SectionCategory::Guardrail,
+        ));
+    }
+
+    /// Inject dialogue-specific narration rules into the prompt (ADR-067).
+    /// Called by the orchestrator when NPCs are present or dialogue is likely.
+    pub fn build_dialogue_context(&self, builder: &mut ContextBuilder) {
+        builder.add_section(PromptSection::new(
+            "narrator_dialogue_rules",
+            format!("<dialogue-rules>\n{}\n</dialogue-rules>", NARRATOR_DIALOGUE_RULES),
+            AttentionZone::Early,
+            SectionCategory::Guardrail,
+        ));
     }
 }
 

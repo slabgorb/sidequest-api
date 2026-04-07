@@ -79,11 +79,14 @@ fn persist_game_state_calls_append_narrative() {
 }
 
 #[test]
-fn append_narrative_called_after_save_succeeds() {
+fn append_narrative_called_before_save() {
     let src = dispatch_source();
     let persist_fn = extract_fn_body(&src, "persist_game_state");
 
-    // append_narrative should appear AFTER the save() call, not before
+    // append_narrative should appear BEFORE the save() call — the narrative_log
+    // table is append-only and should record the entry even if the snapshot save
+    // subsequently fails.  This also prevents the duplicate-write bug where
+    // append_narrative was called both before AND inside the save-success branch.
     let save_pos = persist_fn.find("persistence()")
         .and_then(|start| persist_fn[start..].find(".save(").map(|p| start + p))
         .expect("persist_game_state must call persistence().save()");
@@ -92,8 +95,8 @@ fn append_narrative_called_after_save_succeeds() {
         .expect("persist_game_state must call append_narrative");
 
     assert!(
-        append_pos > save_pos,
-        "append_narrative must be called AFTER save(), not before. \
+        append_pos < save_pos,
+        "append_narrative must be called BEFORE save() for crash safety. \
          save_pos={}, append_pos={}",
         save_pos,
         append_pos

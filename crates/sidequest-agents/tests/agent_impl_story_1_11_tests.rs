@@ -8,10 +8,7 @@ use std::collections::HashMap;
 // These modules don't exist yet — compilation will fail (RED state).
 use sidequest_agents::agent::{Agent, AgentResponse};
 use sidequest_agents::context_builder::ContextBuilder;
-// New modules that story 1-11 must create:
-use sidequest_agents::agents::creature_smith::CreatureSmithAgent;
-use sidequest_agents::agents::dialectician::DialecticianAgent;
-use sidequest_agents::agents::ensemble::EnsembleAgent;
+// ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into unified narrator
 use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
 use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::agents::resonator::ResonatorAgent;
@@ -42,19 +39,8 @@ mod agent_trait_tests {
         assert!(!agent.system_prompt().is_empty());
     }
 
-    #[test]
-    fn ensemble_implements_agent_trait() {
-        let agent = EnsembleAgent::new();
-        assert_eq!(agent.name(), "ensemble");
-        assert!(!agent.system_prompt().is_empty());
-    }
-
-    #[test]
-    fn creature_smith_implements_agent_trait() {
-        let agent = CreatureSmithAgent::new();
-        assert_eq!(agent.name(), "creature_smith");
-        assert!(!agent.system_prompt().is_empty());
-    }
+    // ADR-067: Ensemble and CreatureSmith absorbed into unified narrator.
+    // Tests for those agents removed.
 
     #[test]
     fn troper_implements_agent_trait() {
@@ -63,12 +49,8 @@ mod agent_trait_tests {
         assert!(!agent.system_prompt().is_empty());
     }
 
-    #[test]
-    fn dialectician_implements_agent_trait() {
-        let agent = DialecticianAgent::new();
-        assert_eq!(agent.name(), "dialectician");
-        assert!(!agent.system_prompt().is_empty());
-    }
+    // ADR-067: Dialectician absorbed into unified narrator.
+    // Test for dialectician agent removed.
 
     #[test]
     fn resonator_implements_agent_trait() {
@@ -79,13 +61,11 @@ mod agent_trait_tests {
 
     #[test]
     fn all_agent_names_are_unique() {
+        // ADR-067: CreatureSmith, Ensemble, Dialectician absorbed into narrator
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(NarratorAgent::new()),
             Box::new(WorldBuilderAgent::new()),
-            Box::new(EnsembleAgent::new()),
-            Box::new(CreatureSmithAgent::new()),
             Box::new(TroperAgent::new()),
-            Box::new(DialecticianAgent::new()),
             Box::new(ResonatorAgent::new()),
         ];
         let names: Vec<&str> = agents.iter().map(|a| a.name()).collect();
@@ -192,6 +172,7 @@ mod agent_types_tests {
             action_flags: None,
             sfx_triggers: vec![],
             merchant_transactions: vec![],
+            prompt_tier: String::new(),
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -217,13 +198,11 @@ mod context_building_tests {
 
     #[test]
     fn all_agents_add_identity_section() {
+        // ADR-067: CreatureSmith, Ensemble, Dialectician absorbed into narrator
         let agents: Vec<Box<dyn Agent>> = vec![
             Box::new(NarratorAgent::new()),
             Box::new(WorldBuilderAgent::new()),
-            Box::new(EnsembleAgent::new()),
-            Box::new(CreatureSmithAgent::new()),
             Box::new(TroperAgent::new()),
-            Box::new(DialecticianAgent::new()),
             Box::new(ResonatorAgent::new()),
         ];
         for agent in &agents {
@@ -259,15 +238,17 @@ mod intent_routing_tests {
     }
 
     #[test]
-    fn intent_route_maps_combat_to_creature_smith() {
+    fn intent_route_maps_combat_to_narrator() {
+        // ADR-067: All intents route to narrator
         let route = IntentRoute::for_intent(Intent::Combat);
-        assert_eq!(route.agent_name(), "creature_smith");
+        assert_eq!(route.agent_name(), "narrator");
     }
 
     #[test]
-    fn intent_route_maps_dialogue_to_ensemble() {
+    fn intent_route_maps_dialogue_to_narrator() {
+        // ADR-067: All intents route to narrator
         let route = IntentRoute::for_intent(Intent::Dialogue);
-        assert_eq!(route.agent_name(), "ensemble");
+        assert_eq!(route.agent_name(), "narrator");
     }
 
     #[test]
@@ -340,6 +321,7 @@ mod game_service_tests {
             action_flags: None,
             sfx_triggers: vec![],
             merchant_transactions: vec![],
+            prompt_tier: String::new(),
         };
         assert_eq!(result.narration, "test");
         assert_eq!(result.is_degraded, false);
@@ -390,6 +372,7 @@ mod error_handling_tests {
             action_flags: None,
             sfx_triggers: vec![],
             merchant_transactions: vec![],
+            prompt_tier: String::new(),
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

@@ -1,6 +1,6 @@
 # sidequest-server — Feature Inventory
 
-axum HTTP/WebSocket server. **~8,700 LOC.** This is the integration layer that wires
+axum HTTP/WebSocket server. **~11,700 LOC.** This is the integration layer that wires
 all other crates together.
 
 ## COMPLETE — Do Not Rewrite
@@ -17,21 +17,23 @@ all other crates together.
 - **handle_ws_connection()** — reader/writer split with 3-way broadcast (direct,
   session, binary).
 - **handle_watcher_connection()** — read-only telemetry stream for GM panel.
-- **Session state machine** — AwaitingConnect -> Creating -> Playing.
+- **Session state machine** — AwaitingConnect → Creating → Playing.
 - **ProcessingGuard** — RAII guard preventing concurrent actions per player.
 
 ### Message Dispatch
-Now split into `dispatch/` subdirectory with focused modules:
-- **dispatch/mod.rs** — main dispatch routing (by message type)
-- **dispatch/connect.rs** — genre/world binding, session initialization
-- **dispatch/audio.rs** — audio system dispatch (music, SFX, ambience)
-- **dispatch/combat.rs** — combat dispatch
-- **dispatch/render.rs** — render integration
-- **dispatch/prompt.rs** — prompt building
-- **dispatch/session_sync.rs** — session synchronization
-- **dispatch/slash.rs** — slash command dispatch
-- **dispatch/state_mutations.rs** — state mutations
-- **dispatch/tropes.rs** — trope system dispatch
+Split into `dispatch/` subdirectory with 12 focused modules (~7,700 LOC total):
+- **dispatch/mod.rs** (3,022 LOC) — main dispatch routing (by message type)
+- **dispatch/connect.rs** (1,689 LOC) — genre/world binding, session initialization
+- **dispatch/prompt.rs** (803 LOC) — prompt context building (`build_prompt_context()`)
+- **dispatch/state_mutations.rs** (800 LOC) — state mutation application (combat engage/disengage, HP, turn mode)
+- **dispatch/audio.rs** (338 LOC) — audio system dispatch (music, SFX, ambience, OTEL)
+- **dispatch/session_sync.rs** (225 LOC) — session synchronization
+- **dispatch/render.rs** (163 LOC) — render integration with SceneRelevanceValidator
+- **dispatch/pregen.rs** (157 LOC) — pre-generation dispatch
+- **dispatch/tropes.rs** (147 LOC) — trope system dispatch
+- **dispatch/combat.rs** (121 LOC) — combat event broadcast, status effect ticking
+- **dispatch/slash.rs** (111 LOC) — slash command dispatch
+- **dispatch/catch_up.rs** (101 LOC) — catch-up narration dispatch
 
 ### Multiplayer
 - **SharedGameSession** — `shared_session.rs` (215 LOC) — world-level state shared
@@ -39,9 +41,10 @@ Now split into `dispatch/` subdirectory with focused modules:
   for state synchronization between session and dispatch loop.
 
 ### Render Integration
-- **spawn_image_broadcaster()** — `render_integration.rs` (125 LOC) — async task
-  converting render results to IMAGE messages. Path rewriting, tier/scene_type
-  mapping, empty URL guards.
+- **spawn_image_broadcaster_with_throttle()** — `render_integration.rs` — async task
+  converting render results to IMAGE messages. Image pacing throttle (30s solo,
+  60s multiplayer). Path rewriting, tier/scene_type mapping, empty URL guards,
+  handout classification.
 
 ### Telemetry
 - **WatcherEvent** — structured telemetry for GM panel. Types: AgentSpanOpen/Close,
@@ -53,21 +56,8 @@ Now split into `dispatch/` subdirectory with focused modules:
 
 - **Perception rewriting** — infrastructure wired in SharedGameSession but strategy
   is RED phase / stub.
-- **Turn barrier integration** — types present but engagement with dispatch unclear.
-- **2 small TODOs** in dispatch_player_action: combatant name extraction, active
-  dialogue NPC parsing. Non-blocking.
-
-## Architectural Note
-
-Combat is a cross-cutting concern spanning this crate and sidequest-game. The
-routing (intent classification -> agent dispatch -> state patches -> broadcast)
-all happens inside dispatch_player_action(). Future refactoring should extract
-combat orchestration into its own module or service.
 
 ## Important
 
-- **dispatch_player_action() is 1,950 lines.** If you need to modify it, read the
-  full function first. Do not guess where things happen — line numbers shift with
-  every PR.
 - The server depends on ALL other crates. Check their CLAUDE.md files for what's
   available before adding new types.

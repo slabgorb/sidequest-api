@@ -130,6 +130,7 @@ fn test_turn_context() -> sidequest_agents::orchestrator::TurnContext {
         npcs: vec![],
         current_location: "TestLocation".to_string(),
         world_graph: None,
+        ..Default::default()
     }
 }
 

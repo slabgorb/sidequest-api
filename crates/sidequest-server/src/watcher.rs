@@ -46,6 +46,89 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
         tracing::info!("watcher.handshake_sent — connection confirmed live");
     }
 
+    // Bug #6: Send initial state replay for all active sessions so a late-connecting
+    // GM panel sees current game state instead of "Waiting for first turn..."
+    {
+        let sessions = state.inner.sessions.lock().unwrap().clone();
+        for (key, ss_arc) in &sessions {
+            let ss = ss_arc.lock().await;
+            let player_data: Vec<serde_json::Value> = ss.players.iter().map(|(pid, ps)| {
+                serde_json::json!({
+                    "player_id": pid,
+                    "character_name": ps.character_name,
+                })
+            }).collect();
+            let npc_data: Vec<serde_json::Value> = ss.npc_registry.iter().map(|e| {
+                serde_json::json!({
+                    "name": e.name,
+                    "role": e.role,
+                    "location": e.location,
+                })
+            }).collect();
+            let active_tropes: Vec<serde_json::Value> = ss.trope_states.iter().map(|ts| {
+                serde_json::json!({
+                    "id": ts.trope_definition_id(),
+                    "progression": ts.progression(),
+                    "status": format!("{:?}", ts.status()),
+                })
+            }).collect();
+            let snapshot = serde_json::json!({
+                "session_key": key,
+                "genre": ss.genre_slug,
+                "world": ss.world_slug,
+                "location": ss.current_location,
+                "player_count": ss.player_count(),
+                "players": player_data,
+                "npc_registry": npc_data,
+                "active_tropes": active_tropes,
+                "narration_history_len": ss.narration_history.len(),
+                "turn_mode": format!("{:?}", ss.turn_mode),
+            });
+            let event = crate::WatcherEvent {
+                timestamp: chrono::Utc::now(),
+                component: "game".to_string(),
+                event_type: crate::WatcherEventType::GameStateSnapshot,
+                severity: crate::Severity::Info,
+                fields: {
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("event".to_string(), serde_json::json!("initial_state_replay"));
+                    m.insert("snapshot".to_string(), snapshot);
+                    m
+                },
+            };
+            let json = serde_json::to_string(&event).unwrap_or_default();
+            if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                tracing::warn!("Watcher WebSocket closed during initial state replay");
+                return;
+            }
+        }
+        if !sessions.is_empty() {
+            tracing::info!(
+                session_count = sessions.len(),
+                "watcher.initial_state_replay — sent snapshots for active sessions"
+            );
+        }
+    }
+
+    // Replay stored watcher event history so late-connecting GM panels see past turns.
+    // This is the fix for OTEL dashboard showing 0 turns after an active session.
+    {
+        let history = state.get_watcher_history();
+        if !history.is_empty() {
+            tracing::info!(
+                event_count = history.len(),
+                "watcher.history_replay — sending stored events to late-connecting client"
+            );
+            for event in &history {
+                let json = serde_json::to_string(event).unwrap_or_default();
+                if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                    tracing::warn!("Watcher WebSocket closed during history replay");
+                    return;
+                }
+            }
+        }
+    }
+
     // Writer task: forward watcher broadcast events to this WebSocket client
     let writer_handle = tokio::spawn(async move {
         let mut event_count: u64 = 0;

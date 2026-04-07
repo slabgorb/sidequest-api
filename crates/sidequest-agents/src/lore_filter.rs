@@ -119,7 +119,6 @@ impl<'a> LoreFilter<'a> {
             Intent::Backstory => vec!["backstory"],
             Intent::Accusation => vec!["faction", "culture"],
             Intent::Meta => vec![],
-            _ => vec![],
         }
     }
 

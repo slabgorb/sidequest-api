@@ -446,6 +446,10 @@ mod message_type_tests {
                 channel: Some("music".into()),
                 action: Some("fade_in".into()),
                 volume: Some(0.8),
+                music_volume: None,
+                sfx_volume: None,
+                voice_volume: None,
+                crossfade_ms: None,
             },
             player_id: String::new(),
         };

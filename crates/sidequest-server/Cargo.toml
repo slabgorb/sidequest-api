@@ -20,6 +20,7 @@ sidequest-genre = { path = "../sidequest-genre" }
 sidequest-game = { path = "../sidequest-game" }
 sidequest-agents = { path = "../sidequest-agents" }
 sidequest-daemon-client = { path = "../sidequest-daemon-client" }
+sidequest-telemetry = { path = "../sidequest-telemetry" }
 tokio = { workspace = true }
 axum = { workspace = true, features = ["ws"] }
 tower = { workspace = true }
@@ -40,3 +41,4 @@ rand = { workspace = true }
 
 [dev-dependencies]
 tokio-tungstenite = "0.24"
+serde_yaml = { workspace = true }

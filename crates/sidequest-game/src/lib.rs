@@ -55,7 +55,10 @@ pub mod preprocessor;
 pub mod prerender;
 pub mod progression;
 pub mod render_queue;
+pub mod resource_pool;
 pub mod room_movement;
+pub mod scenario_archiver;
+pub mod scenario_scoring;
 pub mod scenario_state;
 pub mod scene_relevance;
 pub mod scene_directive;
@@ -122,15 +125,18 @@ pub use merchant::{
 };
 pub use known_fact::{Confidence, DiscoveredFact, FactSource, KnownFact};
 pub use lore::{
-    accumulate_lore, accumulate_lore_batch, cosine_similarity, format_lore_context,
-    query_language_knowledge, record_language_knowledge, record_name_knowledge,
+    accumulate_lore, accumulate_lore_batch, cosine_similarity,
+    format_language_knowledge_for_prompt, format_lore_context,
+    query_all_language_knowledge, query_language_knowledge,
+    record_language_knowledge, record_name_knowledge,
     seed_lore_from_char_creation, seed_lore_from_genre_pack, select_lore_for_prompt,
     summarize_lore_retrieval, FragmentSummary, LoreCategory, LoreFragment,
     LoreRetrievalSummary, LoreSource, LoreStore,
 };
 pub use music_director::{
-    AudioAction, AudioChannel, AudioCue, Mood, MoodClassification, MoodClassificationWithReason,
-    MoodContext, MusicDirector, MusicTelemetry,
+    AudioAction, AudioChannel, AudioCue, FactionContext, Mood, MoodClassification,
+    MoodClassificationWithReason, MoodContext, MoodKey, MusicDirector, MusicEvalResult,
+    MusicTelemetry,
 };
 pub use sidequest_genre::TrackVariation;
 pub use narrative::NarrativeEntry;
@@ -153,10 +159,17 @@ pub use render_queue::{
     RenderJobResult, RenderQueue, RenderQueueConfig, RenderStatus, DEFAULT_CACHE_TTL,
     MAX_QUEUE_DEPTH,
 };
+pub use scenario_scoring::{
+    score_scenario, DeductionQuality, ScenarioGrade, ScenarioScore, ScenarioScoreInput,
+};
 pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
 pub use room_movement::{apply_validated_move, build_room_graph_explored, init_room_graph_location, validate_room_transition, DispatchError, RoomTransition};
+pub use resource_pool::{
+    mint_threshold_lore, ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult,
+    ResourcePool, ResourceThreshold,
+};
 pub use state::{
     broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, DiscoveredRooms,
     GameSnapshot, NpcPatch, WorldStatePatch,

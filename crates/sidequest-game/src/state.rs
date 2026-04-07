@@ -27,6 +27,10 @@ use crate::merchant::{
 };
 use crate::narrative::NarrativeEntry;
 use crate::npc::Npc;
+pub use crate::resource_pool::{
+    ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult, ResourcePool,
+    ResourceThreshold,
+};
 use crate::scenario_state::ScenarioState;
 use crate::trope::TropeState;
 use crate::turn::TurnManager;
@@ -206,6 +210,10 @@ pub struct GameSnapshot {
     /// so the narrator can handle the death narration on the next turn.
     #[serde(default)]
     pub player_dead: bool,
+    /// Named resource pools with thresholds (story 16-10).
+    /// Keys are resource names (e.g., "luck", "heat").
+    #[serde(default)]
+    pub resources: HashMap<String, ResourcePool>,
 }
 
 /// Backward-compatible deserializer for active_tropes.
@@ -298,6 +306,8 @@ struct GameSnapshotRaw {
     discovered_rooms: DiscoveredRooms,
     #[serde(default)]
     player_dead: bool,
+    #[serde(default)]
+    resources: HashMap<String, ResourcePool>,
 }
 
 impl From<GameSnapshotRaw> for GameSnapshot {
@@ -344,6 +354,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             resource_declarations: raw.resource_declarations,
             discovered_rooms: raw.discovered_rooms,
             player_dead: raw.player_dead,
+            resources: raw.resources,
         }
     }
 }

@@ -9,6 +9,9 @@ members = [
     "crates/sidequest-encountergen",
     "crates/sidequest-loadoutgen",
     "crates/sidequest-namegen",
+    "crates/sidequest-validate",
+    "crates/sidequest-promptpreview",
+    "crates/sidequest-telemetry",
 ]
 resolver = "2"
 

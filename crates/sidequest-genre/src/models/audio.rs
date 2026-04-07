@@ -30,6 +30,64 @@ pub struct AudioConfig {
     /// Mixer defaults (alternative name for mixer in some packs).
     #[serde(default)]
     pub mixer_defaults: Option<MixerConfig>,
+    /// Mood alias mappings (custom_mood → core_mood or another alias).
+    /// Genre packs declare these in audio.yaml to map genre-specific moods
+    /// (e.g. "standoff", "saloon") to core moods ("tension", "calm").
+    #[serde(default)]
+    pub mood_aliases: HashMap<String, String>,
+    /// Faction-specific music themes with trigger conditions.
+    #[serde(default)]
+    pub faction_themes: Vec<FactionThemeDef>,
+}
+
+impl AudioConfig {
+    /// Empty config with no tracks, SFX, or presets. Used when genre pack is unavailable.
+    pub fn empty() -> Self {
+        Self {
+            mood_tracks: HashMap::new(),
+            sfx_library: HashMap::new(),
+            creature_voice_presets: HashMap::new(),
+            mixer: MixerConfig {
+                music_volume: 0.8,
+                sfx_volume: 0.9,
+                voice_volume: 1.0,
+                duck_music_for_voice: true,
+                duck_amount_db: 3.0,
+                crossfade_default_ms: 500,
+            },
+            themes: Vec::new(),
+            ai_generation: None,
+            mood_keywords: HashMap::new(),
+            mixer_defaults: None,
+            mood_aliases: HashMap::new(),
+            faction_themes: Vec::new(),
+        }
+    }
+}
+
+/// A faction-specific music theme with trigger conditions.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FactionThemeDef {
+    /// Faction identifier (e.g. "bosozoku", "lowriders").
+    pub faction_id: String,
+    /// The track to play when this faction theme is triggered.
+    pub track: MoodTrack,
+    /// Conditions that trigger this faction theme.
+    pub triggers: FactionTriggers,
+}
+
+/// Trigger conditions for a faction theme.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct FactionTriggers {
+    /// Trigger when the player is in a location controlled by this faction.
+    #[serde(default)]
+    pub location: bool,
+    /// Trigger when an NPC of this faction is present in a confrontation.
+    #[serde(default)]
+    pub npc_present: bool,
+    /// Trigger when player reputation with this faction meets or exceeds this threshold.
+    #[serde(default)]
+    pub reputation_threshold: Option<i32>,
 }
 
 /// AI music generation configuration.

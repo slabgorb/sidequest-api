@@ -1,6 +1,6 @@
 # sidequest-genre — Feature Inventory
 
-YAML genre pack loader and data models. **~4,300 LOC, fully complete.**
+YAML genre pack loader and data models. **~4,800 LOC, fully complete.**
 
 ## COMPLETE — Do Not Rewrite
 

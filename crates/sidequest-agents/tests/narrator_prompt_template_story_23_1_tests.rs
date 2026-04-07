@@ -113,10 +113,10 @@ fn narrator_has_output_only_guardrail_in_primacy() {
 
     let has_output_only = primacy_guardrails
         .iter()
-        .any(|s| s.content.contains("Output ONLY narrative prose"));
+        .any(|s| s.content.contains("Your response has TWO parts"));
     assert!(
         has_output_only,
-        "Primacy/Guardrail should contain the 'output only prose' block"
+        "Primacy/Guardrail should contain the output format block (TWO parts: prose + game_patch)"
     );
 }
 

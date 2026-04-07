@@ -8,6 +8,7 @@
 
 use sidequest_game::combatant::Combatant;
 
+use crate::entity_reference::check_entity_references;
 use crate::turn_record::TurnRecord;
 
 /// Result of a single validation check.
@@ -170,6 +171,7 @@ pub fn run_legality_checks(record: &TurnRecord) -> Vec<ValidationResult> {
         check_combat_coherence,
         check_chase_coherence,
         check_location_validity,
+        check_entity_references,
     ];
 
     let mut all_results = Vec::new();

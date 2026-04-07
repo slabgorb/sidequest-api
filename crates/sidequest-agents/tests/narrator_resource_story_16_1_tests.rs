@@ -28,6 +28,7 @@ fn resource_section_injected_for_narrator() {
         starting: 3.0,
         voluntary: true,
         decay_per_turn: 0.0,
+        thresholds: vec![],
     }];
     let mut state: HashMap<String, f64> = HashMap::new();
     state.insert("luck".to_string(), 4.0);
@@ -60,6 +61,7 @@ fn resource_section_shows_voluntary_flag() {
         starting: 3.0,
         voluntary: true,
         decay_per_turn: 0.0,
+        thresholds: vec![],
     }];
     let mut state: HashMap<String, f64> = HashMap::new();
     state.insert("luck".to_string(), 2.0);
@@ -84,6 +86,7 @@ fn resource_section_shows_involuntary_flag() {
         starting: 100.0,
         voluntary: false,
         decay_per_turn: 0.0,
+        thresholds: vec![],
     }];
     let mut state: HashMap<String, f64> = HashMap::new();
     state.insert("humanity".to_string(), 72.0);
@@ -108,6 +111,7 @@ fn resource_section_shows_decay_rate() {
         starting: 0.0,
         voluntary: false,
         decay_per_turn: -0.1,
+        thresholds: vec![],
     }];
     let mut state: HashMap<String, f64> = HashMap::new();
     state.insert("heat".to_string(), 3.0);
@@ -132,6 +136,7 @@ fn resource_section_uses_valley_zone() {
         starting: 3.0,
         voluntary: true,
         decay_per_turn: 0.0,
+        thresholds: vec![],
     }];
     let mut state: HashMap<String, f64> = HashMap::new();
     state.insert("luck".to_string(), 4.0);
@@ -161,6 +166,7 @@ fn resource_section_renders_multiple_resources() {
             starting: 3.0,
             voluntary: true,
             decay_per_turn: 0.0,
+            thresholds: vec![],
         },
         ResourceDeclaration {
             name: "heat".to_string(),
@@ -170,6 +176,7 @@ fn resource_section_renders_multiple_resources() {
             starting: 0.0,
             voluntary: false,
             decay_per_turn: -0.1,
+            thresholds: vec![],
         },
     ];
     let mut state: HashMap<String, f64> = HashMap::new();
@@ -219,6 +226,7 @@ fn resource_section_uses_starting_when_state_missing() {
         starting: 3.0,
         voluntary: true,
         decay_per_turn: 0.0,
+        thresholds: vec![],
     }];
     // Empty state map — resource not yet tracked
     let state: HashMap<String, f64> = HashMap::new();

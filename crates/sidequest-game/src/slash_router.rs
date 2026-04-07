@@ -66,18 +66,38 @@ impl SlashRouter {
         }
 
         let (cmd, args) = Self::parse(input);
+        let resolved = Self::resolve_alias(cmd);
 
         // Built-in /help
-        if cmd == "help" {
+        if resolved == "help" {
             return Some(self.help_output());
         }
 
-        match self.commands.get(cmd) {
+        match self.commands.get(resolved) {
             Some(handler) => Some(handler.handle(state, args)),
-            None => Some(CommandResult::Error(format!(
-                "Unknown command: /{}",
-                cmd
-            ))),
+            None => {
+                // Unknown command — show help so the player discovers what's available
+                let help = self.help_output();
+                let help_text = match &help {
+                    CommandResult::Display(text) => text.clone(),
+                    _ => String::new(),
+                };
+                Some(CommandResult::Display(format!(
+                    "Unknown command: /{}\n\nAvailable commands:\n{}",
+                    cmd, help_text
+                )))
+            }
+        }
+    }
+
+    /// Resolve common aliases to canonical command names.
+    fn resolve_alias(cmd: &str) -> &str {
+        match cmd {
+            "stats" | "stat" | "hp" | "char" | "character" => "status",
+            "inv" | "items" | "gear" | "pack" | "pockets" => "inventory",
+            "quest" | "journal" | "log" => "quests",
+            "?" => "help",
+            other => other,
         }
     }
 

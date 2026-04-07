@@ -95,6 +95,7 @@ fn merchant_registry_entry(name: &str, location: &str) -> NpcRegistryEntry {
         ocean: None,
         hp: 10,
         max_hp: 10,
+        portrait_url: None,
     }
 }
 
@@ -111,6 +112,7 @@ fn non_merchant_registry_entry(name: &str) -> NpcRegistryEntry {
         ocean: None,
         hp: 20,
         max_hp: 20,
+        portrait_url: None,
     }
 }
 

@@ -237,6 +237,7 @@ fn npc_in_scene_upgrades_their_faction_to_full() {
         ocean: None,
         hp: 10,
         max_hp: 10,
+        portrait_url: None,
     };
 
     let selections = filter.select_lore(

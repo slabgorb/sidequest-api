@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use sidequest_game::{
-    AudioAction, AudioChannel, Mood, MoodClassification, MoodContext, MusicDirector,
+    AudioAction, AudioChannel, MoodKey, MoodClassification, MoodContext, MusicDirector,
 };
 use sidequest_genre::{AudioConfig, AudioTheme, AudioVariation, MixerConfig, MoodTrack};
 
@@ -58,6 +58,8 @@ fn config_without_themes() -> AudioConfig {
         themes: vec![],
         ai_generation: None,
         mixer_defaults: None,
+        mood_aliases: HashMap::new(),
+        faction_themes: Vec::new(),
     }
 }
 
@@ -313,7 +315,7 @@ fn select_variation_priority_1_session_start() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.4,
         confidence: 0.8,
     };
@@ -336,7 +338,7 @@ fn select_variation_priority_1_location_arrival() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5,
         confidence: 0.8,
     };
@@ -359,7 +361,7 @@ fn select_variation_location_changed_but_not_first_turn() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.4,
         confidence: 0.8,
     };
@@ -383,7 +385,7 @@ fn select_variation_priority_2_combat_ended() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5,
         confidence: 0.8,
     };
@@ -406,7 +408,7 @@ fn select_variation_priority_2_quest_completed() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5,
         confidence: 0.8,
     };
@@ -430,7 +432,7 @@ fn select_variation_priority_3_high_intensity() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Tension,
+        primary: MoodKey::TENSION,
         intensity: 0.7, // exactly at threshold
         confidence: 0.8,
     };
@@ -453,7 +455,7 @@ fn select_variation_priority_3_high_drama_weight() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5,
         confidence: 0.8,
     };
@@ -476,7 +478,7 @@ fn select_variation_priority_4_low_intensity() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.3, // exactly at threshold
         confidence: 0.8,
     };
@@ -499,7 +501,7 @@ fn select_variation_priority_4_long_scene() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5,
         confidence: 0.8,
     };
@@ -522,7 +524,7 @@ fn select_variation_priority_5_sparse_conditions() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.4, // 0.3 < intensity <= 0.5
         confidence: 0.8,
     };
@@ -545,7 +547,7 @@ fn select_variation_priority_6_full_fallback() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.6, // not high enough for tension, not low enough for ambient
         confidence: 0.8,
     };
@@ -570,7 +572,7 @@ fn select_variation_priority_ordering_p1_over_p2() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5,
         confidence: 0.8,
     };
@@ -605,7 +607,7 @@ fn select_variation_fallback_to_full_when_preferred_unavailable() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.4,
         confidence: 0.8,
     };
@@ -635,7 +637,7 @@ fn music_director_indexes_themes_by_variation() {
     // The director should have themed tracks indexed
     // We verify through behavior: selecting an overture should return an overture track
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.4,
         confidence: 0.8,
     };
@@ -780,7 +782,7 @@ fn full_pipeline_classify_to_audio_cue() {
     let classification = director.classify_mood("Welcome to the enchanted forest", &ctx);
     assert_eq!(
         classification.primary,
-        Mood::Exploration,
+        MoodKey::EXPLORATION,
         "peaceful narration should classify as Exploration"
     );
 
@@ -868,7 +870,7 @@ fn backward_compat_new_fields_default_no_regression() {
     let classification = director.classify_mood("Walking through the forest", &ctx);
     assert_eq!(
         classification.primary,
-        Mood::Exploration,
+        MoodKey::EXPLORATION,
         "default context should still produce Exploration mood"
     );
 }
@@ -886,7 +888,7 @@ fn boundary_intensity_at_0_7_is_tension_build() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.7,
         confidence: 0.8,
     };
@@ -905,7 +907,7 @@ fn boundary_intensity_below_0_7_not_tension() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.69,
         confidence: 0.8,
     };
@@ -928,7 +930,7 @@ fn boundary_intensity_at_0_3_is_ambient() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.3,
         confidence: 0.8,
     };
@@ -947,7 +949,7 @@ fn boundary_scene_turn_count_4_is_ambient() {
     let director = MusicDirector::new(&config);
 
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5, // mid-range, wouldn't trigger anything else easily
         confidence: 0.8,
     };
@@ -971,7 +973,7 @@ fn sparse_requires_both_conditions() {
 
     // Mid-intensity but high drama → should NOT be sparse (drama_weight too high)
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.4,
         confidence: 0.8,
     };
@@ -999,7 +1001,7 @@ fn select_variation_is_public_api() {
     let config = config_with_themes();
     let director = MusicDirector::new(&config);
     let classification = MoodClassification {
-        primary: Mood::Exploration,
+        primary: MoodKey::EXPLORATION,
         intensity: 0.5,
         confidence: 0.8,
     };

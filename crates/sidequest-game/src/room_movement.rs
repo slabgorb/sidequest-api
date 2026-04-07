@@ -39,6 +39,31 @@ pub enum DispatchError {
     },
 }
 
+/// Resolve a display name or ID to a canonical room ID.
+///
+/// Matching priority:
+/// 1. Exact ID match (`"threshold"` → `"threshold"`)
+/// 2. Exact name match (`"The Threshold"` → `"threshold"`)
+/// 3. Case-insensitive name match (`"the threshold"` → `"threshold"`)
+///
+/// Returns `None` if no room matches — the narrator invented a room name.
+pub fn resolve_room_id<'a>(name_or_id: &str, rooms: &'a [RoomDef]) -> Option<&'a str> {
+    // 1. Exact ID match
+    if let Some(room) = rooms.iter().find(|r| r.id == name_or_id) {
+        return Some(&room.id);
+    }
+    // 2. Exact name match
+    if let Some(room) = rooms.iter().find(|r| r.name == name_or_id) {
+        return Some(&room.id);
+    }
+    // 3. Case-insensitive name match
+    let lower = name_or_id.to_lowercase();
+    if let Some(room) = rooms.iter().find(|r| r.name.to_lowercase() == lower) {
+        return Some(&room.id);
+    }
+    None
+}
+
 /// Validate that a room transition is legal in room-graph mode.
 ///
 /// Checks:

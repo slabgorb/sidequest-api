@@ -689,6 +689,8 @@ fn test_audio_config() -> sidequest_genre::AudioConfig {
         ai_generation: None,
         mood_keywords: HashMap::new(),
         mixer_defaults: None,
+        mood_aliases: HashMap::new(),
+        faction_themes: Vec::new(),
     }
 }
 

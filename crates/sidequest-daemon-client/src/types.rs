@@ -60,9 +60,31 @@ pub struct TtsParams {
     pub voice_id: String,
     /// Speech speed multiplier (1.0 = normal).
     pub speed: f32,
+    /// Pitch multiplier (1.0 = normal). From creature_voice_presets in audio.yaml.
+    #[serde(default = "default_pitch")]
+    pub pitch: f64,
+    /// Audio effects chain from creature_voice_presets (reverb, filters, etc.).
+    /// Each entry has `type` and `params` matching pedalboard effect types.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<TtsEffect>,
     /// Render tier — tells the daemon to route to the TTS worker.
     #[serde(default = "default_tts_tier")]
     pub tier: String,
+}
+
+/// A single audio effect for TTS post-processing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TtsEffect {
+    /// Effect type (reverb, lowpass_filter, highpass_filter, compressor, distortion).
+    #[serde(rename = "type")]
+    pub effect_type: String,
+    /// Effect parameters (e.g., room_size, cutoff_frequency_hz).
+    #[serde(default)]
+    pub params: std::collections::HashMap<String, f64>,
+}
+
+fn default_pitch() -> f64 {
+    1.0
 }
 
 fn default_tts_tier() -> String {
@@ -76,6 +98,8 @@ impl Default for TtsParams {
             model: String::new(),
             voice_id: String::new(),
             speed: 1.0,
+            pitch: 1.0,
+            effects: vec![],
             tier: default_tts_tier(),
         }
     }

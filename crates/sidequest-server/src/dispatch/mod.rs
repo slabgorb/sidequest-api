@@ -11,6 +11,7 @@
 //! - `tropes` — trope engine (activation, tick, escalation)
 
 mod audio;
+pub(crate) mod catch_up;
 mod combat;
 pub(crate) mod connect;
 pub(crate) mod pregen;
@@ -35,8 +36,8 @@ use sidequest_protocol::{
 };
 
 use crate::extraction::{
-    audio_cue_to_game_message, extract_location_header, strip_location_header,
-    strip_markdown_for_tts,
+    audio_cue_to_game_message, extract_location_header, strip_combat_brackets,
+    strip_fenced_blocks, strip_fourth_wall, strip_location_header, strip_markdown_for_tts,
 };
 use crate::{
     shared_session, AppState, DaemonSynthesizer, NpcRegistryEntry, Severity, WatcherEventBuilder,
@@ -84,6 +85,9 @@ pub(crate) struct DispatchContext<'a> {
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
+    /// Confrontation type definitions from genre pack rules.yaml (story 28-1).
+    /// Used by apply_beat(), format_encounter_context(), and beat population.
+    pub confrontation_defs: Vec<sidequest_genre::ConfrontationDef>,
     pub aside: bool,
     /// Opening scenario directive — injected into Early zone on turn 0 only, then consumed.
     pub opening_directive: Option<String>,
@@ -112,6 +116,52 @@ pub(crate) struct DispatchContext<'a> {
     /// Loaded from `~/.sidequest/manuals/{genre}_{world}.json` on session start.
     /// NPCs and encounters injected into game_state for narrator to reference.
     pub monster_manual: &'a mut sidequest_game::monster_manual::MonsterManual,
+    /// Morpheme glossaries from genre pack conlang definitions (story 15-19).
+    /// Used to detect conlang vocabulary in narration text and record to lore store.
+    pub morpheme_glossaries: Vec<sidequest_game::MorphemeGlossary>,
+    /// Name banks from genre pack conlang definitions (story 15-19).
+    /// Injected into narrator prompt context for name consistency.
+    pub name_banks: Vec<sidequest_game::NameBank>,
+    /// Inventory carry mode from genre pack (Count or Weight). Story 19-7.
+    pub carry_mode: sidequest_game::inventory::CarryMode,
+    /// Weight limit when carry_mode is Weight. Story 19-7.
+    pub weight_limit: Option<f64>,
+}
+
+impl<'a> DispatchContext<'a> {
+    /// Add an item respecting the genre pack's carry mode (story 19-7).
+    /// In Count mode, uses the hardcoded carry limit (50).
+    /// In Weight mode, checks against weight_limit from InventoryPhilosophy.
+    /// Add an item respecting the genre pack's carry mode (story 19-7).
+    /// In Count mode, uses the hardcoded carry limit (50).
+    /// In Weight mode, checks against weight_limit from InventoryPhilosophy.
+    pub fn add_item(&mut self, item: sidequest_game::Item) -> Result<(), sidequest_game::inventory::InventoryError> {
+        let result = match self.carry_mode {
+            sidequest_game::inventory::CarryMode::Count => {
+                self.inventory.add(item, 50)
+            }
+            sidequest_game::inventory::CarryMode::Weight => {
+                let limit = self.weight_limit.unwrap_or(f64::INFINITY);
+                self.inventory.add_weighted(item, limit)
+            }
+            _ => {
+                // #[non_exhaustive] future variants — fall back to count-based
+                tracing::warn!(carry_mode = ?self.carry_mode, "Unknown carry mode, falling back to count-based");
+                self.inventory.add(item, 50)
+            }
+        };
+        if let Err(ref e) = result {
+            if matches!(e, sidequest_game::inventory::InventoryError::Overweight { .. }) {
+                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                    .field("event", "item_rejected_overweight")
+                    .field("total_weight", self.inventory.total_weight())
+                    .field("weight_limit", self.weight_limit.unwrap_or(0.0))
+                    .field("error", format!("{e}"))
+                    .send();
+            }
+        }
+        result
+    }
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -157,7 +207,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .field("session_key", format!("{}:{}", ctx.genre_slug, ctx.world_slug))
                     .field("player_id", ctx.player_id)
                     .field("party_size", pc)
-                    .send(ctx.state);
+                    .send();
             }
         }
     }
@@ -178,7 +228,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("action", ctx.action)
         .field("player", ctx.char_name)
         .field("turn_number", turn_number)
-        .send(ctx.state);
+        .send();
 
     // TURN_STATUS "active" — tell all players whose turn it is BEFORE the LLM call.
     {
@@ -221,7 +271,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // the narrator LLM call so mutations are visible in the current turn's prompt.
     if let Some(prev_entry) = ctx.narration_history.last() {
         let carried_names: Vec<String> = ctx.inventory.carried().map(|i| i.name.as_str().to_string()).collect();
-        if !carried_names.is_empty() {
+        // FIX: removed carried_names.is_empty() guard that blocked first-item acquisition
+        {
             // Split the history entry: "[CharName] Action: ...\nNarrator: ..."
             let (prev_action, prev_narration) = prev_entry
                 .split_once("\nNarrator: ")
@@ -256,7 +307,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 .field("gold_gained", gold)
                                 .field("total_gold", ctx.inventory.gold)
                                 .field("detail", &mutation.detail)
-                                .send(ctx.state);
+                                .send();
                         } else {
                             let item_id = mutation.item_name
                                 .to_lowercase()
@@ -282,7 +333,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     uses_remaining: None,
                                     state: sidequest_game::ItemState::Carried,
                                 };
-                                let _ = ctx.inventory.add(item, 50);
+                                let _ = ctx.add_item(item);
                                 tracing::info!(
                                     item_name = %mutation.item_name,
                                     category = %category,
@@ -293,10 +344,32 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     .field("item_name", &mutation.item_name)
                                     .field("category", category)
                                     .field("carried_count", ctx.inventory.item_count())
-                                    .send(ctx.state);
+                                    .send();
                             }
                         }
                         continue;
+                    }
+
+                    // Gold loss (spent, tossed, given away, etc.) — non-Acquired mutations
+                    if let Some(gold) = mutation.gold {
+                        if gold > 0 {
+                            ctx.inventory.gold -= gold;
+                            tracing::info!(
+                                gold_spent = gold,
+                                total_gold = ctx.inventory.gold,
+                                action = %mutation.action,
+                                detail = %mutation.detail,
+                                "inventory.two_pass_gold_spent"
+                            );
+                            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                .field("action", "gold_spent")
+                                .field("gold_spent", gold)
+                                .field("total_gold", ctx.inventory.gold)
+                                .field("mutation_action", format!("{}", mutation.action))
+                                .field("detail", &mutation.detail)
+                                .send();
+                            continue;
+                        }
                     }
 
                     // State transition on existing item
@@ -329,7 +402,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     .field("new_state", format!("{:?}", mutation.action))
                                     .field("detail", &mutation.detail)
                                     .field("carried_count", ctx.inventory.item_count())
-                                    .send(ctx.state);
+                                    .send();
                             }
                             Err(e) => {
                                 tracing::warn!(
@@ -387,24 +460,141 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
     {
-        let nearby = ctx.monster_manual.format_nearby_npcs();
-        let creatures = ctx.monster_manual.format_area_creatures();
+        let nearby = ctx.monster_manual.format_nearby_npcs(ctx.current_location);
+        let creatures = ctx.monster_manual.format_area_creatures(ctx.combat_state.in_combat());
         if !nearby.is_empty() {
             state_summary.push_str("\n\n");
             state_summary.push_str(&nearby);
+            state_summary.push_str("\nNPC NAMING RULE: Use ONLY NPC names from the list above. Do NOT invent new character names. If you need an unnamed NPC, describe them by role or appearance (\"the blacksmith\", \"a weathered rider\") instead of giving them a name not on this list.");
         }
         if !creatures.is_empty() {
             state_summary.push_str("\n\n");
             state_summary.push_str(&creatures);
         }
+        let npcs_injected = if nearby.is_empty() { 0 } else { nearby.lines().count() };
+        let creatures_injected = if creatures.is_empty() { 0 } else { creatures.lines().count() };
         let _mm_span = tracing::info_span!(
             "monster_manual.injected",
             available_npcs = ctx.monster_manual.available_npcs().len(),
             available_encounters = ctx.monster_manual.available_encounters().len(),
             total_npcs = ctx.monster_manual.npcs.len(),
             total_encounters = ctx.monster_manual.encounters.len(),
+            npcs_injected = npcs_injected,
+            creatures_injected = creatures_injected,
+            in_combat = ctx.combat_state.in_combat(),
+            location = %ctx.current_location,
         ).entered();
-        tracing::info!("Monster Manual content injected into game_state");
+        tracing::info!("Monster Manual content injected (location-filtered)");
+    }
+
+    // Story 15-26: NPC autonomous action selection — wire scenario between-turn processing
+    // into the dispatch pipeline so NPC actions are mechanically grounded, not LLM-improvised.
+    if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
+        if !scenario.is_resolved() {
+            let turn_number_u64 = turn_number as u64;
+            let events = scenario.process_between_turns(&mut ctx.snapshot.npcs, turn_number_u64);
+
+            let mut npc_action_lines: Vec<String> = Vec::new();
+            for event in &events {
+                match &event.event_type {
+                    sidequest_game::ScenarioEventType::NpcAction { npc_name, action } => {
+                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+                            .field("event", "npc_action_selected")
+                            .field("npc_name", npc_name)
+                            .field("action", format!("{:?}", action))
+                            .field("turn", turn_number)
+                            .field("tension", format!("{:.2}", scenario.tension()))
+                            .send();
+                        npc_action_lines.push(event.description.clone());
+                    }
+                    sidequest_game::ScenarioEventType::GossipSpread { claims_spread, contradictions_found } => {
+                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+                            .field("event", "gossip_propagated")
+                            .field("claims_spread", *claims_spread)
+                            .field("contradictions_found", *contradictions_found)
+                            .field("turn", turn_number)
+                            .send();
+                        npc_action_lines.push(event.description.clone());
+                    }
+                    sidequest_game::ScenarioEventType::ClueDiscovered { clue_id } => {
+                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+                            .field("event", "clue_discoverable")
+                            .field("clue_id", clue_id)
+                            .field("turn", turn_number)
+                            .send();
+                    }
+                    _ => {}
+                }
+            }
+
+            if !npc_action_lines.is_empty() {
+                state_summary.push_str("\n\n[NPC AUTONOMOUS ACTIONS THIS TURN]\n");
+                state_summary.push_str("The following NPC actions happened between turns. Weave these into your narration:\n");
+                for line in &npc_action_lines {
+                    state_summary.push_str(&format!("- {}\n", line));
+                }
+
+                WatcherEventBuilder::new("npc_actions", WatcherEventType::SubsystemExerciseSummary)
+                    .field("event", "npc_actions.injected")
+                    .field("action_count", npc_action_lines.len())
+                    .field("tension", format!("{:.2}", scenario.tension()))
+                    .field("turn", turn_number)
+                    .send();
+            }
+        }
+    }
+
+    // Scenario pressure events and scene budget — check SharedGameSession
+    {
+        let holder = ctx.shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder {
+            let mut ss = ss_arc.lock().await;
+            if let Some(ref scenario_pack) = ss.active_scenario {
+                // Check for pressure events at this scene count
+                for pressure_event in &scenario_pack.pacing.pressure_events {
+                    if pressure_event.at_scene == ss.scene_count {
+                        state_summary.push_str(&format!(
+                            "\n\n[PRESSURE EVENT] {}\nWeave this event into the narration naturally.\n",
+                            pressure_event.event,
+                        ));
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "pressure_event_triggered")
+                            .field("at_scene", pressure_event.at_scene)
+                            .field("description", pressure_event.event.as_str())
+                            .send();
+                    }
+                }
+                // Check escalation beats by trope progression
+                if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
+                    let progress = scenario.tension() as f64;
+                    for beat in &scenario_pack.pacing.escalation_beats {
+                        if (progress - beat.at).abs() < 0.05 {
+                            state_summary.push_str(&format!(
+                                "\n[ESCALATION] {}\n",
+                                beat.inject,
+                            ));
+                            WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                                .field("event", "escalation_beat")
+                                .field("at_threshold", format!("{:.2}", beat.at))
+                                .field("inject", beat.inject.as_str())
+                                .send();
+                        }
+                    }
+                }
+                // Scene budget warning
+                let budget = scenario_pack.pacing.scene_budget;
+                if ss.scene_count >= budget.saturating_sub(2) && ss.scene_count < budget {
+                    state_summary.push_str(
+                        "\n[PACING] The scenario is nearing its conclusion. Begin steering toward resolution.\n",
+                    );
+                } else if ss.scene_count >= budget {
+                    state_summary.push_str(
+                        "\n[PACING] The scenario has exceeded its scene budget. Push hard toward a climactic resolution.\n",
+                    );
+                }
+                ss.scene_count += 1;
+            }
+        }
     }
 
     tracing::info!(
@@ -486,6 +676,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     };
 
+    // Recalculate maturity from current turn count — the snapshot's stored
+    // value is only set at connect/materialize time and goes stale as turns
+    // progress (e.g., turn 6 should be EARLY, not FRESH).
+    let live_maturity = sidequest_game::world_materialization::CampaignMaturity::from_snapshot(&ctx.snapshot);
+    if live_maturity != ctx.snapshot.campaign_maturity {
+        tracing::info!(
+            stored = ?ctx.snapshot.campaign_maturity,
+            live = ?live_maturity,
+            turn = ctx.snapshot.turn_manager.round(),
+            "campaign_maturity.advanced — recalculated from turn count"
+        );
+    }
+
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
@@ -503,6 +706,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         current_location: ctx.current_location.clone(),
         // Story 23-4: lore filtering by graph distance
         world_graph: ctx.world_graph.clone(),
+        // Story 15-18: progressive world materialization
+        history_chapters: ctx.snapshot.world_history.clone(),
+        campaign_maturity: live_maturity,
+        // Multiplayer action attribution — narrator knows WHO is acting
+        character_name: ctx.char_name.to_string(),
+        // Genre-specific prompt templates from prompts.yaml
+        genre_prompts: {
+            let gs = ctx.genre_slug;
+            sidequest_genre::GenreCode::new(gs)
+                .ok()
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .map(|pack| pack.prompts.clone())
+        },
     };
     let result = ctx
         .state
@@ -514,6 +730,26 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
     if let Some(ref agent) = result.agent_name {
         turn_span.record("agent", agent.as_str());
+    }
+
+    // Story 6-3: Update engagement counter based on intent classification.
+    // Meaningful actions (Combat, Dialogue, Chase) reset the counter;
+    // non-meaningful actions (Exploration, Examine, Meta) increment it.
+    // The counter drives the trope tick multiplier via engagement_multiplier().
+    {
+        let is_meaningful = result.classified_intent.as_deref()
+            .map(|i| matches!(i, "Combat" | "Dialogue" | "Chase"))
+            .unwrap_or(false);
+        if is_meaningful {
+            ctx.snapshot.turns_since_meaningful = 0;
+        } else {
+            ctx.snapshot.turns_since_meaningful += 1;
+        }
+        tracing::info!(
+            turns_since_meaningful = ctx.snapshot.turns_since_meaningful,
+            is_meaningful = is_meaningful,
+            "engagement.counter_updated"
+        );
     }
 
     // Update preprocessed from inline agent output (approach A — no separate Haiku call).
@@ -551,7 +787,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("sfx_trigger_count", result.sfx_triggers.len())
         .field("has_new_npcs", result.npcs_present.iter().any(|n| n.is_new))
         .field("items_gained_count", result.items_gained.len())
-        .send(ctx.state);
+        .field("extraction_tier", &result.prompt_tier)
+        .send();
 
     // Watcher: prompt assembled breakdown (story 18-6 — Prompt Inspector tab)
     if let Some(ref zb) = result.zone_breakdown {
@@ -564,7 +801,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             .field("section_count", section_count)
             .field("zones", &zb.zones)
             .field("full_prompt", &zb.full_prompt)
-            .send(ctx.state);
+            .send();
     }
 
     let agent_done = std::time::Instant::now();
@@ -581,12 +818,38 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
-        // Room-graph mode: validate + apply transition via canonical function (story 19-2).
+        // Room-graph mode: resolve display name → room ID, then validate + apply.
         // Region mode (rooms empty): always valid — no room graph to check.
+        let resolved_location = if !ctx.rooms.is_empty() {
+            match sidequest_game::room_movement::resolve_room_id(&location, &ctx.rooms) {
+                Some(id) => {
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::StateTransition)
+                        .field("event", "room_graph.name_resolved")
+                        .field("input", &location)
+                        .field("resolved_id", id)
+                        .send();
+                    id.to_string()
+                }
+                None => {
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::ValidationWarning)
+                        .field("event", "room_graph.name_unresolved")
+                        .field("input", &location)
+                        .send();
+                    tracing::warn!(
+                        name: "room_graph.name_unresolved",
+                        input = %location,
+                        "narrator used unknown room name — falling through to validation"
+                    );
+                    location.clone()
+                }
+            }
+        } else {
+            location.clone()
+        };
         let location_valid = if !ctx.rooms.is_empty() {
             match sidequest_game::room_movement::apply_validated_move(
                 ctx.snapshot,
-                &location,
+                &resolved_location,
                 &ctx.rooms,
             ) {
                 Ok(transition) => {
@@ -601,7 +864,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("from_room", &transition.from_room)
                         .field("to_room", &transition.to_room)
                         .field("exit_type", &transition.exit_type)
-                        .send(ctx.state);
+                        .send();
 
                     // Story 19-10: Deplete active light source on room transition
                     let remaining_before = ctx.inventory.items.iter()
@@ -619,7 +882,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("event", "inventory.light_depleted")
                             .field("item_name", &item_name)
                             .field("remaining_before", &remaining_before.to_string())
-                            .send(ctx.state);
+                            .send();
                         messages.push(GameMessage::ItemDepleted {
                             payload: ItemDepletedPayload {
                                 item_name,
@@ -647,19 +910,94 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("attempted_room", &to_room)
                         .field("current_room", &from_room)
                         .field("reason", &reason)
-                        .send(ctx.state);
+                        .send();
                     false
                 }
             }
         } else {
-            true // Region mode — no validation
+            // Region mode — no room graph validation, but emit transition event
+            // so the GM panel has from/to visibility (story 26-8).
+            let from_location = ctx.current_location.clone();
+            WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
+                .field("event", "region.transition")
+                .field("from_location", &from_location)
+                .field("to_location", &location)
+                .field("mode", "region")
+                .send();
+            true
         };
 
         if location_valid {
+            // In room_graph mode, use the resolved room ID as current_location
+            // so build_room_graph_explored can match it. In region mode, use display name.
+            let canonical_location = if !ctx.rooms.is_empty() {
+                resolved_location.clone()
+            } else {
+                location.clone()
+            };
             let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
-            *ctx.current_location = location.clone();
+            *ctx.current_location = canonical_location;
             if is_new {
                 ctx.discovered_regions.push(location.clone());
+                // Story 26-8: emit discovery event for GM panel visibility
+                WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
+                    .field("event", "region.discovery")
+                    .field("location", &location)
+                    .field("turn_number", turn_number)
+                    .field("total_discovered", ctx.discovered_regions.len())
+                    .send();
+                let summary = format!("Discovered {} on turn {}", location, turn_number);
+                accumulate_and_persist_lore(
+                    ctx,
+                    &summary,
+                    sidequest_game::lore::LoreCategory::Geography,
+                    turn_number as u64,
+                    std::collections::HashMap::new(),
+                ).await;
+
+                // POI image fast path: check for pre-rendered landscape image
+                // on first location discovery. Images live in genre pack at
+                // images/poi/{slug}.png, served via /genre/{slug}/...
+                let location_slug = location
+                    .to_lowercase()
+                    .replace(' ', "_")
+                    .replace('\'', "")
+                    .replace('\u{2019}', "");
+                let poi_image_path = ctx
+                    .state
+                    .genre_packs_path()
+                    .join(ctx.genre_slug)
+                    .join("images")
+                    .join("poi")
+                    .join(format!("{}.png", location_slug));
+                if poi_image_path.exists() {
+                    let served_url = format!(
+                        "/genre/{}/images/poi/{}.png",
+                        ctx.genre_slug, location_slug
+                    );
+                    tracing::info!(
+                        location = %location,
+                        url = %served_url,
+                        "poi_image.served — pre-rendered landscape on first discovery"
+                    );
+                    messages.push(GameMessage::Image {
+                        payload: sidequest_protocol::ImagePayload {
+                            url: served_url.clone(),
+                            description: format!("{}", location),
+                            handout: true,
+                            render_id: None,
+                            tier: Some("landscape".to_string()),
+                            scene_type: Some("discovery".to_string()),
+                            generation_ms: Some(0),
+                        },
+                        player_id: ctx.player_id.to_string(),
+                    });
+                    WatcherEventBuilder::new("poi_image", WatcherEventType::StateTransition)
+                        .field("action", "poi_image_served")
+                        .field("location", &location)
+                        .field("slug", &location_slug)
+                        .send();
+                }
             }
             tracing::info!(
                 location = %location,
@@ -671,7 +1009,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .field("event", "location_changed")
                 .field("location", &location)
                 .field("turn_number", turn_number)
-                .send(ctx.state);
+                .send();
             messages.push(GameMessage::ChapterMarker {
                 payload: ChapterMarkerPayload {
                     title: Some(location.clone()),
@@ -721,10 +1059,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    let clean_narration = strip_location_header(narration_text)
-        .replace("</s>", "")
-        .replace("<|endoftext|>", "")
-        .replace("<|end|>", "");
+    let clean_narration = strip_fourth_wall(
+            &strip_combat_brackets(
+                &strip_fenced_blocks(&strip_location_header(narration_text))
+            )
+            .replace("</s>", "")
+            .replace("<|endoftext|>", "")
+            .replace("<|end|>", ""),
+        );
 
     // Accumulate narration history for context on subsequent turns.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
@@ -774,7 +1116,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             crate::WatcherEventBuilder::new("monster_manual", crate::WatcherEventType::StateTransition)
                 .field("action", "npc_activated")
                 .field("name", name)
-                .send(ctx.state);
+                .send();
         }
     }
 
@@ -798,131 +1140,91 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("event", "npc.registry_enriched")
                         .field("npc_name", name)
                         .field("fields_added", fields_added)
-                        .send(ctx.state);
+                        .send();
                 }
             }
         }
     }
 
-    // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
-    // Skip in combat — creature_smith output is structured, and the 18s Haiku call
-    // doubles combat turn latency for marginal value.
-    if !ctx.combat_state.in_combat() {
-        validate_continuity(ctx, &clean_narration).await;
-    } else {
-        tracing::info!("Skipping continuity validation — in_combat, creature_smith output is structured");
-    }
-
-    let mutation_result =
-        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
-    let tier_events = mutation_result.tier_events;
-
-    // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
-    if let Some(ref lore_entries) = result.lore_established {
-        for entry in lore_entries {
-            if entry.trim().is_empty() {
+    // Story 15-19: Record conlang name knowledge for newly discovered NPCs
+    // with names matching loaded name bank entries.
+    {
+        let turn = ctx.turn_manager.interaction();
+        for npc in &result.npcs_present {
+            if !npc.is_new {
                 continue;
             }
-            match sidequest_game::accumulate_lore(
-                ctx.lore_store,
-                entry,
-                sidequest_game::lore::LoreCategory::Event,
-                turn_number as u64,
-                std::collections::HashMap::new(),
-            ) {
-                Ok(fragment_id) => {
-                    // AC-5: OTEL lore.fragment_accumulated
-                    let category = "event";
-                    let token_estimate = entry.len().div_ceil(4);
-                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                        .field("event", "lore.fragment_accumulated")
-                        .field("fragment_id", &fragment_id)
-                        .field("category", category)
-                        .field("turn", turn_number)
-                        .field("token_estimate", token_estimate)
-                        .send(ctx.state);
-                    tracing::info!(
-                        fragment_id = %fragment_id,
-                        category = category,
-                        turn = turn_number,
-                        token_estimate = token_estimate,
-                        "lore.fragment_accumulated"
-                    );
+            for bank in &ctx.name_banks {
+                for generated_name in &bank.names {
+                    if npc.name.contains(&generated_name.name) {
+                        if let Ok(_frag_id) = sidequest_game::record_name_knowledge(
+                            ctx.lore_store,
+                            generated_name,
+                            ctx.player_id,
+                            turn,
+                        ) {
+                            WatcherEventBuilder::new(
+                                "conlang",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("event", "name_recorded")
+                            .field("name", &generated_name.name)
+                            .field("language_id", &generated_name.language_id)
+                            .field("gloss", &generated_name.gloss)
+                            .send();
 
-                    // Story 15-24: Persist lore fragment to SQLite for cross-session survival.
-                    let persist_fragment = sidequest_game::LoreFragment::new(
-                        fragment_id.clone(),
-                        sidequest_game::lore::LoreCategory::Event,
-                        entry.clone(),
-                        sidequest_game::LoreSource::GameEvent,
-                        Some(turn_number as u64),
-                        std::collections::HashMap::new(),
-                    );
-                    match ctx.state.persistence().append_lore_fragment(
-                        ctx.genre_slug,
-                        ctx.world_slug,
-                        ctx.player_name_for_save,
-                        &persist_fragment,
-                    ).await {
-                        Ok(()) => {
-                            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                                .field("event", "lore.fragment_persisted")
-                                .field("fragment_id", &fragment_id)
-                                .field("category", category)
-                                .send(ctx.state);
-                            tracing::info!(fragment_id = %fragment_id, "lore.fragment_persisted");
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.fragment_persist_failed");
+                            tracing::info!(
+                                name = %generated_name.name,
+                                language_id = %generated_name.language_id,
+                                "conlang.name_recorded"
+                            );
                         }
                     }
+                }
+            }
+        }
+    }
 
-                    // AC-3: Call daemon embed() to generate embedding for the new fragment.
-                    // AC-6: Emit lore.embedding_generated with fragment_id at call site.
-                    let config = sidequest_daemon_client::DaemonConfig::default();
-                    if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
-                        let embed_params = sidequest_daemon_client::EmbedParams {
-                            text: entry.clone(),
-                        };
-                        match client.embed(embed_params).await {
-                            Ok(embed_result) => {
-                                // Attach embedding to fragment in store
-                                if let Err(e) = ctx.lore_store.set_embedding(&fragment_id, embed_result.embedding) {
-                                    tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
-                                } else {
-                                    // AC-6: OTEL lore.embedding_generated
-                                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                                        .field("event", "lore.embedding_generated")
-                                        .field("fragment_id", &fragment_id)
-                                        .field("latency_ms", embed_result.latency_ms)
-                                        .field("model", &embed_result.model)
-                                        .send(ctx.state);
-                                }
-                            }
-                            Err(e) => {
-                                // Daemon unavailable — fragment stored without embedding.
-                                // Semantic search degrades to keyword fallback. Not silent:
-                                // we log it loudly.
-                                tracing::warn!(
-                                    error = %e,
-                                    fragment_id = %fragment_id,
-                                    "lore.embedding_generation_failed — fragment stored without embedding"
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            fragment_id = %fragment_id,
-                            "lore.daemon_connect_failed — fragment stored without embedding"
+    // Story 15-19: Record conlang morphemes detected in narration text.
+    // Scans each word of clean_narration against loaded morpheme glossaries.
+    {
+        let turn = ctx.turn_manager.interaction();
+        let narration_lower = clean_narration.to_lowercase();
+        for glossary in &ctx.morpheme_glossaries {
+            for word in narration_lower.split_whitespace() {
+                let trimmed = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '\'');
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if let Some(morpheme) = glossary.lookup(trimmed) {
+                    if let Ok(_frag_id) = sidequest_game::record_language_knowledge(
+                        ctx.lore_store,
+                        morpheme,
+                        ctx.player_id,
+                        turn,
+                    ) {
+                        WatcherEventBuilder::new("conlang", WatcherEventType::StateTransition)
+                            .field("event", "morpheme_learned")
+                            .field("character_id", ctx.player_id)
+                            .field("language_id", &morpheme.language_id)
+                            .field("morpheme", &morpheme.morpheme)
+                            .send();
+
+                        tracing::info!(
+                            morpheme = %morpheme.morpheme,
+                            language_id = %morpheme.language_id,
+                            "conlang.morpheme_learned"
                         );
                     }
                 }
-                Err(e) => {
-                    tracing::warn!(error = %e, "lore.accumulate_failed");
-                }
             }
         }
     }
+
+    // State mutations must run before delta computation (delta depends on patched state).
+    let mutation_result =
+        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
+    let tier_events = mutation_result.tier_events;
 
     // Story 15-20: build narration state delta from current ctx locals via game-crate.
     // Patch a temp snapshot with current locals so build_protocol_delta reads fresh values.
@@ -945,6 +1247,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         sidequest_game::build_protocol_delta(&narration_delta, &temp_state, &result.items_gained)
     };
 
+    // Send RENDER_QUEUED *before* narration so the UI has the placeholder
+    // when it processes the NARRATION message.  Previously this ran in the
+    // media section after narration, so the placeholder never existed when
+    // buildSegments tried to match render_id → images fell to the bottom.
+    render::process_render(ctx, &clean_narration, narration_text, &result).await;
+
     // Build response messages (narration, party status, inventory)
     build_response_messages(
         ctx,
@@ -958,7 +1266,71 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     )
     .await;
 
+    // === Deferred post-narration work ===
+    // These operations write to fields consumed by the NEXT turn only, not the current one.
+    // Moved after build_response_messages so the client sees narration immediately
+    // instead of waiting ~15s for the Haiku continuity call + daemon embed round-trips.
+
+    // Continuity validation — LLM-based (Haiku), runs via spawn_blocking.
+    // Gate: only call when there's meaningful state to validate against.
+    // The validator's value is catching dead NPC resurrection and inventory
+    // contradictions. Without dead NPCs, the ~15-22s Haiku subprocess call
+    // returns zero contradictions almost every time — pure waste.
+    {
+        let dead_npcs_exist = ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0);
+        let in_combat = ctx.combat_state.in_combat();
+        if in_combat {
+            tracing::info!("continuity.skipped — in_combat, creature_smith output is structured");
+            WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
+                .field("action", "skipped")
+                .field("reason", "in_combat")
+                .send();
+        } else if !dead_npcs_exist {
+            tracing::info!("continuity.skipped — no dead NPCs, contradiction risk near-zero");
+            WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
+                .field("action", "skipped")
+                .field("reason", "no_dead_npcs")
+                .send();
+        } else {
+            validate_continuity(ctx, &clean_narration).await;
+        }
+    }
+
+    // Lore accumulation — wire accumulate_lore into post-narration dispatch (story 15-7, AC-1)
+    // lore_established is Vec<String> from narrator output — category defaults to Event.
+    // Structured lore_established (with per-entry categories) requires narrator prompt changes — follow-up.
+    if let Some(ref lore_entries) = result.lore_established {
+        for entry in lore_entries {
+            if entry.trim().is_empty() {
+                continue;
+            }
+            tracing::info!("lore.fragment_category=Event (lore_established is unstructured Vec<String> — follow-up required for per-entry categories)");
+            accumulate_and_persist_lore(
+                ctx,
+                entry,
+                sidequest_game::lore::LoreCategory::Event,
+                turn_number as u64,
+                std::collections::HashMap::new(),
+            ).await;
+        }
+    }
+
     drop(_state_update_guard);
+
+    // Record combat resolution as a lore event when combat ends this turn.
+    if mutation_result.combat_just_ended {
+        let summary = format!(
+            "Combat at {} concluded on turn {}",
+            ctx.current_location, turn_number
+        );
+        accumulate_and_persist_lore(
+            ctx,
+            &summary,
+            sidequest_game::lore::LoreCategory::Event,
+            turn_number as u64,
+            std::collections::HashMap::new(),
+        ).await;
+    }
 
     let system_tick_span = tracing::info_span!(
         "turn.system_tick",
@@ -999,6 +1371,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     system_tick_span.record("tropes_fired", fired_beats.len() as u64);
     system_tick_span.record("achievements_earned", earned_achievements.len() as u64);
 
+    // Collect beat summaries for lore persistence before fired_beats is consumed by troper.
+    let beat_lore_entries: Vec<(String, String)> = fired_beats
+        .iter()
+        .filter(|b| !b.beat.event.is_empty())
+        .map(|b| {
+            let summary = format!("{}: {}", b.trope_name, b.beat.event);
+            (summary, b.trope_id.clone())
+        })
+        .collect();
+
     // Format beat context for NEXT turn's narrator prompt injection.
     // Beats fire after narration, so they inform the next turn — same as Python's
     // _pending_escalation_beats pattern.
@@ -1015,6 +1397,42 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         *ctx.pending_trope_context = troper.build_beats_context();
     }
 
+    // Persist trope beat descriptions as lore entries (Option B: collected before troper consumed them).
+    for (summary, trope_id) in beat_lore_entries {
+        let mut meta = std::collections::HashMap::new();
+        meta.insert("trope_id".to_string(), trope_id);
+        accumulate_and_persist_lore(
+            ctx,
+            &summary,
+            sidequest_game::lore::LoreCategory::Event,
+            turn_number as u64,
+            meta,
+        ).await;
+    }
+
+    // Epic 16: Resource pool decay — apply per-turn decay and mint threshold lore
+    {
+        let crossed = ctx.snapshot.apply_pool_decay();
+        if !crossed.is_empty() {
+            sidequest_game::mint_threshold_lore(&crossed, ctx.lore_store, turn_number as u64);
+            for threshold in &crossed {
+                WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
+                    .field("event", "resource_pool.threshold_crossed")
+                    .field("event_id", &threshold.event_id)
+                    .field("narrator_hint", &threshold.narrator_hint)
+                    .field("at", threshold.at)
+                    .field("source", "decay")
+                    .field("turn", turn_number)
+                    .send();
+                tracing::info!(
+                    event_id = %threshold.event_id,
+                    at = threshold.at,
+                    "resource_pool.threshold_crossed_by_decay"
+                );
+            }
+        }
+    }
+
     drop(_system_tick_guard);
 
     let media_span = tracing::info_span!(
@@ -1024,7 +1442,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     );
     let _media_guard = media_span.enter();
 
-    render::process_render(ctx, &clean_narration, narration_text, &result).await;
+    // NOTE: process_render moved before build_response_messages (see above)
+    // so RENDER_QUEUED arrives at the UI before NARRATION text.
 
     let location_changed = *ctx.current_location != location_before_turn;
     audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, mutation_result.combat_just_ended).await;
@@ -1096,6 +1515,40 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .unwrap_or("Adventurer")
         .to_string();
 
+    // Perception filter population — map player's current status effects to
+    // perceptual effects so multiplayer narration rewriting activates (story 8-6).
+    if let Some(character) = ctx.snapshot.characters.first() {
+        let perceptual_effects = map_statuses_to_perceptual_effects(&character.core.statuses);
+        if !perceptual_effects.is_empty() {
+            let holder = ctx.shared_session_holder.lock().await;
+            if let Some(ref ss_arc) = *holder {
+                let mut ss = ss_arc.lock().await;
+                let char_name = character.core.name.as_str().to_string();
+                ss.perception_filters.insert(
+                    ctx.player_id.to_string(),
+                    sidequest_game::perception::PerceptionFilter::new(char_name, perceptual_effects.clone()),
+                );
+                WatcherEventBuilder::new("perception", WatcherEventType::StateTransition)
+                    .field("event", "perception_filter_set")
+                    .field("player_id", ctx.player_id)
+                    .field("effects", sidequest_game::perception::PerceptionRewriter::describe_effects(&perceptual_effects).as_str())
+                    .send();
+            }
+        } else {
+            // Clear any stale filter if no perceptual effects remain
+            let holder = ctx.shared_session_holder.lock().await;
+            if let Some(ref ss_arc) = *holder {
+                let mut ss = ss_arc.lock().await;
+                if ss.perception_filters.remove(ctx.player_id).is_some() {
+                    WatcherEventBuilder::new("perception", WatcherEventType::StateTransition)
+                        .field("event", "perception_filter_cleared")
+                        .field("player_id", ctx.player_id)
+                        .send();
+                }
+            }
+        }
+    }
+
     session_sync::sync_back_to_shared_session(
         ctx,
         &messages,
@@ -1109,6 +1562,45 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 }
 
 // ── Inline helpers extracted from dispatch_player_action ──────────────────
+
+/// Map free-text status effect strings to typed perceptual effects.
+/// Status strings are set by the narrator and stored on CreatureCore.statuses.
+/// Perceptual effects drive per-player narration rewriting in multiplayer.
+fn map_statuses_to_perceptual_effects(
+    statuses: &[String],
+) -> Vec<sidequest_game::perception::PerceptualEffect> {
+    use sidequest_game::perception::PerceptualEffect;
+
+    statuses
+        .iter()
+        .filter_map(|s| {
+            let lower = s.to_lowercase();
+            if lower.contains("blind") {
+                Some(PerceptualEffect::Blinded)
+            } else if lower.contains("deaf") {
+                Some(PerceptualEffect::Deafened)
+            } else if lower.contains("hallucin") {
+                Some(PerceptualEffect::Hallucinating)
+            } else if lower.contains("charm") {
+                // Extract source if format is "Charmed by <name>"
+                let source = lower
+                    .strip_prefix("charmed by ")
+                    .unwrap_or("unknown")
+                    .to_string();
+                Some(PerceptualEffect::Charmed { source })
+            } else if lower.contains("dominat") || lower.contains("possess") {
+                let controller = lower
+                    .strip_prefix("dominated by ")
+                    .or_else(|| lower.strip_prefix("possessed by "))
+                    .unwrap_or("unknown")
+                    .to_string();
+                Some(PerceptualEffect::Dominated { controller })
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 /// Handle turn barrier coordination for structured/cinematic multiplayer turns.
 async fn handle_barrier(
@@ -1241,9 +1733,10 @@ async fn handle_barrier(
 }
 
 /// Update NPC registry from structured narrator output and apply OCEAN personality shifts.
-/// Returns a list of (creature_name, served_url) for any pre-rendered bestiary
-/// images found for newly registered NPCs. The caller broadcasts these as
-/// `GameMessage::Image` (async send via `ctx.tx`).
+/// Returns a list of (npc_name, served_url) for any pre-rendered images found
+/// for newly registered NPCs. Checks both `images/creatures/` (bestiary) and
+/// `images/portraits/` (NPC portraits) in the genre pack. The caller broadcasts
+/// these as `GameMessage::Image` (async send via `ctx.tx`).
 fn update_npc_registry(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
@@ -1382,6 +1875,69 @@ fn update_npc_registry(
                     "npc_registry.new — registered with {} identity",
                     if validated { "namegen-enriched" } else { "fallback" }
                 );
+                // Pre-rendered image lookup: check creature → portrait in genre pack.
+                // Resolve URL before pushing NpcRegistryEntry so portrait_url is set at creation.
+                let npc_slug = npc.name
+                    .to_lowercase()
+                    .replace(' ', "_")
+                    .replace('\'', "")
+                    .replace('\u{2019}', "");
+                let mut npc_image_url: Option<String> = None;
+
+                // 1. Creature image (bestiary art — priority)
+                let creature_image_path = ctx
+                    .state
+                    .genre_packs_path()
+                    .join(ctx.genre_slug)
+                    .join("images")
+                    .join("creatures")
+                    .join(format!("{}.png", npc_slug));
+                if creature_image_path.exists() {
+                    let served_url = format!(
+                        "/genre/{}/images/creatures/{}.png",
+                        ctx.genre_slug, npc_slug
+                    );
+                    tracing::info!(
+                        creature = %npc.name,
+                        url = %served_url,
+                        "creature_image.served — pre-rendered bestiary image on first appearance"
+                    );
+                    creature_images.push((npc.name.clone(), served_url.clone()));
+                    npc_image_url = Some(served_url);
+                    WatcherEventBuilder::new("creature_image", WatcherEventType::StateTransition)
+                        .field("action", "creature_image_served")
+                        .field("creature", &npc.name)
+                        .field("slug", &npc_slug)
+                        .send();
+                } else {
+                    // 2. NPC portrait (character art — fallback)
+                    let portrait_image_path = ctx
+                        .state
+                        .genre_packs_path()
+                        .join(ctx.genre_slug)
+                        .join("images")
+                        .join("portraits")
+                        .join(format!("{}.png", npc_slug));
+                    if portrait_image_path.exists() {
+                        let served_url = format!(
+                            "/genre/{}/images/portraits/{}.png",
+                            ctx.genre_slug, npc_slug
+                        );
+                        tracing::info!(
+                            npc = %npc.name,
+                            url = %served_url,
+                            "npc_portrait.served — pre-rendered portrait on first appearance"
+                        );
+                        creature_images.push((npc.name.clone(), served_url.clone()));
+                        npc_image_url = Some(served_url);
+                        WatcherEventBuilder::new("npc_portrait", WatcherEventType::StateTransition)
+                            .field("action", "npc_portrait_served")
+                            .field("npc", &npc.name)
+                            .field("slug", &npc_slug)
+                            .send();
+                    }
+                }
+
                 ctx.npc_registry.push(NpcRegistryEntry {
                     name: npc.name.clone(),
                     pronouns: npc.pronouns.clone(),
@@ -1394,6 +1950,7 @@ fn update_npc_registry(
                     ocean: Some(ocean_profile),
                     hp: 0,
                     max_hp: 0,
+                    portrait_url: npc_image_url,
                 });
                 WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
                     .field("action", "npc_registered")
@@ -1403,40 +1960,7 @@ fn update_npc_registry(
                     .field("namegen_validated", validated)
                     .field("archetype_source", &source)
                     .field("registry_size", ctx.npc_registry.len())
-                    .send(ctx.state);
-
-                // Creature image fast path: check for pre-rendered bestiary image
-                // on first NPC registration. Images live in genre pack at
-                // images/creatures/{slug}.png, already served via /genre/{slug}/...
-                let creature_slug = npc.name
-                    .to_lowercase()
-                    .replace(' ', "_")
-                    .replace('\'', "")
-                    .replace('\u{2019}', "");
-                let creature_image_path = ctx
-                    .state
-                    .genre_packs_path()
-                    .join(ctx.genre_slug)
-                    .join("images")
-                    .join("creatures")
-                    .join(format!("{}.png", creature_slug));
-                if creature_image_path.exists() {
-                    let served_url = format!(
-                        "/genre/{}/images/creatures/{}.png",
-                        ctx.genre_slug, creature_slug
-                    );
-                    tracing::info!(
-                        creature = %npc.name,
-                        url = %served_url,
-                        "creature_image.served — pre-rendered bestiary image on first appearance"
-                    );
-                    creature_images.push((npc.name.clone(), served_url));
-                    WatcherEventBuilder::new("creature_image", WatcherEventType::StateTransition)
-                        .field("action", "creature_image_served")
-                        .field("creature", &npc.name)
-                        .field("slug", &creature_slug)
-                        .send(ctx.state);
-                }
+                    .send();
             }
         }
     }
@@ -1446,7 +1970,7 @@ fn update_npc_registry(
         .field("npcs_in_narration", result.npcs_present.len())
         .field("registry_size", ctx.npc_registry.len())
         .field("turn", ctx.turn_manager.interaction())
-        .send(ctx.state);
+        .send();
 
     // OCEAN personality shifts — typed directly from narrator's structured JSON block.
     // No keyword matching. The narrator emits event_type as a typed enum variant.
@@ -1464,20 +1988,25 @@ fn update_npc_registry(
                 turn_approx,
             );
             if !applied.is_empty() {
-                tracing::info!(
-                    events = personality_events.len(),
-                    shifts_applied = applied.len(),
-                    shift_log_entries = shift_log.shifts().len(),
-                    "ocean_shift.applied — NPC personalities evolved from narrative events"
-                );
+                // Summary WatcherEvent for GM panel
+                WatcherEventBuilder::new("ocean", WatcherEventType::StateTransition)
+                    .field("event", "ocean.shift_applied")
+                    .field("shifts_applied", applied.len())
+                    .field("personality_events", personality_events.len())
+                    .field("shift_log_entries", shift_log.shifts().len())
+                    .field("turn", turn_approx)
+                    .send();
+
+                // Per-proposal WatcherEvents for detailed GM panel inspection
                 for proposal in &applied {
-                    tracing::debug!(
-                        npc = %proposal.npc_name,
-                        dimension = ?proposal.dimension,
-                        delta = proposal.delta,
-                        cause = %proposal.cause,
-                        "ocean_shift.detail"
-                    );
+                    WatcherEventBuilder::new("ocean", WatcherEventType::StateTransition)
+                        .field("event", "ocean.shift_proposed")
+                        .field("npc_name", &proposal.npc_name)
+                        .field("dimension", format!("{:?}", proposal.dimension))
+                        .field("delta", format!("{:.2}", proposal.delta))
+                        .field("cause", &proposal.cause)
+                        .field("turn", turn_approx)
+                        .send();
                 }
             }
         }
@@ -1486,9 +2015,114 @@ fn update_npc_registry(
     creature_images
 }
 
+/// Accumulate a lore fragment: in-memory store + SQLite persistence + embedding generation.
+///
+/// Used by both the lore_established narrator output and the footnote RAG pipeline.
+/// Emits OTEL watcher events at each step. Returns the fragment_id on success, None on failure.
+async fn accumulate_and_persist_lore(
+    ctx: &mut DispatchContext<'_>,
+    text: &str,
+    category: sidequest_game::lore::LoreCategory,
+    turn: u64,
+    metadata: std::collections::HashMap<String, String>,
+) -> Option<String> {
+    match sidequest_game::accumulate_lore(
+        ctx.lore_store,
+        text,
+        category.clone(),
+        turn,
+        metadata.clone(),
+    ) {
+        Ok(fragment_id) => {
+            let category_str = category.to_string();
+            let token_estimate = text.len().div_ceil(4);
+            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                .field("event", "lore.fragment_accumulated")
+                .field("fragment_id", &fragment_id)
+                .field("category", &category_str)
+                .field("turn", turn)
+                .field("token_estimate", token_estimate)
+                .send();
+            tracing::info!(
+                fragment_id = %fragment_id,
+                category = %category_str,
+                turn = turn,
+                token_estimate = token_estimate,
+                "lore.fragment_accumulated"
+            );
+
+            let persist_fragment = sidequest_game::LoreFragment::new(
+                fragment_id.clone(),
+                category,
+                text.to_string(),
+                sidequest_game::LoreSource::GameEvent,
+                Some(turn),
+                metadata,
+            );
+            match ctx.state.persistence().append_lore_fragment(
+                ctx.genre_slug,
+                ctx.world_slug,
+                ctx.player_name_for_save,
+                &persist_fragment,
+            ).await {
+                Ok(()) => {
+                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                        .field("event", "lore.fragment_persisted")
+                        .field("fragment_id", &fragment_id)
+                        .field("category", &category_str)
+                        .send();
+                    tracing::info!(fragment_id = %fragment_id, "lore.fragment_persisted");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.fragment_persist_failed");
+                }
+            }
+
+            let config = sidequest_daemon_client::DaemonConfig::default();
+            if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
+                let embed_params = sidequest_daemon_client::EmbedParams {
+                    text: text.to_string(),
+                };
+                match client.embed(embed_params).await {
+                    Ok(embed_result) => {
+                        if let Err(e) = ctx.lore_store.set_embedding(&fragment_id, embed_result.embedding) {
+                            tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
+                        } else {
+                            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                                .field("event", "lore.embedding_generated")
+                                .field("fragment_id", &fragment_id)
+                                .field("latency_ms", embed_result.latency_ms)
+                                .field("model", &embed_result.model)
+                                .send();
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            fragment_id = %fragment_id,
+                            "lore.embedding_generation_failed — fragment stored without embedding"
+                        );
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    fragment_id = %fragment_id,
+                    "lore.daemon_connect_failed — fragment stored without embedding"
+                );
+            }
+
+            Some(fragment_id)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "lore.accumulate_failed");
+            None
+        }
+    }
+}
+
 /// Continuity validation — LLM-based check of narrator output against game state.
 ///
-/// Uses Haiku classification to detect contradictions rather than keyword matching.
+/// Uses Sonnet classification to detect contradictions rather than keyword matching.
 /// Runs via spawn_blocking so it doesn't block the tokio runtime.
 async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &str) {
     let dead_npcs: Vec<String> = ctx
@@ -1504,6 +2138,14 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
         .map(|i| i.name.as_str().to_string())
         .collect();
 
+    let character_description: String = ctx
+        .character_json
+        .as_ref()
+        .and_then(|cj| cj.get("description"))
+        .and_then(|d| d.as_str())
+        .unwrap_or("")
+        .to_string();
+
     let validation_result =
         sidequest_agents::continuity_validator::validate_continuity_llm_async(
             clean_narration,
@@ -1511,6 +2153,7 @@ async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &st
             &dead_npcs,
             &inventory_items,
             "", // time_of_day not tracked in dispatch context yet
+            &character_description,
         )
         .await;
 
@@ -1612,6 +2255,26 @@ async fn build_response_messages(
                     );
                 }
             }
+
+            // Route footnote discoveries into world LoreStore for RAG pipeline.
+            // This ensures narrator can reference footnote-sourced knowledge in future turns.
+            let turn = ctx.turn_manager.interaction() as u64;
+            for df in &discovered {
+                let lore_cat: sidequest_game::lore::LoreCategory = df.fact.category.into();
+                let mut meta = std::collections::HashMap::new();
+                meta.insert("source".to_string(), format!("{:?}", df.fact.source));
+                meta.insert("character".to_string(), df.character_name.clone());
+                meta.insert("confidence".to_string(), format!("{:?}", df.fact.confidence));
+                accumulate_and_persist_lore(ctx, &df.fact.content, lore_cat, turn, meta).await;
+            }
+
+            // OTEL: footnotes processed with lore accumulation
+            WatcherEventBuilder::new("rag", WatcherEventType::SubsystemExerciseSummary)
+                .field("event", "rag.footnotes_to_lore")
+                .field("total_footnotes", result.footnotes.len())
+                .field("new_facts", discovered.len())
+                .field("character", ctx.char_name)
+                .send();
         }
     }
 
@@ -1698,12 +2361,25 @@ async fn build_response_messages(
     // MAP_UPDATE — send every turn so the client always has current explored regions.
     // Previously only sent on location change, leaving the client stale if location
     // didn't change (headless driver showed "0 explored" despite 5 in game state).
+    tracing::debug!(
+        rooms_count = ctx.rooms.len(),
+        discovered_rooms_count = ctx.snapshot.discovered_rooms.len(),
+        discovered_rooms = ?ctx.snapshot.discovered_rooms,
+        current_location = %ctx.snapshot.location,
+        "map_update.debug — room graph state"
+    );
     let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty() {
-        sidequest_game::build_room_graph_explored(
+        let locs = sidequest_game::build_room_graph_explored(
             &ctx.rooms,
             &ctx.snapshot.discovered_rooms,
             &ctx.snapshot.location,
-        )
+        );
+        tracing::debug!(
+            explored_count = locs.len(),
+            room_exits_total = locs.iter().map(|l| l.room_exits.len()).sum::<usize>(),
+            "map_update.debug — room graph explored result"
+        );
+        locs
     } else {
         ctx.discovered_regions
             .iter()
@@ -1729,6 +2405,76 @@ async fn build_response_messages(
         },
         player_id: ctx.player_id.to_string(),
     });
+
+    // Confrontation overlay — broadcast structured encounter state.
+    // Syncs from live combat/chase state so the UI shows the overlay.
+    let encounter = if ctx.combat_state.in_combat() {
+        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+    } else if let Some(ref cs) = ctx.chase_state {
+        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
+    } else {
+        None
+    };
+    if let Some(ref enc) = encounter {
+        let actors: Vec<sidequest_protocol::ConfrontationActor> = enc.actors.iter().map(|a| {
+            let portrait = ctx.npc_registry.iter()
+                .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
+                .and_then(|e| e.portrait_url.clone());
+            sidequest_protocol::ConfrontationActor {
+                name: a.name.clone(),
+                role: a.role.clone(),
+                portrait_url: portrait,
+            }
+        }).collect();
+        let metric = &enc.metric;
+        let direction_str = match metric.direction {
+            sidequest_game::MetricDirection::Ascending => "ascending",
+            sidequest_game::MetricDirection::Descending => "descending",
+            sidequest_game::MetricDirection::Bidirectional => "bidirectional",
+            _ => "ascending",
+        };
+        let def = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type);
+        messages.push(GameMessage::Confrontation {
+            payload: sidequest_protocol::ConfrontationPayload {
+                encounter_type: enc.encounter_type.clone(),
+                label: def.map(|d| d.label.clone()).unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
+                category: def.map(|d| d.category.clone()).unwrap_or_else(|| enc.encounter_type.clone()),
+                actors,
+                metric: sidequest_protocol::ConfrontationMetric {
+                    name: metric.name.clone(),
+                    current: metric.current,
+                    starting: metric.starting,
+                    direction: direction_str.to_string(),
+                    threshold_high: metric.threshold_high,
+                    threshold_low: metric.threshold_low,
+                },
+                beats: def.map(|d| d.beats.iter().map(|b| sidequest_protocol::ConfrontationBeat {
+                    id: b.id.clone(),
+                    label: b.label.clone(),
+                    metric_delta: b.metric_delta,
+                    stat_check: b.stat_check.clone(),
+                    risk: b.risk.clone(),
+                    resolution: b.resolution.unwrap_or(false),
+                }).collect()).unwrap_or_default(),
+                secondary_stats: enc.secondary_stats.as_ref().and_then(|ss| serde_json::to_value(ss).ok()),
+                genre_slug: ctx.genre_slug.to_string(),
+                mood: enc.mood_override.clone().unwrap_or_default(),
+                active: !enc.resolved,
+            },
+            player_id: ctx.player_id.to_string(),
+        });
+        // OTEL: log beats sent to UI (story 28-3)
+        if let Some(d) = def {
+            if !d.beats.is_empty() {
+                WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                    .field("action", "beats_sent")
+                    .field("encounter_type", &enc.encounter_type)
+                    .field("beat_count", d.beats.len())
+                    .field("beat_ids", d.beats.iter().map(|b| b.id.clone()).collect::<Vec<_>>())
+                    .send();
+            }
+        }
+    }
 }
 
 /// Sync scattered DispatchContext locals into the canonical GameSnapshot.
@@ -1766,6 +2512,8 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     } else {
         None
     };
+
+
     ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
     ctx.snapshot.active_tropes = ctx.trope_states.clone();
     ctx.snapshot.achievement_tracker = ctx.achievement_tracker.clone();
@@ -1815,13 +2563,23 @@ async fn persist_game_state(
     ctx.snapshot.narrative_log.push(narrative_entry.clone());
 
     // Write to append-only narrative_log table in SQLite
-    if let Err(e) = ctx
+    match ctx
         .state
         .persistence()
         .append_narrative(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &narrative_entry)
         .await
     {
-        tracing::warn!(error = %e, "Failed to append narrative log entry");
+        Ok(()) => {
+            WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
+                .field("event", "persistence.narrative_appended")
+                .field("turn", ctx.turn_manager.interaction())
+                .field("length", clean_narration.len())
+                .field("player", ctx.player_name_for_save)
+                .send();
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to append narrative log entry");
+        }
     }
 
     // Emit encounter OTEL event if active
@@ -1837,7 +2595,7 @@ async fn persist_game_state(
             .field("actor_count", enc.actors.len())
             .field_opt("mood_override", &enc.mood_override)
             .field_opt("outcome", &enc.outcome)
-            .send(ctx.state);
+            .send();
     }
 
     // Save ctx.snapshot directly — no load round-trip needed (story 15-8)
@@ -1869,33 +2627,12 @@ async fn persist_game_state(
                 .field("save_latency_ms", elapsed_ms)
                 .field("player", ctx.player_name_for_save)
                 .field("turn", ctx.turn_manager.interaction())
-                .send(ctx.state);
+                .send();
 
-            // Also write to the dedicated narrative_log SQLite table
-            // (enables recent_narrative() for "Previously On..." reconnect recaps)
-            match ctx
-                .state
-                .persistence()
-                .append_narrative(
-                    ctx.genre_slug,
-                    ctx.world_slug,
-                    ctx.player_name_for_save,
-                    &narrative_entry,
-                )
-                .await
-            {
-                Ok(()) => {
-                    WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
-                        .field("event", "persistence.narrative_appended")
-                        .field("turn", ctx.turn_manager.interaction())
-                        .field("length", clean_narration.len())
-                        .field("player", ctx.player_name_for_save)
-                        .send(ctx.state);
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to append narrative to SQLite table");
-                }
-            }
+            // NOTE: append_narrative is already called above (line ~2358) right
+            // after the entry is created.  A duplicate call here was causing
+            // every narration row to be written twice, which produced repeated
+            // paragraphs in the "Previously On..." recap on session resume.
         }
         Err(e) => {
             tracing::error!(error = %e, "Failed to persist game state");
@@ -1904,7 +2641,7 @@ async fn persist_game_state(
                 .field("error", &format!("{e}"))
                 .field("player", ctx.player_name_for_save)
                 .field("turn", ctx.turn_manager.interaction())
-                .send(ctx.state);
+                .send();
         }
     }
 }
@@ -1948,7 +2685,7 @@ fn spawn_tts_pipeline(
             .field("segment_count", tts_segments.len())
             .field("total_chars", tts_segments.iter().map(|s| s.text.len()).sum::<usize>())
             .field_opt("first_segment", &first_preview)
-            .send(ctx.state);
+            .send();
     }
 
     let player_id_for_tts = ctx.player_id.to_string();
@@ -1988,6 +2725,21 @@ fn spawn_tts_pipeline(
         },
     };
 
+    // Build VoiceRouter from genre pack for TTS voice assignment
+    let voice_router_for_tts = {
+        let genre_dir = ctx.state.genre_packs_path().join(ctx.genre_slug);
+        match sidequest_genre::load_genre_pack(&genre_dir) {
+            Ok(pack) => {
+                let voice_presets = pack.voice_presets.as_ref();
+                std::sync::Arc::new(sidequest_game::VoiceRouter::new(voice_presets, &pack.audio))
+            }
+            Err(_) => {
+                // No genre pack or load error — use default narrator voice
+                std::sync::Arc::new(sidequest_game::VoiceRouter::new(None, &sidequest_genre::AudioConfig::empty()))
+            }
+        }
+    };
+
     let tts_span = tracing::info_span!(
         "tts.pipeline",
         segment_count = tts_segments.len(),
@@ -2002,6 +2754,7 @@ fn spawn_tts_pipeline(
         {
             Ok(client) => DaemonSynthesizer {
                 client: tokio::sync::Mutex::new(client),
+                voice_router: voice_router_for_tts,
             },
             Err(e) => {
                 tracing::warn!(error = %e, "TTS daemon unavailable — skipping voice synthesis");
@@ -2208,7 +2961,7 @@ fn emit_telemetry(
         WatcherEventBuilder::new("game", WatcherEventType::GameStateSnapshot)
             .field("turn_number", turn_approx)
             .field("snapshot", &snapshot)
-            .send(ctx.state);
+            .send();
     }
 
     // Build timing spans for flame chart visualization
@@ -2243,7 +2996,7 @@ fn emit_telemetry(
         if result.is_degraded {
             builder = builder.severity(Severity::Warn);
         }
-        builder.send(ctx.state);
+        builder.send();
     }
 }
 
@@ -2293,6 +3046,19 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         current_location: String::new(),
         // Aside turns don't need lore filtering
         world_graph: None,
+        // Aside turns don't need world materialization
+        history_chapters: Vec::new(),
+        campaign_maturity: sidequest_game::world_materialization::CampaignMaturity::default(),
+        // Multiplayer action attribution
+        character_name: ctx.char_name.to_string(),
+        // Aside turns still need genre voice for consistent tone
+        genre_prompts: {
+            let gs = ctx.genre_slug;
+            sidequest_genre::GenreCode::new(gs)
+                .ok()
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .map(|pack| pack.prompts.clone())
+        },
     };
     let result = ctx
         .state
@@ -2309,10 +3075,10 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
             .field("section_count", section_count)
             .field("zones", &zb.zones)
             .field("full_prompt", &zb.full_prompt)
-            .send(ctx.state);
+            .send();
     }
 
-    let narration_text = strip_location_header(&result.narration);
+    let narration_text = strip_fourth_wall(&strip_combat_brackets(&strip_fenced_blocks(&strip_location_header(&result.narration))));
 
     vec![
         GameMessage::Narration {
@@ -2357,6 +3123,45 @@ mod tests {
                 || production_code.contains("npc_registry_enriched"),
             "dispatch must emit npc.registry_enriched OTEL event so GM panel \
              can verify enrichment is running — story 15-14"
+        );
+    }
+
+    /// Story 15-26: Verify process_between_turns is called in the dispatch pipeline
+    /// so NPC autonomous actions are mechanically selected, not LLM-improvised.
+    #[test]
+    fn dispatch_pipeline_calls_process_between_turns() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("process_between_turns("),
+            "dispatch must call scenario_state.process_between_turns() to select \
+             NPC actions mechanically — story 15-26 (Pattern 5 fix)"
+        );
+    }
+
+    /// Story 15-26: Verify OTEL events are emitted for NPC action selection
+    /// so the GM panel can confirm actions are grounded, not improvised.
+    #[test]
+    fn dispatch_pipeline_emits_npc_action_otel() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("npc_action_selected"),
+            "dispatch must emit npc_action_selected OTEL event for each NPC \
+             autonomous action — story 15-26"
+        );
+    }
+
+    /// Story 15-26: Verify NPC actions are injected into narrator context
+    /// so the narrator writes around mechanical decisions, not inventing them.
+    #[test]
+    fn dispatch_pipeline_injects_npc_actions_into_prompt() {
+        let source = include_str!("mod.rs");
+        let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(
+            production_code.contains("NPC AUTONOMOUS ACTIONS THIS TURN"),
+            "dispatch must inject NPC action descriptions into state_summary \
+             for narrator context — story 15-26"
         );
     }
 }

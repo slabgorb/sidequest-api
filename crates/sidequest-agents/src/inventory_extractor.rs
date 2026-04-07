@@ -17,7 +17,8 @@ use crate::client::ClaudeClient;
 const HAIKU_MODEL: &str = "haiku";
 
 /// Timeout — extraction must not block the game loop.
-const EXTRACT_TIMEOUT: Duration = Duration::from_secs(8);
+/// Haiku CLI cold starts can take 10-15s, so 20s gives headroom.
+const EXTRACT_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// A single inventory mutation extracted from narration.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -170,8 +171,13 @@ Report TWO kinds of changes:
 Respond with a JSON array. Each entry:
 {{"item_name": "<item name>", "action": "<consumed|sold|given|lost|destroyed|acquired>", "detail": "<who/what/why>", "category": "<weapon|armor|tool|consumable|treasure|misc>", "gold": <number or null>}}
 
-For existing items (consumed/sold/given/lost/destroyed): category and gold can be null.
-For acquired items: category is required. If the item is currency (caps, coins, gold, credits), set gold to the amount and item_name to the currency name.
+For existing items (consumed/sold/given/lost/destroyed): category can be null.
+For acquired items: category is required.
+
+CURRENCY/GOLD RULES:
+- Currency GAINED (found, looted, received, fished out): action "acquired", gold = positive amount.
+- Currency SPENT (tossed, donated, paid, lost, given away, used as offering): action "lost" (or "given"/"consumed" as appropriate), gold = positive amount spent.
+- If the item is currency (caps, coins, gold, credits), set gold to the amount and item_name to the currency name.
 
 If NOTHING changed, respond with: []
 
@@ -179,8 +185,7 @@ RULES:
 - For state changes: only report items IN THE INVENTORY LIST.
 - For acquisitions: only report if the narration CONFIRMS the player received/found/took the item. "I search the body" is not acquisition unless the narrator describes finding something.
 - Equipping, examining, or brandishing is NOT a state change.
-- Using a weapon to attack does NOT consume it (unless the narration says it broke).
-- Currency/gold found should use the "acquired" action with a gold amount."#
+- Using a weapon to attack does NOT consume it (unless the narration says it broke)."#
     )
 }
 
@@ -304,6 +309,24 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].action, MutationAction::Acquired);
         assert_eq!(result[0].gold, Some(11));
+    }
+
+    #[test]
+    fn parse_gold_loss() {
+        let json = r#"[{"item_name": "gold", "action": "lost", "detail": "tossed into fountain", "gold": 1}]"#;
+        let result = parse_extraction_response(json).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].action, MutationAction::Lost);
+        assert_eq!(result[0].gold, Some(1));
+    }
+
+    #[test]
+    fn parse_gold_given() {
+        let json = r#"[{"item_name": "gold", "action": "given", "detail": "donated to beggar", "gold": 5}]"#;
+        let result = parse_extraction_response(json).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].action, MutationAction::Given);
+        assert_eq!(result[0].gold, Some(5));
     }
 
     #[test]

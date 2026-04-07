@@ -1,0 +1,17 @@
+[package]
+name = "sidequest-validate"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Genre pack schema validator — loads every YAML file and reports all deserialization errors at once"
+
+[[bin]]
+name = "sidequest-validate"
+path = "src/main.rs"
+
+[dependencies]
+sidequest-genre = { path = "../sidequest-genre" }
+clap.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+serde_json.workspace = true

@@ -31,6 +31,11 @@ struct Cli {
     #[arg(long, env = "SIDEQUEST_GENRE")]
     genre: String,
 
+    /// World slug (e.g., grimvault). When set, checks for worlds/{world}/creatures.yaml
+    /// and samples from creature definitions instead of generating humanoid NPCs.
+    #[arg(long)]
+    world: Option<String>,
+
     /// Power tier (1-4, maps to level ranges). Random if omitted.
     #[arg(long)]
     tier: Option<u32>,
@@ -147,6 +152,52 @@ fn main() {
     let mut rng = rand::rng();
     let mut enemies = Vec::with_capacity(cli.count as usize);
 
+    // Check for world-level creatures.yaml — if present, sample from creature
+    // definitions instead of generating humanoid NPCs from rules.yaml.
+    let creatures_path = cli.world.as_ref().map(|w| {
+        genre_dir.join("worlds").join(w).join("creatures.yaml")
+    });
+    let creatures: Option<Vec<serde_yaml::Value>> = creatures_path
+        .as_ref()
+        .filter(|p| p.exists())
+        .and_then(|p| {
+            let text = std::fs::read_to_string(p).ok()?;
+            let doc: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
+            doc.get("creatures")
+                .and_then(|c| c.as_sequence())
+                .map(|seq| seq.to_vec())
+        });
+
+    if let Some(ref creature_list) = creatures {
+        if !creature_list.is_empty() {
+            // Filter by tier if specified
+            let filtered: Vec<&serde_yaml::Value> = if let Some(tier) = cli.tier {
+                creature_list.iter().filter(|c| {
+                    c.get("threat_level")
+                        .and_then(|t| t.as_u64())
+                        .map(|t| t == tier as u64)
+                        .unwrap_or(false)
+                }).collect()
+            } else {
+                creature_list.iter().collect()
+            };
+
+            let pool = if filtered.is_empty() { creature_list.iter().collect::<Vec<_>>() } else { filtered };
+
+            for _ in 0..cli.count {
+                let creature = pool[rng.random_range(0..pool.len())];
+                enemies.push(creature_to_enemy_block(creature, &mut rng));
+            }
+
+            let block = EncounterBlock { enemies };
+            let json = serde_json::to_string_pretty(&block).unwrap();
+            println!("{json}");
+            write_sidecar(&block);
+            return;
+        }
+    }
+
+    // Fallback: generate humanoid NPCs from rules.yaml (original path)
     for _ in 0..cli.count {
         enemies.push(generate_enemy(&pack, &genre_dir, &cli, &mut rng));
     }
@@ -191,6 +242,78 @@ fn write_sidecar(block: &EncounterBlock) {
             });
             let _ = writeln!(f, "{}", serde_json::to_string(&record).unwrap());
         }
+    }
+}
+
+// ── Creature YAML → EnemyBlock ─────────────────────────────
+
+/// Convert a creature definition from creatures.yaml into an EnemyBlock.
+fn creature_to_enemy_block(creature: &serde_yaml::Value, rng: &mut impl Rng) -> EnemyBlock {
+    let str_field = |key: &str| -> String {
+        creature.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    };
+    let u64_field = |key: &str, default: u64| -> u64 {
+        creature.get(key).and_then(|v| v.as_u64()).unwrap_or(default)
+    };
+
+    let name = str_field("name");
+    let threat_level = u64_field("threat_level", 1) as u32;
+    let hp = u64_field("hp", 4) as u32;
+    let ac = u64_field("ac", 10);
+    let damage = str_field("damage");
+    let morale = str_field("morale");
+
+    let abilities: Vec<String> = creature.get("abilities")
+        .and_then(|a| a.as_sequence())
+        .map(|seq| seq.iter().filter_map(|a| {
+            let aname = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let adesc = a.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            if aname.is_empty() { None } else { Some(format!("{} — {}", aname, adesc.chars().take(80).collect::<String>())) }
+        }).collect())
+        .unwrap_or_default();
+
+    let tags: Vec<String> = creature.get("tags")
+        .and_then(|t| t.as_sequence())
+        .map(|seq| seq.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let tier_label = format!("tier-{}", threat_level);
+
+    EnemyBlock {
+        name,
+        class: "creature".to_string(),
+        race: tags.first().cloned().unwrap_or_else(|| "beast".to_string()),
+        level: threat_level,
+        tier_label,
+        role: if !damage.is_empty() { format!("{}, morale: {}", damage, morale) } else { morale },
+        hp,
+        abilities,
+        weaknesses: vec![format!("AC {}", ac)],
+        disposition: -20, // creatures are hostile
+        personality: vec![],
+        dialogue_quirks: vec![],
+        inventory: creature.get("loot")
+            .and_then(|l| l.as_sequence())
+            .map(|seq| seq.iter().filter_map(|v| {
+                v.get("description").and_then(|d| d.as_str()).map(String::from)
+            }).collect())
+            .unwrap_or_default(),
+        stat_scores: HashMap::new(),
+        ocean: OceanValues {
+            openness: rng.random_range(1.0..4.0),
+            conscientiousness: rng.random_range(2.0..5.0),
+            extraversion: rng.random_range(2.0..6.0),
+            agreeableness: rng.random_range(1.0..3.0),
+            neuroticism: rng.random_range(4.0..8.0),
+        },
+        ocean_summary: "feral and aggressive".to_string(),
+        trope_connections: vec![],
+        visual_prompt: creature.get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .chars()
+            .take(200)
+            .collect(),
     }
 }
 

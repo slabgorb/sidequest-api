@@ -3,6 +3,7 @@
 //! Exposes `build_router()`, `AppState`, and server lifecycle functions for the binary and tests.
 //! The server depends on the `GameService` trait facade — never on game internals.
 
+pub(crate) mod debug_api;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -28,7 +29,6 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
-use tracing_subscriber::prelude::*;
 
 use sidequest_agents::orchestrator::GameService;
 use sidequest_game::builder::CharacterBuilder;
@@ -37,15 +37,17 @@ use sidequest_game::builder::CharacterBuilder;
 pub(crate) type NpcRegistryEntry = sidequest_game::NpcRegistryEntry;
 
 /// Wrapper for the daemon TTS client, implementing the TtsSynthesizer trait.
+/// Uses VoiceRouter to resolve speaker names to genre pack voice presets.
 pub(crate) struct DaemonSynthesizer {
     pub(crate) client: tokio::sync::Mutex<sidequest_daemon_client::DaemonClient>,
+    pub(crate) voice_router: std::sync::Arc<sidequest_game::VoiceRouter>,
 }
 
 impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
     fn synthesize(
         &self,
         text: &str,
-        _speaker: &str,
+        speaker: &str,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = Result<Vec<u8>, sidequest_game::tts_stream::TtsError>>
@@ -54,12 +56,32 @@ impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
         >,
     > {
         let text = text.to_string();
+        let assignment = self.voice_router.route(speaker);
+        tracing::info!(
+            speaker = %speaker,
+            voice_id = %assignment.voice_id,
+            engine = %assignment.engine,
+            speed = assignment.speed,
+            pitch = assignment.pitch,
+            effects_count = assignment.effects.len(),
+            "tts.voice_resolved"
+        );
         Box::pin(async move {
+            let effects: Vec<sidequest_daemon_client::TtsEffect> = assignment
+                .effects
+                .iter()
+                .map(|e| sidequest_daemon_client::TtsEffect {
+                    effect_type: e.effect_type.clone(),
+                    params: e.params.clone(),
+                })
+                .collect();
             let params = sidequest_daemon_client::TtsParams {
                 text,
-                model: "kokoro".to_string(),
-                voice_id: "en_male_deep".to_string(),
-                speed: 0.95,
+                model: assignment.engine,
+                voice_id: assignment.voice_id,
+                speed: assignment.speed,
+                pitch: assignment.pitch,
+                effects,
                 ..Default::default()
             };
             let mut client = self.client.lock().await;
@@ -79,138 +101,34 @@ use sidequest_protocol::{
 };
 
 // ---------------------------------------------------------------------------
-// Watcher Telemetry Types (Story 3-6)
+// Watcher Telemetry — re-exported from sidequest-telemetry (Story 3-6)
 // ---------------------------------------------------------------------------
 
-/// A telemetry event streamed to `/ws/watcher` clients.
-///
-/// This is a diagnostic data bag — no invariants to enforce, so fields are public.
-/// Serializes to JSON for the WebSocket stream.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct WatcherEvent {
-    /// When the event occurred.
-    pub timestamp: chrono::DateTime<chrono::Utc>,
-    /// Which subsystem emitted this event (e.g. "agent", "validation", "game").
-    pub component: String,
-    /// The kind of telemetry event.
-    pub event_type: WatcherEventType,
-    /// Log severity.
-    pub severity: Severity,
-    /// Arbitrary key-value fields for event-specific data.
-    pub fields: HashMap<String, serde_json::Value>,
-}
+/// Maximum number of watcher events retained for replay to late-connecting GM panels.
+const WATCHER_HISTORY_CAP: usize = 500;
 
-/// Kinds of telemetry events streamed to watchers.
-///
-/// Will grow as new observability features land — hence `#[non_exhaustive]`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum WatcherEventType {
-    /// An agent span has opened (work started).
-    AgentSpanOpen,
-    /// An agent span has closed (work finished).
-    AgentSpanClose,
-    /// A validation rule fired a warning.
-    ValidationWarning,
-    /// Summary of which subsystems were exercised in a turn.
-    SubsystemExerciseSummary,
-    /// A gap in expected coverage was detected.
-    CoverageGap,
-    /// Result of a JSON extraction from LLM output.
-    JsonExtractionResult,
-    /// A game state machine transition occurred.
-    StateTransition,
-    /// A full turn has completed (from orchestrator TurnRecord bridge).
-    TurnComplete,
-    /// A lore retrieval operation completed (story 18-4).
-    LoreRetrieval,
-    /// A prompt was assembled with zone breakdown (story 18-6).
-    PromptAssembled,
-    /// Game state snapshot was captured.
-    GameStateSnapshot,
-}
-
-/// Severity levels for watcher telemetry events.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum Severity {
-    /// Informational.
-    Info,
-    /// Warning.
-    Warn,
-    /// Error.
-    Error,
-}
-
-/// Builder for WatcherEvent — eliminates hand-built HashMap boilerplate.
-///
-/// Usage:
-/// ```ignore
-/// WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-///     .field("action", "combat_tick")
-///     .field("in_combat", true)
-///     .field("round", ctx.combat_state.round())
-///     .severity(Severity::Warn)  // optional, defaults to Info
-///     .send(&ctx.state);
-/// ```
-pub struct WatcherEventBuilder {
-    component: String,
-    event_type: WatcherEventType,
-    severity: Severity,
-    fields: HashMap<String, serde_json::Value>,
-    timestamp_override: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-impl WatcherEventBuilder {
-    pub fn new(component: &str, event_type: WatcherEventType) -> Self {
-        Self {
-            component: component.to_string(),
-            event_type,
-            severity: Severity::Info,
-            fields: HashMap::new(),
-            timestamp_override: None,
-        }
-    }
-
-    pub fn field(mut self, key: &str, value: impl serde::Serialize) -> Self {
-        self.fields.insert(key.to_string(), serde_json::json!(value));
-        self
-    }
-
-    /// Add a field only if the Option is Some.
-    pub fn field_opt(mut self, key: &str, value: &Option<impl serde::Serialize>) -> Self {
-        if let Some(v) = value {
-            self.fields.insert(key.to_string(), serde_json::json!(v));
-        }
-        self
-    }
-
-    pub fn severity(mut self, severity: Severity) -> Self {
-        self.severity = severity;
-        self
-    }
-
-    /// Override the auto-generated timestamp (default: `chrono::Utc::now()`).
-    pub fn timestamp(mut self, ts: chrono::DateTime<chrono::Utc>) -> Self {
-        self.timestamp_override = Some(ts);
-        self
-    }
-
-    pub fn send(self, state: &AppState) {
-        state.send_watcher_event(WatcherEvent {
-            timestamp: self.timestamp_override.unwrap_or_else(chrono::Utc::now),
-            component: self.component,
-            event_type: self.event_type,
-            severity: self.severity,
-            fields: self.fields,
-        });
-    }
-}
+// Re-export all telemetry types so existing `use crate::{WatcherEvent, ...}` still works.
+pub use sidequest_telemetry::{
+    emit as emit_watcher_event, WatcherEvent, WatcherEventBuilder, WatcherEventType, Severity,
+};
 
 // Tracing / Telemetry — extracted to tracing_setup.rs
 pub use tracing_setup::{init_tracing, tracing_subscriber_for_test, build_subscriber_with_filter};
+
+// ---------------------------------------------------------------------------
+// Confrontation Defs — lookup helper (Story 28-1)
+// ---------------------------------------------------------------------------
+
+/// Find a ConfrontationDef by encounter_type string.
+///
+/// Used by dispatch to look up genre-declared encounter types (combat, chase,
+/// standoff, negotiation, etc.) from the defs loaded at session start.
+pub fn find_confrontation_def<'a>(
+    defs: &'a [sidequest_genre::ConfrontationDef],
+    encounter_type: &str,
+) -> Option<&'a sidequest_genre::ConfrontationDef> {
+    defs.iter().find(|d| d.confrontation_type == encounter_type)
+}
 
 // ---------------------------------------------------------------------------
 // CLI Args
@@ -355,7 +273,9 @@ struct AppStateInner {
     connections: Mutex<HashMap<PlayerId, mpsc::Sender<GameMessage>>>,
     processing: Mutex<HashSet<PlayerId>>,
     broadcast_tx: broadcast::Sender<GameMessage>,
-    watcher_tx: broadcast::Sender<WatcherEvent>,
+    /// Accumulated watcher events for replay to late-connecting GM panels.
+    /// Capped at WATCHER_HISTORY_CAP to bound memory.
+    watcher_event_history: Mutex<Vec<WatcherEvent>>,
     persistence: sidequest_game::PersistenceHandle,
     render_queue: Option<sidequest_game::RenderQueue>,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
@@ -391,8 +311,10 @@ impl AppState {
         save_dir: PathBuf,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
-        let (watcher_tx, _) = broadcast::channel(256);
         let (binary_broadcast_tx, _) = broadcast::channel(64);
+
+        // Initialize the global telemetry channel (idempotent).
+        sidequest_telemetry::init_global_channel();
 
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
@@ -521,7 +443,7 @@ impl AppState {
                 connections: Mutex::new(HashMap::new()),
                 processing: Mutex::new(HashSet::new()),
                 broadcast_tx,
-                watcher_tx,
+                watcher_event_history: Mutex::new(Vec::new()),
                 persistence,
                 render_queue: Some(render_queue),
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
@@ -706,21 +628,25 @@ impl AppState {
         let mut sessions = self.inner.sessions.lock().unwrap();
         let remaining = if let Some(session_arc) = sessions.get(&key).cloned() {
             if let Ok(mut session) = session_arc.try_lock() {
-                session.players.remove(player_id);
+                let was_present = session.players.remove(player_id).is_some();
                 // Remove player from barrier roster if active
                 if let Some(ref barrier) = session.turn_barrier {
                     let _ = barrier.remove_player(player_id);
                 }
                 let remaining = session.players.len();
-                // Transition TurnMode when dropping back to solo
-                let old_mode = std::mem::take(&mut session.turn_mode);
-                session.turn_mode = old_mode.apply(
-                    sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                        player_count: remaining,
-                    },
-                );
-                if !session.turn_mode.should_use_barrier() {
-                    session.turn_barrier = None;
+                // Transition TurnMode when dropping back to solo —
+                // only if we actually removed a player (skip for
+                // superseded connections from reconnect)
+                if was_present {
+                    let old_mode = std::mem::take(&mut session.turn_mode);
+                    session.turn_mode = old_mode.apply(
+                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                            player_count: remaining,
+                        },
+                    );
+                    if !session.turn_mode.should_use_barrier() {
+                        session.turn_barrier = None;
+                    }
                 }
                 remaining
             } else {
@@ -748,15 +674,28 @@ impl AppState {
         self.inner.broadcast_tx.send(msg)
     }
 
-    /// Subscribe to the watcher telemetry broadcast channel.
+    /// Subscribe to the global watcher telemetry channel.
     pub fn subscribe_watcher(&self) -> broadcast::Receiver<WatcherEvent> {
-        self.inner.watcher_tx.subscribe()
+        sidequest_telemetry::subscribe_global()
+            .expect("telemetry channel not initialized — call init_global_channel() first")
     }
 
-    /// Send a telemetry event to all connected watcher clients.
-    /// Silently ignores the error when no subscribers are connected (zero overhead).
-    pub fn send_watcher_event(&self, event: WatcherEvent) {
-        let _ = self.inner.watcher_tx.send(event);
+    /// Store a telemetry event in replay history.
+    ///
+    /// The global channel handles broadcasting; this method is for the
+    /// history-capture task that stores events for late-connecting GM panels.
+    pub fn store_watcher_event(&self, event: WatcherEvent) {
+        let mut history = self.inner.watcher_event_history.lock().unwrap();
+        if history.len() >= WATCHER_HISTORY_CAP {
+            let drain_count = history.len() - WATCHER_HISTORY_CAP + 1;
+            history.drain(..drain_count);
+        }
+        history.push(event);
+    }
+
+    /// Return a snapshot of all stored watcher events for replay to late-connecting clients.
+    pub fn get_watcher_history(&self) -> Vec<WatcherEvent> {
+        self.inner.watcher_event_history.lock().unwrap().clone()
     }
 
     /// Broadcast binary data to all connected WebSocket clients.
@@ -948,6 +887,8 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/genres", get(list_genres))
+        .route("/api/voices", get(list_voices))
+        .route("/api/debug/state", get(debug_api::debug_state))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
         .nest_service("/genre", genre_assets)
@@ -1016,6 +957,28 @@ async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serd
     }
 
     Json(genres)
+}
+
+/// GET /api/voices — list available Kokoro TTS voices from the daemon.
+///
+/// Returns: `{ "voices": ["af_alloy", "am_adam", ...] }`
+/// Falls back to empty list if daemon is unavailable.
+#[tracing::instrument(skip_all)]
+async fn list_voices() -> Json<serde_json::Value> {
+    let config = sidequest_daemon_client::DaemonConfig::default();
+    match sidequest_daemon_client::DaemonClient::connect(config).await {
+        Ok(mut client) => match client.list_voices().await {
+            Ok(voices) => Json(serde_json::json!({ "voices": voices })),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to list voices from daemon");
+                Json(serde_json::json!({ "voices": [], "error": e.to_string() }))
+            }
+        },
+        Err(e) => {
+            tracing::warn!(error = %e, "Daemon unavailable for voice listing");
+            Json(serde_json::json!({ "voices": [], "error": "daemon unavailable" }))
+        }
+    }
 }
 
 /// GET /ws — WebSocket upgrade handler.
@@ -1192,7 +1155,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut quest_log: HashMap<String, String> = HashMap::new();
     let mut genie_wishes: Vec<sidequest_game::GenieWish> = vec![];
     let mut resource_state: HashMap<String, f64> = HashMap::new();
-    let resource_declarations: Vec<sidequest_genre::ResourceDeclaration> = vec![];
+    let mut resource_declarations: Vec<sidequest_genre::ResourceDeclaration> = vec![];
     let mut achievement_tracker = sidequest_game::achievement::AchievementTracker::default();
     // Canonical game snapshot — carried through the dispatch pipeline (story 15-8).
     let mut snapshot = sidequest_game::state::GameSnapshot::default();
@@ -1269,6 +1232,33 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         response_count = responses.len(),
                         "dispatch_message.returned"
                     );
+
+                    // Epic 16: Load resource declarations from genre pack after connect
+                    if resource_declarations.is_empty() {
+                        if let (Some(genre), Some(_world)) = (session.genre_slug(), session.world_slug()) {
+                            if let Ok(genre_code) = GenreCode::new(genre) {
+                                if let Ok(pack) = state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
+                                    resource_declarations = pack.rules.resources.clone();
+                                    if !resource_declarations.is_empty() {
+                                        snapshot.init_resource_pools(&resource_declarations);
+                                        tracing::info!(
+                                            genre = %genre,
+                                            resource_count = resource_declarations.len(),
+                                            pool_names = ?resource_declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
+                                            "resource_pools.initialized — genre resources loaded into snapshot"
+                                        );
+                                        WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
+                                            .field("event", "resource_pools.initialized")
+                                            .field("genre", genre)
+                                            .field("count", resource_declarations.len())
+                                            .field("pools", resource_declarations.iter().map(|r| r.name.clone()).collect::<Vec<_>>())
+                                            .send();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     for resp in responses {
                         if let Err(e) = tx.send(resp).await {
                             tracing::error!(player_id = %player_id_str, error = %e, "Failed to send response to client");
@@ -1299,42 +1289,90 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             if let Some(ss_arc) = sessions.get(&key).cloned() {
                 drop(sessions);
                 if let Ok(mut ss) = ss_arc.try_lock() {
-                    let leave_msg = GameMessage::SessionEvent {
-                        payload: SessionEventPayload {
-                            event: "player_left".to_string(),
-                            player_name: player_name_for_session.clone(),
-                            genre: None,
-                            world: None,
-                            has_character: None,
-                            initial_state: None,
-                            css: None,
-                            image_cooldown_seconds: None,
-                            narrator_verbosity: None,
-                            narrator_vocabulary: None,
-                        },
-                        player_id: player_id_str.clone(),
-                    };
-                    ss.broadcast(leave_msg);
+                    // Only fire departure if this player_id is still registered
+                    // in the shared session. A reconnect from the same player_name
+                    // transfers the PlayerState to a new player_id and removes the
+                    // old one, so the superseded connection should NOT emit departure.
+                    if ss.players.contains_key(&player_id_str) {
+                        // Send departure narration to remaining players (mirrors join narration)
+                        let departure_name = ss
+                            .players
+                            .get(&player_id_str)
+                            .and_then(|ps| ps.character_name.clone())
+                            .or_else(|| player_name_for_session.clone())
+                            .unwrap_or_else(|| "Unknown".to_string());
+                        let departure_text = format!("{} has left the scene.", departure_name);
+                        let remaining_pids: Vec<String> = ss
+                            .players
+                            .keys()
+                            .filter(|pid| pid.as_str() != &*player_id_str)
+                            .cloned()
+                            .collect();
+                        for target_pid in &remaining_pids {
+                            ss.send_to_player(
+                                GameMessage::Narration {
+                                    payload: sidequest_protocol::NarrationPayload {
+                                        text: departure_text.clone(),
+                                        state_delta: None,
+                                        footnotes: vec![],
+                                    },
+                                    player_id: target_pid.clone(),
+                                },
+                                target_pid.clone(),
+                            );
+                            ss.send_to_player(
+                                GameMessage::NarrationEnd {
+                                    payload: sidequest_protocol::NarrationEndPayload {
+                                        state_delta: None,
+                                    },
+                                    player_id: target_pid.clone(),
+                                },
+                                target_pid.clone(),
+                            );
+                        }
 
-                    // Transition turn mode when player leaves
-                    let remaining_count = ss.player_count().saturating_sub(1);
-                    let old_mode = std::mem::take(&mut ss.turn_mode);
-                    ss.turn_mode = old_mode.apply(
-                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
-                            player_count: remaining_count,
-                        },
-                    );
-                    tracing::info!(
-                        new_mode = ?ss.turn_mode,
-                        remaining_players = remaining_count,
-                        "Turn mode transitioned on player leave"
-                    );
-                    // Remove player from barrier roster and tear down if back to FreePlay
-                    if let Some(ref barrier) = ss.turn_barrier {
-                        let _ = barrier.remove_player(&player_id_str);
-                    }
-                    if !ss.turn_mode.should_use_barrier() {
-                        ss.turn_barrier = None;
+                        let leave_msg = GameMessage::SessionEvent {
+                            payload: SessionEventPayload {
+                                event: "player_left".to_string(),
+                                player_name: player_name_for_session.clone(),
+                                genre: None,
+                                world: None,
+                                has_character: None,
+                                initial_state: None,
+                                css: None,
+                                image_cooldown_seconds: None,
+                                narrator_verbosity: None,
+                                narrator_vocabulary: None,
+                            },
+                            player_id: player_id_str.clone(),
+                        };
+                        ss.broadcast(leave_msg);
+
+                        // Transition turn mode when player leaves
+                        let remaining_count = ss.player_count().saturating_sub(1);
+                        let old_mode = std::mem::take(&mut ss.turn_mode);
+                        ss.turn_mode = old_mode.apply(
+                            sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                                player_count: remaining_count,
+                            },
+                        );
+                        tracing::info!(
+                            new_mode = ?ss.turn_mode,
+                            remaining_players = remaining_count,
+                            "Turn mode transitioned on player leave"
+                        );
+                        // Remove player from barrier roster and tear down if back to FreePlay
+                        if let Some(ref barrier) = ss.turn_barrier {
+                            let _ = barrier.remove_player(&player_id_str);
+                        }
+                        if !ss.turn_mode.should_use_barrier() {
+                            ss.turn_barrier = None;
+                        }
+                    } else {
+                        tracing::info!(
+                            player_id = %player_id_str,
+                            "Skipping departure — player_id was superseded by reconnect"
+                        );
                     }
                 }
             }
@@ -1349,7 +1387,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
             .field("event", "session_left")
             .field("session_key", &key)
             .field("remaining_players", remaining)
-            .send(&state);
+            .send();
     }
     state.remove_connection(&player_id);
     writer_handle.abort();
@@ -1715,7 +1753,7 @@ async fn dispatch_message(
                 let ws = session.world_slug().unwrap_or("");
                 let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs, ws);
                 if monster_manual.needs_seeding() && !gs.is_empty() {
-                    dispatch::pregen::seed_manual(state, gs, &mut monster_manual);
+                    dispatch::pregen::seed_manual(state, gs, ws, &mut monster_manual);
                 }
 
                 let mut ctx = dispatch::DispatchContext {
@@ -1791,6 +1829,14 @@ async fn dispatch_message(
                             .and_then(|pack| pack.worlds.get(ws).cloned())
                             .and_then(|world| world.cartography.world_graph)
                     },
+                    confrontation_defs: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .map(|pack| pack.rules.confrontations.clone())
+                            .unwrap_or_default()
+                    },
                     aside,
                     opening_directive: None,
                     narrator_verbosity,
@@ -1800,7 +1846,43 @@ async fn dispatch_message(
                     snapshot,
                     tx: &tx,
                     monster_manual: &mut monster_manual,
+                    morpheme_glossaries: Vec::new(),
+                    name_banks: Vec::new(),
+                    carry_mode: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .map(|pack| {
+                                pack.inventory.as_ref()
+                                    .and_then(|inv| inv.philosophy.as_ref())
+                                    .map(|phil| phil.carry_mode)
+                                    .unwrap_or_default()
+                            })
+                            .unwrap_or_default()
+                    },
+                    weight_limit: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| {
+                                pack.inventory.as_ref()
+                                    .and_then(|inv| inv.philosophy.as_ref())
+                                    .and_then(|phil| phil.weight_limit)
+                            })
+                    },
                 };
+                // OTEL: log loaded confrontation defs (story 28-1)
+                if !ctx.confrontation_defs.is_empty() {
+                    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                        .field("action", "defs_loaded")
+                        .field("genre", ctx.genre_slug)
+                        .field("count", ctx.confrontation_defs.len())
+                        .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
+                        .send();
+                }
+
                 let result = dispatch::dispatch_player_action(&mut ctx).await;
 
                 // Save Manual after dispatch (entries may have been marked Active)
@@ -1841,7 +1923,7 @@ async fn dispatch_message(
                 .field("character", char_name)
                 .field("entry_count", entries.len())
                 .field("category_filter", format!("{:?}", payload.category))
-                .send(state);
+                .send();
 
             vec![GameMessage::JournalResponse {
                 payload: sidequest_protocol::JournalResponsePayload { entries },
