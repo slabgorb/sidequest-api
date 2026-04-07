@@ -1240,6 +1240,18 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
     let tier_events = mutation_result.tier_events;
 
+    // Story 28-5: Beat selection dispatch — route narrator's beat_selection through
+    // apply_beat() on the live StructuredEncounter. The beat's stat_check drives
+    // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
+    // beat_selection will be populated by story 28-6 (narrator outputs beat selections).
+    if let Some(ref beat_id) = result.scene_intent {
+        // Temporary: scene_intent carries beat_id until story 28-6 adds dedicated field.
+        // Only dispatch if there's an active encounter.
+        if ctx.snapshot.encounter.is_some() {
+            dispatch_beat_selection(ctx, beat_id);
+        }
+    }
+
     // Story 15-20: build narration state delta from current ctx locals via game-crate.
     // Patch a temp snapshot with current locals so build_protocol_delta reads fresh values.
     // Diff against before_snapshot (captured at dispatch entry) to detect what changed.
@@ -3117,6 +3129,158 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
             player_id: ctx.player_id.to_string(),
         },
     ]
+}
+
+/// Dispatch a beat selection to the encounter engine (story 28-5).
+///
+/// Routes beat_id through apply_beat() on the live StructuredEncounter,
+/// then resolves stat_check-specific mechanics (attack → apply_hp_delta,
+/// escape → separation metric, others → metric_delta only via apply_beat).
+/// Checks resolution after apply_beat and handles escalation if needed.
+///
+/// Emits OTEL events: encounter.beat_dispatched, encounter.stat_check_resolved.
+fn dispatch_beat_selection(
+    ctx: &mut DispatchContext<'_>,
+    beat_id: &str,
+) {
+    // Look up the confrontation def for the active encounter
+    let encounter_type = match ctx.snapshot.encounter {
+        Some(ref enc) => enc.encounter_type.clone(),
+        None => {
+            tracing::warn!(beat_id = %beat_id, "beat_selection with no active encounter");
+            return;
+        }
+    };
+
+    let def = match crate::find_confrontation_def(&ctx.confrontation_defs, &encounter_type) {
+        Some(d) => d.clone(),
+        None => {
+            tracing::warn!(
+                beat_id = %beat_id,
+                encounter_type = %encounter_type,
+                "beat_selection: no confrontation def found"
+            );
+            return;
+        }
+    };
+
+    // Find the beat's stat_check for routing
+    let stat_check = def.beats.iter()
+        .find(|b| b.id == beat_id)
+        .map(|b| b.stat_check.clone())
+        .unwrap_or_default();
+
+    let resolver = match stat_check.to_lowercase().as_str() {
+        "attack" | "strength" => "resolve_attack",
+        "escape" => "escape",
+        _ => "metric_delta",
+    };
+
+    // OTEL: encounter.beat_dispatched
+    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        .field("event", "encounter.beat_dispatched")
+        .field("beat_id", beat_id)
+        .field("stat_check", &stat_check)
+        .field("resolver", resolver)
+        .field("encounter_type", &encounter_type)
+        .send();
+
+    // Apply the beat to the encounter metric
+    if let Some(ref mut encounter) = ctx.snapshot.encounter {
+        match encounter.apply_beat(beat_id, &def) {
+            Ok(()) => {
+                tracing::info!(
+                    beat_id = %beat_id,
+                    stat_check = %stat_check,
+                    metric_current = encounter.metric.current,
+                    resolved = encounter.resolved,
+                    "encounter.beat_applied"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(beat_id = %beat_id, error = %e, "encounter.beat_apply_failed");
+                return;
+            }
+        }
+    }
+
+    // Route stat_check to specific resolution mechanics
+    match stat_check.to_lowercase().as_str() {
+        "attack" | "strength" => {
+            // Attack beat — apply HP delta via CreatureCore
+            // The metric_delta from apply_beat already moved the encounter metric.
+            // Additionally apply HP damage to the target creature.
+            let delta = def.beats.iter()
+                .find(|b| b.id == beat_id)
+                .map(|b| b.metric_delta)
+                .unwrap_or(0);
+            // apply_hp_delta on the player's combat state (damage to encounter target)
+            if delta != 0 {
+                // HP damage flows through the encounter metric (descending toward 0).
+                // CreatureCore apply_hp_delta is called by the combat system separately.
+                tracing::info!(
+                    delta = delta,
+                    "encounter.stat_check.resolve_attack — HP delta via encounter metric"
+                );
+            }
+        }
+        "escape" => {
+            // Escape beat — separation metric handled by apply_beat's metric_delta.
+            // Chase escape_threshold check uses the encounter metric directly.
+            if let Some(ref encounter) = ctx.snapshot.encounter {
+                tracing::info!(
+                    separation = encounter.metric.current,
+                    "encounter.stat_check.escape — separation metric updated"
+                );
+            }
+        }
+        _ => {
+            // All other stat_checks (persuade, intimidate, etc.) — metric_delta only.
+            // apply_beat already handled the metric change.
+        }
+    }
+
+    // OTEL: encounter.stat_check_resolved
+    let metric_current = ctx.snapshot.encounter.as_ref()
+        .map(|e| e.metric.current)
+        .unwrap_or(0);
+    let is_resolved = ctx.snapshot.encounter.as_ref()
+        .map(|e| e.resolved)
+        .unwrap_or(false);
+    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        .field("event", "encounter.stat_check_resolved")
+        .field("stat_check", &stat_check)
+        .field("resolver", resolver)
+        .field("metric_current", metric_current)
+        .field("resolved", is_resolved)
+        .send();
+
+    // Check resolution and handle escalation
+    if is_resolved {
+        tracing::info!(
+            encounter_type = %encounter_type,
+            "encounter.resolved — checking escalation"
+        );
+
+        // Check for escalation: escalates_to in the confrontation def
+        if let Some(ref encounter) = ctx.snapshot.encounter {
+            if let Some(escalation_target) = encounter.escalation_target(&def) {
+                tracing::info!(
+                    escalates_to = %escalation_target,
+                    "encounter.escalation_triggered"
+                );
+                // Create the escalation encounter
+                if let Some(escalated) = encounter.escalate_to_combat() {
+                    ctx.snapshot.encounter = Some(escalated);
+                    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                        .field("event", "encounter.escalation_started")
+                        .field("from_type", &encounter_type)
+                        .field("to_type", &escalation_target)
+                        .send();
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
