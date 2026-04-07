@@ -63,6 +63,7 @@ fn extraction_with_known_values() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 

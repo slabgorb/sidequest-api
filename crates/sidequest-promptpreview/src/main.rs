@@ -297,11 +297,8 @@ fn main() {
     narrator.build_context(&mut builder);
 
     // Step 2: Conditional mode sections (ADR-067)
-    if cli.combat {
-        narrator.build_combat_context(&mut builder);
-    }
-    if cli.chase {
-        narrator.build_chase_context(&mut builder);
+    if cli.combat || cli.chase {
+        narrator.build_encounter_context(&mut builder);
     }
     if cli.dialogue {
         narrator.build_dialogue_context(&mut builder);

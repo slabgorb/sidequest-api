@@ -384,81 +384,9 @@ pub(crate) async fn apply_state_mutations(
         }
     }
 
-    // Chase state — apply typed ChasePatch from dialectician
-    if let Some(ref chase_patch) = result.chase_patch {
-        if let Some(in_chase) = chase_patch.in_chase {
-            if in_chase && ctx.chase_state.is_none() {
-                // Start chase
-                let chase_type = match chase_patch.chase_type.as_deref() {
-                    Some("stealth") => sidequest_game::ChaseType::Stealth,
-                    Some("negotiation") => sidequest_game::ChaseType::Negotiation,
-                    _ => sidequest_game::ChaseType::Footrace,
-                };
-                let cs = sidequest_game::ChaseState::new(chase_type, 0.5);
-                *ctx.chase_state = Some(cs);
-                tracing::info!(chase_type = ?chase_type, "chase.engaged");
-
-                WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                    .field("action", "chase_started")
-                    .field("chase_type", format!("{:?}", chase_type))
-                    .send();
-            } else if !in_chase && ctx.chase_state.is_some() {
-                // Resolve chase
-                if let Some(ref cs) = ctx.chase_state {
-                    tracing::info!(rounds = cs.round(), separation = cs.separation(), "chase.resolved");
-                    WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                        .field("action", "chase_resolved")
-                        .field("rounds", cs.round())
-                        .field("final_separation", cs.separation())
-                        .send();
-                }
-                *ctx.chase_state = None;
-            }
-        }
-
-        // Apply chase tick if chase is active
-        if let Some(ref mut cs) = ctx.chase_state {
-            if let Some(delta) = chase_patch.separation_delta {
-                cs.set_separation(cs.separation() + delta);
-            }
-            if let Some(ref phase) = chase_patch.phase {
-                cs.set_phase(phase.clone());
-            }
-            if let Some(ref event) = chase_patch.event {
-                cs.set_event(event.clone());
-            }
-            if let Some(roll) = chase_patch.roll {
-                cs.record_roll(roll);
-            }
-
-            tracing::info!(
-                round = cs.round(),
-                separation = cs.separation(),
-                phase = ?cs.phase(),
-                resolved = cs.is_resolved(),
-                "chase.tick"
-            );
-
-            WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                .field("action", "chase_tick")
-                .field("round", cs.round())
-                .field("separation", cs.separation())
-                .field_opt("separation_delta", &chase_patch.separation_delta)
-                .send();
-
-            // Auto-resolve: mark as resolved but keep state alive for audio mood.
-            // Chase state is only cleared when narrator explicitly sends in_chase: false.
-            // This prevents mood flickering (Tension → Exploration) on the resolution turn.
-            if cs.is_resolved() {
-                tracing::info!("chase.auto_resolved — escape roll exceeded threshold, state retained for mood");
-
-                WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                    .field("action", "chase_auto_resolved")
-                    .field("note", "state retained — awaiting narrator in_chase=false to clear")
-                    .send();
-            }
-        }
-    }
+    // Story 28-6: ChasePatch handling removed — chase encounters now use
+    // beat_selections dispatched via apply_beat() (story 28-5).
+    // The full CombatPatch/ChaseState cleanup happens in story 28-9.
 
     // Quest log updates — merge narrator-extracted quest changes
     if !result.quest_updates.is_empty() {
