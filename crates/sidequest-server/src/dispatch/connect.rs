@@ -1436,6 +1436,15 @@ pub(crate) async fn dispatch_character_creation(
                                     })
                             },
                         };
+                        // OTEL: log loaded confrontation defs (story 28-1)
+                        if !ctx.confrontation_defs.is_empty() {
+                            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                                .field("action", "defs_loaded")
+                                .field("genre", ctx.genre_slug)
+                                .field("count", ctx.confrontation_defs.len())
+                                .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
+                                .send();
+                        }
                         let result = super::dispatch_player_action(&mut ctx).await;
                         ctx.monster_manual.save();
                         result
