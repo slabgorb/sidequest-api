@@ -193,11 +193,6 @@ impl Args {
         self.headless
     }
 
-    /// Whether trace-level logging is enabled.
-    pub fn trace(&self) -> bool {
-        self.trace
-    }
-
     /// OTEL endpoint for Claude subprocess telemetry.
     pub fn otel_endpoint(&self) -> Option<&str> {
         self.otel_endpoint.as_deref()
@@ -460,23 +455,6 @@ impl AppState {
         }
     }
 
-    /// Create AppState with a GameService, save directory, and headless flag.
-    ///
-    /// In headless mode, TTS and image rendering are skipped.
-    pub fn new_with_options(
-        game_service: Box<dyn GameService>,
-        genre_packs_path: PathBuf,
-        save_dir: PathBuf,
-        headless: bool,
-    ) -> Self {
-        let state = Self::new_with_game_service(game_service, genre_packs_path, save_dir);
-        if headless {
-            state.with_tts_disabled(true)
-        } else {
-            state
-        }
-    }
-
     /// Disable TTS voice synthesis (builder-style).
     pub fn with_tts_disabled(mut self, disabled: bool) -> Self {
         Arc::get_mut(&mut self.inner)
@@ -531,11 +509,6 @@ impl AppState {
             .expect("with_loadoutgen_binary must be called before cloning")
             .loadoutgen_binary_path = Some(path);
         self
-    }
-
-    /// Path to the sidequest-loadoutgen binary, if available.
-    pub fn loadoutgen_binary_path(&self) -> Option<&Path> {
-        self.inner.loadoutgen_binary_path.as_deref()
     }
 
     /// Set the OTEL endpoint for Claude subprocess telemetry (builder-style).

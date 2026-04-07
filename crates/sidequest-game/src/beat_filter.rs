@@ -108,12 +108,6 @@ impl BeatFilterConfig {
         })
     }
 
-    /// Create a config with a custom dedup window.
-    pub fn with_dedup_window(mut self, dedup_window: Duration) -> Self {
-        self.dedup_window = dedup_window;
-        self
-    }
-
     /// Minimum narrative weight to trigger a render (normal mode).
     pub fn weight_threshold(&self) -> f32 {
         self.weight_threshold
@@ -144,10 +138,6 @@ impl BeatFilterConfig {
         self.burst_window
     }
 
-    /// Time window for duplicate subject suppression.
-    pub fn dedup_window(&self) -> Duration {
-        self.dedup_window
-    }
 }
 
 impl Default for BeatFilterConfig {

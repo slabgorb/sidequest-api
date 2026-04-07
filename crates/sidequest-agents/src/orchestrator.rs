@@ -273,16 +273,6 @@ impl Orchestrator {
         &self.drama_thresholds
     }
 
-    /// Mutable access to the Troper agent for loading fired beats.
-    pub fn troper_mut(&mut self) -> &mut TroperAgent {
-        &mut self.troper
-    }
-
-    /// Read access to the Troper agent.
-    pub fn troper(&self) -> &TroperAgent {
-        &self.troper
-    }
-
     /// Build the narrator prompt and tool configuration without invoking the LLM.
     ///
     /// Extracted from `process_action()` (story 15-27) so prompt content — including

@@ -155,10 +155,6 @@ impl ClueNode {
         self.requires_npc_knowledge = Some(subject);
     }
 
-    /// The NPC knowledge subject required, if any.
-    pub fn requires_npc_knowledge(&self) -> Option<&str> {
-        self.requires_npc_knowledge.as_deref()
-    }
 }
 
 /// A directed graph of clue nodes with dependency edges.

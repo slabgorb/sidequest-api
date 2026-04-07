@@ -5,9 +5,6 @@
 //! else goes to the narrator. The Intent enum and IntentRoute struct are
 //! retained for OTEL telemetry and conditional prompt section injection.
 
-use crate::context_builder::ContextBuilder;
-use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
-
 /// Player intent categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -256,34 +253,6 @@ impl IntentRouter {
         .entered();
     }
 
-    /// Add ambiguity context to the narrator prompt when classification is ambiguous.
-    /// ADR-067: With state-based inference, ambiguity no longer occurs, but this
-    /// method is retained for API compatibility.
-    pub fn add_ambiguity_context(builder: &mut ContextBuilder, route: &IntentRoute) {
-        if !route.is_ambiguous() || route.candidates().is_empty() {
-            return;
-        }
-
-        let candidates_str: Vec<String> = route
-            .candidates()
-            .iter()
-            .map(|c| format!("{c}"))
-            .collect();
-        let candidates_list = candidates_str.join(", ");
-
-        let content = format!(
-            "Intent classification was ambiguous between {candidates_list}. \
-             Based on the current scene context, use your judgment to determine \
-             which specialist behavior to adopt for this narration."
-        );
-
-        builder.add_section(PromptSection::new(
-            "intent_ambiguity",
-            content,
-            AttentionZone::Late,
-            SectionCategory::Context,
-        ));
-    }
 }
 
 /// No-op classifier used internally — state overrides handle all classification (ADR-067).
