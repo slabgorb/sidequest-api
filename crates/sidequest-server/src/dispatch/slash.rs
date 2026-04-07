@@ -90,6 +90,51 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
             "No reason given.".to_string()
         };
 
+        // Guard: validate accused NPC exists in the roster before resolving.
+        // A typo would permanently resolve the scenario against a phantom NPC.
+        let npc_exists = ctx.snapshot.npcs.iter().any(|n| n.core.name.as_str() == accused_npc_name);
+        if !npc_exists {
+            let valid_names: Vec<String> = ctx.snapshot.npcs.iter().map(|n| n.core.name.to_string()).collect();
+            return Some(vec![
+                GameMessage::Narration {
+                    payload: NarrationPayload {
+                        text: format!(
+                            "No NPC named '{}' found. Known NPCs: {}",
+                            accused_npc_name,
+                            valid_names.join(", ")
+                        ),
+                        state_delta: None,
+                        footnotes: vec![],
+                    },
+                    player_id: ctx.player_id.to_string(),
+                },
+                GameMessage::NarrationEnd {
+                    payload: NarrationEndPayload { state_delta: None },
+                    player_id: ctx.player_id.to_string(),
+                },
+            ]);
+        }
+
+        // Guard: prevent re-accusation after scenario is already resolved.
+        if let Some(ref scenario) = ctx.snapshot.scenario_state {
+            if scenario.is_resolved() {
+                return Some(vec![
+                    GameMessage::Narration {
+                        payload: NarrationPayload {
+                            text: "The scenario has already been resolved. No further accusations possible.".to_string(),
+                            state_delta: None,
+                            footnotes: vec![],
+                        },
+                        player_id: ctx.player_id.to_string(),
+                    },
+                    GameMessage::NarrationEnd {
+                        payload: NarrationEndPayload { state_delta: None },
+                        player_id: ctx.player_id.to_string(),
+                    },
+                ]);
+            }
+        }
+
         let accusation = sidequest_game::Accusation::new(
             ctx.char_name.to_string(),
             accused_npc_name.clone(),
