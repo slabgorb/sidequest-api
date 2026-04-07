@@ -3164,11 +3164,10 @@ fn dispatch_beat_selection(
         }
     };
 
-    // Find the beat's stat_check for routing
-    let stat_check = def.beats.iter()
-        .find(|b| b.id == beat_id)
-        .map(|b| b.stat_check.clone())
-        .unwrap_or_default();
+    // Find the beat def once for stat_check routing and metric_delta
+    let beat = def.beats.iter().find(|b| b.id == beat_id);
+    let stat_check = beat.map(|b| b.stat_check.clone()).unwrap_or_default();
+    let metric_delta = beat.map(|b| b.metric_delta).unwrap_or(0);
 
     let resolver = match stat_check.to_lowercase().as_str() {
         "attack" | "strength" => "resolve_attack",
@@ -3205,28 +3204,19 @@ fn dispatch_beat_selection(
     }
 
     // Route stat_check to specific resolution mechanics
-    match stat_check.to_lowercase().as_str() {
-        "attack" | "strength" => {
-            // Attack beat — apply HP delta via CreatureCore
-            // The metric_delta from apply_beat already moved the encounter metric.
-            // Additionally apply HP damage to the target creature.
-            let delta = def.beats.iter()
-                .find(|b| b.id == beat_id)
-                .map(|b| b.metric_delta)
-                .unwrap_or(0);
-            // apply_hp_delta on the player's combat state (damage to encounter target)
-            if delta != 0 {
-                // HP damage flows through the encounter metric (descending toward 0).
-                // CreatureCore apply_hp_delta is called by the combat system separately.
+    match resolver {
+        "resolve_attack" => {
+            // Attack beat — metric_delta from apply_beat already moved the encounter metric.
+            // CreatureCore apply_hp_delta is called by the combat system separately.
+            if metric_delta != 0 {
                 tracing::info!(
-                    delta = delta,
+                    delta = metric_delta,
                     "encounter.stat_check.resolve_attack — HP delta via encounter metric"
                 );
             }
         }
         "escape" => {
             // Escape beat — separation metric handled by apply_beat's metric_delta.
-            // Chase escape_threshold check uses the encounter metric directly.
             if let Some(ref encounter) = ctx.snapshot.encounter {
                 tracing::info!(
                     separation = encounter.metric.current,
