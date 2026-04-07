@@ -52,6 +52,7 @@ fn minimal_extraction() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 
@@ -290,6 +291,7 @@ fn assemble_turn_produces_complete_action_result() {
         sfx_triggers: vec!["coins_clink".to_string()],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     };
 
     let rewrite = ActionRewrite {

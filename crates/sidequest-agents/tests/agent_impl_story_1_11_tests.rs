@@ -149,7 +149,7 @@ mod agent_types_tests {
         // ActionResult must carry narration text and optional state changes
         let result = ActionResult {
             narration: "You enter the dimly lit tavern.".to_string(),
-            combat_patch: None, chase_patch: None,
+            combat_patch: None, beat_selections: vec![],
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -298,7 +298,7 @@ mod game_service_tests {
     fn action_result_has_required_fields() {
         let result = ActionResult {
             narration: "test".to_string(),
-            combat_patch: None, chase_patch: None,
+            combat_patch: None, beat_selections: vec![],
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -349,7 +349,7 @@ mod error_handling_tests {
         // ADR-005: Timeout → degraded response, not error
         let result = ActionResult {
             narration: "The narrator pauses, gathering their thoughts...".to_string(),
-            combat_patch: None, chase_patch: None,
+            combat_patch: None, beat_selections: vec![],
             is_degraded: true,
             classified_intent: None,
             agent_name: None,
