@@ -214,10 +214,7 @@ beats:
 /// Confrontation message builder. This is a file-level wiring test.
 #[test]
 fn beats_vec_empty_removed_from_dispatch() {
-    let dispatch_mod = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let dispatch_mod = include_str!("../src/dispatch/mod.rs");
 
     // The old hardcoded empty beats
     assert!(
@@ -241,10 +238,7 @@ fn beats_vec_empty_removed_from_dispatch() {
 /// This test scans the source for the WatcherEventBuilder call.
 #[test]
 fn otel_beats_sent_event_exists_in_dispatch() {
-    let dispatch_mod = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let dispatch_mod = include_str!("../src/dispatch/mod.rs");
 
     assert!(
         dispatch_mod.contains("beats_sent"),
