@@ -19,7 +19,7 @@ fn action_result_has_lore_established_field() {
     let result = ActionResult {
         narration: "You discover ancient ruins.".to_string(),
         combat_patch: None,
-        chase_patch: None,
+        beat_selections: vec![],
         is_degraded: false,
         classified_intent: None,
         agent_name: None,
@@ -60,7 +60,7 @@ fn action_result_lore_established_defaults_to_none() {
     let result = ActionResult {
         narration: "Nothing notable happens.".to_string(),
         combat_patch: None,
-        chase_patch: None,
+        beat_selections: vec![],
         is_degraded: false,
         classified_intent: None,
         agent_name: None,

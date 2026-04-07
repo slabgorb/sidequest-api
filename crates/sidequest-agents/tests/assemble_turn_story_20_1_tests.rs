@@ -59,6 +59,7 @@ fn minimal_extraction() -> NarratorExtraction {
             references_ability: true,
             references_location: true,
         }),
+        beat_selections: vec![],
     }
 }
 
@@ -124,7 +125,6 @@ fn assemble_turn_passes_through_narrator_fields() {
     assert_eq!(result.scene_mood.as_deref(), Some("combat"));
     assert_eq!(result.scene_intent.as_deref(), Some("Combat"));
     assert!(result.combat_patch.is_none());
-    assert!(result.chase_patch.is_none());
     assert!(result.footnotes.is_empty());
     assert!(result.items_gained.is_empty());
     assert!(result.npcs_present.is_empty());
@@ -426,6 +426,7 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
         sfx_triggers: vec![],
         action_rewrite: None, // narrator didn't emit
         action_flags: None,   // narrator didn't emit
+        beat_selections: vec![],
     };
 
     let rewrite = ActionRewrite {

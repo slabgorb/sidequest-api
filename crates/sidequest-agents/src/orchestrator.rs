@@ -30,6 +30,10 @@ use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTrac
 pub struct ActionResult {
     /// The narrative text produced by the agent.
     pub narration: String,
+    /// Beat selections extracted from narrator output (story 28-6).
+    /// Each entry maps an actor to a beat_id from the active ConfrontationDef.
+    /// Dispatched via apply_beat() in the server dispatch pipeline (story 28-5).
+    pub beat_selections: Vec<BeatSelection>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
     /// Which intent was classified (for OTEL telemetry).
@@ -80,6 +84,19 @@ pub struct ActionResult {
     pub action_flags: Option<ActionFlags>,
     /// Narrator prompt tier used for this turn (ADR-066): "full" or "delta".
     pub prompt_tier: String,
+}
+
+/// A single beat selection from the narrator's output (story 28-6).
+/// The narrator picks beats from the ConfrontationDef's available beat list.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct BeatSelection {
+    /// Who performs the action (e.g., "Player", "Goblin").
+    pub actor: String,
+    /// Which beat from the ConfrontationDef (e.g., "attack", "bluff", "escape").
+    pub beat_id: String,
+    /// Optional target of the action (e.g., "Goblin", "Door").
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 /// Narrator prompt tier (ADR-066). Controls how much context is included.
@@ -462,14 +479,13 @@ impl Orchestrator {
             }
         }
 
-        // === STATE-DEPENDENT SECTIONS (every tier — combat/chase can start mid-session) ===
-        // These are NOT static: combat may begin on turn 5 of a Delta-tier session.
-        // If gated behind is_full, the narrator never gets combat rules after turn 1.
-        if context.in_combat {
-            self.narrator.build_combat_context(&mut builder);
-        }
-        if context.in_chase {
-            self.narrator.build_chase_context(&mut builder);
+        // === STATE-DEPENDENT SECTIONS (every tier — encounters can start mid-session) ===
+        // Story 28-6: unified encounter context replaces separate combat/chase injection.
+        // If either in_combat or in_chase is active, inject encounter rules.
+        // Once 28-7 promotes StructuredEncounter onto GameSnapshot, this will check
+        // for an active encounter directly instead of the legacy flags.
+        if context.in_combat || context.in_chase {
+            self.narrator.build_encounter_context(&mut builder);
         }
 
         // Trope beat directives (Early zone)
@@ -871,12 +887,19 @@ impl GameService for Orchestrator {
                         "rag.items_gained_extracted"
                     );
                 }
-                // ADR-067: Always try combat patch extraction from game_patch.
-                // Primary path: extract from the parsed game_patch block (narrator emits
-                // ```game_patch```, not ```json```, so extract_fenced_json misses it).
-                // Fallback: try extract_fenced_json for backwards compat with ```json``` blocks.
+                // Story 28-6: Extract beat_selections from game_patch block.
                 // CombatPatch/ChasePatch extraction removed in story 28-9.
-                // Beat selections via StructuredEncounter replace typed patches.
+                let beat_selections = extraction.beat_selections.clone();
+                if !beat_selections.is_empty() {
+                    for bs in &beat_selections {
+                        info!(
+                            actor = %bs.actor,
+                            beat_id = %bs.beat_id,
+                            target = ?bs.target,
+                            "encounter.agent_beat_selection"
+                        );
+                    }
+                }
 
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 span.record("is_degraded", false);
@@ -908,6 +931,7 @@ impl GameService for Orchestrator {
 
                 // Orchestrator overrides fields assemble_turn doesn't know about
                 ActionResult {
+                    beat_selections,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
@@ -937,6 +961,7 @@ impl GameService for Orchestrator {
                 );
                 ActionResult {
                     narration: degraded_narration,
+                    beat_selections: vec![],
                     is_degraded: true,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
@@ -971,8 +996,7 @@ impl GameService for Orchestrator {
 
 /// Extract and deserialize JSON from a markdown fenced code block.
 ///
-/// Used for creature_smith (CombatPatch) and dialectician (ChasePatch) responses
-/// which may wrap their JSON output in ```json ... ``` fences.
+/// Used for responses that may wrap their JSON output in ```json ... ``` or ```game_patch ... ``` fences.
 fn extract_fenced_json<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, serde_json::Error> {
     // Try ```json ... ``` first
     if let Some(start) = input.find("```json") {
@@ -1044,22 +1068,10 @@ struct GamePatchExtraction {
     action_rewrite: Option<ActionRewrite>,
     #[serde(default)]
     action_flags: Option<ActionFlags>,
-    // Combat fields — narrator emits these in game_patch when combat starts/continues.
-    // Without these, the narrator's in_combat:true was silently dropped and combat
-    // never initiated (chicken-and-egg: IntentRouter needs in_combat to inject combat
-    // rules, but narrator needs to SET in_combat first via these fields).
+    // Story 28-6: beat_selections replaces in_combat/hp_changes/turn_order/drama_weight.
+    // The narrator selects beats from the active ConfrontationDef.
     #[serde(default)]
-    in_combat: Option<bool>,
-    #[serde(default)]
-    hp_changes: Option<HashMap<String, i32>>,
-    #[serde(default)]
-    turn_order: Option<Vec<String>>,
-    #[serde(default)]
-    current_turn: Option<String>,
-    #[serde(default)]
-    drama_weight: Option<f64>,
-    #[serde(default)]
-    advance_round: Option<bool>,
+    beat_selections: Vec<BeatSelection>,
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -1086,9 +1098,6 @@ fn extract_game_patch(raw: &str) -> GamePatchExtraction {
     // No structured data — return empty defaults
     GamePatchExtraction::default()
 }
-
-// extract_combat_from_game_patch deleted in story 28-9.
-// Combat fields in game_patch are handled directly by the encounter engine.
 
 // ============================================================================
 // Story 9-11: Footnote extraction from narrator response
@@ -1216,6 +1225,8 @@ pub struct NarratorExtraction {
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
     pub action_flags: Option<ActionFlags>,
+    /// Beat selections from narrator output (story 28-6).
+    pub beat_selections: Vec<BeatSelection>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1245,6 +1256,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         has_lore = patch.lore_established.is_some(),
         has_action_rewrite = patch.action_rewrite.is_some(),
         has_action_flags = patch.action_flags.is_some(),
+        beat_selections = patch.beat_selections.len(),
         "game_patch.extracted"
     );
 
@@ -1266,6 +1278,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         sfx_triggers: patch.sfx_triggers,
         action_rewrite: patch.action_rewrite,
         action_flags: patch.action_flags,
+        beat_selections: patch.beat_selections,
     }
 }
 
@@ -1419,70 +1432,4 @@ pub fn inject_merchant_context(
 mod tests {
     use super::*;
 
-    #[test]
-    fn extract_combat_from_game_patch_block() {
-        // Narrator emits combat fields inside ```game_patch``` — this was the bug.
-        // extract_fenced_json only found ```json``` blocks, so combat initiation
-        // from the narrator was silently dropped.
-        let raw = r#"**The Collapsed Overpass**
-
-You grab the sharpened rebar and charge at the synth.
-
-```game_patch
-{
-  "in_combat": true,
-  "turn_order": ["Kael", "Synth Sentry"],
-  "current_turn": "Kael",
-  "hp_changes": {"Synth Sentry": -4},
-  "drama_weight": 0.6,
-  "npcs_present": [{"name": "Synth Sentry", "role": "enemy", "is_new": true}]
-}
-```"#;
-        let patch = extract_combat_from_game_patch(raw);
-        assert!(patch.is_some(), "should extract CombatPatch from game_patch block");
-        let p = patch.unwrap();
-        assert_eq!(p.in_combat, Some(true));
-        assert_eq!(p.turn_order.as_ref().unwrap().len(), 2);
-        assert_eq!(p.current_turn.as_deref(), Some("Kael"));
-        assert_eq!(*p.hp_changes.as_ref().unwrap().get("Synth Sentry").unwrap(), -4);
-        assert!((p.drama_weight.unwrap() - 0.6).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn extract_combat_returns_none_when_no_combat_fields() {
-        // Normal exploration turn — no combat fields in game_patch.
-        let raw = r#"**The Market Square**
-
-The vendors call out their wares as you pass.
-
-```game_patch
-{
-  "mood": "lively",
-  "npcs_present": [{"name": "Old Jens", "role": "vendor", "is_new": false}]
-}
-```"#;
-        let patch = extract_combat_from_game_patch(raw);
-        assert!(patch.is_none(), "should return None when no combat fields present");
-    }
-
-    #[test]
-    fn extract_combat_from_json_fence_fallback() {
-        // Legacy path: creature_smith emits ```json``` blocks.
-        // extract_game_patch falls back to ```json``` too, so
-        // extract_combat_from_game_patch covers both fence types.
-        let raw = r#"Combat narration here.
-
-```json
-{
-  "in_combat": true,
-  "turn_order": ["Player", "Goblin"],
-  "current_turn": "Player",
-  "hp_changes": {"Goblin": -8},
-  "drama_weight": 0.4
-}
-```"#;
-        let patch = extract_combat_from_game_patch(raw);
-        assert!(patch.is_some(), "should extract from ```json``` fallback too");
-        assert_eq!(patch.unwrap().in_combat, Some(true));
-    }
 }

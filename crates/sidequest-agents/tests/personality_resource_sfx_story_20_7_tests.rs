@@ -70,6 +70,7 @@ fn extraction_with_personality_events() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 
@@ -92,6 +93,7 @@ fn extraction_with_resource_deltas() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 
@@ -112,6 +114,7 @@ fn extraction_with_sfx() -> NarratorExtraction {
         sfx_triggers: vec!["sword_clash".to_string()],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 
@@ -132,6 +135,7 @@ fn extraction_empty() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+    beat_selections: vec![],
     }
 }
 

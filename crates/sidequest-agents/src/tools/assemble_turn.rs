@@ -163,6 +163,7 @@ pub fn assemble_turn(
 
     ActionResult {
         narration: extraction.prose,
+        beat_selections: vec![],
         is_degraded: false,
         classified_intent: None,
         agent_name: None,
