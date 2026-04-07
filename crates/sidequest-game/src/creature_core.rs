@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
+
 use crate::combatant::Combatant;
 use crate::hp::clamp_hp;
 use crate::inventory::Inventory;
