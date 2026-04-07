@@ -332,44 +332,24 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str("When narrative events affect these resources, include resource_deltas in your JSON block.\n");
     }
 
-    // Structured encounter context — covers both combat and chase via StructuredEncounter
-    {
-        let encounter = if ctx.combat_state.in_combat() {
-            Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-        } else {
-            ctx.chase_state.as_ref().map(sidequest_game::StructuredEncounter::from_chase_state)
-        };
-        if let Some(ref enc) = encounter {
+    // Structured encounter context via format_encounter_context() (story 28-4)
+    if let Some(ref enc) = ctx.snapshot.encounter {
+        if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type) {
             WatcherEventBuilder::new("encounter", WatcherEventType::AgentSpanOpen)
-                .field("action", "prompt_injection")
+                .field("action", "context_injected")
                 .field("encounter_type", &enc.encounter_type)
-                .field("beat", enc.beat)
+                .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)).unwrap_or_else(|| "unphased".to_string()))
+                .field("beat_count", def.beats.len())
                 .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
-                .field("hint_count", enc.narrator_hints.len())
                 .send();
-            state_summary.push_str(&format!(
-                "\n\nACTIVE ENCOUNTER ({}): beat {} | {}: {}/{}",
-                enc.encounter_type,
-                enc.beat,
-                enc.metric.name,
-                enc.metric.current,
-                enc.metric.threshold_high.or(enc.metric.threshold_low).unwrap_or(0),
-            ));
-            if let Some(phase) = enc.structured_phase {
-                state_summary.push_str(&format!(" | phase: {:?}", phase));
-            }
-            if !enc.actors.is_empty() {
-                let actor_list: Vec<String> = enc.actors.iter()
-                    .map(|a| format!("{} ({})", a.name, a.role))
-                    .collect();
-                state_summary.push_str(&format!("\nParticipants: {}", actor_list.join(", ")));
-            }
-            if !enc.narrator_hints.is_empty() {
-                state_summary.push_str("\nEncounter context:");
-                for hint in &enc.narrator_hints {
-                    state_summary.push_str(&format!("\n- {}", hint));
-                }
-            }
+            state_summary.push_str("\n\n");
+            state_summary.push_str(&enc.format_encounter_context(def));
+        } else {
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("action", "confrontation_def_missing")
+                .field("encounter_type", &enc.encounter_type)
+                .field("available_defs", ctx.confrontation_defs.len())
+                .send();
         }
     }
 
