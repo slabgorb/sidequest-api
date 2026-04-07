@@ -743,14 +743,15 @@ fn all_genre_packs_load_with_confrontations_field() {
 fn packs_without_confrontations_yaml_have_empty_vec() {
     let packs_dir = genre_packs_path();
 
-    // low_fantasy is unlikely to have confrontations in v1
+    // After story 28-10, all genre packs have confrontations declared.
+    // Verify low_fantasy loads its confrontations successfully.
     let lf_path = packs_dir.join("low_fantasy");
     if lf_path.exists() {
         let pack = sidequest_genre::load_genre_pack(&lf_path)
             .expect("low_fantasy should load");
         assert!(
-            pack.rules.confrontations.is_empty(),
-            "low_fantasy should have empty confrontations (no YAML declarations yet)"
+            !pack.rules.confrontations.is_empty(),
+            "low_fantasy should have confrontations declared (combat + chase from story 28-10)"
         );
     }
 }
