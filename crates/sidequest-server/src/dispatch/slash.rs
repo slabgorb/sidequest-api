@@ -61,6 +61,98 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
         snap
     };
 
+    // Story 7-9: /accuse command — route to ScenarioState::handle_accusation().
+    // Parsed format: /accuse <npc_name> <reason>
+    if ctx.action.starts_with("/accuse") {
+        let _span = tracing::info_span!("scenario.accusation", command = %ctx.action).entered();
+        let parts: Vec<&str> = ctx.action.splitn(3, ' ').collect();
+        if parts.len() < 2 {
+            return Some(vec![
+                GameMessage::Narration {
+                    payload: NarrationPayload {
+                        text: "Usage: /accuse <npc_name> [reason]".to_string(),
+                        state_delta: None,
+                        footnotes: vec![],
+                    },
+                    player_id: ctx.player_id.to_string(),
+                },
+                GameMessage::NarrationEnd {
+                    payload: NarrationEndPayload { state_delta: None },
+                    player_id: ctx.player_id.to_string(),
+                },
+            ]);
+        }
+
+        let accused_npc_name = parts[1].to_string();
+        let stated_reason = if parts.len() >= 3 {
+            parts[2].to_string()
+        } else {
+            "No reason given.".to_string()
+        };
+
+        let accusation = sidequest_game::Accusation::new(
+            ctx.char_name.to_string(),
+            accused_npc_name.clone(),
+            stated_reason,
+        );
+
+        // Clone NPCs to avoid split borrow (scenario_state is &mut, npcs is &).
+        let npcs_snapshot = ctx.snapshot.npcs.clone();
+        if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
+            let result: sidequest_game::AccusationResult =
+                scenario.handle_accusation(&accusation, &npcs_snapshot);
+
+            WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                .field("event", "scenario.accusation_resolved")
+                .field("accused", &accused_npc_name)
+                .field("is_correct", result.is_correct)
+                .field("quality", format!("{:?}", result.quality))
+                .send();
+
+            let text = if result.is_correct {
+                format!(
+                    "**ACCUSATION CORRECT!** {} has been identified as the culprit. Evidence quality: {:?}.\n\n{}",
+                    accused_npc_name, result.quality, result.narrative_prompt
+                )
+            } else {
+                format!(
+                    "**ACCUSATION INCORRECT.** {} is not the guilty party. Evidence quality: {:?}.\n\n{}",
+                    accused_npc_name, result.quality, result.narrative_prompt
+                )
+            };
+
+            return Some(vec![
+                GameMessage::Narration {
+                    payload: NarrationPayload {
+                        text,
+                        state_delta: None,
+                        footnotes: vec![],
+                    },
+                    player_id: ctx.player_id.to_string(),
+                },
+                GameMessage::NarrationEnd {
+                    payload: NarrationEndPayload { state_delta: None },
+                    player_id: ctx.player_id.to_string(),
+                },
+            ]);
+        } else {
+            return Some(vec![
+                GameMessage::Narration {
+                    payload: NarrationPayload {
+                        text: "No active scenario — /accuse is only available during scenario play.".to_string(),
+                        state_delta: None,
+                        footnotes: vec![],
+                    },
+                    player_id: ctx.player_id.to_string(),
+                },
+                GameMessage::NarrationEnd {
+                    payload: NarrationEndPayload { state_delta: None },
+                    player_id: ctx.player_id.to_string(),
+                },
+            ]);
+        }
+    }
+
     if let Some(cmd_result) = router.try_dispatch(ctx.action, &snapshot) {
         tracing::info!(command = %ctx.action, result_type = ?std::mem::discriminant(&cmd_result), "slash_command.dispatched");
         let text = match &cmd_result {

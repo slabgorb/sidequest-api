@@ -487,10 +487,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         tracing::info!("Monster Manual content injected (location-filtered)");
     }
 
-    // Story 15-26: NPC autonomous action selection — wire scenario between-turn processing
-    // into the dispatch pipeline so NPC actions are mechanically grounded, not LLM-improvised.
+    // Story 7-9: Scenario between-turn processing — gossip, NPC actions, clue activation.
+    // Unified under "scenario" OTEL namespace for GM panel filtering.
     if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
         if !scenario.is_resolved() {
+            let _advance_span = tracing::info_span!("scenario.advance",
+                turn = turn_number,
+                tension = %format!("{:.2}", scenario.tension()),
+            ).entered();
+
             let turn_number_u64 = turn_number as u64;
             let events = scenario.process_between_turns(&mut ctx.snapshot.npcs, turn_number_u64);
 
@@ -498,8 +503,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             for event in &events {
                 match &event.event_type {
                     sidequest_game::ScenarioEventType::NpcAction { npc_name, action } => {
-                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
-                            .field("event", "npc_action_selected")
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "scenario.npc_action")
                             .field("npc_name", npc_name)
                             .field("action", format!("{:?}", action))
                             .field("turn", turn_number)
@@ -508,8 +513,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         npc_action_lines.push(event.description.clone());
                     }
                     sidequest_game::ScenarioEventType::GossipSpread { claims_spread, contradictions_found } => {
-                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
-                            .field("event", "gossip_propagated")
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "scenario.gossip_spread")
                             .field("claims_spread", *claims_spread)
                             .field("contradictions_found", *contradictions_found)
                             .field("turn", turn_number)
@@ -517,8 +522,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         npc_action_lines.push(event.description.clone());
                     }
                     sidequest_game::ScenarioEventType::ClueDiscovered { clue_id } => {
-                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
-                            .field("event", "clue_discoverable")
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "scenario.clue_discovered")
                             .field("clue_id", clue_id)
                             .field("turn", turn_number)
                             .send();
@@ -534,8 +539,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     state_summary.push_str(&format!("- {}\n", line));
                 }
 
-                WatcherEventBuilder::new("npc_actions", WatcherEventType::SubsystemExerciseSummary)
-                    .field("event", "npc_actions.injected")
+                WatcherEventBuilder::new("scenario", WatcherEventType::SubsystemExerciseSummary)
+                    .field("event", "scenario.npc_actions_injected")
                     .field("action_count", npc_action_lines.len())
                     .field("tension", format!("{:.2}", scenario.tension()))
                     .field("turn", turn_number)
@@ -3139,16 +3144,16 @@ mod tests {
         );
     }
 
-    /// Story 15-26: Verify OTEL events are emitted for NPC action selection
-    /// so the GM panel can confirm actions are grounded, not improvised.
+    /// Story 15-26 / 7-9: Verify OTEL events are emitted for NPC action selection
+    /// under the unified "scenario" namespace so the GM panel can filter by subsystem.
     #[test]
     fn dispatch_pipeline_emits_npc_action_otel() {
         let source = include_str!("mod.rs");
         let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
         assert!(
-            production_code.contains("npc_action_selected"),
-            "dispatch must emit npc_action_selected OTEL event for each NPC \
-             autonomous action — story 15-26"
+            production_code.contains("scenario.npc_action"),
+            "dispatch must emit scenario.npc_action OTEL event for each NPC \
+             autonomous action — story 7-9 (unified scenario namespace)"
         );
     }
 
