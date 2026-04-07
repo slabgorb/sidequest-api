@@ -2519,9 +2519,7 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     }
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
     ctx.snapshot.axis_values = ctx.axis_values.clone();
-    // combat/chase sync removed in story 28-9 — encounter is maintained directly.
-    // Sync StructuredEncounter from live combat/chase state
-    // encounter sync bridge removed in story 28-9 — encounter is maintained directly via apply_beat().
+    // combat/chase sync removed in story 28-9 — encounter is maintained directly via apply_beat().
 
 
     ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
