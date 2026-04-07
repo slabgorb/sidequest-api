@@ -58,6 +58,7 @@ pub mod render_queue;
 pub mod resource_pool;
 pub mod room_movement;
 pub mod scenario_archiver;
+pub mod scenario_scoring;
 pub mod scenario_state;
 pub mod scene_relevance;
 pub mod scene_directive;
@@ -157,6 +158,9 @@ pub use render_queue::{
     compute_content_hash, tier_to_dimensions, EnqueueResult, ImageDimensions, QueueError,
     RenderJobResult, RenderQueue, RenderQueueConfig, RenderStatus, DEFAULT_CACHE_TTL,
     MAX_QUEUE_DEPTH,
+};
+pub use scenario_scoring::{
+    score_scenario, DeductionQuality, ScenarioGrade, ScenarioScore, ScenarioScoreInput,
 };
 pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
