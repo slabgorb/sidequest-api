@@ -24,8 +24,6 @@ pub struct PlayerStateView {
     pub region_id: String,
     pub display_location: String,
     pub inventory: sidequest_game::Inventory,
-    pub combat_state: sidequest_game::combat::CombatState,
-    pub chase_state: Option<sidequest_game::ChaseState>,
 }
 
 /// Serializable view of a trope's runtime state.
@@ -77,8 +75,6 @@ pub async fn debug_state(State(state): State<AppState>) -> Json<Vec<SessionState
                 region_id: ps.region_id.clone(),
                 display_location: ps.display_location.clone(),
                 inventory: ps.inventory.clone(),
-                combat_state: ps.combat_state.clone(),
-                chase_state: ps.chase_state.clone(),
             })
             .collect();
 

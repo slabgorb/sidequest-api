@@ -16,37 +16,31 @@ pub(crate) async fn process_audio(
     messages: &mut Vec<GameMessage>,
     result: &sidequest_agents::orchestrator::ActionResult,
     location_changed: bool,
-    combat_just_ended: bool,
+    encounter_just_resolved: bool,
 ) {
+    let in_combat = ctx.in_combat();
+    let in_chase = ctx.in_chase();
+    let encounter_mood = ctx.snapshot.encounter.as_ref().and_then(|e| e.mood_override.clone());
     if let Some(ref mut director) = ctx.music_director {
         tracing::info!("music_director_present — evaluating mood");
         let turn_number = ctx.turn_manager.interaction();
         let mood_ctx = sidequest_game::MoodContext {
-            in_combat: ctx.combat_state.in_combat(),
-            in_chase: ctx.chase_state.is_some(),
+            in_combat,
+            in_chase,
             party_health_pct: if *ctx.max_hp > 0 {
                 *ctx.hp as f32 / *ctx.max_hp as f32
             } else {
                 1.0
             },
-            // Quest completion and NPC death now come from structured quest_updates,
-            // not keyword scanning. Check if any quest was marked "completed:".
             quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
             npc_died: ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0),
-            // Encounter mood override — derive from live state, read mood_override if set
-            encounter_mood_override: {
-                let encounter = if ctx.combat_state.in_combat() {
-                    Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-                } else {
-                    ctx.chase_state.as_ref().map(sidequest_game::StructuredEncounter::from_chase_state)
-                };
-                encounter.and_then(|e| e.mood_override)
-            },
+            // Encounter mood override — read directly from snapshot encounter (story 28-9)
+            encounter_mood_override: encounter_mood,
             // Story 12-1: cinematic variation context
             location_changed,
             scene_turn_count: if location_changed { 0 } else { turn_number as u32 },
-            drama_weight: ctx.combat_state.drama_weight() as f32,
-            combat_just_ended,
+            drama_weight: 0.0, // drama_weight removed with CombatState (story 28-9)
+            combat_just_ended: encounter_just_resolved,
             session_start: turn_number <= 1,
         };
 

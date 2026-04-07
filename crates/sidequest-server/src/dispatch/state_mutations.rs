@@ -1,4 +1,6 @@
-//! Post-narration state mutations: combat HP, quests, XP, affinity, items, resources.
+//! Post-narration state mutations: quests, XP, affinity, items, resources.
+//! CombatPatch/ChasePatch application deleted in story 28-9.
+//! Beat selections via StructuredEncounter replace typed patches.
 
 use sidequest_genre::GenreLoader;
 
@@ -6,16 +8,14 @@ use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
-/// Result of applying state mutations — includes combat transition info for overlays.
+/// Result of applying state mutations — includes encounter transition info.
 pub(crate) struct MutationResult {
     pub tier_events: Vec<sidequest_game::AffinityTierUpEvent>,
-    /// True if combat was active before mutations but is now inactive.
-    pub combat_just_ended: bool,
-    /// True if combat was inactive before mutations but is now active.
-    pub combat_just_started: bool,
+    /// True if an encounter was active before mutations but is now resolved.
+    pub encounter_just_resolved: bool,
 }
 
-/// Apply post-narration state mutations: combat HP, quests, XP, affinity, items.
+/// Apply post-narration state mutations: quests, XP, affinity, items.
 pub(crate) async fn apply_state_mutations(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
@@ -23,442 +23,10 @@ pub(crate) async fn apply_state_mutations(
     effective_action: &str,
 ) -> MutationResult {
     let mut all_tier_events = Vec::new();
-    let combat_before = ctx.combat_state.in_combat();
+    let encounter_active_before = ctx.in_encounter();
 
-    // Combat state — apply typed CombatPatch from creature_smith
-    if let Some(ref combat_patch) = result.combat_patch {
-        WatcherEventBuilder::new("combat", WatcherEventType::AgentSpanOpen)
-            .field("action", "combat_patch_received")
-            .field("in_combat", &combat_patch.in_combat)
-            .field("hp_changes", &combat_patch.hp_changes)
-            .field("turn_order", &combat_patch.turn_order)
-            .field("current_turn", &combat_patch.current_turn)
-            .field("drama_weight", &combat_patch.drama_weight)
-            .field("advance_round", combat_patch.advance_round)
-            .send();
-        let was_in_combat = ctx.combat_state.in_combat();
-
-        // Combat start → engage() with player + NPCs from the patch (not all known NPCs)
-        if let Some(in_combat) = combat_patch.in_combat {
-            if in_combat && !was_in_combat {
-                // Build combatant list from the patch, not from npc_registry.
-                // Prefer turn_order if provided; otherwise use hp_changes targets.
-                let combatants = if combat_patch
-                    .turn_order
-                    .as_ref()
-                    .map_or(false, |o| !o.is_empty())
-                {
-                    combat_patch.turn_order.clone().unwrap()
-                } else {
-                    let mut names: Vec<String> = vec![ctx.char_name.to_string()];
-                    if let Some(ref hp_changes) = combat_patch.hp_changes {
-                        for target in hp_changes.keys() {
-                            if !names.iter().any(|n| n.eq_ignore_ascii_case(target)) {
-                                names.push(target.clone());
-                            }
-                        }
-                    }
-                    names
-                };
-                ctx.combat_state.engage(combatants.clone());
-                tracing::info!(
-                    turn_order = ?ctx.combat_state.turn_order(),
-                    current_turn = ?ctx.combat_state.current_turn(),
-                    "combat.engaged"
-                );
-                WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                    .field("action", "combat_started")
-                    .field("turn_order", ctx.combat_state.turn_order())
-                    .field("current_turn", ctx.combat_state.current_turn())
-                    .field("combatant_count", ctx.combat_state.turn_order().len())
-                    .send();
-
-                // Register combatants in npc_registry so the CombatOverlay
-                // enemies list can look them up. Without this, enemies array
-                // is always empty because turn_order names don't match any
-                // registry entries.
-                for name in &combatants {
-                    if name.eq_ignore_ascii_case(ctx.char_name) {
-                        continue; // skip player character
-                    }
-                    if !ctx.npc_registry.iter().any(|e| e.name.eq_ignore_ascii_case(name)) {
-                        // Check Monster Manual for NPC data
-                        let (pronouns, role) = ctx.monster_manual
-                            .npcs.iter()
-                            .find(|n| n.name.eq_ignore_ascii_case(name))
-                            .map(|n| {
-                                let p = n.data.get("pronouns")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("they/them")
-                                    .to_string();
-                                (p, n.role.clone())
-                            })
-                            .unwrap_or_else(|| ("they/them".to_string(), "combatant".to_string()));
-                        ctx.npc_registry.push(crate::NpcRegistryEntry {
-                            name: name.clone(),
-                            pronouns,
-                            role,
-                            location: ctx.current_location.clone(),
-                            last_seen_turn: ctx.turn_manager.interaction() as u32,
-                            age: String::new(),
-                            appearance: String::new(),
-                            ocean_summary: String::new(),
-                            ocean: None,
-                            hp: 10,
-                            max_hp: 10,
-                            portrait_url: None,
-                        });
-                        tracing::info!(
-                            npc_name = %name,
-                            "combat.npc_registered — combatant added to npc_registry"
-                        );
-
-                        // Also add to snapshot.npcs so resolve_attack can find them.
-                        // Without this, NPC turns silently skip (npc_opt = None).
-                        if !ctx.snapshot.npcs.iter().any(|n| sidequest_game::combatant::Combatant::name(n).eq_ignore_ascii_case(name)) {
-                            ctx.snapshot.npcs.push(sidequest_game::Npc::combat_minimal(name, 10, 10, 1));
-                            tracing::info!(
-                                npc_name = %name,
-                                "combat.npc_added_to_snapshot — resolve_attack can now find this combatant"
-                            );
-                        }
-                    }
-                }
-
-                // Turn mode transition: FreePlay → Structured
-                let holder = ctx.shared_session_holder.lock().await;
-                if let Some(ref ss_arc) = *holder {
-                    let mut ss = ss_arc.lock().await;
-                    let old_mode = std::mem::take(&mut ss.turn_mode);
-                    ss.turn_mode = old_mode
-                        .apply(sidequest_game::turn_mode::TurnModeTransition::CombatStarted);
-                    tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat start");
-                    if ss.turn_mode.should_use_barrier() && ss.turn_barrier.is_none() {
-                        let mp_session =
-                            sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
-                                ss.players.keys().cloned(),
-                            );
-                        let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
-                        ss.turn_barrier =
-                            Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
-                                mp_session, adaptive,
-                            ));
-                    }
-                }
-            } else if !in_combat && was_in_combat {
-                ctx.combat_state.disengage();
-                tracing::info!("combat.disengaged");
-                WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                    .field("action", "combat_ended")
-                    .send();
-
-                // Turn mode transition: Structured → FreePlay
-                let holder = ctx.shared_session_holder.lock().await;
-                if let Some(ref ss_arc) = *holder {
-                    let mut ss = ss_arc.lock().await;
-                    let old_mode = std::mem::take(&mut ss.turn_mode);
-                    ss.turn_mode =
-                        old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::CombatEnded);
-                    tracing::info!(new_mode = ?ss.turn_mode, "Turn mode transitioned on combat end");
-                }
-            }
-        }
-
-        // Apply HP deltas
-        if let Some(ref hp_changes) = combat_patch.hp_changes {
-            let char_name_lower = ctx.player_name_for_save.to_lowercase();
-            for (target, delta) in hp_changes {
-                let target_lower = target.to_lowercase();
-                if target_lower == char_name_lower
-                    || ctx
-                        .character_json
-                        .as_ref()
-                        .and_then(|cj| cj.get("name"))
-                        .and_then(|n| n.as_str())
-                        .map(|n| n.to_lowercase() == target_lower)
-                        .unwrap_or(false)
-                {
-                    let old_hp = *ctx.hp;
-                    *ctx.hp = sidequest_game::clamp_hp(*ctx.hp, *delta, *ctx.max_hp);
-                    tracing::info!(target = %target, delta = delta, new_hp = *ctx.hp, "combat.patch.hp_applied");
-                    WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                        .field("action", "hp_change")
-                        .field("target", target)
-                        .field("target_type", "player")
-                        .field("delta", delta)
-                        .field("old_hp", old_hp)
-                        .field("new_hp", *ctx.hp)
-                        .field("max_hp", *ctx.max_hp)
-                        .send();
-                } else if let Some(npc) = ctx.npc_registry.iter_mut().find(|n| n.name.to_lowercase() == target_lower) {
-                    // Initialize NPC max_hp on first damage if not yet set
-                    if npc.max_hp == 0 {
-                        // Estimate: if the LLM is dealing damage, assume NPC has some HP.
-                        // Set max_hp to a reasonable default so clamp_hp works.
-                        npc.max_hp = 20;
-                        npc.hp = npc.max_hp;
-                    }
-                    let old_npc_hp = npc.hp;
-                    npc.hp = sidequest_game::clamp_hp(npc.hp, *delta, npc.max_hp);
-                    tracing::info!(target = %target, delta = delta, new_hp = npc.hp, max_hp = npc.max_hp, "combat.patch.npc_hp_applied");
-                    WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                        .field("action", "hp_change")
-                        .field("target", target)
-                        .field("target_type", "npc")
-                        .field("delta", delta)
-                        .field("old_hp", old_npc_hp)
-                        .field("new_hp", npc.hp)
-                        .field("max_hp", npc.max_hp)
-                        .send();
-                }
-            }
-        }
-
-        // Remove dead combatants (HP ≤ 0) from turn order.
-        // This is the ONLY path that removes combatants — never by narrator omission.
-        if ctx.combat_state.in_combat() {
-            let dead_npcs: Vec<String> = ctx.npc_registry.iter()
-                .filter(|n| n.hp <= 0 && n.max_hp > 0) // hp=0 with max_hp>0 = confirmed dead
-                .map(|n| n.name.clone())
-                .collect();
-            if !dead_npcs.is_empty() {
-                let mut order = ctx.combat_state.turn_order().to_vec();
-                let before_len = order.len();
-                order.retain(|name| !dead_npcs.iter().any(|d| d.eq_ignore_ascii_case(name)));
-                if order.len() != before_len {
-                    ctx.combat_state.set_turn_order(order);
-                    for dead in &dead_npcs {
-                        tracing::info!(npc = %dead, "combat.combatant_killed — removed from turn order");
-                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                            .field("action", "combatant_killed")
-                            .field("npc", dead)
-                            .field("remaining_combatants", ctx.combat_state.turn_order().len())
-                            .send();
-                    }
-                }
-            }
-        }
-
-        // Apply turn_order/current_turn updates (mid-combat changes).
-        // Turn order is append-only: new combatants from the patch are added,
-        // but existing combatants are never removed by omission. Only explicit
-        // death (HP ≤ 0) or disengage removes combatants.
-        if ctx.combat_state.in_combat() {
-            if let Some(ref order) = combat_patch.turn_order {
-                let current = ctx.combat_state.turn_order().to_vec();
-                let mut merged = current.clone();
-                for name in order {
-                    if !merged.iter().any(|n| n.eq_ignore_ascii_case(name)) {
-                        merged.push(name.clone());
-                        tracing::info!(combatant = %name, "combat.turn_order_added — new combatant joined");
-                    }
-                }
-                if merged.len() != current.len() {
-                    ctx.combat_state.set_turn_order(merged);
-                    WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                        .field("action", "turn_order_merged")
-                        .field("turn_order", ctx.combat_state.turn_order())
-                        .field("combatant_count", ctx.combat_state.turn_order().len())
-                        .send();
-                }
-            }
-            if let Some(ref turn) = combat_patch.current_turn {
-                ctx.combat_state.set_current_turn(turn.clone());
-            }
-        }
-
-        if let Some(dw) = combat_patch.drama_weight {
-            ctx.combat_state.set_drama_weight(dw);
-        }
-
-        // Advance turn (handles round wrap internally).
-        // Always advance when in combat — turn alternation is a mechanical game
-        // rule, not an LLM decision.  The creature_smith prompt asks for
-        // advance_round but Claude conservatively returns false most of the
-        // time, leaving NPCs permanently unable to act.
-        if ctx.combat_state.in_combat() {
-            ctx.combat_state.advance_turn();
-            WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                .field("action", "turn_advanced")
-                .field("round", ctx.combat_state.round())
-                .field("current_turn", ctx.combat_state.current_turn())
-                .field("turn_order", ctx.combat_state.turn_order())
-                .send();
-
-            // NPC turns — resolve attacks for each NPC until it's the player's turn again.
-            // Without this, combat is an asskicking simulator: the player attacks every turn
-            // and NPCs never mechanically fight back (Claude just improvises damage in narration).
-            let max_npc_turns = ctx.combat_state.turn_order().len();
-            for _ in 0..max_npc_turns {
-                if !ctx.combat_state.in_combat() {
-                    break;
-                }
-                let current = ctx.combat_state.current_turn().unwrap_or("").to_string();
-                if current.eq_ignore_ascii_case(ctx.char_name) {
-                    break; // Player's turn — stop, let them act
-                }
-
-                // This is an NPC's turn. Resolve their attack against the player.
-                // Scope borrows carefully to avoid borrow checker conflicts.
-                let round_result = {
-                    let npc_opt = ctx.snapshot.npcs.iter().find(|n| {
-                        sidequest_game::combatant::Combatant::name(*n).eq_ignore_ascii_case(&current)
-                    });
-                    let player_opt = ctx.snapshot.characters.first();
-                    match (npc_opt, player_opt) {
-                        (Some(npc), Some(player)) => {
-                            Some(ctx.combat_state.resolve_attack(&current, npc, ctx.char_name, player))
-                        }
-                        _ => None,
-                    }
-                };
-
-                if let Some(round_result) = round_result {
-                    // Apply NPC damage to player HP (both ctx.hp and snapshot)
-                    for event in &round_result.damage_events {
-                        *ctx.hp -= event.damage;
-                        if *ctx.hp < 0 {
-                            *ctx.hp = 0;
-                        }
-                        if let Some(ch) = ctx.snapshot.characters.first_mut() {
-                            ch.core.hp = *ctx.hp;
-                        }
-                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                            .field("action", "npc_attack")
-                            .field("attacker", &event.attacker)
-                            .field("target", &event.target)
-                            .field("damage", event.damage)
-                            .field("target_hp_after", *ctx.hp)
-                            .field("round", event.round)
-                            .send();
-                        tracing::info!(
-                            attacker = %event.attacker,
-                            target = %event.target,
-                            damage = event.damage,
-                            hp_after = *ctx.hp,
-                            "combat.npc_attack_resolved"
-                        );
-                    }
-
-                    // Check player death after NPC attack
-                    if *ctx.hp <= 0 {
-                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                            .field("action", "player_death")
-                            .field("cause", "combat_damage")
-                            .field("final_hp", *ctx.hp)
-                            .field("round", ctx.combat_state.round())
-                            .send();
-                        tracing::warn!(
-                            hp = *ctx.hp,
-                            round = ctx.combat_state.round(),
-                            "combat.player_death — character has fallen"
-                        );
-                        ctx.combat_state.disengage();
-                        ctx.snapshot.player_dead = true;
-                        break;
-                    }
-
-                    // Check victory/defeat after NPC attack
-                    let npc_combatants: Vec<&dyn sidequest_game::combatant::Combatant> = ctx.snapshot.npcs.iter()
-                        .filter(|n| ctx.combat_state.turn_order().iter().any(|t| t.eq_ignore_ascii_case(sidequest_game::combatant::Combatant::name(*n))))
-                        .map(|n| n as &dyn sidequest_game::combatant::Combatant)
-                        .collect();
-                    let player_combatants: Vec<&dyn sidequest_game::combatant::Combatant> = ctx.snapshot.characters.iter()
-                        .map(|c| c as &dyn sidequest_game::combatant::Combatant)
-                        .collect();
-                    if let Some(outcome) = ctx.combat_state.check_victory(&player_combatants, &npc_combatants) {
-                        WatcherEventBuilder::new("combat", WatcherEventType::StateTransition)
-                            .field("action", "combat_outcome")
-                            .field("outcome", format!("{:?}", outcome))
-                            .field("round", ctx.combat_state.round())
-                            .send();
-                        tracing::info!(outcome = ?outcome, "combat.outcome_reached");
-                        ctx.combat_state.disengage();
-                        break;
-                    }
-                }
-
-                // Advance to next combatant
-                ctx.combat_state.advance_turn();
-            }
-        }
-    }
-
-    // Chase state — apply typed ChasePatch from dialectician
-    if let Some(ref chase_patch) = result.chase_patch {
-        if let Some(in_chase) = chase_patch.in_chase {
-            if in_chase && ctx.chase_state.is_none() {
-                // Start chase
-                let chase_type = match chase_patch.chase_type.as_deref() {
-                    Some("stealth") => sidequest_game::ChaseType::Stealth,
-                    Some("negotiation") => sidequest_game::ChaseType::Negotiation,
-                    _ => sidequest_game::ChaseType::Footrace,
-                };
-                let cs = sidequest_game::ChaseState::new(chase_type, 0.5);
-                *ctx.chase_state = Some(cs);
-                tracing::info!(chase_type = ?chase_type, "chase.engaged");
-
-                WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                    .field("action", "chase_started")
-                    .field("chase_type", format!("{:?}", chase_type))
-                    .send();
-            } else if !in_chase && ctx.chase_state.is_some() {
-                // Resolve chase
-                if let Some(ref cs) = ctx.chase_state {
-                    tracing::info!(rounds = cs.round(), separation = cs.separation(), "chase.resolved");
-                    WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                        .field("action", "chase_resolved")
-                        .field("rounds", cs.round())
-                        .field("final_separation", cs.separation())
-                        .send();
-                }
-                *ctx.chase_state = None;
-            }
-        }
-
-        // Apply chase tick if chase is active
-        if let Some(ref mut cs) = ctx.chase_state {
-            if let Some(delta) = chase_patch.separation_delta {
-                cs.set_separation(cs.separation() + delta);
-            }
-            if let Some(ref phase) = chase_patch.phase {
-                cs.set_phase(phase.clone());
-            }
-            if let Some(ref event) = chase_patch.event {
-                cs.set_event(event.clone());
-            }
-            if let Some(roll) = chase_patch.roll {
-                cs.record_roll(roll);
-            }
-
-            tracing::info!(
-                round = cs.round(),
-                separation = cs.separation(),
-                phase = ?cs.phase(),
-                resolved = cs.is_resolved(),
-                "chase.tick"
-            );
-
-            WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                .field("action", "chase_tick")
-                .field("round", cs.round())
-                .field("separation", cs.separation())
-                .field_opt("separation_delta", &chase_patch.separation_delta)
-                .send();
-
-            // Auto-resolve: mark as resolved but keep state alive for audio mood.
-            // Chase state is only cleared when narrator explicitly sends in_chase: false.
-            // This prevents mood flickering (Tension → Exploration) on the resolution turn.
-            if cs.is_resolved() {
-                tracing::info!("chase.auto_resolved — escape roll exceeded threshold, state retained for mood");
-
-                WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                    .field("action", "chase_auto_resolved")
-                    .field("note", "state retained — awaiting narrator in_chase=false to clear")
-                    .send();
-            }
-        }
-    }
+    // CombatPatch/ChasePatch blocks deleted in story 28-9.
+    // Beat selections via StructuredEncounter replace typed patches.
 
     // Quest log updates — merge narrator-extracted quest changes
     if !result.quest_updates.is_empty() {
@@ -468,9 +36,9 @@ pub(crate) async fn apply_state_mutations(
         }
     }
 
-    // Bug 3: XP award based on action type
+    // XP award based on action type
     {
-        let xp_award = if ctx.combat_state.in_combat() {
+        let xp_award = if ctx.in_combat() {
             25 // combat actions give more XP
         } else {
             10 // exploration/dialogue gives base XP
@@ -517,12 +85,6 @@ pub(crate) async fn apply_state_mutations(
                 if let Ok(pack) = loader.load(&code) {
                     let genre_affinities = &pack.progression.affinities;
 
-                    // Increment progress for affinities whose triggers match the
-                    // action OR narration.  Triggers are semantic sentences (e.g.
-                    // "breaching corporate ICE") — match if ANY content word from
-                    // the trigger appears in the combined text.  Old code did
-                    // substring match of the full trigger sentence against the
-                    // player's short action text, which never matched.
                     let combined_lower = format!(
                         "{} {}",
                         effective_action.to_lowercase(),
@@ -530,11 +92,10 @@ pub(crate) async fn apply_state_mutations(
                     );
                     for aff_def in genre_affinities {
                         let matches_trigger = aff_def.triggers.iter().any(|trigger| {
-                            // Extract content words (3+ chars, skip stop words)
                             trigger
                                 .split_whitespace()
                                 .map(|w| w.to_lowercase())
-                                .filter(|w| w.len() >= 4) // skip "a", "the", "in", "for"
+                                .filter(|w| w.len() >= 4)
                                 .any(|word| combined_lower.contains(&word))
                         });
                         if matches_trigger {
@@ -656,8 +217,6 @@ pub(crate) async fn apply_state_mutations(
     }
 
     // Item acquisition — driven by structured extraction from the LLM response.
-    // The narrator emits items_gained in its JSON block when the player
-    // actually acquires something.
     const VALID_ITEM_CATEGORIES: &[&str] = &[
         "weapon",
         "armor",
@@ -668,8 +227,6 @@ pub(crate) async fn apply_state_mutations(
         "misc",
     ];
     for item_def in &result.items_gained {
-        // Reject prose fragments: item names should be short noun phrases,
-        // not sentences or long descriptions.
         let name_trimmed = item_def.name.trim();
         let word_count = name_trimmed.split_whitespace().count();
         if name_trimmed.len() > 60 || word_count > 8 {
@@ -681,13 +238,11 @@ pub(crate) async fn apply_state_mutations(
             );
             continue;
         }
-        // Reject names that look like sentences (contain common verbs)
         let lower = name_trimmed.to_lowercase();
         if lower.starts_with("the ") && word_count > 5 {
             tracing::warn!(item_name = %item_def.name, "Rejected item: sentence-like name");
             continue;
         }
-        // Validate category
         let category = item_def.category.trim().to_lowercase();
         let valid_cat = if VALID_ITEM_CATEGORIES.contains(&category.as_str()) {
             category
@@ -738,7 +293,6 @@ pub(crate) async fn apply_state_mutations(
     if !result.resource_deltas.is_empty() {
         let turn = ctx.turn_manager.interaction() as u64;
         for (name, delta) in &result.resource_deltas {
-            // Epic 16: Apply via formal ResourcePool on snapshot (with threshold→lore pipeline)
             let op = if *delta >= 0.0 {
                 sidequest_game::ResourcePatchOp::Add
             } else {
@@ -747,7 +301,6 @@ pub(crate) async fn apply_state_mutations(
             let value = delta.abs();
             match ctx.snapshot.process_resource_patch_with_lore(name, op, value, ctx.lore_store, turn) {
                 Ok(patch_result) => {
-                    // Sync old resource_state map for backward compat
                     if let Some(pool) = ctx.snapshot.resources.get(name) {
                         ctx.resource_state.insert(name.clone(), pool.current);
                     }
@@ -776,7 +329,6 @@ pub(crate) async fn apply_state_mutations(
                     );
                 }
                 Err(e) => {
-                    // Pool doesn't exist on snapshot — fall back to legacy resource_state
                     if let Some(current) = ctx.resource_state.get_mut(name) {
                         *current += delta;
                         if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
@@ -791,10 +343,9 @@ pub(crate) async fn apply_state_mutations(
         }
     }
 
-    let combat_after = ctx.combat_state.in_combat();
+    let encounter_active_after = ctx.in_encounter();
     MutationResult {
         tier_events: all_tier_events,
-        combat_just_ended: combat_before && !combat_after,
-        combat_just_started: !combat_before && combat_after,
+        encounter_just_resolved: encounter_active_before && !encounter_active_after,
     }
 }

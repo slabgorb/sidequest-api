@@ -204,14 +204,7 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Combat state for combat overlay.
-    #[serde(rename = "COMBAT_EVENT")]
-    CombatEvent {
-        /// The typed payload for this message.
-        payload: CombatEventPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
+    // CombatEvent variant removed in story 28-9. Confrontation replaces it.
 
     /// Structured encounter state for confrontation overlay (standoffs, chases, negotiations).
     #[serde(rename = "CONFRONTATION")]
@@ -661,19 +654,7 @@ pub struct MapUpdatePayload {
     pub fog_bounds: Option<FogBounds>,
 }
 
-/// Combat state for the combat overlay.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CombatEventPayload {
-    /// Whether combat is active.
-    pub in_combat: bool,
-    /// Active enemies.
-    pub enemies: Vec<CombatEnemy>,
-    /// Initiative order.
-    pub turn_order: Vec<String>,
-    /// Who's acting now.
-    pub current_turn: String,
-}
+// CombatEventPayload deleted in story 28-9 — ConfrontationPayload replaces it.
 
 /// Render job queued — sent when a render is submitted to the daemon.
 /// The UI can show a shimmer placeholder while waiting for the actual IMAGE.

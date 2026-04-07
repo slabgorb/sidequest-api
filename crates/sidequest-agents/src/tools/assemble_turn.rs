@@ -163,8 +163,6 @@ pub fn assemble_turn(
 
     ActionResult {
         narration: extraction.prose,
-        combat_patch: None,
-        chase_patch: None,
         is_degraded: false,
         classified_intent: None,
         agent_name: None,

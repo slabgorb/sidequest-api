@@ -45,8 +45,6 @@ pub(crate) async fn sync_back_to_shared_session(
             ps.character_xp = *ctx.xp;
             ps.character_class = char_class.to_string();
             ps.inventory = ctx.inventory.clone();
-            ps.combat_state = ctx.combat_state.clone();
-            ps.chase_state = ctx.chase_state.clone();
             if ps.character_name.is_none() {
                 ps.character_name = Some(ctx.char_name.to_string());
             }

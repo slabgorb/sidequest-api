@@ -656,31 +656,47 @@ impl WorldBuilder {
         }
     }
 
-    /// Set up combat state with optional custom enemies.
+    /// Set up combat encounter with optional custom enemies.
+    /// Story 28-9: Uses StructuredEncounter instead of deleted CombatState.
     fn setup_combat(&self, snap: &mut GameSnapshot, enemies: Option<&Vec<(String, i32, i32)>>) {
+        use crate::encounter::{EncounterActor, EncounterMetric, MetricDirection, StructuredEncounter};
+
         let enemy_list: Vec<(String, i32, i32)> = match enemies {
             Some(list) => list.clone(),
             None => vec![("Bandit".to_string(), 12, 12)],
         };
 
-        snap.combat.set_in_combat(true);
-
-        // Build turn order: characters first, then enemies
-        let mut turn_order: Vec<String> = snap.characters.iter()
-            .map(|c| c.core.name.as_str().to_string())
+        // Build actors: characters first, then enemies
+        let mut actors: Vec<EncounterActor> = snap.characters.iter()
+            .map(|c| EncounterActor {
+                name: c.core.name.as_str().to_string(),
+                role: "player".to_string(),
+            })
             .collect();
-        turn_order.extend(enemy_list.iter().map(|(name, _, _)| name.clone()));
+        actors.extend(enemy_list.iter().map(|(name, _, _)| EncounterActor {
+            name: name.clone(),
+            role: "combatant".to_string(),
+        }));
 
-        if let Some(first) = turn_order.first() {
-            snap.combat.set_current_turn(first.clone());
-        }
-        snap.combat.set_turn_order(turn_order);
-
-        snap.combat.set_available_actions(vec![
-            "attack".to_string(),
-            "defend".to_string(),
-            "flee".to_string(),
-        ]);
+        snap.encounter = Some(StructuredEncounter {
+            encounter_type: "combat".to_string(),
+            metric: EncounterMetric {
+                name: "morale".to_string(),
+                current: 100,
+                starting: 100,
+                direction: MetricDirection::Descending,
+                threshold_high: None,
+                threshold_low: Some(0),
+            },
+            beat: 1,
+            structured_phase: Some(crate::encounter::EncounterPhase::Opening),
+            secondary_stats: None,
+            actors,
+            outcome: None,
+            resolved: false,
+            mood_override: Some("combat".to_string()),
+            narrator_hints: vec![],
+        });
     }
 }
 

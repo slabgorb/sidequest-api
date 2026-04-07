@@ -107,60 +107,27 @@ fn combat_event_not_a_valid_game_message() {
 // AC-3 + AC-4: All references fixed, dispatch pipeline cleaned
 // ==========================================================================
 
-/// Verify no CombatPatch type exists in the game crate's state module.
-/// We test this by checking that a JSON object matching the old CombatPatch
-/// schema does NOT round-trip through the game crate's public API.
-///
-/// Currently FAILS: CombatPatch exists and is importable.
-/// After deletion: import fails, so this test uses a structural check instead.
+/// Verify CombatPatch type no longer exists in the game crate's state module.
+/// After deletion, this test verifies via source code scan that the type is gone.
+/// (The original test tried to import the type, which won't compile after deletion.)
 #[test]
 fn no_combat_patch_in_state_module() {
-    // If CombatPatch still exists, this JSON will deserialize successfully.
-    // After deletion, the type won't exist and this test file still compiles
-    // because we only check via serialization.
-    let combat_patch_json = serde_json::json!({
-        "advance_round": false,
-        "in_combat": true,
-        "hp_changes": null,
-        "turn_order": null,
-        "current_turn": null,
-        "available_actions": null,
-        "drama_weight": null
-    });
-
-    // Try to deserialize as CombatPatch — this MUST fail after deletion
-    let result =
-        serde_json::from_value::<sidequest_game::state::CombatPatch>(combat_patch_json);
+    // CombatPatch was deleted — if this test compiles, the type is gone.
+    // Verify via source scan that the module doesn't re-export it.
+    let state_src = include_str!("../src/state.rs");
     assert!(
-        result.is_err(),
-        "CombatPatch should not exist in sidequest_game::state — deleted in 28-9. \
-         Got: {:?}",
-        result.unwrap()
+        !state_src.contains("pub struct CombatPatch"),
+        "state.rs should not contain CombatPatch — deleted in 28-9"
     );
 }
 
-/// Same check for ChasePatch.
+/// Verify ChasePatch type no longer exists in the game crate's state module.
 #[test]
 fn no_chase_patch_in_state_module() {
-    let chase_patch_json = serde_json::json!({
-        "start": null,
-        "start_vehicle": null,
-        "roll": null,
-        "separation": null,
-        "phase": null,
-        "event": null,
-        "rig": null,
-        "actors": null,
-        "advance_beat": false
-    });
-
-    let result =
-        serde_json::from_value::<sidequest_game::state::ChasePatch>(chase_patch_json);
+    let state_src = include_str!("../src/state.rs");
     assert!(
-        result.is_err(),
-        "ChasePatch should not exist in sidequest_game::state — deleted in 28-9. \
-         Got: {:?}",
-        result.unwrap()
+        !state_src.contains("pub struct ChasePatch"),
+        "state.rs should not contain ChasePatch — deleted in 28-9"
     );
 }
 

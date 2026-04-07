@@ -113,50 +113,9 @@ pub fn check_location_validity(record: &TurnRecord) -> Vec<ValidationResult> {
     vec![]
 }
 
-/// Check that combat patches are only applied when combat is active.
-///
-/// Combat is considered active when round > 1 or the damage log is non-empty.
-pub fn check_combat_coherence(record: &TurnRecord) -> Vec<ValidationResult> {
-    let has_combat_patch = record
-        .patches_applied
-        .iter()
-        .any(|p| p.patch_type == "combat");
-
-    if !has_combat_patch {
-        return vec![];
-    }
-
-    let combat = &record.snapshot_before.combat;
-    let combat_active = combat.round() > 1 || !combat.damage_log().is_empty();
-
-    if !combat_active {
-        return vec![ValidationResult::Violation(
-            "CombatPatch applied but combat is not active".into(),
-        )];
-    }
-
-    vec![]
-}
-
-/// Check that chase patches are only applied when a chase is active.
-pub fn check_chase_coherence(record: &TurnRecord) -> Vec<ValidationResult> {
-    let has_chase_patch = record
-        .patches_applied
-        .iter()
-        .any(|p| p.patch_type == "chase");
-
-    if !has_chase_patch {
-        return vec![];
-    }
-
-    if record.snapshot_before.chase.is_none() {
-        return vec![ValidationResult::Violation(
-            "ChasePatch applied but no chase is active".into(),
-        )];
-    }
-
-    vec![]
-}
+// check_combat_coherence and check_chase_coherence deleted in story 28-9.
+// CombatPatch/ChasePatch no longer exist — encounter coherence is enforced
+// by the beat system (StructuredEncounter + apply_beat).
 
 /// Run all legality checks against a TurnRecord.
 ///
@@ -168,8 +127,6 @@ pub fn run_legality_checks(record: &TurnRecord) -> Vec<ValidationResult> {
     let checks: Vec<fn(&TurnRecord) -> Vec<ValidationResult>> = vec![
         check_hp_bounds,
         check_dead_entity_actions,
-        check_combat_coherence,
-        check_chase_coherence,
         check_location_validity,
         check_entity_references,
     ];

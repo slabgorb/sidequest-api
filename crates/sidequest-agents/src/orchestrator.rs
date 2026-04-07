@@ -30,10 +30,6 @@ use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTrac
 pub struct ActionResult {
     /// The narrative text produced by the agent.
     pub narration: String,
-    /// Typed combat patch extracted from creature_smith response.
-    pub combat_patch: Option<crate::patches::CombatPatch>,
-    /// Typed chase patch extracted from dialectician response.
-    pub chase_patch: Option<crate::patches::ChasePatch>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
     /// Which intent was classified (for OTEL telemetry).
@@ -879,17 +875,8 @@ impl GameService for Orchestrator {
                 // Primary path: extract from the parsed game_patch block (narrator emits
                 // ```game_patch```, not ```json```, so extract_fenced_json misses it).
                 // Fallback: try extract_fenced_json for backwards compat with ```json``` blocks.
-                let combat_patch = extract_combat_from_game_patch(raw_response)
-                    .or_else(|| extract_fenced_json::<crate::patches::CombatPatch>(raw_response).ok());
-                if let Some(ref p) = combat_patch {
-                    info!(in_combat = ?p.in_combat, hp_changes = ?p.hp_changes, "combat.patch_extracted");
-                }
-
-                // ADR-067: Always try chase patch extraction from game_patch
-                let chase_patch = extract_fenced_json::<crate::patches::ChasePatch>(raw_response).ok();
-                if let Some(ref p) = chase_patch {
-                    info!(in_chase = ?p.in_chase, separation_delta = ?p.separation_delta, "chase.patch_extracted");
-                }
+                // CombatPatch/ChasePatch extraction removed in story 28-9.
+                // Beat selections via StructuredEncounter replace typed patches.
 
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
                 span.record("is_degraded", false);
@@ -921,8 +908,6 @@ impl GameService for Orchestrator {
 
                 // Orchestrator overrides fields assemble_turn doesn't know about
                 ActionResult {
-                    combat_patch,
-                    chase_patch,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
@@ -952,8 +937,6 @@ impl GameService for Orchestrator {
                 );
                 ActionResult {
                     narration: degraded_narration,
-                    combat_patch: None,
-                    chase_patch: None,
                     is_degraded: true,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
@@ -1104,33 +1087,8 @@ fn extract_game_patch(raw: &str) -> GamePatchExtraction {
     GamePatchExtraction::default()
 }
 
-/// Extract a CombatPatch from the ```game_patch``` block if combat fields are present.
-///
-/// The narrator emits combat fields (in_combat, hp_changes, turn_order, etc.) inside
-/// the same ```game_patch``` block as other structured data. GamePatchExtraction now
-/// captures these fields; this function maps them to a CombatPatch if any are set.
-/// Returns None if no combat-relevant fields were emitted.
-fn extract_combat_from_game_patch(raw: &str) -> Option<crate::patches::CombatPatch> {
-    let patch = extract_game_patch(raw);
-    // Only produce a CombatPatch if at least one combat field is present.
-    if patch.in_combat.is_none()
-        && patch.hp_changes.is_none()
-        && patch.turn_order.is_none()
-        && patch.current_turn.is_none()
-        && patch.drama_weight.is_none()
-    {
-        return None;
-    }
-    Some(crate::patches::CombatPatch {
-        in_combat: patch.in_combat,
-        hp_changes: patch.hp_changes,
-        turn_order: patch.turn_order,
-        current_turn: patch.current_turn,
-        drama_weight: patch.drama_weight,
-        advance_round: patch.advance_round.unwrap_or(false),
-        available_actions: None,
-    })
-}
+// extract_combat_from_game_patch deleted in story 28-9.
+// Combat fields in game_patch are handled directly by the encounter engine.
 
 // ============================================================================
 // Story 9-11: Footnote extraction from narrator response

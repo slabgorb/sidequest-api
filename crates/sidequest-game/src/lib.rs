@@ -17,10 +17,8 @@ pub mod beat_filter;
 pub mod builder;
 pub mod catch_up;
 pub mod character;
-pub mod chase;
 pub mod chase_depth;
 pub mod clue_activation;
-pub mod combat;
 pub mod combatant;
 pub mod commands;
 pub mod conlang;
@@ -90,7 +88,6 @@ pub use audio_mixer::{AudioMixer, DuckConfig};
 pub use axis::{format_tone_context, AxisValue, ToneCommand};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
-pub use chase::{ChaseRound, ChaseState, ChaseType};
 pub use chase_depth::{
     apply_terrain_to_rig, camera_for_phase, check_outcome, cinematography_for_phase,
     danger_for_beat, format_chase_context, phase_for_beat, sentence_range_for_drama,
@@ -100,7 +97,6 @@ pub use chase_depth::{
 pub use clue_activation::{
     ClueActivation, ClueGraph, ClueNode, ClueType, ClueVisibility, DiscoveryMethod,
 };
-pub use combat::{CombatOutcome, CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
 pub use combatant::Combatant;
 pub use conlang::{
     format_name_bank_for_prompt, GeneratedName, Morpheme, MorphemeCategory, MorphemeGlossary,
@@ -171,13 +167,13 @@ pub use resource_pool::{
     ResourcePool, ResourceThreshold,
 };
 pub use state::{
-    broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, DiscoveredRooms,
+    broadcast_state_changes, build_protocol_delta, DiscoveredRooms,
     GameSnapshot, NpcPatch, WorldStatePatch,
 };
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
-pub use tension_tracker::{CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker};
+pub use tension_tracker::{CombatEvent, DamageEvent, DeliveryMode, DramaThresholds, PacingHint, RoundResult, TensionTracker};
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
 pub use voice_router::{VoiceAssignment, VoiceRouter};
