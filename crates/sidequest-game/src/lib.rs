@@ -67,6 +67,7 @@ pub mod state;
 pub mod subject;
 pub mod tension_tracker;
 pub mod theme_rotator;
+pub mod treasure_xp;
 pub mod trope;
 pub mod tts_stream;
 pub mod turn;
@@ -174,6 +175,7 @@ pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
 pub use tension_tracker::{CombatEvent, DamageEvent, DeliveryMode, DramaThresholds, PacingHint, RoundResult, TensionTracker};
+pub use treasure_xp::{apply_treasure_xp, TreasureXpConfig, TreasureXpResult};
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
 pub use voice_router::{VoiceAssignment, VoiceRouter};
