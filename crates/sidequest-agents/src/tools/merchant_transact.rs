@@ -44,7 +44,7 @@ pub enum MerchantTransactError {
     item_id = %input.item_id,
     merchant = %input.merchant,
 ))]
-pub fn transact_merchant(
+fn transact_merchant(
     input: MerchantTransactInput,
     merchant_inventory: &Vec<String>,
 ) -> Result<MerchantTransactionExtracted, MerchantTransactError> {

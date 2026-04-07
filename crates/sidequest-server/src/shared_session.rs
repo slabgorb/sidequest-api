@@ -21,7 +21,7 @@ pub struct TargetedMessage {
     /// If set, only deliver to this player. None = broadcast to all.
     pub target_player_id: Option<String>,
 }
-use sidequest_game::perception::{PerceptionFilter, PerceptionRewriter};
+use sidequest_game::perception::PerceptionFilter;
 use sidequest_game::turn_mode::TurnMode;
 use sidequest_protocol::GameMessage;
 
@@ -250,25 +250,6 @@ impl SharedGameSession {
             region_count = self.region_names.len(),
             "Loaded cartography regions for co-location"
         );
-    }
-
-    /// Check if any players have active perceptual effects that would
-    /// require narration rewriting.
-    ///
-    /// Returns true if at least one player has effects. The actual
-    /// rewriting requires a `PerceptionRewriter` with a configured
-    /// strategy (currently RED phase / stub — no production strategy yet).
-    pub fn has_perception_effects(&self) -> bool {
-        self.perception_filters.values().any(|f| f.has_effects())
-    }
-
-    /// Describe active perceptual effects for a player (for prompt composition).
-    /// Returns None if the player has no effects.
-    pub fn describe_player_effects(&self, player_id: &str) -> Option<String> {
-        self.perception_filters
-            .get(player_id)
-            .filter(|f| f.has_effects())
-            .map(|f| PerceptionRewriter::describe_effects(f.effects()))
     }
 
     /// Copy world-level state FROM the shared session INTO local variables.

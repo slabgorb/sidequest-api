@@ -52,7 +52,7 @@ fn parse_category(input: &str) -> Option<FactCategory> {
     category = %input.category,
     is_new = input.is_new,
 ))]
-pub fn acquire_footnote(input: LoreMarkInput) -> Result<Footnote, LoreMarkError> {
+fn acquire_footnote(input: LoreMarkInput) -> Result<Footnote, LoreMarkError> {
     // Validate summary
     if input.summary.is_empty() {
         tracing::warn!(valid = false, "lore mark rejected: empty summary");
