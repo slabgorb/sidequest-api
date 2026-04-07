@@ -140,7 +140,7 @@ impl TurnManager {
 
     /// Advance to the next phase within the current round.
     pub fn advance_phase(&mut self) {
-        let from_phase = format!("{:?}", self.phase);
+        let from = self.phase;
         self.phase = match self.phase {
             TurnPhase::InputCollection => TurnPhase::IntentRouting,
             TurnPhase::IntentRouting => TurnPhase::AgentExecution,
@@ -148,11 +148,10 @@ impl TurnManager {
             TurnPhase::StatePatch => TurnPhase::Broadcast,
             TurnPhase::Broadcast => TurnPhase::Broadcast, // stays at last phase
         };
-        let to_phase = format!("{:?}", self.phase);
         let span = tracing::info_span!(
             "turn.phase_transition",
-            from_phase = %from_phase,
-            to_phase = %to_phase,
+            from_phase = ?from,
+            to_phase = ?self.phase,
             round = self.round,
         );
         let _guard = span.enter();
