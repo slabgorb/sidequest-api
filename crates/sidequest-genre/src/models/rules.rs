@@ -409,4 +409,8 @@ pub struct RulesConfig {
     /// Confrontation type declarations (story 16-3). Empty for genres without confrontations.
     #[serde(default)]
     pub confrontations: Vec<ConfrontationDef>,
+    /// Affinity name that receives progress when gold is extracted to surface (story 19-9).
+    /// None for genres without treasure-as-XP. E.g., "Plunderer" for caverns_and_claudes.
+    #[serde(default)]
+    pub xp_affinity: Option<String>,
 }
