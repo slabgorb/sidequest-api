@@ -3164,11 +3164,24 @@ fn dispatch_beat_selection(
         }
     };
 
-    // Find the beat def once for stat_check routing and metric_delta
-    let beat = def.beats.iter().find(|b| b.id == beat_id);
-    let stat_check = beat.map(|b| b.stat_check.clone()).unwrap_or_default();
-    let metric_delta = beat.map(|b| b.metric_delta).unwrap_or(0);
+    // Find the beat def once for stat_check routing and metric_delta.
+    // Fail loudly if beat_id is not in the confrontation def — no silent fallbacks.
+    let beat = match def.beats.iter().find(|b| b.id == beat_id) {
+        Some(b) => b,
+        None => {
+            tracing::warn!(
+                beat_id = %beat_id,
+                encounter_type = %encounter_type,
+                "beat_selection: beat_id not found in confrontation def beats"
+            );
+            return;
+        }
+    };
+    let stat_check = beat.stat_check.clone();
+    let metric_delta = beat.metric_delta;
 
+    // Resolver routing: attack/strength → resolve_attack, escape → escape,
+    // all others (persuade, intimidate, etc.) → metric_delta only.
     let resolver = match stat_check.to_lowercase().as_str() {
         "attack" | "strength" => "resolve_attack",
         "escape" => "escape",
@@ -3267,6 +3280,12 @@ fn dispatch_beat_selection(
                         .field("from_type", &encounter_type)
                         .field("to_type", &escalation_target)
                         .send();
+                } else {
+                    tracing::warn!(
+                        escalates_to = %escalation_target,
+                        encounter_type = %encounter_type,
+                        "encounter.escalation_failed — escalate_to_combat returned None"
+                    );
                 }
             }
         }
