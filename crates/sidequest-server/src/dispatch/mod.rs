@@ -2433,11 +2433,12 @@ async fn build_response_messages(
             sidequest_game::MetricDirection::Bidirectional => "bidirectional",
             _ => "ascending",
         };
+        let def = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type);
         messages.push(GameMessage::Confrontation {
             payload: sidequest_protocol::ConfrontationPayload {
                 encounter_type: enc.encounter_type.clone(),
-                label: enc.encounter_type.replace('_', " "),
-                category: enc.encounter_type.clone(),
+                label: def.map(|d| d.label.clone()).unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
+                category: def.map(|d| d.category.clone()).unwrap_or_else(|| enc.encounter_type.clone()),
                 actors,
                 metric: sidequest_protocol::ConfrontationMetric {
                     name: metric.name.clone(),
@@ -2447,7 +2448,14 @@ async fn build_response_messages(
                     threshold_high: metric.threshold_high,
                     threshold_low: metric.threshold_low,
                 },
-                beats: vec![],
+                beats: def.map(|d| d.beats.iter().map(|b| sidequest_protocol::ConfrontationBeat {
+                    id: b.id.clone(),
+                    label: b.label.clone(),
+                    metric_delta: b.metric_delta,
+                    stat_check: b.stat_check.clone(),
+                    risk: b.risk.clone(),
+                    resolution: b.resolution.unwrap_or(false),
+                }).collect()).unwrap_or_default(),
                 secondary_stats: enc.secondary_stats.as_ref().and_then(|ss| serde_json::to_value(ss).ok()),
                 genre_slug: ctx.genre_slug.to_string(),
                 mood: enc.mood_override.clone().unwrap_or_default(),
