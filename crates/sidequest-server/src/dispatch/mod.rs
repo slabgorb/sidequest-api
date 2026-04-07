@@ -1274,6 +1274,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
             .field("turn", turn_number)
             .send();
+        // Clear resolved encounter so the overlay doesn't keep broadcasting
+        ctx.snapshot.encounter = None;
     }
     if encounter_just_started {
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)

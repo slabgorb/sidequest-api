@@ -414,9 +414,9 @@ impl StructuredEncounter {
         Some(StructuredEncounter {
             encounter_type: "combat".to_string(),
             metric: EncounterMetric {
-                name: "hp".to_string(),
-                current: 0,
-                starting: 0,
+                name: "morale".to_string(),
+                current: 100,
+                starting: 100,
                 direction: MetricDirection::Descending,
                 threshold_high: None,
                 threshold_low: Some(0),
