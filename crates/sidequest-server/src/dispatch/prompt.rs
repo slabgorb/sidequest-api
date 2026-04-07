@@ -614,6 +614,27 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str(&npc_context);
     }
 
+    // Story 7-9: Scenario context injection — tension, clues, NPC suspicions.
+    // Uses format_narrator_context() from ScenarioState to give the narrator
+    // awareness of the active scenario's state.
+    if let Some(ref scenario_state) = ctx.snapshot.scenario_state {
+        if !scenario_state.is_resolved() {
+            let scenario_context = scenario_state.format_narrator_context(&ctx.snapshot.npcs);
+            if !scenario_context.is_empty() {
+                state_summary.push_str("\n\n[SCENARIO STATE]\n");
+                state_summary.push_str(&scenario_context);
+                state_summary.push('\n');
+
+                WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                    .field("event", "scenario.context_injected")
+                    .field("tension", format!("{:.2}", scenario_state.tension()))
+                    .field("clues_discovered", scenario_state.discovered_clues().len())
+                    .field("resolved", scenario_state.is_resolved())
+                    .send();
+            }
+        }
+    }
+
     // Inject lore context from genre pack — budget-aware selection (story 11-4)
     {
         // Prioritize lore categories based on current game state
