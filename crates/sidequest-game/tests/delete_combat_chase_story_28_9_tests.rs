@@ -228,7 +228,7 @@ fn structured_encounter_round_trips_independently() {
             threshold_low: Some(0),
         },
         beat: 1,
-        structured_phase: Some(EncounterPhase::Active),
+        structured_phase: Some(EncounterPhase::Escalation),
         secondary_stats: None,
         actors: vec![],
         outcome: None,
