@@ -618,9 +618,9 @@ pub(crate) async fn build_prompt_context(
     // Inject lore context from genre pack — budget-aware selection (story 11-4)
     {
         // Prioritize lore categories based on current game state
-        let priority_cats: Vec<sidequest_game::LoreCategory> = if ctx.combat_state.in_combat() {
+        let priority_cats: Vec<sidequest_game::LoreCategory> = if ctx.in_combat() {
             vec![sidequest_game::LoreCategory::Event, sidequest_game::LoreCategory::Character]
-        } else if ctx.chase_state.is_some() {
+        } else if ctx.in_chase() {
             vec![sidequest_game::LoreCategory::Geography]
         } else {
             vec![] // default: Geography/Faction prioritized by the selector
@@ -752,31 +752,8 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
-    // Inject chase cinematography context (story 15-17)
-    if let Some(ref chase_state) = ctx.chase_state {
-        let chase_context = chase_state.format_context(vec![]);
-        if !chase_context.is_empty() {
-            state_summary.push_str("\n\n");
-            state_summary.push_str(&chase_context);
-
-            // OTEL: chase.context_injected — GM panel verification
-            let beat = chase_state.current_beat(vec![]);
-            let cine = sidequest_game::cinematography_for_phase(beat.phase);
-            WatcherEventBuilder::new("chase", WatcherEventType::StateTransition)
-                .field("event", "chase.context_injected")
-                .field("phase", format!("{:?}", beat.phase))
-                .field("danger_level", beat.terrain_danger)
-                .field("camera", format!("{:?}", cine.camera))
-                .field("sentence_range", format!("{}-{}", cine.sentence_range.0, cine.sentence_range.1))
-                .send();
-
-            tracing::info!(
-                phase = ?beat.phase,
-                danger = beat.terrain_danger,
-                "chase.context_injected_to_prompt"
-            );
-        }
-    }
+    // Chase cinematography context injection removed in story 28-9.
+    // Encounter context is now injected via format_encounter_context() (story 28-4).
 
     // Inject continuity corrections from the previous turn (if any)
     if !ctx.continuity_corrections.is_empty() {

@@ -65,8 +65,6 @@ pub struct PlayerState {
     /// Raw narrator location string (display text for UI).
     pub display_location: String,
     pub inventory: sidequest_game::Inventory,
-    pub combat_state: sidequest_game::combat::CombatState,
-    pub chase_state: Option<sidequest_game::ChaseState>,
 }
 
 impl PlayerState {
@@ -86,8 +84,6 @@ impl PlayerState {
             region_id: String::new(),
             display_location: String::new(),
             inventory: sidequest_game::Inventory::default(),
-            combat_state: sidequest_game::combat::CombatState::default(),
-            chase_state: None,
         }
     }
 }
@@ -303,8 +299,6 @@ impl SharedGameSession {
         level: &mut u32,
         xp: &mut u32,
         inventory: &mut sidequest_game::Inventory,
-        combat_state: &mut sidequest_game::combat::CombatState,
-        chase_state: &mut Option<sidequest_game::ChaseState>,
         character_json: &mut Option<serde_json::Value>,
     ) {
         if let Some(ps) = self.players.get(player_id) {
@@ -313,8 +307,6 @@ impl SharedGameSession {
             *level = ps.character_level;
             *xp = ps.character_xp;
             *inventory = ps.inventory.clone();
-            *combat_state = ps.combat_state.clone();
-            *chase_state = ps.chase_state.clone();
             if let Some(ref cj) = ps.character_json {
                 *character_json = Some(cj.clone());
             }

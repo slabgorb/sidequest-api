@@ -30,9 +30,6 @@ use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTrac
 pub struct ActionResult {
     /// The narrative text produced by the agent.
     pub narration: String,
-    /// Typed combat patch extracted from creature_smith response.
-    /// Deprecated: always None after story 28-6. Removed in 28-9.
-    pub combat_patch: Option<crate::patches::CombatPatch>,
     /// Beat selections extracted from narrator output (story 28-6).
     /// Each entry maps an actor to a beat_id from the active ConfrontationDef.
     /// Dispatched via apply_beat() in the server dispatch pipeline (story 28-5).
@@ -891,8 +888,7 @@ impl GameService for Orchestrator {
                     );
                 }
                 // Story 28-6: Extract beat_selections from game_patch block.
-                // Replaces old patch extraction — the narrator now emits
-                // beat selections that map to ConfrontationDef beats.
+                // CombatPatch/ChasePatch extraction removed in story 28-9.
                 let beat_selections = extraction.beat_selections.clone();
                 if !beat_selections.is_empty() {
                     for bs in &beat_selections {
@@ -935,7 +931,6 @@ impl GameService for Orchestrator {
 
                 // Orchestrator overrides fields assemble_turn doesn't know about
                 ActionResult {
-                    combat_patch: None,
                     beat_selections,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
@@ -966,7 +961,6 @@ impl GameService for Orchestrator {
                 );
                 ActionResult {
                     narration: degraded_narration,
-                    combat_patch: None,
                     beat_selections: vec![],
                     is_degraded: true,
                     classified_intent: Some(intent_str),

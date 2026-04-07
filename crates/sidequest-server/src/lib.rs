@@ -1132,8 +1132,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut character_xp: u32 = 0;
     let mut current_location: String = String::new();
     let mut inventory = sidequest_game::Inventory::default();
-    let mut combat_state = sidequest_game::combat::CombatState::default();
-    let mut chase_state: Option<sidequest_game::ChaseState> = None;
     let mut trope_states: Vec<sidequest_game::trope::TropeState> = vec![];
     let mut trope_defs: Vec<sidequest_genre::TropeDefinition> = vec![];
     let mut world_context: String = String::new();
@@ -1193,8 +1191,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut character_xp,
                         &mut current_location,
                         &mut inventory,
-                        &mut combat_state,
-                        &mut chase_state,
                         &mut trope_states,
                         &mut trope_defs,
                         &mut world_context,
@@ -1414,8 +1410,6 @@ async fn dispatch_message(
     character_xp: &mut u32,
     current_location: &mut String,
     inventory: &mut sidequest_game::Inventory,
-    combat_state: &mut sidequest_game::combat::CombatState,
-    chase_state: &mut Option<sidequest_game::ChaseState>,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &mut String,
@@ -1525,8 +1519,6 @@ async fn dispatch_message(
                     ps.character_max_hp = *character_max_hp;
                     ps.display_location = current_location.clone();
                     ps.inventory = inventory.clone();
-                    ps.combat_state = combat_state.clone();
-                    ps.chase_state = chase_state.clone();
                     ps.character_json = character_json.clone();
                     ps.region_id = ss_guard
                         .resolve_region(current_location)
@@ -1695,8 +1687,6 @@ async fn dispatch_message(
                 character_xp,
                 current_location,
                 inventory,
-                combat_state,
-                chase_state,
                 trope_states,
                 trope_defs,
                 world_context,
@@ -1770,8 +1760,6 @@ async fn dispatch_message(
                     current_location,
                     inventory,
                     character_json,
-                    combat_state,
-                    chase_state,
                     trope_states,
                     trope_defs,
                     world_context,
