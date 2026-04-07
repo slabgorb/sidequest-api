@@ -456,6 +456,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         references_ability: true,
         references_location: true,
     };
+    // Sync StructuredEncounter before prompt context so format_encounter_context() can use it
+    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
+        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+    } else if let Some(ref cs) = ctx.chase_state {
+        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
+    } else {
+        None
+    };
+
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
 
     // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
@@ -3019,6 +3028,15 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         references_ability: false,
         references_location: false,
     };
+    // Sync StructuredEncounter before prompt context so format_encounter_context() can use it
+    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
+        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
+    } else if let Some(ref cs) = ctx.chase_state {
+        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
+    } else {
+        None
+    };
+
     let mut state_summary = prompt::build_prompt_context(ctx, &aside_relevance).await;
     state_summary.push_str(concat!(
         "\n\nASIDE RULES (HARD CONSTRAINTS):",
