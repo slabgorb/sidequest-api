@@ -1251,12 +1251,36 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // apply_beat() on the live StructuredEncounter. The beat's stat_check drives
     // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
     // beat_selection will be populated by story 28-6 (narrator outputs beat selections).
+    //
+    // Story 28-9: encounter_just_resolved is computed here (after beat dispatch),
+    // not inside apply_state_mutations, because dispatch_beat_selection is what
+    // actually sets encounter.resolved = true via apply_beat().
+    let encounter_active_before_beat = ctx.in_encounter();
     if let Some(ref beat_id) = result.scene_intent {
         // Temporary: scene_intent carries beat_id until story 28-6 adds dedicated field.
         // Only dispatch if there's an active encounter.
         if ctx.snapshot.encounter.is_some() {
             dispatch_beat_selection(ctx, beat_id);
         }
+    }
+    let encounter_active_after_beat = ctx.in_encounter();
+    let encounter_just_resolved = encounter_active_before_beat && !encounter_active_after_beat;
+    let encounter_just_started = !encounter_active_before_beat && encounter_active_after_beat;
+
+    // OTEL: encounter state transitions (story 28-9)
+    if encounter_just_resolved {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.resolved")
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
+            .field("turn", turn_number)
+            .send();
+    }
+    if encounter_just_started {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.started")
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
+            .field("turn", turn_number)
+            .send();
     }
 
     // Story 15-20: build narration state delta from current ctx locals via game-crate.
@@ -1351,7 +1375,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     drop(_state_update_guard);
 
     // Record encounter resolution as a lore event when encounter resolves this turn.
-    if mutation_result.encounter_just_resolved {
+    if encounter_just_resolved {
         let summary = format!(
             "Encounter at {} concluded on turn {}",
             ctx.current_location, turn_number
@@ -1472,7 +1496,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // so RENDER_QUEUED arrives at the UI before NARRATION text.
 
     let location_changed = *ctx.current_location != location_before_turn;
-    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, mutation_result.encounter_just_resolved).await;
+    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, encounter_just_resolved).await;
 
     // Record this interaction in the turn manager
     ctx.turn_manager.record_interaction();

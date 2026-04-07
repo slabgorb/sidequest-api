@@ -99,7 +99,7 @@ fn combat_event_not_a_valid_game_message() {
         result.is_err(),
         "COMBAT_EVENT should not be a valid GameMessage variant — \
          CombatEventPayload was deleted in 28-9. Got: {:?}",
-        result.unwrap()
+        result.as_ref().ok()
     );
 }
 

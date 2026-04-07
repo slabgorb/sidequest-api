@@ -8,11 +8,9 @@ use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
-/// Result of applying state mutations — includes encounter transition info.
+/// Result of applying state mutations.
 pub(crate) struct MutationResult {
     pub tier_events: Vec<sidequest_game::AffinityTierUpEvent>,
-    /// True if an encounter was active before mutations but is now resolved.
-    pub encounter_just_resolved: bool,
 }
 
 /// Apply post-narration state mutations: quests, XP, affinity, items.
@@ -23,7 +21,6 @@ pub(crate) async fn apply_state_mutations(
     effective_action: &str,
 ) -> MutationResult {
     let mut all_tier_events = Vec::new();
-    let encounter_active_before = ctx.in_encounter();
 
     // CombatPatch/ChasePatch blocks deleted in story 28-9.
     // Beat selections via StructuredEncounter replace typed patches.
@@ -343,9 +340,7 @@ pub(crate) async fn apply_state_mutations(
         }
     }
 
-    let encounter_active_after = ctx.in_encounter();
     MutationResult {
         tier_events: all_tier_events,
-        encounter_just_resolved: encounter_active_before && !encounter_active_after,
     }
 }
