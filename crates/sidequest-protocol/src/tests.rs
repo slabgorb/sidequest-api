@@ -384,6 +384,7 @@ mod message_type_tests {
                     width: 500,
                     height: 400,
                 }),
+                cartography: None,
             },
             player_id: String::new(),
         };

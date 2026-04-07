@@ -1790,6 +1790,40 @@ async fn dispatch_message(
                             .and_then(|pack| pack.worlds.get(ws).cloned())
                             .and_then(|world| world.cartography.world_graph)
                     },
+                    cartography_metadata: {
+                        let gs = session.genre_slug().unwrap_or("");
+                        let ws = session.world_slug().unwrap_or("");
+                        sidequest_genre::GenreCode::new(gs)
+                            .ok()
+                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|pack| pack.worlds.get(ws).cloned())
+                            .map(|world| {
+                                let nav_mode = match world.cartography.navigation_mode {
+                                    sidequest_genre::NavigationMode::Region => "region",
+                                    sidequest_genre::NavigationMode::RoomGraph => "room_graph",
+                                    sidequest_genre::NavigationMode::Hierarchical => "hierarchical",
+                                };
+                                sidequest_protocol::CartographyMetadata {
+                                    navigation_mode: nav_mode.to_string(),
+                                    starting_region: world.cartography.starting_region.clone(),
+                                    regions: world.cartography.regions.iter().map(|(slug, r)| {
+                                        (slug.clone(), sidequest_protocol::CartographyRegion {
+                                            name: r.name.clone(),
+                                            description: r.description.clone(),
+                                            adjacent: r.adjacent.clone(),
+                                        })
+                                    }).collect(),
+                                    routes: world.cartography.routes.iter().map(|r| {
+                                        sidequest_protocol::CartographyRoute {
+                                            name: r.name.clone(),
+                                            description: r.description.clone(),
+                                            from_id: r.from_id.clone(),
+                                            to_id: r.to_id.clone(),
+                                        }
+                                    }).collect(),
+                                }
+                            })
+                    },
                     confrontation_defs: {
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)

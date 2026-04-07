@@ -96,6 +96,9 @@ pub(crate) struct DispatchContext<'a> {
     /// Hierarchical world graph for lore filtering (story 23-4).
     /// Populated from cartography.world_graph when navigation_mode is Hierarchical.
     pub world_graph: Option<sidequest_genre::WorldGraph>,
+    /// Cartography metadata for MAP_UPDATE payloads (story 26-10).
+    /// Pre-computed from genre pack CartographyConfig on session init.
+    pub cartography_metadata: Option<sidequest_protocol::CartographyMetadata>,
     pub narrator_verbosity: sidequest_protocol::NarratorVerbosity,
     pub narrator_vocabulary: sidequest_protocol::NarratorVocabulary,
     /// Genre pack affinity definitions — used by resolve_abilities() to map tiers to ability names.
@@ -1068,9 +1071,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     region: ctx.current_location.clone(),
                     explored: explored_locs,
                     fog_bounds: None,
+                    cartography: ctx.cartography_metadata.clone(),
                 },
                 player_id: ctx.player_id.to_string(),
             });
+            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
+                .field("event", "cartography_dispatch")
+                .field("has_cartography", ctx.cartography_metadata.is_some())
+                .field("navigation_mode", ctx.cartography_metadata.as_ref().map(|c| c.navigation_mode.as_str()).unwrap_or("none"))
+                .send();
             ctx.turn_manager.advance_round();
             tracing::info!(
                 new_round = ctx.turn_manager.round(),
@@ -2452,6 +2461,7 @@ async fn build_response_messages(
             region: ctx.current_location.clone(),
             explored: explored_locs,
             fog_bounds: None,
+            cartography: ctx.cartography_metadata.clone(),
         },
         player_id: ctx.player_id.to_string(),
     });

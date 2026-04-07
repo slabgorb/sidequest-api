@@ -858,6 +858,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 region: state.current_region.clone(),
                 explored,
                 fog_bounds: None,
+                cartography: None,
             },
             player_id: String::new(),
         });
