@@ -85,6 +85,9 @@ pub(crate) struct DispatchContext<'a> {
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
+    /// Confrontation type definitions from genre pack rules.yaml (story 28-1).
+    /// Used by apply_beat(), format_encounter_context(), and beat population.
+    pub confrontation_defs: Vec<sidequest_genre::ConfrontationDef>,
     pub aside: bool,
     /// Opening scenario directive — injected into Early zone on turn 0 only, then consumed.
     pub opening_directive: Option<String>,
