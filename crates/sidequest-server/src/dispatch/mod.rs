@@ -2463,6 +2463,17 @@ async fn build_response_messages(
             },
             player_id: ctx.player_id.to_string(),
         });
+        // OTEL: log beats sent to UI (story 28-3)
+        if let Some(d) = def {
+            if !d.beats.is_empty() {
+                WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                    .field("action", "beats_sent")
+                    .field("encounter_type", &enc.encounter_type)
+                    .field("beat_count", d.beats.len())
+                    .field("beat_ids", d.beats.iter().map(|b| b.id.clone()).collect::<Vec<_>>())
+                    .send();
+            }
+        }
     }
 }
 
