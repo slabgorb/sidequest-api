@@ -5,9 +5,6 @@
 //! else goes to the narrator. The Intent enum and IntentRoute struct are
 //! retained for OTEL telemetry and conditional prompt section injection.
 
-use crate::context_builder::ContextBuilder;
-use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
-
 /// Player intent categories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
@@ -218,38 +215,19 @@ impl IntentRouter {
         Self::classify_with_classifier(input, ctx, &NoOpClassifier)
     }
 
-    /// Classification pipeline (ADR-067).
+    /// Classification pipeline (ADR-067, story 28-6).
     ///
-    /// 1. State override (in_chase/in_combat) -> immediate dispatch
-    /// 2. Default to Exploration (narrator handles everything)
+    /// All actions go through the narrator — encounters are handled via beat_selections
+    /// in the narrator's game_patch output. No separate combat/chase routing.
     pub fn classify_with_classifier(
         input: &str,
         ctx: &crate::orchestrator::TurnContext,
         _classifier: &dyn IntentClassifier,
     ) -> IntentRoute {
-        // Fast path: state overrides
-        if ctx.in_chase {
-            let route = IntentRoute::with_classification(
-                Intent::Chase,
-                1.0,
-                vec![],
-                ClassificationSource::StateOverride,
-            );
-            Self::emit_span(input, &route);
-            return route;
-        }
-        if ctx.in_combat {
-            let route = IntentRoute::with_classification(
-                Intent::Combat,
-                1.0,
-                vec![],
-                ClassificationSource::StateOverride,
-            );
-            Self::emit_span(input, &route);
-            return route;
-        }
-
-        // Default: Exploration — narrator handles everything (ADR-067)
+        // Story 28-6: Unified encounter engine — the narrator handles all intents.
+        // Encounter context is injected into the prompt when an encounter is active.
+        // The narrator outputs beat_selections which the server dispatches via apply_beat.
+        let _ = ctx; // TurnContext still passed for future use (e.g., in_encounter flag in 28-7)
         let route = IntentRoute::with_classification(
             Intent::Exploration,
             1.0,
@@ -275,34 +253,6 @@ impl IntentRouter {
         .entered();
     }
 
-    /// Add ambiguity context to the narrator prompt when classification is ambiguous.
-    /// ADR-067: With state-based inference, ambiguity no longer occurs, but this
-    /// method is retained for API compatibility.
-    pub fn add_ambiguity_context(builder: &mut ContextBuilder, route: &IntentRoute) {
-        if !route.is_ambiguous() || route.candidates().is_empty() {
-            return;
-        }
-
-        let candidates_str: Vec<String> = route
-            .candidates()
-            .iter()
-            .map(|c| format!("{c}"))
-            .collect();
-        let candidates_list = candidates_str.join(", ");
-
-        let content = format!(
-            "Intent classification was ambiguous between {candidates_list}. \
-             Based on the current scene context, use your judgment to determine \
-             which specialist behavior to adopt for this narration."
-        );
-
-        builder.add_section(PromptSection::new(
-            "intent_ambiguity",
-            content,
-            AttentionZone::Late,
-            SectionCategory::Context,
-        ));
-    }
 }
 
 /// No-op classifier used internally — state overrides handle all classification (ADR-067).

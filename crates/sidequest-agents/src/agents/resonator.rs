@@ -148,13 +148,6 @@ impl ClaudeRewriteStrategy {
         }
     }
 
-    /// Create with a custom ClaudeClient configuration.
-    pub fn with_client(client: ClaudeClient) -> Self {
-        Self {
-            client,
-            agent: ResonatorAgent::new(),
-        }
-    }
 }
 
 impl RewriteStrategy for ClaudeRewriteStrategy {

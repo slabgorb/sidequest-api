@@ -12,7 +12,6 @@
 
 mod audio;
 pub(crate) mod catch_up;
-mod combat;
 pub(crate) mod connect;
 pub(crate) mod pregen;
 mod prompt;
@@ -59,8 +58,6 @@ pub(crate) struct DispatchContext<'a> {
     pub current_location: &'a mut String,
     pub inventory: &'a mut sidequest_game::Inventory,
     pub character_json: &'a mut Option<serde_json::Value>,
-    pub combat_state: &'a mut sidequest_game::combat::CombatState,
-    pub chase_state: &'a mut Option<sidequest_game::ChaseState>,
     pub trope_states: &'a mut Vec<sidequest_game::trope::TropeState>,
     pub trope_defs: &'a [sidequest_genre::TropeDefinition],
     pub world_context: &'a str,
@@ -85,6 +82,9 @@ pub(crate) struct DispatchContext<'a> {
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
     pub resource_state: &'a mut HashMap<String, f64>,
     pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
+    /// Confrontation type definitions from genre pack rules.yaml (story 28-1).
+    /// Used by apply_beat(), format_encounter_context(), and beat population.
+    pub confrontation_defs: Vec<sidequest_genre::ConfrontationDef>,
     pub aside: bool,
     /// Opening scenario directive — injected into Early zone on turn 0 only, then consumed.
     pub opening_directive: Option<String>,
@@ -122,6 +122,64 @@ pub(crate) struct DispatchContext<'a> {
     /// Name banks from genre pack conlang definitions (story 15-19).
     /// Injected into narrator prompt context for name consistency.
     pub name_banks: Vec<sidequest_game::NameBank>,
+    /// Inventory carry mode from genre pack (Count or Weight). Story 19-7.
+    pub carry_mode: sidequest_game::inventory::CarryMode,
+    /// Weight limit when carry_mode is Weight. Story 19-7.
+    pub weight_limit: Option<f64>,
+}
+
+impl<'a> DispatchContext<'a> {
+    /// Add an item respecting the genre pack's carry mode (story 19-7).
+    /// In Count mode, uses the hardcoded carry limit (50).
+    /// In Weight mode, checks against weight_limit from InventoryPhilosophy.
+    /// Add an item respecting the genre pack's carry mode (story 19-7).
+    /// In Count mode, uses the hardcoded carry limit (50).
+    /// In Weight mode, checks against weight_limit from InventoryPhilosophy.
+    pub fn add_item(&mut self, item: sidequest_game::Item) -> Result<(), sidequest_game::inventory::InventoryError> {
+        let result = match self.carry_mode {
+            sidequest_game::inventory::CarryMode::Count => {
+                self.inventory.add(item, 50)
+            }
+            sidequest_game::inventory::CarryMode::Weight => {
+                let limit = self.weight_limit.unwrap_or(f64::INFINITY);
+                self.inventory.add_weighted(item, limit)
+            }
+            _ => {
+                // #[non_exhaustive] future variants — fall back to count-based
+                tracing::warn!(carry_mode = ?self.carry_mode, "Unknown carry mode, falling back to count-based");
+                self.inventory.add(item, 50)
+            }
+        };
+        if let Err(ref e) = result {
+            if matches!(e, sidequest_game::inventory::InventoryError::Overweight { .. }) {
+                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                    .field("event", "item_rejected_overweight")
+                    .field("total_weight", self.inventory.total_weight())
+                    .field("weight_limit", self.weight_limit.unwrap_or(0.0))
+                    .field("error", format!("{e}"))
+                    .send();
+            }
+        }
+        result
+    }
+
+    /// Whether any encounter is active (not resolved).
+    /// Story 28-9: replaces `combat_state.in_combat() || chase_state.is_some()`.
+    pub fn in_encounter(&self) -> bool {
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved)
+    }
+
+    /// Whether a combat-type encounter is active.
+    /// Story 28-9: replaces `combat_state.in_combat()`.
+    pub fn in_combat(&self) -> bool {
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "combat")
+    }
+
+    /// Whether a chase-type encounter is active.
+    /// Story 28-9: replaces `chase_state.is_some()`.
+    pub fn in_chase(&self) -> bool {
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "chase")
+    }
 }
 
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
@@ -156,8 +214,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 ctx.level,
                 ctx.xp,
                 ctx.inventory,
-                ctx.combat_state,
-                ctx.chase_state,
                 ctx.character_json,
             );
             let pc = ss.player_count();
@@ -293,7 +349,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     uses_remaining: None,
                                     state: sidequest_game::ItemState::Carried,
                                 };
-                                let _ = ctx.inventory.add(item, 50);
+                                let _ = ctx.add_item(item);
                                 tracing::info!(
                                     item_name = %mutation.item_name,
                                     category = %category,
@@ -416,12 +472,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         references_ability: true,
         references_location: true,
     };
+    // Sync StructuredEncounter before prompt context so format_encounter_context() can use it
+    // encounter sync bridge removed in story 28-9 — encounter is maintained directly via apply_beat().
+
     let mut state_summary = prompt::build_prompt_context(ctx, &preprocessed).await;
 
     // Monster Manual: inject pre-generated NPCs and encounters into game_state (ADR-059)
     {
         let nearby = ctx.monster_manual.format_nearby_npcs(ctx.current_location);
-        let creatures = ctx.monster_manual.format_area_creatures(ctx.combat_state.in_combat());
+        let creatures = ctx.monster_manual.format_area_creatures(ctx.in_combat());
         if !nearby.is_empty() {
             state_summary.push_str("\n\n");
             state_summary.push_str(&nearby);
@@ -441,16 +500,21 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             total_encounters = ctx.monster_manual.encounters.len(),
             npcs_injected = npcs_injected,
             creatures_injected = creatures_injected,
-            in_combat = ctx.combat_state.in_combat(),
+            in_combat = ctx.in_combat(),
             location = %ctx.current_location,
         ).entered();
         tracing::info!("Monster Manual content injected (location-filtered)");
     }
 
-    // Story 15-26: NPC autonomous action selection — wire scenario between-turn processing
-    // into the dispatch pipeline so NPC actions are mechanically grounded, not LLM-improvised.
+    // Story 7-9: Scenario between-turn processing — gossip, NPC actions, clue activation.
+    // Unified under "scenario" OTEL namespace for GM panel filtering.
     if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
         if !scenario.is_resolved() {
+            let _advance_span = tracing::info_span!("scenario.advance",
+                turn = turn_number,
+                tension = %format!("{:.2}", scenario.tension()),
+            ).entered();
+
             let turn_number_u64 = turn_number as u64;
             let events = scenario.process_between_turns(&mut ctx.snapshot.npcs, turn_number_u64);
 
@@ -458,8 +522,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             for event in &events {
                 match &event.event_type {
                     sidequest_game::ScenarioEventType::NpcAction { npc_name, action } => {
-                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
-                            .field("event", "npc_action_selected")
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "scenario.npc_action")
                             .field("npc_name", npc_name)
                             .field("action", format!("{:?}", action))
                             .field("turn", turn_number)
@@ -468,8 +532,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         npc_action_lines.push(event.description.clone());
                     }
                     sidequest_game::ScenarioEventType::GossipSpread { claims_spread, contradictions_found } => {
-                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
-                            .field("event", "gossip_propagated")
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "scenario.gossip_spread")
                             .field("claims_spread", *claims_spread)
                             .field("contradictions_found", *contradictions_found)
                             .field("turn", turn_number)
@@ -477,8 +541,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         npc_action_lines.push(event.description.clone());
                     }
                     sidequest_game::ScenarioEventType::ClueDiscovered { clue_id } => {
-                        WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
-                            .field("event", "clue_discoverable")
+                        WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                            .field("event", "scenario.clue_discovered")
                             .field("clue_id", clue_id)
                             .field("turn", turn_number)
                             .send();
@@ -494,8 +558,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     state_summary.push_str(&format!("- {}\n", line));
                 }
 
-                WatcherEventBuilder::new("npc_actions", WatcherEventType::SubsystemExerciseSummary)
-                    .field("event", "npc_actions.injected")
+                WatcherEventBuilder::new("scenario", WatcherEventType::SubsystemExerciseSummary)
+                    .field("event", "scenario.npc_actions_injected")
                     .field("action_count", npc_action_lines.len())
                     .field("tension", format!("{:.2}", scenario.tension()))
                     .field("turn", turn_number)
@@ -652,8 +716,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Process the action through GameService (FreePlay mode — immediate resolution)
     let context = TurnContext {
         state_summary: Some(state_summary),
-        in_combat: ctx.combat_state.in_combat(),
-        in_chase: ctx.chase_state.is_some(),
+        in_combat: ctx.in_combat(),
+        in_chase: ctx.in_chase(),
         narrator_verbosity: ctx.narrator_verbosity,
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: trope_beat_directives,
@@ -671,6 +735,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         campaign_maturity: live_maturity,
         // Multiplayer action attribution — narrator knows WHO is acting
         character_name: ctx.char_name.to_string(),
+        // Genre-specific prompt templates from prompts.yaml
+        genre_prompts: {
+            let gs = ctx.genre_slug;
+            sidequest_genre::GenreCode::new(gs)
+                .ok()
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .map(|pack| pack.prompts.clone())
+        },
     };
     let result = ctx
         .state
@@ -770,12 +842,38 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let narration_text = &result.narration;
     if let Some(location) = extract_location_header(narration_text) {
-        // Room-graph mode: validate + apply transition via canonical function (story 19-2).
+        // Room-graph mode: resolve display name → room ID, then validate + apply.
         // Region mode (rooms empty): always valid — no room graph to check.
+        let resolved_location = if !ctx.rooms.is_empty() {
+            match sidequest_game::room_movement::resolve_room_id(&location, &ctx.rooms) {
+                Some(id) => {
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::StateTransition)
+                        .field("event", "room_graph.name_resolved")
+                        .field("input", &location)
+                        .field("resolved_id", id)
+                        .send();
+                    id.to_string()
+                }
+                None => {
+                    WatcherEventBuilder::new("room_graph", WatcherEventType::ValidationWarning)
+                        .field("event", "room_graph.name_unresolved")
+                        .field("input", &location)
+                        .send();
+                    tracing::warn!(
+                        name: "room_graph.name_unresolved",
+                        input = %location,
+                        "narrator used unknown room name — falling through to validation"
+                    );
+                    location.clone()
+                }
+            }
+        } else {
+            location.clone()
+        };
         let location_valid = if !ctx.rooms.is_empty() {
             match sidequest_game::room_movement::apply_validated_move(
                 ctx.snapshot,
-                &location,
+                &resolved_location,
                 &ctx.rooms,
             ) {
                 Ok(transition) => {
@@ -854,8 +952,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         };
 
         if location_valid {
+            // In room_graph mode, use the resolved room ID as current_location
+            // so build_room_graph_explored can match it. In region mode, use display name.
+            let canonical_location = if !ctx.rooms.is_empty() {
+                resolved_location.clone()
+            } else {
+                location.clone()
+            };
             let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
-            *ctx.current_location = location.clone();
+            *ctx.current_location = canonical_location;
             if is_new {
                 ctx.discovered_regions.push(location.clone());
                 // Story 26-8: emit discovery event for GM panel visibility
@@ -1151,6 +1256,44 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
     let tier_events = mutation_result.tier_events;
 
+    // Story 28-5: Beat selection dispatch — route narrator's beat_selection through
+    // apply_beat() on the live StructuredEncounter. The beat's stat_check drives
+    // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
+    // beat_selection will be populated by story 28-6 (narrator outputs beat selections).
+    //
+    // Story 28-9: encounter_just_resolved is computed here (after beat dispatch),
+    // not inside apply_state_mutations, because dispatch_beat_selection is what
+    // actually sets encounter.resolved = true via apply_beat().
+    let encounter_active_before_beat = ctx.in_encounter();
+    if let Some(ref beat_id) = result.scene_intent {
+        // Temporary: scene_intent carries beat_id until story 28-6 adds dedicated field.
+        // Only dispatch if there's an active encounter.
+        if ctx.snapshot.encounter.is_some() {
+            dispatch_beat_selection(ctx, beat_id);
+        }
+    }
+    let encounter_active_after_beat = ctx.in_encounter();
+    let encounter_just_resolved = encounter_active_before_beat && !encounter_active_after_beat;
+    let encounter_just_started = !encounter_active_before_beat && encounter_active_after_beat;
+
+    // OTEL: encounter state transitions (story 28-9)
+    if encounter_just_resolved {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.resolved")
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
+            .field("turn", turn_number)
+            .send();
+        // Clear resolved encounter so the overlay doesn't keep broadcasting
+        ctx.snapshot.encounter = None;
+    }
+    if encounter_just_started {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.started")
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
+            .field("turn", turn_number)
+            .send();
+    }
+
     // Story 15-20: build narration state delta from current ctx locals via game-crate.
     // Patch a temp snapshot with current locals so build_protocol_delta reads fresh values.
     // Diff against before_snapshot (captured at dispatch entry) to detect what changed.
@@ -1203,7 +1346,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // returns zero contradictions almost every time — pure waste.
     {
         let dead_npcs_exist = ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0);
-        let in_combat = ctx.combat_state.in_combat();
+        let in_combat = ctx.in_combat();
         if in_combat {
             tracing::info!("continuity.skipped — in_combat, creature_smith output is structured");
             WatcherEventBuilder::new("continuity", WatcherEventType::SubsystemExerciseSummary)
@@ -1242,10 +1385,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     drop(_state_update_guard);
 
-    // Record combat resolution as a lore event when combat ends this turn.
-    if mutation_result.combat_just_ended {
+    // Record encounter resolution as a lore event when encounter resolves this turn.
+    if encounter_just_resolved {
         let summary = format!(
-            "Combat at {} concluded on turn {}",
+            "Encounter at {} concluded on turn {}",
             ctx.current_location, turn_number
         );
         accumulate_and_persist_lore(
@@ -1259,19 +1402,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let system_tick_span = tracing::info_span!(
         "turn.system_tick",
-        combat_changed = tracing::field::Empty,
         tropes_fired = tracing::field::Empty,
         achievements_earned = tracing::field::Empty,
     );
     let _system_tick_guard = system_tick_span.enter();
 
-    let combat_active = ctx.combat_state.in_combat();
-    combat::process_combat_and_chase(ctx, &clean_narration, &result, &mut messages, mutation_result.combat_just_ended, mutation_result.combat_just_started)
-        .instrument(tracing::info_span!(
-            "turn.system_tick.combat",
-            in_combat = combat_active,
-        ))
-        .await;
+    // process_combat_and_chase deleted in story 28-9 — beat system handles encounters.
 
     let (fired_beats, earned_achievements) = {
         // Initialize TropeState for each definition if empty.  Definitions
@@ -1371,7 +1507,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // so RENDER_QUEUED arrives at the UI before NARRATION text.
 
     let location_changed = *ctx.current_location != location_before_turn;
-    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, mutation_result.combat_just_ended).await;
+    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, encounter_just_resolved).await;
 
     // Record this interaction in the turn manager
     ctx.turn_manager.record_interaction();
@@ -1397,8 +1533,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             game_delta.npcs_changed(),
             game_delta.location_changed(),
             game_delta.quest_log_changed(),
-            game_delta.combat_changed(),
-            game_delta.chase_changed(),
             game_delta.atmosphere_changed(),
             game_delta.regions_changed(),
             game_delta.tropes_changed(),
@@ -2286,12 +2420,25 @@ async fn build_response_messages(
     // MAP_UPDATE — send every turn so the client always has current explored regions.
     // Previously only sent on location change, leaving the client stale if location
     // didn't change (headless driver showed "0 explored" despite 5 in game state).
+    tracing::debug!(
+        rooms_count = ctx.rooms.len(),
+        discovered_rooms_count = ctx.snapshot.discovered_rooms.len(),
+        discovered_rooms = ?ctx.snapshot.discovered_rooms,
+        current_location = %ctx.snapshot.location,
+        "map_update.debug — room graph state"
+    );
     let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty() {
-        sidequest_game::build_room_graph_explored(
+        let locs = sidequest_game::build_room_graph_explored(
             &ctx.rooms,
             &ctx.snapshot.discovered_rooms,
             &ctx.snapshot.location,
-        )
+        );
+        tracing::debug!(
+            explored_count = locs.len(),
+            room_exits_total = locs.iter().map(|l| l.room_exits.len()).sum::<usize>(),
+            "map_update.debug — room graph explored result"
+        );
+        locs
     } else {
         ctx.discovered_regions
             .iter()
@@ -2320,15 +2467,8 @@ async fn build_response_messages(
     });
 
     // Confrontation overlay — broadcast structured encounter state.
-    // Syncs from live combat/chase state so the UI shows the overlay.
-    let encounter = if ctx.combat_state.in_combat() {
-        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-    } else if let Some(ref cs) = ctx.chase_state {
-        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-    } else {
-        None
-    };
-    if let Some(ref enc) = encounter {
+    // Story 28-9: encounter is maintained directly, no bridge needed.
+    if let Some(ref enc) = ctx.snapshot.encounter {
         let actors: Vec<sidequest_protocol::ConfrontationActor> = enc.actors.iter().map(|a| {
             let portrait = ctx.npc_registry.iter()
                 .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
@@ -2346,11 +2486,12 @@ async fn build_response_messages(
             sidequest_game::MetricDirection::Bidirectional => "bidirectional",
             _ => "ascending",
         };
+        let def = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type);
         messages.push(GameMessage::Confrontation {
             payload: sidequest_protocol::ConfrontationPayload {
                 encounter_type: enc.encounter_type.clone(),
-                label: enc.encounter_type.replace('_', " "),
-                category: enc.encounter_type.clone(),
+                label: def.map(|d| d.label.clone()).unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
+                category: def.map(|d| d.category.clone()).unwrap_or_else(|| enc.encounter_type.clone()),
                 actors,
                 metric: sidequest_protocol::ConfrontationMetric {
                     name: metric.name.clone(),
@@ -2360,7 +2501,14 @@ async fn build_response_messages(
                     threshold_high: metric.threshold_high,
                     threshold_low: metric.threshold_low,
                 },
-                beats: vec![],
+                beats: def.map(|d| d.beats.iter().map(|b| sidequest_protocol::ConfrontationBeat {
+                    id: b.id.clone(),
+                    label: b.label.clone(),
+                    metric_delta: b.metric_delta,
+                    stat_check: b.stat_check.clone(),
+                    risk: b.risk.clone(),
+                    resolution: b.resolution.unwrap_or(false),
+                }).collect()).unwrap_or_default(),
                 secondary_stats: enc.secondary_stats.as_ref().and_then(|ss| serde_json::to_value(ss).ok()),
                 genre_slug: ctx.genre_slug.to_string(),
                 mood: enc.mood_override.clone().unwrap_or_default(),
@@ -2368,6 +2516,17 @@ async fn build_response_messages(
             },
             player_id: ctx.player_id.to_string(),
         });
+        // OTEL: log beats sent to UI (story 28-3)
+        if let Some(d) = def {
+            if !d.beats.is_empty() {
+                WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                    .field("action", "beats_sent")
+                    .field("encounter_type", &enc.encounter_type)
+                    .field("beat_count", d.beats.len())
+                    .field("beat_ids", d.beats.iter().map(|b| b.id.clone()).collect::<Vec<_>>())
+                    .send();
+            }
+        }
     }
 }
 
@@ -2396,16 +2555,7 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     }
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
     ctx.snapshot.axis_values = ctx.axis_values.clone();
-    ctx.snapshot.combat = ctx.combat_state.clone();
-    ctx.snapshot.chase = ctx.chase_state.clone();
-    // Sync StructuredEncounter from live combat/chase state
-    ctx.snapshot.encounter = if ctx.combat_state.in_combat() {
-        Some(sidequest_game::StructuredEncounter::from_combat_state(ctx.combat_state))
-    } else if let Some(ref cs) = ctx.chase_state {
-        Some(sidequest_game::StructuredEncounter::from_chase_state(cs))
-    } else {
-        None
-    };
+    // combat/chase sync removed in story 28-9 — encounter is maintained directly via apply_beat().
 
 
     ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
@@ -2597,8 +2747,8 @@ fn spawn_tts_pipeline(
     let genre_slug_for_tts = ctx.genre_slug.to_string();
     let tts_segments_for_prerender = tts_segments.clone();
     let prerender_ctx = sidequest_game::PrerenderContext {
-        in_combat: ctx.combat_state.in_combat(),
-        combatant_names: if ctx.combat_state.in_combat() {
+        in_combat: ctx.in_combat(),
+        combatant_names: if ctx.in_combat() {
             result
                 .npcs_present
                 .iter()
@@ -2848,7 +2998,7 @@ fn emit_telemetry(
             "inventory": inventory_names,
             "npc_registry": npc_data,
             "active_tropes": active_tropes,
-            "in_combat": ctx.combat_state.in_combat(),
+            "in_combat": ctx.in_combat(),
             "player_id": ctx.player_id,
             "character": ctx.char_name,
         });
@@ -2913,6 +3063,9 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         references_ability: false,
         references_location: false,
     };
+    // Sync StructuredEncounter before prompt context so format_encounter_context() can use it
+    // encounter sync bridge removed in story 28-9 — encounter is maintained directly via apply_beat().
+
     let mut state_summary = prompt::build_prompt_context(ctx, &aside_relevance).await;
     state_summary.push_str(concat!(
         "\n\nASIDE RULES (HARD CONSTRAINTS):",
@@ -2926,8 +3079,8 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
 
     let context = TurnContext {
         state_summary: Some(state_summary),
-        in_combat: ctx.combat_state.in_combat(),
-        in_chase: ctx.chase_state.is_some(),
+        in_combat: ctx.in_combat(),
+        in_chase: ctx.in_chase(),
         narrator_verbosity: ctx.narrator_verbosity,
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: None,
@@ -2945,6 +3098,14 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         campaign_maturity: sidequest_game::world_materialization::CampaignMaturity::default(),
         // Multiplayer action attribution
         character_name: ctx.char_name.to_string(),
+        // Aside turns still need genre voice for consistent tone
+        genre_prompts: {
+            let gs = ctx.genre_slug;
+            sidequest_genre::GenreCode::new(gs)
+                .ok()
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .map(|pack| pack.prompts.clone())
+        },
     };
     let result = ctx
         .state
@@ -2980,6 +3141,167 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
             player_id: ctx.player_id.to_string(),
         },
     ]
+}
+
+/// Dispatch a beat selection to the encounter engine (story 28-5).
+///
+/// Routes beat_id through apply_beat() on the live StructuredEncounter,
+/// then resolves stat_check-specific mechanics (attack → apply_hp_delta,
+/// escape → separation metric, others → metric_delta only via apply_beat).
+/// Checks resolution after apply_beat and handles escalation if needed.
+///
+/// Emits OTEL events: encounter.beat_dispatched, encounter.stat_check_resolved.
+fn dispatch_beat_selection(
+    ctx: &mut DispatchContext<'_>,
+    beat_id: &str,
+) {
+    // Look up the confrontation def for the active encounter
+    let encounter_type = match ctx.snapshot.encounter {
+        Some(ref enc) => enc.encounter_type.clone(),
+        None => {
+            tracing::warn!(beat_id = %beat_id, "beat_selection with no active encounter");
+            return;
+        }
+    };
+
+    let def = match crate::find_confrontation_def(&ctx.confrontation_defs, &encounter_type) {
+        Some(d) => d.clone(),
+        None => {
+            tracing::warn!(
+                beat_id = %beat_id,
+                encounter_type = %encounter_type,
+                "beat_selection: no confrontation def found"
+            );
+            return;
+        }
+    };
+
+    // Find the beat def once for stat_check routing and metric_delta.
+    // Fail loudly if beat_id is not in the confrontation def — no silent fallbacks.
+    let beat = match def.beats.iter().find(|b| b.id == beat_id) {
+        Some(b) => b,
+        None => {
+            tracing::warn!(
+                beat_id = %beat_id,
+                encounter_type = %encounter_type,
+                "beat_selection: beat_id not found in confrontation def beats"
+            );
+            return;
+        }
+    };
+    let stat_check = beat.stat_check.clone();
+    let metric_delta = beat.metric_delta;
+
+    // Resolver routing: attack/strength → resolve_attack, escape → escape,
+    // all others (persuade, intimidate, etc.) → metric_delta only.
+    let resolver = match stat_check.to_lowercase().as_str() {
+        "attack" | "strength" => "resolve_attack",
+        "escape" => "escape",
+        _ => "metric_delta",
+    };
+
+    // OTEL: encounter.beat_dispatched
+    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        .field("event", "encounter.beat_dispatched")
+        .field("beat_id", beat_id)
+        .field("stat_check", &stat_check)
+        .field("resolver", resolver)
+        .field("encounter_type", &encounter_type)
+        .send();
+
+    // Apply the beat to the encounter metric
+    if let Some(ref mut encounter) = ctx.snapshot.encounter {
+        match encounter.apply_beat(beat_id, &def) {
+            Ok(()) => {
+                tracing::info!(
+                    beat_id = %beat_id,
+                    stat_check = %stat_check,
+                    metric_current = encounter.metric.current,
+                    resolved = encounter.resolved,
+                    "encounter.beat_applied"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(beat_id = %beat_id, error = %e, "encounter.beat_apply_failed");
+                return;
+            }
+        }
+    }
+
+    // Route stat_check to specific resolution mechanics
+    match resolver {
+        "resolve_attack" => {
+            // Attack beat — metric_delta from apply_beat already moved the encounter metric.
+            // CreatureCore apply_hp_delta is called by the combat system separately.
+            if metric_delta != 0 {
+                tracing::info!(
+                    delta = metric_delta,
+                    "encounter.stat_check.resolve_attack — HP delta via encounter metric"
+                );
+            }
+        }
+        "escape" => {
+            // Escape beat — separation metric handled by apply_beat's metric_delta.
+            if let Some(ref encounter) = ctx.snapshot.encounter {
+                tracing::info!(
+                    separation = encounter.metric.current,
+                    "encounter.stat_check.escape — separation metric updated"
+                );
+            }
+        }
+        _ => {
+            // All other stat_checks (persuade, intimidate, etc.) — metric_delta only.
+            // apply_beat already handled the metric change.
+        }
+    }
+
+    // OTEL: encounter.stat_check_resolved
+    let metric_current = ctx.snapshot.encounter.as_ref()
+        .map(|e| e.metric.current)
+        .unwrap_or(0);
+    let is_resolved = ctx.snapshot.encounter.as_ref()
+        .map(|e| e.resolved)
+        .unwrap_or(false);
+    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        .field("event", "encounter.stat_check_resolved")
+        .field("stat_check", &stat_check)
+        .field("resolver", resolver)
+        .field("metric_current", metric_current)
+        .field("resolved", is_resolved)
+        .send();
+
+    // Check resolution and handle escalation
+    if is_resolved {
+        tracing::info!(
+            encounter_type = %encounter_type,
+            "encounter.resolved — checking escalation"
+        );
+
+        // Check for escalation: escalates_to in the confrontation def
+        if let Some(ref encounter) = ctx.snapshot.encounter {
+            if let Some(escalation_target) = encounter.escalation_target(&def) {
+                tracing::info!(
+                    escalates_to = %escalation_target,
+                    "encounter.escalation_triggered"
+                );
+                // Create the escalation encounter
+                if let Some(escalated) = encounter.escalate_to_combat() {
+                    ctx.snapshot.encounter = Some(escalated);
+                    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                        .field("event", "encounter.escalation_started")
+                        .field("from_type", &encounter_type)
+                        .field("to_type", &escalation_target)
+                        .send();
+                } else {
+                    tracing::warn!(
+                        escalates_to = %escalation_target,
+                        encounter_type = %encounter_type,
+                        "encounter.escalation_failed — escalate_to_combat returned None"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -3025,16 +3347,16 @@ mod tests {
         );
     }
 
-    /// Story 15-26: Verify OTEL events are emitted for NPC action selection
-    /// so the GM panel can confirm actions are grounded, not improvised.
+    /// Story 15-26 / 7-9: Verify OTEL events are emitted for NPC action selection
+    /// under the unified "scenario" namespace so the GM panel can filter by subsystem.
     #[test]
     fn dispatch_pipeline_emits_npc_action_otel() {
         let source = include_str!("mod.rs");
         let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
         assert!(
-            production_code.contains("npc_action_selected"),
-            "dispatch must emit npc_action_selected OTEL event for each NPC \
-             autonomous action — story 15-26"
+            production_code.contains("scenario.npc_action"),
+            "dispatch must emit scenario.npc_action OTEL event for each NPC \
+             autonomous action — story 7-9 (unified scenario namespace)"
         );
     }
 

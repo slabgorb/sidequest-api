@@ -24,6 +24,18 @@ pub struct Prompts {
     /// Scene transition hint templates.
     #[serde(default)]
     pub transition_hints: HashMap<String, String>,
+    /// Extraction phase narrator prompt (party heading for exit with treasure).
+    #[serde(default)]
+    pub extraction: Option<String>,
+    /// Keeper monologue narrator prompt (dungeon intelligence speaks).
+    #[serde(default)]
+    pub keeper_monologue: Option<String>,
+    /// Town/surface narrator prompt.
+    #[serde(default)]
+    pub town: Option<String>,
+    /// Character creation narrator prompt.
+    #[serde(default)]
+    pub chargen: Option<String>,
 }
 
 // ═══════════════════════════════════════════════════════════

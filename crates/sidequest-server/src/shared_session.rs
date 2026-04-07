@@ -21,7 +21,7 @@ pub struct TargetedMessage {
     /// If set, only deliver to this player. None = broadcast to all.
     pub target_player_id: Option<String>,
 }
-use sidequest_game::perception::{PerceptionFilter, PerceptionRewriter};
+use sidequest_game::perception::PerceptionFilter;
 use sidequest_game::turn_mode::TurnMode;
 use sidequest_protocol::GameMessage;
 
@@ -65,8 +65,6 @@ pub struct PlayerState {
     /// Raw narrator location string (display text for UI).
     pub display_location: String,
     pub inventory: sidequest_game::Inventory,
-    pub combat_state: sidequest_game::combat::CombatState,
-    pub chase_state: Option<sidequest_game::ChaseState>,
 }
 
 impl PlayerState {
@@ -86,8 +84,6 @@ impl PlayerState {
             region_id: String::new(),
             display_location: String::new(),
             inventory: sidequest_game::Inventory::default(),
-            combat_state: sidequest_game::combat::CombatState::default(),
-            chase_state: None,
         }
     }
 }
@@ -256,25 +252,6 @@ impl SharedGameSession {
         );
     }
 
-    /// Check if any players have active perceptual effects that would
-    /// require narration rewriting.
-    ///
-    /// Returns true if at least one player has effects. The actual
-    /// rewriting requires a `PerceptionRewriter` with a configured
-    /// strategy (currently RED phase / stub — no production strategy yet).
-    pub fn has_perception_effects(&self) -> bool {
-        self.perception_filters.values().any(|f| f.has_effects())
-    }
-
-    /// Describe active perceptual effects for a player (for prompt composition).
-    /// Returns None if the player has no effects.
-    pub fn describe_player_effects(&self, player_id: &str) -> Option<String> {
-        self.perception_filters
-            .get(player_id)
-            .filter(|f| f.has_effects())
-            .map(|f| PerceptionRewriter::describe_effects(f.effects()))
-    }
-
     /// Copy world-level state FROM the shared session INTO local variables.
     /// Used at the start of dispatch_player_action so existing code works unchanged.
     pub fn sync_to_locals(
@@ -303,8 +280,6 @@ impl SharedGameSession {
         level: &mut u32,
         xp: &mut u32,
         inventory: &mut sidequest_game::Inventory,
-        combat_state: &mut sidequest_game::combat::CombatState,
-        chase_state: &mut Option<sidequest_game::ChaseState>,
         character_json: &mut Option<serde_json::Value>,
     ) {
         if let Some(ps) = self.players.get(player_id) {
@@ -313,8 +288,6 @@ impl SharedGameSession {
             *level = ps.character_level;
             *xp = ps.character_xp;
             *inventory = ps.inventory.clone();
-            *combat_state = ps.combat_state.clone();
-            *chase_state = ps.chase_state.clone();
             if let Some(ref cj) = ps.character_json {
                 *character_json = Some(cj.clone());
             }

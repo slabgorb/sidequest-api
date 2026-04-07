@@ -60,8 +60,7 @@ PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot, in_combat, hp_changes, turn_order, current_turn, \
-drama_weight, visual_scene, footnotes.\n\
+mood, state_snapshot, beat_selections, visual_scene, footnotes.\n\
 \n\
 visual_scene: Include this on EVERY turn where the setting changes, a new \
 location is entered, or a visually significant event occurs (combat start, \
@@ -84,10 +83,11 @@ Quest (objectives/tasks), Ability (skills/powers).\n\
 is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
 Include footnotes generously — they feed the player's knowledge journal.\n\
 \n\
-Combat initiation: When the player attacks or a hostile encounter begins, \
-set in_combat: true and include turn_order (list of combatant names, \
-player first) and current_turn (whose turn it is). Include hp_changes \
-for any damage dealt (negative values = damage). Set drama_weight 0.0-1.0.\n\
+beat_selections: When an encounter is active (the encounter context section will \
+list available beats), include beat_selections — an array of beat choices made \
+by each actor this turn. Each entry has: actor (who acts), beat_id (which beat \
+from the available list), and optional target (who the action targets). Only \
+include beat_selections when an encounter is active and actions were taken.\n\
 \n\
 Example A — exploration (new area + NPC):\n\
 ```game_patch\n\
@@ -108,22 +108,21 @@ Example A — exploration (new area + NPC):\n\
 }\n\
 ```\n\
 \n\
-Example B — combat round:\n\
+Example B — encounter round (combat, chase, standoff, etc.):\n\
 ```game_patch\n\
 {\n\
-  \"in_combat\": true,\n\
-  \"hp_changes\": {\"{{player_name}}\": {{negative_damage}}, \"{{enemy_name}}\": {{negative_damage}}},\n\
-  \"turn_order\": [\"{{player_name}}\", \"{{enemy_name}}\"],\n\
-  \"current_turn\": \"{{enemy_name}}\",\n\
-  \"drama_weight\": {{0.0_to_1.0}},\n\
+  \"beat_selections\": [\n\
+    {\"actor\": \"{{player_name}}\", \"beat_id\": \"{{beat_from_available_list}}\", \"target\": \"{{target_name}}\"},\n\
+    {\"actor\": \"{{npc_name}}\", \"beat_id\": \"{{beat_from_available_list}}\"}\n\
+  ],\n\
   \"visual_scene\": {\n\
-    \"subject\": \"{{combat action image prompt, max 100 chars}}\",\n\
+    \"subject\": \"{{encounter action image prompt, max 100 chars}}\",\n\
     \"tier\": \"scene_illustration\",\n\
     \"mood\": \"dramatic\",\n\
     \"tags\": [\"combat\"]\n\
   },\n\
   \"footnotes\": [\n\
-    {\"summary\": \"{{fact revealed during combat, e.g. enemy weakness}}\", \"category\": \"Lore\", \"is_new\": true}\n\
+    {\"summary\": \"{{fact revealed during encounter}}\", \"category\": \"Lore\", \"is_new\": true}\n\
   ]\n\
 }\n\
 ```\n\
@@ -257,23 +256,19 @@ impl NarratorAgent {
         }
     }
 
-    /// Inject combat-specific narration rules into the prompt (ADR-067).
-    /// Called by the orchestrator when `TurnContext.in_combat` is true.
-    pub fn build_combat_context(&self, builder: &mut ContextBuilder) {
+    /// Inject encounter-specific narration rules into the prompt (story 28-6).
+    /// Called by the orchestrator when any StructuredEncounter is active.
+    /// Replaces the separate build_combat_context/build_chase_context methods.
+    /// The encounter context section (from format_encounter_context, wired in 28-4)
+    /// tells the narrator which beats are available; this method adds the
+    /// overarching encounter narration rules.
+    pub fn build_encounter_context(&self, builder: &mut ContextBuilder) {
         builder.add_section(PromptSection::new(
-            "narrator_combat_rules",
-            format!("<combat-rules>\n{}\n</combat-rules>", NARRATOR_COMBAT_RULES),
-            AttentionZone::Early,
-            SectionCategory::Guardrail,
-        ));
-    }
-
-    /// Inject chase-specific narration rules into the prompt (ADR-067).
-    /// Called by the orchestrator when `TurnContext.in_chase` is true.
-    pub fn build_chase_context(&self, builder: &mut ContextBuilder) {
-        builder.add_section(PromptSection::new(
-            "narrator_chase_rules",
-            format!("<chase-rules>\n{}\n</chase-rules>", NARRATOR_CHASE_RULES),
+            "narrator_encounter_rules",
+            format!(
+                "<encounter-rules>\n{}\n{}\n</encounter-rules>",
+                NARRATOR_COMBAT_RULES, NARRATOR_CHASE_RULES
+            ),
             AttentionZone::Early,
             SectionCategory::Guardrail,
         ));

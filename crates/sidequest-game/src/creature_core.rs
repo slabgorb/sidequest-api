@@ -42,7 +42,18 @@ pub struct CreatureCore {
 impl CreatureCore {
     /// Apply HP damage or healing, clamped to [0, max_hp].
     pub fn apply_hp_delta(&mut self, delta: i32) {
+        let old_hp = self.hp;
         self.hp = clamp_hp(self.hp, delta, self.max_hp);
+        let clamped = self.hp != old_hp + delta;
+        let span = tracing::info_span!(
+            "creature.hp_delta",
+            name = %self.name,
+            old_hp = old_hp,
+            new_hp = self.hp,
+            delta = delta,
+            clamped = clamped,
+        );
+        let _guard = span.enter();
     }
 }
 

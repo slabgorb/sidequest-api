@@ -281,11 +281,6 @@ impl MultiplayerSession {
             .collect()
     }
 
-    /// Narration from the last resolved turn (if any).
-    pub fn last_narration(&self) -> Option<&HashMap<String, String>> {
-        self.last_narration.as_ref()
-    }
-
     /// Record an action without triggering auto-resolution.
     /// Returns true if the action was recorded (player exists and hasn't
     /// already submitted). Used by `TurnBarrier` to decouple submission

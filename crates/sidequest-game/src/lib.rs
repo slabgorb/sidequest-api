@@ -17,10 +17,8 @@ pub mod beat_filter;
 pub mod builder;
 pub mod catch_up;
 pub mod character;
-pub mod chase;
 pub mod chase_depth;
 pub mod clue_activation;
-pub mod combat;
 pub mod combatant;
 pub mod commands;
 pub mod conlang;
@@ -58,6 +56,7 @@ pub mod render_queue;
 pub mod resource_pool;
 pub mod room_movement;
 pub mod scenario_archiver;
+pub mod scenario_scoring;
 pub mod scenario_state;
 pub mod scene_relevance;
 pub mod scene_directive;
@@ -68,6 +67,7 @@ pub mod state;
 pub mod subject;
 pub mod tension_tracker;
 pub mod theme_rotator;
+pub mod treasure_xp;
 pub mod trope;
 pub mod tts_stream;
 pub mod turn;
@@ -89,7 +89,6 @@ pub use audio_mixer::{AudioMixer, DuckConfig};
 pub use axis::{format_tone_context, AxisValue, ToneCommand};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
-pub use chase::{ChaseRound, ChaseState, ChaseType};
 pub use chase_depth::{
     apply_terrain_to_rig, camera_for_phase, check_outcome, cinematography_for_phase,
     danger_for_beat, format_chase_context, phase_for_beat, sentence_range_for_drama,
@@ -99,7 +98,6 @@ pub use chase_depth::{
 pub use clue_activation::{
     ClueActivation, ClueGraph, ClueNode, ClueType, ClueVisibility, DiscoveryMethod,
 };
-pub use combat::{CombatOutcome, CombatState, DamageEvent, RoundResult, StatusEffect, StatusEffectKind};
 pub use combatant::Combatant;
 pub use conlang::{
     format_name_bank_for_prompt, GeneratedName, Morpheme, MorphemeCategory, MorphemeGlossary,
@@ -158,6 +156,9 @@ pub use render_queue::{
     RenderJobResult, RenderQueue, RenderQueueConfig, RenderStatus, DEFAULT_CACHE_TTL,
     MAX_QUEUE_DEPTH,
 };
+pub use scenario_scoring::{
+    score_scenario, DeductionQuality, ScenarioGrade, ScenarioScore, ScenarioScoreInput,
+};
 pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
 pub use segmenter::{Segment, SentenceSegmenter};
@@ -167,13 +168,14 @@ pub use resource_pool::{
     ResourcePool, ResourceThreshold,
 };
 pub use state::{
-    broadcast_state_changes, build_protocol_delta, ChasePatch, CombatPatch, DiscoveredRooms,
+    broadcast_state_changes, build_protocol_delta, DiscoveredRooms,
     GameSnapshot, NpcPatch, WorldStatePatch,
 };
 pub use subject::{
     ExtractionContext, RenderSubject, SceneType, SubjectExtractor, SubjectTier, TierRules,
 };
-pub use tension_tracker::{CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker};
+pub use tension_tracker::{CombatEvent, DamageEvent, DeliveryMode, DramaThresholds, PacingHint, RoundResult, TensionTracker};
+pub use treasure_xp::{apply_treasure_xp, TreasureXpConfig, TreasureXpResult};
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
 pub use voice_router::{VoiceAssignment, VoiceRouter};
