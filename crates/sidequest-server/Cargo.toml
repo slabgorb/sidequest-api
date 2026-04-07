@@ -41,3 +41,4 @@ rand = { workspace = true }
 
 [dev-dependencies]
 tokio-tungstenite = "0.24"
+serde_yaml = { workspace = true }
