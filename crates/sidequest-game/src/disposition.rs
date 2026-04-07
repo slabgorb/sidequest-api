@@ -60,7 +60,19 @@ impl Disposition {
 
     /// Apply a delta to the disposition value.
     pub fn apply_delta(&mut self, delta: i32) {
+        let old_value = self.0;
+        let old_attitude = self.attitude().to_string();
         self.0 = self.0.saturating_add(delta);
+        let new_attitude = self.attitude().to_string();
+        let span = tracing::info_span!(
+            "disposition.shift",
+            old_value = old_value,
+            new_value = self.0,
+            old_attitude = %old_attitude,
+            new_attitude = %new_attitude,
+            delta = delta,
+        );
+        let _guard = span.enter();
     }
 
 }
