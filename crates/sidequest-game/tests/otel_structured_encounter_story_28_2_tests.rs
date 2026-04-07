@@ -85,14 +85,23 @@ fn test_creature() -> CreatureCore {
     }
 }
 
+/// Serialize telemetry tests — the global broadcast channel is shared state,
+/// so tests that emit and read events must not run concurrently.
+static TELEMETRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Initialize the global telemetry channel (idempotent via OnceLock).
 /// Subscribe and drain any stale events, returning a clean receiver.
-fn fresh_subscriber() -> tokio::sync::broadcast::Receiver<WatcherEvent> {
+/// Also acquires TELEMETRY_LOCK — caller must hold the returned guard.
+fn fresh_subscriber() -> (
+    std::sync::MutexGuard<'static, ()>,
+    tokio::sync::broadcast::Receiver<WatcherEvent>,
+) {
+    let guard = TELEMETRY_LOCK.lock().unwrap();
     let _ = init_global_channel();
     let mut rx = subscribe_global().expect("channel must be initialized");
     // Drain any stale events from prior tests
     while rx.try_recv().is_ok() {}
-    rx
+    (guard, rx)
 }
 
 /// Collect all available events from the receiver (non-blocking).
@@ -129,7 +138,7 @@ fn find_events_by_action(events: &[WatcherEvent], component: &str, action: &str)
 /// apply_beat() must emit an encounter.beat_applied WatcherEvent.
 #[test]
 fn apply_beat_emits_beat_applied_event() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -147,7 +156,7 @@ fn apply_beat_emits_beat_applied_event() {
 /// beat_applied event includes encounter_type field.
 #[test]
 fn beat_applied_has_encounter_type() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -168,7 +177,7 @@ fn beat_applied_has_encounter_type() {
 /// beat_applied event includes beat_id field.
 #[test]
 fn beat_applied_has_beat_id() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -188,7 +197,7 @@ fn beat_applied_has_beat_id() {
 /// beat_applied event includes stat_check field.
 #[test]
 fn beat_applied_has_stat_check() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -208,7 +217,7 @@ fn beat_applied_has_stat_check() {
 /// beat_applied event includes metric_before and metric_after fields.
 #[test]
 fn beat_applied_has_metric_before_after() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -236,7 +245,7 @@ fn beat_applied_has_metric_before_after() {
 /// beat_applied event includes the current phase.
 #[test]
 fn beat_applied_has_phase() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -261,7 +270,7 @@ fn beat_applied_has_phase() {
 /// When a resolution beat fires, apply_beat must emit encounter.resolved.
 #[test]
 fn resolution_beat_emits_resolved_event() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -281,7 +290,7 @@ fn resolution_beat_emits_resolved_event() {
 /// encounter.resolved includes encounter_type and beats_total.
 #[test]
 fn resolved_event_has_encounter_type_and_beats() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -311,7 +320,7 @@ fn resolved_event_has_encounter_type_and_beats() {
 /// Threshold-triggered resolution also emits encounter.resolved.
 #[test]
 fn threshold_resolution_emits_resolved_event() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -339,7 +348,7 @@ fn threshold_resolution_emits_resolved_event() {
 /// Phase transitions during apply_beat must emit encounter.phase_transition.
 #[test]
 fn phase_transition_emits_event() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -358,7 +367,7 @@ fn phase_transition_emits_event() {
 /// phase_transition event includes old_phase and new_phase.
 #[test]
 fn phase_transition_has_old_and_new_phase() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -386,7 +395,7 @@ fn phase_transition_has_old_and_new_phase() {
 /// phase_transition includes encounter_type.
 #[test]
 fn phase_transition_has_encounter_type() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -406,7 +415,7 @@ fn phase_transition_has_encounter_type() {
 /// No phase_transition event when phase does not change.
 #[test]
 fn no_phase_transition_when_phase_unchanged() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
@@ -437,7 +446,7 @@ fn no_phase_transition_when_phase_unchanged() {
 /// escalate_to_combat() must emit encounter.escalated event.
 #[test]
 fn escalate_to_combat_emits_escalated_event() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
     encounter.actors = vec![
@@ -466,7 +475,7 @@ fn escalate_to_combat_emits_escalated_event() {
 /// escalated event includes from_type and to_type.
 #[test]
 fn escalated_event_has_from_and_to_type() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
     encounter.actors = vec![
@@ -505,7 +514,7 @@ fn escalated_event_has_from_and_to_type() {
 /// apply_hp_delta() must emit a creature.hp_delta WatcherEvent.
 #[test]
 fn apply_hp_delta_emits_event() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let mut creature = test_creature();
 
     creature.apply_hp_delta(-5);
@@ -522,7 +531,7 @@ fn apply_hp_delta_emits_event() {
 /// hp_delta event includes name, old_hp, new_hp, delta, max_hp.
 #[test]
 fn hp_delta_event_has_required_fields() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let mut creature = test_creature();
     // creature starts at hp=15, max_hp=20
 
@@ -564,7 +573,7 @@ fn hp_delta_event_has_required_fields() {
 /// hp_delta event includes clamped=true when HP would exceed max.
 #[test]
 fn hp_delta_clamped_true_on_overheal() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let mut creature = test_creature();
     // hp=15, max_hp=20, heal +100 → clamped to 20
 
@@ -584,7 +593,7 @@ fn hp_delta_clamped_true_on_overheal() {
 /// hp_delta event includes clamped=true when HP would go below zero.
 #[test]
 fn hp_delta_clamped_true_on_overkill() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let mut creature = test_creature();
     // hp=15, damage -100 → clamped to 0
 
@@ -604,7 +613,7 @@ fn hp_delta_clamped_true_on_overkill() {
 /// hp_delta event has clamped=false when no clamping occurs.
 #[test]
 fn hp_delta_clamped_false_when_within_range() {
-    let mut rx = fresh_subscriber();
+    let (_guard, mut rx) = fresh_subscriber();
     let mut creature = test_creature();
     // hp=15, max_hp=20, damage -3 → 12 (no clamping)
 

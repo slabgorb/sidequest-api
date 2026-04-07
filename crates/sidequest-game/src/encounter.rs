@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use sidequest_genre::ConfrontationDef;
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::chase::ChaseState;
 use crate::chase_depth::{RigStats, RigType};
@@ -458,6 +459,10 @@ impl StructuredEncounter {
             .find(|b| b.id == beat_id)
             .ok_or_else(|| format!("unknown beat id '{}'", beat_id))?;
 
+        // Capture pre-mutation state for OTEL
+        let metric_before = self.metric.current;
+        let old_phase = self.structured_phase;
+
         // Apply metric delta, clamping to 0 for ascending metrics
         self.metric.current += beat.metric_delta;
         if self.metric.direction == MetricDirection::Ascending && self.metric.current < 0 {
@@ -503,6 +508,45 @@ impl StructuredEncounter {
             });
         }
 
+        // OTEL: encounter.beat_applied
+        let phase_str = self
+            .structured_phase
+            .map(|p| format!("{:?}", p))
+            .unwrap_or_else(|| "Unknown".to_string());
+
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("action", "beat_applied")
+            .field("encounter_type", &self.encounter_type)
+            .field("beat_id", beat_id)
+            .field("stat_check", &beat.stat_check)
+            .field("metric_before", metric_before)
+            .field("metric_after", self.metric.current)
+            .field("phase", &phase_str)
+            .send();
+
+        // OTEL: encounter.resolved (if resolution just triggered)
+        if self.resolved {
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("action", "resolved")
+                .field("encounter_type", &self.encounter_type)
+                .field("beats_total", self.beat)
+                .field("outcome", self.outcome.as_deref().unwrap_or("none"))
+                .send();
+        }
+
+        // OTEL: encounter.phase_transition (only if phase actually changed)
+        if self.structured_phase != old_phase {
+            let old_str = old_phase
+                .map(|p| format!("{:?}", p))
+                .unwrap_or_else(|| "None".to_string());
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("action", "phase_transition")
+                .field("encounter_type", &self.encounter_type)
+                .field("old_phase", &old_str)
+                .field("new_phase", &phase_str)
+                .send();
+        }
+
         Ok(())
     }
 
@@ -518,6 +562,13 @@ impl StructuredEncounter {
         if !self.resolved {
             return None;
         }
+
+        // OTEL: encounter.escalated
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("action", "escalated")
+            .field("from_type", &self.encounter_type)
+            .field("to_type", "combat")
+            .send();
 
         let actors = self
             .actors
