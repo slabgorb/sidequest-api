@@ -65,6 +65,8 @@ pub mod segmenter;
 pub mod slash_router;
 pub mod state;
 pub mod subject;
+/// Tactical grid maps — ASCII room geometry for dungeon combat (ADR-071).
+pub mod tactical;
 pub mod tension_tracker;
 pub mod theme_rotator;
 pub mod treasure_xp;
