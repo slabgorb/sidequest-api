@@ -146,6 +146,24 @@ impl FeatureType {
             _ => None,
         }
     }
+
+    /// Return the string representation of this feature type.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Cover => "cover",
+            Self::Hazard => "hazard",
+            Self::DifficultTerrain => "difficult_terrain",
+            Self::Atmosphere => "atmosphere",
+            Self::Interactable => "interactable",
+            Self::Door => "door",
+        }
+    }
+}
+
+impl std::fmt::Display for FeatureType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// A resolved feature definition from the legend.
@@ -300,6 +318,11 @@ impl TacticalGrid {
     /// Resolved legend (glyph -> FeatureDef).
     pub fn legend(&self) -> &HashMap<char, FeatureDef> {
         &self.legend
+    }
+
+    /// All cells as a 2D grid (rows × columns).
+    pub fn cells(&self) -> &[Vec<TacticalCell>] {
+        &self.cells
     }
 
     /// Construct a TacticalGrid from pre-parsed components (used by parser).

@@ -365,6 +365,7 @@ pub(crate) async fn dispatch_connect(
                                             room_type: String::new(),
                                             size: None,
                                             is_current_room: name == &saved.snapshot.location,
+                                            tactical_grid: None,
                                         })
                                         .collect()
                                 }

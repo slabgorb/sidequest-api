@@ -1063,6 +1063,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         room_type: String::new(),
                         size: None,
                         is_current_room: false,
+                        tactical_grid: None,
                     })
                     .collect()
             };
@@ -2526,6 +2527,7 @@ async fn build_response_messages(
                 room_type: String::new(),
                 size: None,
                 is_current_room: name == ctx.current_location.as_str(),
+                tactical_grid: None,
             })
             .collect()
     };

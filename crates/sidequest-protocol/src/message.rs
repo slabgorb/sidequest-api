@@ -1148,6 +1148,9 @@ pub struct ExploredLocation {
     /// Whether this is the player's current room (room graph mode only).
     #[serde(default)]
     pub is_current_room: bool,
+    /// Tactical grid data for rooms with ASCII grids (room graph mode only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tactical_grid: Option<TacticalGridPayload>,
 }
 
 /// Exit descriptor for room graph mode — target room and exit type.

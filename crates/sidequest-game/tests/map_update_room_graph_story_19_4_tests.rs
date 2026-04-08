@@ -35,6 +35,9 @@ fn three_room_graph() -> Vec<RoomDef> {
                 target: "corridor".into(),
             }],
             description: None,
+            grid: None,
+            tactical_scale: None,
+            legend: None,
         },
         RoomDef {
             id: "corridor".into(),
@@ -52,6 +55,9 @@ fn three_room_graph() -> Vec<RoomDef> {
                 },
             ],
             description: None,
+            grid: None,
+            tactical_scale: None,
+            legend: None,
         },
         RoomDef {
             id: "chamber".into(),
@@ -64,6 +70,9 @@ fn three_room_graph() -> Vec<RoomDef> {
                 is_locked: false,
             }],
             description: None,
+            grid: None,
+            tactical_scale: None,
+            legend: None,
         },
     ]
 }
@@ -89,6 +98,7 @@ fn explored_location_has_room_exits_field() {
         room_type: "entrance".into(),
         size: Some((3, 3)),
         is_current_room: true,
+        tactical_grid: None,
     };
     assert_eq!(loc.room_exits.len(), 1);
     assert_eq!(loc.room_exits[0].target, "corridor");
@@ -108,6 +118,7 @@ fn explored_location_has_room_type_field() {
         room_type: "treasure".into(),
         size: Some((5, 5)),
         is_current_room: false,
+        tactical_grid: None,
     };
     assert_eq!(loc.room_type, "treasure");
 }
@@ -125,6 +136,7 @@ fn explored_location_has_size_field() {
         room_type: "entrance".into(),
         size: Some((3, 3)),
         is_current_room: false,
+        tactical_grid: None,
     };
     assert_eq!(loc.size, Some((3, 3)));
 }
@@ -142,6 +154,7 @@ fn explored_location_has_is_current_room_flag() {
         room_type: "entrance".into(),
         size: Some((3, 3)),
         is_current_room: true,
+        tactical_grid: None,
     };
     let not_current = ExploredLocation {
         name: "corridor".into(),
@@ -153,6 +166,7 @@ fn explored_location_has_is_current_room_flag() {
         room_type: "normal".into(),
         size: None,
         is_current_room: false,
+        tactical_grid: None,
     };
     assert!(current.is_current_room);
     assert!(!not_current.is_current_room);
@@ -265,6 +279,7 @@ fn explored_location_serde_round_trip_with_room_graph_fields() {
         room_type: "entrance".into(),
         size: Some((3, 3)),
         is_current_room: true,
+        tactical_grid: None,
     };
     let json = serde_json::to_string(&loc).expect("serialize");
     let deser: ExploredLocation = serde_json::from_str(&json).expect("deserialize");
@@ -357,6 +372,9 @@ fn secret_exits_hidden_when_undiscovered() {
                 },
             ],
             description: None,
+            grid: None,
+            tactical_scale: None,
+            legend: None,
         },
         RoomDef {
             id: "closet".into(),
@@ -369,6 +387,9 @@ fn secret_exits_hidden_when_undiscovered() {
                 is_locked: false,
             }],
             description: None,
+            grid: None,
+            tactical_scale: None,
+            legend: None,
         },
         RoomDef {
             id: "vault".into(),
@@ -381,6 +402,9 @@ fn secret_exits_hidden_when_undiscovered() {
                 discovered: false,
             }],
             description: None,
+            grid: None,
+            tactical_scale: None,
+            legend: None,
         },
     ];
 
@@ -418,6 +442,9 @@ fn secret_exits_visible_when_discovered() {
             },
         ],
         description: None,
+        grid: None,
+        tactical_scale: None,
+        legend: None,
     }];
 
     let discovered: HashSet<String> = ["hall"].iter().map(|s| s.to_string()).collect();
@@ -446,6 +473,9 @@ fn locked_doors_appear_in_exits() {
             is_locked: true,
         }],
         description: None,
+        grid: None,
+        tactical_scale: None,
+        legend: None,
     }];
 
     let discovered: HashSet<String> = ["hall"].iter().map(|s| s.to_string()).collect();
