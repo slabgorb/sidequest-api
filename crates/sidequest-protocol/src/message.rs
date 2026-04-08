@@ -1330,6 +1330,7 @@ pub struct ResourceMinReachedPayload {
 /// Full tactical state for a room — grid, entities, and effect zones.
 /// Sent as TACTICAL_STATE on room entry when the room has ASCII grid data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TacticalStatePayload {
     /// Room ID this tactical state belongs to.
     pub room_id: String,
@@ -1343,6 +1344,7 @@ pub struct TacticalStatePayload {
 
 /// Grid layout — cell types as strings for JSON simplicity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TacticalGridPayload {
     /// Grid width in cells.
     pub width: u32,
@@ -1356,6 +1358,7 @@ pub struct TacticalGridPayload {
 
 /// A named feature placed on the grid via legend glyph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TacticalFeaturePayload {
     /// The uppercase letter glyph (A-Z) from the ASCII grid.
     pub glyph: char,
@@ -1369,6 +1372,7 @@ pub struct TacticalFeaturePayload {
 
 /// An entity positioned on the tactical grid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TacticalEntityPayload {
     /// Unique entity identifier.
     pub id: String,
@@ -1386,6 +1390,7 @@ pub struct TacticalEntityPayload {
 
 /// An effect zone overlay on the tactical grid.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EffectZonePayload {
     /// Unique zone identifier.
     pub id: String,
@@ -1401,6 +1406,7 @@ pub struct EffectZonePayload {
 
 /// Player tactical action on the grid (move, target, inspect).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TacticalActionPayload {
     /// Action type: "move", "target", "inspect".
     pub action_type: String,
