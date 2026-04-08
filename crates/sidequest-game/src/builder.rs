@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 
+use rand::Rng;
 use sidequest_genre::{CharCreationScene, MechanicalEffects, RulesConfig};
 use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString};
 
@@ -179,6 +180,9 @@ pub enum BuilderError {
     /// Cannot revert — already at the first scene.
     #[error("cannot revert: already at first scene")]
     CannotRevert,
+    /// Unrecognized stat generation method.
+    #[error("unknown stat generation method: {0}")]
+    UnknownStatGeneration(String),
 }
 
 // ============================================================================
@@ -203,6 +207,9 @@ pub struct CharacterBuilder {
     class_hp_bases: HashMap<String, u32>,
     race_label: String,
     class_label: String,
+    /// Pre-rolled stats for roll_3d6_strict (rolled eagerly at construction).
+    /// Stored in ability_score_names order for narration injection.
+    rolled_stats: Option<Vec<(String, i32)>>,
 }
 
 impl CharacterBuilder {
@@ -227,6 +234,14 @@ impl CharacterBuilder {
     }
 
     fn build_inner(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Self {
+        // Roll stats eagerly for roll_3d6_strict so they're available for narration
+        let rolled_stats = if rules.stat_generation == "roll_3d6_strict" {
+            let mut rng = rand::rng();
+            Some(Self::roll_3d6_stats(&rules.ability_score_names, &mut rng))
+        } else {
+            None
+        };
+
         Self {
             scenes,
             results: Vec::new(),
@@ -246,7 +261,22 @@ impl CharacterBuilder {
                 .class_label
                 .clone()
                 .unwrap_or_else(|| "Class".to_string()),
+            rolled_stats,
         }
+    }
+
+    /// Roll 3d6 for each ability score in order. Returns (name, total) pairs.
+    fn roll_3d6_stats(
+        ability_score_names: &[String],
+        rng: &mut impl Rng,
+    ) -> Vec<(String, i32)> {
+        ability_score_names
+            .iter()
+            .map(|name| {
+                let total: i32 = (0..3).map(|_| rng.random_range(1..=6)).sum();
+                (name.clone(), total)
+            })
+            .collect()
     }
 
     // --- Phase queries ---
@@ -572,7 +602,7 @@ impl CharacterBuilder {
             .unwrap_or("Fighter");
 
         // Stats
-        let stats = self.generate_stats(&acc);
+        let stats = self.generate_stats(&acc)?;
 
         // HP from class base
         let base_hp = self
@@ -726,12 +756,31 @@ impl CharacterBuilder {
                     scene.allows_freeform
                 };
 
+                // Inject rolled stat values into narration for the stat-roll scene
+                let prompt_text = if let Some(ref rolled) = self.rolled_stats {
+                    if *scene_index == 0 {
+                        let stat_line = rolled
+                            .iter()
+                            .map(|(name, val)| format!("**{} {}**", name, val))
+                            .collect::<Vec<_>>()
+                            .join(" · ");
+                        format!(
+                            "{}\n\n{}\n\n*The man writes the numbers in the ledger without expression.*",
+                            scene.narration, stat_line
+                        )
+                    } else {
+                        scene.narration.clone()
+                    }
+                } else {
+                    scene.narration.clone()
+                };
+
                 GameMessage::CharacterCreation {
                     payload: CharacterCreationPayload {
                         phase: "scene".to_string(),
                         scene_index: Some(*scene_index as u32),
                         total_scenes: Some(self.scenes.len() as u32),
-                        prompt: Some(scene.narration.clone()),
+                        prompt: Some(prompt_text),
                         summary: None,
                         message: None,
                         choices: Some(choices),
@@ -847,18 +896,35 @@ impl CharacterBuilder {
         }
     }
 
-    fn generate_stats(&self, acc: &AccumulatedChoices) -> HashMap<String, i32> {
-        let base_values = match self.stat_generation.as_str() {
-            "standard_array" => vec![15, 14, 13, 12, 10, 8],
-            _ => vec![10; self.ability_score_names.len()],
+    fn generate_stats(
+        &self,
+        acc: &AccumulatedChoices,
+    ) -> Result<HashMap<String, i32>, BuilderError> {
+        let mut stats: HashMap<String, i32> = match self.stat_generation.as_str() {
+            "roll_3d6_strict" => {
+                // Use pre-rolled stats from construction
+                if let Some(ref rolled) = self.rolled_stats {
+                    rolled.iter().cloned().collect()
+                } else {
+                    // Fallback: roll now (shouldn't happen — rolled eagerly)
+                    let mut rng = rand::rng();
+                    Self::roll_3d6_stats(&self.ability_score_names, &mut rng)
+                        .into_iter()
+                        .collect()
+                }
+            }
+            "standard_array" => {
+                let base_values = vec![15, 14, 13, 12, 10, 8];
+                self.ability_score_names
+                    .iter()
+                    .zip(base_values.into_iter())
+                    .map(|(name, val)| (name.clone(), val))
+                    .collect()
+            }
+            other => {
+                return Err(BuilderError::UnknownStatGeneration(other.to_string()));
+            }
         };
-
-        let mut stats: HashMap<String, i32> = self
-            .ability_score_names
-            .iter()
-            .zip(base_values.into_iter())
-            .map(|(name, val)| (name.clone(), val))
-            .collect();
 
         // Apply explicit stat bonuses from genre pack choices (origin, mutation, artifact)
         for (stat, bonus) in &acc.stat_bonuses {
@@ -867,11 +933,10 @@ impl CharacterBuilder {
             }
         }
 
-        // If no explicit bonuses were set and we're using the flat default,
-        // derive differentiation from the player's accumulated choices so
-        // stats aren't all 10.
+        // If no explicit bonuses were set and we're using standard_array,
+        // derive differentiation from the player's accumulated choices.
         if acc.stat_bonuses.is_empty()
-            && self.stat_generation != "standard_array"
+            && self.stat_generation == "standard_array"
             && self.ability_score_names.len() >= 3
         {
             let names = &self.ability_score_names;
@@ -899,7 +964,7 @@ impl CharacterBuilder {
             }
         }
 
-        stats
+        Ok(stats)
     }
 }
 
