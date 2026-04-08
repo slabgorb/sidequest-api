@@ -5,6 +5,7 @@
 //! legend resolution.
 
 mod grid;
+pub mod layout;
 pub(crate) mod parser;
 
 pub use grid::{

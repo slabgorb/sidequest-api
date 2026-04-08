@@ -447,27 +447,24 @@ fn no_overlap_when_rooms_far_apart() {
 /// Void cells should NOT count as overlaps (AC-7 corollary).
 #[test]
 fn void_cells_do_not_count_as_overlap() {
-    // Two rooms whose only shared global cells are void
+    // Two rooms where the only overlapping global cells are both void.
+    // Room 1: void column on the left (col 0 all void)
     let raw = "\
-_####\n\
-#...#\n\
-#...#\n\
-#####";
+_###\n\
+_..#\n\
+_###";
     let grid = TacticalGrid::parse(raw, &HashMap::new()).unwrap();
-    let placed = vec![PlacedRoom::new("room_1".to_string(), 0, 0, grid.clone())];
-    // Shift right by 1 so only the void column overlaps
-    // Room 1: void at (0,0), room 2 would have void at (0,0) mapped to global (1,0)
-    // Actually let's use a clearer setup: place room 2 so its void cells
-    // overlap with room 1's void cells only.
+    let placed = vec![PlacedRoom::new("room_1".to_string(), 0, 0, grid)];
+    // Room 2: void column on the right (col 3 all void)
     let grid2_raw = "\
-####_\n\
-#...#\n\
-#...#\n\
-#####";
+###_\n\
+#.._\n\
+###_";
     let grid2 = TacticalGrid::parse(grid2_raw, &HashMap::new()).unwrap();
-    // Place grid2 so its rightmost void column (col 4) overlaps with grid1's leftmost void column (col 0)
-    // grid1 void at (0,0); grid2 at offset (-4, 0) → grid2 col 4 maps to global (0, 0)
-    let candidate = PlacedRoom::new("room_2".to_string(), -4, 0, grid2);
+    // Place grid2 so its rightmost void column (col 3) overlaps with grid1's leftmost void column (col 0)
+    // grid2 at offset (-3, 0) → grid2 col 3 maps to global x=0
+    // Room 1 col 0 = all Void, Room 2 col 3 = all Void → Void-on-Void only
+    let candidate = PlacedRoom::new("room_2".to_string(), -3, 0, grid2);
     let overlaps = check_overlap(&placed, &candidate);
     assert!(
         overlaps.is_empty(),
@@ -483,33 +480,52 @@ _####\n\
 /// LayoutError with both room IDs and the overlapping cells.
 #[test]
 fn layout_error_on_unresolvable_overlap() {
-    // Create two rooms that will inevitably overlap: both are huge and
-    // connected via exits that force them into the same space.
-    // A small room with exit on all sides connected to rooms that would overlap.
-    let tiny_room = room_def(
-        "center",
+    // Create a scenario where a room genuinely can't be placed without collision.
+    //
+    // Hub with south and east exits. Room B connects to the south exit and is
+    // very wide (extends east). Room C connects to the east exit and is very
+    // tall (extends south). B and C will overlap in the southeast quadrant.
+    let hub = room_def(
+        "hub",
         "entrance",
         vec![
-            RoomExit::Corridor { target: "left".to_string() },
-            RoomExit::Corridor { target: "right".to_string() },
+            RoomExit::Corridor { target: "room_b".to_string() },
+            RoomExit::Corridor { target: "room_c".to_string() },
         ],
-        "###\n...\n###",
+        "######\n#....#\n#....#\n#....#\n#....#\n###..#\n#.....   ",
     );
-    // "left" is a huge room that connects east to center
-    let left_room = room_def(
-        "left",
+    // Actually, let's use a cleaner approach: two rooms that MUST be placed
+    // at positions that overlap.
+    //
+    // Hub (3x7): exits on south (cols 1) and east (rows 1)
+    // Room B (10x3): connects north to hub's south — placed directly below hub, very wide
+    // Room C (3x10): connects west to hub's east — placed right of hub, very tall
+    // B extends 10 cells east, C extends 10 cells south. They overlap in the region
+    // east of hub and south of hub.
+    let hub = room_def(
+        "hub",
+        "entrance",
+        vec![
+            RoomExit::Corridor { target: "wide_room".to_string() },
+            RoomExit::Corridor { target: "tall_room".to_string() },
+        ],
+        "#.#\n...\n...\n...\n...\n...\n#.#",
+    );
+    // Wide room: 12x3 with north exit at col 1 (matches hub's south exit)
+    let wide = room_def(
+        "wide_room",
         "normal",
-        vec![RoomExit::Corridor { target: "center".to_string() }],
-        "##########\n##########\n##########\n##########\n..........\n..........\n##########\n##########\n##########\n##########",
+        vec![RoomExit::Corridor { target: "hub".to_string() }],
+        "#.##########\n............\n############",
     );
-    // "right" is a huge room that connects west to center — would overlap with left
-    let right_room = room_def(
-        "right",
+    // Tall room: 3x12 with west exit at row 1 (matches hub's east exit)
+    let tall = room_def(
+        "tall_room",
         "normal",
-        vec![RoomExit::Corridor { target: "center".to_string() }],
-        "##########\n##########\n##########\n##########\n..........\n..........\n##########\n##########\n##########\n##########",
+        vec![RoomExit::Corridor { target: "hub".to_string() }],
+        "###\n...\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n###",
     );
-    let rooms = vec![tiny_room, left_room, right_room];
+    let rooms = vec![hub, wide, tall];
     let grids = parse_grids(&rooms);
     let result = layout_tree(&rooms, &grids);
 
@@ -519,10 +535,10 @@ fn layout_error_on_unresolvable_overlap() {
                 !cells.is_empty(),
                 "LayoutError::Overlap must include the conflicting cells"
             );
-            // Both room IDs should be present
+            // At least one of the overlapping rooms should be named
             let ids: HashSet<&str> = [room_a.as_str(), room_b.as_str()].into();
             assert!(
-                ids.contains("left") || ids.contains("right"),
+                ids.contains("wide_room") || ids.contains("tall_room"),
                 "Error should name the overlapping rooms"
             );
         }
@@ -625,23 +641,25 @@ fn no_non_void_cell_collisions_in_layout() {
         }
     }
 
-    // Find any position occupied by non-void cells from different rooms
-    // (Shared wall cells ARE expected to overlap — both rooms have Wall there)
+    // Find any position occupied by non-void cells from different rooms.
+    // At shared wall boundaries, both rooms have cells at the same global position.
+    // This is expected: Wall-on-Wall for the wall portions, and Floor-on-Floor (or
+    // DoorOpen-on-Floor, etc.) at exit gap positions (AC-3 requires gap alignment).
+    // What is NOT allowed: different cell types from different rooms at the same position
+    // (e.g., Wall from room A and Floor from room B — that's a misaligned boundary).
     for ((gx, gy), occupants) in &occupied {
         if occupants.len() > 1 {
             let rooms_here: Vec<&str> = occupants.iter().map(|(id, _)| *id).collect();
             let unique_rooms: HashSet<&&str> = rooms_here.iter().collect();
             if unique_rooms.len() > 1 {
-                // Multiple rooms at this position: only Wall-on-Wall is allowed (shared boundary)
-                for (room_id, cell) in occupants {
+                // Multiple rooms at this position: all cells must be the same type
+                // (shared boundary — Wall-Wall or Floor-Floor at exit gaps)
+                let first_cell = occupants[0].1;
+                for (room_id, cell) in &occupants[1..] {
                     assert_eq!(
-                        *cell,
-                        &TacticalCell::Wall,
-                        "Non-wall cell collision at ({}, {}): room '{}' has {:?}",
-                        gx,
-                        gy,
-                        room_id,
-                        cell
+                        *cell, first_cell,
+                        "Mismatched cell types at ({}, {}): first room has {:?}, room '{}' has {:?}",
+                        gx, gy, first_cell, room_id, cell
                     );
                 }
             }
@@ -753,15 +771,13 @@ fn t_junction_no_collisions() {
         if occupants.len() > 1 {
             let unique_rooms: HashSet<&str> = occupants.iter().map(|(id, _)| *id).collect();
             if unique_rooms.len() > 1 {
-                for (room_id, cell) in occupants {
+                // Shared boundary: all cells must be the same type
+                let first_cell = occupants[0].1;
+                for (room_id, cell) in &occupants[1..] {
                     assert_eq!(
-                        *cell,
-                        &TacticalCell::Wall,
-                        "T-junction: non-wall collision at ({}, {}): room '{}' has {:?}",
-                        gx,
-                        gy,
-                        room_id,
-                        cell
+                        *cell, first_cell,
+                        "T-junction: mismatched cells at ({}, {}): first has {:?}, room '{}' has {:?}",
+                        gx, gy, first_cell, room_id, cell
                     );
                 }
             }
