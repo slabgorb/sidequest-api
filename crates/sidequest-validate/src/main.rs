@@ -79,7 +79,10 @@ fn main() {
     for genre in &genres {
         let genre_dir = cli.genre_packs_path.join(genre);
         if !genre_dir.is_dir() {
-            eprintln!("ERROR: Genre pack directory not found: {}", genre_dir.display());
+            eprintln!(
+                "ERROR: Genre pack directory not found: {}",
+                genre_dir.display()
+            );
             total_errors += 1;
             continue;
         }
@@ -147,7 +150,12 @@ fn validate_genre_pack(pack_dir: &Path) -> Vec<FileResult> {
 
     // Optional genre-level files
     check_yaml::<Vec<Achievement>>(&mut results, pack_dir, "achievements.yaml", false);
-    check_yaml::<HashMap<String, Vec<PowerTier>>>(&mut results, pack_dir, "power_tiers.yaml", false);
+    check_yaml::<HashMap<String, Vec<PowerTier>>>(
+        &mut results,
+        pack_dir,
+        "power_tiers.yaml",
+        false,
+    );
     check_yaml::<BeatVocabulary>(&mut results, pack_dir, "beat_vocabulary.yaml", false);
     check_yaml::<VoicePresets>(&mut results, pack_dir, "voice_presets.yaml", false);
     check_yaml::<DramaThresholds>(&mut results, pack_dir, "pacing.yaml", false);
@@ -177,7 +185,12 @@ fn validate_genre_pack(pack_dir: &Path) -> Vec<FileResult> {
                 if scenario_path.is_dir() {
                     let scenario_slug = entry.file_name().to_string_lossy().to_string();
                     let prefix = format!("scenarios/{scenario_slug}");
-                    check_yaml::<ScenarioPack>(&mut results, &scenario_path, &format!("{prefix}/scenario.yaml"), true);
+                    check_yaml::<ScenarioPack>(
+                        &mut results,
+                        &scenario_path,
+                        &format!("{prefix}/scenario.yaml"),
+                        true,
+                    );
                 }
             }
         }
@@ -192,19 +205,69 @@ fn validate_world(results: &mut Vec<FileResult>, world_path: &Path, world_slug: 
     // Required world files
     check_yaml::<WorldConfig>(results, world_path, &format!("{prefix}/world.yaml"), true);
     check_yaml::<WorldLore>(results, world_path, &format!("{prefix}/lore.yaml"), true);
-    check_yaml::<CartographyConfig>(results, world_path, &format!("{prefix}/cartography.yaml"), true);
+    check_yaml::<CartographyConfig>(
+        results,
+        world_path,
+        &format!("{prefix}/cartography.yaml"),
+        true,
+    );
 
     // Optional world files
-    check_yaml::<Vec<Culture>>(results, world_path, &format!("{prefix}/cultures.yaml"), false);
-    check_yaml::<Vec<TropeDefinition>>(results, world_path, &format!("{prefix}/tropes.yaml"), false);
-    check_yaml::<Vec<NpcArchetype>>(results, world_path, &format!("{prefix}/archetypes.yaml"), false);
-    check_yaml::<serde_json::Value>(results, world_path, &format!("{prefix}/visual_style.yaml"), false);
-    check_yaml::<serde_json::Value>(results, world_path, &format!("{prefix}/history.yaml"), false);
+    check_yaml::<Vec<Culture>>(
+        results,
+        world_path,
+        &format!("{prefix}/cultures.yaml"),
+        false,
+    );
+    check_yaml::<Vec<TropeDefinition>>(
+        results,
+        world_path,
+        &format!("{prefix}/tropes.yaml"),
+        false,
+    );
+    check_yaml::<Vec<NpcArchetype>>(
+        results,
+        world_path,
+        &format!("{prefix}/archetypes.yaml"),
+        false,
+    );
+    check_yaml::<serde_json::Value>(
+        results,
+        world_path,
+        &format!("{prefix}/visual_style.yaml"),
+        false,
+    );
+    check_yaml::<serde_json::Value>(
+        results,
+        world_path,
+        &format!("{prefix}/history.yaml"),
+        false,
+    );
     check_yaml::<Vec<RoomDef>>(results, world_path, &format!("{prefix}/rooms.yaml"), false);
-    check_yaml::<serde_json::Value>(results, world_path, &format!("{prefix}/creatures.yaml"), false);
-    check_yaml::<serde_json::Value>(results, world_path, &format!("{prefix}/encounter_tables.yaml"), false);
-    check_yaml::<serde_json::Value>(results, world_path, &format!("{prefix}/factions.yaml"), false);
-    check_yaml::<Vec<OpeningHook>>(results, world_path, &format!("{prefix}/openings.yaml"), false);
+    check_yaml::<serde_json::Value>(
+        results,
+        world_path,
+        &format!("{prefix}/creatures.yaml"),
+        false,
+    );
+    check_yaml::<serde_json::Value>(
+        results,
+        world_path,
+        &format!("{prefix}/encounter_tables.yaml"),
+        false,
+    );
+    check_yaml::<serde_json::Value>(
+        results,
+        world_path,
+        &format!("{prefix}/factions.yaml"),
+        false,
+    );
+    check_yaml::<Vec<OpeningHook>>(
+        results,
+        world_path,
+        &format!("{prefix}/openings.yaml"),
+        false,
+    );
     check_yaml::<DramaThresholds>(results, world_path, &format!("{prefix}/pacing.yaml"), false);
 
     // Legends: flexible format (Vec<Legend> or map with "legends" key)
@@ -215,20 +278,40 @@ fn validate_world(results: &mut Vec<FileResult>, world_path: &Path, world_slug: 
             Ok(content) => {
                 // Try Vec<Legend> first, then map format
                 if serde_yaml::from_str::<Vec<Legend>>(&content).is_ok() {
-                    results.push(FileResult { path: display_path, required: true, status: FileStatus::Ok });
+                    results.push(FileResult {
+                        path: display_path,
+                        required: true,
+                        status: FileStatus::Ok,
+                    });
                 } else if serde_yaml::from_str::<serde_json::Value>(&content).is_ok() {
                     // Accepts any valid YAML — the loader extracts "legends" key from map
-                    results.push(FileResult { path: display_path, required: true, status: FileStatus::Ok });
+                    results.push(FileResult {
+                        path: display_path,
+                        required: true,
+                        status: FileStatus::Ok,
+                    });
                 } else {
-                    results.push(FileResult { path: display_path, required: true, status: FileStatus::Error("Invalid YAML".into()) });
+                    results.push(FileResult {
+                        path: display_path,
+                        required: true,
+                        status: FileStatus::Error("Invalid YAML".into()),
+                    });
                 }
             }
             Err(e) => {
-                results.push(FileResult { path: display_path, required: true, status: FileStatus::Error(e.to_string()) });
+                results.push(FileResult {
+                    path: display_path,
+                    required: true,
+                    status: FileStatus::Error(e.to_string()),
+                });
             }
         }
     } else {
-        results.push(FileResult { path: format!("{prefix}/legends.yaml"), required: false, status: FileStatus::Missing });
+        results.push(FileResult {
+            path: format!("{prefix}/legends.yaml"),
+            required: false,
+            status: FileStatus::Missing,
+        });
     }
 }
 
@@ -248,7 +331,11 @@ fn check_yaml<T: DeserializeOwned>(
         results.push(FileResult {
             path: display_path.to_string(),
             required,
-            status: if required { FileStatus::Missing } else { FileStatus::Missing },
+            status: if required {
+                FileStatus::Missing
+            } else {
+                FileStatus::Missing
+            },
         });
         return;
     }
