@@ -406,3 +406,146 @@ fn roll_3d6_strict_wiring_end_to_end() {
         character.stats
     );
 }
+
+// ============================================================================
+// Point-buy stat generation (playtest bug fix — 10/11 genre packs crashed)
+// ============================================================================
+
+/// Rules with point_buy and standard D&D 5e budget of 27.
+fn rules_point_buy_27() -> RulesConfig {
+    RulesConfig {
+        stat_generation: "point_buy".to_string(),
+        point_buy_budget: 27,
+        ..rules_3d6_strict()
+    }
+}
+
+/// Rules with point_buy and generous budget of 30.
+fn rules_point_buy_30() -> RulesConfig {
+    RulesConfig {
+        stat_generation: "point_buy".to_string(),
+        point_buy_budget: 30,
+        ..rules_3d6_strict()
+    }
+}
+
+#[test]
+fn point_buy_produces_all_six_stats() {
+    let rules = rules_point_buy_27();
+    let character = build_character_with_rules(&rules).expect("point_buy build should succeed");
+
+    assert_eq!(
+        character.stats.len(),
+        6,
+        "point_buy should produce all 6 stats, got: {:?}",
+        character.stats.keys().collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn point_buy_stats_in_valid_range() {
+    // Point buy stats must be 8–15 (D&D 5e point buy range).
+    let rules = rules_point_buy_27();
+    let character = build_character_with_rules(&rules).expect("build should succeed");
+
+    for (stat_name, &value) in &character.stats {
+        assert!(
+            (8..=15).contains(&value),
+            "point_buy stat {} = {} is outside valid range (8–15)",
+            stat_name,
+            value
+        );
+    }
+}
+
+#[test]
+fn point_buy_spends_exact_budget() {
+    // D&D 5e point buy cost: stats start at 8 (free). Cost per point above 8:
+    // 8→9: 1, 9→10: 1, 10→11: 1, 11→12: 1, 12→13: 1, 13→14: 2, 14→15: 2
+    // Total cost for a stat at value V = point_buy_cost(V)
+    let rules = rules_point_buy_27();
+    let character = build_character_with_rules(&rules).expect("build should succeed");
+
+    let total_cost: u32 = character
+        .stats
+        .values()
+        .map(|&v| point_buy_cost(v))
+        .sum();
+
+    assert_eq!(
+        total_cost, 27,
+        "point_buy should spend exactly 27 points, spent: {}. Stats: {:?}",
+        total_cost, character.stats
+    );
+}
+
+#[test]
+fn point_buy_generous_budget_produces_higher_stats() {
+    let rules_27 = rules_point_buy_27();
+    let rules_30 = rules_point_buy_30();
+
+    let char_27 = build_character_with_rules(&rules_27).expect("build 27");
+    let char_30 = build_character_with_rules(&rules_30).expect("build 30");
+
+    let sum_27: i32 = char_27.stats.values().sum();
+    let sum_30: i32 = char_30.stats.values().sum();
+
+    assert!(
+        sum_30 > sum_27,
+        "Budget 30 should produce higher total stats than budget 27. 27={}, 30={}",
+        sum_27,
+        sum_30
+    );
+}
+
+#[test]
+fn point_buy_deterministic() {
+    // Point buy is deterministic — same budget always produces same stats.
+    let rules = rules_point_buy_27();
+    let char1 = build_character_with_rules(&rules).expect("build 1");
+    let char2 = build_character_with_rules(&rules).expect("build 2");
+
+    assert_eq!(
+        char1.stats, char2.stats,
+        "point_buy should be deterministic. Run 1: {:?}, Run 2: {:?}",
+        char1.stats, char2.stats
+    );
+}
+
+#[test]
+fn point_buy_wiring_end_to_end() {
+    // Integration test: verify point_buy flows through the full pipeline.
+    let rules = rules_point_buy_27();
+    let character = build_character_with_rules(&rules).expect("build should succeed");
+
+    // With 27 budget, stats should NOT all be 8 (that would mean 0 points spent)
+    let all_eights = character.stats.values().all(|&v| v == 8);
+    assert!(
+        !all_eights,
+        "All stats are 8 — point_buy budget not being spent. Stats: {:?}",
+        character.stats
+    );
+
+    // And should NOT all be 10 (that would mean old flat default leaked through)
+    let all_tens = character.stats.values().all(|&v| v == 10);
+    assert!(
+        !all_tens,
+        "All stats are 10 — point_buy not applied, flat default used. Stats: {:?}",
+        character.stats
+    );
+}
+
+/// D&D 5e point buy cost for a given stat value (base 8).
+fn point_buy_cost(value: i32) -> u32 {
+    match value {
+        8 => 0,
+        9 => 1,
+        10 => 2,
+        11 => 3,
+        12 => 4,
+        13 => 5,
+        14 => 7,
+        15 => 9,
+        _ => panic!("Invalid point buy value: {}", value),
+    }
+}

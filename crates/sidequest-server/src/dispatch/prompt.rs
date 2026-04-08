@@ -353,6 +353,24 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
+    // Inject available confrontation types so the narrator knows what encounters
+    // it can initiate via the "confrontation" game_patch field.
+    // Only inject when no encounter is active (active encounter context is above).
+    if ctx.snapshot.encounter.is_none() && !ctx.confrontation_defs.is_empty() {
+        state_summary.push_str("\n\nAVAILABLE ENCOUNTER TYPES:\n");
+        state_summary.push_str("When combat, a chase, or another confrontation begins, include \"confrontation\": \"<type>\" in your game_patch. Valid types for this genre:\n");
+        for def in ctx.confrontation_defs.iter() {
+            state_summary.push_str(&format!("- \"{}\" ({}, {})\n", def.confrontation_type, def.label, def.category));
+        }
+        state_summary.push_str("Only emit confrontation on the turn the encounter STARTS.\n");
+
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("action", "available_types_injected")
+            .field("count", ctx.confrontation_defs.len())
+            .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
+            .send();
+    }
+
     // Character identity — always included (compact)
     // Explicit PLAYER CHARACTER header prevents narrator from confusing PC/NPC attributes.
     state_summary.push_str("\n\n=== PLAYER CHARACTER ===\n");

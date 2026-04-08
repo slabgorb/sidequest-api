@@ -88,6 +88,8 @@ pub struct ActionResult {
     /// When the narrator emits `"confrontation": "combat"`, the server creates
     /// a StructuredEncounter via from_confrontation_def(). None = no new encounter.
     pub confrontation: Option<String>,
+    /// Location name from game_patch JSON (fallback when header extraction returns None).
+    pub location: Option<String>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -1062,6 +1064,7 @@ impl GameService for Orchestrator {
                     action_rewrite: None,
                     action_flags: None,
                     confrontation: None,
+                    location: None,
                 }
             }
         }
@@ -1155,6 +1158,9 @@ struct GamePatchExtraction {
     /// The server creates a StructuredEncounter via from_confrontation_def().
     #[serde(default)]
     confrontation: Option<String>,
+    /// Location name from the narrator's game_patch JSON (fallback for header extraction).
+    #[serde(default)]
+    location: Option<String>,
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -1313,6 +1319,8 @@ pub struct NarratorExtraction {
     /// Confrontation type to initiate (story 28-8). When the narrator emits
     /// `"confrontation": "combat"`, the server creates a StructuredEncounter.
     pub confrontation: Option<String>,
+    /// Location name from game_patch JSON (fallback for header extraction).
+    pub location: Option<String>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1344,6 +1352,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         has_action_flags = patch.action_flags.is_some(),
         beat_selections = patch.beat_selections.len(),
         confrontation = ?patch.confrontation,
+        has_location = patch.location.is_some(),
         "game_patch.extracted"
     );
 
@@ -1367,6 +1376,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         action_flags: patch.action_flags,
         beat_selections: patch.beat_selections,
         confrontation: patch.confrontation,
+        location: patch.location,
     }
 }
 

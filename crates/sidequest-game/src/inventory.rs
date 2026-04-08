@@ -314,6 +314,16 @@ impl Inventory {
         }
     }
 
+    /// Deduct gold, clamping at zero. Returns the actual amount deducted.
+    ///
+    /// If the player has less gold than `amount`, deducts whatever they have
+    /// and returns that (smaller) value. Gold never goes negative.
+    pub fn spend_gold(&mut self, amount: i64) -> i64 {
+        let actual = amount.min(self.gold);
+        self.gold -= actual;
+        actual
+    }
+
     /// Deplete the first light source on a room transition.
     ///
     /// Finds the first carried item with tag `"light"` and calls [`consume_use`](Self::consume_use).
@@ -923,5 +933,39 @@ mod tests {
         assert_eq!(format!("{}", ItemState::Carried), "carried");
         assert_eq!(format!("{}", ItemState::Sold { to: "Patchwork".into() }), "sold to Patchwork");
         assert_eq!(format!("{}", ItemState::Lost { reason: "stolen".into() }), "lost: stolen");
+    }
+
+    // ── Gold spending tests ──────────────────────────────────────────────
+
+    #[test]
+    fn spend_gold_deducts_exact_amount() {
+        let mut inv = Inventory { items: vec![], gold: 50 };
+        let spent = inv.spend_gold(13);
+        assert_eq!(spent, 13);
+        assert_eq!(inv.gold, 37);
+    }
+
+    #[test]
+    fn spend_gold_clamps_at_zero() {
+        let mut inv = Inventory { items: vec![], gold: 10 };
+        let spent = inv.spend_gold(13);
+        assert_eq!(spent, 10, "should only spend what's available");
+        assert_eq!(inv.gold, 0, "gold should be 0, not negative");
+    }
+
+    #[test]
+    fn spend_gold_from_zero_spends_nothing() {
+        let mut inv = Inventory { items: vec![], gold: 0 };
+        let spent = inv.spend_gold(5);
+        assert_eq!(spent, 0);
+        assert_eq!(inv.gold, 0);
+    }
+
+    #[test]
+    fn spend_gold_exact_balance() {
+        let mut inv = Inventory { items: vec![], gold: 10 };
+        let spent = inv.spend_gold(10);
+        assert_eq!(spent, 10);
+        assert_eq!(inv.gold, 0);
     }
 }
