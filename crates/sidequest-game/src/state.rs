@@ -850,6 +850,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 room_type: String::new(),
                 size: None,
                 is_current_room: false,
+                tactical_grid: None,
             })
             .collect();
         messages.push(GameMessage::MapUpdate {

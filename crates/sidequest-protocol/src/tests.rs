@@ -379,6 +379,7 @@ mod message_type_tests {
                     room_type: String::new(),
                     size: None,
                     is_current_room: false,
+                    tactical_grid: None,
                 }],
                 fog_bounds: Some(FogBounds {
                     width: 500,
