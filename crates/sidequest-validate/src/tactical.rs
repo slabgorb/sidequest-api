@@ -4,8 +4,9 @@
 //! they reach the game engine. Runs at authoring time via
 //! `sidequest-validate --tactical`.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
+use sidequest_game::tactical::layout::layout_tree;
 use sidequest_game::tactical::{TacticalCell, TacticalGrid};
 use sidequest_genre::models::world::RoomDef;
 
@@ -40,6 +41,10 @@ pub enum ValidationError {
         room_b: String,
         a_widths: Vec<u32>,
         b_widths: Vec<u32>,
+    },
+    /// Rule 9: Rooms with grids cannot be laid out without overlap.
+    LayoutFailed {
+        message: String,
     },
 }
 
@@ -276,5 +281,44 @@ fn check_unused_legend(room: &RoomDef, grid: &TacticalGrid, errors: &mut Vec<Val
         if !grid_legend.contains_key(glyph) {
             errors.push(ValidationError::UnusedLegendEntry { glyph: *glyph });
         }
+    }
+}
+
+// ── Rule 9: Layout validation ──────────────────────────────
+
+/// Validate that rooms with tactical grids can be composed into a dungeon
+/// layout without overlap. Parses each room's grid field and runs the
+/// tree-topology layout engine.
+///
+/// Rooms without a `grid` field are silently skipped (they use the
+/// schematic Automapper instead of tactical grids).
+pub fn validate_layout(rooms: &[RoomDef]) -> Vec<ValidationError> {
+    let mut grids: HashMap<String, TacticalGrid> = HashMap::new();
+    for room in rooms {
+        let Some(ref grid_str) = room.grid else {
+            continue;
+        };
+        let legend = room.legend.as_ref().cloned().unwrap_or_default();
+        match TacticalGrid::parse(grid_str, &legend) {
+            Ok(grid) => {
+                grids.insert(room.id.clone(), grid);
+            }
+            Err(_) => {
+                // Grid parse errors are caught by validate_tactical_grid (rules 1-7).
+                // Skip this room for layout purposes.
+                continue;
+            }
+        }
+    }
+
+    if grids.is_empty() {
+        return Vec::new(); // No tactical grids to lay out
+    }
+
+    match layout_tree(rooms, &grids) {
+        Ok(_) => Vec::new(),
+        Err(err) => vec![ValidationError::LayoutFailed {
+            message: err.to_string(),
+        }],
     }
 }
