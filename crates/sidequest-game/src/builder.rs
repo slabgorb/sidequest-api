@@ -184,6 +184,9 @@ pub enum BuilderError {
     /// Unrecognized stat generation method.
     #[error("unknown stat generation method: {0}")]
     UnknownStatGeneration(String),
+    /// HP formula evaluation failed.
+    #[error("hp_formula error: {0}")]
+    InvalidHpFormula(String),
 }
 
 // ============================================================================
@@ -208,6 +211,11 @@ pub struct CharacterBuilder {
     class_hp_bases: HashMap<String, u32>,
     race_label: String,
     class_label: String,
+    /// HP formula string from genre pack (e.g., "8 + CON_modifier").
+    /// When present, overrides class_hp_bases lookup during build().
+    hp_formula: Option<String>,
+    /// Point budget for point-buy stat generation (D&D 5e standard: 27).
+    point_buy_budget: u32,
     /// Pre-rolled stats for roll_3d6_strict (rolled eagerly at construction).
     /// Stored in ability_score_names order for narration injection.
     rolled_stats: Option<Vec<(String, i32)>>,
@@ -276,6 +284,8 @@ impl CharacterBuilder {
             default_hp: rules.default_hp,
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
+            hp_formula: rules.hp_formula.clone(),
+            point_buy_budget: rules.point_buy_budget,
             race_label: rules
                 .race_label
                 .clone()
@@ -329,6 +339,50 @@ impl CharacterBuilder {
         }
 
         results
+    }
+
+    /// Allocate a point-buy budget across `n` stats using the D&D 5e cost table.
+    ///
+    /// All stats start at 8. Points are distributed round-robin, raising each
+    /// stat by 1 point at a time (cheapest-first) until the budget is spent.
+    /// This produces a balanced spread — no dump stats, no extreme min-maxing.
+    ///
+    /// Cost table (cumulative from base 8):
+    ///   8→9: 1, 9→10: 1, 10→11: 1, 11→12: 1, 12→13: 1, 13→14: 2, 14→15: 2
+    fn allocate_point_buy(n: usize, budget: u32) -> Vec<i32> {
+        // Cost to go from (value - 1) to value
+        fn marginal_cost(value: i32) -> u32 {
+            match value {
+                9..=13 => 1,
+                14 | 15 => 2,
+                _ => u32::MAX, // Can't go below 8 or above 15
+            }
+        }
+
+        let mut stats = vec![8i32; n];
+        let mut remaining = budget;
+
+        // Round-robin: raise each stat by 1, cycling until budget exhausted
+        'outer: loop {
+            let mut any_raised = false;
+            for stat in stats.iter_mut() {
+                let next_val = *stat + 1;
+                if next_val > 15 {
+                    continue;
+                }
+                let cost = marginal_cost(next_val);
+                if cost <= remaining {
+                    *stat = next_val;
+                    remaining -= cost;
+                    any_raised = true;
+                }
+            }
+            if !any_raised || remaining == 0 {
+                break 'outer;
+            }
+        }
+
+        stats
     }
 
     // --- Phase queries ---
@@ -672,13 +726,26 @@ impl CharacterBuilder {
         // Stats
         let stats = self.generate_stats(&acc)?;
 
-        // HP from class base
-        let base_hp = self
-            .class_hp_bases
-            .get(class_str)
-            .copied()
-            .or(self.default_hp)
-            .unwrap_or(10) as i32;
+        // HP from hp_formula or class_hp_bases fallback
+        let base_hp = if let Some(ref formula) = self.hp_formula {
+            let hp_result = Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)?;
+            let con_mod = stats.get("CON").map(|&v| (v - 10) / 2);
+            let _span = info_span!(
+                "chargen.hp_formula",
+                formula = formula.as_str(),
+                class = class_str,
+                hp_result = hp_result,
+                con_modifier = ?con_mod,
+            )
+            .entered();
+            hp_result
+        } else {
+            self.class_hp_bases
+                .get(class_str)
+                .copied()
+                .or(self.default_hp)
+                .unwrap_or(10) as i32
+        };
 
         let ac = self.default_ac.unwrap_or(10) as i32;
 
@@ -1005,6 +1072,23 @@ impl CharacterBuilder {
                     .map(|(name, val)| (name.clone(), val))
                     .collect()
             }
+            "point_buy" => {
+                let values = Self::allocate_point_buy(
+                    self.ability_score_names.len(),
+                    self.point_buy_budget,
+                );
+                tracing::info!(
+                    method = "point_buy",
+                    budget = self.point_buy_budget,
+                    stats = ?values,
+                    "chargen.stats_generated"
+                );
+                self.ability_score_names
+                    .iter()
+                    .zip(values.into_iter())
+                    .map(|(name, val)| (name.clone(), val))
+                    .collect()
+            }
             other => {
                 return Err(BuilderError::UnknownStatGeneration(other.to_string()));
             }
@@ -1049,6 +1133,120 @@ impl CharacterBuilder {
         }
 
         Ok(stats)
+    }
+
+    /// Evaluate an hp_formula string using rolled stats and class config.
+    ///
+    /// Supported variables:
+    /// - `XXX_modifier` — D&D-style ability modifier: floor((stat - 10) / 2)
+    ///   where XXX matches any key in the stats HashMap (e.g., CON, STR, body)
+    /// - `class_base` — class_hp_bases lookup for the current class
+    /// - `level` — character level (always 1 at creation)
+    /// - Integer literals
+    ///
+    /// Supported operators: `+`, `-`, `*` (left-to-right, no precedence beyond parens)
+    /// Parentheses are stripped before evaluation.
+    ///
+    /// Returns `Err` on unrecognized tokens, missing variables, or empty formulas.
+    fn evaluate_hp_formula(
+        formula: &str,
+        stats: &HashMap<String, i32>,
+        class_hp_bases: &HashMap<String, u32>,
+        class_str: &str,
+    ) -> Result<i32, BuilderError> {
+        if formula.trim().is_empty() {
+            return Err(BuilderError::InvalidHpFormula(
+                "hp_formula is empty".to_string(),
+            ));
+        }
+
+        // Build variable substitution table
+        let class_base = class_hp_bases.get(class_str).copied().unwrap_or(8) as i32;
+        let level: i32 = 1; // Always 1 at character creation
+
+        // Substitute variables in the formula string
+        let mut expr = formula.to_string();
+
+        // Replace XXX_modifier patterns (e.g., CON_modifier, body_mod, nerve_mod)
+        // Check for full _modifier suffix first, then _mod suffix
+        for (stat_name, &stat_value) in stats {
+            let modifier = (stat_value - 10) / 2;
+            let modifier_var = format!("{}_modifier", stat_name);
+            let mod_var = format!("{}_mod", stat_name.to_lowercase());
+            expr = expr.replace(&modifier_var, &modifier.to_string());
+            expr = expr.replace(&mod_var, &modifier.to_string());
+        }
+
+        // Replace class_base and level
+        expr = expr.replace("class_base", &class_base.to_string());
+        expr = expr.replace("level", &level.to_string());
+
+        // Strip parentheses (simple formulas only)
+        expr = expr.replace('(', "").replace(')', "");
+
+        // Evaluate the arithmetic expression (supports +, -, *)
+        let result = Self::eval_simple_arithmetic(&expr).map_err(|token| {
+            BuilderError::InvalidHpFormula(format!(
+                "unparseable token '{}' in formula '{}' (after substitution: '{}')",
+                token, formula, expr
+            ))
+        })?;
+
+        // Floor at 1 — no zero or negative HP
+        Ok(result.max(1))
+    }
+
+    /// Evaluate a simple arithmetic expression with +, -, * operators.
+    /// No operator precedence — evaluates left to right.
+    /// Handles negative numbers from variable substitution.
+    ///
+    /// Returns `Err(token)` if any token fails to parse as i32.
+    fn eval_simple_arithmetic(expr: &str) -> Result<i32, String> {
+        let expr = expr.trim();
+
+        // Tokenize: split on operators while preserving them.
+        // A '-' at the start of the expression (or after an operator) is part
+        // of a negative literal, not a binary operator.
+        let mut tokens: Vec<String> = Vec::new();
+        let mut current = String::new();
+
+        for ch in expr.chars() {
+            if (ch == '+' || ch == '-' || ch == '*') && !current.trim().is_empty() {
+                tokens.push(current.trim().to_string());
+                tokens.push(ch.to_string());
+                current = String::new();
+            } else {
+                current.push(ch);
+            }
+        }
+        if !current.trim().is_empty() {
+            tokens.push(current.trim().to_string());
+        }
+
+        if tokens.is_empty() {
+            return Err("empty expression".to_string());
+        }
+
+        // Evaluate left to right
+        let mut result: i32 = tokens[0]
+            .parse()
+            .map_err(|_| tokens[0].clone())?;
+        let mut i = 1;
+        while i + 1 < tokens.len() {
+            let op = &tokens[i];
+            let operand: i32 = tokens[i + 1]
+                .parse()
+                .map_err(|_| tokens[i + 1].clone())?;
+            match op.as_str() {
+                "+" => result += operand,
+                "-" => result -= operand,
+                "*" => result *= operand,
+                other => return Err(format!("unknown operator '{}'", other)),
+            }
+            i += 2;
+        }
+
+        Ok(result)
     }
 }
 

@@ -154,16 +154,14 @@ ALWAYS emit the game_patch block. It is mandatory.";
 /// guardrail (injected by the orchestrator per-session verbosity setting).
 /// Do NOT duplicate numeric limits here — the LLM averages conflicting numbers.
 const NARRATOR_OUTPUT_STYLE: &str = "\
-Respect the <length-limit> guardrail — it is the single source of truth for prose length. \
-Shorter responses keep TTS pacing tight and turns snappy.\n\
-- Most turns: short. Movement, dialogue, simple actions = SHORT.
-- Big moments only (arrivals, reveals, combat start): slightly longer, but still within the limit.
-- VARY your length. Not every turn is the same size.
-- Fast action = short sentences. Quiet moments can breathe.
-- Dialogue is snappy, not embedded in description paragraphs.
+Respect the <length-limit> guardrail — it is the single source of truth for prose length.\n\
+- VARY your length by moment. Not every turn is the same size.
+- Arrivals and reveals: full scene — atmosphere, exits, points of interest.
+- Combat: kinetic and visceral. Short punchy sentences.
+- Dialogue: snappy, with voice and personality. Not embedded in description.
+- Simple movement or re-examination: shorter, focused.
 - End on a hook the player can react to. Not a prose flourish.
-- Think tweet-length beats, not novel paragraphs.
-- One action, one scene beat. If the player enters a room, describe what they see and exits — don't narrate their inventory management.
+- One action, one scene beat per turn. Don't narrate the player's inventory management.
 - First line: location header like **The Collapsed Overpass**
 - Blank line, then prose.";
 

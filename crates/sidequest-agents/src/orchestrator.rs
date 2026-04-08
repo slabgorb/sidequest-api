@@ -88,6 +88,8 @@ pub struct ActionResult {
     /// When the narrator emits `"confrontation": "combat"`, the server creates
     /// a StructuredEncounter via from_confrontation_def(). None = no new encounter.
     pub confrontation: Option<String>,
+    /// Location name from game_patch JSON (fallback when header extraction returns None).
+    pub location: Option<String>,
     /// Full assembled prompt text for training data capture (ADR-073).
     pub prompt_text: Option<String>,
     /// Raw LLM response text before extraction (ADR-073).
@@ -701,23 +703,25 @@ impl Orchestrator {
             let content = match context.narrator_verbosity {
                 NarratorVerbosity::Concise => {
                     "<length-limit>\n\
-                     HARD LIMIT: 2-3 sentences, under 200 characters of prose. \
-                     Action and consequence only. No scene-setting. No paragraphs. \
-                     If your prose exceeds 200 characters, DELETE and rewrite shorter.\n\
+                     Target: 2-4 sentences, around 400 characters of prose. \
+                     Action and consequence first. Brief scene-setting only on arrivals. \
+                     Keep it punchy — this mode prioritizes pace over atmosphere.\n\
                      </length-limit>"
                 }
                 NarratorVerbosity::Standard => {
                     "<length-limit>\n\
-                     HARD LIMIT: 2-3 short paragraphs, under 400 characters of prose. \
-                     One action, one scene beat. If your prose exceeds 400 characters, \
-                     DELETE and rewrite shorter. Most turns should be 2-3 sentences.\n\
+                     Target: 2-3 short paragraphs, around 800 characters of prose. \
+                     Describe the scene, the action, and what the player sees next. \
+                     Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
+                     Dialogue gets voice and personality. Vary length by moment.\n\
                      </length-limit>"
                 }
                 NarratorVerbosity::Verbose => {
                     "<length-limit>\n\
-                     HARD LIMIT: 2-3 paragraphs, under 600 characters of prose. \
-                     Richer atmosphere and sensory detail, but still concise. \
-                     If your prose exceeds 600 characters, DELETE and rewrite shorter.\n\
+                     Target: 2-4 paragraphs, around 1200 characters of prose. \
+                     Rich atmosphere, sensory detail, NPC personality. Let scenes breathe. \
+                     Big moments (arrivals, reveals, combat starts) get the full treatment. \
+                     Quieter turns can be shorter — vary the rhythm.\n\
                      </length-limit>"
                 }
             };
@@ -1068,6 +1072,7 @@ impl GameService for Orchestrator {
                     action_rewrite: None,
                     action_flags: None,
                     confrontation: None,
+                    location: None,
                     prompt_text: Some(prompt.clone()),
                     raw_response_text: None,
                 }
@@ -1163,6 +1168,9 @@ struct GamePatchExtraction {
     /// The server creates a StructuredEncounter via from_confrontation_def().
     #[serde(default)]
     confrontation: Option<String>,
+    /// Location name from the narrator's game_patch JSON (fallback for header extraction).
+    #[serde(default)]
+    location: Option<String>,
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -1321,6 +1329,8 @@ pub struct NarratorExtraction {
     /// Confrontation type to initiate (story 28-8). When the narrator emits
     /// `"confrontation": "combat"`, the server creates a StructuredEncounter.
     pub confrontation: Option<String>,
+    /// Location name from game_patch JSON (fallback for header extraction).
+    pub location: Option<String>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1352,6 +1362,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         has_action_flags = patch.action_flags.is_some(),
         beat_selections = patch.beat_selections.len(),
         confrontation = ?patch.confrontation,
+        has_location = patch.location.is_some(),
         "game_patch.extracted"
     );
 
@@ -1375,6 +1386,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         action_flags: patch.action_flags,
         beat_selections: patch.beat_selections,
         confrontation: patch.confrontation,
+        location: patch.location,
     }
 }
 

@@ -1257,6 +1257,21 @@ pub(crate) async fn dispatch_character_creation(
                         discovered_regions.push(current_location.clone());
                     }
 
+                    // Sync initial location to SharedGameSession so sync_to_locals
+                    // doesn't overwrite it with "" at the start of the opening turn.
+                    {
+                        let holder = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let mut ss = ss_arc.lock().await;
+                            ss.current_location = current_location.clone();
+                            ss.discovered_regions = discovered_regions.clone();
+                            tracing::info!(
+                                location = %current_location,
+                                "connect.shared_session_sync — seeded location before opening narration"
+                            );
+                        }
+                    }
+
                     if let Err(e) = state
                         .persistence()
                         .save(&genre, &world, &pname_for_save, &snapshot)
