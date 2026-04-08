@@ -15,6 +15,7 @@ use serde::de::DeserializeOwned;
 
 // Re-use all the model types from sidequest-genre (re-exported at crate root)
 use sidequest_genre::*;
+use sidequest_validate::tactical::validate_layout;
 
 #[derive(Parser)]
 #[command(
@@ -244,6 +245,23 @@ fn validate_world(results: &mut Vec<FileResult>, world_path: &Path, world_slug: 
         false,
     );
     check_yaml::<Vec<RoomDef>>(results, world_path, &format!("{prefix}/rooms.yaml"), false);
+
+    // Rule 9: Validate tactical layout (shared-wall placement)
+    let rooms_path = world_path.join("rooms.yaml");
+    if rooms_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&rooms_path) {
+            if let Ok(rooms) = serde_yaml::from_str::<Vec<RoomDef>>(&content) {
+                let layout_errors = validate_layout(&rooms);
+                for err in layout_errors {
+                    results.push(FileResult {
+                        path: format!("{prefix}/rooms.yaml (layout)"),
+                        required: false,
+                        status: FileStatus::Error(format!("{:?}", err)),
+                    });
+                }
+            }
+        }
+    }
     check_yaml::<serde_json::Value>(
         results,
         world_path,
@@ -331,11 +349,7 @@ fn check_yaml<T: DeserializeOwned>(
         results.push(FileResult {
             path: display_path.to_string(),
             required,
-            status: if required {
-                FileStatus::Missing
-            } else {
-                FileStatus::Missing
-            },
+            status: FileStatus::Missing,
         });
         return;
     }
