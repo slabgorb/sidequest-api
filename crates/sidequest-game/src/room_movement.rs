@@ -278,7 +278,6 @@ fn cell_to_string(cell: &TacticalCell) -> String {
         TacticalCell::Water => "water".into(),
         TacticalCell::DifficultTerrain => "difficult_terrain".into(),
         TacticalCell::Feature(_) => "feature".into(),
-        _ => "unknown".into(),
     }
 }
 
