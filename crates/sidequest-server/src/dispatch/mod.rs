@@ -851,7 +851,18 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     let _state_update_guard = state_update_span.enter();
 
     let narration_text = &result.narration;
-    if let Some(location) = extract_location_header(narration_text) {
+    // Try header extraction first (**Location**), fall back to game_patch JSON location field.
+    let extracted_location = extract_location_header(narration_text)
+        .or_else(|| {
+            if let Some(ref loc) = result.location {
+                tracing::info!(
+                    location = %loc,
+                    "location.from_game_patch — header extraction missed, using JSON fallback"
+                );
+            }
+            result.location.clone()
+        });
+    if let Some(location) = extracted_location {
         // Room-graph mode: resolve display name → room ID, then validate + apply.
         // Region mode (rooms empty): always valid — no room graph to check.
         let resolved_location = if !ctx.rooms.is_empty() {
