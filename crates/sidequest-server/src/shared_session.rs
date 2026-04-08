@@ -254,6 +254,10 @@ impl SharedGameSession {
 
     /// Copy world-level state FROM the shared session INTO local variables.
     /// Used at the start of dispatch_player_action so existing code works unchanged.
+    ///
+    /// Note: only overwrites `current_location` when the shared session has a
+    /// non-empty value. This prevents the initial location set during chargen
+    /// (before sync_from_locals has run) from being blanked by the default empty.
     pub fn sync_to_locals(
         &self,
         current_location: &mut String,
@@ -262,10 +266,14 @@ impl SharedGameSession {
         discovered_regions: &mut Vec<String>,
         trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     ) {
-        *current_location = self.current_location.clone();
+        if !self.current_location.is_empty() {
+            *current_location = self.current_location.clone();
+        }
         *npc_registry = self.npc_registry.clone();
         *narration_history = self.narration_history.clone();
-        *discovered_regions = self.discovered_regions.clone();
+        if !self.discovered_regions.is_empty() {
+            *discovered_regions = self.discovered_regions.clone();
+        }
         *trope_states = self.trope_states.clone();
     }
 
