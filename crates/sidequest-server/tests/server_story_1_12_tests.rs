@@ -283,6 +283,10 @@ async fn server_accepts_mock_game_service() {
                 prompt_tier: String::new(),
             }
         }
+
+        fn reset_narrator_session_for_connect(&self) {
+            // No-op for mock — no persistent session to reset
+        }
     }
 
     // The server must be constructable with a mock GameService.

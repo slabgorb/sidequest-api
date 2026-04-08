@@ -292,18 +292,26 @@ impl Orchestrator {
 
         // Genre switch detection: if the incoming genre differs from the
         // genre that established the session, the cached session is stale.
-        if let Some(ref incoming_genre) = context.genre {
+        // Must drop the lock before calling reset_narrator_session() to avoid deadlock.
+        let genre_mismatch = if let Some(ref incoming_genre) = context.genre {
             let session_genre = self.session_genre.lock().unwrap();
             if let Some(ref stored_genre) = *session_genre {
-                if stored_genre != incoming_genre {
-                    tracing::warn!(
-                        stored_genre = %stored_genre,
-                        incoming_genre = %incoming_genre,
-                        "Genre switch detected — forcing Full tier prompt rebuild"
-                    );
-                    return NarratorPromptTier::Full;
-                }
+                stored_genre != incoming_genre
+            } else {
+                false
             }
+        } else {
+            false
+        };
+
+        if genre_mismatch {
+            let incoming = context.genre.as_deref().unwrap_or("unknown");
+            tracing::warn!(
+                incoming_genre = %incoming,
+                "Genre switch detected — clearing stale session and forcing Full tier"
+            );
+            self.reset_narrator_session();
+            return NarratorPromptTier::Full;
         }
 
         NarratorPromptTier::Delta
