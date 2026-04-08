@@ -299,12 +299,86 @@ fn composed_backstory_is_nonblank() {
 }
 
 // ============================================================================
-// Wiring test: backstory tables loaded from genre pack
+// Reviewer finding: unreplaced template placeholders (builder.rs:749-756)
+// When a template references {key} but no matching table exists, the literal
+// placeholder should NOT appear in the backstory output.
 // ============================================================================
 
-// NOTE: Wiring test for BackstoryTables type existence lives in
-// sidequest-genre tests once Dev creates the struct. This test file
-// exercises the builder's backstory composition behavior.
+#[test]
+fn template_with_missing_table_key_does_not_produce_literal_placeholder() {
+    // Template references {trade}, {feature}, {reason} but we only provide {trade}
+    let incomplete_tables = sidequest_genre::BackstoryTables {
+        template: "Former {trade}. {feature}. {reason}.".to_string(),
+        tables: HashMap::from([
+            ("trade".to_string(), vec!["ratcatcher".to_string()]),
+            // "feature" and "reason" tables intentionally missing
+        ]),
+    };
+
+    let scenes = caverns_scenes();
+    let rules = rules_3d6();
+    let mut builder = CharacterBuilder::new(scenes, &rules, Some(incomplete_tables));
+    builder.apply_freeform("").unwrap();
+    builder.apply_choice(0).unwrap();
+    let character = builder.build("Grist").expect("build should succeed");
+
+    let backstory = character.backstory.as_str();
+    assert!(
+        !backstory.contains('{'),
+        "Backstory must not contain unreplaced template placeholders. Got: {}",
+        backstory
+    );
+    assert!(
+        !backstory.contains('}'),
+        "Backstory must not contain unreplaced template placeholders. Got: {}",
+        backstory
+    );
+}
+
+// ============================================================================
+// Reviewer finding: incomplete is_pronoun_only check (builder.rs:465-471)
+// A choice with pronoun_hint + item_hint should NOT be treated as pronoun-only.
+// Its description should appear in backstory_fragments.
+// ============================================================================
+
+#[test]
+fn pronoun_choice_with_item_hint_is_not_pronoun_only() {
+    // A choice that sets both pronoun and item — should NOT be filtered as pronoun-only
+    let scenes = vec![
+        CharCreationScene {
+            id: "identity".to_string(),
+            title: "Who Are You?".to_string(),
+            narration: "Tell me about yourself.".to_string(),
+            choices: vec![CharCreationChoice {
+                label: "The Armed Woman".to_string(),
+                description: "A woman with a blade at her hip and murder in her eyes.".to_string(),
+                mechanical_effects: MechanicalEffects {
+                    pronoun_hint: Some("she/her".to_string()),
+                    item_hint: Some("Short Sword".to_string()),
+                    ..MechanicalEffects::default()
+                },
+            }],
+            allows_freeform: Some(false),
+            hook_prompt: None,
+            loading_text: None,
+            mechanical_effects: None,
+        },
+    ];
+
+    let rules = rules_standard();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
+    builder.apply_choice(0).unwrap();
+    let character = builder.build("Mara").expect("build should succeed");
+
+    let backstory = character.backstory.as_str();
+    // The description should appear because this is NOT a pronoun-only choice
+    assert!(
+        backstory.contains("murder in her eyes"),
+        "Choice with pronoun_hint + item_hint should NOT be filtered as pronoun-only. \
+         Its description should appear in backstory. Got: {}",
+        backstory
+    );
+}
 
 // ============================================================================
 // Edge case: backstory varies between builds (randomness)
