@@ -812,7 +812,7 @@ pub(crate) async fn start_character_creation(
         return vec![];
     }
 
-    let b = match CharacterBuilder::try_new(scenes, &pack.rules, pack.backstory_tables.clone()) {
+    let mut b = match CharacterBuilder::try_new(scenes, &pack.rules, pack.backstory_tables.clone()) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = ?e, "Failed to create CharacterBuilder");
@@ -820,11 +820,25 @@ pub(crate) async fn start_character_creation(
         }
     };
 
+    // Auto-advance through choiceless scenes (stat roll, equipment gen, etc.)
+    // collecting their narrations as display-only messages before the first
+    // scene that requires player input.
+    let mut auto_narrations = Vec::new();
+    while !b.is_confirmation() && !b.current_scene_needs_input() {
+        let display_msg = b.to_scene_message(player_id);
+        auto_narrations.push(display_msg);
+        if let Err(e) = b.apply_auto_advance() {
+            tracing::warn!(error = ?e, "auto-advance failed during start_character_creation");
+            break;
+        }
+    }
+
     let scene_msg = b.to_scene_message(player_id);
     *builder = Some(b);
 
     // Send genre-pack mixer config so the frontend initializes per-genre volumes.
     let mut msgs = vec![mixer_config_cue(&pack.audio.mixer, player_id)];
+    msgs.extend(auto_narrations);
     msgs.push(scene_msg);
     msgs
 }
@@ -926,8 +940,18 @@ pub(crate) async fn dispatch_character_creation(
                 }
             }
 
-            // Send the next scene or confirmation
-            vec![b.to_scene_message(player_id)]
+            // Auto-advance through any subsequent choiceless scenes
+            let mut msgs = Vec::new();
+            while !b.is_confirmation() && !b.current_scene_needs_input() {
+                let display_msg = b.to_scene_message(player_id);
+                msgs.push(display_msg);
+                if let Err(e) = b.apply_auto_advance() {
+                    tracing::warn!(error = ?e, "auto-advance failed during dispatch_character_creation");
+                    break;
+                }
+            }
+            msgs.push(b.to_scene_message(player_id));
+            msgs
         }
         "confirmation" => {
             // Build the character — use the name from the name-entry scene if available,

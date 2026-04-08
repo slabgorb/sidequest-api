@@ -452,6 +452,83 @@ impl CharacterBuilder {
         None
     }
 
+    /// Whether the current scene requires client input (choices or freeform).
+    /// Scenes with no choices and no freeform are display-only and should auto-advance.
+    pub fn current_scene_needs_input(&self) -> bool {
+        match &self.phase {
+            BuilderPhase::InProgress { scene_index } => {
+                let scene = &self.scenes[*scene_index];
+                !scene.choices.is_empty() || scene.allows_freeform.unwrap_or(false)
+            }
+            BuilderPhase::AwaitingFollowup { .. } => true,
+            BuilderPhase::Confirmation => true,
+        }
+    }
+
+    /// Auto-advance through the current scene without client input.
+    /// For display-only scenes (no choices, no freeform): applies scene-level
+    /// mechanical effects and advances to the next scene.
+    /// Returns Ok(()) if advanced, Err if the scene requires input.
+    pub fn apply_auto_advance(&mut self) -> Result<(), BuilderError> {
+        let scene_index = match &self.phase {
+            BuilderPhase::InProgress { scene_index } => *scene_index,
+            _ => {
+                return Err(BuilderError::WrongPhase {
+                    expected: "InProgress".to_string(),
+                    actual: self.phase_name().to_string(),
+                });
+            }
+        };
+
+        let scene = &self.scenes[scene_index];
+        if !scene.choices.is_empty() || scene.allows_freeform.unwrap_or(false) {
+            return Err(BuilderError::InvalidChoice {
+                index: 0,
+                max: scene.choices.len(),
+            });
+        }
+
+        // Apply scene-level mechanical effects (stat rolling, equipment gen, etc.)
+        let effects = scene
+            .mechanical_effects
+            .clone()
+            .unwrap_or_default();
+
+        // Record as an auto-advanced scene result
+        self.results.push(SceneResult {
+            input_type: SceneInputType::Choice(0),
+            hooks_added: vec![],
+            anchors_added: vec![],
+            effects_applied: effects.clone(),
+            choice_description: None,
+        });
+
+        // Apply stat generation if specified
+        if let Some(ref method) = effects.stat_generation {
+            match method.as_str() {
+                "roll_3d6_strict" => {
+                    if self.rolled_stats.is_none() {
+                        let mut rng = rand::rng();
+                        self.rolled_stats =
+                            Some(Self::roll_3d6_stats(&self.ability_score_names, &mut rng));
+                    }
+                }
+                other => {
+                    self.stat_generation = other.to_string();
+                }
+            }
+        }
+
+        tracing::info!(
+            scene_id = %scene.id,
+            scene_index = scene_index,
+            "chargen.auto_advance — choiceless scene"
+        );
+
+        self.advance_scene(scene_index);
+        Ok(())
+    }
+
     /// Get the current hook prompt text, if awaiting followup.
     pub fn current_hook_prompt(&self) -> Option<&str> {
         match &self.phase {
