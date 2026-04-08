@@ -681,13 +681,17 @@ impl CharacterBuilder {
 
         // HP from hp_formula or class_hp_bases fallback
         let base_hp = if let Some(ref formula) = self.hp_formula {
+            let hp_result = Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)?;
+            let con_mod = stats.get("CON").map(|&v| (v - 10) / 2);
             let _span = info_span!(
                 "chargen.hp_formula",
                 formula = formula.as_str(),
                 class = class_str,
+                hp_result = hp_result,
+                con_modifier = ?con_mod,
             )
             .entered();
-            Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)?
+            hp_result
         } else {
             self.class_hp_bases
                 .get(class_str)
