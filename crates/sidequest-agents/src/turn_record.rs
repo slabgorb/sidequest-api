@@ -6,6 +6,7 @@
 //! ADR-031: Game Watcher — hot-path/cold-path contract via TurnRecord.
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sidequest_game::{GameSnapshot, StateDelta};
 use tokio::sync::mpsc;
 
@@ -21,7 +22,7 @@ pub const WATCHER_CHANNEL_CAPACITY: usize = 32;
 /// Summary of patches applied during a turn.
 ///
 /// Lightweight representation of what changed, without the full patch payloads.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchSummary {
     /// Type of patch (e.g., "world", "combat", "chase").
     pub patch_type: String,
@@ -36,7 +37,7 @@ pub struct PatchSummary {
 /// to validate the turn asynchronously on the cold path.
 ///
 /// All 15 fields per ADR-031.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnRecord {
     /// Monotonically increasing turn identifier.
     pub turn_id: u64,

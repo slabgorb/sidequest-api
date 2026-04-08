@@ -231,6 +231,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Story 15-20: capture pre-turn snapshot for delta computation
     let before_snapshot = sidequest_game::delta::snapshot(ctx.snapshot);
 
+    // ADR-073: capture full GameSnapshot before state mutations for TurnRecord.
+    let before_game_snapshot = ctx.snapshot.clone();
+
     // Story 12-1: capture location before state updates for cinematic variation detection
     let location_before_turn = ctx.current_location.clone();
 
@@ -1507,6 +1510,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     system_tick_span.record("tropes_fired", fired_beats.len() as u64);
     system_tick_span.record("achievements_earned", earned_achievements.len() as u64);
 
+    // ADR-073: collect beat data for TurnRecord before fired_beats is consumed.
+    let turn_beats_for_record: Vec<(String, f32)> = fired_beats
+        .iter()
+        .map(|b| (b.trope_name.clone(), b.beat.at as f32))
+        .collect();
+
     // Collect beat summaries for lore persistence before fired_beats is consumed by troper.
     let beat_lore_entries: Vec<(String, String)> = fired_beats
         .iter()
@@ -1598,19 +1607,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     sync_locals_to_snapshot(ctx, narration_text);
 
     // Story 15-20: compute state delta and broadcast typed messages
-    {
+    let game_delta = {
         let after_snapshot = sidequest_game::delta::snapshot(ctx.snapshot);
-        let game_delta = sidequest_game::delta::compute_delta(&before_snapshot, &after_snapshot);
+        let delta = sidequest_game::delta::compute_delta(&before_snapshot, &after_snapshot);
 
         // OTEL event: delta.computed (story 15-20 AC)
         let changed_count = [
-            game_delta.characters_changed(),
-            game_delta.npcs_changed(),
-            game_delta.location_changed(),
-            game_delta.quest_log_changed(),
-            game_delta.atmosphere_changed(),
-            game_delta.regions_changed(),
-            game_delta.tropes_changed(),
+            delta.characters_changed(),
+            delta.npcs_changed(),
+            delta.location_changed(),
+            delta.quest_log_changed(),
+            delta.atmosphere_changed(),
+            delta.regions_changed(),
+            delta.tropes_changed(),
         ]
         .iter()
         .filter(|&&b| b)
@@ -1621,17 +1630,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         tracing::info!(
             changed_fields = changed_count,
             snapshot_size_bytes = snapshot_size_bytes,
-            is_empty = game_delta.is_empty(),
+            is_empty = delta.is_empty(),
             "delta.computed"
         );
 
         // Generate typed broadcast messages from the delta
         let broadcast_msgs =
-            sidequest_game::broadcast_state_changes(&game_delta, ctx.snapshot);
+            sidequest_game::broadcast_state_changes(&delta, ctx.snapshot);
         for msg in broadcast_msgs {
             let _ = ctx.tx.send(msg).await;
         }
-    }
+
+        delta
+    };
 
     persist_game_state(ctx, narration_text, &clean_narration).await;
 
@@ -1640,6 +1651,39 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // GM Panel snapshot + timing telemetry
     emit_telemetry(ctx, turn_number, &result, turn_start, preprocess_done, agent_done);
+
+    // ADR-073: Construct and send TurnRecord for training data capture + OTEL bridge.
+    if let Some(watcher_tx) = ctx.state.watcher_tx() {
+        use sidequest_agents::turn_record::{try_send_record, TurnRecord};
+        use sidequest_agents::agents::intent_router::Intent;
+
+        let classified = Intent::from_display_str(
+            result.classified_intent.as_deref().unwrap_or("Exploration"),
+        );
+
+        let patches_applied = derive_patches_from_delta(&game_delta);
+        let after_game_snapshot = ctx.snapshot.clone();
+
+        let record = TurnRecord {
+            turn_id: ctx.state.next_turn_id(),
+            timestamp: chrono::Utc::now(),
+            player_input: ctx.action.to_string(),
+            classified_intent: classified,
+            agent_name: result.agent_name.clone().unwrap_or_default(),
+            narration: result.narration.clone(),
+            patches_applied,
+            snapshot_before: before_game_snapshot,
+            snapshot_after: after_game_snapshot,
+            delta: game_delta,
+            beats_fired: turn_beats_for_record,
+            token_count_in: result.token_count_in.unwrap_or(0),
+            token_count_out: result.token_count_out.unwrap_or(0),
+            agent_duration_ms: result.agent_duration_ms.unwrap_or(0),
+            is_degraded: result.is_degraded,
+            spans: vec![],
+        };
+        try_send_record(watcher_tx, record);
+    }
 
     let char_class: String = ctx
         .character_json
@@ -3379,6 +3423,41 @@ fn dispatch_beat_selection(
             }
         }
     }
+}
+
+/// ADR-073: Derive PatchSummary entries from StateDelta boolean flags.
+/// Maps each changed field category to a PatchSummary for TurnRecord.
+fn derive_patches_from_delta(
+    delta: &sidequest_game::StateDelta,
+) -> Vec<sidequest_agents::turn_record::PatchSummary> {
+    use sidequest_agents::turn_record::PatchSummary;
+    let mut patches = Vec::new();
+    if delta.characters_changed() {
+        patches.push(PatchSummary { patch_type: "characters".into(), fields_changed: vec!["characters".into()] });
+    }
+    if delta.npcs_changed() {
+        patches.push(PatchSummary { patch_type: "npcs".into(), fields_changed: vec!["npcs".into()] });
+    }
+    if delta.location_changed() {
+        let mut fields = vec!["location".into()];
+        if let Some(loc) = delta.new_location() {
+            fields.push(format!("new_location:{loc}"));
+        }
+        patches.push(PatchSummary { patch_type: "location".into(), fields_changed: fields });
+    }
+    if delta.quest_log_changed() {
+        patches.push(PatchSummary { patch_type: "quest_log".into(), fields_changed: vec!["quest_log".into()] });
+    }
+    if delta.atmosphere_changed() {
+        patches.push(PatchSummary { patch_type: "atmosphere".into(), fields_changed: vec!["atmosphere".into()] });
+    }
+    if delta.regions_changed() {
+        patches.push(PatchSummary { patch_type: "regions".into(), fields_changed: vec!["regions".into()] });
+    }
+    if delta.tropes_changed() {
+        patches.push(PatchSummary { patch_type: "tropes".into(), fields_changed: vec!["tropes".into()] });
+    }
+    patches
 }
 
 #[cfg(test)]

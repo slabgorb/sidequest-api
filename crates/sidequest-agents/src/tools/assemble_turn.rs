@@ -188,5 +188,7 @@ pub fn assemble_turn(
         action_flags: Some(flags),
         prompt_tier: String::new(),
         confrontation: extraction.confrontation,
+        prompt_text: None,
+        raw_response_text: None,
     }
 }

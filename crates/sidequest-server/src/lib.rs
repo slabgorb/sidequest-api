@@ -288,6 +288,11 @@ struct AppStateInner {
     encountergen_binary_path: Option<PathBuf>,
     /// Path to the sidequest-loadoutgen binary for server-side loadout generation.
     loadoutgen_binary_path: Option<PathBuf>,
+    /// TurnRecord channel sender for training data capture (ADR-073).
+    /// Cloned from the same channel that feeds the bridge task.
+    watcher_tx: Option<tokio::sync::mpsc::Sender<sidequest_agents::turn_record::TurnRecord>>,
+    /// Turn ID counter for monotonic turn numbering across the session.
+    turn_id_counter: Mutex<sidequest_agents::turn_record::TurnIdCounter>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -451,6 +456,8 @@ impl AppState {
                 encountergen_binary_path: None,
                 loadoutgen_binary_path: None,
                 otel_endpoint: None,
+                watcher_tx: None,
+                turn_id_counter: Mutex::new(sidequest_agents::turn_record::TurnIdCounter::new()),
             }),
         }
     }
@@ -509,6 +516,29 @@ impl AppState {
             .expect("with_loadoutgen_binary must be called before cloning")
             .loadoutgen_binary_path = Some(path);
         self
+    }
+
+    /// Set the TurnRecord channel sender for training data capture (builder-style, ADR-073).
+    pub fn with_watcher_tx(
+        mut self,
+        tx: tokio::sync::mpsc::Sender<sidequest_agents::turn_record::TurnRecord>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_watcher_tx must be called before cloning")
+            .watcher_tx = Some(tx);
+        self
+    }
+
+    /// TurnRecord channel sender, if configured.
+    pub fn watcher_tx(
+        &self,
+    ) -> Option<&tokio::sync::mpsc::Sender<sidequest_agents::turn_record::TurnRecord>> {
+        self.inner.watcher_tx.as_ref()
+    }
+
+    /// Allocate the next monotonic turn ID for TurnRecord construction.
+    pub fn next_turn_id(&self) -> u64 {
+        self.inner.turn_id_counter.lock().unwrap().next_turn_id()
     }
 
     /// Set the OTEL endpoint for Claude subprocess telemetry (builder-style).
