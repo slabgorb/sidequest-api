@@ -83,11 +83,17 @@ Quest (objectives/tasks), Ability (skills/powers).\n\
 is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
 Include footnotes generously — they feed the player's knowledge journal.\n\
 \n\
+confrontation: When a new encounter begins (combat starts, a chase begins, a \
+standoff erupts), include confrontation with the encounter type name from the \
+genre pack (e.g., \"combat\", \"chase\", \"standoff\", \"negotiation\"). This creates \
+the encounter. Only include on the turn the encounter STARTS, not every turn.\n\
+\n\
 beat_selections: When an encounter is active (the encounter context section will \
-list available beats), include beat_selections — an array of beat choices made \
-by each actor this turn. Each entry has: actor (who acts), beat_id (which beat \
-from the available list), and optional target (who the action targets). Only \
-include beat_selections when an encounter is active and actions were taken.\n\
+list available beats and actors), include beat_selections — an array of beat \
+choices for EVERY actor listed in the encounter context. Each entry has: actor \
+(who acts — must match an actor name from the encounter), beat_id (which beat \
+from the available list), and optional target (who the action targets). Include \
+beat_selections for ALL actors (player AND NPCs) every encounter turn.\n\
 \n\
 Example A — exploration (new area + NPC):\n\
 ```game_patch\n\
@@ -169,11 +175,12 @@ Check active quests — if a quest says \"(from: X)\" and the player is now \
 talking to Y, do NOT have Y send the player back to X for the same objective. \
 Advance the quest instead.";
 
-/// Combat narration rules — absorbed from creature_smith.rs (ADR-067).
-/// Injected conditionally when game state indicates active combat.
+/// Combat narration rules — updated for beat_selections system (story 28-8).
+/// Old in_combat/hp_changes/turn_order fields deleted in 28-9.
+/// All encounter types now use beat_selections from ConfrontationDef.
 const NARRATOR_COMBAT_RULES: &str = "\
-COMBAT NARRATION RULES (active combat):\n\
-- 2-4 sentences per combat beat. Fast, kinetic, visceral.\n\
+COMBAT NARRATION RULES (active encounter):\n\
+- 2-4 sentences per beat. Fast, kinetic, visceral.\n\
 - Describe the action, the impact, the consequence. No preamble.\n\
 - Vary intensity: a punch is one sentence, a critical hit is three.\n\
 - Sound, motion, pain. Not poetry.\n\
@@ -195,19 +202,19 @@ abilities a character does not possess.\n\
 - Never invent, improvise, or grant abilities mid-combat. The character sheet is\n\
   the single source of truth.\n\
 \n\
-[Combat State Patch — MANDATORY]\n\
-Your game_patch JSON block MUST include these combat fields:\n\
-- in_combat: boolean — true during combat, false when combat ends\n\
-- hp_changes: character/enemy name to HP CHANGE (negative = damage, positive = healing)\n\
-- turn_order: combatant names in initiative order (include on first round or when order changes)\n\
-- current_turn: who is acting now\n\
-- drama_weight: 0.0 (trivial) to 1.0 (climactic) — current tension level\n\
-- advance_round: true to end the current combat round, false otherwise";
+[Beat Selections — MANDATORY during encounters]\n\
+When an encounter is active, your game_patch MUST include beat_selections — an array\n\
+of beat choices for EVERY actor listed in the encounter context. Each actor gets one\n\
+beat per round. For combat NPCs, default to \"attack\" targeting a player. For other\n\
+encounter types, select beats based on the NPC's disposition and role.\n\
+Do NOT use the old fields (in_combat, hp_changes, turn_order, drama_weight, advance_round).\n\
+Those fields are removed. Use beat_selections only.";
 
-/// Chase narration rules — absorbed from dialectician.rs (ADR-067).
-/// Injected conditionally when game state indicates active chase.
+/// Chase narration rules — updated for beat_selections system (story 28-8).
+/// Old in_chase/chase_type/separation_delta fields deleted in 28-9.
+/// Chases are now ConfrontationDef encounter types using beat_selections.
 const NARRATOR_CHASE_RULES: &str = "\
-CHASE NARRATION RULES (active chase):\n\
+CHASE NARRATION RULES (active chase encounter):\n\
 - 2-3 sentences. FAST. Breathless. Urgent.\n\
 - Short sentences for sprinting. Fragments are fine.\n\
 - \"Left. The alley narrows. Something crashes behind you.\"\n\
@@ -220,14 +227,10 @@ CHASE NARRATION RULES (active chase):\n\
 - NEVER decide the player's escape route or action.\n\
 - Describe the situation and threat. Let the player choose.\n\
 \n\
-[Chase State Patch — MANDATORY]\n\
-Your game_patch JSON block MUST include these chase fields:\n\
-- in_chase: boolean — true during chase, false when chase ends (escape or capture)\n\
-- chase_type: one of \"footrace\", \"stealth\", \"negotiation\" (include on first round)\n\
-- separation_delta: integer — positive means gap widens (good for runner), negative means closer\n\
-- phase: brief description of the current chase phase\n\
-- event: what happened this beat (obstacle, shortcut, near-miss)\n\
-- roll: 0.0 to 1.0 — how well the escape attempt went this round";
+[Beat Selections — MANDATORY during chase encounters]\n\
+Use beat_selections from the encounter context. Select beats for all actors each round.\n\
+Do NOT use the old fields (in_chase, chase_type, separation_delta, phase, event, roll).\n\
+Those fields are removed. Use beat_selections only.";
 
 /// Dialogue narration rules — absorbed from ensemble.rs (ADR-067).
 /// Injected conditionally when NPCs are likely present in the scene.

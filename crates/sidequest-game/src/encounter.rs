@@ -546,6 +546,22 @@ impl StructuredEncounter {
             }
         }
 
+        // Actors — tell the narrator who is in this encounter so it can
+        // emit beat_selections for each NPC, not just the player.
+        // Without this, the narrator guesses NPCs from narrative context (pattern 5: LLM compensation).
+        if !self.actors.is_empty() {
+            let actor_list: Vec<String> = self
+                .actors
+                .iter()
+                .map(|a| format!("{} ({})", a.name, a.role))
+                .collect();
+            lines.push(format!("Actors: {}", actor_list.join(", ")));
+            lines.push(
+                "Include a beat_selection for EVERY actor each round — player AND NPCs."
+                    .to_string(),
+            );
+        }
+
         // Available beats
         lines.push("Available:".to_string());
         for (i, beat) in def.beats.iter().enumerate() {

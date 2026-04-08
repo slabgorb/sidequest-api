@@ -1256,10 +1256,50 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
     let tier_events = mutation_result.tier_events;
 
+    // Story 28-8: Encounter creation — the narrator signals a new encounter by emitting
+    // `"confrontation": "combat"` (or any ConfrontationDef type) in the game_patch.
+    // This creates a StructuredEncounter from the genre pack's ConfrontationDef and
+    // populates actors from the player characters + NPCs present in the scene.
+    if let Some(ref confrontation_type) = result.confrontation {
+        if ctx.snapshot.encounter.is_none() || ctx.snapshot.encounter.as_ref().map_or(false, |e| e.resolved) {
+            if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, confrontation_type) {
+                let mut encounter = sidequest_game::encounter::StructuredEncounter::from_confrontation_def(def);
+
+                // Populate actors: player characters + NPCs mentioned this turn
+                for ch in &ctx.snapshot.characters {
+                    encounter.actors.push(sidequest_game::encounter::EncounterActor {
+                        name: ch.core.name.as_str().to_string(),
+                        role: "player".to_string(),
+                    });
+                }
+                // Add NPCs from this turn's narration (the narrator knows who's in the scene)
+                for npc_mention in &result.npcs_present {
+                    encounter.actors.push(sidequest_game::encounter::EncounterActor {
+                        name: npc_mention.name.clone(),
+                        role: "npc".to_string(),
+                    });
+                }
+
+                WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                    .field("event", "encounter.created")
+                    .field("encounter_type", confrontation_type)
+                    .field("actor_count", encounter.actors.len())
+                    .field("source", "narrator_confrontation")
+                    .send();
+
+                ctx.snapshot.encounter = Some(encounter);
+            } else {
+                tracing::warn!(
+                    confrontation_type = %confrontation_type,
+                    "encounter.creation_failed — no ConfrontationDef found for type"
+                );
+            }
+        }
+    }
+
     // Story 28-5: Beat selection dispatch — route narrator's beat_selection through
     // apply_beat() on the live StructuredEncounter. The beat's stat_check drives
     // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
-    // beat_selection will be populated by story 28-6 (narrator outputs beat selections).
     //
     // Story 28-9: encounter_just_resolved is computed here (after beat dispatch),
     // not inside apply_state_mutations, because dispatch_beat_selection is what
