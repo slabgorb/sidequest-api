@@ -64,6 +64,10 @@ pub struct CharCreationScene {
     /// after a choice is made, waiting for the player's freeform elaboration.
     #[serde(default)]
     pub hook_prompt: Option<String>,
+    /// Scene-level mechanical effects (e.g., stat_generation, equipment_generation).
+    /// These are directives to the engine, not player-choice effects.
+    #[serde(default)]
+    pub mechanical_effects: Option<MechanicalEffects>,
 }
 
 /// A choice within a character creation scene.
@@ -77,8 +81,8 @@ pub struct CharCreationChoice {
     pub mechanical_effects: MechanicalEffects,
 }
 
-/// Mechanical effects of a character creation choice.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// Mechanical effects of a character creation choice or scene-level directive.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MechanicalEffects {
     /// Suggested class.
     #[serde(default)]
@@ -131,6 +135,12 @@ pub struct MechanicalEffects {
     /// Pronoun hint from character creation (e.g. "she/her", "he/him", "they/them").
     #[serde(default)]
     pub pronoun_hint: Option<String>,
+    /// Stat generation method override (scene-level directive, e.g. "roll_3d6_strict").
+    #[serde(default)]
+    pub stat_generation: Option<String>,
+    /// Equipment generation method (scene-level directive, e.g. "random_table").
+    #[serde(default)]
+    pub equipment_generation: Option<String>,
 }
 
 // ═══════════════════════════════════════════════════════════

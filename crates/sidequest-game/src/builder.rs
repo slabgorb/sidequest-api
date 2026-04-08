@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use rand::Rng;
 use sidequest_genre::{CharCreationScene, MechanicalEffects, RulesConfig};
+use tracing::info_span;
 use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString};
 
 use crate::character::Character;
@@ -234,13 +235,24 @@ impl CharacterBuilder {
     }
 
     fn build_inner(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Self {
-        // Roll stats eagerly for roll_3d6_strict so they're available for narration
-        let rolled_stats = if rules.stat_generation == "roll_3d6_strict" {
-            let mut rng = rand::rng();
-            Some(Self::roll_3d6_stats(&rules.ability_score_names, &mut rng))
-        } else {
-            None
-        };
+        // Scan scenes for stat_generation directives — roll eagerly so stats
+        // are available for narration injection when the scene is first shown.
+        // The scene content is authoritative: if a scene declares
+        // stat_generation: roll_3d6_strict, that scene's narration gets stat values.
+        let rolled_stats = scenes
+            .iter()
+            .find_map(|s| {
+                s.mechanical_effects
+                    .as_ref()
+                    .and_then(|e| e.stat_generation.as_deref())
+            })
+            .and_then(|method| match method {
+                "roll_3d6_strict" => {
+                    let mut rng = rand::rng();
+                    Some(Self::roll_3d6_stats(&rules.ability_score_names, &mut rng))
+                }
+                _ => None,
+            });
 
         Self {
             scenes,
@@ -270,13 +282,41 @@ impl CharacterBuilder {
         ability_score_names: &[String],
         rng: &mut impl Rng,
     ) -> Vec<(String, i32)> {
-        ability_score_names
+        let results: Vec<(String, i32)> = ability_score_names
             .iter()
             .map(|name| {
-                let total: i32 = (0..3).map(|_| rng.random_range(1..=6)).sum();
+                let dice: [i32; 3] = [
+                    rng.random_range(1..=6),
+                    rng.random_range(1..=6),
+                    rng.random_range(1..=6),
+                ];
+                let total = dice.iter().sum();
+
+                let span = info_span!(
+                    "chargen.stat_roll",
+                    method = "roll_3d6_strict",
+                    stat_name = %name,
+                    d1 = dice[0],
+                    d2 = dice[1],
+                    d3 = dice[2],
+                    total = total,
+                );
+                let _guard = span.enter();
+
                 (name.clone(), total)
             })
-            .collect()
+            .collect();
+
+        let span = info_span!(
+            "chargen.stats_generated",
+            method = "roll_3d6_strict",
+        );
+        let _guard = span.enter();
+        for (name, val) in &results {
+            tracing::info!(stat = %name, value = val, "stat generated");
+        }
+
+        results
     }
 
     // --- Phase queries ---
@@ -492,30 +532,35 @@ impl CharacterBuilder {
             return Err(BuilderError::FreeformNotAllowed);
         }
 
-        let effects = MechanicalEffects {
-            class_hint: None,
-            race_hint: None,
-            mutation_hint: None,
-            item_hint: None,
-            affinity_hint: None,
-            training_hint: None,
-            background: None,
-            personality_trait: None,
-            emotional_state: None,
-            relationship: None,
-            goals: None,
-            allows_freeform: None,
-            rig_type_hint: None,
-            rig_trait: None,
-            catch_phrase: None,
-            stat_bonuses: HashMap::new(),
-            pronoun_hint: None,
-        };
+        // Use scene-level mechanical_effects if present (e.g., the_roll has
+        // stat_generation, the_kit has equipment_generation). Otherwise empty.
+        let effects = scene
+            .mechanical_effects
+            .clone()
+            .unwrap_or_default();
+
+        // Process scene-level stat_generation directive
+        if let Some(ref method) = effects.stat_generation {
+            match method.as_str() {
+                "roll_3d6_strict" => {
+                    let mut rng = rand::rng();
+                    self.rolled_stats =
+                        Some(Self::roll_3d6_stats(&self.ability_score_names, &mut rng));
+                }
+                other => {
+                    // Override the builder's stat_generation from scene directive
+                    self.stat_generation = other.to_string();
+                }
+            }
+        }
+
+        let hooks = extract_hooks(&scene.id, &effects);
+        let anchors = extract_anchors(&scene.id, &effects);
 
         self.results.push(SceneResult {
             input_type: SceneInputType::Freeform(text.to_string()),
-            hooks_added: vec![],
-            anchors_added: vec![],
+            hooks_added: hooks,
+            anchors_added: anchors,
             effects_applied: effects,
             choice_description: None,
         });
@@ -756,9 +801,16 @@ impl CharacterBuilder {
                     scene.allows_freeform
                 };
 
-                // Inject rolled stat values into narration for the stat-roll scene
-                let prompt_text = if let Some(ref rolled) = self.rolled_stats {
-                    if *scene_index == 0 {
+                // Inject rolled stat values into narration for the scene that
+                // declares stat_generation in its mechanical_effects.
+                let scene_has_stat_gen = scene
+                    .mechanical_effects
+                    .as_ref()
+                    .and_then(|e| e.stat_generation.as_ref())
+                    .is_some();
+
+                let prompt_text = if scene_has_stat_gen {
+                    if let Some(ref rolled) = self.rolled_stats {
                         let stat_line = rolled
                             .iter()
                             .map(|(name, val)| format!("**{} {}**", name, val))

@@ -26,25 +26,7 @@ use sidequest_game::builder::{BuilderError, CharacterBuilder};
 // ============================================================================
 
 fn effects_empty() -> MechanicalEffects {
-    MechanicalEffects {
-        class_hint: None,
-        race_hint: None,
-        mutation_hint: None,
-        item_hint: None,
-        affinity_hint: None,
-        training_hint: None,
-        background: None,
-        personality_trait: None,
-        emotional_state: None,
-        relationship: None,
-        goals: None,
-        allows_freeform: None,
-        rig_type_hint: None,
-        rig_trait: None,
-        catch_phrase: None,
-        pronoun_hint: None,
-        stat_bonuses: HashMap::new(),
-    }
+    MechanicalEffects::default()
 }
 
 /// C&C-style scenes: the_roll (no choices), pronouns, the_mouth.
@@ -58,6 +40,10 @@ fn caverns_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(false),
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: Some(MechanicalEffects {
+                stat_generation: Some("roll_3d6_strict".to_string()),
+                ..MechanicalEffects::default()
+            }),
         },
         CharCreationScene {
             id: "pronouns".to_string(),
@@ -68,12 +54,13 @@ fn caverns_scenes() -> Vec<CharCreationScene> {
                 description: "He.".to_string(),
                 mechanical_effects: MechanicalEffects {
                     pronoun_hint: Some("he/him".to_string()),
-                    ..effects_empty()
+                    ..MechanicalEffects::default()
                 },
             }],
             allows_freeform: Some(false),
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
         CharCreationScene {
             id: "the_mouth".to_string(),
@@ -83,6 +70,7 @@ fn caverns_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(false),
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
     ]
 }
