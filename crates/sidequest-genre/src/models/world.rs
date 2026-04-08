@@ -133,6 +133,18 @@ impl RoomExit {
     }
 }
 
+/// A legend entry mapping a glyph character to a feature type and label.
+///
+/// Used in tactical grid maps (ADR-071) to define what uppercase letter
+/// glyphs represent in the ASCII grid.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LegendEntry {
+    /// Feature type string (e.g., "cover", "hazard", "atmosphere").
+    pub r#type: String,
+    /// Human-readable label (e.g., "Worn tooth stumps").
+    pub label: String,
+}
+
 /// A room in the dungeon room graph.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomDef {
@@ -154,6 +166,15 @@ pub struct RoomDef {
     /// Optional description for UI/lore.
     #[serde(default)]
     pub description: Option<String>,
+    /// Raw ASCII grid string for tactical maps (ADR-071).
+    #[serde(default)]
+    pub grid: Option<String>,
+    /// Cells per grid unit for tactical scale.
+    #[serde(default)]
+    pub tactical_scale: Option<u32>,
+    /// Legend mapping uppercase glyphs to feature definitions.
+    #[serde(default)]
+    pub legend: Option<HashMap<char, LegendEntry>>,
 }
 
 fn default_room_size() -> (u32, u32) {

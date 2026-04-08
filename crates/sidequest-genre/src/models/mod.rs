@@ -19,7 +19,8 @@ mod rules;
 mod scenario;
 mod theme;
 mod tropes;
-mod world;
+/// World configuration, cartography, and room graph types.
+pub mod world;
 
 pub use audio::*;
 pub use axes::*;
