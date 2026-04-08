@@ -208,6 +208,9 @@ pub struct CharacterBuilder {
     class_hp_bases: HashMap<String, u32>,
     race_label: String,
     class_label: String,
+    /// HP formula string from genre pack (e.g., "8 + CON_modifier").
+    /// When present, overrides class_hp_bases lookup during build().
+    hp_formula: Option<String>,
     /// Pre-rolled stats for roll_3d6_strict (rolled eagerly at construction).
     /// Stored in ability_score_names order for narration injection.
     rolled_stats: Option<Vec<(String, i32)>>,
@@ -276,6 +279,7 @@ impl CharacterBuilder {
             default_hp: rules.default_hp,
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
+            hp_formula: rules.hp_formula.clone(),
             race_label: rules
                 .race_label
                 .clone()
@@ -672,13 +676,22 @@ impl CharacterBuilder {
         // Stats
         let stats = self.generate_stats(&acc)?;
 
-        // HP from class base
-        let base_hp = self
-            .class_hp_bases
-            .get(class_str)
-            .copied()
-            .or(self.default_hp)
-            .unwrap_or(10) as i32;
+        // HP from hp_formula or class_hp_bases fallback
+        let base_hp = if let Some(ref formula) = self.hp_formula {
+            let _span = info_span!(
+                "chargen.hp_formula",
+                formula = formula.as_str(),
+                class = class_str,
+            )
+            .entered();
+            Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)
+        } else {
+            self.class_hp_bases
+                .get(class_str)
+                .copied()
+                .or(self.default_hp)
+                .unwrap_or(10) as i32
+        };
 
         let ac = self.default_ac.unwrap_or(10) as i32;
 
@@ -1049,6 +1062,99 @@ impl CharacterBuilder {
         }
 
         Ok(stats)
+    }
+
+    /// Evaluate an hp_formula string using rolled stats and class config.
+    ///
+    /// Supported variables:
+    /// - `XXX_modifier` — D&D-style ability modifier: floor((stat - 10) / 2)
+    ///   where XXX matches any key in the stats HashMap (e.g., CON, STR, body)
+    /// - `class_base` — class_hp_bases lookup for the current class
+    /// - `level` — character level (always 1 at creation)
+    /// - Integer literals
+    ///
+    /// Supported operators: `+`, `-`, `*` (left-to-right, no precedence beyond parens)
+    /// Parentheses are stripped before evaluation.
+    fn evaluate_hp_formula(
+        formula: &str,
+        stats: &HashMap<String, i32>,
+        class_hp_bases: &HashMap<String, u32>,
+        class_str: &str,
+    ) -> i32 {
+        // Build variable substitution table
+        let class_base = class_hp_bases.get(class_str).copied().unwrap_or(8) as i32;
+        let level: i32 = 1; // Always 1 at character creation
+
+        // Substitute variables in the formula string
+        let mut expr = formula.to_string();
+
+        // Replace XXX_modifier patterns (e.g., CON_modifier, body_mod, nerve_mod)
+        // Check for full _modifier suffix first, then _mod suffix
+        for (stat_name, &stat_value) in stats {
+            let modifier = (stat_value - 10) / 2;
+            let modifier_var = format!("{}_modifier", stat_name);
+            let mod_var = format!("{}_mod", stat_name.to_lowercase());
+            expr = expr.replace(&modifier_var, &modifier.to_string());
+            expr = expr.replace(&mod_var, &modifier.to_string());
+        }
+
+        // Replace class_base and level
+        expr = expr.replace("class_base", &class_base.to_string());
+        expr = expr.replace("level", &level.to_string());
+
+        // Strip parentheses (simple formulas only)
+        expr = expr.replace('(', "").replace(')', "");
+
+        // Evaluate the arithmetic expression (supports +, -, *)
+        let result = Self::eval_simple_arithmetic(&expr);
+
+        // Floor at 1 — no zero or negative HP
+        result.max(1)
+    }
+
+    /// Evaluate a simple arithmetic expression with +, -, * operators.
+    /// No operator precedence — evaluates left to right.
+    /// Handles negative numbers from variable substitution.
+    fn eval_simple_arithmetic(expr: &str) -> i32 {
+        let expr = expr.trim();
+
+        // Tokenize: split on operators while preserving them
+        let mut tokens: Vec<String> = Vec::new();
+        let mut current = String::new();
+
+        for ch in expr.chars() {
+            if (ch == '+' || ch == '-' || ch == '*') && !current.trim().is_empty() {
+                tokens.push(current.trim().to_string());
+                tokens.push(ch.to_string());
+                current = String::new();
+            } else {
+                current.push(ch);
+            }
+        }
+        if !current.trim().is_empty() {
+            tokens.push(current.trim().to_string());
+        }
+
+        if tokens.is_empty() {
+            return 0;
+        }
+
+        // Evaluate left to right
+        let mut result: i32 = tokens[0].parse().unwrap_or(0);
+        let mut i = 1;
+        while i + 1 < tokens.len() {
+            let op = &tokens[i];
+            let operand: i32 = tokens[i + 1].parse().unwrap_or(0);
+            match op.as_str() {
+                "+" => result += operand,
+                "-" => result -= operand,
+                "*" => result *= operand,
+                _ => {}
+            }
+            i += 2;
+        }
+
+        result
     }
 }
 
