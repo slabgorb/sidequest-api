@@ -1272,6 +1272,39 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             dispatch_beat_selection(ctx, beat_id);
         }
     }
+
+    // Story 28-8: Dispatch NPC beat selections from beat_selections.
+    // Each NPC actor in the encounter gets apply_beat() called with mechanical
+    // resolution and OTEL instrumentation. Player beats are already handled above
+    // via scene_intent; here we process only non-player actors.
+    if ctx.snapshot.encounter.is_some() {
+        for npc_beat_selection in result.beat_selections.iter() {
+            // Skip player beats — already dispatched via scene_intent above
+            if npc_beat_selection.actor.to_lowercase() == "player" {
+                continue;
+            }
+
+            let npc_name = &npc_beat_selection.actor;
+            let beat_id = &npc_beat_selection.beat_id;
+            let target = npc_beat_selection.target.as_deref().unwrap_or("none");
+            // Dispatch the NPC's beat through the same resolution pipeline as the player
+            dispatch_beat_selection(ctx, beat_id);
+
+            // OTEL: encounter.npc_beat — the GM panel lie detector for NPC mechanical actions
+            let stat_check_result = ctx.snapshot.encounter.as_ref()
+                .map(|e| format!("metric={}", e.metric.current))
+                .unwrap_or_else(|| "no_encounter".to_string());
+
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("event", "encounter.npc_beat")
+                .field("npc_name", npc_name)
+                .field("beat_id", beat_id)
+                .field("target", target)
+                .field("stat_check", &stat_check_result)
+                .send();
+        }
+    }
+
     let encounter_active_after_beat = ctx.in_encounter();
     let encounter_just_resolved = encounter_active_before_beat && !encounter_active_after_beat;
     let encounter_just_started = !encounter_active_before_beat && encounter_active_after_beat;
