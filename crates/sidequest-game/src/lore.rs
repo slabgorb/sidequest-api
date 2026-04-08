@@ -1467,23 +1467,8 @@ mod tests {
 
     fn test_mechanical_effects() -> MechanicalEffects {
         MechanicalEffects {
-            class_hint: None,
-            race_hint: None,
-            mutation_hint: None,
-            item_hint: None,
-            affinity_hint: None,
-            training_hint: None,
             background: Some("farmhand".to_string()),
-            personality_trait: None,
-            emotional_state: None,
-            relationship: None,
-            goals: None,
-            allows_freeform: None,
-            rig_type_hint: None,
-            rig_trait: None,
-            catch_phrase: None,
-            stat_bonuses: HashMap::new(),
-            pronoun_hint: None,
+            ..MechanicalEffects::default()
         }
     }
 
@@ -1507,7 +1492,8 @@ mod tests {
                 ],
                 allows_freeform: None,
                 hook_prompt: None,
-            loading_text: None,
+                loading_text: None,
+                mechanical_effects: None,
             },
             CharCreationScene {
                 id: "motivation".to_string(),
@@ -1520,7 +1506,8 @@ mod tests {
                 }],
                 allows_freeform: None,
                 hook_prompt: None,
-            loading_text: None,
+                loading_text: None,
+                mechanical_effects: None,
             },
         ]
     }
@@ -1839,6 +1826,7 @@ mod tests {
             allows_freeform: None,
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         }];
         let mut store = LoreStore::new();
         let count = seed_lore_from_char_creation(&mut store, &scenes);
