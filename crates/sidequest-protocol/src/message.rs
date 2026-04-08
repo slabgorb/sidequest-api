@@ -374,6 +374,25 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// Tactical grid state for the current room (story 29-5).
+    /// Sent on room entry when the room has ASCII grid data.
+    #[serde(rename = "TACTICAL_STATE")]
+    TacticalState {
+        /// The typed payload for this message.
+        payload: TacticalStatePayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
+    /// Player tactical action (move, target, inspect) on the grid (story 29-5).
+    #[serde(rename = "TACTICAL_ACTION")]
+    TacticalAction {
+        /// The typed payload for this message.
+        payload: TacticalActionPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1302,4 +1321,93 @@ pub struct ResourceMinReachedPayload {
     pub resource_name: String,
     /// The minimum value the resource reached.
     pub min_value: f64,
+}
+
+// ---------------------------------------------------------------------------
+// Tactical grid payload structs (story 29-5)
+// ---------------------------------------------------------------------------
+
+/// Full tactical state for a room — grid, entities, and effect zones.
+/// Sent as TACTICAL_STATE on room entry when the room has ASCII grid data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TacticalStatePayload {
+    /// Room ID this tactical state belongs to.
+    pub room_id: String,
+    /// The parsed grid layout.
+    pub grid: TacticalGridPayload,
+    /// Entities positioned on the grid (players, NPCs, creatures).
+    pub entities: Vec<TacticalEntityPayload>,
+    /// Active effect zones (spell areas, hazards, barriers).
+    pub zones: Vec<EffectZonePayload>,
+}
+
+/// Grid layout — cell types as strings for JSON simplicity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TacticalGridPayload {
+    /// Grid width in cells.
+    pub width: u32,
+    /// Grid height in cells.
+    pub height: u32,
+    /// 2D grid of cell type strings (e.g., "floor", "wall", "water").
+    pub cells: Vec<Vec<String>>,
+    /// Named features placed on the grid via legend.
+    pub features: Vec<TacticalFeaturePayload>,
+}
+
+/// A named feature placed on the grid via legend glyph.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TacticalFeaturePayload {
+    /// The uppercase letter glyph (A-Z) from the ASCII grid.
+    pub glyph: char,
+    /// Feature type (cover, hazard, difficult_terrain, atmosphere, interactable, door).
+    pub feature_type: String,
+    /// Human-readable label for UI tooltip.
+    pub label: String,
+    /// Grid positions where this feature appears ([x, y] pairs).
+    pub positions: Vec<[u32; 2]>,
+}
+
+/// An entity positioned on the tactical grid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TacticalEntityPayload {
+    /// Unique entity identifier.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Grid x position (column).
+    pub x: u32,
+    /// Grid y position (row).
+    pub y: u32,
+    /// Size in cells (1 = medium, 2 = large, etc.).
+    pub size: u32,
+    /// Faction: "player", "hostile", "neutral", "ally".
+    pub faction: String,
+}
+
+/// An effect zone overlay on the tactical grid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectZonePayload {
+    /// Unique zone identifier.
+    pub id: String,
+    /// Zone shape type: "circle", "cone", "line", "rect".
+    pub zone_type: String,
+    /// Shape-specific parameters (center, radius, etc.).
+    pub params: serde_json::Value,
+    /// Human-readable label.
+    pub label: String,
+    /// Optional display color override.
+    pub color: Option<String>,
+}
+
+/// Player tactical action on the grid (move, target, inspect).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TacticalActionPayload {
+    /// Action type: "move", "target", "inspect".
+    pub action_type: String,
+    /// Entity performing the action (for move/target).
+    pub entity_id: Option<String>,
+    /// Target grid position [x, y].
+    pub target: Option<[u32; 2]>,
+    /// Ability being used (for target actions).
+    pub ability: Option<String>,
 }
