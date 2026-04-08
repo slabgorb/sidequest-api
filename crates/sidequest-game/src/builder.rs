@@ -214,6 +214,8 @@ pub struct CharacterBuilder {
     /// HP formula string from genre pack (e.g., "8 + CON_modifier").
     /// When present, overrides class_hp_bases lookup during build().
     hp_formula: Option<String>,
+    /// Point budget for point-buy stat generation (D&D 5e standard: 27).
+    point_buy_budget: u32,
     /// Pre-rolled stats for roll_3d6_strict (rolled eagerly at construction).
     /// Stored in ability_score_names order for narration injection.
     rolled_stats: Option<Vec<(String, i32)>>,
@@ -283,6 +285,7 @@ impl CharacterBuilder {
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
             hp_formula: rules.hp_formula.clone(),
+            point_buy_budget: rules.point_buy_budget,
             race_label: rules
                 .race_label
                 .clone()
@@ -336,6 +339,50 @@ impl CharacterBuilder {
         }
 
         results
+    }
+
+    /// Allocate a point-buy budget across `n` stats using the D&D 5e cost table.
+    ///
+    /// All stats start at 8. Points are distributed round-robin, raising each
+    /// stat by 1 point at a time (cheapest-first) until the budget is spent.
+    /// This produces a balanced spread — no dump stats, no extreme min-maxing.
+    ///
+    /// Cost table (cumulative from base 8):
+    ///   8→9: 1, 9→10: 1, 10→11: 1, 11→12: 1, 12→13: 1, 13→14: 2, 14→15: 2
+    fn allocate_point_buy(n: usize, budget: u32) -> Vec<i32> {
+        // Cost to go from (value - 1) to value
+        fn marginal_cost(value: i32) -> u32 {
+            match value {
+                9..=13 => 1,
+                14 | 15 => 2,
+                _ => u32::MAX, // Can't go below 8 or above 15
+            }
+        }
+
+        let mut stats = vec![8i32; n];
+        let mut remaining = budget;
+
+        // Round-robin: raise each stat by 1, cycling until budget exhausted
+        'outer: loop {
+            let mut any_raised = false;
+            for stat in stats.iter_mut() {
+                let next_val = *stat + 1;
+                if next_val > 15 {
+                    continue;
+                }
+                let cost = marginal_cost(next_val);
+                if cost <= remaining {
+                    *stat = next_val;
+                    remaining -= cost;
+                    any_raised = true;
+                }
+            }
+            if !any_raised || remaining == 0 {
+                break 'outer;
+            }
+        }
+
+        stats
     }
 
     // --- Phase queries ---
@@ -1022,6 +1069,23 @@ impl CharacterBuilder {
                 self.ability_score_names
                     .iter()
                     .zip(base_values.into_iter())
+                    .map(|(name, val)| (name.clone(), val))
+                    .collect()
+            }
+            "point_buy" => {
+                let values = Self::allocate_point_buy(
+                    self.ability_score_names.len(),
+                    self.point_buy_budget,
+                );
+                tracing::info!(
+                    method = "point_buy",
+                    budget = self.point_buy_budget,
+                    stats = ?values,
+                    "chargen.stats_generated"
+                );
+                self.ability_score_names
+                    .iter()
+                    .zip(values.into_iter())
                     .map(|(name, val)| (name.clone(), val))
                     .collect()
             }
