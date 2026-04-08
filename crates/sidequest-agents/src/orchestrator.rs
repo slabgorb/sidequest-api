@@ -159,6 +159,10 @@ pub trait GameService: Send + Sync {
 
     /// Process a player action and return narration + state changes.
     fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult;
+
+    /// Reset the narrator session, forcing the next prompt to use Full tier.
+    /// Call when a player connects to a different game (story 30-2).
+    fn reset_narrator_session_for_connect(&self);
 }
 
 /// The orchestrator state machine. Implements GameService.
@@ -189,6 +193,10 @@ pub struct Orchestrator {
     /// reused via `--resume` on subsequent turns. Mutex because `process_action`
     /// takes `&self` (GameService trait constraint).
     narrator_session_id: std::sync::Mutex<Option<String>>,
+    /// Genre slug that established the current narrator session (story 30-2).
+    /// Used to detect genre switches — if the incoming TurnContext has a different
+    /// genre, the session is stale and must be reset to Full tier.
+    session_genre: std::sync::Mutex<Option<String>>,
 }
 
 impl Orchestrator {
@@ -232,6 +240,7 @@ impl Orchestrator {
             soul_data,
             script_tools: HashMap::new(),
             narrator_session_id: std::sync::Mutex::new(None),
+            session_genre: std::sync::Mutex::new(None),
         }
     }
 
@@ -240,6 +249,64 @@ impl Orchestrator {
     pub fn new_for_test() -> Self {
         let (tx, _rx) = mpsc::channel(1);
         Self::new(tx)
+    }
+
+    // === Narrator Session Lifecycle (story 30-2) ===
+
+    /// Reset the narrator session, forcing the next prompt to use Full tier.
+    /// Call this when switching games, loading a different save, or when the
+    /// narrator has lost context and needs a full grounding prompt.
+    pub fn reset_narrator_session(&self) {
+        let _span = tracing::info_span!(
+            "orchestrator.narrator_session_reset",
+            reason = "session_lifecycle",
+        )
+        .entered();
+        *self.narrator_session_id.lock().unwrap() = None;
+        *self.session_genre.lock().unwrap() = None;
+    }
+
+    /// Set the narrator session ID (for testing and server dispatch).
+    pub fn set_narrator_session_id(&self, id: String) {
+        *self.narrator_session_id.lock().unwrap() = Some(id);
+    }
+
+    /// Check whether a narrator session is currently active.
+    pub fn has_active_narrator_session(&self) -> bool {
+        self.narrator_session_id.lock().unwrap().is_some()
+    }
+
+    /// Record which genre established the current narrator session.
+    pub fn set_session_genre(&self, genre: String) {
+        *self.session_genre.lock().unwrap() = Some(genre);
+    }
+
+    /// Select the prompt tier based on session state and genre match.
+    /// Returns Full if no session exists or if the genre has changed
+    /// since the session was established (stale session detection).
+    pub fn select_prompt_tier(&self, context: &TurnContext) -> NarratorPromptTier {
+        let current_session = self.narrator_session_id.lock().unwrap().is_some();
+        if !current_session {
+            return NarratorPromptTier::Full;
+        }
+
+        // Genre switch detection: if the incoming genre differs from the
+        // genre that established the session, the cached session is stale.
+        if let Some(ref incoming_genre) = context.genre {
+            let session_genre = self.session_genre.lock().unwrap();
+            if let Some(ref stored_genre) = *session_genre {
+                if stored_genre != incoming_genre {
+                    tracing::warn!(
+                        stored_genre = %stored_genre,
+                        incoming_genre = %incoming_genre,
+                        "Genre switch detected — forcing Full tier prompt rebuild"
+                    );
+                    return NarratorPromptTier::Full;
+                }
+            }
+        }
+
+        NarratorPromptTier::Delta
     }
 
     /// Replace the SOUL data for testing (story 23-10).
@@ -351,8 +418,8 @@ impl Orchestrator {
 
         // === GENRE PROMPT TEMPLATES (from prompts.yaml) ===
         if let Some(ref gp) = context.genre_prompts {
-            // Narrator voice — Full tier only (establishes voice for persistent session)
-            if is_full && !gp.narrator.is_empty() {
+            // Narrator voice — every tier (story 30-2: narrator loses genre voice on Delta)
+            if !gp.narrator.is_empty() {
                 builder.add_section(PromptSection::new(
                     "genre_narrator_voice",
                     format!("<genre-voice>\n{}\n</genre-voice>", gp.narrator),
@@ -361,8 +428,8 @@ impl Orchestrator {
                 ));
             }
 
-            // NPC behavior — Full tier only (stable across session)
-            if is_full && !gp.npc.is_empty() {
+            // NPC behavior — every tier (story 30-2: NPCs lose genre personality on Delta)
+            if !gp.npc.is_empty() {
                 builder.add_section(PromptSection::new(
                     "genre_npc_voice",
                     format!("<genre-npc>\n{}\n</genre-npc>", gp.npc),
@@ -371,8 +438,8 @@ impl Orchestrator {
                 ));
             }
 
-            // World state tracking — Full tier only
-            if is_full && !gp.world_state.is_empty() {
+            // World state tracking — every tier (story 30-2: narrator stops tracking state on Delta)
+            if !gp.world_state.is_empty() {
                 builder.add_section(PromptSection::new(
                     "genre_world_state",
                     format!("<genre-world-state>\n{}\n</genre-world-state>", gp.world_state),
@@ -742,6 +809,10 @@ impl GameService for Orchestrator {
         serde_json::Value::Object(serde_json::Map::new())
     }
 
+    fn reset_narrator_session_for_connect(&self) {
+        self.reset_narrator_session();
+    }
+
     fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult {
         let span = tracing::info_span!(
             "orchestrator.process_action",
@@ -755,12 +826,8 @@ impl GameService for Orchestrator {
 
         // Build prompt via extracted method (story 15-27: testable prompt assembly).
         // ADR-066: Use Delta tier on resumed sessions — static context already in history.
-        let current_session_exists = self.narrator_session_id.lock().unwrap().is_some();
-        let prompt_tier = if current_session_exists {
-            NarratorPromptTier::Delta
-        } else {
-            NarratorPromptTier::Full
-        };
+        // Story 30-2: Use select_prompt_tier() for genre switch detection.
+        let prompt_tier = self.select_prompt_tier(context);
         let prompt_tier_str = match prompt_tier {
             NarratorPromptTier::Full => "full",
             NarratorPromptTier::Delta => "delta",
@@ -847,11 +914,16 @@ impl GameService for Orchestrator {
         };
 
         // Store session ID from response (first turn establishes, subsequent echo it back)
+        // Story 30-2: Also record the genre that established this session for switch detection.
         if let Ok(ref response) = send_result {
             if let Some(ref sid) = response.session_id {
                 let mut lock = self.narrator_session_id.lock().unwrap();
                 if lock.is_none() {
                     tracing::info!(session_id = %sid, "narrator.session_established — persistent Opus session created");
+                    // Record the genre for this session so we can detect genre switches
+                    if let Some(ref genre) = context.genre {
+                        *self.session_genre.lock().unwrap() = Some(genre.clone());
+                    }
                 }
                 *lock = Some(sid.clone());
             }

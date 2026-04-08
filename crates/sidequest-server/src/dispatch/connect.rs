@@ -58,6 +58,11 @@ pub(crate) async fn dispatch_connect(
     let world = payload.world.as_deref().unwrap_or("");
     let pname = payload.player_name.as_deref().unwrap_or("Player");
 
+    // Story 30-2: Reset narrator session on every connect. This forces the next
+    // narrator prompt to use Full tier, ensuring genre/world context is always
+    // grounded even when switching between games on a running server.
+    state.game_service().reset_narrator_session_for_connect();
+
     // Check for returning player — load from SQLite (now keyed by player name)
     let returning = state.persistence().exists(genre, world, pname).await;
 
