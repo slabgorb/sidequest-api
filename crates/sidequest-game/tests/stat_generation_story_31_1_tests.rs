@@ -132,7 +132,7 @@ fn rules_unknown_method() -> RulesConfig {
 /// Drive builder through all scenes to Confirmation, then build.
 fn build_character_with_rules(rules: &RulesConfig) -> Result<sidequest_game::Character, BuilderError> {
     let scenes = caverns_scenes();
-    let mut builder = CharacterBuilder::new(scenes, rules);
+    let mut builder = CharacterBuilder::new(scenes, rules, None);
 
     // Scene 0: the_roll — no choices, advance with freeform empty or auto-advance
     // The scene has no choices and allows_freeform=false, so it auto-advances
@@ -272,7 +272,7 @@ fn unrecognized_stat_generation_fails_loudly() {
 fn the_roll_scene_narration_includes_stat_values() {
     let rules = rules_3d6_strict();
     let scenes = caverns_scenes();
-    let builder = CharacterBuilder::new(scenes, &rules);
+    let builder = CharacterBuilder::new(scenes, &rules, None);
 
     // Get the game message for the first scene (the_roll)
     let msg = builder.to_scene_message("player-1");

@@ -1436,6 +1436,7 @@ mod tests {
             drama_thresholds: None,
             openings: vec![],
             inventory: None,
+            backstory_tables: None,
         }
     }
 
