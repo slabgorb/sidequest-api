@@ -369,9 +369,18 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     // Gold loss (spent, tossed, given away, etc.) — non-Acquired mutations
                     if let Some(gold) = mutation.gold {
                         if gold > 0 {
-                            ctx.inventory.gold -= gold;
+                            let actual = ctx.inventory.spend_gold(gold);
+                            if actual < gold {
+                                tracing::warn!(
+                                    requested = gold,
+                                    actual_spent = actual,
+                                    remaining = ctx.inventory.gold,
+                                    detail = %mutation.detail,
+                                    "inventory.insufficient_gold — clamped to available balance"
+                                );
+                            }
                             tracing::info!(
-                                gold_spent = gold,
+                                gold_spent = actual,
                                 total_gold = ctx.inventory.gold,
                                 action = %mutation.action,
                                 detail = %mutation.detail,
@@ -379,7 +388,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             );
                             WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
                                 .field("action", "gold_spent")
-                                .field("gold_spent", gold)
+                                .field("gold_spent", actual)
                                 .field("total_gold", ctx.inventory.gold)
                                 .field("mutation_action", format!("{}", mutation.action))
                                 .field("detail", &mutation.detail)
