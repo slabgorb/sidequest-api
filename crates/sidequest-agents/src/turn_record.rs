@@ -72,6 +72,10 @@ pub struct TurnRecord {
     /// Per-phase timing spans for flame chart visualization.
     /// Each entry: (name, start_ms relative to turn start, duration_ms).
     pub spans: Vec<(String, u64, u64)>,
+    /// Full assembled prompt text sent to the LLM (ADR-073 training data).
+    pub prompt_text: Option<String>,
+    /// Raw LLM response text before extraction (ADR-073 training data).
+    pub raw_response_text: Option<String>,
 }
 
 /// Counter for assigning monotonically increasing turn IDs.

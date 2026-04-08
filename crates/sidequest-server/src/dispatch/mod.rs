@@ -1701,6 +1701,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             agent_duration_ms: result.agent_duration_ms.unwrap_or(0),
             is_degraded: result.is_degraded,
             spans: vec![],
+            prompt_text: result.prompt_text.clone(),
+            raw_response_text: result.raw_response_text.clone(),
         };
         try_send_record(watcher_tx, record);
     }
