@@ -756,16 +756,10 @@ pub(crate) async fn start_character_creation(
         let mut ctx = format!("World: {}", world.config.name);
         ctx.push_str(&format!("\n{}", world.config.description));
         if let Some(ref history) = world.lore.history {
-            ctx.push_str(&format!(
-                "\nHistory: {}",
-                history.chars().take(200).collect::<String>()
-            ));
+            ctx.push_str(&format!("\nHistory: {}", history));
         }
         if let Some(ref geography) = world.lore.geography {
-            ctx.push_str(&format!(
-                "\nGeography: {}",
-                geography.chars().take(200).collect::<String>()
-            ));
+            ctx.push_str(&format!("\nGeography: {}", geography));
         }
         *world_context_out = ctx;
         tracing::info!(world = %world_slug, context_len = world_context_out.len(), "Loaded world context");
