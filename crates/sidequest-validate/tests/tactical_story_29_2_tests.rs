@@ -30,16 +30,12 @@
 
 use std::collections::HashMap;
 
-use sidequest_game::tactical::{
-    CardinalDirection, ExitGap, TacticalCell, TacticalGrid,
-};
+use sidequest_game::tactical::{CardinalDirection, ExitGap, TacticalCell, TacticalGrid};
 use sidequest_genre::models::world::{LegendEntry, RoomDef, RoomExit};
 
 // Import the validation module that Dev will create.
 // This import fails to compile → RED state.
-use sidequest_validate::tactical::{
-    validate_tactical_grid, ValidationError, ValidationResult,
-};
+use sidequest_validate::tactical::{validate_tactical_grid, ValidationError, ValidationResult};
 
 // ==========================================================================
 // Helper: build a legend HashMap from tuples
@@ -102,7 +98,10 @@ fn dimensions_match_passes() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DimensionMismatch { .. }))
         .collect();
-    assert!(dim_errors.is_empty(), "Matching dimensions should not produce errors");
+    assert!(
+        dim_errors.is_empty(),
+        "Matching dimensions should not produce errors"
+    );
 }
 
 /// A grid whose height doesn't match size * tactical_scale fails.
@@ -120,7 +119,10 @@ fn dimensions_height_mismatch_fails() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DimensionMismatch { .. }))
         .collect();
-    assert!(!dim_errors.is_empty(), "Height mismatch should produce DimensionMismatch error");
+    assert!(
+        !dim_errors.is_empty(),
+        "Height mismatch should produce DimensionMismatch error"
+    );
 }
 
 /// A grid whose width doesn't match size * tactical_scale fails.
@@ -138,7 +140,10 @@ fn dimensions_width_mismatch_fails() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DimensionMismatch { .. }))
         .collect();
-    assert!(!dim_errors.is_empty(), "Width mismatch should produce DimensionMismatch error");
+    assert!(
+        !dim_errors.is_empty(),
+        "Width mismatch should produce DimensionMismatch error"
+    );
 }
 
 /// When tactical_scale is None, dimension check is skipped.
@@ -155,7 +160,10 @@ fn dimensions_skipped_when_no_tactical_scale() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DimensionMismatch { .. }))
         .collect();
-    assert!(dim_errors.is_empty(), "No tactical_scale → skip dimension check");
+    assert!(
+        dim_errors.is_empty(),
+        "No tactical_scale → skip dimension check"
+    );
 }
 
 // ==========================================================================
@@ -174,8 +182,12 @@ fn exit_coverage_all_exits_have_gaps() {
     let leg = HashMap::new();
     let grid = TacticalGrid::parse(raw, &leg).unwrap();
     let exits = vec![
-        RoomExit::Corridor { target: "room_a".to_string() },
-        RoomExit::Corridor { target: "room_b".to_string() },
+        RoomExit::Corridor {
+            target: "room_a".to_string(),
+        },
+        RoomExit::Corridor {
+            target: "room_b".to_string(),
+        },
     ];
     let room = room_def("r1", (1, 1), None, exits, Some(raw), None);
 
@@ -199,9 +211,16 @@ fn exit_coverage_more_exits_than_gaps_fails() {
     let leg = HashMap::new();
     let grid = TacticalGrid::parse(raw, &leg).unwrap();
     let exits = vec![
-        RoomExit::Corridor { target: "room_a".to_string() },
-        RoomExit::Corridor { target: "room_b".to_string() },
-        RoomExit::Door { target: "room_c".to_string(), is_locked: false },
+        RoomExit::Corridor {
+            target: "room_a".to_string(),
+        },
+        RoomExit::Corridor {
+            target: "room_b".to_string(),
+        },
+        RoomExit::Door {
+            target: "room_c".to_string(),
+            is_locked: false,
+        },
     ];
     let room = room_def("r1", (1, 1), None, exits, Some(raw), None);
 
@@ -210,7 +229,10 @@ fn exit_coverage_more_exits_than_gaps_fails() {
         .iter()
         .filter(|e| matches!(e, ValidationError::ExitWithoutGap { .. }))
         .collect();
-    assert!(!exit_errors.is_empty(), "3 exits with 2 gaps → ExitWithoutGap error");
+    assert!(
+        !exit_errors.is_empty(),
+        "3 exits with 2 gaps → ExitWithoutGap error"
+    );
 }
 
 // ==========================================================================
@@ -228,8 +250,12 @@ fn no_orphan_gaps_when_counts_match() {
     let leg = HashMap::new();
     let grid = TacticalGrid::parse(raw, &leg).unwrap();
     let exits = vec![
-        RoomExit::Corridor { target: "room_a".to_string() },
-        RoomExit::Corridor { target: "room_b".to_string() },
+        RoomExit::Corridor {
+            target: "room_a".to_string(),
+        },
+        RoomExit::Corridor {
+            target: "room_b".to_string(),
+        },
     ];
     let room = room_def("r1", (1, 1), None, exits, Some(raw), None);
 
@@ -253,8 +279,12 @@ fn orphan_gap_detected_when_more_gaps_than_exits() {
     let leg = HashMap::new();
     let grid = TacticalGrid::parse(raw, &leg).unwrap();
     let exits = vec![
-        RoomExit::Corridor { target: "room_a".to_string() },
-        RoomExit::Corridor { target: "room_b".to_string() },
+        RoomExit::Corridor {
+            target: "room_a".to_string(),
+        },
+        RoomExit::Corridor {
+            target: "room_b".to_string(),
+        },
     ];
     let room = room_def("r1", (1, 1), None, exits, Some(raw), None);
 
@@ -263,7 +293,10 @@ fn orphan_gap_detected_when_more_gaps_than_exits() {
         .iter()
         .filter(|e| matches!(e, ValidationError::OrphanGap { .. }))
         .collect();
-    assert!(!orphan_errors.is_empty(), "3 gaps with 2 exits → OrphanGap error");
+    assert!(
+        !orphan_errors.is_empty(),
+        "3 gaps with 2 exits → OrphanGap error"
+    );
 }
 
 // ==========================================================================
@@ -288,7 +321,10 @@ _###_";
         .iter()
         .filter(|e| matches!(e, ValidationError::PerimeterBreach { .. }))
         .collect();
-    assert!(closure_errors.is_empty(), "Valid perimeter → no breach errors");
+    assert!(
+        closure_errors.is_empty(),
+        "Valid perimeter → no breach errors"
+    );
 }
 
 /// Floor cell directly adjacent to void (no wall between) → fail.
@@ -310,7 +346,10 @@ _###_";
         .iter()
         .filter(|e| matches!(e, ValidationError::PerimeterBreach { .. }))
         .collect();
-    assert!(!closure_errors.is_empty(), "Floor adjacent to void → PerimeterBreach");
+    assert!(
+        !closure_errors.is_empty(),
+        "Floor adjacent to void → PerimeterBreach"
+    );
 }
 
 /// Non-rectangular room with proper void-wall boundary → pass.
@@ -330,7 +369,10 @@ _##_";
         .iter()
         .filter(|e| matches!(e, ValidationError::PerimeterBreach { .. }))
         .collect();
-    assert!(closure_errors.is_empty(), "Non-rectangular room with proper boundary → no breach");
+    assert!(
+        closure_errors.is_empty(),
+        "Non-rectangular room with proper boundary → no breach"
+    );
 }
 
 /// Multiple perimeter breaches reported (not just the first one).
@@ -399,7 +441,10 @@ fn flood_fill_two_isolated_regions_fails() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DisconnectedFloor { .. }))
         .collect();
-    assert!(!fill_errors.is_empty(), "Two isolated floor regions → DisconnectedFloor");
+    assert!(
+        !fill_errors.is_empty(),
+        "Two isolated floor regions → DisconnectedFloor"
+    );
 }
 
 /// Single isolated floor cell → fail with coordinates identified.
@@ -420,7 +465,10 @@ fn flood_fill_single_isolated_cell_fails() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DisconnectedFloor { .. }))
         .collect();
-    assert!(!fill_errors.is_empty(), "Single isolated cell → DisconnectedFloor");
+    assert!(
+        !fill_errors.is_empty(),
+        "Single isolated cell → DisconnectedFloor"
+    );
 }
 
 /// Error message should include coordinates of isolated cells.
@@ -471,7 +519,10 @@ fn flood_fill_door_connects_regions() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DisconnectedFloor { .. }))
         .collect();
-    assert!(fill_errors.is_empty(), "Door connects the two halves → no disconnection");
+    assert!(
+        fill_errors.is_empty(),
+        "Door connects the two halves → no disconnection"
+    );
 }
 
 /// Water and difficult terrain are walkable → count as connected floor.
@@ -491,7 +542,10 @@ fn flood_fill_water_and_difficult_terrain_are_walkable() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DisconnectedFloor { .. }))
         .collect();
-    assert!(fill_errors.is_empty(), "Water/difficult terrain are walkable → connected");
+    assert!(
+        fill_errors.is_empty(),
+        "Water/difficult terrain are walkable → connected"
+    );
 }
 
 // ==========================================================================
@@ -516,7 +570,10 @@ fn legend_completeness_all_defined_passes() {
         .iter()
         .filter(|e| matches!(e, ValidationError::LegendIncomplete { .. }))
         .collect();
-    assert!(legend_errors.is_empty(), "All glyphs defined → no legend error");
+    assert!(
+        legend_errors.is_empty(),
+        "All glyphs defined → no legend error"
+    );
 }
 
 // ==========================================================================
@@ -542,16 +599,16 @@ fn legend_placement_on_floor_passes() {
         .iter()
         .filter(|e| matches!(e, ValidationError::LegendOnNonFloor { .. }))
         .collect();
-    assert!(placement_errors.is_empty(), "Feature on floor → no placement error");
+    assert!(
+        placement_errors.is_empty(),
+        "Feature on floor → no placement error"
+    );
 }
 
 /// Legend entry defined but not placed in grid → warning.
 #[test]
 fn legend_unused_glyph_produces_warning() {
-    let leg = legend(&[
-        ('P', "cover", "Pillar"),
-        ('T', "hazard", "Trap"),
-    ]);
+    let leg = legend(&[('P', "cover", "Pillar"), ('T', "hazard", "Trap")]);
     // Only P is placed, T is defined but not used
     let raw = "\
 #####\n\
@@ -565,7 +622,10 @@ fn legend_unused_glyph_produces_warning() {
         .iter()
         .filter(|e| matches!(e, ValidationError::UnusedLegendEntry { .. }))
         .collect();
-    assert!(!unused_errors.is_empty(), "Unused legend entry 'T' → UnusedLegendEntry warning");
+    assert!(
+        !unused_errors.is_empty(),
+        "Unused legend entry 'T' → UnusedLegendEntry warning"
+    );
 }
 
 // ==========================================================================
@@ -586,7 +646,9 @@ fn exit_width_compatible_rooms_pass() {
         "room_a",
         (1, 1),
         None,
-        vec![RoomExit::Corridor { target: "room_b".to_string() }],
+        vec![RoomExit::Corridor {
+            target: "room_b".to_string(),
+        }],
         Some(raw_a),
         None,
     );
@@ -601,14 +663,20 @@ fn exit_width_compatible_rooms_pass() {
         "room_b",
         (1, 1),
         None,
-        vec![RoomExit::Corridor { target: "room_a".to_string() }],
+        vec![RoomExit::Corridor {
+            target: "room_a".to_string(),
+        }],
         Some(raw_b),
         None,
     );
 
-    let errors =
-        sidequest_validate::tactical::validate_exit_width_compatibility(&room_a, &grid_a, &room_b, &grid_b);
-    assert!(errors.is_empty(), "Matching widths → no compatibility error");
+    let errors = sidequest_validate::tactical::validate_exit_width_compatibility(
+        &room_a, &grid_a, &room_b, &grid_b,
+    );
+    assert!(
+        errors.is_empty(),
+        "Matching widths → no compatibility error"
+    );
 }
 
 /// Two connected rooms with different exit gap widths → warning.
@@ -625,7 +693,9 @@ fn exit_width_mismatch_produces_warning() {
         "room_a",
         (1, 1),
         None,
-        vec![RoomExit::Corridor { target: "room_b".to_string() }],
+        vec![RoomExit::Corridor {
+            target: "room_b".to_string(),
+        }],
         Some(raw_a),
         None,
     );
@@ -640,13 +710,16 @@ fn exit_width_mismatch_produces_warning() {
         "room_b",
         (1, 1),
         None,
-        vec![RoomExit::Corridor { target: "room_a".to_string() }],
+        vec![RoomExit::Corridor {
+            target: "room_a".to_string(),
+        }],
         Some(raw_b),
         None,
     );
 
-    let errors =
-        sidequest_validate::tactical::validate_exit_width_compatibility(&room_a, &grid_a, &room_b, &grid_b);
+    let errors = sidequest_validate::tactical::validate_exit_width_compatibility(
+        &room_a, &grid_a, &room_b, &grid_b,
+    );
     assert!(
         !errors.is_empty(),
         "Width 2 vs width 3 → ExitWidthMismatch warning"
@@ -670,7 +743,10 @@ fn integration_valid_grid_passes_all_rules() {
     let room = room_def("r1", (1, 1), None, vec![], Some(raw), Some(leg));
 
     let errors = validate_tactical_grid(&room, &grid);
-    assert!(errors.is_empty(), "Well-formed grid should produce zero errors");
+    assert!(
+        errors.is_empty(),
+        "Well-formed grid should produce zero errors"
+    );
 }
 
 /// A grid with multiple problems reports ALL of them (not fail-fast).
@@ -716,7 +792,10 @@ fn grid_with_no_floor_cells_is_valid_for_flood_fill() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DisconnectedFloor { .. }))
         .collect();
-    assert!(fill_errors.is_empty(), "No floor cells → nothing to disconnect");
+    assert!(
+        fill_errors.is_empty(),
+        "No floor cells → nothing to disconnect"
+    );
 }
 
 // ==========================================================================
@@ -793,7 +872,10 @@ fn flood_fill_feature_cells_are_walkable() {
         .iter()
         .filter(|e| matches!(e, ValidationError::DisconnectedFloor { .. }))
         .collect();
-    assert!(fill_errors.is_empty(), "Feature cells are walkable → connected");
+    assert!(
+        fill_errors.is_empty(),
+        "Feature cells are walkable → connected"
+    );
 }
 
 // ==========================================================================
@@ -812,8 +894,12 @@ fn exit_gaps_are_not_perimeter_breaches() {
     let leg = HashMap::new();
     let grid = TacticalGrid::parse(raw, &leg).unwrap();
     let exits = vec![
-        RoomExit::Corridor { target: "a".to_string() },
-        RoomExit::Corridor { target: "b".to_string() },
+        RoomExit::Corridor {
+            target: "a".to_string(),
+        },
+        RoomExit::Corridor {
+            target: "b".to_string(),
+        },
     ];
     let room = room_def("r1", (1, 1), None, exits, Some(raw), None);
 

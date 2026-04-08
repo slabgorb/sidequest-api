@@ -21,40 +21,19 @@ pub enum ValidationError {
         actual_height: u32,
     },
     /// Rule 2: A RoomDef exit has no corresponding wall gap in the grid.
-    ExitWithoutGap {
-        exit_count: usize,
-        gap_count: usize,
-    },
+    ExitWithoutGap { exit_count: usize, gap_count: usize },
     /// Rule 3: A wall gap exists without a corresponding RoomDef exit.
-    OrphanGap {
-        gap_count: usize,
-        exit_count: usize,
-    },
+    OrphanGap { gap_count: usize, exit_count: usize },
     /// Rule 4: A walkable cell is directly adjacent to a void cell.
-    PerimeterBreach {
-        x: u32,
-        y: u32,
-    },
+    PerimeterBreach { x: u32, y: u32 },
     /// Rule 5: Floor regions are not all connected.
-    DisconnectedFloor {
-        isolated_cells: Vec<(u32, u32)>,
-    },
+    DisconnectedFloor { isolated_cells: Vec<(u32, u32)> },
     /// Rule 6: A feature glyph in the grid has no legend entry.
-    LegendIncomplete {
-        glyph: char,
-        x: u32,
-        y: u32,
-    },
+    LegendIncomplete { glyph: char, x: u32, y: u32 },
     /// Rule 7: A legend glyph is placed on a non-walkable cell.
-    LegendOnNonFloor {
-        glyph: char,
-        x: u32,
-        y: u32,
-    },
+    LegendOnNonFloor { glyph: char, x: u32, y: u32 },
     /// Rule 7b: A legend entry is defined but never placed in the grid.
-    UnusedLegendEntry {
-        glyph: char,
-    },
+    UnusedLegendEntry { glyph: char },
     /// Rule 8: Connected rooms have mismatched exit gap widths.
     ExitWidthMismatch {
         room_a: String,
@@ -258,13 +237,12 @@ fn check_flood_fill(grid: &TacticalGrid, errors: &mut Vec<ValidationError>) {
     }
 
     // Any walkable cells not visited are isolated
-    let isolated: Vec<(u32, u32)> = walkable
-        .difference(&visited)
-        .copied()
-        .collect();
+    let isolated: Vec<(u32, u32)> = walkable.difference(&visited).copied().collect();
 
     if !isolated.is_empty() {
-        errors.push(ValidationError::DisconnectedFloor { isolated_cells: isolated });
+        errors.push(ValidationError::DisconnectedFloor {
+            isolated_cells: isolated,
+        });
     }
 }
 
@@ -278,11 +256,7 @@ fn check_legend_completeness(grid: &TacticalGrid, errors: &mut Vec<ValidationErr
         for x in 0..w {
             if let Some(TacticalCell::Feature(ch)) = grid.cell_at(x, y) {
                 if !grid.legend().contains_key(ch) {
-                    errors.push(ValidationError::LegendIncomplete {
-                        glyph: *ch,
-                        x,
-                        y,
-                    });
+                    errors.push(ValidationError::LegendIncomplete { glyph: *ch, x, y });
                 }
             }
         }
