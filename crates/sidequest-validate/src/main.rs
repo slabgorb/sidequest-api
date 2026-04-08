@@ -349,11 +349,7 @@ fn check_yaml<T: DeserializeOwned>(
         results.push(FileResult {
             path: display_path.to_string(),
             required,
-            status: if required {
-                FileStatus::Missing
-            } else {
-                FileStatus::Missing
-            },
+            status: FileStatus::Missing,
         });
         return;
     }

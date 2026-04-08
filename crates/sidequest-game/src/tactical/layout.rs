@@ -377,8 +377,8 @@ pub fn layout_tree(
             if !placement_found {
                 // Compute overlap for error reporting
                 // Try first valid opposite-wall pair for error details
-                let current_used = used_gaps.entry(current_id.clone()).or_default().clone();
-                let target_used = used_gaps.entry(target_id.to_string()).or_default().clone();
+                let current_used: HashSet<usize> = used_gaps.get(&current_id).cloned().unwrap_or_default();
+                let target_used: HashSet<usize> = used_gaps.get(&target_id.to_string()).cloned().unwrap_or_default();
                 for (gi_a, gap_a) in current_grid.exits().iter().enumerate() {
                     if current_used.contains(&gi_a) {
                         continue;
