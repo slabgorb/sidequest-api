@@ -39,3 +39,7 @@ mod journal_story_9_13_tests;
 #[cfg(test)]
 #[path = "cartography_wiring_story_26_10_tests.rs"]
 mod cartography_wiring_story_26_10_tests;
+
+#[cfg(test)]
+#[path = "tactical_state_story_29_5_tests.rs"]
+mod tactical_state_story_29_5_tests;

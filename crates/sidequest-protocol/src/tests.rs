@@ -394,28 +394,8 @@ mod message_type_tests {
         assert_eq!(msg, decoded);
     }
 
-    #[test]
-    fn combat_event_round_trip() {
-        let msg = GameMessage::CombatEvent {
-            payload: CombatEventPayload {
-                in_combat: true,
-                enemies: vec![CombatEnemy {
-                    name: "Goblin".into(),
-                    hp: 8,
-                    max_hp: 12,
-                    ac: Some(13),
-                    status_effects: vec![],
-                }],
-                turn_order: vec!["Player".into(), "Goblin".into()],
-                current_turn: "Player".into(),
-            },
-            player_id: String::new(),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"COMBAT_EVENT""#));
-        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg, decoded);
-    }
+    // combat_event_round_trip removed — CombatEvent variant deleted in story 28-9
+    // (replaced by Confrontation)
 
     #[test]
     fn image_round_trip() {
@@ -611,29 +591,7 @@ mod wire_compatibility_tests {
         }
     }
 
-    #[test]
-    fn combat_event_wire_format() {
-        let json = r#"{
-            "type": "COMBAT_EVENT",
-            "payload": {
-                "in_combat": true,
-                "enemies": [{ "name": "Goblin", "hp": 8, "max_hp": 12, "ac": 13 }],
-                "turn_order": ["Player", "Goblin", "Orc"],
-                "current_turn": "Player"
-            },
-            "player_id": ""
-        }"#;
-        let msg: GameMessage = serde_json::from_str(json).unwrap();
-        match &msg {
-            GameMessage::CombatEvent { payload, .. } => {
-                assert!(payload.in_combat);
-                assert_eq!(payload.enemies[0].name, "Goblin");
-                assert_eq!(payload.enemies[0].hp, 8);
-                assert_eq!(payload.enemies[0].ac, Some(13));
-            }
-            other => panic!("expected CombatEvent, got {:?}", other),
-        }
-    }
+    // combat_event_wire_format removed — CombatEvent variant deleted in story 28-9
 
     #[test]
     fn error_wire_format() {
