@@ -90,6 +90,10 @@ pub struct ActionResult {
     pub confrontation: Option<String>,
     /// Location name from game_patch JSON (fallback when header extraction returns None).
     pub location: Option<String>,
+    /// Full assembled prompt text for training data capture (ADR-073).
+    pub prompt_text: Option<String>,
+    /// Raw LLM response text before extraction (ADR-073).
+    pub raw_response_text: Option<String>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -1021,6 +1025,8 @@ impl GameService for Orchestrator {
                     token_count_out: response.output_tokens.map(|v| v as usize),
                     zone_breakdown: Some(prompt_zone_breakdown),
                     prompt_tier: prompt_tier_str.to_string(),
+                    prompt_text: Some(prompt.clone()),
+                    raw_response_text: Some(response.text.clone()),
                     ..base
                 }
             }
@@ -1067,6 +1073,8 @@ impl GameService for Orchestrator {
                     action_flags: None,
                     confrontation: None,
                     location: None,
+                    prompt_text: Some(prompt.clone()),
+                    raw_response_text: None,
                 }
             }
         }

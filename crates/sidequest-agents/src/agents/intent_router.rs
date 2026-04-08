@@ -6,7 +6,7 @@
 //! retained for OTEL telemetry and conditional prompt section injection.
 
 /// Player intent categories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum Intent {
     /// Combat actions (attack, defend, use ability).
@@ -35,6 +35,22 @@ impl Intent {
     /// Meta are not (idle browsing or system commands).
     pub fn is_meaningful(&self) -> bool {
         matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase | Intent::Backstory | Intent::Accusation)
+    }
+
+    /// Reconstruct an Intent from its Display string representation.
+    /// Used by dispatch to convert ActionResult's classified_intent (String)
+    /// back to the typed enum for TurnRecord construction.
+    pub fn from_display_str(s: &str) -> Self {
+        match s {
+            "Combat" => Intent::Combat,
+            "Dialogue" => Intent::Dialogue,
+            "Examine" => Intent::Examine,
+            "Meta" => Intent::Meta,
+            "Chase" => Intent::Chase,
+            "Backstory" => Intent::Backstory,
+            "Accusation" => Intent::Accusation,
+            _ => Intent::Exploration,
+        }
     }
 }
 
