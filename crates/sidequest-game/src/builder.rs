@@ -184,6 +184,9 @@ pub enum BuilderError {
     /// Unrecognized stat generation method.
     #[error("unknown stat generation method: {0}")]
     UnknownStatGeneration(String),
+    /// HP formula evaluation failed.
+    #[error("hp_formula error: {0}")]
+    InvalidHpFormula(String),
 }
 
 // ============================================================================
@@ -684,7 +687,7 @@ impl CharacterBuilder {
                 class = class_str,
             )
             .entered();
-            Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)
+            Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)?
         } else {
             self.class_hp_bases
                 .get(class_str)
@@ -1075,12 +1078,20 @@ impl CharacterBuilder {
     ///
     /// Supported operators: `+`, `-`, `*` (left-to-right, no precedence beyond parens)
     /// Parentheses are stripped before evaluation.
+    ///
+    /// Returns `Err` on unrecognized tokens, missing variables, or empty formulas.
     fn evaluate_hp_formula(
         formula: &str,
         stats: &HashMap<String, i32>,
         class_hp_bases: &HashMap<String, u32>,
         class_str: &str,
-    ) -> i32 {
+    ) -> Result<i32, BuilderError> {
+        if formula.trim().is_empty() {
+            return Err(BuilderError::InvalidHpFormula(
+                "hp_formula is empty".to_string(),
+            ));
+        }
+
         // Build variable substitution table
         let class_base = class_hp_bases.get(class_str).copied().unwrap_or(8) as i32;
         let level: i32 = 1; // Always 1 at character creation
@@ -1106,19 +1117,28 @@ impl CharacterBuilder {
         expr = expr.replace('(', "").replace(')', "");
 
         // Evaluate the arithmetic expression (supports +, -, *)
-        let result = Self::eval_simple_arithmetic(&expr);
+        let result = Self::eval_simple_arithmetic(&expr).map_err(|token| {
+            BuilderError::InvalidHpFormula(format!(
+                "unparseable token '{}' in formula '{}' (after substitution: '{}')",
+                token, formula, expr
+            ))
+        })?;
 
         // Floor at 1 — no zero or negative HP
-        result.max(1)
+        Ok(result.max(1))
     }
 
     /// Evaluate a simple arithmetic expression with +, -, * operators.
     /// No operator precedence — evaluates left to right.
     /// Handles negative numbers from variable substitution.
-    fn eval_simple_arithmetic(expr: &str) -> i32 {
+    ///
+    /// Returns `Err(token)` if any token fails to parse as i32.
+    fn eval_simple_arithmetic(expr: &str) -> Result<i32, String> {
         let expr = expr.trim();
 
-        // Tokenize: split on operators while preserving them
+        // Tokenize: split on operators while preserving them.
+        // A '-' at the start of the expression (or after an operator) is part
+        // of a negative literal, not a binary operator.
         let mut tokens: Vec<String> = Vec::new();
         let mut current = String::new();
 
@@ -1136,25 +1156,29 @@ impl CharacterBuilder {
         }
 
         if tokens.is_empty() {
-            return 0;
+            return Err("empty expression".to_string());
         }
 
         // Evaluate left to right
-        let mut result: i32 = tokens[0].parse().unwrap_or(0);
+        let mut result: i32 = tokens[0]
+            .parse()
+            .map_err(|_| tokens[0].clone())?;
         let mut i = 1;
         while i + 1 < tokens.len() {
             let op = &tokens[i];
-            let operand: i32 = tokens[i + 1].parse().unwrap_or(0);
+            let operand: i32 = tokens[i + 1]
+                .parse()
+                .map_err(|_| tokens[i + 1].clone())?;
             match op.as_str() {
                 "+" => result += operand,
                 "-" => result -= operand,
                 "*" => result *= operand,
-                _ => {}
+                other => return Err(format!("unknown operator '{}'", other)),
             }
             i += 2;
         }
 
-        result
+        Ok(result)
     }
 }
 
