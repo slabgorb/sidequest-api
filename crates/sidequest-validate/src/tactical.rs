@@ -206,22 +206,17 @@ fn check_perimeter_closure(
     }
 }
 
-/// 4-directional neighbors within grid bounds.
-fn neighbors(x: u32, y: u32, w: u32, h: u32) -> Vec<(u32, u32)> {
-    let mut result = Vec::with_capacity(4);
-    if x > 0 {
-        result.push((x - 1, y));
-    }
-    if x + 1 < w {
-        result.push((x + 1, y));
-    }
-    if y > 0 {
-        result.push((x, y - 1));
-    }
-    if y + 1 < h {
-        result.push((x, y + 1));
-    }
-    result
+/// 4-directional neighbors within grid bounds. Returns a stack-allocated
+/// iterator — no heap allocation, safe to call per-cell in hot loops.
+fn neighbors(x: u32, y: u32, w: u32, h: u32) -> impl Iterator<Item = (u32, u32)> {
+    [
+        (x > 0).then(|| (x - 1, y)),
+        (x + 1 < w).then(|| (x + 1, y)),
+        (y > 0).then(|| (x, y - 1)),
+        (y + 1 < h).then(|| (x, y + 1)),
+    ]
+    .into_iter()
+    .flatten()
 }
 
 // ── Rule 5: Flood fill connectivity ─────────────────────────
@@ -294,7 +289,7 @@ fn check_legend_completeness(grid: &TacticalGrid, errors: &mut Vec<ValidationErr
     }
 }
 
-// ── Rule 7: Unused legend entries ───────────────────────────
+// ── Rule 7b: Unused legend entries ──────────────────────────
 
 fn check_unused_legend(room: &RoomDef, grid: &TacticalGrid, errors: &mut Vec<ValidationError>) {
     let Some(ref room_legend) = room.legend else {
