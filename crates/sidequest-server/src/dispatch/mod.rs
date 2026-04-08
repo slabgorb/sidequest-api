@@ -718,6 +718,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         state_summary: Some(state_summary),
         in_combat: ctx.in_combat(),
         in_chase: ctx.in_chase(),
+        in_encounter: ctx.in_encounter(),
         narrator_verbosity: ctx.narrator_verbosity,
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: trope_beat_directives,
@@ -1256,10 +1257,50 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
     let tier_events = mutation_result.tier_events;
 
+    // Story 28-8: Encounter creation — the narrator signals a new encounter by emitting
+    // `"confrontation": "combat"` (or any ConfrontationDef type) in the game_patch.
+    // This creates a StructuredEncounter from the genre pack's ConfrontationDef and
+    // populates actors from the player characters + NPCs present in the scene.
+    if let Some(ref confrontation_type) = result.confrontation {
+        if ctx.snapshot.encounter.is_none() || ctx.snapshot.encounter.as_ref().map_or(false, |e| e.resolved) {
+            if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, confrontation_type) {
+                let mut encounter = sidequest_game::encounter::StructuredEncounter::from_confrontation_def(def);
+
+                // Populate actors: player characters + NPCs mentioned this turn
+                for ch in &ctx.snapshot.characters {
+                    encounter.actors.push(sidequest_game::encounter::EncounterActor {
+                        name: ch.core.name.as_str().to_string(),
+                        role: "player".to_string(),
+                    });
+                }
+                // Add NPCs from this turn's narration (the narrator knows who's in the scene)
+                for npc_mention in &result.npcs_present {
+                    encounter.actors.push(sidequest_game::encounter::EncounterActor {
+                        name: npc_mention.name.clone(),
+                        role: "npc".to_string(),
+                    });
+                }
+
+                WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                    .field("event", "encounter.created")
+                    .field("encounter_type", confrontation_type)
+                    .field("actor_count", encounter.actors.len())
+                    .field("source", "narrator_confrontation")
+                    .send();
+
+                ctx.snapshot.encounter = Some(encounter);
+            } else {
+                tracing::warn!(
+                    confrontation_type = %confrontation_type,
+                    "encounter.creation_failed — no ConfrontationDef found for type"
+                );
+            }
+        }
+    }
+
     // Story 28-5: Beat selection dispatch — route narrator's beat_selection through
     // apply_beat() on the live StructuredEncounter. The beat's stat_check drives
     // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
-    // beat_selection will be populated by story 28-6 (narrator outputs beat selections).
     //
     // Story 28-9: encounter_just_resolved is computed here (after beat dispatch),
     // not inside apply_state_mutations, because dispatch_beat_selection is what
@@ -1272,6 +1313,39 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             dispatch_beat_selection(ctx, beat_id);
         }
     }
+
+    // Story 28-8: Dispatch NPC beat selections from beat_selections.
+    // Each NPC actor in the encounter gets apply_beat() called with mechanical
+    // resolution and OTEL instrumentation. Player beats are already handled above
+    // via scene_intent; here we process only non-player actors.
+    if ctx.snapshot.encounter.is_some() {
+        for npc_beat_selection in result.beat_selections.iter() {
+            // Skip player beats — already dispatched via scene_intent above
+            if npc_beat_selection.actor.to_lowercase() == "player" {
+                continue;
+            }
+
+            let npc_name = &npc_beat_selection.actor;
+            let beat_id = &npc_beat_selection.beat_id;
+            let target = npc_beat_selection.target.as_deref().unwrap_or("none");
+            // Dispatch the NPC's beat through the same resolution pipeline as the player
+            dispatch_beat_selection(ctx, beat_id);
+
+            // OTEL: encounter.npc_beat — the GM panel lie detector for NPC mechanical actions
+            let stat_check_result = ctx.snapshot.encounter.as_ref()
+                .map(|e| format!("metric={}", e.metric.current))
+                .unwrap_or_else(|| "no_encounter".to_string());
+
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("event", "encounter.npc_beat")
+                .field("npc_name", npc_name)
+                .field("beat_id", beat_id)
+                .field("target", target)
+                .field("stat_check", &stat_check_result)
+                .send();
+        }
+    }
+
     let encounter_active_after_beat = ctx.in_encounter();
     let encounter_just_resolved = encounter_active_before_beat && !encounter_active_after_beat;
     let encounter_just_started = !encounter_active_before_beat && encounter_active_after_beat;
@@ -3081,6 +3155,7 @@ async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
         state_summary: Some(state_summary),
         in_combat: ctx.in_combat(),
         in_chase: ctx.in_chase(),
+        in_encounter: ctx.in_encounter(),
         narrator_verbosity: ctx.narrator_verbosity,
         narrator_vocabulary: ctx.narrator_vocabulary,
         pending_trope_context: None,

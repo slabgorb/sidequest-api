@@ -84,6 +84,10 @@ pub struct ActionResult {
     pub action_flags: Option<ActionFlags>,
     /// Narrator prompt tier used for this turn (ADR-066): "full" or "delta".
     pub prompt_tier: String,
+    /// Confrontation type to initiate this turn (story 28-8).
+    /// When the narrator emits `"confrontation": "combat"`, the server creates
+    /// a StructuredEncounter via from_confrontation_def(). None = no new encounter.
+    pub confrontation: Option<String>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -470,11 +474,9 @@ impl Orchestrator {
         }
 
         // === STATE-DEPENDENT SECTIONS (every tier — encounters can start mid-session) ===
-        // Story 28-6: unified encounter context replaces separate combat/chase injection.
-        // If either in_combat or in_chase is active, inject encounter rules.
-        // Once 28-7 promotes StructuredEncounter onto GameSnapshot, this will check
-        // for an active encounter directly instead of the legacy flags.
-        if context.in_combat || context.in_chase {
+        // Story 28-8: inject encounter rules for ANY active encounter, not just combat/chase.
+        // Standoffs, negotiations, and other ConfrontationDef types also need encounter context.
+        if context.in_combat || context.in_chase || context.in_encounter {
             self.narrator.build_encounter_context(&mut builder);
         }
 
@@ -877,6 +879,11 @@ impl GameService for Orchestrator {
                         "rag.items_gained_extracted"
                     );
                 }
+                // Story 28-8: Log confrontation initiation if present.
+                if let Some(ref ctype) = extraction.confrontation {
+                    info!(confrontation_type = %ctype, "encounter.confrontation_initiated");
+                }
+
                 // Story 28-6: Extract beat_selections from game_patch block.
                 // CombatPatch/ChasePatch extraction removed in story 28-9.
                 let beat_selections = extraction.beat_selections.clone();
@@ -974,6 +981,7 @@ impl GameService for Orchestrator {
                     sfx_triggers: vec![],
                     action_rewrite: None,
                     action_flags: None,
+                    confrontation: None,
                 }
             }
         }
@@ -1062,6 +1070,11 @@ struct GamePatchExtraction {
     // The narrator selects beats from the active ConfrontationDef.
     #[serde(default)]
     beat_selections: Vec<BeatSelection>,
+    /// Story 28-8: Narrator signals encounter start by naming a confrontation type
+    /// from the genre pack's ConfrontationDefs (e.g., "combat", "standoff", "chase").
+    /// The server creates a StructuredEncounter via from_confrontation_def().
+    #[serde(default)]
+    confrontation: Option<String>,
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -1217,6 +1230,9 @@ pub struct NarratorExtraction {
     pub action_flags: Option<ActionFlags>,
     /// Beat selections from narrator output (story 28-6).
     pub beat_selections: Vec<BeatSelection>,
+    /// Confrontation type to initiate (story 28-8). When the narrator emits
+    /// `"confrontation": "combat"`, the server creates a StructuredEncounter.
+    pub confrontation: Option<String>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1247,6 +1263,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         has_action_rewrite = patch.action_rewrite.is_some(),
         has_action_flags = patch.action_flags.is_some(),
         beat_selections = patch.beat_selections.len(),
+        confrontation = ?patch.confrontation,
         "game_patch.extracted"
     );
 
@@ -1269,6 +1286,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         action_rewrite: patch.action_rewrite,
         action_flags: patch.action_flags,
         beat_selections: patch.beat_selections,
+        confrontation: patch.confrontation,
     }
 }
 
@@ -1283,6 +1301,9 @@ pub struct TurnContext {
     pub in_combat: bool,
     /// Whether the game is currently in an active chase.
     pub in_chase: bool,
+    /// Whether ANY encounter is active (combat, chase, standoff, negotiation, etc.).
+    /// Broader than in_combat/in_chase — covers all ConfrontationDef types.
+    pub in_encounter: bool,
     /// Serialized game state summary for grounding narration.
     pub state_summary: Option<String>,
     /// Per-session narrator verbosity setting (concise/standard/verbose).
