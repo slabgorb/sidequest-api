@@ -123,23 +123,25 @@ impl PromptRegistry {
         let content = match verbosity {
             NarratorVerbosity::Concise => {
                 "<length-limit>\n\
-                 HARD LIMIT: 2-3 sentences, under 200 characters of prose. \
-                 Action and consequence only. No scene-setting. No paragraphs. \
-                 If your prose exceeds 200 characters, DELETE and rewrite shorter.\n\
+                 Target: 2-4 sentences, around 400 characters of prose. \
+                 Action and consequence first. Brief scene-setting only on arrivals. \
+                 Keep it punchy — this mode prioritizes pace over atmosphere.\n\
                  </length-limit>"
             }
             NarratorVerbosity::Standard => {
                 "<length-limit>\n\
-                 HARD LIMIT: 2-3 short paragraphs, under 400 characters of prose. \
-                 One action, one scene beat. If your prose exceeds 400 characters, \
-                 DELETE and rewrite shorter. Most turns should be 2-3 sentences.\n\
+                 Target: 2-3 short paragraphs, around 800 characters of prose. \
+                 Describe the scene, the action, and what the player sees next. \
+                 Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
+                 Dialogue gets voice and personality. Vary length by moment.\n\
                  </length-limit>"
             }
             NarratorVerbosity::Verbose => {
                 "<length-limit>\n\
-                 HARD LIMIT: 2-3 paragraphs, under 600 characters of prose. \
-                 Richer atmosphere and sensory detail, but still concise. \
-                 If your prose exceeds 600 characters, DELETE and rewrite shorter.\n\
+                 Target: 2-4 paragraphs, around 1200 characters of prose. \
+                 Rich atmosphere, sensory detail, NPC personality. Let scenes breathe. \
+                 Big moments (arrivals, reveals, combat starts) get the full treatment. \
+                 Quieter turns can be shorter — vary the rhythm.\n\
                  </length-limit>"
             }
         };
