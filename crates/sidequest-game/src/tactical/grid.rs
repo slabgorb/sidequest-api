@@ -231,11 +231,7 @@ impl std::fmt::Display for GridParseError {
                 write!(f, "unknown glyph '{}' at position ({}, {})", glyph, x, y)
             }
             GridParseError::MissingLegend { glyph, x, y } => {
-                write!(
-                    f,
-                    "glyph '{}' at ({}, {}) not found in legend",
-                    glyph, x, y
-                )
+                write!(f, "glyph '{}' at ({}, {}) not found in legend", glyph, x, y)
             }
             GridParseError::UnevenRows {
                 expected_width,
