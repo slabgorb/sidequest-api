@@ -810,20 +810,14 @@ pub(crate) async fn start_character_creation(
         );
     }
 
-    // Filter scenes to those with non-empty choices
-    let scenes: Vec<_> = pack
-        .char_creation
-        .iter()
-        .filter(|s| !s.choices.is_empty())
-        .cloned()
-        .collect();
+    let scenes = pack.char_creation.clone();
 
     if scenes.is_empty() {
-        tracing::warn!(genre = %genre, "No character creation scenes with choices");
+        tracing::warn!(genre = %genre, "No character creation scenes");
         return vec![];
     }
 
-    let b = match CharacterBuilder::try_new(scenes, &pack.rules) {
+    let b = match CharacterBuilder::try_new(scenes, &pack.rules, pack.backstory_tables.clone()) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = ?e, "Failed to create CharacterBuilder");

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use rand::Rng;
-use sidequest_genre::{CharCreationScene, MechanicalEffects, RulesConfig};
+use sidequest_genre::{BackstoryTables, CharCreationScene, MechanicalEffects, RulesConfig};
 use tracing::info_span;
 use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString};
 
@@ -211,30 +211,41 @@ pub struct CharacterBuilder {
     /// Pre-rolled stats for roll_3d6_strict (rolled eagerly at construction).
     /// Stored in ability_score_names order for narration injection.
     rolled_stats: Option<Vec<(String, i32)>>,
+    /// Optional backstory random tables from the genre pack.
+    backstory_tables: Option<BackstoryTables>,
 }
 
 impl CharacterBuilder {
     /// Create a new builder. Panics if `scenes` is empty.
-    pub fn new(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Self {
+    pub fn new(
+        scenes: Vec<CharCreationScene>,
+        rules: &RulesConfig,
+        backstory_tables: Option<BackstoryTables>,
+    ) -> Self {
         assert!(
             !scenes.is_empty(),
             "CharacterBuilder requires at least one scene"
         );
-        Self::build_inner(scenes, rules)
+        Self::build_inner(scenes, rules, backstory_tables)
     }
 
     /// Create a new builder, returning an error if `scenes` is empty.
     pub fn try_new(
         scenes: Vec<CharCreationScene>,
         rules: &RulesConfig,
+        backstory_tables: Option<BackstoryTables>,
     ) -> Result<Self, BuilderError> {
         if scenes.is_empty() {
             return Err(BuilderError::NoScenes);
         }
-        Ok(Self::build_inner(scenes, rules))
+        Ok(Self::build_inner(scenes, rules, backstory_tables))
     }
 
-    fn build_inner(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Self {
+    fn build_inner(
+        scenes: Vec<CharCreationScene>,
+        rules: &RulesConfig,
+        backstory_tables: Option<BackstoryTables>,
+    ) -> Self {
         // Scan scenes for stat_generation directives — roll eagerly so stats
         // are available for narration injection when the scene is first shown.
         // The scene content is authoritative: if a scene declares
@@ -274,6 +285,7 @@ impl CharacterBuilder {
                 .clone()
                 .unwrap_or_else(|| "Class".to_string()),
             rolled_stats,
+            backstory_tables,
         }
     }
 
@@ -446,9 +458,20 @@ impl CharacterBuilder {
             if let Some(ref v) = eff.pronoun_hint {
                 acc.pronoun_hint = Some(v.clone());
             }
-            // Collect the rich description text from each choice for backstory
+            // Collect the rich description text from each choice for backstory.
+            // Skip pronoun-only choices — their description (e.g., "He.") is not
+            // a backstory fragment.
             if let Some(ref desc) = result.choice_description {
-                acc.backstory_fragments.push(desc.clone());
+                let is_pronoun_only = eff.pronoun_hint.is_some()
+                    && eff.class_hint.is_none()
+                    && eff.race_hint.is_none()
+                    && eff.background.is_none()
+                    && eff.personality_trait.is_none()
+                    && eff.relationship.is_none()
+                    && eff.goals.is_none();
+                if !is_pronoun_only {
+                    acc.backstory_fragments.push(desc.clone());
+                }
             }
             // Accumulate stat bonuses (additive across all scenes)
             for (stat, bonus) in &eff.stat_bonuses {
@@ -716,12 +739,23 @@ impl CharacterBuilder {
             })
             .collect();
 
-        // Compose backstory from the rich description text collected during
-        // character creation. Each fragment is the flavor text the player saw
-        // when they picked a choice (e.g. "A city built from stacked ruins…").
-        // We weave them into prose rather than just listing mechanical labels.
-        let backstory_text = if acc.backstory_fragments.is_empty() {
-            // Fallback: use mechanical labels if somehow no descriptions were captured
+        // Compose backstory: fragments → tables → mechanical labels → fallback
+        let backstory_text = if !acc.backstory_fragments.is_empty() {
+            let _span = info_span!("chargen.backstory_composed", method = "fragments").entered();
+            acc.backstory_fragments.join(" ")
+        } else if let Some(ref tables) = self.backstory_tables {
+            let _span = info_span!("chargen.backstory_composed", method = "tables").entered();
+            let mut rng = rand::rng();
+            let mut result = tables.template.clone();
+            for (key, entries) in &tables.tables {
+                if !entries.is_empty() {
+                    let pick = &entries[rng.random_range(0..entries.len())];
+                    result = result.replace(&format!("{{{}}}", key), pick);
+                }
+            }
+            result
+        } else {
+            let _span = info_span!("chargen.backstory_composed", method = "fallback").entered();
             let mut parts = Vec::new();
             if let Some(ref bg) = acc.background {
                 parts.push(format!("Background: {}", bg));
@@ -734,8 +768,6 @@ impl CharacterBuilder {
             } else {
                 parts.join(". ")
             }
-        } else {
-            acc.backstory_fragments.join(" ")
         };
 
         let character = Character {

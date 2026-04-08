@@ -56,6 +56,8 @@ pub struct GenrePack {
     pub inventory: Option<InventoryConfig>,
     /// Opening scenario hooks from `openings.yaml` (optional per genre pack).
     pub openings: Vec<OpeningHook>,
+    /// Random backstory tables from `backstory_tables.yaml` (optional per genre pack).
+    pub backstory_tables: Option<BackstoryTables>,
 }
 
 /// A world within a genre pack, assembled from `worlds/{slug}/`.

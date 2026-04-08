@@ -144,6 +144,60 @@ pub struct MechanicalEffects {
 }
 
 // ═══════════════════════════════════════════════════════════
+// backstory_tables.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// Random backstory composition tables loaded from `backstory_tables.yaml`.
+/// Each genre pack can optionally provide these for genres where character
+/// creation doesn't produce backstory fragments (e.g., Caverns & Claudes).
+///
+/// YAML structure: `template` is a string, all other top-level keys are
+/// tables (Vec<String>). We deserialize from a raw Value to handle the
+/// mixed-type sibling keys.
+#[derive(Debug, Clone, Serialize)]
+pub struct BackstoryTables {
+    /// Template string with `{key}` placeholders (e.g., "Former {trade}. {feature}. {reason}.").
+    pub template: String,
+    /// Named tables of random entries. Keys match placeholders in the template.
+    pub tables: HashMap<String, Vec<String>>,
+}
+
+impl<'de> serde::Deserialize<'de> for BackstoryTables {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let raw: HashMap<String, serde_yaml::Value> = HashMap::deserialize(deserializer)?;
+
+        let template = raw
+            .get("template")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("template"))?
+            .to_string();
+
+        let mut tables = HashMap::new();
+        for (key, value) in &raw {
+            if key == "template" {
+                continue;
+            }
+            // Skip comment-only keys
+            if let serde_yaml::Value::Sequence(seq) = value {
+                let entries: Vec<String> = seq
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                if !entries.is_empty() {
+                    tables.insert(key.clone(), entries);
+                }
+            }
+        }
+
+        Ok(BackstoryTables { template, tables })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
 // visual_style.yaml
 // ═══════════════════════════════════════════════════════════
 

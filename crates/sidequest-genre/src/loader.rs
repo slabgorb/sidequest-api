@@ -55,6 +55,8 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         load_yaml_optional(&path.join("inventory.yaml"))?;
     let openings: Vec<OpeningHook> =
         load_yaml_optional(&path.join("openings.yaml"))?.unwrap_or_default();
+    let backstory_tables: Option<BackstoryTables> =
+        load_yaml_optional(&path.join("backstory_tables.yaml"))?;
 
     // Load worlds and scenarios from subdirectories
     let worlds = load_subdirectories(path, "worlds", |p| load_single_world(p, &genre_tropes))?;
@@ -83,6 +85,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         drama_thresholds,
         inventory,
         openings,
+        backstory_tables,
     })
 }
 
