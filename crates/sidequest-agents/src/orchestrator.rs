@@ -474,11 +474,9 @@ impl Orchestrator {
         }
 
         // === STATE-DEPENDENT SECTIONS (every tier — encounters can start mid-session) ===
-        // Story 28-6: unified encounter context replaces separate combat/chase injection.
-        // If either in_combat or in_chase is active, inject encounter rules.
-        // Once 28-7 promotes StructuredEncounter onto GameSnapshot, this will check
-        // for an active encounter directly instead of the legacy flags.
-        if context.in_combat || context.in_chase {
+        // Story 28-8: inject encounter rules for ANY active encounter, not just combat/chase.
+        // Standoffs, negotiations, and other ConfrontationDef types also need encounter context.
+        if context.in_combat || context.in_chase || context.in_encounter {
             self.narrator.build_encounter_context(&mut builder);
         }
 
@@ -1303,6 +1301,9 @@ pub struct TurnContext {
     pub in_combat: bool,
     /// Whether the game is currently in an active chase.
     pub in_chase: bool,
+    /// Whether ANY encounter is active (combat, chase, standoff, negotiation, etc.).
+    /// Broader than in_combat/in_chase — covers all ConfrontationDef types.
+    pub in_encounter: bool,
     /// Serialized game state summary for grounding narration.
     pub state_summary: Option<String>,
     /// Per-session narrator verbosity setting (concise/standard/verbose).
