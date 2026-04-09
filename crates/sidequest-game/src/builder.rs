@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use rand::Rng;
 use sidequest_genre::{BackstoryTables, CharCreationScene, MechanicalEffects, RulesConfig};
 use tracing::info_span;
-use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString};
+use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat};
 
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
@@ -453,19 +453,6 @@ impl CharacterBuilder {
             }
         }
         None
-    }
-
-    /// Whether the current scene requires client input (choices or freeform).
-    /// Scenes with no choices and no freeform are display-only and should auto-advance.
-    pub fn current_scene_needs_input(&self) -> bool {
-        match &self.phase {
-            BuilderPhase::InProgress { scene_index } => {
-                let scene = &self.scenes[*scene_index];
-                !scene.choices.is_empty() || scene.allows_freeform.unwrap_or(false)
-            }
-            BuilderPhase::AwaitingFollowup { .. } => true,
-            BuilderPhase::Confirmation => true,
-        }
     }
 
     /// Auto-advance through the current scene without client input.
@@ -959,44 +946,6 @@ impl CharacterBuilder {
         Ok(character)
     }
 
-    /// Get the prompt text for a scene, with stat injection if applicable.
-    pub fn scene_prompt_text(&self, scene: &CharCreationScene) -> String {
-        let scene_has_stat_gen = scene
-            .mechanical_effects
-            .as_ref()
-            .and_then(|e| e.stat_generation.as_ref())
-            .is_some();
-
-        if scene_has_stat_gen {
-            if let Some(ref rolled) = self.rolled_stats {
-                let stat_line = rolled
-                    .iter()
-                    .map(|(name, val)| format!("**{} {}**", name, val))
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                return format!(
-                    "{}\n\n{}\n\n*The man writes the numbers in the ledger without expression.*",
-                    scene.narration, stat_line
-                );
-            }
-        }
-        scene.narration.clone()
-    }
-
-    /// Construct a CharacterCreation GameMessage with accumulated preamble text
-    /// from auto-advanced choiceless scenes prepended to the prompt.
-    pub fn to_scene_message_with_preamble(&self, player_id: &str, preamble: &str) -> GameMessage {
-        let mut msg = self.to_scene_message(player_id);
-        if let GameMessage::CharacterCreation { ref mut payload, .. } = msg {
-            if let Some(ref prompt) = payload.prompt {
-                payload.prompt = Some(format!("{}\n\n---\n\n{}", preamble, prompt));
-            } else {
-                payload.prompt = Some(preamble.to_string());
-            }
-        }
-        msg
-    }
-
     /// Construct a CharacterCreation GameMessage for the current state.
     pub fn to_scene_message(&self, player_id: &str) -> GameMessage {
         match &self.phase {
@@ -1011,18 +960,22 @@ impl CharacterBuilder {
                     })
                     .collect();
 
-                // If this is the last scene and has no choices, it's a name-entry scene
-                let is_name_scene = choices.is_empty()
-                    && *scene_index == self.scenes.len() - 1;
-                let input_type = if is_name_scene {
-                    "name".to_string()
+                // Disambiguate scenes with no choices:
+                //   empty choices + allows_freeform=true  → name/text entry
+                //   empty choices + allows_freeform=false → display-only "continue" scene
+                //                                          (player acknowledges, no input)
+                //   non-empty choices                     → choice (with optional freeform alt)
+                let scene_allows_freeform = scene.allows_freeform.unwrap_or(false);
+                let (input_type, allows_freeform) = if choices.is_empty() {
+                    if scene_allows_freeform {
+                        // Freeform input scene (typically the name-entry scene)
+                        ("name".to_string(), Some(true))
+                    } else {
+                        // Display-only scene — narrate, wait for Continue ack
+                        ("continue".to_string(), Some(false))
+                    }
                 } else {
-                    "choice".to_string()
-                };
-                let allows_freeform = if is_name_scene {
-                    Some(true)
-                } else {
-                    scene.allows_freeform
+                    ("choice".to_string(), scene.allows_freeform)
                 };
 
                 // Inject rolled stat values into narration for the scene that
@@ -1033,22 +986,22 @@ impl CharacterBuilder {
                     .and_then(|e| e.stat_generation.as_ref())
                     .is_some();
 
-                let prompt_text = if scene_has_stat_gen {
-                    if let Some(ref rolled) = self.rolled_stats {
-                        let stat_line = rolled
+                // Send rolled stats as STRUCTURED data (not inline markdown).
+                // The UI renders them as a stat block alongside the narration.
+                // The narration text stays clean — the player isn't asked to
+                // parse "**STR 10** · **DEX 13** · ..." out of prose.
+                let rolled_stats_payload = if scene_has_stat_gen {
+                    self.rolled_stats.as_ref().map(|rolled| {
+                        rolled
                             .iter()
-                            .map(|(name, val)| format!("**{} {}**", name, val))
+                            .map(|(name, val)| RolledStat {
+                                name: name.clone(),
+                                value: *val,
+                            })
                             .collect::<Vec<_>>()
-                            .join(" · ");
-                        format!(
-                            "{}\n\n{}\n\n*The man writes the numbers in the ledger without expression.*",
-                            scene.narration, stat_line
-                        )
-                    } else {
-                        scene.narration.clone()
-                    }
+                    })
                 } else {
-                    scene.narration.clone()
+                    None
                 };
 
                 GameMessage::CharacterCreation {
@@ -1056,7 +1009,7 @@ impl CharacterBuilder {
                         phase: "scene".to_string(),
                         scene_index: Some(*scene_index as u32),
                         total_scenes: Some(self.scenes.len() as u32),
-                        prompt: Some(prompt_text),
+                        prompt: Some(scene.narration.clone()),
                         summary: None,
                         message: None,
                         choices: Some(choices),
@@ -1064,6 +1017,7 @@ impl CharacterBuilder {
                         input_type: Some(input_type),
                         loading_text: scene.loading_text.clone(),
                         character_preview: None,
+                        rolled_stats: rolled_stats_payload,
                         choice: None,
                         character: None,
                     },
@@ -1083,6 +1037,7 @@ impl CharacterBuilder {
                     input_type: Some("text".to_string()),
                     loading_text: None,
                     character_preview: None,
+                    rolled_stats: None,
                     choice: None,
                     character: None,
                 },
@@ -1094,20 +1049,29 @@ impl CharacterBuilder {
                 if let Some(name) = self.character_name() {
                     parts.push(format!("Name: {}", name));
                 }
-                parts.push(format!(
-                    "{}: {}",
-                    self.race_label,
-                    acc.race_hint.as_deref().unwrap_or("Unknown")
-                ));
-                parts.push(format!(
-                    "{}: {}",
-                    self.class_label,
-                    acc.class_hint.as_deref().unwrap_or("Unknown")
-                ));
-                parts.push(format!(
-                    "Personality: {}",
-                    acc.personality_trait.as_deref().unwrap_or("Unknown")
-                ));
+                // Only show race/class/personality if the chargen accumulated a value.
+                // Genres like caverns_and_claudes deliberately omit these — don't lie
+                // with "Unknown" for fields the genre doesn't define.
+                if let Some(ref r) = acc.race_hint {
+                    parts.push(format!("{}: {}", self.race_label, r));
+                }
+                if let Some(ref c) = acc.class_hint {
+                    parts.push(format!("{}: {}", self.class_label, c));
+                }
+                if let Some(ref p) = acc.personality_trait {
+                    parts.push(format!("Personality: {}", p));
+                }
+                if let Some(ref pn) = acc.pronoun_hint {
+                    parts.push(format!("Pronouns: {}", pn));
+                }
+                if let Some(ref rolled) = self.rolled_stats {
+                    let stat_line = rolled
+                        .iter()
+                        .map(|(name, val)| format!("{} {}", name, val))
+                        .collect::<Vec<_>>()
+                        .join("  ");
+                    parts.push(format!("Stats: {}", stat_line));
+                }
                 if let Some(ref m) = acc.mutation_hint {
                     parts.push(format!("Mutation: {}", humanize_snake_case(m)));
                 }
@@ -1144,6 +1108,7 @@ impl CharacterBuilder {
                         input_type: None,
                         loading_text: None,
                         character_preview: None,
+                        rolled_stats: None,
                         choice: None,
                         character: None,
                     },

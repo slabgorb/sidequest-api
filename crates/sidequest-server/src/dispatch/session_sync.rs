@@ -144,14 +144,24 @@ pub(crate) async fn sync_back_to_shared_session(
                     );
                 }
                 GameMessage::NarrationEnd { .. } => {
-                    // Broadcast NarrationEnd to all players so TTS sync works correctly
-                    let player_ids: Vec<String> = ss.players.keys().cloned().collect();
-                    for target_pid in &player_ids {
+                    // Send NarrationEnd to OBSERVERS only — the acting player
+                    // already received it via their direct mpsc channel
+                    // (immediate delivery, before this session_sync runs).
+                    // Without the self-skip, the acting player would receive
+                    // NARRATION_END twice and the narration buffer would
+                    // double-flush its trailing separator.
+                    for target_pid in ss
+                        .players
+                        .keys()
+                        .filter(|pid| pid.as_str() != ctx.player_id)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                    {
                         let end_msg = GameMessage::NarrationEnd {
                             payload: NarrationEndPayload { state_delta: None },
                             player_id: target_pid.clone(),
                         };
-                        ss.send_to_player(end_msg, target_pid.clone());
+                        ss.send_to_player(end_msg, target_pid);
                     }
                     // TURN_STATUS "resolved" — unlock input for all players after narration completes.
                     // Use global broadcast (not session channel) for reliability — session

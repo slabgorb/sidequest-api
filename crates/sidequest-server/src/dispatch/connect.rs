@@ -812,7 +812,7 @@ pub(crate) async fn start_character_creation(
         return vec![];
     }
 
-    let mut b = match CharacterBuilder::try_new(scenes, &pack.rules, pack.backstory_tables.clone()) {
+    let b = match CharacterBuilder::try_new(scenes, &pack.rules, pack.backstory_tables.clone()) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = ?e, "Failed to create CharacterBuilder");
@@ -820,27 +820,11 @@ pub(crate) async fn start_character_creation(
         }
     };
 
-    // Auto-advance through choiceless scenes (stat roll, equipment gen, etc.)
-    // silently, accumulating their narrations. The UI only gets ONE
-    // CHARACTER_CREATION message — the first scene that needs player input,
-    // with all prior narrations prepended to its prompt text.
-    let mut accumulated_narrations = Vec::new();
-    while !b.is_confirmation() && !b.current_scene_needs_input() {
-        // Capture the narration from this display-only scene
-        let scene = b.current_scene();
-        let scene_narration = b.scene_prompt_text(scene);
-        accumulated_narrations.push(scene_narration);
-        if let Err(e) = b.apply_auto_advance() {
-            tracing::warn!(error = ?e, "auto-advance failed during start_character_creation");
-            break;
-        }
-    }
-
-    let scene_msg = if accumulated_narrations.is_empty() {
-        b.to_scene_message(player_id)
-    } else {
-        b.to_scene_message_with_preamble(player_id, &accumulated_narrations.join("\n\n---\n\n"))
-    };
+    // Display-only scenes (no choices, no freeform) are now first-class:
+    // they emit CHARACTER_CREATION messages with input_type="continue" and
+    // wait for the player to acknowledge via a "continue" phase message.
+    // No silent skipping — every scene's narration is shown to the player.
+    let scene_msg = b.to_scene_message(player_id);
     *builder = Some(b);
 
     // Send genre-pack mixer config so the frontend initializes per-genre volumes.
@@ -946,24 +930,27 @@ pub(crate) async fn dispatch_character_creation(
                 }
             }
 
-            // Auto-advance through any subsequent choiceless scenes,
-            // accumulating narrations into the next interactive scene's preamble.
-            let mut accumulated_narrations = Vec::new();
-            while !b.is_confirmation() && !b.current_scene_needs_input() {
-                let scene = b.current_scene();
-                let scene_narration = b.scene_prompt_text(scene);
-                accumulated_narrations.push(scene_narration);
-                if let Err(e) = b.apply_auto_advance() {
-                    tracing::warn!(error = ?e, "auto-advance failed during dispatch_character_creation");
-                    break;
-                }
+            // After applying the choice the builder advances to the next scene
+            // (or to Confirmation). Display-only scenes are now first-class —
+            // they get their own message with input_type="continue" and wait
+            // for the player to acknowledge.
+            vec![b.to_scene_message(player_id)]
+        }
+        "continue" => {
+            // Player acknowledged a display-only scene. Advance and emit
+            // whatever comes next (another scene, or confirmation).
+            tracing::info!(player_id = %player_id, "chargen.continue acknowledged");
+            WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                .field("phase", phase)
+                .field("player_id", player_id)
+                .send();
+            if let Err(e) = b.apply_auto_advance() {
+                return vec![error_response(
+                    player_id,
+                    &format!("Cannot continue from current scene: {:?}", e),
+                )];
             }
-            let scene_msg = if accumulated_narrations.is_empty() {
-                b.to_scene_message(player_id)
-            } else {
-                b.to_scene_message_with_preamble(player_id, &accumulated_narrations.join("\n\n---\n\n"))
-            };
-            vec![scene_msg]
+            vec![b.to_scene_message(player_id)]
         }
         "confirmation" => {
             // Story 30-1: Build the character — use the name from the name-entry scene
@@ -1337,6 +1324,7 @@ pub(crate) async fn dispatch_character_creation(
                             input_type: None,
                             loading_text: None,
                             character_preview: None,
+                            rolled_stats: None,
                             choice: None,
                             character: Some(char_json),
                         },

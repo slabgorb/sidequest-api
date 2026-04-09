@@ -973,12 +973,16 @@ async fn list_voices() -> Json<serde_json::Value> {
         Ok(mut client) => match client.list_voices().await {
             Ok(voices) => Json(serde_json::json!({ "voices": voices })),
             Err(e) => {
-                tracing::warn!(error = %e, "Failed to list voices from daemon");
+                // TTS is currently removed from the daemon — list_voices returns
+                // Unknown: list_voices on every call. This is an informational
+                // endpoint, not a critical path, so log at DEBUG instead of WARN
+                // to avoid spamming the log on every player connect/audio panel open.
+                tracing::debug!(error = %e, "list_voices unavailable (TTS disabled)");
                 Json(serde_json::json!({ "voices": [], "error": e.to_string() }))
             }
         },
         Err(e) => {
-            tracing::warn!(error = %e, "Daemon unavailable for voice listing");
+            tracing::debug!(error = %e, "Daemon unavailable for voice listing");
             Json(serde_json::json!({ "voices": [], "error": "daemon unavailable" }))
         }
     }
