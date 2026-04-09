@@ -1649,6 +1649,34 @@ pub(crate) async fn dispatch_character_creation(
                                 // Update barrier roster: swap old player_id for new one
                                 if let Some(ref barrier) = ss.turn_barrier {
                                     let _ = barrier.remove_player(old);
+                                    // Re-add under new player_id so barrier recognizes submissions
+                                    let placeholder_char = sidequest_game::Character {
+                                        core: sidequest_game::CreatureCore {
+                                            name: sidequest_protocol::NonBlankString::new(&connecting_name).unwrap(),
+                                            description: sidequest_protocol::NonBlankString::new("reconnect").unwrap(),
+                                            personality: sidequest_protocol::NonBlankString::new("n/a").unwrap(),
+                                            level: 1, hp: 1, max_hp: 1, ac: 10, xp: 0,
+                                            statuses: vec![],
+                                            inventory: sidequest_game::Inventory::default(),
+                                        },
+                                        backstory: sidequest_protocol::NonBlankString::new("n/a").unwrap(),
+                                        narrative_state: String::new(),
+                                        hooks: vec![],
+                                        char_class: sidequest_protocol::NonBlankString::new("barrier").unwrap(),
+                                        race: sidequest_protocol::NonBlankString::new("barrier").unwrap(),
+                                        pronouns: String::new(),
+                                        stats: std::collections::HashMap::new(),
+                                        abilities: vec![],
+                                        known_facts: vec![],
+                                        affinities: vec![],
+                                        is_friendly: true,
+                                    };
+                                    let _ = barrier.add_player(player_id.to_string(), placeholder_char);
+                                    tracing::info!(
+                                        old_pid = %old,
+                                        new_pid = %player_id,
+                                        "barrier.reconnect — swapped player_id in barrier roster"
+                                    );
                                 }
                                 tracing::info!(
                                     old_player_id = %old,
