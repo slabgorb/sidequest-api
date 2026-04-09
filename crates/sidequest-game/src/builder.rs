@@ -455,19 +455,6 @@ impl CharacterBuilder {
         None
     }
 
-    /// Whether the current scene requires client input (choices or freeform).
-    /// Scenes with no choices and no freeform are display-only and should auto-advance.
-    pub fn current_scene_needs_input(&self) -> bool {
-        match &self.phase {
-            BuilderPhase::InProgress { scene_index } => {
-                let scene = &self.scenes[*scene_index];
-                !scene.choices.is_empty() || scene.allows_freeform.unwrap_or(false)
-            }
-            BuilderPhase::AwaitingFollowup { .. } => true,
-            BuilderPhase::Confirmation => true,
-        }
-    }
-
     /// Auto-advance through the current scene without client input.
     /// For display-only scenes (no choices, no freeform): applies scene-level
     /// mechanical effects and advances to the next scene.
@@ -959,44 +946,6 @@ impl CharacterBuilder {
         Ok(character)
     }
 
-    /// Get the prompt text for a scene, with stat injection if applicable.
-    pub fn scene_prompt_text(&self, scene: &CharCreationScene) -> String {
-        let scene_has_stat_gen = scene
-            .mechanical_effects
-            .as_ref()
-            .and_then(|e| e.stat_generation.as_ref())
-            .is_some();
-
-        if scene_has_stat_gen {
-            if let Some(ref rolled) = self.rolled_stats {
-                let stat_line = rolled
-                    .iter()
-                    .map(|(name, val)| format!("**{} {}**", name, val))
-                    .collect::<Vec<_>>()
-                    .join(" · ");
-                return format!(
-                    "{}\n\n{}\n\n*The man writes the numbers in the ledger without expression.*",
-                    scene.narration, stat_line
-                );
-            }
-        }
-        scene.narration.clone()
-    }
-
-    /// Construct a CharacterCreation GameMessage with accumulated preamble text
-    /// from auto-advanced choiceless scenes prepended to the prompt.
-    pub fn to_scene_message_with_preamble(&self, player_id: &str, preamble: &str) -> GameMessage {
-        let mut msg = self.to_scene_message(player_id);
-        if let GameMessage::CharacterCreation { ref mut payload, .. } = msg {
-            if let Some(ref prompt) = payload.prompt {
-                payload.prompt = Some(format!("{}\n\n---\n\n{}", preamble, prompt));
-            } else {
-                payload.prompt = Some(preamble.to_string());
-            }
-        }
-        msg
-    }
-
     /// Construct a CharacterCreation GameMessage for the current state.
     pub fn to_scene_message(&self, player_id: &str) -> GameMessage {
         match &self.phase {
@@ -1011,18 +960,22 @@ impl CharacterBuilder {
                     })
                     .collect();
 
-                // If this is the last scene and has no choices, it's a name-entry scene
-                let is_name_scene = choices.is_empty()
-                    && *scene_index == self.scenes.len() - 1;
-                let input_type = if is_name_scene {
-                    "name".to_string()
+                // Disambiguate scenes with no choices:
+                //   empty choices + allows_freeform=true  → name/text entry
+                //   empty choices + allows_freeform=false → display-only "continue" scene
+                //                                          (player acknowledges, no input)
+                //   non-empty choices                     → choice (with optional freeform alt)
+                let scene_allows_freeform = scene.allows_freeform.unwrap_or(false);
+                let (input_type, allows_freeform) = if choices.is_empty() {
+                    if scene_allows_freeform {
+                        // Freeform input scene (typically the name-entry scene)
+                        ("name".to_string(), Some(true))
+                    } else {
+                        // Display-only scene — narrate, wait for Continue ack
+                        ("continue".to_string(), Some(false))
+                    }
                 } else {
-                    "choice".to_string()
-                };
-                let allows_freeform = if is_name_scene {
-                    Some(true)
-                } else {
-                    scene.allows_freeform
+                    ("choice".to_string(), scene.allows_freeform)
                 };
 
                 // Inject rolled stat values into narration for the scene that
