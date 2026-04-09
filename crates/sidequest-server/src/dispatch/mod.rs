@@ -1152,6 +1152,22 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         let _ = ctx.tx.send(msg).await;
     }
 
+    // Story 35-2: Entity reference hot-path validation (informational OTEL only)
+    {
+        use sidequest_agents::entity_reference::{EntityRegistry, extract_potential_references};
+
+        let registry = EntityRegistry::from_snapshot(&ctx.snapshot);
+        let references = extract_potential_references(&clean_narration);
+        for reference in &references {
+            if !registry.matches(reference) {
+                WatcherEventBuilder::new("entity_reference", WatcherEventType::ValidationWarning)
+                    .field("unresolved_name", reference)
+                    .field("narration_excerpt", &clean_narration.chars().take(120).collect::<String>())
+                    .send();
+            }
+        }
+    }
+
     // Monster Manual: match narration against Manual NPCs, mark Active (ADR-059)
     {
         let mut activated = Vec::new();
