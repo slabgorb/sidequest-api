@@ -38,6 +38,11 @@ pub struct ScenarioPack {
     /// NPC definitions with guilty/innocent branches.
     #[serde(default)]
     pub npcs: Vec<ScenarioNpc>,
+    /// Whether this scenario allows players to be at different locations
+    /// simultaneously (split-party). When false (default), session resume
+    /// reconciles divergent player locations to a single canonical location.
+    #[serde(default)]
+    pub allows_split_party: bool,
 }
 
 /// A player role within a scenario.

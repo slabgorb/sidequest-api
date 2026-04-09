@@ -47,6 +47,7 @@ pub mod npc;
 pub mod npc_actions;
 pub mod ocean;
 pub mod ocean_shift_proposals;
+pub mod party_reconciliation;
 pub mod perception;
 pub mod persistence;
 pub mod preprocessor;
