@@ -1047,20 +1047,29 @@ impl CharacterBuilder {
                 if let Some(name) = self.character_name() {
                     parts.push(format!("Name: {}", name));
                 }
-                parts.push(format!(
-                    "{}: {}",
-                    self.race_label,
-                    acc.race_hint.as_deref().unwrap_or("Unknown")
-                ));
-                parts.push(format!(
-                    "{}: {}",
-                    self.class_label,
-                    acc.class_hint.as_deref().unwrap_or("Unknown")
-                ));
-                parts.push(format!(
-                    "Personality: {}",
-                    acc.personality_trait.as_deref().unwrap_or("Unknown")
-                ));
+                // Only show race/class/personality if the chargen accumulated a value.
+                // Genres like caverns_and_claudes deliberately omit these — don't lie
+                // with "Unknown" for fields the genre doesn't define.
+                if let Some(ref r) = acc.race_hint {
+                    parts.push(format!("{}: {}", self.race_label, r));
+                }
+                if let Some(ref c) = acc.class_hint {
+                    parts.push(format!("{}: {}", self.class_label, c));
+                }
+                if let Some(ref p) = acc.personality_trait {
+                    parts.push(format!("Personality: {}", p));
+                }
+                if let Some(ref pn) = acc.pronoun_hint {
+                    parts.push(format!("Pronouns: {}", pn));
+                }
+                if let Some(ref rolled) = self.rolled_stats {
+                    let stat_line = rolled
+                        .iter()
+                        .map(|(name, val)| format!("{} {}", name, val))
+                        .collect::<Vec<_>>()
+                        .join("  ");
+                    parts.push(format!("Stats: {}", stat_line));
+                }
                 if let Some(ref m) = acc.mutation_hint {
                     parts.push(format!("Mutation: {}", humanize_snake_case(m)));
                 }
