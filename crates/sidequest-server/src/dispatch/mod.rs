@@ -1904,29 +1904,78 @@ async fn handle_barrier(
                 let auto_resolved_names = result.auto_resolved_character_names();
                 let auto_resolved_context = result.format_auto_resolved_context();
 
-                let named_actions = {
+                // Collect named actions and player stats from shared session
+                let (named_actions, player_stats) = {
                     let holder = ctx.shared_session_holder.lock().await;
                     if let Some(ref ss_arc) = *holder {
                         let ss = ss_arc.lock().await;
-                        ss.multiplayer.named_actions()
+                        let actions = ss.multiplayer.named_actions();
+                        // Build per-character stats map for initiative ordering
+                        let stats: HashMap<String, HashMap<String, i32>> = ss
+                            .players
+                            .values()
+                            .filter_map(|ps| {
+                                let name = ps.character_name.as_ref()?;
+                                let json = ps.character_json.as_ref()?;
+                                let char_stats: HashMap<String, i32> = json
+                                    .get("stats")
+                                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                                    .unwrap_or_default();
+                                Some((name.clone(), char_stats))
+                            })
+                            .collect();
+                        (actions, stats)
                     } else {
-                        HashMap::new()
+                        (HashMap::new(), HashMap::new())
                     }
                 };
-                let combined = named_actions
-                    .iter()
-                    .map(|(name, act)| format!("{}: {}", name, act))
-                    .collect::<Vec<_>>()
-                    .join("\n");
 
-                // Broadcast ACTION_REVEAL with auto_resolved field populated
+                // Load initiative rules from genre pack
+                let initiative_rules = {
+                    let genre_dir = ctx.state.genre_packs_path().join(ctx.genre_slug);
+                    sidequest_genre::load_genre_pack(&genre_dir)
+                        .map(|pack| pack.rules.initiative_rules.clone())
+                        .unwrap_or_default()
+                };
+
+                // Determine encounter type from game state
+                let encounter_type = ctx
+                    .snapshot
+                    .encounter
+                    .as_ref()
+                    .map(|e| e.encounter_type.as_str())
+                    .unwrap_or("exploration");
+
+                // Build sealed-round context — replaces manual string formatting
+                let sealed_ctx = sidequest_game::sealed_round::build_sealed_round_context(
+                    &named_actions,
+                    encounter_type,
+                    &initiative_rules,
+                    &player_stats,
+                );
+
+                // OTEL: sealed-round prompt composition telemetry
+                {
+                    let span = tracing::info_span!(
+                        "narrator.sealed_round",
+                        encounter_type = encounter_type,
+                        player_count = sealed_ctx.player_count(),
+                        action_count = sealed_ctx.action_count(),
+                        has_initiative = initiative_rules.contains_key(encounter_type),
+                    );
+                    let _guard = span.enter();
+                }
+
+                let sealed_prompt = sealed_ctx.to_prompt_section();
+
+                // Broadcast ACTION_REVEAL with per-player actions (not ctx.action)
                 let turn_number = barrier_clone.turn_number().saturating_sub(1);
                 let action_entries: Vec<PlayerActionEntry> = named_actions
                     .iter()
-                    .map(|(name, _action)| PlayerActionEntry {
+                    .map(|(name, action)| PlayerActionEntry {
                         character_name: name.clone(),
                         player_id: String::new(),
-                        action: ctx.action.to_string(),
+                        action: action.clone(),
                     })
                     .collect();
                 let reveal = GameMessage::ActionReveal {
@@ -1958,10 +2007,16 @@ async fn handle_barrier(
                     format!("\n{}\n", auto_resolved_context)
                 };
                 *state_summary = format!(
-                    "Combined party actions:\n{}\n{}\nPERSPECTIVE: Write in third-person omniscient. Do NOT use 'you' for any character. Name all characters explicitly.\n\n{}",
-                    combined, auto_ctx, state_summary
+                    "{}\n{}\n{}",
+                    sealed_prompt, auto_ctx, state_summary
                 );
 
+                // Return combined actions for downstream use
+                let combined = named_actions
+                    .iter()
+                    .map(|(name, act)| format!("{}: {}", name, act))
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 return Some(combined);
             }
         }
