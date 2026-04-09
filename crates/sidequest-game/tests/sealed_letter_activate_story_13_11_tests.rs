@@ -15,10 +15,7 @@
 //!   - `MultiplayerSession` — remove_player resolves barrier
 //!   - OTEL spans: `barrier.activated`, `barrier.resolved`
 
-use std::collections::HashMap;
-use std::time::Duration;
-
-use sidequest_game::barrier::{AdaptiveTimeout, TurnBarrier, TurnBarrierConfig};
+use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
 use sidequest_game::multiplayer::MultiplayerSession;
 use sidequest_game::turn_mode::{TurnMode, TurnModeTransition};
 
