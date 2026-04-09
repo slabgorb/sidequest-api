@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use rand::Rng;
 use sidequest_genre::{BackstoryTables, CharCreationScene, MechanicalEffects, RulesConfig};
 use tracing::info_span;
-use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString};
+use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat};
 
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
@@ -986,22 +986,22 @@ impl CharacterBuilder {
                     .and_then(|e| e.stat_generation.as_ref())
                     .is_some();
 
-                let prompt_text = if scene_has_stat_gen {
-                    if let Some(ref rolled) = self.rolled_stats {
-                        let stat_line = rolled
+                // Send rolled stats as STRUCTURED data (not inline markdown).
+                // The UI renders them as a stat block alongside the narration.
+                // The narration text stays clean — the player isn't asked to
+                // parse "**STR 10** · **DEX 13** · ..." out of prose.
+                let rolled_stats_payload = if scene_has_stat_gen {
+                    self.rolled_stats.as_ref().map(|rolled| {
+                        rolled
                             .iter()
-                            .map(|(name, val)| format!("**{} {}**", name, val))
+                            .map(|(name, val)| RolledStat {
+                                name: name.clone(),
+                                value: *val,
+                            })
                             .collect::<Vec<_>>()
-                            .join(" · ");
-                        format!(
-                            "{}\n\n{}\n\n*The man writes the numbers in the ledger without expression.*",
-                            scene.narration, stat_line
-                        )
-                    } else {
-                        scene.narration.clone()
-                    }
+                    })
                 } else {
-                    scene.narration.clone()
+                    None
                 };
 
                 GameMessage::CharacterCreation {
@@ -1009,7 +1009,7 @@ impl CharacterBuilder {
                         phase: "scene".to_string(),
                         scene_index: Some(*scene_index as u32),
                         total_scenes: Some(self.scenes.len() as u32),
-                        prompt: Some(prompt_text),
+                        prompt: Some(scene.narration.clone()),
                         summary: None,
                         message: None,
                         choices: Some(choices),
@@ -1017,6 +1017,7 @@ impl CharacterBuilder {
                         input_type: Some(input_type),
                         loading_text: scene.loading_text.clone(),
                         character_preview: None,
+                        rolled_stats: rolled_stats_payload,
                         choice: None,
                         character: None,
                     },
@@ -1036,6 +1037,7 @@ impl CharacterBuilder {
                     input_type: Some("text".to_string()),
                     loading_text: None,
                     character_preview: None,
+                    rolled_stats: None,
                     choice: None,
                     character: None,
                 },
@@ -1106,6 +1108,7 @@ impl CharacterBuilder {
                         input_type: None,
                         loading_text: None,
                         character_preview: None,
+                        rolled_stats: None,
                         choice: None,
                         character: None,
                     },

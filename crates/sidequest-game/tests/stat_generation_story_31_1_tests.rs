@@ -269,33 +269,45 @@ fn unrecognized_stat_generation_fails_loudly() {
 // ============================================================================
 
 #[test]
-fn the_roll_scene_narration_includes_stat_values() {
+fn the_roll_scene_message_includes_rolled_stats_payload() {
+    // The_roll scene must surface rolled stat values to the player. After the
+    // 2026-04-09 refactor, stats are no longer injected as inline markdown in
+    // the narration prompt — they ride on the structured `rolled_stats` field
+    // of CharacterCreationPayload, which the UI renders as a stat block.
     let rules = rules_3d6_strict();
     let scenes = caverns_scenes();
     let builder = CharacterBuilder::new(scenes, &rules, None);
 
-    // Get the game message for the first scene (the_roll)
     let msg = builder.to_scene_message("player-1");
 
-    // Extract the prompt text from the message
-    let prompt = match &msg {
+    let rolled = match &msg {
         sidequest_protocol::GameMessage::CharacterCreation { payload, .. } => {
-            payload.prompt.as_deref().unwrap_or("")
+            payload.rolled_stats.as_ref().expect(
+                "the_roll scene must populate rolled_stats payload — \
+                 the UI relies on it to render the stat block",
+            )
         }
         _ => panic!("Expected CharacterCreation message"),
     };
 
-    // After stat generation, the narration should contain stat abbreviations
-    // and numeric values (e.g., "STR 14")
-    let has_stat_values = ["STR", "DEX", "CON", "INT", "WIS", "CHA"]
-        .iter()
-        .all(|stat| prompt.contains(stat));
-
-    assert!(
-        has_stat_values,
-        "the_roll scene narration should include stat names. Got: {}",
-        &prompt[..prompt.len().min(200)]
-    );
+    let names: Vec<&str> = rolled.iter().map(|s| s.name.as_str()).collect();
+    for expected in ["STR", "DEX", "CON", "INT", "WIS", "CHA"] {
+        assert!(
+            names.contains(&expected),
+            "rolled_stats should include {}. Got: {:?}",
+            expected,
+            names
+        );
+    }
+    // Each value must be a valid 3d6 result (3..=18).
+    for stat in rolled {
+        assert!(
+            (3..=18).contains(&stat.value),
+            "rolled stat {} = {} is outside 3..=18",
+            stat.name,
+            stat.value
+        );
+    }
 }
 
 // ============================================================================

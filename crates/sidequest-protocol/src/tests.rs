@@ -262,6 +262,7 @@ mod message_type_tests {
                 input_type: Some("text".into()),
                 loading_text: None,
                 character_preview: None,
+                rolled_stats: None,
                 choice: None,
                 character: None,
             },

@@ -583,12 +583,27 @@ pub struct CharacterCreationPayload {
     /// Preview of the character being created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_preview: Option<serde_json::Value>,
+    /// Rolled ability scores in genre-defined order. When present, the UI
+    /// should render them as a structured stat block alongside the narration
+    /// instead of asking the player to parse them out of inline prose.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rolled_stats: Option<Vec<RolledStat>>,
     /// Player's choice (client → server).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub choice: Option<String>,
     /// Completed character data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character: Option<serde_json::Value>,
+}
+
+/// One rolled ability score: ability name + value.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RolledStat {
+    /// Ability name as defined by the genre's `ability_score_names`
+    /// (e.g. "STR", "Cunning", "Grit").
+    pub name: String,
+    /// Rolled value (typically 3-18 for 3d6 strict).
+    pub value: i32,
 }
 
 /// Turn/round tracking.
