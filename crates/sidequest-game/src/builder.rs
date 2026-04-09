@@ -187,6 +187,9 @@ pub enum BuilderError {
     /// HP formula evaluation failed.
     #[error("hp_formula error: {0}")]
     InvalidHpFormula(String),
+    /// Name is purely numeric — likely a UI index, not a real character name.
+    #[error("invalid character name: '{0}' is purely numeric (likely a UI index, not a name)")]
+    NumericName(String),
 }
 
 // ============================================================================
@@ -785,6 +788,13 @@ impl CharacterBuilder {
                 expected: "Confirmation".to_string(),
                 actual: self.phase_name().to_string(),
             });
+        }
+
+        // Story 30-1: Reject purely numeric names — they indicate a UI choice
+        // index was used as the name fallback instead of a real character name.
+        let trimmed = name.trim();
+        if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return Err(BuilderError::NumericName(trimmed.to_string()));
         }
 
         let acc = self.accumulated();
