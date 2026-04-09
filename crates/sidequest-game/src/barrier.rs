@@ -288,6 +288,13 @@ impl TurnBarrier {
     /// Story 35-5: Called from `tokio::spawn` in the server after barrier creation.
     /// The barrier owns the live session, so this reads real submission state.
     pub async fn run_reminder(&self, config: &ReminderConfig) -> ReminderResult {
+        if !self.config().is_enabled() {
+            return ReminderResult::check_with_mode(
+                &self.inner.session.lock().unwrap(),
+                config,
+                &TurnMode::FreePlay, // disabled barrier → suppress reminder
+            );
+        }
         let delay = config.reminder_delay(self.config().timeout());
         tokio::time::sleep(delay).await;
         self.check_reminder(config)
