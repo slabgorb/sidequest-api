@@ -127,6 +127,8 @@ struct RawBeatDef {
     requires: Option<String>,
     #[serde(default)]
     narrator_hint: Option<String>,
+    #[serde(default)]
+    gold_delta: Option<i32>,
 }
 
 /// A single action available during a confrontation.
@@ -164,6 +166,10 @@ pub struct BeatDef {
     /// Guidance for the narrator LLM when this beat is executed.
     #[serde(default)]
     pub narrator_hint: Option<String>,
+    /// Gold change applied to the player's inventory when this beat resolves.
+    /// Positive = player gains gold, negative = player loses gold (ante, bet, etc.).
+    #[serde(default)]
+    pub gold_delta: Option<i32>,
 }
 
 impl TryFrom<RawBeatDef> for BeatDef {
@@ -185,6 +191,7 @@ impl TryFrom<RawBeatDef> for BeatDef {
             consequence: raw.consequence,
             requires: raw.requires,
             narrator_hint: raw.narrator_hint,
+            gold_delta: raw.gold_delta,
         })
     }
 }
