@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 use crate::character::Character;
 use crate::multiplayer::{MultiplayerError, MultiplayerSession};
 use crate::turn_mode::TurnMode;
+use crate::turn_reminder::{ReminderConfig, ReminderResult};
 
 /// Configuration for the turn barrier timeout.
 #[derive(Debug, Clone)]
@@ -268,6 +269,28 @@ impl TurnBarrier {
     /// "remains silent" for Cinematic).
     pub fn set_turn_mode(&self, mode: TurnMode) {
         *self.inner.turn_mode.lock().unwrap() = mode;
+    }
+
+    /// Current turn mode.
+    pub fn turn_mode(&self) -> TurnMode {
+        self.inner.turn_mode.lock().unwrap().clone()
+    }
+
+    /// Check which players are idle, respecting turn mode.
+    pub fn check_reminder(&self, config: &ReminderConfig) -> ReminderResult {
+        let session = self.inner.session.lock().unwrap();
+        let mode = self.inner.turn_mode.lock().unwrap().clone();
+        ReminderResult::check_with_mode(&session, config, &mode)
+    }
+
+    /// Async reminder: sleep for the configured delay, then check idle players.
+    ///
+    /// Story 35-5: Called from `tokio::spawn` in the server after barrier creation.
+    /// The barrier owns the live session, so this reads real submission state.
+    pub async fn run_reminder(&self, config: &ReminderConfig) -> ReminderResult {
+        let delay = config.reminder_delay(self.config().timeout());
+        tokio::time::sleep(delay).await;
+        self.check_reminder(config)
     }
 
     /// Submit an action for a player. Wakes `wait_for_turn()` if the

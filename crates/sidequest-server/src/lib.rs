@@ -1586,6 +1586,27 @@ async fn dispatch_message(
                             player_count = pc,
                             "Initialized turn barrier for reconnecting player"
                         );
+
+                        // Story 35-5: Spawn turn reminder task
+                        let reminder_config = sidequest_game::turn_reminder::ReminderConfig::default();
+                        let reminder_barrier = ss_guard.turn_barrier.as_ref().unwrap().clone();
+                        tokio::spawn(async move {
+                            {
+                                let _span = tracing::info_span!("reminder_spawned").entered();
+                                tracing::info!("Turn reminder task spawned");
+                            }
+                            let result = reminder_barrier.run_reminder(&reminder_config).await;
+                            if result.should_send() {
+                                let _span = tracing::info_span!(
+                                    "reminder_fired",
+                                    idle_player_count = result.idle_players().len(),
+                                ).entered();
+                                tracing::info!(
+                                    idle_player_count = result.idle_players().len(),
+                                    "Turn reminder fired for idle players"
+                                );
+                            }
+                        });
                     }
 
                     // Broadcast targeted PARTY_STATUS to all session members
