@@ -1994,7 +1994,7 @@ pub async fn create_server(
     port: u16,
     shutdown: oneshot::Receiver<()>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
     tracing::info!(port = %listener.local_addr()?, "SideQuest Server listening");
     serve_with_listener(state, listener, shutdown).await
 }
