@@ -21,6 +21,7 @@ pub(crate) async fn apply_state_mutations(
     effective_action: &str,
 ) -> MutationResult {
     let mut all_tier_events = Vec::new();
+    let gold_before = ctx.inventory.gold;
 
     // CombatPatch/ChasePatch blocks deleted in story 28-9.
     // Beat selections via StructuredEncounter replace typed patches.
@@ -283,6 +284,38 @@ pub(crate) async fn apply_state_mutations(
                 .field("category", &valid_cat)
                 .field("inventory_size", ctx.inventory.items.len())
                 .send();
+        }
+    }
+
+    // Story 35-4: Treasure-as-XP — gold gained on the surface grants affinity progress.
+    {
+        let gold_delta = ctx.inventory.gold - gold_before;
+        if gold_delta > 0 {
+            let genre_code = sidequest_genre::GenreCode::new(ctx.genre_slug);
+            if let Ok(code) = genre_code {
+                let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
+                if let Ok(pack) = loader.load(&code) {
+                    let config = sidequest_game::TreasureXpConfig {
+                        xp_affinity: pack.rules.xp_affinity.clone(),
+                    };
+                    let rooms = if ctx.rooms.is_empty() { None } else { Some(ctx.rooms.as_slice()) };
+                    let txp_result = sidequest_game::apply_treasure_xp(
+                        &mut ctx.snapshot,
+                        gold_delta as u32,
+                        &config,
+                        rooms,
+                    );
+                    if txp_result.applied {
+                        WatcherEventBuilder::new("treasure_xp", WatcherEventType::StateTransition)
+                            .field("event", "treasure.extracted")
+                            .field("gold_amount", txp_result.gold_amount)
+                            .field("affinity_name", txp_result.affinity_name.as_deref().unwrap_or("unknown"))
+                            .field("new_progress", txp_result.new_progress.unwrap_or(0))
+                            .field("location", ctx.current_location.as_str())
+                            .send();
+                    }
+                }
+            }
         }
     }
 
