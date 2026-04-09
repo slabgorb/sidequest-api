@@ -13,12 +13,16 @@
 mod audio;
 pub(crate) mod catch_up;
 pub(crate) mod connect;
+mod lore_sync;
 pub(crate) mod pregen;
+mod patching;
+mod persistence;
 mod prompt;
 mod render;
 mod session_sync;
 mod slash;
 mod state_mutations;
+mod telemetry;
 mod tropes;
 
 use std::collections::HashMap;
@@ -1015,7 +1019,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .field("total_discovered", ctx.discovered_regions.len())
                     .send();
                 let summary = format!("Discovered {} on turn {}", location, turn_number);
-                accumulate_and_persist_lore(
+                lore_sync::accumulate_and_persist_lore(
                     ctx,
                     &summary,
                     sidequest_game::lore::LoreCategory::Geography,
@@ -1526,7 +1530,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .field("reason", "no_dead_npcs")
                 .send();
         } else {
-            validate_continuity(ctx, &clean_narration).await;
+            lore_sync::validate_continuity(ctx, &clean_narration).await;
         }
     }
 
@@ -1539,7 +1543,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 continue;
             }
             tracing::info!("lore.fragment_category=Event (lore_established is unstructured Vec<String> — follow-up required for per-entry categories)");
-            accumulate_and_persist_lore(
+            lore_sync::accumulate_and_persist_lore(
                 ctx,
                 entry,
                 sidequest_game::lore::LoreCategory::Event,
@@ -1557,7 +1561,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             "Encounter at {} concluded on turn {}",
             ctx.current_location, turn_number
         );
-        accumulate_and_persist_lore(
+        lore_sync::accumulate_and_persist_lore(
             ctx,
             &summary,
             sidequest_game::lore::LoreCategory::Event,
@@ -1634,7 +1638,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     for (summary, trope_id) in beat_lore_entries {
         let mut meta = std::collections::HashMap::new();
         meta.insert("trope_id".to_string(), trope_id);
-        accumulate_and_persist_lore(
+        lore_sync::accumulate_and_persist_lore(
             ctx,
             &summary,
             sidequest_game::lore::LoreCategory::Event,
@@ -1695,7 +1699,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     drop(_media_guard);
 
     // Sync scattered locals into the canonical snapshot, then persist (story 15-8)
-    sync_locals_to_snapshot(ctx, narration_text);
+    persistence::sync_locals_to_snapshot(ctx, narration_text);
 
     // Story 15-20: compute state delta and broadcast typed messages
     let game_delta = {
@@ -1735,10 +1739,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         delta
     };
 
-    persist_game_state(ctx, narration_text, &clean_narration).await;
+    persistence::persist_game_state(ctx, narration_text, &clean_narration).await;
 
     // GM Panel snapshot + timing telemetry
-    emit_telemetry(ctx, turn_number, &result, turn_start, preprocess_done, agent_done);
+    telemetry::emit_telemetry(ctx, turn_number, &result, turn_start, preprocess_done, agent_done);
 
     // ADR-073: Construct and send TurnRecord for training data capture + OTEL bridge.
     if let Some(watcher_tx) = ctx.state.watcher_tx() {
@@ -1749,7 +1753,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             result.classified_intent.as_deref().unwrap_or("Exploration"),
         );
 
-        let patches_applied = derive_patches_from_delta(&game_delta);
+        let patches_applied = patching::derive_patches_from_delta(&game_delta);
         let after_game_snapshot = ctx.snapshot.clone();
 
         let record = TurnRecord {
@@ -2355,166 +2359,6 @@ fn update_npc_registry(
     creature_images
 }
 
-/// Accumulate a lore fragment: in-memory store + SQLite persistence + embedding generation.
-///
-/// Used by both the lore_established narrator output and the footnote RAG pipeline.
-/// Emits OTEL watcher events at each step. Returns the fragment_id on success, None on failure.
-async fn accumulate_and_persist_lore(
-    ctx: &mut DispatchContext<'_>,
-    text: &str,
-    category: sidequest_game::lore::LoreCategory,
-    turn: u64,
-    metadata: std::collections::HashMap<String, String>,
-) -> Option<String> {
-    match sidequest_game::accumulate_lore(
-        ctx.lore_store,
-        text,
-        category.clone(),
-        turn,
-        metadata.clone(),
-    ) {
-        Ok(fragment_id) => {
-            let category_str = category.to_string();
-            let token_estimate = text.len().div_ceil(4);
-            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                .field("event", "lore.fragment_accumulated")
-                .field("fragment_id", &fragment_id)
-                .field("category", &category_str)
-                .field("turn", turn)
-                .field("token_estimate", token_estimate)
-                .send();
-            tracing::info!(
-                fragment_id = %fragment_id,
-                category = %category_str,
-                turn = turn,
-                token_estimate = token_estimate,
-                "lore.fragment_accumulated"
-            );
-
-            let persist_fragment = sidequest_game::LoreFragment::new(
-                fragment_id.clone(),
-                category,
-                text.to_string(),
-                sidequest_game::LoreSource::GameEvent,
-                Some(turn),
-                metadata,
-            );
-            match ctx.state.persistence().append_lore_fragment(
-                ctx.genre_slug,
-                ctx.world_slug,
-                ctx.player_name_for_save,
-                &persist_fragment,
-            ).await {
-                Ok(()) => {
-                    WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                        .field("event", "lore.fragment_persisted")
-                        .field("fragment_id", &fragment_id)
-                        .field("category", &category_str)
-                        .send();
-                    tracing::info!(fragment_id = %fragment_id, "lore.fragment_persisted");
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.fragment_persist_failed");
-                }
-            }
-
-            let config = sidequest_daemon_client::DaemonConfig::default();
-            if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
-                let embed_params = sidequest_daemon_client::EmbedParams {
-                    text: text.to_string(),
-                };
-                match client.embed(embed_params).await {
-                    Ok(embed_result) => {
-                        if let Err(e) = ctx.lore_store.set_embedding(&fragment_id, embed_result.embedding) {
-                            tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
-                        } else {
-                            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-                                .field("event", "lore.embedding_generated")
-                                .field("fragment_id", &fragment_id)
-                                .field("latency_ms", embed_result.latency_ms)
-                                .field("model", &embed_result.model)
-                                .send();
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            fragment_id = %fragment_id,
-                            "lore.embedding_generation_failed — fragment stored without embedding"
-                        );
-                    }
-                }
-            } else {
-                tracing::warn!(
-                    fragment_id = %fragment_id,
-                    "lore.daemon_connect_failed — fragment stored without embedding"
-                );
-            }
-
-            Some(fragment_id)
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "lore.accumulate_failed");
-            None
-        }
-    }
-}
-
-/// Continuity validation — LLM-based check of narrator output against game state.
-///
-/// Uses Sonnet classification to detect contradictions rather than keyword matching.
-/// Runs via spawn_blocking so it doesn't block the tokio runtime.
-async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_narration: &str) {
-    let dead_npcs: Vec<String> = ctx
-        .npc_registry
-        .iter()
-        .filter(|n| n.max_hp > 0 && n.hp <= 0)
-        .map(|n| n.name.clone())
-        .collect();
-
-    let inventory_items: Vec<String> = ctx
-        .inventory
-        .carried()
-        .map(|i| i.name.as_str().to_string())
-        .collect();
-
-    let character_description: String = ctx
-        .character_json
-        .as_ref()
-        .and_then(|cj| cj.get("description"))
-        .and_then(|d| d.as_str())
-        .unwrap_or("")
-        .to_string();
-
-    let validation_result =
-        sidequest_agents::continuity_validator::validate_continuity_llm_async(
-            clean_narration,
-            &ctx.current_location,
-            &dead_npcs,
-            &inventory_items,
-            "", // time_of_day not tracked in dispatch context yet
-            &character_description,
-        )
-        .await;
-
-    if !validation_result.is_clean() {
-        let corrections = validation_result.format_corrections();
-        tracing::warn!(
-            contradictions = validation_result.contradictions.len(),
-            "continuity.contradictions_detected"
-        );
-        for c in &validation_result.contradictions {
-            tracing::warn!(
-                category = ?c.category,
-                detail = %c.detail,
-                expected = %c.expected,
-                "continuity.contradiction"
-            );
-        }
-        *ctx.continuity_corrections = corrections;
-    }
-}
-
 /// Build narration, party status, inventory, and RAG messages.
 ///
 /// Story 15-20: `narration_state_delta` is pre-built via `build_protocol_delta`
@@ -2609,7 +2453,7 @@ async fn build_response_messages(
                 meta.insert("source".to_string(), format!("{:?}", df.fact.source));
                 meta.insert("character".to_string(), df.character_name.clone());
                 meta.insert("confidence".to_string(), format!("{:?}", df.fact.confidence));
-                accumulate_and_persist_lore(ctx, &df.fact.content, lore_cat, turn, meta).await;
+                lore_sync::accumulate_and_persist_lore(ctx, &df.fact.content, lore_cat, turn, meta).await;
             }
 
             // OTEL: footnotes processed with lore accumulation
@@ -2819,264 +2663,6 @@ async fn build_response_messages(
                     .send();
             }
         }
-    }
-}
-
-/// Sync scattered DispatchContext locals into the canonical GameSnapshot.
-///
-/// Story 15-8: The dispatch pipeline still uses individual locals (ctx.hp,
-/// ctx.inventory, etc.) throughout the turn. Before persisting, we sync those
-/// locals into ctx.snapshot so persist_game_state() can save it directly
-/// without loading from SQLite first.
-fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str) {
-    // Use ctx.current_location (authoritative after room-graph validation in story 19-2)
-    // instead of re-extracting from narration text, which would bypass validation.
-    ctx.snapshot.location = ctx.current_location.clone();
-    ctx.snapshot.turn_manager = ctx.turn_manager.clone();
-    ctx.snapshot.npc_registry = ctx.npc_registry.clone();
-    // Sync NPC HP from npc_registry back to snapshot.npcs so combat damage persists.
-    // Without this, snapshot.npcs retains stale HP values and enemy damage resets
-    // between turns (the HP changes only live in npc_registry during the turn).
-    for entry in ctx.npc_registry.iter() {
-        if let Some(npc) = ctx.snapshot.npcs.iter_mut().find(|n| {
-            n.core.name.as_str().eq_ignore_ascii_case(&entry.name)
-        }) {
-            npc.core.hp = entry.hp;
-            npc.core.max_hp = entry.max_hp;
-        }
-    }
-    ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
-    ctx.snapshot.axis_values = ctx.axis_values.clone();
-    // combat/chase sync removed in story 28-9 — encounter is maintained directly via apply_beat().
-
-
-    ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
-    ctx.snapshot.active_tropes = ctx.trope_states.clone();
-    ctx.snapshot.achievement_tracker = ctx.achievement_tracker.clone();
-    ctx.snapshot.quest_log = ctx.quest_log.clone();
-    // Phase 5: snapshot.resources is mutated in-place by patch + decay,
-    // no end-of-turn sync required.
-    if let Some(ref cj) = ctx.character_json {
-        if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
-            if let Some(saved_ch) = ctx.snapshot.characters.first_mut() {
-                saved_ch.core.hp = *ctx.hp;
-                saved_ch.core.max_hp = *ctx.max_hp;
-                saved_ch.core.level = *ctx.level;
-                saved_ch.core.inventory = ctx.inventory.clone();
-                saved_ch.known_facts = ch.known_facts.clone();
-                saved_ch.affinities = ch.affinities.clone();
-                saved_ch.narrative_state = ch.narrative_state.clone();
-            }
-        }
-    }
-}
-
-/// Persist game state — save the canonical snapshot directly (no load round-trip).
-///
-/// Story 15-8: The old implementation loaded from SQLite on every turn just to
-/// merge scattered locals, then saved. Now ctx.snapshot is synced before this
-/// call, so we save directly — one round-trip instead of two.
-async fn persist_game_state(
-    ctx: &mut DispatchContext<'_>,
-    _narration_text: &str,
-    clean_narration: &str,
-) {
-    if ctx.genre_slug.is_empty() || ctx.world_slug.is_empty() {
-        tracing::debug!("persist_game_state skipped — empty genre or world slug");
-        return;
-    }
-
-    // Append the current narration entry to ctx.snapshot and persist to narrative_log table
-    let narrative_entry = sidequest_game::NarrativeEntry {
-        timestamp: 0,
-        round: ctx.turn_manager.interaction() as u32,
-        author: "narrator".to_string(),
-        content: clean_narration.to_string(),
-        tags: vec![],
-        encounter_tags: vec![],
-        speaker: None,
-        entry_type: None,
-    };
-    ctx.snapshot.narrative_log.push(narrative_entry.clone());
-
-    // Write to append-only narrative_log table in SQLite
-    match ctx
-        .state
-        .persistence()
-        .append_narrative(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &narrative_entry)
-        .await
-    {
-        Ok(()) => {
-            WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
-                .field("event", "persistence.narrative_appended")
-                .field("turn", ctx.turn_manager.interaction())
-                .field("length", clean_narration.len())
-                .field("player", ctx.player_name_for_save)
-                .send();
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Failed to append narrative log entry");
-        }
-    }
-
-    // Emit encounter OTEL event if active
-    if let Some(ref enc) = ctx.snapshot.encounter {
-        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-            .field("encounter_type", &enc.encounter_type)
-            .field("beat", enc.beat)
-            .field("metric_name", &enc.metric.name)
-            .field("metric_current", enc.metric.current)
-            .field("metric_threshold", enc.metric.threshold_high.or(enc.metric.threshold_low))
-            .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)))
-            .field("resolved", enc.resolved)
-            .field("actor_count", enc.actors.len())
-            .field_opt("mood_override", &enc.mood_override)
-            .field_opt("outcome", &enc.outcome)
-            .send();
-    }
-
-    // Save ctx.snapshot directly — no load round-trip needed (story 15-8)
-    let start = std::time::Instant::now();
-    match ctx
-        .state
-        .persistence()
-        .save(
-            ctx.genre_slug,
-            ctx.world_slug,
-            ctx.player_name_for_save,
-            &ctx.snapshot,
-        )
-        .await
-    {
-        Ok(_) => {
-            let elapsed_ms = start.elapsed().as_millis() as u64;
-            tracing::info!(
-                player = %ctx.player_name_for_save,
-                turn = ctx.turn_manager.interaction(),
-                location = %ctx.current_location,
-                ctx.hp = *ctx.hp,
-                items = ctx.inventory.items.len(),
-                save_latency_ms = elapsed_ms,
-                "session.saved — game state persisted"
-            );
-            // OTEL: persistence save latency for GM panel verification
-            WatcherEventBuilder::new("persistence", WatcherEventType::SubsystemExerciseSummary)
-                .field("save_latency_ms", elapsed_ms)
-                .field("player", ctx.player_name_for_save)
-                .field("turn", ctx.turn_manager.interaction())
-                .send();
-
-            // NOTE: append_narrative is already called above (line ~2358) right
-            // after the entry is created.  A duplicate call here was causing
-            // every narration row to be written twice, which produced repeated
-            // paragraphs in the "Previously On..." recap on session resume.
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to persist game state");
-            WatcherEventBuilder::new("persistence", WatcherEventType::ValidationWarning)
-                .field("event", "persistence.save_failed")
-                .field("error", &format!("{e}"))
-                .field("player", ctx.player_name_for_save)
-                .field("turn", ctx.turn_manager.interaction())
-                .send();
-        }
-    }
-}
-
-/// Emit GM panel snapshot and turn timing telemetry.
-fn emit_telemetry(
-    ctx: &mut DispatchContext<'_>,
-    turn_number: u64,
-    result: &sidequest_agents::orchestrator::ActionResult,
-    turn_start: std::time::Instant,
-    preprocess_done: std::time::Instant,
-    agent_done: std::time::Instant,
-) {
-    // GM Panel: emit full game state snapshot after all mutations
-    {
-        let turn_approx = ctx.turn_manager.interaction() as u32;
-        let npc_data: Vec<serde_json::Value> = ctx
-            .npc_registry
-            .iter()
-            .map(|e| {
-                serde_json::json!({
-                    "name": e.name,
-                    "pronouns": e.pronouns,
-                    "role": e.role,
-                    "location": e.location,
-                    "last_seen_turn": e.last_seen_turn,
-                })
-            })
-            .collect();
-        let inventory_names: Vec<String> = ctx
-            .inventory
-            .carried()
-            .map(|i| i.name.as_str().to_string())
-            .collect();
-        let active_tropes: Vec<serde_json::Value> = ctx
-            .trope_states
-            .iter()
-            .map(|ts| {
-                serde_json::json!({
-                    "id": ts.trope_definition_id(),
-                    "progression": ts.progression(),
-                    "status": format!("{:?}", ts.status()),
-                })
-            })
-            .collect();
-        let snapshot = serde_json::json!({
-            "turn_number": turn_approx,
-            "location": ctx.current_location.as_str(),
-            "hp": *ctx.hp,
-            "max_hp": *ctx.max_hp,
-            "level": *ctx.level,
-            "xp": *ctx.xp,
-            "inventory": inventory_names,
-            "npc_registry": npc_data,
-            "active_tropes": active_tropes,
-            "in_combat": ctx.in_combat(),
-            "player_id": ctx.player_id,
-            "character": ctx.char_name,
-        });
-        WatcherEventBuilder::new("game", WatcherEventType::GameStateSnapshot)
-            .field("turn_number", turn_approx)
-            .field("snapshot", &snapshot)
-            .send();
-    }
-
-    // Build timing spans for flame chart visualization
-    let state_done = std::time::Instant::now();
-    let preprocess_ms = preprocess_done.duration_since(turn_start).as_millis() as u64;
-    let agent_ms = result.agent_duration_ms.unwrap_or_else(|| agent_done.duration_since(preprocess_done).as_millis() as u64);
-    let agent_start_ms = preprocess_ms;
-    let state_start_ms = agent_start_ms + agent_ms;
-    let state_ms = state_done.duration_since(agent_done).as_millis() as u64;
-    let total_ms = state_done.duration_since(turn_start).as_millis() as u64;
-
-    let spans = serde_json::json!([
-        { "name": "preprocessor", "component": "preprocessor", "start_ms": 0, "duration_ms": preprocess_ms },
-        { "name": "agent_llm", "component": result.agent_name.as_deref().unwrap_or("narrator"), "start_ms": agent_start_ms, "duration_ms": agent_ms },
-        { "name": "state_patch", "component": "state", "start_ms": state_start_ms, "duration_ms": state_ms },
-    ]);
-
-    {
-        let mut builder = WatcherEventBuilder::new("game", WatcherEventType::TurnComplete)
-            .field("turn_id", turn_number)
-            .field("turn_number", turn_number)
-            .field("player_input", ctx.action)
-            .field_opt("classified_intent", &result.classified_intent)
-            .field_opt("agent_name", &result.agent_name)
-            .field("agent_duration_ms", agent_ms)
-            .field("is_degraded", result.is_degraded)
-            .field("player_id", ctx.player_id)
-            .field_opt("token_count_in", &result.token_count_in)
-            .field_opt("token_count_out", &result.token_count_out)
-            .field("spans", &spans)
-            .field("total_duration_ms", total_ms);
-        if result.is_degraded {
-            builder = builder.severity(Severity::Warn);
-        }
-        builder.send();
     }
 }
 
@@ -3388,41 +2974,6 @@ fn dispatch_beat_selection(
             }
         }
     }
-}
-
-/// ADR-073: Derive PatchSummary entries from StateDelta boolean flags.
-/// Maps each changed field category to a PatchSummary for TurnRecord.
-fn derive_patches_from_delta(
-    delta: &sidequest_game::StateDelta,
-) -> Vec<sidequest_agents::turn_record::PatchSummary> {
-    use sidequest_agents::turn_record::PatchSummary;
-    let mut patches = Vec::new();
-    if delta.characters_changed() {
-        patches.push(PatchSummary { patch_type: "characters".into(), fields_changed: vec!["characters".into()] });
-    }
-    if delta.npcs_changed() {
-        patches.push(PatchSummary { patch_type: "npcs".into(), fields_changed: vec!["npcs".into()] });
-    }
-    if delta.location_changed() {
-        let mut fields = vec!["location".into()];
-        if let Some(loc) = delta.new_location() {
-            fields.push(format!("new_location:{loc}"));
-        }
-        patches.push(PatchSummary { patch_type: "location".into(), fields_changed: fields });
-    }
-    if delta.quest_log_changed() {
-        patches.push(PatchSummary { patch_type: "quest_log".into(), fields_changed: vec!["quest_log".into()] });
-    }
-    if delta.atmosphere_changed() {
-        patches.push(PatchSummary { patch_type: "atmosphere".into(), fields_changed: vec!["atmosphere".into()] });
-    }
-    if delta.regions_changed() {
-        patches.push(PatchSummary { patch_type: "regions".into(), fields_changed: vec!["regions".into()] });
-    }
-    if delta.tropes_changed() {
-        patches.push(PatchSummary { patch_type: "tropes".into(), fields_changed: vec!["tropes".into()] });
-    }
-    patches
 }
 
 #[cfg(test)]
