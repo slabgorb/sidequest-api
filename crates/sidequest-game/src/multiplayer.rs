@@ -82,7 +82,8 @@ impl MultiplayerSession {
     /// Create a session from player IDs only (no Character data).
     ///
     /// Used by `TurnBarrier` which only needs player count and ID tracking
-    /// for barrier-met checks, not full Character objects.
+    /// for barrier-met checks, not full Character objects. Character names
+    /// are generated as "Character {id}" to distinguish them from player IDs.
     pub fn with_player_ids(player_ids: impl IntoIterator<Item = String>) -> Self {
         use crate::creature_core::CreatureCore;
         use crate::inventory::Inventory;
@@ -91,7 +92,8 @@ impl MultiplayerSession {
         let players: HashMap<String, Character> = player_ids
             .into_iter()
             .map(|id| {
-                let name = NonBlankString::new(&id).unwrap_or_else(|_| {
+                let char_name = format!("Character {}", id);
+                let name = NonBlankString::new(&char_name).unwrap_or_else(|_| {
                     NonBlankString::new("unknown").unwrap()
                 });
                 let character = Character {
