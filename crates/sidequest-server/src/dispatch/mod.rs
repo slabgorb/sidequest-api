@@ -249,12 +249,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         .field("turn_number", turn_number)
         .send();
 
-    // TURN_STATUS "active" — tell all players whose turn it is BEFORE the LLM call.
+    // TURN_STATUS "active" — sequential turn indicator (FreePlay only).
+    // In barrier mode (Structured/Cinematic), all players submit simultaneously —
+    // there IS no "active player." The barrier sends "submitted" per-player instead.
     {
         let holder = ctx.shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
-            if ss.players.len() > 1 {
+            if ss.players.len() > 1 && !ss.turn_mode.should_use_barrier() {
                 let turn_active = GameMessage::TurnStatus {
                     payload: TurnStatusPayload {
                         player_name: ctx.player_name_for_save.to_string(),
@@ -264,7 +266,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     player_id: ctx.player_id.to_string(),
                 };
                 let _ = ctx.state.broadcast(turn_active);
-                tracing::info!(player_id = %ctx.player_id, player_name = %ctx.player_name_for_save, "turn_status.active broadcast to all clients");
+                tracing::info!(player_id = %ctx.player_id, player_name = %ctx.player_name_for_save, "turn_status.active broadcast (FreePlay only)");
             }
         }
     }
@@ -1918,13 +1920,13 @@ async fn handle_barrier(
                 let turn_submitted = GameMessage::TurnStatus {
                     payload: TurnStatusPayload {
                         player_name: ctx.player_name_for_save.to_string(),
-                        status: "active".into(),
+                        status: "submitted".into(),
                         state_delta: None,
                     },
                     player_id: ctx.player_id.to_string(),
                 };
                 let _ = ctx.state.broadcast(turn_submitted);
-                tracing::info!(player_name = %ctx.player_name_for_save, "barrier.turn_status.active — broadcast submission notification");
+                tracing::info!(player_name = %ctx.player_name_for_save, "barrier.turn_status.submitted — player sealed their letter");
                 let barrier_clone = barrier.clone();
 
                 ss.send_to_player(
