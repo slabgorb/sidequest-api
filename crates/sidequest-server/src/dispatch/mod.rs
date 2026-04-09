@@ -2416,6 +2416,10 @@ async fn build_response_messages(
         },
         player_id: ctx.player_id.to_string(),
     };
+    // Push a copy into messages so session_sync routes it to observers in
+    // multiplayer (the direct ctx.tx.send only reaches the acting player).
+    // Without this, Mira never sees Kael's turn narration in real time.
+    messages.push(narration_msg.clone());
     let _ = ctx.tx.send(narration_msg).await;
     tracing::info!("Narration sent to client — state cleanup continues async");
 
@@ -2476,12 +2480,18 @@ async fn build_response_messages(
         }
     }
 
-    let _ = ctx.tx.send(GameMessage::NarrationEnd {
+    let narration_end = GameMessage::NarrationEnd {
         payload: NarrationEndPayload {
             state_delta: None,
         },
         player_id: ctx.player_id.to_string(),
-    }).await;
+    };
+    // Push to messages so session_sync's NarrationEnd handler runs and
+    // broadcasts TURN_STATUS "resolved" to all clients (unlocks observers
+    // who have been waiting for the acting player's turn to complete).
+    // Without this, Mira stays locked on "Waiting for Kael..." forever.
+    messages.push(narration_end.clone());
+    let _ = ctx.tx.send(narration_end).await;
 
     // Party status
     {
