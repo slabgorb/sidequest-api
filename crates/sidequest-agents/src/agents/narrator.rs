@@ -83,10 +83,12 @@ Quest (objectives/tasks), Ability (skills/powers).\n\
 is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
 Include footnotes generously — they feed the player's knowledge journal.\n\
 \n\
-confrontation: When a new encounter begins (combat starts, a chase begins, a \
-standoff erupts), include confrontation with the encounter type name from the \
-genre pack (e.g., \"combat\", \"chase\", \"standoff\", \"negotiation\"). This creates \
-the encounter. Only include on the turn the encounter STARTS, not every turn.\n\
+confrontation: When ANY structured encounter BEGINS this turn — combat, chase, \
+card game, standoff, negotiation, or any other type — include confrontation to \
+signal the server to create the encounter. The available encounter types vary \
+by genre — check the AVAILABLE CONFRONTATIONS section in game_state. Only \
+include on the turn the encounter STARTS, not on subsequent rounds. Once the \
+encounter is active, use beat_selections instead.\n\
 \n\
 beat_selections: When an encounter is active (the encounter context section will \
 list available beats and actors), include beat_selections — an array of beat \
@@ -275,6 +277,18 @@ impl NarratorAgent {
         ));
     }
 
+    /// Inject the game_patch output format spec on every tier.
+    /// Without this, Delta-tier sessions never see the confrontation field
+    /// schema, so the narrator can't emit it to start encounters.
+    pub fn build_output_format(&self, builder: &mut ContextBuilder) {
+        builder.add_section(PromptSection::new(
+            "narrator_output_only",
+            format!("<critical>\n{}\n</critical>", NARRATOR_OUTPUT_ONLY),
+            AttentionZone::Primacy,
+            SectionCategory::Guardrail,
+        ));
+    }
+
     /// Inject dialogue-specific narration rules into the prompt (ADR-067).
     /// Called by the orchestrator when NPCs are present or dialogue is likely.
     pub fn build_dialogue_context(&self, builder: &mut ContextBuilder) {
@@ -335,13 +349,8 @@ impl Agent for NarratorAgent {
             SectionCategory::Guardrail,
         ));
 
-        // Primacy/Guardrail — output only prose
-        builder.add_section(PromptSection::new(
-            "narrator_output_only",
-            format!("<critical>\n{}\n</critical>", NARRATOR_OUTPUT_ONLY),
-            AttentionZone::Primacy,
-            SectionCategory::Guardrail,
-        ));
+        // narrator_output_only is now injected via build_output_format() on every
+        // tier from the orchestrator — see build_narrator_prompt_tiered.
 
         // Early/Format — output-style rules
         builder.add_section(PromptSection::new(

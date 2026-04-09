@@ -404,6 +404,12 @@ impl Orchestrator {
             }
         }
 
+        // === OUTPUT FORMAT (every tier — narrator must always know game_patch schema) ===
+        // The confrontation field and other structured output formats must be present
+        // on Delta tier too, not just Full. Without this, the narrator on resumed
+        // sessions doesn't know how to emit confrontation to start encounters.
+        self.narrator.build_output_format(&mut builder);
+
         // === GENRE IDENTITY (every tier — narrator MUST always know the genre) ===
         // Without this, the LLM has no genre context and may break character by asking
         // the player what genre they're in. Injected in Primacy zone for maximum attention.
