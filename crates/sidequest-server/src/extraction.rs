@@ -77,70 +77,7 @@ pub(crate) fn strip_location_header(text: &str) -> String {
     text.to_string()
 }
 
-/// Strip markdown syntax from text for TTS voice synthesis.
-/// Removes bold (**), italic (*/_), headers (#), links, images, code blocks,
-/// and footnote markers ([1], [2], etc.) that cause phonemizer word-count mismatches.
-pub(crate) fn strip_markdown_for_tts(text: &str) -> String {
-    let mut result = text.to_string();
-    // Bold and italic: **text**, *text*, __text__, _text_
-    // Process ** before * to avoid partial matches
-    result = result.replace("**", "");
-    result = result.replace("__", "");
-    // Single * and _ as italic markers (only between word boundaries)
-    // Simple approach: remove standalone * and _ that look like formatting
-    let mut cleaned = String::with_capacity(result.len());
-    let chars: Vec<char> = result.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if (chars[i] == '*' || chars[i] == '_')
-            && i + 1 < chars.len()
-            && chars[i + 1].is_alphanumeric()
-        {
-            // Skip opening italic marker
-            i += 1;
-            continue;
-        }
-        if (chars[i] == '*' || chars[i] == '_') && i > 0 && chars[i - 1].is_alphanumeric() {
-            // Skip closing italic marker
-            i += 1;
-            continue;
-        }
-        cleaned.push(chars[i]);
-        i += 1;
-    }
-    // Remove markdown headers (# at start of line)
-    cleaned = cleaned
-        .lines()
-        .map(|line| line.trim_start_matches('#').trim_start())
-        .collect::<Vec<_>>()
-        .join("\n");
-    // Remove footnote markers [1], [2], etc. — these cause phonemizer
-    // word-count mismatches because they aren't natural language tokens.
-    // Also remove any bracketed numbers like [12] from narrator output.
-    let mut tts_clean = String::with_capacity(cleaned.len());
-    let clean_chars: Vec<char> = cleaned.chars().collect();
-    let mut j = 0;
-    while j < clean_chars.len() {
-        if clean_chars[j] == '[' {
-            // Look ahead for a closing bracket with only digits inside
-            if let Some(close) = clean_chars[j + 1..].iter().position(|&c| c == ']') {
-                let inside = &clean_chars[j + 1..j + 1 + close];
-                if !inside.is_empty() && inside.iter().all(|c| c.is_ascii_digit()) {
-                    // Skip the entire [N] marker
-                    j += close + 2; // skip past ']'
-                    continue;
-                }
-            }
-        }
-        tts_clean.push(clean_chars[j]);
-        j += 1;
-    }
-    // Collapse any double-spaces left by removed markers
-    while tts_clean.contains("  ") {
-        tts_clean = tts_clean.replace("  ", " ");
-    }
-    tts_clean.trim().to_string()
-}
+
 
 // ---------------------------------------------------------------------------
 // Combat bracket patterns — compiled once, reused forever

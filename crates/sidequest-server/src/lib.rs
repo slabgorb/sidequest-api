@@ -36,64 +36,6 @@ use sidequest_game::builder::CharacterBuilder;
 /// Type alias — NpcRegistryEntry lives in sidequest-game, re-exported for crate use.
 pub(crate) type NpcRegistryEntry = sidequest_game::NpcRegistryEntry;
 
-/// Wrapper for the daemon TTS client, implementing the TtsSynthesizer trait.
-/// Uses VoiceRouter to resolve speaker names to genre pack voice presets.
-pub(crate) struct DaemonSynthesizer {
-    pub(crate) client: tokio::sync::Mutex<sidequest_daemon_client::DaemonClient>,
-    pub(crate) voice_router: std::sync::Arc<sidequest_game::VoiceRouter>,
-}
-
-impl sidequest_game::tts_stream::TtsSynthesizer for DaemonSynthesizer {
-    fn synthesize(
-        &self,
-        text: &str,
-        speaker: &str,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<Vec<u8>, sidequest_game::tts_stream::TtsError>>
-                + Send
-                + '_,
-        >,
-    > {
-        let text = text.to_string();
-        let assignment = self.voice_router.route(speaker);
-        tracing::info!(
-            speaker = %speaker,
-            voice_id = %assignment.voice_id,
-            engine = %assignment.engine,
-            speed = assignment.speed,
-            pitch = assignment.pitch,
-            effects_count = assignment.effects.len(),
-            "tts.voice_resolved"
-        );
-        Box::pin(async move {
-            let effects: Vec<sidequest_daemon_client::TtsEffect> = assignment
-                .effects
-                .iter()
-                .map(|e| sidequest_daemon_client::TtsEffect {
-                    effect_type: e.effect_type.clone(),
-                    params: e.params.clone(),
-                })
-                .collect();
-            let params = sidequest_daemon_client::TtsParams {
-                text,
-                model: assignment.engine,
-                voice_id: assignment.voice_id,
-                speed: assignment.speed,
-                pitch: assignment.pitch,
-                effects,
-                ..Default::default()
-            };
-            let mut client = self.client.lock().await;
-            match client.synthesize(params).await {
-                Ok(result) => Ok(result.audio_bytes),
-                Err(e) => Err(sidequest_game::tts_stream::TtsError::SynthesisFailed(
-                    e.to_string(),
-                )),
-            }
-        })
-    }
-}
 use sidequest_genre::{GenreCache, GenreCode, GenreLoader};
 use sidequest_protocol::{
     ErrorPayload, GameMessage, PartyMember,
@@ -150,11 +92,7 @@ pub struct Args {
     #[arg(long)]
     save_dir: Option<PathBuf>,
 
-    /// Disable TTS voice synthesis (narration text is still sent, just no audio).
-    #[arg(long, default_value = "false")]
-    no_tts: bool,
-
-    /// Run in headless mode (no TTS, no image rendering).
+    /// Run in headless mode (no image rendering).
     #[arg(long, default_value = "false")]
     headless: bool,
 
@@ -181,11 +119,6 @@ impl Args {
     /// Optional save directory.
     pub fn save_dir(&self) -> Option<&Path> {
         self.save_dir.as_deref()
-    }
-
-    /// Whether TTS is disabled.
-    pub fn no_tts(&self) -> bool {
-        self.no_tts
     }
 
     /// Whether headless mode is enabled.
@@ -274,11 +207,8 @@ struct AppStateInner {
     persistence: sidequest_game::PersistenceHandle,
     render_queue: Option<sidequest_game::RenderQueue>,
     beat_filter: tokio::sync::Mutex<sidequest_game::BeatFilter>,
-    binary_broadcast_tx: broadcast::Sender<Vec<u8>>,
     /// Shared multiplayer sessions keyed by "genre:world".
     sessions: Mutex<HashMap<String, Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
-    /// When true, skip TTS synthesis entirely (text narration still sent).
-    tts_disabled: bool,
     /// OTEL endpoint for Claude subprocess telemetry export.
     otel_endpoint: Option<String>,
     /// Path to the sidequest-namegen binary for server-side NPC identity generation.
@@ -311,7 +241,6 @@ impl AppState {
         save_dir: PathBuf,
     ) -> Self {
         let (broadcast_tx, _) = broadcast::channel(256);
-        let (binary_broadcast_tx, _) = broadcast::channel(64);
 
         // Initialize the global telemetry channel (idempotent).
         sidequest_telemetry::init_global_channel();
@@ -449,9 +378,7 @@ impl AppState {
                 beat_filter: tokio::sync::Mutex::new(sidequest_game::BeatFilter::new(
                     sidequest_game::BeatFilterConfig::default(),
                 )),
-                binary_broadcast_tx,
                 sessions: Mutex::new(HashMap::new()),
-                tts_disabled: false,
                 namegen_binary_path: None,
                 encountergen_binary_path: None,
                 loadoutgen_binary_path: None,
@@ -460,19 +387,6 @@ impl AppState {
                 turn_id_counter: Mutex::new(sidequest_agents::turn_record::TurnIdCounter::new()),
             }),
         }
-    }
-
-    /// Disable TTS voice synthesis (builder-style).
-    pub fn with_tts_disabled(mut self, disabled: bool) -> Self {
-        Arc::get_mut(&mut self.inner)
-            .expect("with_tts_disabled must be called before cloning")
-            .tts_disabled = disabled;
-        self
-    }
-
-    /// Whether TTS is disabled.
-    pub fn tts_disabled(&self) -> bool {
-        self.inner.tts_disabled
     }
 
     /// Disable image rendering by dropping the render queue (builder-style).
@@ -701,16 +615,6 @@ impl AppState {
         self.inner.watcher_event_history.lock().unwrap().clone()
     }
 
-    /// Broadcast binary data to all connected WebSocket clients.
-    fn broadcast_binary(&self, data: Vec<u8>) {
-        let _ = self.inner.binary_broadcast_tx.send(data);
-    }
-
-    /// Subscribe to binary broadcast frames (e.g. TTS audio).
-    fn subscribe_binary(&self) -> broadcast::Receiver<Vec<u8>> {
-        self.inner.binary_broadcast_tx.subscribe()
-    }
-
     /// Try to mark a player as processing. Returns false if already processing.
     fn try_start_processing(&self, player_id: &PlayerId) -> bool {
         self.inner
@@ -890,7 +794,6 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/genres", get(list_genres))
-        .route("/api/voices", get(list_voices))
         .route("/api/debug/state", get(debug_api::debug_state))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
@@ -962,32 +865,6 @@ async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serd
     Json(genres)
 }
 
-/// GET /api/voices — list available Kokoro TTS voices from the daemon.
-///
-/// Returns: `{ "voices": ["af_alloy", "am_adam", ...] }`
-/// Falls back to empty list if daemon is unavailable.
-#[tracing::instrument(skip_all)]
-async fn list_voices() -> Json<serde_json::Value> {
-    let config = sidequest_daemon_client::DaemonConfig::default();
-    match sidequest_daemon_client::DaemonClient::connect(config).await {
-        Ok(mut client) => match client.list_voices().await {
-            Ok(voices) => Json(serde_json::json!({ "voices": voices })),
-            Err(e) => {
-                // TTS is currently removed from the daemon — list_voices returns
-                // Unknown: list_voices on every call. This is an informational
-                // endpoint, not a critical path, so log at DEBUG instead of WARN
-                // to avoid spamming the log on every player connect/audio panel open.
-                tracing::debug!(error = %e, "list_voices unavailable (TTS disabled)");
-                Json(serde_json::json!({ "voices": [], "error": e.to_string() }))
-            }
-        },
-        Err(e) => {
-            tracing::debug!(error = %e, "Daemon unavailable for voice listing");
-            Json(serde_json::json!({ "voices": [], "error": "daemon unavailable" }))
-        }
-    }
-}
-
 /// GET /ws — WebSocket upgrade handler.
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     let player_id = PlayerId::new();
@@ -1006,8 +883,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
 
     // Subscribe to broadcast
     let mut broadcast_rx = state.subscribe_broadcast();
-    let mut binary_rx = state.subscribe_binary();
-
     let player_id_str = player_id.to_string();
 
     // Shared session — populated after dispatch_connect identifies genre/world.
@@ -1107,19 +982,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
                             break;
                         }
-                    }
-                }
-                result = binary_rx.recv() => {
-                    match result {
-                        Ok(bytes) => {
-                            if ws_sink.send(AxumWsMessage::Binary(bytes.into())).await.is_err() {
-                                break;
-                            }
-                        }
-                        Err(broadcast::error::RecvError::Lagged(n)) => {
-                            tracing::warn!(player_id = %writer_player_id, skipped = n, "Binary broadcast lagged");
-                        }
-                        Err(_) => break,
                     }
                 }
                 else => break,
