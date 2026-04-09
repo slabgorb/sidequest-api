@@ -1117,6 +1117,15 @@ pub(crate) async fn dispatch_character_creation(
         None => return vec![error_response(player_id, "No character builder active")],
     };
 
+    // Pack lookup for Confirmation-phase summary rendering. Loaded once here
+    // because `scene` / `continue` can both transition into Confirmation after
+    // apply_choice / apply_auto_advance, and the confirmation summary renderer
+    // needs the pack to resolve `starting_equipment` (60798b6).
+    let confirmation_pack = session
+        .genre_slug()
+        .and_then(|g| GenreCode::new(g).ok())
+        .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok());
+
     let phase = payload.phase.as_str();
     tracing::info!(phase = %phase, player_id = %player_id, "Character creation phase");
 
@@ -1164,7 +1173,22 @@ pub(crate) async fn dispatch_character_creation(
             // (or to Confirmation). Display-only scenes are now first-class —
             // they get their own message with input_type="continue" and wait
             // for the player to acknowledge.
-            vec![b.to_scene_message(player_id)]
+            if b.is_confirmation() {
+                match confirmation_pack.as_ref() {
+                    Some(pack) => vec![super::chargen_summary::render_confirmation_summary(
+                        b,
+                        pack,
+                        player_name_store.as_deref(),
+                        player_id,
+                    )],
+                    None => vec![error_response(
+                        player_id,
+                        "Failed to load genre pack for confirmation summary",
+                    )],
+                }
+            } else {
+                vec![b.to_scene_message(player_id)]
+            }
         }
         "continue" => {
             // Player acknowledged a display-only scene. Advance and emit
@@ -1180,7 +1204,22 @@ pub(crate) async fn dispatch_character_creation(
                     &format!("Cannot continue from current scene: {:?}", e),
                 )];
             }
-            vec![b.to_scene_message(player_id)]
+            if b.is_confirmation() {
+                match confirmation_pack.as_ref() {
+                    Some(pack) => vec![super::chargen_summary::render_confirmation_summary(
+                        b,
+                        pack,
+                        player_name_store.as_deref(),
+                        player_id,
+                    )],
+                    None => vec![error_response(
+                        player_id,
+                        "Failed to load genre pack for confirmation summary",
+                    )],
+                }
+            } else {
+                vec![b.to_scene_message(player_id)]
+            }
         }
         "confirmation" => {
             // Story 30-1: Build the character — use the name from the name-entry scene

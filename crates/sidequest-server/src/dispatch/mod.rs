@@ -15,6 +15,7 @@ mod audio;
 mod barrier;
 mod beat;
 pub(crate) mod catch_up;
+pub(crate) mod chargen_summary;
 pub(crate) mod connect;
 mod lore_sync;
 mod npc_registry;
