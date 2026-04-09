@@ -639,13 +639,51 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     );
 
     // Check if barrier mode is active (Structured/Cinematic turn mode).
-    let barrier_combined_action: Option<String> = handle_barrier(ctx, &mut state_summary)
+    let barrier_outcome: Option<BarrierOutcome> = handle_barrier(ctx, &mut state_summary)
         .instrument(tracing::info_span!("turn.barrier", barrier_mode = tracing::field::Empty))
         .await;
 
+    // Non-claiming handlers skip the narrator — retrieve shared narration instead.
+    // Only the claiming handler runs the expensive LLM call; others poll for the result.
+    if let Some(ref outcome) = barrier_outcome {
+        if !outcome.claimed_resolution {
+            for attempt in 0..100u32 {
+                if attempt > 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                if let Some(narration) = outcome.barrier.get_resolution_narration() {
+                    tracing::info!(
+                        attempts = attempt + 1,
+                        "barrier.non_claimer — retrieved shared narration, skipping narrator call"
+                    );
+                    let msg = GameMessage::Narration {
+                        payload: NarrationPayload {
+                            text: narration,
+                            state_delta: None,
+                            footnotes: vec![],
+                        },
+                        player_id: ctx.player_id.to_string(),
+                    };
+                    let _ = ctx.tx.send(msg).await;
+                    let end = GameMessage::NarrationEnd {
+                        payload: NarrationEndPayload {
+                            state_delta: None,
+                        },
+                        player_id: ctx.player_id.to_string(),
+                    };
+                    let _ = ctx.tx.send(end).await;
+                    return vec![];
+                }
+            }
+            tracing::warn!(
+                "barrier.non_claimer — timed out (10s) waiting for shared narration, falling through to narrator"
+            );
+        }
+    }
+
     // Use combined action for barrier turns, original action for FreePlay
-    let effective_action: std::borrow::Cow<str> = match &barrier_combined_action {
-        Some(combined) => std::borrow::Cow::Borrowed(combined.as_str()),
+    let effective_action: std::borrow::Cow<str> = match &barrier_outcome {
+        Some(outcome) => std::borrow::Cow::Borrowed(outcome.combined_action.as_str()),
         None => std::borrow::Cow::Borrowed(ctx.action),
     };
 
@@ -1131,6 +1169,17 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             .replace("<|endoftext|>", "")
             .replace("<|end|>", ""),
         );
+
+    // Claiming handler stores narration so non-claimers can retrieve it
+    // via get_resolution_narration() and skip the narrator call entirely.
+    if let Some(ref outcome) = barrier_outcome {
+        if outcome.claimed_resolution {
+            outcome
+                .barrier
+                .store_resolution_narration(clean_narration.to_string());
+            tracing::info!("barrier.claimer — stored narration for non-claimers");
+        }
+    }
 
     // Accumulate narration history for context on subsequent turns.
     let truncated_narration: String = clean_narration.chars().take(300).collect();
@@ -1840,10 +1889,18 @@ fn map_statuses_to_perceptual_effects(
 }
 
 /// Handle turn barrier coordination for structured/cinematic multiplayer turns.
+/// Outcome of barrier resolution — includes claim election flag and barrier
+/// handle for post-narrator `store_resolution_narration()`.
+struct BarrierOutcome {
+    combined_action: String,
+    claimed_resolution: bool,
+    barrier: sidequest_game::barrier::TurnBarrier,
+}
+
 async fn handle_barrier(
     ctx: &mut DispatchContext<'_>,
     state_summary: &mut String,
-) -> Option<String> {
+) -> Option<BarrierOutcome> {
     let holder = ctx.shared_session_holder.lock().await;
     if let Some(ref ss_arc) = *holder {
         let ss = ss_arc.lock().await;
@@ -1893,9 +1950,11 @@ async fn handle_barrier(
                 drop(holder);
 
                 let result = barrier_clone.wait_for_turn().await;
+                let claimed = result.claimed_resolution;
                 tracing::info!(
                     timed_out = result.timed_out,
                     missing = ?result.missing_players,
+                    claimed_resolution = claimed,
                     genre = %ctx.genre_slug,
                     world = %ctx.world_slug,
                     "Turn barrier resolved"
@@ -2011,13 +2070,17 @@ async fn handle_barrier(
                     sealed_prompt, auto_ctx, state_summary
                 );
 
-                // Return combined actions for downstream use
+                // Return combined actions + claim status + barrier handle
                 let combined = named_actions
                     .iter()
                     .map(|(name, act)| format!("{}: {}", name, act))
                     .collect::<Vec<_>>()
                     .join("\n");
-                return Some(combined);
+                return Some(BarrierOutcome {
+                    combined_action: combined,
+                    claimed_resolution: claimed,
+                    barrier: barrier_clone,
+                });
             }
         }
     }
