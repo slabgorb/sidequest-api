@@ -949,6 +949,44 @@ impl CharacterBuilder {
         Ok(character)
     }
 
+    /// Get the prompt text for a scene, with stat injection if applicable.
+    pub fn scene_prompt_text(&self, scene: &CharCreationScene) -> String {
+        let scene_has_stat_gen = scene
+            .mechanical_effects
+            .as_ref()
+            .and_then(|e| e.stat_generation.as_ref())
+            .is_some();
+
+        if scene_has_stat_gen {
+            if let Some(ref rolled) = self.rolled_stats {
+                let stat_line = rolled
+                    .iter()
+                    .map(|(name, val)| format!("**{} {}**", name, val))
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                return format!(
+                    "{}\n\n{}\n\n*The man writes the numbers in the ledger without expression.*",
+                    scene.narration, stat_line
+                );
+            }
+        }
+        scene.narration.clone()
+    }
+
+    /// Construct a CharacterCreation GameMessage with accumulated preamble text
+    /// from auto-advanced choiceless scenes prepended to the prompt.
+    pub fn to_scene_message_with_preamble(&self, player_id: &str, preamble: &str) -> GameMessage {
+        let mut msg = self.to_scene_message(player_id);
+        if let GameMessage::CharacterCreation { ref mut payload, .. } = msg {
+            if let Some(ref prompt) = payload.prompt {
+                payload.prompt = Some(format!("{}\n\n---\n\n{}", preamble, prompt));
+            } else {
+                payload.prompt = Some(preamble.to_string());
+            }
+        }
+        msg
+    }
+
     /// Construct a CharacterCreation GameMessage for the current state.
     pub fn to_scene_message(&self, player_id: &str) -> GameMessage {
         match &self.phase {

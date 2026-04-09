@@ -821,24 +821,30 @@ pub(crate) async fn start_character_creation(
     };
 
     // Auto-advance through choiceless scenes (stat roll, equipment gen, etc.)
-    // collecting their narrations as display-only messages before the first
-    // scene that requires player input.
-    let mut auto_narrations = Vec::new();
+    // silently, accumulating their narrations. The UI only gets ONE
+    // CHARACTER_CREATION message — the first scene that needs player input,
+    // with all prior narrations prepended to its prompt text.
+    let mut accumulated_narrations = Vec::new();
     while !b.is_confirmation() && !b.current_scene_needs_input() {
-        let display_msg = b.to_scene_message(player_id);
-        auto_narrations.push(display_msg);
+        // Capture the narration from this display-only scene
+        let scene = b.current_scene();
+        let scene_narration = b.scene_prompt_text(scene);
+        accumulated_narrations.push(scene_narration);
         if let Err(e) = b.apply_auto_advance() {
             tracing::warn!(error = ?e, "auto-advance failed during start_character_creation");
             break;
         }
     }
 
-    let scene_msg = b.to_scene_message(player_id);
+    let scene_msg = if accumulated_narrations.is_empty() {
+        b.to_scene_message(player_id)
+    } else {
+        b.to_scene_message_with_preamble(player_id, &accumulated_narrations.join("\n\n---\n\n"))
+    };
     *builder = Some(b);
 
     // Send genre-pack mixer config so the frontend initializes per-genre volumes.
     let mut msgs = vec![mixer_config_cue(&pack.audio.mixer, player_id)];
-    msgs.extend(auto_narrations);
     msgs.push(scene_msg);
     msgs
 }
@@ -940,18 +946,24 @@ pub(crate) async fn dispatch_character_creation(
                 }
             }
 
-            // Auto-advance through any subsequent choiceless scenes
-            let mut msgs = Vec::new();
+            // Auto-advance through any subsequent choiceless scenes,
+            // accumulating narrations into the next interactive scene's preamble.
+            let mut accumulated_narrations = Vec::new();
             while !b.is_confirmation() && !b.current_scene_needs_input() {
-                let display_msg = b.to_scene_message(player_id);
-                msgs.push(display_msg);
+                let scene = b.current_scene();
+                let scene_narration = b.scene_prompt_text(scene);
+                accumulated_narrations.push(scene_narration);
                 if let Err(e) = b.apply_auto_advance() {
                     tracing::warn!(error = ?e, "auto-advance failed during dispatch_character_creation");
                     break;
                 }
             }
-            msgs.push(b.to_scene_message(player_id));
-            msgs
+            let scene_msg = if accumulated_narrations.is_empty() {
+                b.to_scene_message(player_id)
+            } else {
+                b.to_scene_message_with_preamble(player_id, &accumulated_narrations.join("\n\n---\n\n"))
+            };
+            vec![scene_msg]
         }
         "confirmation" => {
             // Build the character — use the name from the name-entry scene if available,
