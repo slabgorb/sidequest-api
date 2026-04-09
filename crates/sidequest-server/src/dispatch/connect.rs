@@ -966,17 +966,18 @@ pub(crate) async fn dispatch_character_creation(
             vec![scene_msg]
         }
         "confirmation" => {
-            // Build the character — use the name from the name-entry scene if available,
-            // otherwise fall back to player connection name, then "Player".
+            // Story 30-1: Build the character — use the name from the name-entry scene
+            // if available, otherwise fall back to the player connection name, then "Player".
+            // Do NOT fall back to payload.choice — that's the UI button index (e.g. "1"),
+            // not a real character name.
             let name_from_scene = b.character_name().map(|s| s.to_string());
             let char_name = name_from_scene.clone()
-                .or_else(|| payload.choice.clone())
                 .unwrap_or_else(|| player_name_store.as_deref().unwrap_or("Player").to_string());
 
             WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
                 .field("event", "name_resolved")
                 .field("char_name", char_name.as_str())
-                .field("source", if name_from_scene.is_some() { "name_scene" } else if payload.choice.is_some() { "payload" } else { "player_name_fallback" })
+                .field("source", if name_from_scene.is_some() { "name_scene" } else { "player_name_fallback" })
                 .field("player_id", player_id)
                 .send();
 
