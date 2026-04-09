@@ -346,14 +346,91 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
-                        // Last NARRATION — recap or last narrative log entry
-                        let recap_text = saved.recap.clone().or_else(|| {
-                            saved
-                                .snapshot
-                                .narrative_log
-                                .last()
-                                .map(|e| e.content.clone())
-                        });
+                        // Last NARRATION — recap, last narrative log entry, or
+                        // a location-based fallback built from the current
+                        // RoomDef description. The fallback case was added
+                        // after sq-playtest 2026-04-09 found that a player
+                        // could reconnect into a valid session (correct
+                        // stats, correct location) with a BLANK narrative
+                        // panel whenever `narrative_log` had no rows — e.g.
+                        // if the player closed the tab right after chargen
+                        // without completing a turn. A silent blank panel
+                        // is the worst possible state: the player has no
+                        // "what was I doing?" context and nothing to react
+                        // to.
+                        //
+                        // Source priority:
+                        //   1. `saved.recap` — rich "Previously On..." format
+                        //      generated from the last 3 narrative_log rows
+                        //      (built by PersistenceWorker::load).
+                        //   2. `saved.snapshot.narrative_log.last()` — raw
+                        //      last entry if recap was skipped for any reason.
+                        //   3. Location fallback: look up the current room in
+                        //      the genre pack's cartography.rooms list and
+                        //      synthesize a "You find yourself at NAME. DESC"
+                        //      string. Guaranteed to produce narration as long
+                        //      as the room is in the genre pack.
+                        //   4. Terminal fallback: "You find yourself at
+                        //      {location}." — plain text from snapshot.location.
+                        let (recap_text, recap_source) = {
+                            if let Some(text) = saved.recap.clone() {
+                                (Some(text), "recap")
+                            } else if let Some(entry) =
+                                saved.snapshot.narrative_log.last()
+                            {
+                                (Some(entry.content.clone()), "narrative_log_last")
+                            } else {
+                                // Location fallback: pull the current RoomDef
+                                // from the genre pack. Same loader pattern as
+                                // the room_graph backfill above — keep it
+                                // inline rather than factored so future edits
+                                // can see both branches together.
+                                let current_room_desc: Option<String> =
+                                    GenreCode::new(genre)
+                                        .ok()
+                                        .and_then(|gc| {
+                                            state
+                                                .genre_cache()
+                                                .get_or_load(&gc, state.genre_loader())
+                                                .ok()
+                                        })
+                                        .and_then(|pack| pack.worlds.get(world).cloned())
+                                        .and_then(|w| w.cartography.rooms.clone())
+                                        .and_then(|rooms| {
+                                            rooms
+                                                .into_iter()
+                                                .find(|r| r.id == saved.snapshot.location)
+                                                .map(|r| match r.description.as_deref() {
+                                                    Some(desc) if !desc.is_empty() => format!(
+                                                        "You find yourself at {}.\n\n{}",
+                                                        r.name, desc
+                                                    ),
+                                                    _ => format!("You find yourself at {}.", r.name),
+                                                })
+                                        });
+                                if let Some(text) = current_room_desc {
+                                    (Some(text), "room_description_fallback")
+                                } else if !saved.snapshot.location.is_empty() {
+                                    (
+                                        Some(format!(
+                                            "You find yourself at {}.",
+                                            saved.snapshot.location
+                                        )),
+                                        "location_only_fallback",
+                                    )
+                                } else {
+                                    (None, "none")
+                                }
+                            }
+                        };
+                        WatcherEventBuilder::new("narration", WatcherEventType::StateTransition)
+                            .field("event", "reconnect.narration_source")
+                            .field("source", recap_source)
+                            .field("has_text", recap_text.is_some())
+                            .field("location", saved.snapshot.location.as_str())
+                            .field("narrative_log_rows", saved.snapshot.narrative_log.len())
+                            .field("player_id", player_id)
+                            .send();
                         if let Some(text) = recap_text {
                             responses.push(GameMessage::Narration {
                                 payload: NarrationPayload {
