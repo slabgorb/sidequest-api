@@ -1177,6 +1177,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 ctx.discovered_regions
                     .iter()
                     .map(|name| sidequest_protocol::ExploredLocation {
+                        id: String::new(),
                         name: name.clone(),
                         x: 0,
                         y: 0,

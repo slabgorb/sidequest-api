@@ -363,6 +363,7 @@ mod message_type_tests {
                 current_location: "Dark Cave".into(),
                 region: "Shadowlands".into(),
                 explored: vec![ExploredLocation {
+                    id: String::new(),
                     name: "Dark Cave".into(),
                     x: 100,
                     y: 200,

@@ -878,6 +878,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
             .iter()
             .enumerate()
             .map(|(i, name)| ExploredLocation {
+                id: String::new(),
                 name: name.clone(),
                 x: i as i32,
                 y: 0,

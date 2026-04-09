@@ -215,6 +215,7 @@ pub(super) async fn build_response_messages(
         ctx.discovered_regions
             .iter()
             .map(|name| sidequest_protocol::ExploredLocation {
+                id: String::new(),
                 name: name.clone(),
                 x: 0,
                 y: 0,

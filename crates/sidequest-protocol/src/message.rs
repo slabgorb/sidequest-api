@@ -1080,7 +1080,14 @@ pub struct InventoryItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExploredLocation {
-    /// Location name.
+    /// Stable room/location identifier (slug). In room graph mode this is
+    /// the RoomDef id that `RoomExitInfo.target` references; the UI uses
+    /// this to join exits to rooms. Empty string when not in room graph
+    /// mode (`#[serde(default)]` makes it backward-compatible for the
+    /// cartography region flow that only cares about `name`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// Location name (display).
     pub name: String,
     /// X coordinate on map (0 when no coordinate data available).
     #[serde(default)]

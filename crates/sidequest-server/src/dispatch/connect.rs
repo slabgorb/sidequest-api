@@ -468,6 +468,7 @@ pub(crate) async fn dispatch_connect(
                                         .discovered_regions
                                         .iter()
                                         .map(|name| sidequest_protocol::ExploredLocation {
+                                            id: String::new(),
                                             name: name.clone(),
                                             x: 0,
                                             y: 0,
