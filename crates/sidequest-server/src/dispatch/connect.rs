@@ -1714,6 +1714,92 @@ pub(crate) async fn dispatch_character_creation(
                                     );
                                 }
                             }
+                            // Story 26-11: Party reconciliation on session resume.
+                            // If multiple players are in the session with divergent locations
+                            // and split-party is not explicitly allowed, snap everyone to the
+                            // majority location and emit a reconciliation narration.
+                            if ss.players.len() > 1 {
+                                let player_locations: Vec<sidequest_game::party_reconciliation::PlayerLocation> = ss
+                                    .players
+                                    .iter()
+                                    .map(|(pid, ps)| {
+                                        let loc = if pid == player_id {
+                                            current_location.clone()
+                                        } else {
+                                            ps.display_location.clone()
+                                        };
+                                        sidequest_game::party_reconciliation::PlayerLocation {
+                                            player_id: pid.clone(),
+                                            player_name: ps.player_name.clone(),
+                                            location: loc,
+                                        }
+                                    })
+                                    .collect();
+
+                                // Check scenario for split-party flag
+                                let split_party_allowed = ss
+                                    .active_scenario
+                                    .as_ref()
+                                    .map(|s| s.allows_split_party)
+                                    .unwrap_or(false);
+
+                                let result = sidequest_game::party_reconciliation::PartyReconciliation::reconcile(
+                                    &player_locations,
+                                    split_party_allowed,
+                                );
+
+                                if let sidequest_game::party_reconciliation::ReconciliationResult::Reconciled {
+                                    ref target_location,
+                                    ref players_moved,
+                                    ref narration_text,
+                                } = result
+                                {
+                                    // Update shared session location
+                                    ss.current_location = target_location.clone();
+                                    // Update current player's local location
+                                    *current_location = target_location.clone();
+                                    snapshot.location = target_location.clone();
+
+                                    // Update all PlayerStates to the reconciled location
+                                    for ps in ss.players.values_mut() {
+                                        ps.display_location = target_location.clone();
+                                    }
+
+                                    // Broadcast reconciliation narration to all session members
+                                    ss.broadcast(GameMessage::Narration {
+                                        payload: NarrationPayload {
+                                            text: narration_text.clone(),
+                                            state_delta: None,
+                                            footnotes: vec![],
+                                        },
+                                        player_id: player_id.to_string(),
+                                    });
+                                    ss.broadcast(GameMessage::NarrationEnd {
+                                        payload: NarrationEndPayload { state_delta: None },
+                                        player_id: player_id.to_string(),
+                                    });
+
+                                    // OTEL: session.resume.party_reconciliation
+                                    let players_moved_str: Vec<String> = players_moved
+                                        .iter()
+                                        .map(|m| format!("{}:{}->{}",
+                                            m.player_name, m.old_location, m.new_location))
+                                        .collect();
+                                    WatcherEventBuilder::new("session", WatcherEventType::StateTransition)
+                                        .field("event", "session.resume.party_reconciliation")
+                                        .field("target_location", target_location.as_str())
+                                        .field("players_moved", players_moved_str.join(", "))
+                                        .field("player_count", ss.player_count())
+                                        .send();
+
+                                    tracing::info!(
+                                        target_location = %target_location,
+                                        players_moved = players_moved.len(),
+                                        "session.resume.party_reconciliation — divergent locations reconciled"
+                                    );
+                                }
+                            }
+
                             // Build and send targeted PARTY_STATUS to OTHER session members.
                             // The current player gets their PartyStatus from the opening
                             // narration dispatch — sending here too causes duplicates.

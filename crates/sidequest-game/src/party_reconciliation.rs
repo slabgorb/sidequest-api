@@ -1,0 +1,137 @@
+//! Party reconciliation on multiplayer session resume (Story 26-11).
+//!
+//! Detects divergent player locations when multiple players reconnect to
+//! the same genre:world session and reconciles them to a single canonical
+//! location. Prevents split-party states that lack narrative justification.
+
+use std::collections::HashMap;
+
+/// A player's location at session resume time.
+#[derive(Debug, Clone)]
+pub struct PlayerLocation {
+    pub player_id: String,
+    pub player_name: String,
+    pub location: String,
+}
+
+/// A player who was moved during reconciliation (telemetry payload).
+#[derive(Debug, Clone)]
+pub struct MovedPlayer {
+    pub player_id: String,
+    pub player_name: String,
+    pub old_location: String,
+    pub new_location: String,
+}
+
+/// Result of party reconciliation.
+#[derive(Debug)]
+pub enum ReconciliationResult {
+    /// All players are already at the same location (or ≤1 player).
+    NoActionNeeded,
+    /// Locations diverged but split-party is explicitly allowed.
+    SplitPartyAllowed,
+    /// Locations were reconciled to a single target.
+    Reconciled {
+        target_location: String,
+        players_moved: Vec<MovedPlayer>,
+        narration_text: String,
+    },
+}
+
+/// Party reconciliation logic.
+pub struct PartyReconciliation;
+
+impl PartyReconciliation {
+    /// Reconcile divergent player locations on session resume.
+    ///
+    /// - `players`: all players reconnecting to the session with their persisted locations.
+    /// - `split_party_allowed`: if true, divergent locations are preserved (no reconciliation).
+    ///
+    /// Returns `NoActionNeeded` when all players share the same location (or ≤1 player),
+    /// `SplitPartyAllowed` when the flag is set and locations diverge, or `Reconciled`
+    /// with the target location, moved players, and a narration line.
+    pub fn reconcile(players: &[PlayerLocation], split_party_allowed: bool) -> ReconciliationResult {
+        // Nothing to reconcile with 0 or 1 players
+        if players.len() <= 1 {
+            return ReconciliationResult::NoActionNeeded;
+        }
+
+        // Count non-empty locations
+        let mut location_counts: HashMap<&str, usize> = HashMap::new();
+        for p in players {
+            if !p.location.is_empty() {
+                *location_counts.entry(p.location.as_str()).or_insert(0) += 1;
+            }
+        }
+
+        // All locations empty → nothing to reconcile
+        if location_counts.is_empty() {
+            return ReconciliationResult::NoActionNeeded;
+        }
+
+        // Check if all non-empty locations are the same
+        let unique_locations: Vec<&&str> = location_counts.keys().collect();
+        let all_same = unique_locations.len() <= 1
+            && players.iter().all(|p| {
+                p.location.is_empty() || p.location == **unique_locations[0]
+            });
+
+        // Players with empty locations count as divergent (they need to be moved)
+        let has_empty = players.iter().any(|p| p.location.is_empty());
+        let truly_same = all_same && !has_empty;
+
+        if truly_same {
+            return ReconciliationResult::NoActionNeeded;
+        }
+
+        // Locations diverge — check split-party flag
+        if split_party_allowed {
+            return ReconciliationResult::SplitPartyAllowed;
+        }
+
+        // Pick target: majority location wins, alphabetical tie-break
+        let target = location_counts
+            .iter()
+            .max_by(|(loc_a, count_a), (loc_b, count_b)| {
+                count_a.cmp(count_b).then_with(|| loc_b.cmp(loc_a))
+            })
+            .map(|(loc, _)| *loc)
+            .unwrap(); // safe: location_counts is non-empty
+
+        let target_location = target.to_string();
+
+        // Build moved-player list
+        let players_moved: Vec<MovedPlayer> = players
+            .iter()
+            .filter(|p| p.location != target_location)
+            .map(|p| MovedPlayer {
+                player_id: p.player_id.clone(),
+                player_name: p.player_name.clone(),
+                old_location: p.old_location(),
+                new_location: target_location.clone(),
+            })
+            .collect();
+
+        // Generate narration
+        let narration_text = format!(
+            "The party regroups at the {}.",
+            target_location
+        );
+
+        ReconciliationResult::Reconciled {
+            target_location,
+            players_moved,
+            narration_text,
+        }
+    }
+}
+
+impl PlayerLocation {
+    fn old_location(&self) -> String {
+        if self.location.is_empty() {
+            "(unknown)".to_string()
+        } else {
+            self.location.clone()
+        }
+    }
+}
