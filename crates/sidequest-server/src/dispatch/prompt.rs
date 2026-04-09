@@ -332,6 +332,21 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str("When narrative events affect these resources, include resource_deltas in your JSON block.\n");
     }
 
+    // Available confrontation types — always injected so the narrator knows what
+    // encounter types it can trigger via the confrontation field in game_patch.
+    if !ctx.confrontation_defs.is_empty() {
+        state_summary.push_str("\n\n=== AVAILABLE CONFRONTATIONS ===\n");
+        state_summary.push_str("When a structured encounter begins (combat, card game, chase, standoff, etc.), ");
+        state_summary.push_str("emit a confrontation field in your game_patch with one of these types:\n");
+        for def in ctx.confrontation_defs.iter() {
+            state_summary.push_str(&format!(
+                "- type: \"{}\" — {} (category: {})\n",
+                def.confrontation_type, def.label, def.category
+            ));
+        }
+        state_summary.push_str("=== END AVAILABLE CONFRONTATIONS ===\n");
+    }
+
     // Structured encounter context via format_encounter_context() (story 28-4)
     if let Some(ref enc) = ctx.snapshot.encounter {
         if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type) {
