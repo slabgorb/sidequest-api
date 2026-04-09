@@ -153,15 +153,44 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
                 .field("quality", format!("{:?}", result.quality))
                 .send();
 
+            // Story 35-3: Score the scenario after accusation resolution.
+            let total_turns = ctx.turn_manager.interaction() as u64;
+            let questioned: Vec<String> = scenario.questioned_npcs().iter().cloned().collect();
+            let score_input = sidequest_game::ScenarioScoreInput {
+                scenario_state: scenario,
+                accusation_result: &result,
+                total_turns,
+                npcs_questioned: &questioned,
+            };
+            let score = sidequest_game::score_scenario(&score_input);
+
+            WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
+                .field("event", "scenario.scored")
+                .field("grade", format!("{:?}", score.grade()))
+                .field("evidence_coverage", format!("{:.0}%", score.evidence_coverage() * 100.0))
+                .field("interrogation_breadth", format!("{:.0}%", score.interrogation_breadth() * 100.0))
+                .field("deduction_quality", format!("{:?}", score.deduction_quality()))
+                .field("total_turns", score.total_turns())
+                .send();
+
+            let score_summary = format!(
+                "\n\n**Scenario Score:** {:?} — Evidence: {:.0}%, Interrogation: {:.0}%, Deduction: {:?} ({} turns)",
+                score.grade(),
+                score.evidence_coverage() * 100.0,
+                score.interrogation_breadth() * 100.0,
+                score.deduction_quality(),
+                score.total_turns(),
+            );
+
             let text = if result.is_correct {
                 format!(
-                    "**ACCUSATION CORRECT!** {} has been identified as the culprit. Evidence quality: {:?}.\n\n{}",
-                    accused_npc_name, result.quality, result.narrative_prompt
+                    "**ACCUSATION CORRECT!** {} has been identified as the culprit. Evidence quality: {:?}.\n\n{}{}",
+                    accused_npc_name, result.quality, result.narrative_prompt, score_summary
                 )
             } else {
                 format!(
-                    "**ACCUSATION INCORRECT.** {} is not the guilty party. Evidence quality: {:?}.\n\n{}",
-                    accused_npc_name, result.quality, result.narrative_prompt
+                    "**ACCUSATION INCORRECT.** {} is not the guilty party. Evidence quality: {:?}.\n\n{}{}",
+                    accused_npc_name, result.quality, result.narrative_prompt, score_summary
                 )
             };
 

@@ -1168,6 +1168,20 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
+    // Story 35-3: Track questioned NPCs for scenario scoring.
+    // When a scenario is active, any NPC from the scenario's role map that appears
+    // in the narration is recorded as "questioned" for interrogation_breadth scoring.
+    if let Some(ref mut scenario) = ctx.snapshot.scenario_state {
+        if !scenario.is_resolved() {
+            let npc_names: Vec<String> = scenario.npc_roles().keys().cloned().collect();
+            for npc_name in &npc_names {
+                if clean_narration.contains(npc_name.as_str()) {
+                    scenario.record_questioned_npc(npc_name.clone());
+                }
+            }
+        }
+    }
+
     // Monster Manual: match narration against Manual NPCs, mark Active (ADR-059)
     {
         let mut activated = Vec::new();

@@ -75,6 +75,9 @@ pub struct ScenarioState {
     resolved: bool,
     /// NPC adjacency graph for gossip propagation.
     adjacency: HashMap<String, Vec<String>>,
+    /// Names of NPCs the player has questioned during this scenario.
+    #[serde(default)]
+    questioned_npcs: HashSet<String>,
 }
 
 impl ScenarioState {
@@ -205,6 +208,7 @@ impl ScenarioState {
             tension: 0.0,
             resolved: false,
             adjacency,
+            questioned_npcs: HashSet::new(),
         }
     }
 
@@ -241,6 +245,16 @@ impl ScenarioState {
     /// The clue graph.
     pub fn clue_graph(&self) -> &ClueGraph {
         &self.clue_graph
+    }
+
+    /// The set of NPCs the player has questioned.
+    pub fn questioned_npcs(&self) -> &HashSet<String> {
+        &self.questioned_npcs
+    }
+
+    /// Record that the player questioned a scenario NPC.
+    pub fn record_questioned_npc(&mut self, npc_name: String) {
+        self.questioned_npcs.insert(npc_name);
     }
 
     /// Mark a clue as discovered.
