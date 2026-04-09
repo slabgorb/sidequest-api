@@ -30,6 +30,7 @@ impl GenrePack {
         self.validate_world_graph(&mut errors);
         self.validate_scenarios(&mut errors);
         self.validate_confrontations(&mut errors);
+        self.validate_initiative_rules(&mut errors);
         errors.into_result()
     }
 
@@ -199,6 +200,33 @@ impl GenrePack {
                         ),
                     });
                 }
+            }
+        }
+    }
+
+    fn validate_initiative_rules(&self, errors: &mut ValidationErrors) {
+        if self.rules.initiative_rules.is_empty() {
+            return;
+        }
+
+        let ability_scores: HashSet<String> = self
+            .rules
+            .ability_score_names
+            .iter()
+            .map(|s| s.to_uppercase())
+            .collect();
+
+        for (encounter_type, rule) in &self.rules.initiative_rules {
+            if !ability_scores.contains(&rule.primary_stat.to_uppercase()) {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "initiative rule '{}' has primary_stat '{}' \
+                         which is not a declared ability score (valid: {:?})",
+                        encounter_type,
+                        rule.primary_stat,
+                        self.rules.ability_score_names
+                    ),
+                });
             }
         }
     }

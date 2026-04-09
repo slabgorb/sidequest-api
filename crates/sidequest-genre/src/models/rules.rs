@@ -4,6 +4,23 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════
+// Initiative rules (story 13-12)
+// ═══════════════════════════════════════════════════════════
+
+/// Maps an encounter type to its primary stat for turn ordering.
+///
+/// Each genre pack can define per-encounter-type initiative rules so that
+/// different situations weight different ability scores (e.g., combat → DEX,
+/// social → CHA).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InitiativeRule {
+    /// The ability score name that drives initiative for this encounter type.
+    pub primary_stat: String,
+    /// Narrator-facing description of why this stat matters.
+    pub description: String,
+}
+
+// ═══════════════════════════════════════════════════════════
 // Resource declarations (story 16-1)
 // ═══════════════════════════════════════════════════════════
 
@@ -420,4 +437,8 @@ pub struct RulesConfig {
     /// None for genres without treasure-as-XP. E.g., "Plunderer" for caverns_and_claudes.
     #[serde(default)]
     pub xp_affinity: Option<String>,
+    /// Initiative rules mapping encounter types to primary stats (story 13-12).
+    /// Empty for genres that haven't authored initiative rules yet.
+    #[serde(default)]
+    pub initiative_rules: HashMap<String, InitiativeRule>,
 }
