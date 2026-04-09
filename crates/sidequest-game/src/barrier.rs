@@ -170,9 +170,6 @@ struct Inner {
     adaptive: Mutex<Option<AdaptiveTimeout>>,
     /// Current turn mode — determines auto-fill default action on timeout.
     turn_mode: Mutex<TurnMode>,
-    /// Flag for handler election — protected by resolution_lock.
-    /// First task to enter resolve() sets this to true; others see it already true.
-    resolution_claimed: Mutex<bool>,
     /// Narration text stored by the claiming handler for non-claimers to retrieve.
     resolution_narration: Mutex<Option<String>>,
     /// Turn number tracker — used to detect when we've moved to the next turn
@@ -217,7 +214,6 @@ impl TurnBarrier {
                 notify: Notify::new(),
                 adaptive: Mutex::new(None),
                 turn_mode: Mutex::new(TurnMode::default()),
-                resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 last_resolved_turn: Mutex::new(0),
                 last_claim_turn: Mutex::new(0),
@@ -241,7 +237,6 @@ impl TurnBarrier {
                 notify: Notify::new(),
                 adaptive: Mutex::new(Some(adaptive)),
                 turn_mode: Mutex::new(TurnMode::default()),
-                resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 last_resolved_turn: Mutex::new(0),
                 last_claim_turn: Mutex::new(0),
@@ -440,12 +435,11 @@ impl TurnBarrier {
     }
 
     /// Resolve the current turn and return the result.
+    ///
     /// Attempts to claim resolution atomically during resolution (not after).
     /// This ensures only one task wins the claim election when multiple tasks
-    /// wake up from wait_for_turn() concurrently.
-    /// Resolve the current turn and return the result.
-    /// Only the first task from a batch (all tasks that entered wait_for_turn() with the same
-    /// initial turn number) actually performs the resolution. Subsequent tasks return the
+    /// wake up from wait_for_turn() concurrently. Only the first task from a
+    /// batch actually performs the resolution. Subsequent tasks return the
     /// already-computed result.
     fn resolve(&self, timed_out: bool) -> TurnBarrierResult {
         // Get the initial turn at the start of wait_for_turn() for all tasks in this batch
