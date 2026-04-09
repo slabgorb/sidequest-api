@@ -1570,12 +1570,18 @@ async fn dispatch_message(
                             sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                 ss_guard.players.keys().cloned(),
                             );
-                        let adaptive =
-                            sidequest_game::barrier::AdaptiveTimeout::default();
+                        let config =
+                            sidequest_game::barrier::TurnBarrierConfig::disabled();
                         ss_guard.turn_barrier =
-                            Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
-                                mp_session, adaptive,
+                            Some(sidequest_game::barrier::TurnBarrier::new(
+                                mp_session, config,
                             ));
+                        {
+                            let _span = tracing::info_span!(
+                                "barrier.activated",
+                                player_count = pc,
+                            ).entered();
+                        }
                         tracing::info!(
                             player_count = pc,
                             "Initialized turn barrier for reconnecting player"

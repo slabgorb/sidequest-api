@@ -1914,10 +1914,16 @@ pub(crate) async fn dispatch_character_creation(
                                     let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                         ss.players.keys().cloned(),
                                     );
-                                    let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
-                                    ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
-                                        mp_session, adaptive,
+                                    let config = sidequest_game::barrier::TurnBarrierConfig::disabled();
+                                    ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::new(
+                                        mp_session, config,
                                     ));
+                                    {
+                                        let _span = tracing::info_span!(
+                                            "barrier.activated",
+                                            player_count = pc,
+                                        ).entered();
+                                    }
                                     tracing::info!(player_count = pc, "Initialized turn barrier for multiplayer");
                                 }
                             }
