@@ -11,6 +11,8 @@ use sidequest_game::{GameSnapshot, StateDelta};
 use tokio::sync::mpsc;
 
 use crate::agents::intent_router::Intent;
+use crate::patch_legality::{run_legality_checks, ValidationResult};
+use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 
 /// Buffer size for the watcher mpsc channel.
 ///
@@ -146,6 +148,44 @@ pub async fn run_validator(mut rx: mpsc::Receiver<TurnRecord>) -> Vec<u64> {
             is_degraded = record.is_degraded,
             "received TurnRecord"
         );
+
+        // Run patch legality checks (story 35-1)
+        let results = run_legality_checks(&record);
+
+        let mut violations = 0u64;
+        let mut warnings = 0u64;
+        for result in &results {
+            match result {
+                ValidationResult::Violation(msg) => {
+                    violations += 1;
+                    WatcherEventBuilder::new("patch_legality", WatcherEventType::ValidationWarning)
+                        .field("check", "patch_legality")
+                        .field("violation", msg.as_str())
+                        .field("turn_id", record.turn_id)
+                        .severity(Severity::Warn)
+                        .send();
+                }
+                ValidationResult::Warning(msg) => {
+                    warnings += 1;
+                    WatcherEventBuilder::new("patch_legality", WatcherEventType::ValidationWarning)
+                        .field("check", "patch_legality")
+                        .field("warning", msg.as_str())
+                        .field("turn_id", record.turn_id)
+                        .severity(Severity::Warn)
+                        .send();
+                }
+                ValidationResult::Ok => {}
+            }
+        }
+
+        // Emit per-turn summary
+        WatcherEventBuilder::new("patch_legality", WatcherEventType::SubsystemExerciseSummary)
+            .field("turn_id", record.turn_id)
+            .field("total_checks", results.len() as u64)
+            .field("violations", violations)
+            .field("warnings", warnings)
+            .send();
+
         processed_turn_ids.push(record.turn_id);
     }
 
