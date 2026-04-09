@@ -785,21 +785,74 @@ where
 pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<GameMessage> {
     let mut messages = Vec::new();
 
-    // Always send PARTY_STATUS after a turn
+    // Always send PARTY_STATUS after a turn. PARTY_STATUS is now the single
+    // source of truth for per-character state — sheet + inventory facets are
+    // nested on each PartyMember, collapsing the old CHARACTER_SHEET and
+    // INVENTORY messages.
     let members: Vec<PartyMember> = state
         .characters
         .iter()
-        .map(|c| PartyMember {
-            player_id: String::new(),
-            name: String::new(),
-            character_name: c.name().to_string(),
-            current_hp: Combatant::hp(c),
-            max_hp: Combatant::max_hp(c),
-            statuses: c.core.statuses.clone(),
-            class: c.char_class.as_str().to_string(),
-            level: Combatant::level(c),
-            portrait_url: None,
-            current_location: state.location.clone(),
+        .map(|c| {
+            let sheet = sidequest_protocol::CharacterSheetDetails {
+                race: c.race.as_str().to_string(),
+                stats: c
+                    .stats
+                    .iter()
+                    .map(|(k, v)| (k.clone(), *v))
+                    .collect(),
+                abilities: c
+                    .hooks
+                    .iter()
+                    .filter(|s| !s.contains("auto-filled"))
+                    .cloned()
+                    .collect(),
+                backstory: c.backstory.as_str().to_string(),
+                personality: c.core.personality.as_str().to_string(),
+                pronouns: c.pronouns.clone(),
+                equipment: c
+                    .core
+                    .inventory
+                    .items
+                    .iter()
+                    .map(|i| {
+                        if i.equipped {
+                            format!("{} [equipped]", i.name)
+                        } else {
+                            i.name.as_str().to_string()
+                        }
+                    })
+                    .collect(),
+            };
+            let inventory = sidequest_protocol::InventoryPayload {
+                items: c
+                    .core
+                    .inventory
+                    .items
+                    .iter()
+                    .map(|item| sidequest_protocol::InventoryItem {
+                        name: item.name.as_str().to_string(),
+                        item_type: item.category.as_str().to_string(),
+                        equipped: item.equipped,
+                        quantity: item.quantity,
+                        description: item.description.as_str().to_string(),
+                    })
+                    .collect(),
+                gold: c.core.inventory.gold,
+            };
+            PartyMember {
+                player_id: String::new(),
+                name: String::new(),
+                character_name: c.name().to_string(),
+                current_hp: Combatant::hp(c),
+                max_hp: Combatant::max_hp(c),
+                statuses: c.core.statuses.clone(),
+                class: c.char_class.as_str().to_string(),
+                level: Combatant::level(c),
+                portrait_url: None,
+                current_location: state.location.clone(),
+                sheet: Some(sheet),
+                inventory: Some(inventory),
+            }
         })
         .collect();
     messages.push(GameMessage::PartyStatus {

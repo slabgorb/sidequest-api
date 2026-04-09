@@ -1533,25 +1533,13 @@ async fn dispatch_message(
                         });
                     }
 
-                    // Broadcast targeted PARTY_STATUS to all session members
+                    // Broadcast targeted PARTY_STATUS to all session members.
+                    // Uses the shared helper so sheet + inventory facets are
+                    // always included (collapsed CHARACTER_SHEET / INVENTORY model).
                     let members: Vec<PartyMember> = ss_guard
                         .players
                         .iter()
-                        .map(|(pid, ps)| PartyMember {
-                            player_id: pid.clone(),
-                            name: ps.player_name.clone(),
-                            character_name: ps
-                                .character_name
-                                .clone()
-                                .unwrap_or_else(|| ps.player_name.clone()),
-                            current_hp: ps.character_hp,
-                            max_hp: ps.character_max_hp,
-                            statuses: vec![],
-                            class: ps.character_class.clone(),
-                            level: ps.character_level,
-                            portrait_url: None,
-                            current_location: ps.display_location.clone(),
-                        })
+                        .map(|(pid, ps)| crate::shared_session::party_member_from(pid, ps))
                         .collect();
                     if !members.is_empty() {
                         let pids: Vec<String> = ss_guard.players.keys().cloned().collect();
@@ -1577,21 +1565,7 @@ async fn dispatch_message(
                     let all_members: Vec<PartyMember> = ss_guard
                         .players
                         .iter()
-                        .map(|(pid, ps)| PartyMember {
-                            player_id: pid.clone(),
-                            name: ps.player_name.clone(),
-                            character_name: ps
-                                .character_name
-                                .clone()
-                                .unwrap_or_else(|| ps.player_name.clone()),
-                            current_hp: ps.character_hp,
-                            max_hp: ps.character_max_hp,
-                            statuses: vec![],
-                            class: ps.character_class.clone(),
-                            level: ps.character_level,
-                            portrait_url: None,
-                            current_location: ps.display_location.clone(),
-                        })
+                        .map(|(pid, ps)| crate::shared_session::party_member_from(pid, ps))
                         .collect();
                     let member_count = all_members.len();
                     responses.push(GameMessage::PartyStatus {
