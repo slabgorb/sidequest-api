@@ -1330,43 +1330,41 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // not inside apply_state_mutations, because dispatch_beat_selection is what
     // actually sets encounter.resolved = true via apply_beat().
     let encounter_active_before_beat = ctx.in_encounter();
-    if let Some(ref beat_id) = result.scene_intent {
-        // Temporary: scene_intent carries beat_id until story 28-6 adds dedicated field.
-        // Only dispatch if there's an active encounter.
-        if ctx.snapshot.encounter.is_some() {
-            dispatch_beat_selection(ctx, beat_id);
-        }
-    }
 
-    // Story 28-8: Dispatch NPC beat selections from beat_selections.
-    // Each NPC actor in the encounter gets apply_beat() called with mechanical
-    // resolution and OTEL instrumentation. Player beats are already handled above
-    // via scene_intent; here we process only non-player actors.
+    // Story 28-6: Dispatch beat selections for ALL actors (player + NPCs) from
+    // result.beat_selections. The narrator emits one entry per actor per round.
     if ctx.snapshot.encounter.is_some() {
-        for npc_beat_selection in result.beat_selections.iter() {
-            // Skip player beats — already dispatched via scene_intent above
-            if npc_beat_selection.actor.to_lowercase() == "player" {
-                continue;
-            }
+        for bs in result.beat_selections.iter() {
+            let actor = &bs.actor;
+            let beat_id = &bs.beat_id;
+            let target = bs.target.as_deref().unwrap_or("none");
+            let is_player = actor.to_lowercase() == "player";
 
-            let npc_name = &npc_beat_selection.actor;
-            let beat_id = &npc_beat_selection.beat_id;
-            let target = npc_beat_selection.target.as_deref().unwrap_or("none");
-            // Dispatch the NPC's beat through the same resolution pipeline as the player
+            // Dispatch the beat through resolution pipeline (player + NPC same path)
             dispatch_beat_selection(ctx, beat_id);
 
-            // OTEL: encounter.npc_beat — the GM panel lie detector for NPC mechanical actions
+            // OTEL: encounter.beat dispatched — GM panel lie detector
             let stat_check_result = ctx.snapshot.encounter.as_ref()
                 .map(|e| format!("metric={}", e.metric.current))
                 .unwrap_or_else(|| "no_encounter".to_string());
 
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-                .field("event", "encounter.npc_beat")
-                .field("npc_name", npc_name)
+                .field("event", if is_player { "encounter.player_beat" } else { "encounter.npc_beat" })
+                .field("actor", actor)
                 .field("beat_id", beat_id)
                 .field("target", target)
                 .field("stat_check", &stat_check_result)
                 .send();
+        }
+    }
+
+    // Legacy fallback: scene_intent carried beat_id before story 28-6 added
+    // beat_selections. Only fires when no beat_selections are present.
+    if result.beat_selections.is_empty() {
+        if let Some(ref beat_id) = result.scene_intent {
+            if ctx.snapshot.encounter.is_some() {
+                dispatch_beat_selection(ctx, beat_id);
+            }
         }
     }
 
@@ -3319,21 +3317,70 @@ fn dispatch_beat_selection(
         }
     };
 
-    // Find the beat def once for stat_check routing and metric_delta.
-    // Fail loudly if beat_id is not in the confrontation def — no silent fallbacks.
+    // Find the beat def. Primary: exact ID match. Fallback: narrator may emit
+    // snake_cased label instead of ID (e.g., "read_the_table" for id "read"),
+    // so try matching against snake_cased labels with a loud OTEL warning.
     let beat = match def.beats.iter().find(|b| b.id == beat_id) {
         Some(b) => b,
         None => {
-            tracing::warn!(
-                beat_id = %beat_id,
-                encounter_type = %encounter_type,
-                "beat_selection: beat_id not found in confrontation def beats"
-            );
-            return;
+            let label_match = def.beats.iter().find(|b| {
+                let snake_label = b.label.to_lowercase().replace(' ', "_");
+                snake_label == beat_id
+            });
+            match label_match {
+                Some(b) => {
+                    tracing::warn!(
+                        submitted_beat_id = %beat_id,
+                        resolved_id = %b.id,
+                        encounter_type = %encounter_type,
+                        "beat_selection: narrator emitted label instead of ID — resolved via label match"
+                    );
+                    WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                        .field("event", "beat_id.label_fallback")
+                        .field("submitted", beat_id)
+                        .field("resolved_to", &b.id)
+                        .field("encounter_type", &encounter_type)
+                        .send();
+                    b
+                }
+                None => {
+                    tracing::warn!(
+                        beat_id = %beat_id,
+                        encounter_type = %encounter_type,
+                        available_ids = ?def.beats.iter().map(|b| &b.id).collect::<Vec<_>>(),
+                        "beat_selection: beat_id not found in confrontation def beats"
+                    );
+                    return;
+                }
+            }
         }
     };
     let stat_check = beat.stat_check.clone();
     let metric_delta = beat.metric_delta;
+    let gold_delta = beat.gold_delta;
+    let resolved_beat_id = beat.id.clone();
+
+    // Apply gold_delta to player inventory if specified (e.g., poker bets/wins)
+    if let Some(gd) = gold_delta {
+        ctx.inventory.gold = (ctx.inventory.gold + gd as i64).max(0);
+        // Sync to snapshot character
+        if let Some(ch) = ctx.snapshot.characters.first_mut() {
+            ch.core.inventory.gold = ctx.inventory.gold;
+        }
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.gold_delta")
+            .field("beat_id", &resolved_beat_id)
+            .field("gold_delta", gd)
+            .field("gold_after", ctx.inventory.gold)
+            .field("encounter_type", &encounter_type)
+            .send();
+        tracing::info!(
+            beat_id = %resolved_beat_id,
+            gold_delta = gd,
+            gold_after = ctx.inventory.gold,
+            "encounter.gold_delta — inventory updated"
+        );
+    }
 
     // Resolver routing: attack/strength → resolve_attack, escape → escape,
     // all others (persuade, intimidate, etc.) → metric_delta only.

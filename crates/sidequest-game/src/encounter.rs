@@ -565,7 +565,7 @@ impl StructuredEncounter {
         // Available beats
         lines.push("Available:".to_string());
         for (i, beat) in def.beats.iter().enumerate() {
-            let mut desc = format!("  {}. {} [{}]", i + 1, beat.label, beat.stat_check);
+            let mut desc = format!("  {}. {} (id: {}) [{}]", i + 1, beat.label, beat.id, beat.stat_check);
             if beat.metric_delta != 0 {
                 let sign = if beat.metric_delta > 0 { "+" } else { "" };
                 desc.push_str(&format!(
@@ -581,6 +581,10 @@ impl StructuredEncounter {
             }
             if beat.resolution.unwrap_or(false) {
                 desc.push_str(", resolves encounter");
+            }
+            if let Some(gd) = beat.gold_delta {
+                let sign = if gd > 0 { "+" } else { "" };
+                desc.push_str(&format!(", gold: {}{}", sign, gd));
             }
             if let Some(ref hint) = beat.narrator_hint {
                 desc.push_str(&format!(", narrator_hint: {}", hint));
