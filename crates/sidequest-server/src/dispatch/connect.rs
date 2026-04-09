@@ -535,6 +535,13 @@ pub(crate) async fn dispatch_connect(
                                                 .collect(),
                                         }
                                     });
+                            super::emit_map_update_telemetry(
+                                "reconnect",
+                                player_id,
+                                &saved.snapshot.location,
+                                &explored_locs,
+                                cartography_meta.as_ref(),
+                            );
                             responses.push(GameMessage::MapUpdate {
                                 payload: MapUpdatePayload {
                                     current_location: saved.snapshot.location.clone(),
@@ -550,11 +557,6 @@ pub(crate) async fn dispatch_connect(
                                 location = %saved.snapshot.location,
                                 "map_update.reconnect — replayed explored state for automapper"
                             );
-                            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
-                                .field("event", "map_update.reconnect")
-                                .field("explored_count", explored_count)
-                                .field("location", saved.snapshot.location.as_str())
-                                .send();
                         }
 
                         // INVENTORY reconnect-replay was deleted: inventory is

@@ -229,6 +229,13 @@ pub(super) async fn build_response_messages(
             })
             .collect()
     };
+    super::emit_map_update_telemetry(
+        "turn",
+        ctx.player_id,
+        &ctx.current_location,
+        &explored_locs,
+        ctx.cartography_metadata.as_ref(),
+    );
     messages.push(GameMessage::MapUpdate {
         payload: MapUpdatePayload {
             current_location: ctx.current_location.clone(),
