@@ -1090,6 +1090,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     })
                     .collect()
             };
+            // Story 35-7: OTEL for tactical grid population in MAP_UPDATE
+            let grids_populated = explored_locs.iter().filter(|l| l.tactical_grid.is_some()).count();
+            if grids_populated > 0 {
+                WatcherEventBuilder::new("tactical_grid", WatcherEventType::StateTransition)
+                    .field("event", "tactical_grid.map_update")
+                    .field("rooms_with_grids", grids_populated)
+                    .field("total_explored", explored_locs.len())
+                    .send();
+            }
             messages.push(GameMessage::MapUpdate {
                 payload: MapUpdatePayload {
                     current_location: location,
