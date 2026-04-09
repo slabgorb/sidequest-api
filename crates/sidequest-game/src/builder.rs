@@ -452,6 +452,83 @@ impl CharacterBuilder {
         None
     }
 
+    /// Whether the current scene requires client input (choices or freeform).
+    /// Scenes with no choices and no freeform are display-only and should auto-advance.
+    pub fn current_scene_needs_input(&self) -> bool {
+        match &self.phase {
+            BuilderPhase::InProgress { scene_index } => {
+                let scene = &self.scenes[*scene_index];
+                !scene.choices.is_empty() || scene.allows_freeform.unwrap_or(false)
+            }
+            BuilderPhase::AwaitingFollowup { .. } => true,
+            BuilderPhase::Confirmation => true,
+        }
+    }
+
+    /// Auto-advance through the current scene without client input.
+    /// For display-only scenes (no choices, no freeform): applies scene-level
+    /// mechanical effects and advances to the next scene.
+    /// Returns Ok(()) if advanced, Err if the scene requires input.
+    pub fn apply_auto_advance(&mut self) -> Result<(), BuilderError> {
+        let scene_index = match &self.phase {
+            BuilderPhase::InProgress { scene_index } => *scene_index,
+            _ => {
+                return Err(BuilderError::WrongPhase {
+                    expected: "InProgress".to_string(),
+                    actual: self.phase_name().to_string(),
+                });
+            }
+        };
+
+        let scene = &self.scenes[scene_index];
+        if !scene.choices.is_empty() || scene.allows_freeform.unwrap_or(false) {
+            return Err(BuilderError::InvalidChoice {
+                index: 0,
+                max: scene.choices.len(),
+            });
+        }
+
+        // Apply scene-level mechanical effects (stat rolling, equipment gen, etc.)
+        let effects = scene
+            .mechanical_effects
+            .clone()
+            .unwrap_or_default();
+
+        // Record as an auto-advanced scene result
+        self.results.push(SceneResult {
+            input_type: SceneInputType::Choice(0),
+            hooks_added: vec![],
+            anchors_added: vec![],
+            effects_applied: effects.clone(),
+            choice_description: None,
+        });
+
+        // Apply stat generation if specified
+        if let Some(ref method) = effects.stat_generation {
+            match method.as_str() {
+                "roll_3d6_strict" => {
+                    if self.rolled_stats.is_none() {
+                        let mut rng = rand::rng();
+                        self.rolled_stats =
+                            Some(Self::roll_3d6_stats(&self.ability_score_names, &mut rng));
+                    }
+                }
+                other => {
+                    self.stat_generation = other.to_string();
+                }
+            }
+        }
+
+        tracing::info!(
+            scene_id = %scene.id,
+            scene_index = scene_index,
+            "chargen.auto_advance — choiceless scene"
+        );
+
+        self.advance_scene(scene_index);
+        Ok(())
+    }
+
     /// Get the current hook prompt text, if awaiting followup.
     pub fn current_hook_prompt(&self) -> Option<&str> {
         match &self.phase {
@@ -870,6 +947,44 @@ impl CharacterBuilder {
         };
 
         Ok(character)
+    }
+
+    /// Get the prompt text for a scene, with stat injection if applicable.
+    pub fn scene_prompt_text(&self, scene: &CharCreationScene) -> String {
+        let scene_has_stat_gen = scene
+            .mechanical_effects
+            .as_ref()
+            .and_then(|e| e.stat_generation.as_ref())
+            .is_some();
+
+        if scene_has_stat_gen {
+            if let Some(ref rolled) = self.rolled_stats {
+                let stat_line = rolled
+                    .iter()
+                    .map(|(name, val)| format!("**{} {}**", name, val))
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                return format!(
+                    "{}\n\n{}\n\n*The man writes the numbers in the ledger without expression.*",
+                    scene.narration, stat_line
+                );
+            }
+        }
+        scene.narration.clone()
+    }
+
+    /// Construct a CharacterCreation GameMessage with accumulated preamble text
+    /// from auto-advanced choiceless scenes prepended to the prompt.
+    pub fn to_scene_message_with_preamble(&self, player_id: &str, preamble: &str) -> GameMessage {
+        let mut msg = self.to_scene_message(player_id);
+        if let GameMessage::CharacterCreation { ref mut payload, .. } = msg {
+            if let Some(ref prompt) = payload.prompt {
+                payload.prompt = Some(format!("{}\n\n---\n\n{}", preamble, prompt));
+            } else {
+                payload.prompt = Some(preamble.to_string());
+            }
+        }
+        msg
     }
 
     /// Construct a CharacterCreation GameMessage for the current state.
