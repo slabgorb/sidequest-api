@@ -140,63 +140,141 @@ pub(crate) async fn process_render(
                     // ADR-032 ("The positive_suffix is dropped from the
                     // CLIP prompt entirely when a LoRA is active").
                     //
-                    // Rework finding #1: the (Some, None) case — LoRA set
-                    // without a trigger — is a silent no-op. The LoRA
-                    // loads but the trained style never activates. Emit a
-                    // tracing::warn! AND a WatcherEventBuilder
+                    // Rework Pass 1 finding #1: the (Some, None) case —
+                    // LoRA set without a trigger — is a silent no-op.
+                    // Emit tracing::warn! AND a WatcherEventBuilder
                     // ValidationWarning so the GM panel surfaces the
                     // misconfiguration.
-                    let base_style: String = match (vs.lora.as_deref(), vs.lora_trigger.as_deref())
-                    {
-                        (Some(_), Some(trigger)) => trigger.to_string(),
+                    //
+                    // Rework Pass 2 Finding D: debounce the warn via
+                    // `state.mark_lora_warned()` so a misconfigured genre
+                    // does not flood the GM panel with ValidationWarning
+                    // events on every render turn. The debounce is
+                    // process-scoped (one warning per genre per process
+                    // lifetime — the goal is log-flood prevention).
+                    //
+                    // Rework Pass 2 Finding E: track `lora_active: bool`
+                    // explicitly. When a LoRA is semantically disabled
+                    // (trigger missing), set `lora_active = false` so the
+                    // downstream `lora_abs` resolution returns None and
+                    // the `lora_activated` SubsystemExerciseSummary event
+                    // does NOT fire. This prevents contradictory
+                    // telemetry (ValidationWarning saying "LoRA will not
+                    // activate" + lora_activated saying "LoRA is engaged"
+                    // in the same render turn) from confusing GM-panel
+                    // consumers.
+                    let (base_style, lora_active): (String, bool) = match (
+                        vs.lora.as_deref(),
+                        vs.lora_trigger.as_deref(),
+                    ) {
+                        (Some(_), Some(trigger)) => (trigger.to_string(), true),
                         (Some(lora), None) => {
-                            tracing::warn!(
-                                lora = %lora,
-                                genre = %ctx.genre_slug,
-                                "lora set without lora_trigger — LoRA will load but trained style will not activate (silent no-op). Add lora_trigger to visual_style.yaml."
-                            );
-                            crate::WatcherEventBuilder::new(
-                                "render",
-                                crate::WatcherEventType::ValidationWarning,
-                            )
-                            .field("action", "lora_trigger_missing")
-                            .field("lora", lora)
-                            .field("genre", ctx.genre_slug)
-                            .send();
-                            vs.positive_suffix.clone()
+                            if ctx.state.mark_lora_warned(ctx.genre_slug) {
+                                tracing::warn!(
+                                    lora = %lora,
+                                    genre = %ctx.genre_slug,
+                                    "lora set without lora_trigger — LoRA will load but trained style will not activate (silent no-op). Add lora_trigger to visual_style.yaml."
+                                );
+                                crate::WatcherEventBuilder::new(
+                                    "render",
+                                    crate::WatcherEventType::ValidationWarning,
+                                )
+                                .field("action", "lora_trigger_missing")
+                                .field("lora", lora)
+                                .field("genre", ctx.genre_slug)
+                                .send();
+                            }
+                            // Finding E: LoRA effectively disabled — do not activate.
+                            (vs.positive_suffix.clone(), false)
                         }
-                        _ => vs.positive_suffix.clone(),
+                        _ => (vs.positive_suffix.clone(), false),
                     };
                     let style = match tag_override {
                         Some(tag) => format!("{}, {}", tag, base_style),
                         None => base_style,
                     };
 
-                    // Resolve LoRA path relative to the genre pack dir.
-                    // Rework finding #6: validate the resolved path stays
-                    // inside the genre pack directory. PathBuf::join does
-                    // not sanitize, so a YAML `lora: ../../../etc/passwd`
-                    // would escape. Check with starts_with() against the
-                    // expected genre pack base dir. Fail loudly if escape.
-                    let lora_abs: Option<String> = vs.lora.as_ref().and_then(|rel| {
-                        let base = ctx.state.genre_packs_path().join(ctx.genre_slug);
-                        let resolved = base.join(rel);
-                        if !resolved.starts_with(&base) {
-                            tracing::error!(
-                                lora = %rel,
-                                genre = %ctx.genre_slug,
-                                resolved = %resolved.display(),
-                                "lora path escapes genre pack directory — rejecting. Relative paths with `..` segments are not allowed."
-                            );
-                            crate::WatcherEventBuilder::new("render", crate::WatcherEventType::ValidationWarning)
-                                .field("action", "lora_path_traversal_rejected")
-                                .field("lora", rel.as_str())
-                                .field("genre", ctx.genre_slug)
-                                .send();
-                            return None;
-                        }
-                        Some(resolved.to_string_lossy().into_owned())
-                    });
+                    // Resolve LoRA path relative to the genre pack dir,
+                    // but ONLY when the LoRA is semantically active.
+                    // Finding E: if lora_active is false, lora_abs stays
+                    // None so the `lora_activated` watcher event does not
+                    // fire for a misconfigured LoRA.
+                    //
+                    // Rework Pass 1 finding #6: validate the resolved path
+                    // stays inside the genre pack directory. PathBuf::join
+                    // does not sanitize, so a YAML `lora: ../../../etc/passwd`
+                    // would escape. Fail loudly if the path escapes.
+                    //
+                    // Rework Pass 2 Finding G: use std::fs::canonicalize
+                    // on BOTH base and resolved, then compare canonicalized
+                    // forms. A naive `starts_with` on the un-canonicalized
+                    // PathBuf misses symlink escapes (e.g., a legitimate
+                    // `genre_packs/x/lora` symlink pointing to `/etc`).
+                    // canonicalize() also fails if the file doesn't exist —
+                    // this closes a silent gap where a missing LoRA file
+                    // used to be sent to the daemon only to fail cryptically.
+                    // Distinct action codes let the GM panel discriminate
+                    // the two config errors: `lora_path_traversal_rejected`
+                    // for escape attempts, `lora_file_not_found` for
+                    // missing/inaccessible files.
+                    let lora_abs: Option<String> = if lora_active {
+                        vs.lora.as_ref().and_then(|rel| {
+                            let base = ctx.state.genre_packs_path().join(ctx.genre_slug);
+                            let resolved = base.join(rel);
+                            let base_canon = match std::fs::canonicalize(&base) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    tracing::error!(
+                                        base = %base.display(),
+                                        error = %e,
+                                        "lora base (genre pack dir) cannot be canonicalized — genre pack path is missing or inaccessible"
+                                    );
+                                    crate::WatcherEventBuilder::new("render", crate::WatcherEventType::ValidationWarning)
+                                        .field("action", "lora_base_not_accessible")
+                                        .field("base", base.to_string_lossy().as_ref())
+                                        .field("genre", ctx.genre_slug)
+                                        .send();
+                                    return None;
+                                }
+                            };
+                            let resolved_canon = match std::fs::canonicalize(&resolved) {
+                                Ok(p) => p,
+                                Err(e) => {
+                                    tracing::error!(
+                                        lora = %rel,
+                                        genre = %ctx.genre_slug,
+                                        resolved = %resolved.display(),
+                                        error = %e,
+                                        "lora file not found or not accessible — genre pack references a LoRA file that cannot be canonicalized"
+                                    );
+                                    crate::WatcherEventBuilder::new("render", crate::WatcherEventType::ValidationWarning)
+                                        .field("action", "lora_file_not_found")
+                                        .field("lora", rel.as_str())
+                                        .field("genre", ctx.genre_slug)
+                                        .send();
+                                    return None;
+                                }
+                            };
+                            if !resolved_canon.starts_with(&base_canon) {
+                                tracing::error!(
+                                    lora = %rel,
+                                    genre = %ctx.genre_slug,
+                                    resolved = %resolved_canon.display(),
+                                    base = %base_canon.display(),
+                                    "lora path escapes genre pack directory (after canonicalization — catches symlink escapes) — rejecting."
+                                );
+                                crate::WatcherEventBuilder::new("render", crate::WatcherEventType::ValidationWarning)
+                                    .field("action", "lora_path_traversal_rejected")
+                                    .field("lora", rel.as_str())
+                                    .field("genre", ctx.genre_slug)
+                                    .send();
+                                return None;
+                            }
+                            Some(resolved_canon.to_string_lossy().into_owned())
+                        })
+                    } else {
+                        None
+                    };
 
                     (
                         style,

@@ -3,7 +3,7 @@
 use rand::Rng;
 use sidequest_protocol::GameMessage;
 
-use crate::extraction::audio_cue_to_game_message;
+use crate::extraction::{audio_cue_to_game_message, extract_location_header};
 use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
@@ -265,35 +265,162 @@ pub(crate) async fn process_audio(
                     0.5,
                 );
                 if let Some(subject) = mood_subject {
-                    // Rework finding #5: read visual_style.preferred_model,
+                    // Rework Pass 1 finding #5: read visual_style.preferred_model,
                     // visual_style.lora, and visual_style.lora_trigger the same
                     // way dispatch/render.rs does, so mood images and scene
-                    // images stay visually consistent within a session. Prior
-                    // to this fix, audio.rs hardcoded "dev" and None/None for
-                    // LoRA — a LoRA-enabled genre had mood images silently
-                    // rendered without its trained style while scene images
-                    // used it.
-                    let (art_style, model, neg_prompt, lora_path, lora_scale) =
+                    // images stay visually consistent within a session.
+                    //
+                    // Rework Pass 2 mirror: audio.rs must apply the same
+                    // symmetric loud-failure and debounce patterns as
+                    // dispatch/render.rs. The prior audio.rs code copied
+                    // only the happy path — silent fall-through on
+                    // (Some, None), silent `return None` on path traversal,
+                    // no `lora_activated` telemetry, and no `tag_override`
+                    // application. Fixes Findings B, C, D, E, and I.
+                    //
+                    // Finding I: apply location-based visual_tag_overrides
+                    // so mood images in a "wasteland" location get the
+                    // same genre-pack style overrides as scene images.
+                    let location = extract_location_header(clean_narration)
+                        .unwrap_or_default()
+                        .to_lowercase();
+                    let tag_override_opt = ctx.visual_style.as_ref().and_then(|vs| {
+                        if location.is_empty() {
+                            None
+                        } else {
+                            vs.visual_tag_overrides
+                                .iter()
+                                .find(|(key, _)| location.contains(key.as_str()))
+                                .map(|(_, val)| val.clone())
+                        }
+                    });
+
+                    let (art_style, model, neg_prompt, lora_path, lora_trigger, lora_scale) =
                         match ctx.visual_style {
                             Some(ref vs) => {
-                                let base_style =
-                                    match (vs.lora.as_deref(), vs.lora_trigger.as_deref()) {
-                                        (Some(_), Some(trigger)) => trigger.to_string(),
-                                        _ => vs.positive_suffix.clone(),
-                                    };
-                                let lora_abs: Option<String> = vs.lora.as_ref().and_then(|rel| {
-                                    let base = ctx.state.genre_packs_path().join(ctx.genre_slug);
-                                    let resolved = base.join(rel);
-                                    if !resolved.starts_with(&base) {
-                                        return None;
+                                // Finding C+D+E: mirror render.rs
+                                // (base_style, lora_active) pattern.
+                                let (base_style, lora_active): (String, bool) = match (
+                                    vs.lora.as_deref(),
+                                    vs.lora_trigger.as_deref(),
+                                ) {
+                                    (Some(_), Some(trigger)) => (trigger.to_string(), true),
+                                    (Some(lora), None) => {
+                                        if ctx.state.mark_lora_warned(ctx.genre_slug) {
+                                            tracing::warn!(
+                                                lora = %lora,
+                                                genre = %ctx.genre_slug,
+                                                "lora set without lora_trigger — LoRA will load but trained style will not activate (silent no-op). Add lora_trigger to visual_style.yaml."
+                                            );
+                                            WatcherEventBuilder::new(
+                                                "render",
+                                                WatcherEventType::ValidationWarning,
+                                            )
+                                            .field("action", "lora_trigger_missing")
+                                            .field("lora", lora)
+                                            .field("genre", ctx.genre_slug)
+                                            .send();
+                                        }
+                                        // Finding E: LoRA effectively disabled.
+                                        (vs.positive_suffix.clone(), false)
                                     }
-                                    Some(resolved.to_string_lossy().into_owned())
-                                });
+                                    _ => (vs.positive_suffix.clone(), false),
+                                };
+
+                                // Finding I: tag_override composition mirrors
+                                // render.rs so scene+mood rendering stay
+                                // visually consistent within a location.
+                                let style = match tag_override_opt.as_deref() {
+                                    Some(tag) => format!("{}, {}", tag, base_style),
+                                    None => base_style,
+                                };
+
+                                // Finding B: loud failure on path traversal
+                                // mirrors render.rs. Finding E: gate on
+                                // lora_active so misconfigured LoRA does
+                                // not fire lora_activated telemetry.
+                                // Finding G: canonicalize both base and
+                                // resolved to catch symlink escapes, and
+                                // distinguish missing-file failures with a
+                                // dedicated `lora_file_not_found` action
+                                // code for GM-panel diagnosis.
+                                let lora_abs: Option<String> = if lora_active {
+                                    vs.lora.as_ref().and_then(|rel| {
+                                        let base = ctx
+                                            .state
+                                            .genre_packs_path()
+                                            .join(ctx.genre_slug);
+                                        let resolved = base.join(rel);
+                                        let base_canon = match std::fs::canonicalize(&base) {
+                                            Ok(p) => p,
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    base = %base.display(),
+                                                    error = %e,
+                                                    "lora base (genre pack dir) cannot be canonicalized — genre pack path is missing or inaccessible"
+                                                );
+                                                WatcherEventBuilder::new(
+                                                    "render",
+                                                    WatcherEventType::ValidationWarning,
+                                                )
+                                                .field("action", "lora_base_not_accessible")
+                                                .field("base", base.to_string_lossy().as_ref())
+                                                .field("genre", ctx.genre_slug)
+                                                .send();
+                                                return None;
+                                            }
+                                        };
+                                        let resolved_canon = match std::fs::canonicalize(&resolved) {
+                                            Ok(p) => p,
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    lora = %rel,
+                                                    genre = %ctx.genre_slug,
+                                                    resolved = %resolved.display(),
+                                                    error = %e,
+                                                    "lora file not found or not accessible — genre pack references a LoRA file that cannot be canonicalized"
+                                                );
+                                                WatcherEventBuilder::new(
+                                                    "render",
+                                                    WatcherEventType::ValidationWarning,
+                                                )
+                                                .field("action", "lora_file_not_found")
+                                                .field("lora", rel.as_str())
+                                                .field("genre", ctx.genre_slug)
+                                                .send();
+                                                return None;
+                                            }
+                                        };
+                                        if !resolved_canon.starts_with(&base_canon) {
+                                            tracing::error!(
+                                                lora = %rel,
+                                                genre = %ctx.genre_slug,
+                                                resolved = %resolved_canon.display(),
+                                                base = %base_canon.display(),
+                                                "lora path escapes genre pack directory (after canonicalization — catches symlink escapes) — rejecting."
+                                            );
+                                            WatcherEventBuilder::new(
+                                                "render",
+                                                WatcherEventType::ValidationWarning,
+                                            )
+                                            .field("action", "lora_path_traversal_rejected")
+                                            .field("lora", rel.as_str())
+                                            .field("genre", ctx.genre_slug)
+                                            .send();
+                                            return None;
+                                        }
+                                        Some(resolved_canon.to_string_lossy().into_owned())
+                                    })
+                                } else {
+                                    None
+                                };
+
                                 (
-                                    base_style,
+                                    style,
                                     vs.preferred_model.clone(),
                                     vs.negative_prompt.clone(),
                                     lora_abs,
+                                    vs.lora_trigger.clone(),
                                     vs.lora_scale,
                                 )
                             }
@@ -303,8 +430,29 @@ pub(crate) async fn process_audio(
                                 String::new(),
                                 None,
                                 None,
+                                None,
                             ),
                         };
+
+                    // Mirror dispatch/render.rs: emit lora_activated watcher
+                    // event BEFORE enqueue when the LoRA is active on mood
+                    // image render. Without this emission the GM panel sees
+                    // lora_activated for scene images but is silent on mood
+                    // images — the exact compound opacity the reviewer's
+                    // Rework Pass 2 Devil's Advocate section flagged.
+                    if let Some(ref lora_abs) = lora_path {
+                        WatcherEventBuilder::new(
+                            "render",
+                            WatcherEventType::SubsystemExerciseSummary,
+                        )
+                        .field("action", "lora_activated")
+                        .field("lora_path", lora_abs.as_str())
+                        .field("lora_trigger", lora_trigger.as_deref().unwrap_or(""))
+                        .field("genre", ctx.genre_slug)
+                        .field("source", "mood_image")
+                        .send();
+                    }
+
                     match queue
                         .enqueue(
                             subject.clone(),

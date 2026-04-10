@@ -222,6 +222,16 @@ struct AppStateInner {
     watcher_tx: Option<tokio::sync::mpsc::Sender<sidequest_agents::turn_record::TurnRecord>>,
     /// Turn ID counter for monotonic turn numbering across the session.
     turn_id_counter: Mutex<sidequest_agents::turn_record::TurnIdCounter>,
+    /// Set of genre slugs that have already produced a `lora_trigger_missing`
+    /// ValidationWarning in this process. Used by `dispatch/render.rs` and
+    /// `dispatch/audio.rs` to debounce the warn-every-turn flood pattern
+    /// (Story 35-15 Rework Pass 2 Finding D). See `mark_lora_warned`.
+    ///
+    /// Process-scoped rather than per-session: the goal is log-flood
+    /// prevention, not per-session uniqueness. A genre misconfig produces
+    /// one warning per process lifetime, regardless of how many turns
+    /// or sessions render with that genre.
+    lora_warned_genres: Mutex<HashSet<String>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -396,6 +406,7 @@ impl AppState {
                 otel_endpoint: None,
                 watcher_tx: None,
                 turn_id_counter: Mutex::new(sidequest_agents::turn_record::TurnIdCounter::new()),
+                lora_warned_genres: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -503,6 +514,24 @@ impl AppState {
     /// Path to genre packs directory.
     pub fn genre_packs_path(&self) -> &Path {
         &self.inner.genre_packs_path
+    }
+
+    /// Record that a `lora_trigger_missing` warning has fired for this
+    /// genre in the current process, returning `true` if this is the
+    /// first time (and therefore the caller should actually emit the
+    /// warning). Subsequent calls for the same genre return `false`.
+    ///
+    /// This debounces the `(Some(lora), None)` warn path in
+    /// `dispatch/render.rs` and `dispatch/audio.rs` so a misconfigured
+    /// genre pack does not flood the GM panel with ValidationWarning
+    /// events on every render turn (Story 35-15 Rework Pass 2
+    /// Finding D).
+    pub fn mark_lora_warned(&self, genre_slug: &str) -> bool {
+        self.inner
+            .lora_warned_genres
+            .lock()
+            .unwrap()
+            .insert(genre_slug.to_string())
     }
 
     /// Cached genre pack loader — loads from disk once, then returns the same `Arc`.
