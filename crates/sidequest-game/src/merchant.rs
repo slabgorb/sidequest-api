@@ -189,7 +189,10 @@ pub fn format_merchant_context(
     let mut lines = vec![format!("{merchant_name}'s wares:")];
     for item in &inventory.items {
         let buy_price = calculate_price(item.value as u32, disposition, true);
-        lines.push(format!("  - {} ({}) — {} gold", item.name, item.category, buy_price));
+        lines.push(format!(
+            "  - {} ({}) — {} gold",
+            item.name, item.category, buy_price
+        ));
     }
     lines.join("\n")
 }
@@ -297,7 +300,9 @@ mod tests {
         let mut buyer = Inventory::default();
         buyer.gold = 200;
         let mut seller = Inventory::default();
-        seller.add(test_item("sword", "Iron Sword", 100), 100).unwrap();
+        seller
+            .add(test_item("sword", "Iron Sword", 100), 100)
+            .unwrap();
 
         let d = Disposition::new(0);
         let tx = execute_buy(&mut buyer, &mut seller, "sword", &d, 10).unwrap();
@@ -316,7 +321,9 @@ mod tests {
         let mut buyer = Inventory::default();
         buyer.gold = 10;
         let mut seller = Inventory::default();
-        seller.add(test_item("sword", "Iron Sword", 100), 100).unwrap();
+        seller
+            .add(test_item("sword", "Iron Sword", 100), 100)
+            .unwrap();
 
         let d = Disposition::new(0);
         let err = execute_buy(&mut buyer, &mut seller, "sword", &d, 10).unwrap_err();
@@ -350,10 +357,14 @@ mod tests {
     fn buy_inventory_full() {
         let mut buyer = Inventory::default();
         buyer.gold = 200;
-        buyer.add(test_item("existing", "Existing Item", 10), 1).unwrap();
+        buyer
+            .add(test_item("existing", "Existing Item", 10), 1)
+            .unwrap();
 
         let mut seller = Inventory::default();
-        seller.add(test_item("sword", "Iron Sword", 100), 100).unwrap();
+        seller
+            .add(test_item("sword", "Iron Sword", 100), 100)
+            .unwrap();
 
         let d = Disposition::new(0);
         let err = execute_buy(&mut buyer, &mut seller, "sword", &d, 1).unwrap_err();
@@ -371,7 +382,9 @@ mod tests {
         let mut buyer = Inventory::default();
         buyer.gold = 200;
         let mut seller = Inventory::default();
-        seller.add(test_item("sword", "Iron Sword", 100), 100).unwrap();
+        seller
+            .add(test_item("sword", "Iron Sword", 100), 100)
+            .unwrap();
 
         let d = Disposition::new(50); // max friendly → 50% discount
         let tx = execute_buy(&mut buyer, &mut seller, "sword", &d, 10).unwrap();
@@ -385,7 +398,9 @@ mod tests {
         let mut buyer = Inventory::default();
         buyer.gold = 200;
         let mut seller = Inventory::default();
-        seller.add(test_item("sword", "Iron Sword", 100), 100).unwrap();
+        seller
+            .add(test_item("sword", "Iron Sword", 100), 100)
+            .unwrap();
 
         let d = Disposition::new(-50); // max hostile → 50% markup
         let tx = execute_buy(&mut buyer, &mut seller, "sword", &d, 10).unwrap();
@@ -399,7 +414,9 @@ mod tests {
     #[test]
     fn sell_success() {
         let mut player = Inventory::default();
-        player.add(test_item("sword", "Iron Sword", 100), 100).unwrap();
+        player
+            .add(test_item("sword", "Iron Sword", 100), 100)
+            .unwrap();
 
         let mut merchant = Inventory::default();
         merchant.gold = 500;
@@ -430,7 +447,9 @@ mod tests {
     #[test]
     fn sell_friendly_bonus() {
         let mut player = Inventory::default();
-        player.add(test_item("sword", "Iron Sword", 100), 100).unwrap();
+        player
+            .add(test_item("sword", "Iron Sword", 100), 100)
+            .unwrap();
 
         let mut merchant = Inventory::default();
         merchant.gold = 500;
@@ -455,7 +474,8 @@ mod tests {
     fn format_merchant_with_items() {
         let mut inv = Inventory::default();
         inv.add(test_item("sword", "Iron Sword", 100), 10).unwrap();
-        inv.add(test_item("potion", "Health Potion", 50), 10).unwrap();
+        inv.add(test_item("potion", "Health Potion", 50), 10)
+            .unwrap();
 
         let d = Disposition::new(0);
         let ctx = format_merchant_context("Gruk", &inv, &d);

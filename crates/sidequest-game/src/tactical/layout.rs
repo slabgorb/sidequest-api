@@ -241,11 +241,13 @@ pub fn layout_tree(
 
     let entrance_grid = match grids.get(&entrance.id) {
         Some(g) => g,
-        None => return Ok(DungeonLayout {
-            rooms: Vec::new(),
-            width: 0,
-            height: 0,
-        }),
+        None => {
+            return Ok(DungeonLayout {
+                rooms: Vec::new(),
+                width: 0,
+                height: 0,
+            })
+        }
     };
 
     // Build adjacency map: room_id -> [(target_id, exit_index)]
@@ -318,13 +320,10 @@ pub fn layout_tree(
                     }
 
                     // Compute alignment
-                    let (bx, by) = align_rooms(&placed[current_placed_idx], gap_a, target_grid, gap_b);
-                    let candidate = PlacedRoom::new(
-                        target_id.to_string(),
-                        bx,
-                        by,
-                        target_grid.clone(),
-                    );
+                    let (bx, by) =
+                        align_rooms(&placed[current_placed_idx], gap_a, target_grid, gap_b);
+                    let candidate =
+                        PlacedRoom::new(target_id.to_string(), bx, by, target_grid.clone());
 
                     // Check overlap, excluding shared boundary positions
                     // where both rooms have the same cell type (Wall-Wall or
@@ -362,8 +361,14 @@ pub fn layout_tree(
                         // Valid placement
                         placed.push(candidate);
                         placed_ids.insert(target_id.to_string());
-                        used_gaps.entry(current_id.clone()).or_default().insert(gi_a);
-                        used_gaps.entry(target_id.to_string()).or_default().insert(gi_b);
+                        used_gaps
+                            .entry(current_id.clone())
+                            .or_default()
+                            .insert(gi_a);
+                        used_gaps
+                            .entry(target_id.to_string())
+                            .or_default()
+                            .insert(gi_b);
                         queue.push_back(target_id.to_string());
                         placement_found = true;
                         break;
@@ -377,8 +382,12 @@ pub fn layout_tree(
             if !placement_found {
                 // Compute overlap for error reporting
                 // Try first valid opposite-wall pair for error details
-                let current_used: HashSet<usize> = used_gaps.get(&current_id).cloned().unwrap_or_default();
-                let target_used: HashSet<usize> = used_gaps.get(&target_id.to_string()).cloned().unwrap_or_default();
+                let current_used: HashSet<usize> =
+                    used_gaps.get(&current_id).cloned().unwrap_or_default();
+                let target_used: HashSet<usize> = used_gaps
+                    .get(&target_id.to_string())
+                    .cloned()
+                    .unwrap_or_default();
                 for (gi_a, gap_a) in current_grid.exits().iter().enumerate() {
                     if current_used.contains(&gi_a) {
                         continue;
@@ -390,13 +399,10 @@ pub fn layout_tree(
                         if !is_opposite(gap_a.wall, gap_b.wall) {
                             continue;
                         }
-                        let (bx, by) = align_rooms(&placed[current_placed_idx], gap_a, target_grid, gap_b);
-                        let candidate = PlacedRoom::new(
-                            target_id.to_string(),
-                            bx,
-                            by,
-                            target_grid.clone(),
-                        );
+                        let (bx, by) =
+                            align_rooms(&placed[current_placed_idx], gap_a, target_grid, gap_b);
+                        let candidate =
+                            PlacedRoom::new(target_id.to_string(), bx, by, target_grid.clone());
                         let overlaps = check_overlap(&placed, &candidate);
                         if !overlaps.is_empty() {
                             return Err(LayoutError::Overlap {

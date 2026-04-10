@@ -64,11 +64,7 @@ fn behavioral_summary_returns_string() {
 #[test]
 fn low_openness_produces_conventional_or_practical() {
     let summary = profile_with("openness", 1.5).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["conventional", "practical"],
-        "low openness",
-    );
+    assert_contains_any(&summary, &["conventional", "practical"], "low openness");
 }
 
 #[test]
@@ -84,31 +80,19 @@ fn low_conscientiousness_produces_spontaneous_or_flexible() {
 #[test]
 fn low_extraversion_produces_reserved_or_quiet() {
     let summary = profile_with("extraversion", 0.5).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["reserved", "quiet"],
-        "low extraversion",
-    );
+    assert_contains_any(&summary, &["reserved", "quiet"], "low extraversion");
 }
 
 #[test]
 fn low_agreeableness_produces_competitive_or_blunt() {
     let summary = profile_with("agreeableness", 2.5).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["competitive", "blunt"],
-        "low agreeableness",
-    );
+    assert_contains_any(&summary, &["competitive", "blunt"], "low agreeableness");
 }
 
 #[test]
 fn low_neuroticism_produces_calm_or_steady() {
     let summary = profile_with("neuroticism", 1.0).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["calm", "steady"],
-        "low neuroticism",
-    );
+    assert_contains_any(&summary, &["calm", "steady"], "low neuroticism");
 }
 
 // ─── AC-3: High scores (7–10) produce high-end descriptors ──
@@ -116,11 +100,7 @@ fn low_neuroticism_produces_calm_or_steady() {
 #[test]
 fn high_openness_produces_curious_or_imaginative() {
     let summary = profile_with("openness", 9.0).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["curious", "imaginative"],
-        "high openness",
-    );
+    assert_contains_any(&summary, &["curious", "imaginative"], "high openness");
 }
 
 #[test]
@@ -136,11 +116,7 @@ fn high_conscientiousness_produces_meticulous_or_disciplined() {
 #[test]
 fn high_extraversion_produces_outgoing_or_talkative() {
     let summary = profile_with("extraversion", 7.5).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["outgoing", "talkative"],
-        "high extraversion",
-    );
+    assert_contains_any(&summary, &["outgoing", "talkative"], "high extraversion");
 }
 
 #[test]
@@ -156,11 +132,7 @@ fn high_agreeableness_produces_cooperative_or_empathetic() {
 #[test]
 fn high_neuroticism_produces_anxious_or_volatile() {
     let summary = profile_with("neuroticism", 9.5).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["anxious", "volatile"],
-        "high neuroticism",
-    );
+    assert_contains_any(&summary, &["anxious", "volatile"], "high neuroticism");
 }
 
 // ─── AC-4: Mid scores (3–7) are omitted ────────────────────
@@ -286,20 +258,12 @@ fn summary_with_multiple_extremes_uses_commas_or_and() {
 fn boundary_low_at_3_still_produces_descriptor() {
     // Score of exactly 3.0 should be treated as low (boundary inclusive).
     let summary = profile_with("extraversion", 3.0).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["reserved", "quiet"],
-        "boundary low E=3.0",
-    );
+    assert_contains_any(&summary, &["reserved", "quiet"], "boundary low E=3.0");
 }
 
 #[test]
 fn boundary_high_at_7_still_produces_descriptor() {
     // Score of exactly 7.0 should be treated as high (boundary inclusive).
     let summary = profile_with("extraversion", 7.0).behavioral_summary();
-    assert_contains_any(
-        &summary,
-        &["outgoing", "talkative"],
-        "boundary high E=7.0",
-    );
+    assert_contains_any(&summary, &["outgoing", "talkative"], "boundary high E=7.0");
 }

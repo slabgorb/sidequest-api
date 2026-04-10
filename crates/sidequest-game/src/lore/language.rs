@@ -57,10 +57,7 @@ pub fn record_name_knowledge(
     character_id: &str,
     turn: u64,
 ) -> Result<String, String> {
-    let id = format!(
-        "name-{}-{}-{}",
-        character_id, name.language_id, name.name
-    );
+    let id = format!("name-{}-{}-{}", character_id, name.language_id, name.name);
     let content = format!(
         "Name '{}' means '{}' in language {}",
         name.name, name.gloss, name.language_id
@@ -112,12 +109,7 @@ pub fn query_all_language_knowledge<'a>(
     store
         .query_by_category(&LoreCategory::Language)
         .into_iter()
-        .filter(|f| {
-            f.metadata()
-                .get("character_id")
-                .map(|s| s.as_str())
-                == Some(character_id)
-        })
+        .filter(|f| f.metadata().get("character_id").map(|s| s.as_str()) == Some(character_id))
         .collect()
 }
 

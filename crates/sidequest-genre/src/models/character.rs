@@ -1,9 +1,52 @@
 //! Character-related types: archetypes, creation scenes, visual style.
 
 use super::ocean::OceanProfile;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
+
+/// Custom deserializer for `VisualStyle.lora_scale`.
+///
+/// LoRA scale is a strength multiplier applied to a trained LoRA during image
+/// generation. The daemon passes this directly to `Flux1(lora_scales=[...])`;
+/// non-finite or out-of-range values produce unspecified behavior in MLX.
+///
+/// Accepted range: `[0.0, 2.0]`. This matches the canonical Flux LoRA
+/// documentation and the ComfyUI/A1111 ecosystem convention. Values above 2.0
+/// are almost always a typo (e.g., `20` meant as `2.0`). If a future genre
+/// legitimately needs a higher scale, this validator can be relaxed with
+/// explicit justification — always better to start strict.
+///
+/// Rejects: `NaN`, `±∞`, `< 0.0`, `> 2.0`.
+///
+/// Per Rework Pass 2 Finding F: `serde_yaml` happily deserializes `.nan`,
+/// `.inf`, and `-.inf` into `f32`; without this guard the value propagates
+/// silently through the entire pipeline to the daemon.
+fn validate_lora_scale<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let opt = Option::<f32>::deserialize(deserializer)?;
+    if let Some(v) = opt {
+        if !v.is_finite() {
+            return Err(D::Error::custom(format!(
+                "lora_scale must be a finite number in [0.0, 2.0], got {v} (NaN or infinity)"
+            )));
+        }
+        if v < 0.0 {
+            return Err(D::Error::custom(format!(
+                "lora_scale must be a finite number in [0.0, 2.0], got {v} (negative)"
+            )));
+        }
+        if v > 2.0 {
+            return Err(D::Error::custom(format!(
+                "lora_scale must be a finite number in [0.0, 2.0], got {v} (exceeds upper bound)"
+            )));
+        }
+    }
+    Ok(opt)
+}
 
 // ═══════════════════════════════════════════════════════════
 // archetypes.yaml
@@ -231,6 +274,14 @@ pub struct EquipmentTables {
 // ═══════════════════════════════════════════════════════════
 
 /// Image generation style configuration.
+///
+/// Note: VisualStyle intentionally does NOT use `#[serde(deny_unknown_fields)]`
+/// despite the sidequest-genre convention. This is documented by the
+/// `visual_style_accepts_extra_fields` test in `tests/model_tests.rs` and
+/// exists to support genre extensibility — individual genre packs may add
+/// flavor fields that aren't in the struct without failing to load.
+/// Per reviewer Rework Pass 2 Finding A (self-correction), adding
+/// `deny_unknown_fields` contradicts this documented exemption.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VisualStyle {
     /// Positive prompt suffix for image generation.
@@ -244,4 +295,26 @@ pub struct VisualStyle {
     /// Location-tag → style override mappings.
     #[serde(default)]
     pub visual_tag_overrides: HashMap<String, String>,
+    /// Optional genre-specific LoRA, as a path relative to the genre pack
+    /// directory (e.g. `lora/sw_style.safetensors`). Resolved to an
+    /// absolute path by the dispatch layer and passed to the daemon as
+    /// `RenderParams.lora_path`. Per ADR-032. Story 35-15.
+    #[serde(default)]
+    pub lora: Option<String>,
+    /// Optional LoRA trigger word (e.g. `sw_style`). When set, the
+    /// dispatch layer substitutes this for `positive_suffix` in the
+    /// composed CLIP prompt so the trained LoRA style activates. Per
+    /// ADR-032. Story 35-15.
+    #[serde(default)]
+    pub lora_trigger: Option<String>,
+    /// Optional LoRA strength in `[0.0, 2.0]`. When `None`, the
+    /// daemon falls back to its 1.0 default. Story 35-15 rework
+    /// finding #3 wired this through to close the dead-wire pattern.
+    ///
+    /// Validated on deserialization — see `validate_lora_scale`.
+    /// Rework Pass 2 Finding F: reject non-finite, negative, and
+    /// values above 2.0 at YAML-parse time so malformed configs
+    /// never reach the daemon.
+    #[serde(default, deserialize_with = "validate_lora_scale")]
+    pub lora_scale: Option<f32>,
 }

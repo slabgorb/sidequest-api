@@ -20,14 +20,12 @@ use chrono::Utc;
 use tokio::sync::mpsc;
 
 use sidequest_agents::agents::intent_router::Intent;
-use sidequest_agents::turn_record::{PatchSummary, TurnRecord, run_validator};
+use sidequest_agents::turn_record::{run_validator, PatchSummary, TurnRecord};
 use sidequest_game::{
     CreatureCore, Disposition, GameSnapshot, Inventory, Npc, StateDelta, TurnManager,
 };
 use sidequest_protocol::NonBlankString;
-use sidequest_telemetry::{
-    WatcherEvent, WatcherEventType, init_global_channel, subscribe_global,
-};
+use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
 
 // ===========================================================================
 // Test infrastructure: mock builders (reused from story 3-3 pattern)
@@ -250,7 +248,10 @@ async fn ac2_violation_emits_validation_warning_event() {
     assert!(
         !warnings.is_empty(),
         "HP violation must emit WatcherEvent(patch_legality, ValidationWarning), got events: {:?}",
-        events.iter().map(|e| (&e.component, &e.event_type)).collect::<Vec<_>>()
+        events
+            .iter()
+            .map(|e| (&e.component, &e.event_type))
+            .collect::<Vec<_>>()
     );
 }
 
@@ -279,7 +280,10 @@ async fn ac2_validation_warning_contains_check_name_and_text() {
         })
         .collect();
 
-    assert!(!warnings.is_empty(), "Must have at least one ValidationWarning");
+    assert!(
+        !warnings.is_empty(),
+        "Must have at least one ValidationWarning"
+    );
 
     let warning = &warnings[0];
 
@@ -433,8 +437,8 @@ async fn ac4_integration_hp_violation_through_full_pipeline() {
     // Build a record with clear HP violation
     let mut record = make_mock_record(1);
     record.snapshot_after.npcs = vec![
-        make_npc("OverhealedGoblin", 30, 15, vec![]),  // HP 30 > max 15
-        make_npc("HealthyGuard", 10, 20, vec![]),       // Clean — no violation
+        make_npc("OverhealedGoblin", 30, 15, vec![]), // HP 30 > max 15
+        make_npc("HealthyGuard", 10, 20, vec![]),     // Clean — no violation
     ];
     tx.send(record).await.unwrap();
     drop(tx);

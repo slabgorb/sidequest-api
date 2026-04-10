@@ -63,7 +63,12 @@ pub(super) async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessa
             let gs = ctx.genre_slug;
             sidequest_genre::GenreCode::new(gs)
                 .ok()
-                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .and_then(|gc| {
+                    ctx.state
+                        .genre_cache()
+                        .get_or_load(&gc, ctx.state.genre_loader())
+                        .ok()
+                })
                 .map(|pack| pack.prompts.clone())
         },
     };
@@ -85,7 +90,9 @@ pub(super) async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessa
             .send();
     }
 
-    let narration_text = strip_fourth_wall(&strip_combat_brackets(&strip_fenced_blocks(&strip_location_header(&result.narration))));
+    let narration_text = strip_fourth_wall(&strip_combat_brackets(&strip_fenced_blocks(
+        &strip_location_header(&result.narration),
+    )));
 
     vec![
         GameMessage::Narration {

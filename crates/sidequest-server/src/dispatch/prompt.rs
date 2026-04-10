@@ -107,7 +107,7 @@ pub(crate) async fn build_prompt_context(
              Narrate the death scene — describe how they fell, what killed them, \
              and the finality of it. Do NOT continue the adventure. Do NOT let \
              the character act, move, or speak. The session is over. End with \
-             a brief epitaph or closing line."
+             a brief epitaph or closing line.",
         );
     }
 
@@ -136,15 +136,10 @@ pub(crate) async fn build_prompt_context(
             // Always inject agency constraint — even single-player.
             // Bug #1/#3: narrator puppeted PCs when constraint was multiplayer-only.
             if !other_pcs.is_empty() {
-                state_summary.push_str(&format!(
-                    "\n\nParty: {}.",
-                    other_pcs.join(", ")
-                ));
+                state_summary.push_str(&format!("\n\nParty: {}.", other_pcs.join(", ")));
                 if !co_located_names.is_empty() {
-                    state_summary.push_str(&format!(
-                        " Co-located: {}.",
-                        co_located_names.join(", ")
-                    ));
+                    state_summary
+                        .push_str(&format!(" Co-located: {}.", co_located_names.join(", ")));
                     // Enrich with mechanical context for co-located PCs so the narrator
                     // can write mechanically-aware party interactions.
                     let co_located_pids = ss.co_located_players(ctx.player_id);
@@ -154,7 +149,11 @@ pub(crate) async fn build_prompt_context(
                                 state_summary.push_str(&format!(
                                     "\n  {} — {} Lv{}, HP {}/{}",
                                     name,
-                                    if ps.character_class.is_empty() { "Unknown" } else { &ps.character_class },
+                                    if ps.character_class.is_empty() {
+                                        "Unknown"
+                                    } else {
+                                        &ps.character_class
+                                    },
                                     ps.character_level,
                                     ps.character_hp,
                                     ps.character_max_hp,
@@ -164,11 +163,14 @@ pub(crate) async fn build_prompt_context(
                     }
 
                     // OTEL: party context injection
-                    crate::WatcherEventBuilder::new("party_context", crate::WatcherEventType::StateTransition)
-                        .field("event", "party_context_injected")
-                        .field("co_located_count", co_located_pids.len())
-                        .field("co_located_names", co_located_names.join(", ").as_str())
-                        .send();
+                    crate::WatcherEventBuilder::new(
+                        "party_context",
+                        crate::WatcherEventType::StateTransition,
+                    )
+                    .field("event", "party_context_injected")
+                    .field("co_located_count", co_located_pids.len())
+                    .field("co_located_names", co_located_names.join(", ").as_str())
+                    .send();
                 }
             }
             // PC roster for the agency constraint — always includes the active player.
@@ -229,7 +231,8 @@ pub(crate) async fn build_prompt_context(
     if ctx.inventory.item_count() > 0 {
         if relevance.references_inventory {
             // Full inventory with descriptions and rules
-            state_summary.push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
+            state_summary
+                .push_str("\n\nCHARACTER SHEET — INVENTORY (canonical, overrides narration):");
             state_summary.push_str("\nThe player currently possesses EXACTLY these items:");
             for item in ctx.inventory.carried() {
                 let equipped_tag = if item.equipped { " [EQUIPPED]" } else { "" };
@@ -255,7 +258,9 @@ pub(crate) async fn build_prompt_context(
             ));
         } else {
             // Compact: equipped items + count only
-            let equipped: Vec<String> = ctx.inventory.carried()
+            let equipped: Vec<String> = ctx
+                .inventory
+                .carried()
                 .filter(|i| i.equipped)
                 .map(|i| i.name.to_string())
                 .collect();
@@ -266,7 +271,9 @@ pub(crate) async fn build_prompt_context(
             };
             state_summary.push_str(&format!(
                 "\n\nInventory: {} items ({}), {} gold.",
-                ctx.inventory.item_count(), equipped_str, ctx.inventory.gold
+                ctx.inventory.item_count(),
+                equipped_str,
+                ctx.inventory.gold
             ));
         }
     } else {
@@ -288,10 +295,14 @@ pub(crate) async fn build_prompt_context(
         if let Some(facts) = cj.get("known_facts").and_then(|v| v.as_array()) {
             let relevant: Vec<_> = facts.iter().rev().take(20).collect();
             if !relevant.is_empty() {
-                state_summary.push_str("\n\n[CHARACTER KNOWLEDGE — facts this character has learned]\n");
+                state_summary
+                    .push_str("\n\n[CHARACTER KNOWLEDGE — facts this character has learned]\n");
                 for fact in &relevant {
                     if let Some(content) = fact.get("content").and_then(|c| c.as_str()) {
-                        let cat = fact.get("category").and_then(|c| c.as_str()).unwrap_or("unknown");
+                        let cat = fact
+                            .get("category")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("unknown");
                         state_summary.push_str(&format!("- [{}] {}\n", cat, content));
                     }
                 }
@@ -350,8 +361,11 @@ pub(crate) async fn build_prompt_context(
     // encounter types it can trigger via the confrontation field in game_patch.
     if !ctx.confrontation_defs.is_empty() {
         state_summary.push_str("\n\n=== AVAILABLE CONFRONTATIONS ===\n");
-        state_summary.push_str("When a structured encounter begins (combat, card game, chase, standoff, etc.), ");
-        state_summary.push_str("emit a confrontation field in your game_patch with one of these types:\n");
+        state_summary.push_str(
+            "When a structured encounter begins (combat, card game, chase, standoff, etc.), ",
+        );
+        state_summary
+            .push_str("emit a confrontation field in your game_patch with one of these types:\n");
         for def in ctx.confrontation_defs.iter() {
             state_summary.push_str(&format!(
                 "- type: \"{}\" — {} (category: {})\n",
@@ -363,13 +377,23 @@ pub(crate) async fn build_prompt_context(
 
     // Structured encounter context via format_encounter_context() (story 28-4)
     if let Some(ref enc) = ctx.snapshot.encounter {
-        if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type) {
+        if let Some(def) =
+            crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type)
+        {
             WatcherEventBuilder::new("encounter", WatcherEventType::AgentSpanOpen)
                 .field("action", "context_injected")
                 .field("encounter_type", &enc.encounter_type)
-                .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)).unwrap_or_else(|| "unphased".to_string()))
+                .field(
+                    "phase",
+                    enc.structured_phase
+                        .map(|p| format!("{:?}", p))
+                        .unwrap_or_else(|| "unphased".to_string()),
+                )
                 .field("beat_count", def.beats.len())
-                .field("metric", format!("{}: {}", enc.metric.name, enc.metric.current))
+                .field(
+                    "metric",
+                    format!("{}: {}", enc.metric.name, enc.metric.current),
+                )
                 .send();
             state_summary.push_str("\n\n");
             state_summary.push_str(&enc.format_encounter_context(def));
@@ -389,14 +413,23 @@ pub(crate) async fn build_prompt_context(
         state_summary.push_str("\n\nAVAILABLE ENCOUNTER TYPES:\n");
         state_summary.push_str("When combat, a chase, or another confrontation begins, include \"confrontation\": \"<type>\" in your game_patch. Valid types for this genre:\n");
         for def in ctx.confrontation_defs.iter() {
-            state_summary.push_str(&format!("- \"{}\" ({}, {})\n", def.confrontation_type, def.label, def.category));
+            state_summary.push_str(&format!(
+                "- \"{}\" ({}, {})\n",
+                def.confrontation_type, def.label, def.category
+            ));
         }
         state_summary.push_str("Only emit confrontation on the turn the encounter STARTS.\n");
 
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("action", "available_types_injected")
             .field("count", ctx.confrontation_defs.len())
-            .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
+            .field(
+                "types",
+                ctx.confrontation_defs
+                    .iter()
+                    .map(|d| d.confrontation_type.clone())
+                    .collect::<Vec<_>>(),
+            )
             .send();
     }
 
@@ -425,7 +458,8 @@ pub(crate) async fn build_prompt_context(
         // Abilities — full with rules if player references them, name-only list otherwise
         // Filter out lore anchor placeholders ("faction: auto-filled from genre pack")
         if let Some(hooks) = cj.get("hooks").and_then(|h| h.as_array()) {
-            let hook_strs: Vec<&str> = hooks.iter()
+            let hook_strs: Vec<&str> = hooks
+                .iter()
                 .filter_map(|v| v.as_str())
                 .filter(|s| !s.contains("auto-filled"))
                 .collect();
@@ -438,10 +472,7 @@ pub(crate) async fn build_prompt_context(
                         state_summary.push_str(&format!("- {}\n", h));
                     }
                 } else {
-                    state_summary.push_str(&format!(
-                        "\nAbilities: {}.",
-                        hook_strs.join(", ")
-                    ));
+                    state_summary.push_str(&format!("\nAbilities: {}.", hook_strs.join(", ")));
                 }
                 // Bug #12: Always inject proactive mutation narration — not just when
                 // the player references an ability. The narrator should weave mutations
@@ -470,7 +501,8 @@ pub(crate) async fn build_prompt_context(
         if turn_number <= 5 || ctx.world_context.len() < 400 {
             state_summary.push_str(ctx.world_context);
         } else {
-            let hook: String = ctx.world_context
+            let hook: String = ctx
+                .world_context
                 .split(". ")
                 .take(2)
                 .collect::<Vec<_>>()
@@ -500,10 +532,14 @@ pub(crate) async fn build_prompt_context(
             let ss = ss_arc.lock().await;
             if !ss.region_names.is_empty() {
                 // Collect undiscovered region IDs
-                let undiscovered: Vec<&str> = ss.region_names.iter()
-                    .filter(|(region_id, _)| !ctx.discovered_regions
-                        .iter()
-                        .any(|r| r.to_lowercase() == *region_id))
+                let undiscovered: Vec<&str> = ss
+                    .region_names
+                    .iter()
+                    .filter(|(region_id, _)| {
+                        !ctx.discovered_regions
+                            .iter()
+                            .any(|r| r.to_lowercase() == *region_id)
+                    })
                     .map(|(region_id, _)| region_id.as_str())
                     .collect();
 
@@ -511,12 +547,15 @@ pub(crate) async fn build_prompt_context(
                     // Filter by adjacency if world graph is available
                     let filtered: Vec<&str> = if let Some(ref wg) = ctx.world_graph {
                         let neighbors: Vec<&str> = wg.neighbors(&ctx.current_location).collect();
-                        undiscovered.into_iter()
-                            .filter(|r| neighbors.iter().any(|n| {
-                                n.to_lowercase() == r.to_lowercase()
-                                    || n.to_lowercase().contains(&r.to_lowercase())
-                                    || r.to_lowercase().contains(&n.to_lowercase())
-                            }))
+                        undiscovered
+                            .into_iter()
+                            .filter(|r| {
+                                neighbors.iter().any(|n| {
+                                    n.to_lowercase() == r.to_lowercase()
+                                        || n.to_lowercase().contains(&r.to_lowercase())
+                                        || r.to_lowercase().contains(&n.to_lowercase())
+                                })
+                            })
                             .collect()
                     } else {
                         // No graph — cap at 5 nearest (by order in the list)
@@ -526,7 +565,9 @@ pub(crate) async fn build_prompt_context(
                     if !filtered.is_empty() {
                         if ctx.discovered_regions.is_empty() {
                             state_summary.push_str("\n\nNEARBY LOCATIONS (from cartography):\n");
-                            state_summary.push_str("Use these canonical location names. Do NOT invent new ones.\n");
+                            state_summary.push_str(
+                                "Use these canonical location names. Do NOT invent new ones.\n",
+                            );
                         } else {
                             state_summary.push_str("Nearby locations (not yet visited):\n");
                         }
@@ -541,13 +582,25 @@ pub(crate) async fn build_prompt_context(
 
     // Room graph navigation — inject current room + available exits
     if !ctx.rooms.is_empty() {
-        if let Some(current_room) = ctx.rooms.iter().find(|r| r.id == *ctx.current_location || r.name == *ctx.current_location) {
+        if let Some(current_room) = ctx
+            .rooms
+            .iter()
+            .find(|r| r.id == *ctx.current_location || r.name == *ctx.current_location)
+        {
             state_summary.push_str("\n\nROOM NAVIGATION (room-graph mode):\n");
-            state_summary.push_str(&format!("Current room: {} — {}\n", current_room.name, current_room.description.as_deref().unwrap_or("")));
+            state_summary.push_str(&format!(
+                "Current room: {} — {}\n",
+                current_room.name,
+                current_room.description.as_deref().unwrap_or("")
+            ));
             if !current_room.exits.is_empty() {
                 state_summary.push_str("Exits:\n");
                 for exit in &current_room.exits {
-                    state_summary.push_str(&format!("- {} → {}\n", exit.display_name(), exit.target()));
+                    state_summary.push_str(&format!(
+                        "- {} → {}\n",
+                        exit.display_name(),
+                        exit.target()
+                    ));
                 }
             }
             state_summary.push_str("When the player moves through an exit, update the location header to the target room name.\n");
@@ -636,7 +689,11 @@ pub(crate) async fn build_prompt_context(
     }
 
     // NPC registry — full profiles if player references NPCs, compact otherwise
-    let npc_context = build_npc_registry_context_budgeted(ctx.npc_registry, turn_number, relevance.references_npc);
+    let npc_context = build_npc_registry_context_budgeted(
+        ctx.npc_registry,
+        turn_number,
+        relevance.references_npc,
+    );
     if !npc_context.is_empty() {
         state_summary.push_str(&npc_context);
     }
@@ -666,7 +723,10 @@ pub(crate) async fn build_prompt_context(
     {
         // Prioritize lore categories based on current game state
         let priority_cats: Vec<sidequest_game::LoreCategory> = if ctx.in_combat() {
-            vec![sidequest_game::LoreCategory::Event, sidequest_game::LoreCategory::Character]
+            vec![
+                sidequest_game::LoreCategory::Event,
+                sidequest_game::LoreCategory::Character,
+            ]
         } else if ctx.in_chase() {
             vec![sidequest_game::LoreCategory::Geography]
         } else {
@@ -689,8 +749,11 @@ pub(crate) async fn build_prompt_context(
             };
             if let Some(hint_text) = hint {
                 let config = sidequest_daemon_client::DaemonConfig::default();
-                if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await {
-                    let params = sidequest_daemon_client::EmbedParams { text: hint_text.to_string() };
+                if let Ok(mut client) = sidequest_daemon_client::DaemonClient::connect(config).await
+                {
+                    let params = sidequest_daemon_client::EmbedParams {
+                        text: hint_text.to_string(),
+                    };
                     match client.embed(params).await {
                         Ok(result) => Some(result.embedding),
                         Err(e) => {

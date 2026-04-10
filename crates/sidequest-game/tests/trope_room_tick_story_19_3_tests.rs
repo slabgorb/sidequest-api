@@ -58,7 +58,10 @@ fn make_room(id: &str, modifier: f64) -> RoomDef {
         size: (2, 2),
         keeper_awareness_modifier: modifier,
         exits: vec![],
-        description: None, grid: None, legend: None, tactical_scale: None,
+        description: None,
+        grid: None,
+        legend: None,
+        tactical_scale: None,
     }
 }
 
@@ -75,12 +78,7 @@ fn room_transition_ticks_trope_with_room_modifier() {
     let rooms = vec![make_room("entrance", 1.0), make_room("corridor", 1.5)];
 
     // Simulate room transition to "corridor" (modifier 1.5)
-    let fired = TropeEngine::tick_room_transition(
-        &mut tropes,
-        &defs,
-        &rooms,
-        "corridor",
-    );
+    let fired = TropeEngine::tick_room_transition(&mut tropes, &defs, &rooms, "corridor");
 
     // Progression should be 0.1 × 1.5 = 0.15
     let prog = tropes[0].progression();
@@ -161,12 +159,7 @@ fn escalation_fires_at_threshold_with_room_modifier() {
     let rooms = vec![make_room("danger_room", 1.5)];
 
     // First tick: 0.2 × 1.5 = 0.30, which crosses the 0.25 threshold
-    let fired = TropeEngine::tick_room_transition(
-        &mut tropes,
-        &defs,
-        &rooms,
-        "danger_room",
-    );
+    let fired = TropeEngine::tick_room_transition(&mut tropes, &defs, &rooms, "danger_room");
 
     assert_eq!(fired.len(), 1, "One escalation beat should fire");
     assert_eq!(fired[0].trope_id, "keeper_rising");
@@ -185,12 +178,7 @@ fn escalation_does_not_fire_below_threshold_with_low_modifier() {
     let rooms = vec![make_room("safe_room", 0.8)];
 
     // First tick: 0.2 × 0.8 = 0.16, below 0.25
-    let fired = TropeEngine::tick_room_transition(
-        &mut tropes,
-        &defs,
-        &rooms,
-        "safe_room",
-    );
+    let fired = TropeEngine::tick_room_transition(&mut tropes, &defs, &rooms, "safe_room");
 
     assert!(
         fired.is_empty(),
@@ -230,12 +218,7 @@ fn unknown_room_id_does_not_tick() {
     let rooms = vec![make_room("entrance", 1.0)];
 
     // "nonexistent" is not in the rooms list
-    let fired = TropeEngine::tick_room_transition(
-        &mut tropes,
-        &defs,
-        &rooms,
-        "nonexistent",
-    );
+    let fired = TropeEngine::tick_room_transition(&mut tropes, &defs, &rooms, "nonexistent");
 
     assert!(
         tropes[0].progression() == 0.0,

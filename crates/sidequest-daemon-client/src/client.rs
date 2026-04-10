@@ -117,8 +117,8 @@ impl DaemonClient {
 
         // Deserialize — NO silent defaults. If image_url/image_path is missing,
         // serde will fail here and we catch it loudly.
-        let render_result: RenderResult = serde_json::from_value(raw_result.clone())
-            .map_err(|e| {
+        let render_result: RenderResult =
+            serde_json::from_value(raw_result.clone()).map_err(|e| {
                 // This is the "scream in the watch log" Keith asked for.
                 // If we hit this, the daemon returned JSON that doesn't have any
                 // recognized image path field (image_url, image_path, output_path, etc.)

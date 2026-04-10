@@ -15,10 +15,8 @@
 //!   creature.hp_delta        — from apply_hp_delta(), with name, old_hp, new_hp,
 //!                              delta, max_hp, clamped
 
-use sidequest_game::encounter::{
-    EncounterActor, EncounterPhase, StructuredEncounter,
-};
 use sidequest_game::creature_core::CreatureCore;
+use sidequest_game::encounter::{EncounterActor, EncounterPhase, StructuredEncounter};
 use sidequest_game::inventory::Inventory;
 use sidequest_genre::ConfrontationDef;
 use sidequest_protocol::NonBlankString;
@@ -117,7 +115,11 @@ fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<
 }
 
 /// Find events matching a component and action field value.
-fn find_events_by_action(events: &[WatcherEvent], component: &str, action: &str) -> Vec<WatcherEvent> {
+fn find_events_by_action(
+    events: &[WatcherEvent],
+    component: &str,
+    action: &str,
+) -> Vec<WatcherEvent> {
     events
         .iter()
         .filter(|e| {
@@ -168,7 +170,10 @@ fn beat_applied_has_encounter_type() {
     assert!(!beat_events.is_empty(), "must emit beat_applied event");
     let event = &beat_events[0];
     assert_eq!(
-        event.fields.get("encounter_type").and_then(serde_json::Value::as_str),
+        event
+            .fields
+            .get("encounter_type")
+            .and_then(serde_json::Value::as_str),
         Some("standoff"),
         "beat_applied must include encounter_type='standoff'"
     );
@@ -188,7 +193,10 @@ fn beat_applied_has_beat_id() {
 
     assert!(!beat_events.is_empty(), "must emit beat_applied event");
     assert_eq!(
-        beat_events[0].fields.get("beat_id").and_then(serde_json::Value::as_str),
+        beat_events[0]
+            .fields
+            .get("beat_id")
+            .and_then(serde_json::Value::as_str),
         Some("bluff"),
         "beat_applied must include beat_id='bluff'"
     );
@@ -208,7 +216,10 @@ fn beat_applied_has_stat_check() {
 
     assert!(!beat_events.is_empty(), "must emit beat_applied event");
     assert_eq!(
-        beat_events[0].fields.get("stat_check").and_then(serde_json::Value::as_str),
+        beat_events[0]
+            .fields
+            .get("stat_check")
+            .and_then(serde_json::Value::as_str),
         Some("CUNNING"),
         "beat_applied must include stat_check from the beat def"
     );
@@ -231,12 +242,18 @@ fn beat_applied_has_metric_before_after() {
     let event = &beat_events[0];
 
     assert_eq!(
-        event.fields.get("metric_before").and_then(serde_json::Value::as_i64),
+        event
+            .fields
+            .get("metric_before")
+            .and_then(serde_json::Value::as_i64),
         Some(0),
         "metric_before should be 0 (starting tension)"
     );
     assert_eq!(
-        event.fields.get("metric_after").and_then(serde_json::Value::as_i64),
+        event
+            .fields
+            .get("metric_after")
+            .and_then(serde_json::Value::as_i64),
         Some(2),
         "metric_after should be 2 (after size_up +2)"
     );
@@ -256,11 +273,11 @@ fn beat_applied_has_phase() {
 
     assert!(!beat_events.is_empty(), "must emit beat_applied event");
     // After first beat, phase should be "Opening"
-    let phase = beat_events[0].fields.get("phase").and_then(serde_json::Value::as_str);
-    assert!(
-        phase.is_some(),
-        "beat_applied must include phase field"
-    );
+    let phase = beat_events[0]
+        .fields
+        .get("phase")
+        .and_then(serde_json::Value::as_str);
+    assert!(phase.is_some(), "beat_applied must include phase field");
 }
 
 // =========================================================================
@@ -296,8 +313,8 @@ fn resolved_event_has_encounter_type_and_beats() {
 
     // Play a few beats then resolve
     let _ = encounter.apply_beat("size_up", &def); // beat 1
-    let _ = encounter.apply_beat("bluff", &def);   // beat 2
-    let _ = encounter.apply_beat("draw", &def);    // beat 3, resolves
+    let _ = encounter.apply_beat("bluff", &def); // beat 2
+    let _ = encounter.apply_beat("draw", &def); // beat 3, resolves
 
     let events = drain_events(&mut rx);
     let resolved_events = find_events_by_action(&events, "encounter", "resolved");
@@ -306,12 +323,18 @@ fn resolved_event_has_encounter_type_and_beats() {
     let event = &resolved_events[0];
 
     assert_eq!(
-        event.fields.get("encounter_type").and_then(serde_json::Value::as_str),
+        event
+            .fields
+            .get("encounter_type")
+            .and_then(serde_json::Value::as_str),
         Some("standoff"),
         "resolved must include encounter_type"
     );
     assert_eq!(
-        event.fields.get("beats_total").and_then(serde_json::Value::as_i64),
+        event
+            .fields
+            .get("beats_total")
+            .and_then(serde_json::Value::as_i64),
         Some(3),
         "resolved must include beats_total=3"
     );
@@ -381,12 +404,18 @@ fn phase_transition_has_old_and_new_phase() {
     let event = &phase_events[0];
 
     assert_eq!(
-        event.fields.get("old_phase").and_then(serde_json::Value::as_str),
+        event
+            .fields
+            .get("old_phase")
+            .and_then(serde_json::Value::as_str),
         Some("Setup"),
         "old_phase should be 'Setup'"
     );
     assert_eq!(
-        event.fields.get("new_phase").and_then(serde_json::Value::as_str),
+        event
+            .fields
+            .get("new_phase")
+            .and_then(serde_json::Value::as_str),
         Some("Opening"),
         "new_phase should be 'Opening'"
     );
@@ -406,7 +435,10 @@ fn phase_transition_has_encounter_type() {
 
     assert!(!phase_events.is_empty(), "must emit phase_transition");
     assert_eq!(
-        phase_events[0].fields.get("encounter_type").and_then(serde_json::Value::as_str),
+        phase_events[0]
+            .fields
+            .get("encounter_type")
+            .and_then(serde_json::Value::as_str),
         Some("standoff"),
         "phase_transition must include encounter_type"
     );
@@ -449,12 +481,10 @@ fn escalate_to_combat_emits_escalated_event() {
     let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
-    encounter.actors = vec![
-        EncounterActor {
-            name: "Blondie".to_string(),
-            role: "duelist".to_string(),
-        },
-    ];
+    encounter.actors = vec![EncounterActor {
+        name: "Blondie".to_string(),
+        role: "duelist".to_string(),
+    }];
 
     // Must resolve first
     let _ = encounter.apply_beat("draw", &def);
@@ -478,12 +508,10 @@ fn escalated_event_has_from_and_to_type() {
     let (_guard, mut rx) = fresh_subscriber();
     let def = standoff_def();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
-    encounter.actors = vec![
-        EncounterActor {
-            name: "Blondie".to_string(),
-            role: "duelist".to_string(),
-        },
-    ];
+    encounter.actors = vec![EncounterActor {
+        name: "Blondie".to_string(),
+        role: "duelist".to_string(),
+    }];
 
     let _ = encounter.apply_beat("draw", &def);
     let _ = drain_events(&mut rx);
@@ -496,12 +524,18 @@ fn escalated_event_has_from_and_to_type() {
     let event = &escalated_events[0];
 
     assert_eq!(
-        event.fields.get("from_type").and_then(serde_json::Value::as_str),
+        event
+            .fields
+            .get("from_type")
+            .and_then(serde_json::Value::as_str),
         Some("standoff"),
         "escalated must include from_type='standoff'"
     );
     assert_eq!(
-        event.fields.get("to_type").and_then(serde_json::Value::as_str),
+        event
+            .fields
+            .get("to_type")
+            .and_then(serde_json::Value::as_str),
         Some("combat"),
         "escalated must include to_type='combat'"
     );
@@ -549,22 +583,34 @@ fn hp_delta_event_has_required_fields() {
         "hp_delta must include creature name"
     );
     assert_eq!(
-        event.fields.get("old_hp").and_then(serde_json::Value::as_i64),
+        event
+            .fields
+            .get("old_hp")
+            .and_then(serde_json::Value::as_i64),
         Some(15),
         "hp_delta must include old_hp=15"
     );
     assert_eq!(
-        event.fields.get("new_hp").and_then(serde_json::Value::as_i64),
+        event
+            .fields
+            .get("new_hp")
+            .and_then(serde_json::Value::as_i64),
         Some(10),
         "hp_delta must include new_hp=10 (15 - 5)"
     );
     assert_eq!(
-        event.fields.get("delta").and_then(serde_json::Value::as_i64),
+        event
+            .fields
+            .get("delta")
+            .and_then(serde_json::Value::as_i64),
         Some(-5),
         "hp_delta must include delta=-5"
     );
     assert_eq!(
-        event.fields.get("max_hp").and_then(serde_json::Value::as_i64),
+        event
+            .fields
+            .get("max_hp")
+            .and_then(serde_json::Value::as_i64),
         Some(20),
         "hp_delta must include max_hp=20"
     );
@@ -584,7 +630,10 @@ fn hp_delta_clamped_true_on_overheal() {
 
     assert!(!hp_events.is_empty(), "must emit hp_delta event");
     assert_eq!(
-        hp_events[0].fields.get("clamped").and_then(serde_json::Value::as_bool),
+        hp_events[0]
+            .fields
+            .get("clamped")
+            .and_then(serde_json::Value::as_bool),
         Some(true),
         "clamped must be true when HP exceeds max (15 + 100 → clamped to 20)"
     );
@@ -604,7 +653,10 @@ fn hp_delta_clamped_true_on_overkill() {
 
     assert!(!hp_events.is_empty(), "must emit hp_delta event");
     assert_eq!(
-        hp_events[0].fields.get("clamped").and_then(serde_json::Value::as_bool),
+        hp_events[0]
+            .fields
+            .get("clamped")
+            .and_then(serde_json::Value::as_bool),
         Some(true),
         "clamped must be true when HP goes below 0"
     );
@@ -624,7 +676,10 @@ fn hp_delta_clamped_false_when_within_range() {
 
     assert!(!hp_events.is_empty(), "must emit hp_delta event");
     assert_eq!(
-        hp_events[0].fields.get("clamped").and_then(serde_json::Value::as_bool),
+        hp_events[0]
+            .fields
+            .get("clamped")
+            .and_then(serde_json::Value::as_bool),
         Some(false),
         "clamped must be false when HP stays within [0, max_hp]"
     );
@@ -640,9 +695,8 @@ fn hp_delta_clamped_false_when_within_range() {
 fn encounter_rs_uses_watcher_event_builder() {
     // Read the source file and verify WatcherEventBuilder is imported
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let encounter_src = std::fs::read_to_string(
-        format!("{}/src/encounter.rs", manifest_dir)
-    ).expect("should read encounter.rs");
+    let encounter_src = std::fs::read_to_string(format!("{}/src/encounter.rs", manifest_dir))
+        .expect("should read encounter.rs");
 
     assert!(
         encounter_src.contains("WatcherEventBuilder") || encounter_src.contains("watcher!"),
@@ -654,9 +708,8 @@ fn encounter_rs_uses_watcher_event_builder() {
 #[test]
 fn creature_core_rs_uses_watcher_event_builder() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let creature_src = std::fs::read_to_string(
-        format!("{}/src/creature_core.rs", manifest_dir)
-    ).expect("should read creature_core.rs");
+    let creature_src = std::fs::read_to_string(format!("{}/src/creature_core.rs", manifest_dir))
+        .expect("should read creature_core.rs");
 
     assert!(
         creature_src.contains("WatcherEventBuilder") || creature_src.contains("watcher!"),

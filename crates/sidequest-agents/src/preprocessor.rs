@@ -23,7 +23,10 @@ const PREPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 /// Preprocess a raw player action into three perspectives via LLM.
 ///
 /// Fails loudly if Haiku is unavailable — no silent fallbacks.
-pub fn preprocess_action(raw_input: &str, char_name: &str) -> Result<PreprocessedAction, PreprocessError> {
+pub fn preprocess_action(
+    raw_input: &str,
+    char_name: &str,
+) -> Result<PreprocessedAction, PreprocessError> {
     let client = ClaudeClient::with_timeout(PREPROCESS_TIMEOUT);
 
     let prompt = build_prompt(raw_input, char_name);
@@ -37,7 +40,8 @@ pub fn preprocess_action(raw_input: &str, char_name: &str) -> Result<Preprocesse
     match llm_result {
         Ok(resp) => {
             let response = &resp.text;
-            let parse_span = tracing::info_span!("turn.preprocess.parse", response_len = response.len());
+            let parse_span =
+                tracing::info_span!("turn.preprocess.parse", response_len = response.len());
             let _parse_guard = parse_span.enter();
             match parse_response(response) {
                 Some(action) => {
@@ -89,12 +93,17 @@ pub enum PreprocessError {
 ///
 /// Runs the sync preprocessor on a blocking thread via `spawn_blocking` so it
 /// doesn't block the tokio runtime. Propagates errors — no silent fallbacks.
-pub async fn preprocess_action_async(raw_input: &str, char_name: &str) -> Result<PreprocessedAction, PreprocessError> {
+pub async fn preprocess_action_async(
+    raw_input: &str,
+    char_name: &str,
+) -> Result<PreprocessedAction, PreprocessError> {
     let raw = raw_input.to_string();
     let name = char_name.to_string();
     match tokio::task::spawn_blocking(move || preprocess_action(&raw, &name)).await {
         Ok(result) => result,
-        Err(e) => Err(PreprocessError::LlmFailed(format!("spawn_blocking panicked: {e}"))),
+        Err(e) => Err(PreprocessError::LlmFailed(format!(
+            "spawn_blocking panicked: {e}"
+        ))),
     }
 }
 

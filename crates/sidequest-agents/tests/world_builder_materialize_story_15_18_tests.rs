@@ -28,10 +28,26 @@ fn chapter(id: &str, label: &str, lore: Vec<&str>) -> HistoryChapter {
 /// Helper: build chapters across all maturity tiers.
 fn all_tier_chapters() -> Vec<HistoryChapter> {
     vec![
-        chapter("fresh", "The Awakening", vec!["The world is new and strange."]),
-        chapter("early", "Rising Tensions", vec!["Factions emerge from the shadows."]),
-        chapter("mid", "The Reckoning", vec!["Alliances shatter under pressure."]),
-        chapter("veteran", "Age of Legends", vec!["Heroes are forged in the crucible of war."]),
+        chapter(
+            "fresh",
+            "The Awakening",
+            vec!["The world is new and strange."],
+        ),
+        chapter(
+            "early",
+            "Rising Tensions",
+            vec!["Factions emerge from the shadows."],
+        ),
+        chapter(
+            "mid",
+            "The Reckoning",
+            vec!["Alliances shatter under pressure."],
+        ),
+        chapter(
+            "veteran",
+            "Age of Legends",
+            vec!["Heroes are forged in the crucible of war."],
+        ),
     ]
 }
 
@@ -82,7 +98,9 @@ fn narrator_prompt_includes_materialized_world_when_chapters_present() {
         "Fresh chapter lore should appear in Early maturity prompt"
     );
     assert!(
-        result.prompt_text.contains("Factions emerge from the shadows."),
+        result
+            .prompt_text
+            .contains("Factions emerge from the shadows."),
         "Early chapter lore should appear in Early maturity prompt"
     );
 }
@@ -158,8 +176,20 @@ fn orchestrator_uses_world_builder_agent_for_materialization() {
     let result = orchestrator.build_narrator_prompt("look around", &ctx);
 
     // Veteran maturity should include all tier labels
-    assert!(result.prompt_text.contains("The Awakening"), "Fresh chapter label missing");
-    assert!(result.prompt_text.contains("Rising Tensions"), "Early chapter label missing");
-    assert!(result.prompt_text.contains("The Reckoning"), "Mid chapter label missing");
-    assert!(result.prompt_text.contains("Age of Legends"), "Veteran chapter label missing");
+    assert!(
+        result.prompt_text.contains("The Awakening"),
+        "Fresh chapter label missing"
+    );
+    assert!(
+        result.prompt_text.contains("Rising Tensions"),
+        "Early chapter label missing"
+    );
+    assert!(
+        result.prompt_text.contains("The Reckoning"),
+        "Mid chapter label missing"
+    );
+    assert!(
+        result.prompt_text.contains("Age of Legends"),
+        "Veteran chapter label missing"
+    );
 }

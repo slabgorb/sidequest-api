@@ -6,10 +6,10 @@
 //! The LoreFilter replaces the current "dump everything" approach with
 //! graph-distance-based retrieval supplemented by intent and NPC signals.
 
-use sidequest_agents::lore_filter::{DetailLevel, LoreFilter, LoreSelection};
 use sidequest_agents::agents::intent_router::Intent;
-use sidequest_genre::{GraphEdge, Terrain, WorldGraph, WorldGraphNode};
+use sidequest_agents::lore_filter::{DetailLevel, LoreFilter, LoreSelection};
 use sidequest_game::npc::NpcRegistryEntry;
+use sidequest_genre::{GraphEdge, Terrain, WorldGraph, WorldGraphNode};
 
 // ============================================================================
 // AC-1: DetailLevel enum exists with correct variants
@@ -71,17 +71,65 @@ fn build_test_graph() -> WorldGraph {
     // A -> E (branch)
     WorldGraph {
         nodes: vec![
-            WorldGraphNode { id: "a".into(), name: "Town A".into(), description: "Starting town".into() },
-            WorldGraphNode { id: "b".into(), name: "Town B".into(), description: "Adjacent town".into() },
-            WorldGraphNode { id: "c".into(), name: "Town C".into(), description: "Two hops away".into() },
-            WorldGraphNode { id: "d".into(), name: "Town D".into(), description: "Three hops away".into() },
-            WorldGraphNode { id: "e".into(), name: "Town E".into(), description: "Branch town".into() },
+            WorldGraphNode {
+                id: "a".into(),
+                name: "Town A".into(),
+                description: "Starting town".into(),
+            },
+            WorldGraphNode {
+                id: "b".into(),
+                name: "Town B".into(),
+                description: "Adjacent town".into(),
+            },
+            WorldGraphNode {
+                id: "c".into(),
+                name: "Town C".into(),
+                description: "Two hops away".into(),
+            },
+            WorldGraphNode {
+                id: "d".into(),
+                name: "Town D".into(),
+                description: "Three hops away".into(),
+            },
+            WorldGraphNode {
+                id: "e".into(),
+                name: "Town E".into(),
+                description: "Branch town".into(),
+            },
         ],
         edges: vec![
-            GraphEdge { from: "a".into(), to: "b".into(), danger: 0, terrain: Terrain::Road, distance: 1, encounter_table_key: None },
-            GraphEdge { from: "b".into(), to: "c".into(), danger: 2, terrain: Terrain::Wilderness, distance: 2, encounter_table_key: None },
-            GraphEdge { from: "c".into(), to: "d".into(), danger: 3, terrain: Terrain::Underground, distance: 1, encounter_table_key: None },
-            GraphEdge { from: "a".into(), to: "e".into(), danger: 1, terrain: Terrain::Road, distance: 1, encounter_table_key: None },
+            GraphEdge {
+                from: "a".into(),
+                to: "b".into(),
+                danger: 0,
+                terrain: Terrain::Road,
+                distance: 1,
+                encounter_table_key: None,
+            },
+            GraphEdge {
+                from: "b".into(),
+                to: "c".into(),
+                danger: 2,
+                terrain: Terrain::Wilderness,
+                distance: 2,
+                encounter_table_key: None,
+            },
+            GraphEdge {
+                from: "c".into(),
+                to: "d".into(),
+                danger: 3,
+                terrain: Terrain::Underground,
+                distance: 1,
+                encounter_table_key: None,
+            },
+            GraphEdge {
+                from: "a".into(),
+                to: "e".into(),
+                danger: 1,
+                terrain: Terrain::Road,
+                distance: 1,
+                encounter_table_key: None,
+            },
         ],
     }
 }
@@ -134,13 +182,30 @@ fn graph_distance_disconnected_returns_none() {
     // Graph with an island node
     let graph = WorldGraph {
         nodes: vec![
-            WorldGraphNode { id: "a".into(), name: "A".into(), description: "".into() },
-            WorldGraphNode { id: "b".into(), name: "B".into(), description: "".into() },
-            WorldGraphNode { id: "island".into(), name: "Island".into(), description: "".into() },
+            WorldGraphNode {
+                id: "a".into(),
+                name: "A".into(),
+                description: "".into(),
+            },
+            WorldGraphNode {
+                id: "b".into(),
+                name: "B".into(),
+                description: "".into(),
+            },
+            WorldGraphNode {
+                id: "island".into(),
+                name: "Island".into(),
+                description: "".into(),
+            },
         ],
-        edges: vec![
-            GraphEdge { from: "a".into(), to: "b".into(), danger: 0, terrain: Terrain::Road, distance: 1, encounter_table_key: None },
-        ],
+        edges: vec![GraphEdge {
+            from: "a".into(),
+            to: "b".into(),
+            danger: 0,
+            terrain: Terrain::Road,
+            distance: 1,
+            encounter_table_key: None,
+        }],
     };
     let filter = LoreFilter::new(&graph);
     assert_eq!(filter.graph_distance("a", "island"), None);
@@ -188,7 +253,10 @@ fn combat_intent_enriches_enemy_factions() {
     let graph = build_test_graph();
     let filter = LoreFilter::new(&graph);
     let categories = filter.enrichment_categories(Intent::Combat);
-    assert!(categories.contains(&"faction"), "Combat should pull factions");
+    assert!(
+        categories.contains(&"faction"),
+        "Combat should pull factions"
+    );
 }
 
 #[test]
@@ -196,8 +264,14 @@ fn dialogue_intent_enriches_culture_and_faction() {
     let graph = build_test_graph();
     let filter = LoreFilter::new(&graph);
     let categories = filter.enrichment_categories(Intent::Dialogue);
-    assert!(categories.contains(&"culture"), "Dialogue should pull culture");
-    assert!(categories.contains(&"faction"), "Dialogue should pull faction");
+    assert!(
+        categories.contains(&"culture"),
+        "Dialogue should pull culture"
+    );
+    assert!(
+        categories.contains(&"faction"),
+        "Dialogue should pull faction"
+    );
 }
 
 #[test]
@@ -205,7 +279,10 @@ fn exploration_intent_enriches_destination_and_edges() {
     let graph = build_test_graph();
     let filter = LoreFilter::new(&graph);
     let categories = filter.enrichment_categories(Intent::Exploration);
-    assert!(categories.contains(&"location"), "Exploration should pull locations");
+    assert!(
+        categories.contains(&"location"),
+        "Exploration should pull locations"
+    );
 }
 
 #[test]
@@ -213,7 +290,10 @@ fn backstory_intent_enriches_player_backstory() {
     let graph = build_test_graph();
     let filter = LoreFilter::new(&graph);
     let categories = filter.enrichment_categories(Intent::Backstory);
-    assert!(categories.contains(&"backstory"), "Backstory should pull player backstory");
+    assert!(
+        categories.contains(&"backstory"),
+        "Backstory should pull player backstory"
+    );
 }
 
 // ============================================================================
@@ -241,17 +321,21 @@ fn npc_in_scene_upgrades_their_faction_to_full() {
     };
 
     let selections = filter.select_lore(
-        "a",               // current node
-        Intent::Dialogue,  // intent
-        &[npc],            // NPCs in scene
-        &[],               // no active arcs
+        "a",              // current node
+        Intent::Dialogue, // intent
+        &[npc],           // NPCs in scene
+        &[],              // no active arcs
     );
 
     // Garek's faction should be enriched to Full regardless of distance
-    let faction_selections: Vec<_> = selections.iter()
+    let faction_selections: Vec<_> = selections
+        .iter()
         .filter(|s| s.category == "faction" && s.reason.contains("npc_presence"))
         .collect();
-    assert!(!faction_selections.is_empty(), "NPC presence should enrich their faction");
+    assert!(
+        !faction_selections.is_empty(),
+        "NPC presence should enrich their faction"
+    );
 }
 
 // ============================================================================
@@ -263,16 +347,16 @@ fn select_lore_always_includes_name_only_for_all_entities() {
     let graph = build_test_graph();
     let filter = LoreFilter::new(&graph);
 
-    let selections = filter.select_lore(
-        "a",
-        Intent::Exploration,
-        &[],
-        &[],
-    );
+    let selections = filter.select_lore("a", Intent::Exploration, &[], &[]);
 
     // Every known entity should appear at least as NameOnly (closed-world assertion)
-    let name_only_count = selections.iter()
-        .filter(|s| s.detail_level == DetailLevel::NameOnly || s.detail_level == DetailLevel::Summary || s.detail_level == DetailLevel::Full)
+    let name_only_count = selections
+        .iter()
+        .filter(|s| {
+            s.detail_level == DetailLevel::NameOnly
+                || s.detail_level == DetailLevel::Summary
+                || s.detail_level == DetailLevel::Full
+        })
         .count();
     // Must include at least the graph nodes
     assert!(name_only_count >= graph.nodes.len(),
@@ -285,16 +369,14 @@ fn closed_world_includes_distant_nodes_as_name_only() {
     let graph = build_test_graph();
     let filter = LoreFilter::new(&graph);
 
-    let selections = filter.select_lore(
-        "a",
-        Intent::Exploration,
-        &[],
-        &[],
-    );
+    let selections = filter.select_lore("a", Intent::Exploration, &[], &[]);
 
     // Node D is 3 hops from A — should be NameOnly
     let d_selection = selections.iter().find(|s| s.entity_id == "d");
-    assert!(d_selection.is_some(), "Distant node 'd' must still be in selections");
+    assert!(
+        d_selection.is_some(),
+        "Distant node 'd' must still be in selections"
+    );
     assert_eq!(d_selection.unwrap().detail_level, DetailLevel::NameOnly);
 }
 
@@ -351,9 +433,14 @@ fn select_lore_returns_filter_summary_for_otel() {
 
     // The filter should produce a summary suitable for OTEL span attributes
     let summary = filter.format_otel_summary(&selections);
-    assert!(summary.contains("included"), "OTEL summary should list included entities");
-    assert!(summary.contains("excluded") || summary.contains("name_only"),
-        "OTEL summary should list excluded/name-only entities");
+    assert!(
+        summary.contains("included"),
+        "OTEL summary should list included entities"
+    );
+    assert!(
+        summary.contains("excluded") || summary.contains("name_only"),
+        "OTEL summary should list excluded/name-only entities"
+    );
 }
 
 // ============================================================================
@@ -445,7 +532,10 @@ fn graph_distance_with_empty_graph_does_not_panic() {
     };
     let filter = LoreFilter::new(&graph);
     // Should return None gracefully, not panic
-    assert_eq!(filter.graph_distance("nonexistent", "also_nonexistent"), None);
+    assert_eq!(
+        filter.graph_distance("nonexistent", "also_nonexistent"),
+        None
+    );
 }
 
 // Rule #6: Test quality self-check
@@ -466,14 +556,47 @@ fn cyclic_graph_does_not_infinite_loop() {
     // Zork-style cyclic graph: A -> B -> C -> A
     let graph = WorldGraph {
         nodes: vec![
-            WorldGraphNode { id: "a".into(), name: "A".into(), description: "".into() },
-            WorldGraphNode { id: "b".into(), name: "B".into(), description: "".into() },
-            WorldGraphNode { id: "c".into(), name: "C".into(), description: "".into() },
+            WorldGraphNode {
+                id: "a".into(),
+                name: "A".into(),
+                description: "".into(),
+            },
+            WorldGraphNode {
+                id: "b".into(),
+                name: "B".into(),
+                description: "".into(),
+            },
+            WorldGraphNode {
+                id: "c".into(),
+                name: "C".into(),
+                description: "".into(),
+            },
         ],
         edges: vec![
-            GraphEdge { from: "a".into(), to: "b".into(), danger: 0, terrain: Terrain::Road, distance: 1, encounter_table_key: None },
-            GraphEdge { from: "b".into(), to: "c".into(), danger: 0, terrain: Terrain::Road, distance: 1, encounter_table_key: None },
-            GraphEdge { from: "c".into(), to: "a".into(), danger: 0, terrain: Terrain::Road, distance: 1, encounter_table_key: None },
+            GraphEdge {
+                from: "a".into(),
+                to: "b".into(),
+                danger: 0,
+                terrain: Terrain::Road,
+                distance: 1,
+                encounter_table_key: None,
+            },
+            GraphEdge {
+                from: "b".into(),
+                to: "c".into(),
+                danger: 0,
+                terrain: Terrain::Road,
+                distance: 1,
+                encounter_table_key: None,
+            },
+            GraphEdge {
+                from: "c".into(),
+                to: "a".into(),
+                danger: 0,
+                terrain: Terrain::Road,
+                distance: 1,
+                encounter_table_key: None,
+            },
         ],
     };
     let filter = LoreFilter::new(&graph);
@@ -487,9 +610,11 @@ fn cyclic_graph_does_not_infinite_loop() {
 #[test]
 fn single_node_graph_works() {
     let graph = WorldGraph {
-        nodes: vec![
-            WorldGraphNode { id: "solo".into(), name: "Solo".into(), description: "".into() },
-        ],
+        nodes: vec![WorldGraphNode {
+            id: "solo".into(),
+            name: "Solo".into(),
+            description: "".into(),
+        }],
         edges: vec![],
     };
     let filter = LoreFilter::new(&graph);
@@ -501,7 +626,10 @@ fn select_lore_with_empty_npcs_and_arcs_still_works() {
     let graph = build_test_graph();
     let filter = LoreFilter::new(&graph);
     let selections = filter.select_lore("a", Intent::Exploration, &[], &[]);
-    assert!(!selections.is_empty(), "Should return selections even with no NPCs or arcs");
+    assert!(
+        !selections.is_empty(),
+        "Should return selections even with no NPCs or arcs"
+    );
 }
 
 #[test]
@@ -511,8 +639,11 @@ fn select_lore_with_unknown_current_node_returns_all_name_only() {
     let selections = filter.select_lore("nonexistent", Intent::Exploration, &[], &[]);
     // All entities should be NameOnly since distance is unknown
     for selection in &selections {
-        assert_eq!(selection.detail_level, DetailLevel::NameOnly,
+        assert_eq!(
+            selection.detail_level,
+            DetailLevel::NameOnly,
             "Entity '{}' should be NameOnly when current node is unknown",
-            selection.entity_id);
+            selection.entity_id
+        );
     }
 }

@@ -17,7 +17,10 @@
 fn wiring_server_imports_turn_reminder() {
     // Check lib.rs for a use/import of turn_reminder
     let lib_source = include_str!("../src/lib.rs");
-    let lib_prod = lib_source.split("#[cfg(test)]").next().unwrap_or(lib_source);
+    let lib_prod = lib_source
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(lib_source);
 
     let connect_source = include_str!("../src/dispatch/connect.rs");
     let connect_prod = connect_source
@@ -25,8 +28,7 @@ fn wiring_server_imports_turn_reminder() {
         .next()
         .unwrap_or(connect_source);
 
-    let has_import = lib_prod.contains("turn_reminder")
-        || connect_prod.contains("turn_reminder");
+    let has_import = lib_prod.contains("turn_reminder") || connect_prod.contains("turn_reminder");
     assert!(
         has_import,
         "sidequest-server must have a non-test reference to turn_reminder — story 35-5"
@@ -56,8 +58,8 @@ fn wiring_lib_uses_tokio_spawn_for_reminder() {
 
     // The reminder is async — it must be spawned, not awaited inline
     // (blocking the barrier creation path would defeat the purpose)
-    let has_spawn = production_code.contains("tokio::spawn")
-        && production_code.contains("reminder");
+    let has_spawn =
+        production_code.contains("tokio::spawn") && production_code.contains("reminder");
     assert!(
         has_spawn,
         "lib.rs must use tokio::spawn for the reminder task — story 35-5"
@@ -84,8 +86,8 @@ fn wiring_connect_uses_tokio_spawn_for_reminder() {
     let source = include_str!("../src/dispatch/connect.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
-    let has_spawn = production_code.contains("tokio::spawn")
-        && production_code.contains("reminder");
+    let has_spawn =
+        production_code.contains("tokio::spawn") && production_code.contains("reminder");
     assert!(
         has_spawn,
         "connect.rs must use tokio::spawn for the reminder task — story 35-5"
@@ -101,8 +103,8 @@ fn wiring_emits_reminder_spawned_otel() {
     let lib_source = include_str!("../src/lib.rs");
     let connect_source = include_str!("../src/dispatch/connect.rs");
 
-    let has_event = lib_source.contains("reminder_spawned")
-        || connect_source.contains("reminder_spawned");
+    let has_event =
+        lib_source.contains("reminder_spawned") || connect_source.contains("reminder_spawned");
     assert!(
         has_event,
         "Server must emit 'reminder_spawned' OTEL watcher event — story 35-5"

@@ -14,9 +14,11 @@ use clap::Parser;
 use serde::de::DeserializeOwned;
 
 // Re-use all the model types from sidequest-genre (re-exported at crate root)
-use sidequest_genre::*;
 use sidequest_game::tactical::TacticalGrid;
-use sidequest_validate::tactical::{validate_layout, validate_tactical_grid, validate_exit_width_compatibility};
+use sidequest_genre::*;
+use sidequest_validate::tactical::{
+    validate_exit_width_compatibility, validate_layout, validate_tactical_grid,
+};
 
 #[derive(Parser)]
 #[command(
@@ -288,11 +290,17 @@ fn validate_world(results: &mut Vec<FileResult>, world_path: &Path, world_slug: 
                             if let Some(target_room) = rooms.iter().find(|r| r.id == target_id) {
                                 if let Some(grid_b) = grids.get(target_id) {
                                     let compat_errors = validate_exit_width_compatibility(
-                                        room, grid_a, target_room, grid_b,
+                                        room,
+                                        grid_a,
+                                        target_room,
+                                        grid_b,
                                     );
                                     for err in compat_errors {
                                         results.push(FileResult {
-                                            path: format!("{prefix}/rooms.yaml ({}↔{} exits)", room.id, target_id),
+                                            path: format!(
+                                                "{prefix}/rooms.yaml ({}↔{} exits)",
+                                                room.id, target_id
+                                            ),
                                             required: false,
                                             status: FileStatus::Error(format!("{:?}", err)),
                                         });

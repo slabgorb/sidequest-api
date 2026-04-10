@@ -158,10 +158,7 @@ fn session_event_verbosity_wire_format() {
     let msg: GameMessage = serde_json::from_str(json).unwrap();
     match &msg {
         GameMessage::SessionEvent { payload, .. } => {
-            assert_eq!(
-                payload.narrator_verbosity,
-                Some(NarratorVerbosity::Concise)
-            );
+            assert_eq!(payload.narrator_verbosity, Some(NarratorVerbosity::Concise));
         }
         other => panic!("expected SessionEvent, got {:?}", other),
     }

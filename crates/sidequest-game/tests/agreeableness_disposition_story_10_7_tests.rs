@@ -10,7 +10,7 @@
 
 use sidequest_game::disposition::Disposition;
 use sidequest_game::npc::Npc;
-use sidequest_game::{OceanProfile};
+use sidequest_game::OceanProfile;
 
 // ─── Helper ──────────────────────────────────────────────
 
@@ -34,7 +34,8 @@ fn npc_with_agreeableness(agreeableness: f64, base_disposition: i32) -> Npc {
             hp: 10,
             max_hp: 10,
             ac: 10,
-            xp: 0,            statuses: vec![],
+            xp: 0,
+            statuses: vec![],
             inventory: Inventory::default(),
         },
         voice_id: None,
@@ -66,7 +67,8 @@ fn npc_without_ocean(base_disposition: i32) -> Npc {
             hp: 10,
             max_hp: 10,
             ac: 10,
-            xp: 0,            statuses: vec![],
+            xp: 0,
+            statuses: vec![],
             inventory: Inventory::default(),
         },
         voice_id: None,
@@ -99,7 +101,10 @@ fn agreeableness_offset_is_applied_to_disposition() {
 fn high_agreeableness_gives_positive_offset() {
     let npc = npc_with_agreeableness(9.0, 0);
     let offset = npc.agreeableness_disposition_offset();
-    assert!(offset > 0, "A=9.0 should give positive offset, got {offset}");
+    assert!(
+        offset > 0,
+        "A=9.0 should give positive offset, got {offset}"
+    );
     assert_eq!(offset, 4);
 }
 
@@ -116,7 +121,10 @@ fn max_agreeableness_gives_max_offset() {
 fn low_agreeableness_gives_negative_offset() {
     let npc = npc_with_agreeableness(2.0, 0);
     let offset = npc.agreeableness_disposition_offset();
-    assert!(offset < 0, "A=2.0 should give negative offset, got {offset}");
+    assert!(
+        offset < 0,
+        "A=2.0 should give negative offset, got {offset}"
+    );
     assert_eq!(offset, -3);
 }
 

@@ -151,8 +151,8 @@ fn genre_without_equipment_tables_yaml_loads_as_none() {
     // It likewise must not have equipment_tables.yaml — so this test verifies
     // the optional-file pattern holds for the new loader field.
     let path = genre_packs_path().join("mutant_wasteland");
-    let pack = sidequest_genre::load_genre_pack(&path)
-        .expect("mutant_wasteland should load successfully");
+    let pack =
+        sidequest_genre::load_genre_pack(&path).expect("mutant_wasteland should load successfully");
 
     assert!(
         pack.equipment_tables.is_none(),
@@ -276,8 +276,14 @@ crossfade_default_ms: 2000
         result.err()
     );
     let mixer = result.unwrap();
-    assert_eq!(mixer.voice_volume, 1.0, "voice_volume should default to 1.0");
-    assert!(!mixer.duck_music_for_voice, "duck_music_for_voice should default to false");
+    assert_eq!(
+        mixer.voice_volume, 1.0,
+        "voice_volume should default to 1.0"
+    );
+    assert!(
+        !mixer.duck_music_for_voice,
+        "duck_music_for_voice should default to false"
+    );
 }
 
 #[test]

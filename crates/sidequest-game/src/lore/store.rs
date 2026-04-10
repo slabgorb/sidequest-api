@@ -73,14 +73,20 @@ impl LoreStore {
     /// Attach an embedding vector to an existing fragment by id.
     /// Returns `Err` if the fragment does not exist.
     pub fn set_embedding(&mut self, id: &str, embedding: Vec<f32>) -> Result<(), String> {
-        let frag = self.fragments.get_mut(id).ok_or_else(|| format!("fragment not found: {id}"))?;
+        let frag = self
+            .fragments
+            .get_mut(id)
+            .ok_or_else(|| format!("fragment not found: {id}"))?;
         frag.embedding = Some(embedding);
         Ok(())
     }
 
     /// Count of fragments that have embedding vectors attached.
     pub fn fragments_with_embeddings_count(&self) -> usize {
-        self.fragments.values().filter(|f| f.embedding().is_some()).count()
+        self.fragments
+            .values()
+            .filter(|f| f.embedding().is_some())
+            .count()
     }
 
     /// Return the top-k fragments most similar to `query_embedding`, sorted by

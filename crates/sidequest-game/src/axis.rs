@@ -4,7 +4,6 @@
 //! This module handles the runtime: current axis values persisted in GameSnapshot,
 //! the `/tone` slash command, and `format_tone_context()` for narrator prompt injection.
 
-
 use serde::{Deserialize, Serialize};
 
 use crate::slash_router::{CommandHandler, CommandResult};
@@ -83,7 +82,11 @@ impl ToneCommand {
             let bar = render_bar(value);
             output.push_str(&format!(
                 "  {} [{}] {} [{}]  ({:.2})\n",
-                def.poles[0], bar_left(value), bar, bar_right(value), value,
+                def.poles[0],
+                bar_left(value),
+                bar,
+                bar_right(value),
+                value,
             ));
             output.push_str(&format!("    {} — {}\n", def.name, def.description));
         }
@@ -100,17 +103,22 @@ impl ToneCommand {
 
     fn handle_preset(&self, args: &str) -> CommandResult {
         if args.is_empty() {
-            return CommandResult::Error(
-                "Usage: /tone preset <name>".to_string(),
-            );
+            return CommandResult::Error("Usage: /tone preset <name>".to_string());
         }
 
-        let preset = self.config.presets.iter().find(|p| {
-            p.name.eq_ignore_ascii_case(args)
-        });
+        let preset = self
+            .config
+            .presets
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(args));
 
         let Some(preset) = preset else {
-            let names: Vec<&str> = self.config.presets.iter().map(|p| p.name.as_str()).collect();
+            let names: Vec<&str> = self
+                .config
+                .presets
+                .iter()
+                .map(|p| p.name.as_str())
+                .collect();
             return CommandResult::Error(format!(
                 "Unknown preset '{}'. Available: {}",
                 args,
@@ -135,19 +143,24 @@ impl ToneCommand {
         let (axis_id, value_str) = match args.split_once(' ') {
             Some((a, v)) => (a.trim(), v.trim()),
             None => {
-                return CommandResult::Error(
-                    "Usage: /tone set <axis_id> <value>".to_string(),
-                );
+                return CommandResult::Error("Usage: /tone set <axis_id> <value>".to_string());
             }
         };
 
         // Case-insensitive axis lookup
-        let def = self.config.definitions.iter().find(|d| {
-            d.id.eq_ignore_ascii_case(axis_id)
-        });
+        let def = self
+            .config
+            .definitions
+            .iter()
+            .find(|d| d.id.eq_ignore_ascii_case(axis_id));
 
         let Some(def) = def else {
-            let ids: Vec<&str> = self.config.definitions.iter().map(|d| d.id.as_str()).collect();
+            let ids: Vec<&str> = self
+                .config
+                .definitions
+                .iter()
+                .map(|d| d.id.as_str())
+                .collect();
             return CommandResult::Error(format!(
                 "Unknown axis '{}'. Available: {}",
                 axis_id,
@@ -174,7 +187,9 @@ impl ToneCommand {
 
         // Copy existing values, replacing the target axis
         let mut values: Vec<AxisValue> = state.axis_values.clone();
-        let existing = values.iter_mut().find(|v| v.axis_id.eq_ignore_ascii_case(&def.id));
+        let existing = values
+            .iter_mut()
+            .find(|v| v.axis_id.eq_ignore_ascii_case(&def.id));
         if let Some(existing) = existing {
             existing.value = value;
         } else {
@@ -206,12 +221,20 @@ fn render_bar(value: f64) -> String {
 
 /// Left pole indicator (highlighted when value < 0.35).
 fn bar_left(value: f64) -> &'static str {
-    if value < 0.35 { "*" } else { " " }
+    if value < 0.35 {
+        "*"
+    } else {
+        " "
+    }
 }
 
 /// Right pole indicator (highlighted when value > 0.65).
 fn bar_right(value: f64) -> &'static str {
-    if value > 0.65 { "*" } else { " " }
+    if value > 0.65 {
+        "*"
+    } else {
+        " "
+    }
 }
 
 /// Format tone context for injection into the narrator prompt.

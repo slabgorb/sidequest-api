@@ -47,7 +47,10 @@ beats:
     let def = find_confrontation_def(&defs, "standoff");
     assert!(def.is_some(), "Must find standoff def");
     let def = def.unwrap();
-    assert!(!def.beats.is_empty(), "Beats must be non-empty for a known def");
+    assert!(
+        !def.beats.is_empty(),
+        "Beats must be non-empty for a known def"
+    );
     assert_eq!(def.beats.len(), 2, "standoff has exactly 2 beats");
 }
 
@@ -127,7 +130,10 @@ beats:
         risk: beat.risk.clone(),
         resolution: beat.resolution.unwrap_or(false),
     };
-    assert!(!protocol_beat.resolution, "None resolution must map to false");
+    assert!(
+        !protocol_beat.resolution,
+        "None resolution must map to false"
+    );
 }
 
 /// When risk is not set in BeatDef, it maps to None.
@@ -194,16 +200,24 @@ beats:
 
     // The dispatch code does: def.map(...).unwrap_or_default()
     let beats: Vec<sidequest_protocol::ConfrontationBeat> = result
-        .map(|d| d.beats.iter().map(|b| sidequest_protocol::ConfrontationBeat {
-            id: b.id.clone(),
-            label: b.label.clone(),
-            metric_delta: b.metric_delta,
-            stat_check: b.stat_check.clone(),
-            risk: b.risk.clone(),
-            resolution: b.resolution.unwrap_or(false),
-        }).collect())
+        .map(|d| {
+            d.beats
+                .iter()
+                .map(|b| sidequest_protocol::ConfrontationBeat {
+                    id: b.id.clone(),
+                    label: b.label.clone(),
+                    metric_delta: b.metric_delta,
+                    stat_check: b.stat_check.clone(),
+                    risk: b.risk.clone(),
+                    resolution: b.resolution.unwrap_or(false),
+                })
+                .collect()
+        })
         .unwrap_or_default();
-    assert!(beats.is_empty(), "Unknown type must produce empty beats vec");
+    assert!(
+        beats.is_empty(),
+        "Unknown type must produce empty beats vec"
+    );
 }
 
 // =========================================================================
@@ -274,11 +288,17 @@ beats:
 
     // Label comes from def, not encounter_type.replace('_', " ")
     assert_eq!(def.label, "Tense Standoff");
-    assert_ne!(def.label, "standoff", "Label must not be raw encounter_type");
+    assert_ne!(
+        def.label, "standoff",
+        "Label must not be raw encounter_type"
+    );
 
     // Category comes from def, not cloned encounter_type
     assert_eq!(def.category, "pre_combat");
-    assert_ne!(def.category, "standoff", "Category must not be raw encounter_type");
+    assert_ne!(
+        def.category, "standoff",
+        "Category must not be raw encounter_type"
+    );
 }
 
 // =========================================================================
@@ -290,26 +310,39 @@ beats:
 #[test]
 fn spaghetti_western_standoff_beats_map_to_protocol() {
     let genre_packs_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
-        .parent().unwrap()
-        .parent().unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
         .join("sidequest-content")
         .join("genre_packs");
 
-    let sw_rules_path = genre_packs_path.join("spaghetti_western").join("rules.yaml");
-    assert!(sw_rules_path.exists(), "spaghetti_western/rules.yaml must exist at {:?}", sw_rules_path);
+    let sw_rules_path = genre_packs_path
+        .join("spaghetti_western")
+        .join("rules.yaml");
+    assert!(
+        sw_rules_path.exists(),
+        "spaghetti_western/rules.yaml must exist at {:?}",
+        sw_rules_path
+    );
 
     let rules_yaml = std::fs::read_to_string(&sw_rules_path).unwrap();
     let rules: sidequest_genre::RulesConfig = serde_yaml::from_str(&rules_yaml).unwrap();
 
-    let standoff = rules.confrontations.iter()
+    let standoff = rules
+        .confrontations
+        .iter()
         .find(|c| c.confrontation_type == "standoff")
         .expect("spaghetti_western must have a standoff confrontation type");
 
     assert!(!standoff.beats.is_empty(), "standoff must have beats");
 
     // Map every beat to the protocol type — must not panic
-    let protocol_beats: Vec<sidequest_protocol::ConfrontationBeat> = standoff.beats.iter()
+    let protocol_beats: Vec<sidequest_protocol::ConfrontationBeat> = standoff
+        .beats
+        .iter()
         .map(|b| sidequest_protocol::ConfrontationBeat {
             id: b.id.clone(),
             label: b.label.clone(),
@@ -320,12 +353,18 @@ fn spaghetti_western_standoff_beats_map_to_protocol() {
         })
         .collect();
 
-    assert!(!protocol_beats.is_empty(), "Mapped protocol beats must be non-empty");
+    assert!(
+        !protocol_beats.is_empty(),
+        "Mapped protocol beats must be non-empty"
+    );
 
     // Every beat must have a non-empty id and label
     for beat in &protocol_beats {
         assert!(!beat.id.is_empty(), "Beat id must not be empty");
         assert!(!beat.label.is_empty(), "Beat label must not be empty");
-        assert!(!beat.stat_check.is_empty(), "Beat stat_check must not be empty");
+        assert!(
+            !beat.stat_check.is_empty(),
+            "Beat stat_check must not be empty"
+        );
     }
 }

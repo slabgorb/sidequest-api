@@ -28,18 +28,16 @@ fn party_reconciliation_is_reachable_from_server_crate() {
 }
 
 fn connect_source() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/dispatch/connect.rs");
-    std::fs::read_to_string(&path)
-        .expect("dispatch/connect.rs must be readable")
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/connect.rs");
+    std::fs::read_to_string(&path).expect("dispatch/connect.rs must be readable")
 }
 
 fn game_lib_source() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent().unwrap()
+        .parent()
+        .unwrap()
         .join("sidequest-game/src/lib.rs");
-    std::fs::read_to_string(&path)
-        .expect("sidequest-game lib.rs must be readable")
+    std::fs::read_to_string(&path).expect("sidequest-game lib.rs must be readable")
 }
 
 /// AC-5: Wiring test — dispatch/connect.rs calls party_reconciliation::reconcile

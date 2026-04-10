@@ -34,7 +34,14 @@ impl Intent {
     /// (the player is actively driving the story). Exploration, Examine, and
     /// Meta are not (idle browsing or system commands).
     pub fn is_meaningful(&self) -> bool {
-        matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase | Intent::Backstory | Intent::Accusation)
+        matches!(
+            self,
+            Intent::Combat
+                | Intent::Dialogue
+                | Intent::Chase
+                | Intent::Backstory
+                | Intent::Accusation
+        )
     }
 
     /// Reconstruct an Intent from its Display string representation.
@@ -151,9 +158,7 @@ impl IntentRoute {
         source: ClassificationSource,
     ) -> Result<Self, String> {
         if !(0.0..=1.0).contains(&confidence) {
-            return Err(format!(
-                "confidence must be 0.0..=1.0, got {confidence}"
-            ));
+            return Err(format!("confidence must be 0.0..=1.0, got {confidence}"));
         }
         Ok(Self {
             agent_name: Self::agent_for(intent).to_string(),
@@ -279,7 +284,6 @@ impl IntentRouter {
         )
         .entered();
     }
-
 }
 
 /// No-op classifier used internally — state overrides handle all classification (ADR-067).

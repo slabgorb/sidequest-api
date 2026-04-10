@@ -266,11 +266,7 @@ impl ScenarioState {
     ///
     /// Runs gossip propagation, NPC autonomous actions, and clue availability
     /// checks. Returns a list of scenario events for narrator context injection.
-    pub fn process_between_turns(
-        &mut self,
-        npcs: &mut Vec<Npc>,
-        turn: u64,
-    ) -> Vec<ScenarioEvent> {
+    pub fn process_between_turns(&mut self, npcs: &mut Vec<Npc>, turn: u64) -> Vec<ScenarioEvent> {
         if self.resolved {
             return vec![];
         }
@@ -365,11 +361,7 @@ impl ScenarioState {
     /// Handle a player accusation.
     ///
     /// Evaluates evidence quality and resolves the scenario.
-    pub fn handle_accusation(
-        &mut self,
-        accusation: &Accusation,
-        npcs: &[Npc],
-    ) -> AccusationResult {
+    pub fn handle_accusation(&mut self, accusation: &Accusation, npcs: &[Npc]) -> AccusationResult {
         let npc_beliefs: HashMap<String, BeliefState> = npcs
             .iter()
             .map(|npc| (npc.core.name.to_string(), npc.belief_state.clone()))

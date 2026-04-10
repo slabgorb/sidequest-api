@@ -58,7 +58,10 @@ fn item_depleted_serializes_with_correct_type_tag() {
         "ITEM_DEPLETED",
         "GameMessage::ItemDepleted should serialize with type tag ITEM_DEPLETED"
     );
-    assert_eq!(value["payload"]["item_name"].as_str().unwrap(), "Oil Lantern");
+    assert_eq!(
+        value["payload"]["item_name"].as_str().unwrap(),
+        "Oil Lantern"
+    );
     assert_eq!(value["payload"]["remaining_before"].as_u64().unwrap(), 3);
     assert_eq!(value["player_id"].as_str().unwrap(), "server");
 }

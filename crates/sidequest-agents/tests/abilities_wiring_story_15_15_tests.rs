@@ -4,7 +4,7 @@
 //! and injects the result into the narrator prompt context. Also verifies
 //! OTEL telemetry for abilities.resolved.
 
-use sidequest_game::{AffinityState, resolve_abilities};
+use sidequest_game::{resolve_abilities, AffinityState};
 
 // ============================================================================
 // Wiring: orchestrator must call resolve_abilities and produce prompt context
@@ -15,16 +15,16 @@ use sidequest_game::{AffinityState, resolve_abilities};
 /// This test verifies the function exists and is callable from the agents crate.
 #[test]
 fn resolve_abilities_callable_from_agents_crate() {
-    let affinities = vec![
-        AffinityState { name: "Fire".to_string(), tier: 2, progress: 10 },
-    ];
-    let abilities = resolve_abilities(&affinities, &|_name, tier| {
-        match tier {
-            0 => vec!["Spark".to_string()],
-            1 => vec!["Flame Shield".to_string()],
-            2 => vec!["Fireball".to_string()],
-            _ => vec![],
-        }
+    let affinities = vec![AffinityState {
+        name: "Fire".to_string(),
+        tier: 2,
+        progress: 10,
+    }];
+    let abilities = resolve_abilities(&affinities, &|_name, tier| match tier {
+        0 => vec!["Spark".to_string()],
+        1 => vec!["Flame Shield".to_string()],
+        2 => vec!["Fireball".to_string()],
+        _ => vec![],
     });
     // Tier 2 means tiers 0, 1, 2 all resolve
     assert_eq!(abilities.len(), 3);
@@ -39,7 +39,10 @@ fn resolve_abilities_callable_from_agents_crate() {
 fn format_abilities_context_accessible_from_agents() {
     let abilities = vec!["Spark".to_string(), "Fireball".to_string()];
     let context = sidequest_game::format_abilities_context(&abilities);
-    assert!(!context.is_empty(), "Should produce non-empty prompt context");
+    assert!(
+        !context.is_empty(),
+        "Should produce non-empty prompt context"
+    );
     assert!(context.contains("Spark"));
     assert!(context.contains("Fireball"));
 }

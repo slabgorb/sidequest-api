@@ -29,7 +29,6 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
-
 use sidequest_agents::orchestrator::GameService;
 use sidequest_game::builder::CharacterBuilder;
 
@@ -38,8 +37,8 @@ pub(crate) type NpcRegistryEntry = sidequest_game::NpcRegistryEntry;
 
 use sidequest_genre::{GenreCache, GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ErrorPayload, GameMessage, PartyMember,
-    PartyStatusPayload, SessionEventPayload, TurnStatusPayload,
+    ErrorPayload, GameMessage, PartyMember, PartyStatusPayload, SessionEventPayload,
+    TurnStatusPayload,
 };
 
 // ---------------------------------------------------------------------------
@@ -51,11 +50,11 @@ const WATCHER_HISTORY_CAP: usize = 500;
 
 // Re-export all telemetry types so existing `use crate::{WatcherEvent, ...}` still works.
 pub use sidequest_telemetry::{
-    emit as emit_watcher_event, WatcherEvent, WatcherEventBuilder, WatcherEventType, Severity,
+    emit as emit_watcher_event, Severity, WatcherEvent, WatcherEventBuilder, WatcherEventType,
 };
 
 // Tracing / Telemetry — extracted to tracing_setup.rs
-pub use tracing_setup::{init_tracing, tracing_subscriber_for_test, build_subscriber_with_filter};
+pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subscriber_for_test};
 
 // ---------------------------------------------------------------------------
 // Confrontation Defs — lookup helper (Story 28-1)
@@ -223,6 +222,16 @@ struct AppStateInner {
     watcher_tx: Option<tokio::sync::mpsc::Sender<sidequest_agents::turn_record::TurnRecord>>,
     /// Turn ID counter for monotonic turn numbering across the session.
     turn_id_counter: Mutex<sidequest_agents::turn_record::TurnIdCounter>,
+    /// Set of genre slugs that have already produced a `lora_trigger_missing`
+    /// ValidationWarning in this process. Used by `dispatch/render.rs` and
+    /// `dispatch/audio.rs` to debounce the warn-every-turn flood pattern
+    /// (Story 35-15 Rework Pass 2 Finding D). See `mark_lora_warned`.
+    ///
+    /// Process-scoped rather than per-session: the goal is log-flood
+    /// prevention, not per-session uniqueness. A genre misconfig produces
+    /// one warning per process lifetime, regardless of how many turns
+    /// or sessions render with that genre.
+    lora_warned_genres: Mutex<HashSet<String>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -248,7 +257,18 @@ impl AppState {
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
-            |prompt, art_style, tier, _negative_prompt, _narration, width: u32, height: u32| async move {
+            |params: sidequest_game::RenderJobParams| async move {
+                let sidequest_game::RenderJobParams {
+                    prompt,
+                    art_style,
+                    tier,
+                    width,
+                    height,
+                    variant,
+                    lora_path,
+                    lora_scale,
+                    ..
+                } = params;
                 // ── OTel: render pipeline start ──────────────────────────
                 tracing::info!(
                     prompt_len = prompt.len(),
@@ -278,6 +298,9 @@ impl AppState {
                                 positive_prompt,
                                 width: Some(width),
                                 height: Some(height),
+                                variant: variant.clone(),
+                                lora_path: lora_path.clone(),
+                                lora_scale,
                                 ..Default::default()
                             })
                             .await
@@ -385,6 +408,7 @@ impl AppState {
                 otel_endpoint: None,
                 watcher_tx: None,
                 turn_id_counter: Mutex::new(sidequest_agents::turn_record::TurnIdCounter::new()),
+                lora_warned_genres: Mutex::new(HashSet::new()),
             }),
         }
     }
@@ -494,6 +518,24 @@ impl AppState {
         &self.inner.genre_packs_path
     }
 
+    /// Record that a `lora_trigger_missing` warning has fired for this
+    /// genre in the current process, returning `true` if this is the
+    /// first time (and therefore the caller should actually emit the
+    /// warning). Subsequent calls for the same genre return `false`.
+    ///
+    /// This debounces the `(Some(lora), None)` warn path in
+    /// `dispatch/render.rs` and `dispatch/audio.rs` so a misconfigured
+    /// genre pack does not flood the GM panel with ValidationWarning
+    /// events on every render turn (Story 35-15 Rework Pass 2
+    /// Finding D).
+    pub fn mark_lora_warned(&self, genre_slug: &str) -> bool {
+        self.inner
+            .lora_warned_genres
+            .lock()
+            .unwrap()
+            .insert(genre_slug.to_string())
+    }
+
     /// Cached genre pack loader — loads from disk once, then returns the same `Arc`.
     pub fn genre_cache(&self) -> &GenreCache {
         &self.inner.genre_cache
@@ -556,11 +598,10 @@ impl AppState {
                 // superseded connections from reconnect)
                 if was_present {
                     let old_mode = std::mem::take(&mut session.turn_mode);
-                    session.turn_mode = old_mode.apply(
-                        sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
+                    session.turn_mode =
+                        old_mode.apply(sidequest_game::turn_mode::TurnModeTransition::PlayerLeft {
                             player_count: remaining,
-                        },
-                    );
+                        });
                     if !session.turn_mode.should_use_barrier() {
                         session.turn_barrier = None;
                     }
@@ -896,7 +937,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let writer_player_id = player_id_str.clone();
     let writer_handle = tokio::spawn(async move {
         // Session broadcast receiver — lazily initialized when shared session is set.
-        let mut session_rx: Option<broadcast::Receiver<crate::shared_session::TargetedMessage>> = None;
+        let mut session_rx: Option<broadcast::Receiver<crate::shared_session::TargetedMessage>> =
+            None;
 
         loop {
             // Lazily subscribe to session broadcast if we don't have a receiver yet.
@@ -1049,99 +1091,115 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                     "ws.message_received"
                 );
                 match serde_json::from_str::<GameMessage>(&text) {
-                Ok(game_msg) => {
-                    let responses = dispatch_message(
-                        game_msg,
-                        &mut session,
-                        &mut builder,
-                        &mut player_name_for_session,
-                        &mut character_json,
-                        &mut character_name,
-                        &mut character_hp,
-                        &mut character_max_hp,
-                        &mut character_level,
-                        &mut character_xp,
-                        &mut current_location,
-                        &mut inventory,
-                        &mut trope_states,
-                        &mut trope_defs,
-                        &mut world_context,
-                        &mut opening_seed,
-                        &mut opening_directive,
-                        &mut axes_config,
-                        &mut axis_values,
-                        &mut visual_style,
-                        &mut music_director,
-                        &audio_mixer,
-                        &prerender_scheduler,
-                        &mut npc_registry,
-                        &mut narration_history,
-                        &mut discovered_regions,
-                        &mut turn_manager,
-                        &mut lore_store,
-                        &shared_session,
-                        &state,
-                        &player_id_str,
-                        &mut continuity_corrections,
-                        &mut quest_log,
-                        &mut genie_wishes,
-                        &mut achievement_tracker,
-                        &mut snapshot,
-                        narrator_verbosity,
-                        narrator_vocabulary,
-                        &mut pending_trope_context,
-                        &tx,
-                    )
-                    .await;
-                    tracing::info!(
-                        player_id = %player_id_str,
-                        response_count = responses.len(),
-                        "dispatch_message.returned"
-                    );
+                    Ok(game_msg) => {
+                        let responses = dispatch_message(
+                            game_msg,
+                            &mut session,
+                            &mut builder,
+                            &mut player_name_for_session,
+                            &mut character_json,
+                            &mut character_name,
+                            &mut character_hp,
+                            &mut character_max_hp,
+                            &mut character_level,
+                            &mut character_xp,
+                            &mut current_location,
+                            &mut inventory,
+                            &mut trope_states,
+                            &mut trope_defs,
+                            &mut world_context,
+                            &mut opening_seed,
+                            &mut opening_directive,
+                            &mut axes_config,
+                            &mut axis_values,
+                            &mut visual_style,
+                            &mut music_director,
+                            &audio_mixer,
+                            &prerender_scheduler,
+                            &mut npc_registry,
+                            &mut narration_history,
+                            &mut discovered_regions,
+                            &mut turn_manager,
+                            &mut lore_store,
+                            &shared_session,
+                            &state,
+                            &player_id_str,
+                            &mut continuity_corrections,
+                            &mut quest_log,
+                            &mut genie_wishes,
+                            &mut achievement_tracker,
+                            &mut snapshot,
+                            narrator_verbosity,
+                            narrator_vocabulary,
+                            &mut pending_trope_context,
+                            &tx,
+                        )
+                        .await;
+                        tracing::info!(
+                            player_id = %player_id_str,
+                            response_count = responses.len(),
+                            "dispatch_message.returned"
+                        );
 
-                    // Epic 16: Initialize resource pools from genre pack on first
-                    // post-connect message. init_resource_pools is an upsert, so if
-                    // the save already has pools (via backward-compat migration in
-                    // GameSnapshotRaw), their `current` values are preserved and
-                    // only metadata is refreshed from the pack.
-                    if !pools_initialized {
-                        if let (Some(genre), Some(_world)) = (session.genre_slug(), session.world_slug()) {
-                            if let Ok(genre_code) = GenreCode::new(genre) {
-                                if let Ok(pack) = state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
-                                    let declarations = &pack.rules.resources;
-                                    if !declarations.is_empty() {
-                                        snapshot.init_resource_pools(declarations);
-                                        tracing::info!(
-                                            genre = %genre,
-                                            resource_count = declarations.len(),
-                                            pool_names = ?declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
-                                            "resource_pools.initialized — genre resources loaded into snapshot"
-                                        );
-                                        WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
+                        // Epic 16: Initialize resource pools from genre pack on first
+                        // post-connect message. init_resource_pools is an upsert, so if
+                        // the save already has pools (via backward-compat migration in
+                        // GameSnapshotRaw), their `current` values are preserved and
+                        // only metadata is refreshed from the pack.
+                        if !pools_initialized {
+                            if let (Some(genre), Some(_world)) =
+                                (session.genre_slug(), session.world_slug())
+                            {
+                                if let Ok(genre_code) = GenreCode::new(genre) {
+                                    if let Ok(pack) = state
+                                        .genre_cache()
+                                        .get_or_load(&genre_code, state.genre_loader())
+                                    {
+                                        let declarations = &pack.rules.resources;
+                                        if !declarations.is_empty() {
+                                            snapshot.init_resource_pools(declarations);
+                                            tracing::info!(
+                                                genre = %genre,
+                                                resource_count = declarations.len(),
+                                                pool_names = ?declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
+                                                "resource_pools.initialized — genre resources loaded into snapshot"
+                                            );
+                                            WatcherEventBuilder::new(
+                                                "resource_pool",
+                                                WatcherEventType::StateTransition,
+                                            )
                                             .field("event", "resource_pools.initialized")
                                             .field("genre", genre)
                                             .field("count", declarations.len())
-                                            .field("pools", declarations.iter().map(|r| r.name.clone()).collect::<Vec<_>>())
+                                            .field(
+                                                "pools",
+                                                declarations
+                                                    .iter()
+                                                    .map(|r| r.name.clone())
+                                                    .collect::<Vec<_>>(),
+                                            )
                                             .send();
+                                        }
+                                        pools_initialized = true;
                                     }
-                                    pools_initialized = true;
                                 }
                             }
                         }
-                    }
 
-                    for resp in responses {
-                        if let Err(e) = tx.send(resp).await {
-                            tracing::error!(player_id = %player_id_str, error = %e, "Failed to send response to client");
+                        for resp in responses {
+                            if let Err(e) = tx.send(resp).await {
+                                tracing::error!(player_id = %player_id_str, error = %e, "Failed to send response to client");
+                            }
                         }
                     }
+                    Err(e) => {
+                        tracing::error!(player_id = %player_id_str, error = %e, text_preview = %&text[..text.len().min(200)], "Invalid message — deserialization failed");
+                        let err_msg =
+                            error_response(&player_id_str, &format!("Invalid JSON: {}", e));
+                        let _ = tx.send(err_msg).await;
+                    }
                 }
-                Err(e) => {
-                    tracing::error!(player_id = %player_id_str, error = %e, text_preview = %&text[..text.len().min(200)], "Invalid message — deserialization failed");
-                    let err_msg = error_response(&player_id_str, &format!("Invalid JSON: {}", e));
-                    let _ = tx.send(err_msg).await;
-                }
-            }},
+            }
             Ok(AxumWsMessage::Close(_)) => break,
             Ok(_) => {} // ping/pong/binary handled by axum
             Err(e) => {
@@ -1368,7 +1426,10 @@ async fn dispatch_message(
                     let mut ss_guard = ss.lock().await;
                     if ss_guard.region_names.is_empty() {
                         if let Ok(genre_code) = GenreCode::new(genre) {
-                            if let Ok(pack) = state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
+                            if let Ok(pack) = state
+                                .genre_cache()
+                                .get_or_load(&genre_code, state.genre_loader())
+                            {
                                 if let Some(w) = pack.worlds.get(world) {
                                     ss_guard.load_cartography(&w.cartography.regions);
                                 }
@@ -1429,24 +1490,19 @@ async fn dispatch_message(
                     );
 
                     // Initialize barrier if transitioning to structured mode
-                    if ss_guard.turn_mode.should_use_barrier()
-                        && ss_guard.turn_barrier.is_none()
-                    {
+                    if ss_guard.turn_mode.should_use_barrier() && ss_guard.turn_barrier.is_none() {
                         let mp_session =
                             sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                 ss_guard.players.keys().cloned(),
                             );
-                        let config =
-                            sidequest_game::barrier::TurnBarrierConfig::disabled();
-                        ss_guard.turn_barrier =
-                            Some(sidequest_game::barrier::TurnBarrier::new(
-                                mp_session, config,
-                            ));
+                        let config = sidequest_game::barrier::TurnBarrierConfig::disabled();
+                        ss_guard.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::new(
+                            mp_session, config,
+                        ));
                         {
-                            let _span = tracing::info_span!(
-                                "barrier.activated",
-                                player_count = pc,
-                            ).entered();
+                            let _span =
+                                tracing::info_span!("barrier.activated", player_count = pc,)
+                                    .entered();
                         }
                         tracing::info!(
                             player_count = pc,
@@ -1454,7 +1510,8 @@ async fn dispatch_message(
                         );
 
                         // Story 35-5: Spawn turn reminder task
-                        let reminder_config = sidequest_game::turn_reminder::ReminderConfig::default();
+                        let reminder_config =
+                            sidequest_game::turn_reminder::ReminderConfig::default();
                         let reminder_barrier = ss_guard.turn_barrier.as_ref().unwrap().clone();
                         tokio::spawn(async move {
                             {
@@ -1466,7 +1523,8 @@ async fn dispatch_message(
                                 let _span = tracing::info_span!(
                                     "reminder_fired",
                                     idle_player_count = result.idle_players().len(),
-                                ).entered();
+                                )
+                                .entered();
                                 tracing::info!(
                                     idle_player_count = result.idle_players().len(),
                                     "Turn reminder fired for idle players"
@@ -1496,8 +1554,7 @@ async fn dispatch_message(
                         })
                         .collect();
                     if !members.is_empty() {
-                        let pids: Vec<String> =
-                            ss_guard.players.keys().cloned().collect();
+                        let pids: Vec<String> = ss_guard.players.keys().cloned().collect();
                         for target_pid in &pids {
                             let party_msg = GameMessage::PartyStatus {
                                 payload: PartyStatusPayload {
@@ -1505,8 +1562,7 @@ async fn dispatch_message(
                                 },
                                 player_id: target_pid.clone(),
                             };
-                            ss_guard
-                                .send_to_player(party_msg, target_pid.clone());
+                            ss_guard.send_to_player(party_msg, target_pid.clone());
                         }
                     }
 
@@ -1539,7 +1595,9 @@ async fn dispatch_message(
                         .collect();
                     let member_count = all_members.len();
                     responses.push(GameMessage::PartyStatus {
-                        payload: PartyStatusPayload { members: all_members },
+                        payload: PartyStatusPayload {
+                            members: all_members,
+                        },
                         player_id: player_id.to_string(),
                     });
                     tracing::info!(
@@ -1634,12 +1692,14 @@ async fn dispatch_message(
                 return vec![err];
             }
             {
-                let aside = payload.action.starts_with("(aside)") || payload.action.starts_with("/aside");
+                let aside =
+                    payload.action.starts_with("(aside)") || payload.action.starts_with("/aside");
 
                 // Monster Manual: load from disk, seed if needed (ADR-059)
                 let gs = session.genre_slug().unwrap_or("");
                 let ws = session.world_slug().unwrap_or("");
-                let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs, ws);
+                let mut monster_manual =
+                    sidequest_game::monster_manual::MonsterManual::load(gs, ws);
                 if monster_manual.needs_seeding() && !gs.is_empty() {
                     dispatch::pregen::seed_manual(state, gs, ws, &mut monster_manual);
                 }
@@ -1681,7 +1741,12 @@ async fn dispatch_message(
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .map(|pack| pack.audio.sfx_library.clone())
                             .unwrap_or_default()
                     },
@@ -1690,9 +1755,17 @@ async fn dispatch_message(
                         let ws = session.world_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .and_then(|pack| pack.worlds.get(ws).cloned())
-                            .filter(|world| world.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                            .filter(|world| {
+                                world.cartography.navigation_mode
+                                    == sidequest_genre::NavigationMode::RoomGraph
+                            })
                             .and_then(|world| world.cartography.rooms.clone())
                             .unwrap_or_default()
                     },
@@ -1700,7 +1773,12 @@ async fn dispatch_message(
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .map(|pack| pack.progression.affinities.clone())
                             .unwrap_or_default()
                     },
@@ -1709,7 +1787,12 @@ async fn dispatch_message(
                         let ws = session.world_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .and_then(|pack| pack.worlds.get(ws).cloned())
                             .and_then(|world| world.cartography.world_graph)
                     },
@@ -1718,7 +1801,12 @@ async fn dispatch_message(
                         let ws = session.world_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .and_then(|pack| pack.worlds.get(ws).cloned())
                             .map(|world| {
                                 let nav_mode = match world.cartography.navigation_mode {
@@ -1729,21 +1817,32 @@ async fn dispatch_message(
                                 sidequest_protocol::CartographyMetadata {
                                     navigation_mode: nav_mode.to_string(),
                                     starting_region: world.cartography.starting_region.clone(),
-                                    regions: world.cartography.regions.iter().map(|(slug, r)| {
-                                        (slug.clone(), sidequest_protocol::CartographyRegion {
-                                            name: r.name.clone(),
-                                            description: r.description.clone(),
-                                            adjacent: r.adjacent.clone(),
+                                    regions: world
+                                        .cartography
+                                        .regions
+                                        .iter()
+                                        .map(|(slug, r)| {
+                                            (
+                                                slug.clone(),
+                                                sidequest_protocol::CartographyRegion {
+                                                    name: r.name.clone(),
+                                                    description: r.description.clone(),
+                                                    adjacent: r.adjacent.clone(),
+                                                },
+                                            )
                                         })
-                                    }).collect(),
-                                    routes: world.cartography.routes.iter().map(|r| {
-                                        sidequest_protocol::CartographyRoute {
+                                        .collect(),
+                                    routes: world
+                                        .cartography
+                                        .routes
+                                        .iter()
+                                        .map(|r| sidequest_protocol::CartographyRoute {
                                             name: r.name.clone(),
                                             description: r.description.clone(),
                                             from_id: r.from_id.clone(),
                                             to_id: r.to_id.clone(),
-                                        }
-                                    }).collect(),
+                                        })
+                                        .collect(),
                                 }
                             })
                     },
@@ -1751,7 +1850,12 @@ async fn dispatch_message(
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .map(|pack| pack.rules.confrontations.clone())
                             .unwrap_or_default()
                     },
@@ -1770,9 +1874,15 @@ async fn dispatch_message(
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .map(|pack| {
-                                pack.inventory.as_ref()
+                                pack.inventory
+                                    .as_ref()
                                     .and_then(|inv| inv.philosophy.as_ref())
                                     .map(|phil| phil.carry_mode)
                                     .unwrap_or_default()
@@ -1783,9 +1893,15 @@ async fn dispatch_message(
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .and_then(|pack| {
-                                pack.inventory.as_ref()
+                                pack.inventory
+                                    .as_ref()
                                     .and_then(|inv| inv.philosophy.as_ref())
                                     .and_then(|phil| phil.weight_limit)
                             })
@@ -1797,7 +1913,13 @@ async fn dispatch_message(
                         .field("action", "defs_loaded")
                         .field("genre", ctx.genre_slug)
                         .field("count", ctx.confrontation_defs.len())
-                        .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
+                        .field(
+                            "types",
+                            ctx.confrontation_defs
+                                .iter()
+                                .map(|d| d.confrontation_type.clone())
+                                .collect::<Vec<_>>(),
+                        )
                         .send();
                 }
 
@@ -1812,7 +1934,10 @@ async fn dispatch_message(
         // Journal browse — on-demand KnownFact retrieval (story 9-13)
         GameMessage::JournalRequest { payload, .. } => {
             if !session.is_playing() {
-                return vec![error_response(player_id, "Cannot browse journal before game starts")];
+                return vec![error_response(
+                    player_id,
+                    "Cannot browse journal before game starts",
+                )];
             }
             let char_name = character_name.as_deref().unwrap_or("");
             let known_facts: &[sidequest_game::known_fact::KnownFact] = snapshot

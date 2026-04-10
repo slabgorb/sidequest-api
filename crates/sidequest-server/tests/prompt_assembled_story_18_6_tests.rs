@@ -2,8 +2,8 @@
 //!
 //! RED phase — the `PromptAssembled` variant doesn't exist yet in WatcherEventType.
 
+use sidequest_server::{Severity, WatcherEvent, WatcherEventType};
 use std::collections::HashMap;
-use sidequest_server::{WatcherEvent, WatcherEventType, Severity};
 
 // ============================================================================
 // AC-1: PromptAssembled variant exists and serializes correctly
@@ -23,8 +23,7 @@ fn prompt_assembled_variant_exists() {
 
 #[test]
 fn prompt_assembled_deserializes_from_snake_case() {
-    let event_type: WatcherEventType =
-        serde_json::from_str("\"prompt_assembled\"").unwrap();
+    let event_type: WatcherEventType = serde_json::from_str("\"prompt_assembled\"").unwrap();
     assert!(
         matches!(event_type, WatcherEventType::PromptAssembled),
         "Must deserialize 'prompt_assembled' to PromptAssembled variant"
@@ -100,8 +99,20 @@ fn prompt_assembled_event_has_required_fields() {
     };
 
     // Required fields for PromptAssembled events
-    assert!(event.fields.contains_key("agent"), "Must have 'agent' field");
-    assert!(event.fields.contains_key("total_tokens"), "Must have 'total_tokens' field");
-    assert!(event.fields.contains_key("section_count"), "Must have 'section_count' field");
-    assert!(event.fields.contains_key("zones"), "Must have 'zones' field");
+    assert!(
+        event.fields.contains_key("agent"),
+        "Must have 'agent' field"
+    );
+    assert!(
+        event.fields.contains_key("total_tokens"),
+        "Must have 'total_tokens' field"
+    );
+    assert!(
+        event.fields.contains_key("section_count"),
+        "Must have 'section_count' field"
+    );
+    assert!(
+        event.fields.contains_key("zones"),
+        "Must have 'zones' field"
+    );
 }

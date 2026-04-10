@@ -80,7 +80,9 @@ pub struct WishConsequenceEngine {
 impl WishConsequenceEngine {
     /// Create a new engine with rotation counter starting at 0.
     pub fn new() -> Self {
-        Self { rotation_counter: 0 }
+        Self {
+            rotation_counter: 0,
+        }
     }
 
     /// Create an engine seeded with a rotation counter (for persistence across turns).
@@ -92,7 +94,12 @@ impl WishConsequenceEngine {
     ///
     /// `is_power_grab` comes from the LLM preprocessor's classification.
     /// Returns `Some(GenieWish)` if power grab, `None` otherwise.
-    pub fn evaluate(&mut self, player_name: &str, action_text: &str, is_power_grab: bool) -> Option<GenieWish> {
+    pub fn evaluate(
+        &mut self,
+        player_name: &str,
+        action_text: &str,
+        is_power_grab: bool,
+    ) -> Option<GenieWish> {
         if !is_power_grab {
             return None;
         }
@@ -120,10 +127,18 @@ impl WishConsequenceEngine {
     /// Injected into the narrator prompt so it can describe the ironic consequence.
     pub fn build_prompt_context(wish: &GenieWish) -> String {
         let category_name = match wish.consequence_category {
-            Some(ConsequenceCategory::Backfire) => "BACKFIRE (the wish works but goes wrong in an unexpected way)",
-            Some(ConsequenceCategory::Attention) => "ATTENTION (the wish draws unwanted attention — enemies, cosmic entities, rivals)",
-            Some(ConsequenceCategory::Cost) => "COST (the wish exacts a steep price — health, items, relationships)",
-            Some(ConsequenceCategory::Curse) => "CURSE (the wish triggers a lasting curse or side effect)",
+            Some(ConsequenceCategory::Backfire) => {
+                "BACKFIRE (the wish works but goes wrong in an unexpected way)"
+            }
+            Some(ConsequenceCategory::Attention) => {
+                "ATTENTION (the wish draws unwanted attention — enemies, cosmic entities, rivals)"
+            }
+            Some(ConsequenceCategory::Cost) => {
+                "COST (the wish exacts a steep price — health, items, relationships)"
+            }
+            Some(ConsequenceCategory::Curse) => {
+                "CURSE (the wish triggers a lasting curse or side effect)"
+            }
             None => "UNKNOWN",
         };
 
@@ -182,7 +197,10 @@ mod tests {
         assert_eq!(w1.consequence_category, Some(ConsequenceCategory::Backfire));
 
         let w2 = engine.evaluate("B", "grab 2", true).unwrap();
-        assert_eq!(w2.consequence_category, Some(ConsequenceCategory::Attention));
+        assert_eq!(
+            w2.consequence_category,
+            Some(ConsequenceCategory::Attention)
+        );
 
         let w3 = engine.evaluate("C", "grab 3", true).unwrap();
         assert_eq!(w3.consequence_category, Some(ConsequenceCategory::Cost));
@@ -247,6 +265,9 @@ mod tests {
         let roundtripped: GenieWish = serde_json::from_str(&json).unwrap();
         assert_eq!(roundtripped.wisher_name, "Test");
         assert_eq!(roundtripped.status, WishStatus::Granted);
-        assert_eq!(roundtripped.consequence_category, Some(ConsequenceCategory::Curse));
+        assert_eq!(
+            roundtripped.consequence_category,
+            Some(ConsequenceCategory::Curse)
+        );
     }
 }

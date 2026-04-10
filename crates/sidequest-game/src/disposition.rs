@@ -89,7 +89,6 @@ impl Disposition {
             .field("attitude_changed", old_att != new_att)
             .send();
     }
-
 }
 
 impl fmt::Display for Disposition {

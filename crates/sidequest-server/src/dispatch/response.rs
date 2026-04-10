@@ -34,7 +34,11 @@ pub(super) async fn build_response_messages(
                 event.character_name,
                 event.affinity_name,
                 event.new_tier,
-                if event.narration_hint.is_empty() { "a new level of mastery" } else { &event.narration_hint },
+                if event.narration_hint.is_empty() {
+                    "a new level of mastery"
+                } else {
+                    &event.narration_hint
+                },
             ),
             category: sidequest_protocol::FactCategory::Ability,
             is_new: true,
@@ -95,8 +99,18 @@ pub(super) async fn build_response_messages(
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("source".to_string(), format!("{:?}", df.fact.source));
                 meta.insert("character".to_string(), df.character_name.clone());
-                meta.insert("confidence".to_string(), format!("{:?}", df.fact.confidence));
-                super::lore_sync::accumulate_and_persist_lore(ctx, &df.fact.content, lore_cat, turn, meta).await;
+                meta.insert(
+                    "confidence".to_string(),
+                    format!("{:?}", df.fact.confidence),
+                );
+                super::lore_sync::accumulate_and_persist_lore(
+                    ctx,
+                    &df.fact.content,
+                    lore_cat,
+                    turn,
+                    meta,
+                )
+                .await;
             }
 
             WatcherEventBuilder::new("rag", WatcherEventType::SubsystemExerciseSummary)
@@ -109,9 +123,7 @@ pub(super) async fn build_response_messages(
     }
 
     let narration_end = GameMessage::NarrationEnd {
-        payload: NarrationEndPayload {
-            state_delta: None,
-        },
+        payload: NarrationEndPayload { state_delta: None },
         player_id: ctx.player_id.to_string(),
     };
     messages.push(narration_end.clone());
@@ -240,16 +252,22 @@ pub(super) async fn build_response_messages(
 
     // Confrontation overlay
     if let Some(ref enc) = ctx.snapshot.encounter {
-        let actors: Vec<sidequest_protocol::ConfrontationActor> = enc.actors.iter().map(|a| {
-            let portrait = ctx.npc_registry.iter()
-                .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
-                .and_then(|e| e.portrait_url.clone());
-            sidequest_protocol::ConfrontationActor {
-                name: a.name.clone(),
-                role: a.role.clone(),
-                portrait_url: portrait,
-            }
-        }).collect();
+        let actors: Vec<sidequest_protocol::ConfrontationActor> = enc
+            .actors
+            .iter()
+            .map(|a| {
+                let portrait = ctx
+                    .npc_registry
+                    .iter()
+                    .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
+                    .and_then(|e| e.portrait_url.clone());
+                sidequest_protocol::ConfrontationActor {
+                    name: a.name.clone(),
+                    role: a.role.clone(),
+                    portrait_url: portrait,
+                }
+            })
+            .collect();
         let metric = &enc.metric;
         let direction_str = match metric.direction {
             sidequest_game::MetricDirection::Ascending => "ascending",
@@ -261,8 +279,12 @@ pub(super) async fn build_response_messages(
         messages.push(GameMessage::Confrontation {
             payload: sidequest_protocol::ConfrontationPayload {
                 encounter_type: enc.encounter_type.clone(),
-                label: def.map(|d| d.label.clone()).unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
-                category: def.map(|d| d.category.clone()).unwrap_or_else(|| enc.encounter_type.clone()),
+                label: def
+                    .map(|d| d.label.clone())
+                    .unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
+                category: def
+                    .map(|d| d.category.clone())
+                    .unwrap_or_else(|| enc.encounter_type.clone()),
                 actors,
                 metric: sidequest_protocol::ConfrontationMetric {
                     name: metric.name.clone(),
@@ -272,15 +294,25 @@ pub(super) async fn build_response_messages(
                     threshold_high: metric.threshold_high,
                     threshold_low: metric.threshold_low,
                 },
-                beats: def.map(|d| d.beats.iter().map(|b| sidequest_protocol::ConfrontationBeat {
-                    id: b.id.clone(),
-                    label: b.label.clone(),
-                    metric_delta: b.metric_delta,
-                    stat_check: b.stat_check.clone(),
-                    risk: b.risk.clone(),
-                    resolution: b.resolution.unwrap_or(false),
-                }).collect()).unwrap_or_default(),
-                secondary_stats: enc.secondary_stats.as_ref().and_then(|ss| serde_json::to_value(ss).ok()),
+                beats: def
+                    .map(|d| {
+                        d.beats
+                            .iter()
+                            .map(|b| sidequest_protocol::ConfrontationBeat {
+                                id: b.id.clone(),
+                                label: b.label.clone(),
+                                metric_delta: b.metric_delta,
+                                stat_check: b.stat_check.clone(),
+                                risk: b.risk.clone(),
+                                resolution: b.resolution.unwrap_or(false),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                secondary_stats: enc
+                    .secondary_stats
+                    .as_ref()
+                    .and_then(|ss| serde_json::to_value(ss).ok()),
                 genre_slug: ctx.genre_slug.to_string(),
                 mood: enc.mood_override.clone().unwrap_or_default(),
                 active: !enc.resolved,
@@ -293,7 +325,10 @@ pub(super) async fn build_response_messages(
                     .field("action", "beats_sent")
                     .field("encounter_type", &enc.encounter_type)
                     .field("beat_count", d.beats.len())
-                    .field("beat_ids", d.beats.iter().map(|b| b.id.clone()).collect::<Vec<_>>())
+                    .field(
+                        "beat_ids",
+                        d.beats.iter().map(|b| b.id.clone()).collect::<Vec<_>>(),
+                    )
                     .send();
             }
         }

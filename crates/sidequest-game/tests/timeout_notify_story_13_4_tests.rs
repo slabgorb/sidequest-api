@@ -50,7 +50,9 @@ fn structured_mode_default_action_uses_hesitates() {
     // New method: force_resolve_turn_for_mode takes TurnMode
     let narration = session.force_resolve_turn_for_mode(&TurnMode::Structured);
 
-    let p2 = narration.get("player-2").expect("player-2 should have narration");
+    let p2 = narration
+        .get("player-2")
+        .expect("player-2 should have narration");
     assert!(
         p2.contains("hesitate") || p2.contains("waiting"),
         "structured mode should use 'hesitates' variant, got: {}",
@@ -63,10 +65,11 @@ fn cinematic_mode_default_action_uses_remains_silent() {
     let mut session = three_player_session();
     session.record_action("player-1", "I search the room");
 
-    let narration =
-        session.force_resolve_turn_for_mode(&TurnMode::Cinematic { prompt: None });
+    let narration = session.force_resolve_turn_for_mode(&TurnMode::Cinematic { prompt: None });
 
-    let p2 = narration.get("player-2").expect("player-2 should have narration");
+    let p2 = narration
+        .get("player-2")
+        .expect("player-2 should have narration");
     assert!(
         p2.contains("remains silent") || p2.contains("silent"),
         "cinematic mode should use 'remains silent', got: {}",
@@ -83,7 +86,9 @@ fn freeplay_mode_default_action_uses_generic_hesitates() {
 
     let narration = session.force_resolve_turn_for_mode(&TurnMode::FreePlay);
 
-    let p2 = narration.get("player-2").expect("player-2 should have narration");
+    let p2 = narration
+        .get("player-2")
+        .expect("player-2 should have narration");
     assert!(
         p2.contains("hesitate"),
         "freeplay mode should fallback to hesitates, got: {}",
@@ -96,11 +101,12 @@ fn mode_default_preserves_submitted_player_action() {
     let mut session = three_player_session();
     session.record_action("player-1", "I charge the enemy");
 
-    let narration =
-        session.force_resolve_turn_for_mode(&TurnMode::Cinematic { prompt: None });
+    let narration = session.force_resolve_turn_for_mode(&TurnMode::Cinematic { prompt: None });
 
     // Player who submitted should keep their actual action, not get overwritten
-    let p1 = narration.get("player-1").expect("player-1 should have narration");
+    let p1 = narration
+        .get("player-1")
+        .expect("player-1 should have narration");
     assert!(
         p1.contains("charge") || p1.contains("enemy"),
         "submitted player should keep their real action, got: {}",
@@ -202,7 +208,10 @@ async fn mode_aware_barrier_timeout_uses_cinematic_default() {
     assert!(result.timed_out);
 
     // Auto-resolved players should have cinematic-style default, not "hesitates"
-    let p2_narration = result.narration.get("player-2").expect("player-2 narration");
+    let p2_narration = result
+        .narration
+        .get("player-2")
+        .expect("player-2 narration");
     assert!(
         p2_narration.contains("silent") || p2_narration.contains("remains"),
         "cinematic timeout should use 'remains silent', got: {}",
@@ -222,7 +231,10 @@ async fn mode_aware_barrier_timeout_uses_structured_default() {
     let result = barrier.wait_for_turn().await;
     assert!(result.timed_out);
 
-    let p2_narration = result.narration.get("player-2").expect("player-2 narration");
+    let p2_narration = result
+        .narration
+        .get("player-2")
+        .expect("player-2 narration");
     assert!(
         p2_narration.contains("hesitate") || p2_narration.contains("waiting"),
         "structured timeout should use 'hesitates' variant, got: {}",
@@ -237,8 +249,7 @@ async fn mode_aware_barrier_timeout_uses_structured_default() {
 #[tokio::test]
 async fn e2e_two_of_three_submit_cinematic_mode() {
     let session = three_player_session();
-    let barrier =
-        TurnBarrier::new(session, TurnBarrierConfig::new(Duration::from_millis(100)));
+    let barrier = TurnBarrier::new(session, TurnBarrierConfig::new(Duration::from_millis(100)));
 
     barrier.set_turn_mode(TurnMode::Cinematic { prompt: None });
 
@@ -256,7 +267,10 @@ async fn e2e_two_of_three_submit_cinematic_mode() {
     assert_eq!(result.narration.len(), 3, "all 3 should have narration");
 
     // Verify auto-resolved uses cinematic default
-    let brak = result.narration.get("player-3").expect("player-3 narration");
+    let brak = result
+        .narration
+        .get("player-3")
+        .expect("player-3 narration");
     assert!(
         brak.contains("silent") || brak.contains("remains"),
         "Brak should have cinematic default in narration, got: {}",
@@ -279,10 +293,18 @@ async fn e2e_all_players_timeout() {
     let result = barrier.wait_for_turn().await;
 
     assert!(result.timed_out, "should time out");
-    assert_eq!(result.missing_players.len(), 2, "both players should be missing");
+    assert_eq!(
+        result.missing_players.len(),
+        2,
+        "both players should be missing"
+    );
 
     let auto_names = result.auto_resolved_character_names();
-    assert_eq!(auto_names.len(), 2, "both characters should be auto-resolved");
+    assert_eq!(
+        auto_names.len(),
+        2,
+        "both characters should be auto-resolved"
+    );
     assert!(auto_names.contains(&"Thorn".to_string()));
     assert!(auto_names.contains(&"Elara".to_string()));
 

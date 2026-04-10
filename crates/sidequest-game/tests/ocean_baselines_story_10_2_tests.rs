@@ -97,7 +97,10 @@ fn archetype_ocean_baseline_survives_yaml_roundtrip() {
     let json2 = serde_json::to_value(&archetype2).unwrap();
     let ocean1 = json1.get("ocean").expect("ocean missing on first deser");
     let ocean2 = json2.get("ocean").expect("ocean missing after round-trip");
-    assert_eq!(ocean1, ocean2, "OCEAN baseline should survive YAML round-trip");
+    assert_eq!(
+        ocean1, ocean2,
+        "OCEAN baseline should survive YAML round-trip"
+    );
 }
 
 // ─── AC-2: Archetypes without OCEAN fall back to neutral ────
@@ -154,7 +157,8 @@ fn ocean_profile_with_jitter_stays_close_to_baseline() {
     assert!(
         (jittered.openness - baseline.openness).abs() <= max_delta,
         "openness jitter too large: base={}, got={}",
-        baseline.openness, jittered.openness
+        baseline.openness,
+        jittered.openness
     );
     assert!(
         (jittered.conscientiousness - baseline.conscientiousness).abs() <= max_delta,
@@ -186,7 +190,11 @@ fn ocean_profile_with_jitter_respects_bounds() {
     };
     for _ in 0..20 {
         let j = low.with_jitter(2.0);
-        assert!(j.openness >= 0.0 && j.openness <= 10.0, "out of bounds: {}", j.openness);
+        assert!(
+            j.openness >= 0.0 && j.openness <= 10.0,
+            "out of bounds: {}",
+            j.openness
+        );
         assert!(j.conscientiousness >= 0.0 && j.conscientiousness <= 10.0);
         assert!(j.extraversion >= 0.0 && j.extraversion <= 10.0);
         assert!(j.agreeableness >= 0.0 && j.agreeableness <= 10.0);
@@ -203,7 +211,11 @@ fn ocean_profile_with_jitter_respects_bounds() {
     };
     for _ in 0..20 {
         let j = high.with_jitter(2.0);
-        assert!(j.openness >= 0.0 && j.openness <= 10.0, "out of bounds: {}", j.openness);
+        assert!(
+            j.openness >= 0.0 && j.openness <= 10.0,
+            "out of bounds: {}",
+            j.openness
+        );
         assert!(j.neuroticism >= 0.0 && j.neuroticism <= 10.0);
     }
 }
@@ -231,7 +243,10 @@ fn ocean_profile_with_jitter_is_not_identical() {
             break;
         }
     }
-    assert!(any_different, "with_jitter should produce variation, not identical copies");
+    assert!(
+        any_different,
+        "with_jitter should produce variation, not identical copies"
+    );
 }
 
 // ─── AC-4: Random NPC generation produces valid profiles ────
@@ -320,5 +335,9 @@ fn mutant_wasteland_has_archetype_ocean_baselines() {
 
     // Also verify the typed struct accepts the YAML with ocean keys.
     let archetypes: Vec<sidequest_genre::NpcArchetype> = serde_yaml::from_str(&content).unwrap();
-    assert_eq!(archetypes.len(), raw.len(), "typed deser should load same count");
+    assert_eq!(
+        archetypes.len(),
+        raw.len(),
+        "typed deser should load same count"
+    );
 }

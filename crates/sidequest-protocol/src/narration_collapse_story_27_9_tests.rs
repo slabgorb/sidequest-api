@@ -21,8 +21,7 @@ use crate::message::GameMessage;
 /// Helper: read a source file relative to the protocol crate's manifest dir.
 fn read_crate_source(relative: &str) -> String {
     let path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), relative);
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", path, e))
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {}", path, e))
 }
 
 /// Helper: read a workspace-sibling file relative to this crate's manifest dir.
@@ -30,8 +29,7 @@ fn read_crate_source(relative: &str) -> String {
 /// `../foo` reaches sibling crates under `sidequest-api/crates/`.
 fn read_sibling_source(relative: &str) -> String {
     let path = format!("{}/../{}", env!("CARGO_MANIFEST_DIR"), relative);
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", path, e))
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {}", path, e))
 }
 
 // ============================================================================

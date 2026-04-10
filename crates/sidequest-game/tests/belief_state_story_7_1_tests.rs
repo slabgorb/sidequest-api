@@ -17,9 +17,7 @@
 //!             Credibility scoring, Query interface, Persistence,
 //!             NPC integration, Edge cases
 
-use sidequest_game::belief_state::{
-    Belief, BeliefSource, BeliefState, Credibility,
-};
+use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
 
 // ============================================================================
 // AC: BeliefState model — container for per-NPC knowledge
@@ -28,8 +26,14 @@ use sidequest_game::belief_state::{
 #[test]
 fn belief_state_new_is_empty() {
     let state = BeliefState::new();
-    assert!(state.beliefs().is_empty(), "new BeliefState should have no beliefs");
-    assert!(state.credibility_scores().is_empty(), "new BeliefState should have no credibility scores");
+    assert!(
+        state.beliefs().is_empty(),
+        "new BeliefState should have no beliefs"
+    );
+    assert!(
+        state.credibility_scores().is_empty(),
+        "new BeliefState should have no credibility scores"
+    );
 }
 
 #[test]
@@ -80,7 +84,8 @@ fn belief_claim_variant() {
         content: "The cook says she was in the kitchen all evening".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: false, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: false,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     };
     assert!(matches!(belief, Belief::Claim { .. }));
     if let Belief::Claim { believed, .. } = &belief {
@@ -254,7 +259,8 @@ fn add_multiple_beliefs_accumulates() {
         content: "Cook says she was in kitchen".to_string(),
         turn_learned: 6,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     assert_eq!(state.beliefs().len(), 3);
 }
@@ -287,7 +293,11 @@ fn beliefs_about_returns_matching_beliefs() {
     });
 
     let weapon_beliefs = state.beliefs_about("weapon");
-    assert_eq!(weapon_beliefs.len(), 2, "should find 2 beliefs about 'weapon'");
+    assert_eq!(
+        weapon_beliefs.len(),
+        2,
+        "should find 2 beliefs about 'weapon'"
+    );
 }
 
 #[test]
@@ -404,11 +414,15 @@ fn belief_claim_serde_round_trip() {
         content: "Was in the kitchen".to_string(),
         turn_learned: 6,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: false, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: false,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     };
     let json = serde_json::to_string(&belief).expect("serialize claim");
     let restored: Belief = serde_json::from_str(&json).expect("deserialize claim");
-    if let Belief::Claim { believed, source, .. } = &restored {
+    if let Belief::Claim {
+        believed, source, ..
+    } = &restored
+    {
         assert!(!believed);
         assert!(matches!(source, BeliefSource::ToldBy(name) if name == "Cook"));
     } else {
@@ -458,7 +472,8 @@ fn belief_state_full_serde_round_trip() {
         content: "Cook claims kitchen".to_string(),
         turn_learned: 6,
         source: BeliefSource::ToldBy("Cook".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.update_credibility("Cook", 0.8);
 

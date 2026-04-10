@@ -193,8 +193,7 @@ fn creature_hp_delta_includes_name() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "creature.hp_delta")
-        .expect("Expected a 'creature.hp_delta' span");
+    let span = find_span(&spans, "creature.hp_delta").expect("Expected a 'creature.hp_delta' span");
 
     assert_eq!(
         field_value(span, "name"),
@@ -217,8 +216,7 @@ fn creature_hp_delta_reports_correct_values() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "creature.hp_delta")
-        .expect("Expected a 'creature.hp_delta' span");
+    let span = find_span(&spans, "creature.hp_delta").expect("Expected a 'creature.hp_delta' span");
 
     assert_eq!(
         field_value(span, "old_hp"),
@@ -230,11 +228,7 @@ fn creature_hp_delta_reports_correct_values() {
         Some("15"),
         "new_hp should be 15 after -5 delta"
     );
-    assert_eq!(
-        field_value(span, "delta"),
-        Some("-5"),
-        "delta should be -5"
-    );
+    assert_eq!(field_value(span, "delta"), Some("-5"), "delta should be -5");
 }
 
 /// apply_hp_delta must report clamped=true when damage exceeds current HP.
@@ -251,8 +245,7 @@ fn creature_hp_delta_reports_clamped_on_overkill() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "creature.hp_delta")
-        .expect("Expected a 'creature.hp_delta' span");
+    let span = find_span(&spans, "creature.hp_delta").expect("Expected a 'creature.hp_delta' span");
 
     assert!(
         has_field(span, "clamped"),
@@ -284,8 +277,7 @@ fn creature_hp_delta_reports_clamped_on_overheal() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "creature.hp_delta")
-        .expect("Expected a 'creature.hp_delta' span");
+    let span = find_span(&spans, "creature.hp_delta").expect("Expected a 'creature.hp_delta' span");
 
     assert_eq!(
         field_value(span, "clamped"),
@@ -313,8 +305,7 @@ fn creature_hp_delta_reports_unclamped_on_normal_damage() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "creature.hp_delta")
-        .expect("Expected a 'creature.hp_delta' span");
+    let span = find_span(&spans, "creature.hp_delta").expect("Expected a 'creature.hp_delta' span");
 
     assert_eq!(
         field_value(span, "clamped"),
@@ -521,8 +512,7 @@ fn disposition_shift_tracks_neutral_to_friendly() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "disposition.shift")
-        .expect("Expected a 'disposition.shift' span");
+    let span = find_span(&spans, "disposition.shift").expect("Expected a 'disposition.shift' span");
 
     assert_eq!(
         field_value(span, "old_attitude"),
@@ -551,8 +541,7 @@ fn disposition_shift_tracks_neutral_to_hostile() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "disposition.shift")
-        .expect("Expected a 'disposition.shift' span");
+    let span = find_span(&spans, "disposition.shift").expect("Expected a 'disposition.shift' span");
 
     assert_eq!(
         field_value(span, "old_attitude"),
@@ -581,8 +570,7 @@ fn disposition_shift_includes_numeric_values() {
     });
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "disposition.shift")
-        .expect("Expected a 'disposition.shift' span");
+    let span = find_span(&spans, "disposition.shift").expect("Expected a 'disposition.shift' span");
 
     assert!(
         has_field(span, "old_value"),
@@ -693,8 +681,14 @@ fn turn_phase_transitions_emit_per_transition() {
     );
 
     // Verify the chain
-    assert_eq!(field_value(phase_spans[0], "to_phase"), Some("IntentRouting"));
-    assert_eq!(field_value(phase_spans[1], "to_phase"), Some("AgentExecution"));
+    assert_eq!(
+        field_value(phase_spans[0], "to_phase"),
+        Some("IntentRouting")
+    );
+    assert_eq!(
+        field_value(phase_spans[1], "to_phase"),
+        Some("AgentExecution")
+    );
     assert_eq!(field_value(phase_spans[2], "to_phase"), Some("StatePatch"));
 }
 
@@ -824,8 +818,7 @@ async fn barrier_resolved_full_submission_not_timed_out() {
     };
 
     let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "barrier.resolved")
-        .expect("Expected a 'barrier.resolved' span");
+    let span = find_span(&spans, "barrier.resolved").expect("Expected a 'barrier.resolved' span");
 
     assert_eq!(
         field_value(span, "timed_out"),
@@ -898,10 +891,7 @@ fn otel_span_names_are_semantically_distinct() {
     // Verify no duplicates
     let mut seen = std::collections::HashSet::new();
     for name in &expected_spans {
-        assert!(
-            seen.insert(name),
-            "Duplicate span name detected: {name}"
-        );
+        assert!(seen.insert(name), "Duplicate span name detected: {name}");
     }
 
     // Verify dot-notation convention

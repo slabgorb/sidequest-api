@@ -215,7 +215,10 @@ impl Orchestrator {
     }
 
     /// Create a new orchestrator with optional OTEL endpoint for Claude subprocess telemetry.
-    pub fn new_with_otel(watcher_tx: mpsc::Sender<TurnRecord>, otel_endpoint: Option<String>) -> Self {
+    pub fn new_with_otel(
+        watcher_tx: mpsc::Sender<TurnRecord>,
+        otel_endpoint: Option<String>,
+    ) -> Self {
         let client = if let Some(endpoint) = otel_endpoint {
             ClaudeClient::builder().otel_endpoint(endpoint).build()
         } else {
@@ -366,7 +369,11 @@ impl Orchestrator {
     ///
     /// Returns the composed prompt text, zone breakdown, injected script tool names,
     /// and the `--allowedTools` specs for the Claude CLI.
-    pub fn build_narrator_prompt(&self, action: &str, context: &TurnContext) -> NarratorPromptResult {
+    pub fn build_narrator_prompt(
+        &self,
+        action: &str,
+        context: &TurnContext,
+    ) -> NarratorPromptResult {
         self.build_narrator_prompt_tiered(action, context, NarratorPromptTier::Full)
     }
 
@@ -374,7 +381,12 @@ impl Orchestrator {
     ///
     /// `Full` includes everything (first turn). `Delta` skips static sections
     /// that are already in the persistent session's conversation history.
-    pub fn build_narrator_prompt_tiered(&self, action: &str, context: &TurnContext, tier: NarratorPromptTier) -> NarratorPromptResult {
+    pub fn build_narrator_prompt_tiered(
+        &self,
+        action: &str,
+        context: &TurnContext,
+        tier: NarratorPromptTier,
+    ) -> NarratorPromptResult {
         let route = self.intent_router.classify(action, context);
 
         let mut builder = ContextBuilder::new();
@@ -462,7 +474,10 @@ impl Orchestrator {
             if !gp.world_state.is_empty() {
                 builder.add_section(PromptSection::new(
                     "genre_world_state",
-                    format!("<genre-world-state>\n{}\n</genre-world-state>", gp.world_state),
+                    format!(
+                        "<genre-world-state>\n{}\n</genre-world-state>",
+                        gp.world_state
+                    ),
                     AttentionZone::Early,
                     SectionCategory::Genre,
                 ));
@@ -548,7 +563,9 @@ impl Orchestrator {
 
             // Transition hints — Full tier only (stable vocabulary)
             if is_full && !gp.transition_hints.is_empty() {
-                let hints: Vec<String> = gp.transition_hints.iter()
+                let hints: Vec<String> = gp
+                    .transition_hints
+                    .iter()
                     .map(|(k, v)| format!("  {}: \"{}\"", k, v))
                     .collect();
                 builder.add_section(PromptSection::new(
@@ -569,11 +586,9 @@ impl Orchestrator {
 
         // Trope beat directives (Early zone)
         if let Some(ref beats) = context.pending_trope_context {
-            let _trope_span = tracing::info_span!(
-                "orchestrator.trope_beat_injection",
-                beats_injected = 1u64,
-            )
-            .entered();
+            let _trope_span =
+                tracing::info_span!("orchestrator.trope_beat_injection", beats_injected = 1u64,)
+                    .entered();
             builder.add_section(PromptSection::new(
                 "trope_beat_directives",
                 beats.clone(),
@@ -809,7 +824,8 @@ impl Orchestrator {
         let _pb_guard = tracing::info_span!(
             "turn.agent_llm.prompt_build",
             section_count = section_count as u64,
-        ).entered();
+        )
+        .entered();
         let zone_breakdown = builder.zone_breakdown();
         let prompt_text = builder.compose();
         let allowed_tools = self.narrator_allowed_tools();
@@ -823,7 +839,6 @@ impl Orchestrator {
             env_vars,
         }
     }
-
 }
 
 impl GameService for Orchestrator {
@@ -1094,7 +1109,9 @@ impl GameService for Orchestrator {
 /// Extract and deserialize JSON from a markdown fenced code block.
 ///
 /// Used for responses that may wrap their JSON output in ```json ... ``` or ```game_patch ... ``` fences.
-fn extract_fenced_json<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, serde_json::Error> {
+fn extract_fenced_json<T: serde::de::DeserializeOwned>(
+    input: &str,
+) -> Result<T, serde_json::Error> {
     // Try ```json ... ``` first
     if let Some(start) = input.find("```json") {
         if let Some(end) = input[start + 7..].find("```") {
@@ -1258,7 +1275,6 @@ pub struct PersonalityEvent {
     #[serde(default)]
     pub description: String,
 }
-
 
 /// A merchant transaction extracted from the narrator's JSON block.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -1513,9 +1529,7 @@ pub fn inject_merchant_context(
     // Find merchants at the player's current location
     let merchant_entries: Vec<&NpcRegistryEntry> = registry
         .iter()
-        .filter(|entry| {
-            entry.role.contains("merchant") && entry.location == current_location
-        })
+        .filter(|entry| entry.role.contains("merchant") && entry.location == current_location)
         .collect();
 
     for entry in merchant_entries {
@@ -1548,5 +1562,4 @@ pub fn inject_merchant_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-
 }

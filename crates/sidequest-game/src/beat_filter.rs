@@ -139,7 +139,6 @@ impl BeatFilterConfig {
     pub fn burst_window(&self) -> Duration {
         self.burst_window
     }
-
 }
 
 impl Default for BeatFilterConfig {

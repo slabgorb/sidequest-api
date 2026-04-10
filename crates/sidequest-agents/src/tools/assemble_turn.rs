@@ -10,7 +10,9 @@
 
 use std::collections::HashMap;
 
-use crate::orchestrator::{ActionFlags, ActionRewrite, ActionResult, NarratorExtraction, PersonalityEvent, VisualScene};
+use crate::orchestrator::{
+    ActionFlags, ActionResult, ActionRewrite, NarratorExtraction, PersonalityEvent, VisualScene,
+};
 
 /// Collected results from tool calls made during the narrator turn.
 ///
@@ -104,7 +106,9 @@ pub fn assemble_turn(
         );
         override_count += 1;
     }
-    let quest_updates = tool_results.quest_updates.unwrap_or(extraction.quest_updates);
+    let quest_updates = tool_results
+        .quest_updates
+        .unwrap_or(extraction.quest_updates);
 
     // Personality events: tool calls > narrator extraction
     if tool_results.personality_events.is_some() {
@@ -115,7 +119,9 @@ pub fn assemble_turn(
         );
         override_count += 1;
     }
-    let personality_events = tool_results.personality_events.unwrap_or(extraction.personality_events);
+    let personality_events = tool_results
+        .personality_events
+        .unwrap_or(extraction.personality_events);
 
     // Resource deltas: tool calls > narrator extraction
     if tool_results.resource_deltas.is_some() {
@@ -126,7 +132,9 @@ pub fn assemble_turn(
         );
         override_count += 1;
     }
-    let resource_deltas = tool_results.resource_deltas.unwrap_or(extraction.resource_deltas);
+    let resource_deltas = tool_results
+        .resource_deltas
+        .unwrap_or(extraction.resource_deltas);
 
     // SFX triggers: tool calls > narrator extraction
     if tool_results.sfx_triggers.is_some() {
@@ -148,7 +156,9 @@ pub fn assemble_turn(
         );
         override_count += 1;
     }
-    let items_gained = tool_results.items_acquired.unwrap_or(extraction.items_gained);
+    let items_gained = tool_results
+        .items_acquired
+        .unwrap_or(extraction.items_gained);
 
     tracing::info!(
         tool_overrides = override_count,

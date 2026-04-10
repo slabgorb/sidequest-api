@@ -6,7 +6,6 @@ use sidequest_protocol::{
     ActionRevealPayload, GameMessage, PlayerActionEntry, SessionEventPayload, TurnStatusPayload,
 };
 
-
 use super::DispatchContext;
 
 /// Map free-text status effect strings to typed perceptual effects.
@@ -216,10 +215,7 @@ pub(super) async fn handle_barrier(
                 } else {
                     format!("\n{}\n", auto_resolved_context)
                 };
-                *state_summary = format!(
-                    "{}\n{}\n{}",
-                    sealed_prompt, auto_ctx, state_summary
-                );
+                *state_summary = format!("{}\n{}\n{}", sealed_prompt, auto_ctx, state_summary);
 
                 let combined = named_actions
                     .iter()

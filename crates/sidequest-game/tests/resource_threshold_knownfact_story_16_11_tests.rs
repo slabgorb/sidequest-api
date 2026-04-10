@@ -11,7 +11,7 @@
 //!   AC6: Multiple thresholds crossed in one patch → multiple LoreFragments
 //!   AC7: Integration — LoreFragment appears in select_lore_for_prompt output
 
-use sidequest_game::lore::{LoreCategory, LoreSource, LoreStore, select_lore_for_prompt};
+use sidequest_game::lore::{select_lore_for_prompt, LoreCategory, LoreSource, LoreStore};
 use sidequest_game::resource_pool::{
     mint_threshold_lore, ResourcePatch, ResourcePatchOp, ResourcePool, ResourceThreshold,
 };
@@ -67,7 +67,11 @@ fn patch_crossing_threshold_mints_lore_fragment() {
         50.0,
         0.0,
         100.0,
-        vec![make_threshold(25.0, "humanity_low", "Humanity has dropped dangerously low.")],
+        vec![make_threshold(
+            25.0,
+            "humanity_low",
+            "Humanity has dropped dangerously low.",
+        )],
     );
     let mut snap = snapshot_with_pools(vec![pool]);
     let mut lore = LoreStore::new();
@@ -135,7 +139,11 @@ fn minted_fragment_has_event_category_for_high_relevance() {
     mint_threshold_lore(&[threshold], &mut lore, 7);
 
     let results = lore.query_by_category(&LoreCategory::Event);
-    assert_eq!(results.len(), 1, "Fragment must be in Event category for high relevance");
+    assert_eq!(
+        results.len(),
+        1,
+        "Fragment must be in Event category for high relevance"
+    );
 }
 
 #[test]
@@ -165,7 +173,11 @@ fn decay_crossing_threshold_mints_lore_fragment() {
         12.0,
         0.0,
         100.0,
-        vec![make_threshold(10.0, "fuel_low", "Fuel reserves are running low.")],
+        vec![make_threshold(
+            10.0,
+            "fuel_low",
+            "Fuel reserves are running low.",
+        )],
     );
     pool.decay_per_turn = -5.0;
 
@@ -173,7 +185,11 @@ fn decay_crossing_threshold_mints_lore_fragment() {
     let mut lore = LoreStore::new();
 
     let crossings = snap.apply_pool_decay();
-    assert_eq!(crossings.len(), 1, "decay should cross the fuel_low threshold");
+    assert_eq!(
+        crossings.len(),
+        1,
+        "decay should cross the fuel_low threshold"
+    );
 
     mint_threshold_lore(&crossings, &mut lore, 15);
 
@@ -189,7 +205,11 @@ fn decay_crossing_threshold_mints_lore_fragment() {
 
 #[test]
 fn duplicate_threshold_crossing_does_not_mint_second_fragment() {
-    let threshold = make_threshold(25.0, "humanity_low", "Humanity has dropped dangerously low.");
+    let threshold = make_threshold(
+        25.0,
+        "humanity_low",
+        "Humanity has dropped dangerously low.",
+    );
     let mut lore = LoreStore::new();
 
     // First crossing — should succeed
@@ -198,7 +218,11 @@ fn duplicate_threshold_crossing_does_not_mint_second_fragment() {
 
     // Second crossing with same event_id — should not add duplicate
     mint_threshold_lore(&[threshold], &mut lore, 10);
-    assert_eq!(lore.len(), 1, "duplicate event_id must not create a second fragment");
+    assert_eq!(
+        lore.len(),
+        1,
+        "duplicate event_id must not create a second fragment"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -232,7 +256,11 @@ fn multiple_thresholds_crossed_mints_multiple_fragments() {
 
     mint_threshold_lore(&result.crossed_thresholds, &mut lore, 8);
 
-    assert_eq!(lore.len(), 3, "each crossed threshold should mint one fragment");
+    assert_eq!(
+        lore.len(),
+        3,
+        "each crossed threshold should mint one fragment"
+    );
 
     // Verify each event_id is present
     let events = lore.query_by_category(&LoreCategory::Event);
@@ -282,12 +310,7 @@ fn threshold_lore_prioritized_when_event_category_requested() {
     mint_threshold_lore(&[threshold], &mut lore, 30);
 
     // Specifically request Event category — threshold facts should appear
-    let selected = select_lore_for_prompt(
-        &lore,
-        1000,
-        Some(&[LoreCategory::Event]),
-        None,
-    );
+    let selected = select_lore_for_prompt(&lore, 1000, Some(&[LoreCategory::Event]), None);
 
     assert_eq!(selected.len(), 1);
     assert_eq!(selected[0].id(), "heat_spike");
@@ -330,7 +353,7 @@ fn end_to_end_patch_to_narrator_context() {
     // Verify it's in the narrator context
     let selected = select_lore_for_prompt(&lore, 2000, None, None);
     assert!(selected.iter().any(|f| f.id() == "reputation_shaky"));
-    assert!(selected.iter().any(|f| {
-        f.content() == "Your reputation in this district is becoming unreliable."
-    }));
+    assert!(selected
+        .iter()
+        .any(|f| { f.content() == "Your reputation in this district is becoming unreliable." }));
 }

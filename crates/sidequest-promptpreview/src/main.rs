@@ -21,8 +21,8 @@ use std::process::Command;
 
 use clap::Parser;
 use sidequest_agents::agent::Agent;
-use sidequest_agents::context_builder::ContextBuilder;
 use sidequest_agents::agents::narrator::NarratorAgent;
+use sidequest_agents::context_builder::ContextBuilder;
 use sidequest_agents::prompt_framework::{
     parse_soul_md, AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
 };
@@ -286,7 +286,10 @@ fn main() {
     let soul_data = parse_soul_md(&soul_path);
 
     if soul_data.is_empty() {
-        eprintln!("WARNING: SOUL.md not found or empty at {}", soul_path.display());
+        eprintln!(
+            "WARNING: SOUL.md not found or empty at {}",
+            soul_path.display()
+        );
     }
 
     // --- Build the prompt using real Rust types ---
@@ -406,10 +409,7 @@ fn main() {
     }
 
     // Step 10: Player action (Recency/Action)
-    let action_text = cli
-        .action
-        .as_deref()
-        .unwrap_or(DEFAULT_ACTION);
+    let action_text = cli.action.as_deref().unwrap_or(DEFAULT_ACTION);
     builder.add_section(PromptSection::new(
         "player_action",
         format!("The player says: {}", action_text),
@@ -449,16 +449,8 @@ fn main() {
     } else {
         // Labeled output with zone annotations
         let breakdown = builder.zone_breakdown();
-        let total_tokens: usize = breakdown
-            .zones
-            .iter()
-            .map(|z| z.total_tokens)
-            .sum();
-        let section_count: usize = breakdown
-            .zones
-            .iter()
-            .map(|z| z.sections.len())
-            .sum();
+        let total_tokens: usize = breakdown.zones.iter().map(|z| z.total_tokens).sum();
+        let section_count: usize = breakdown.zones.iter().map(|z| z.sections.len()).sum();
 
         println!(
             "Narrator Prompt Preview  ({} sections, ~{} tokens)",
@@ -513,7 +505,11 @@ fn find_soul_md() -> PathBuf {
     // Check relative to exe
     if let Ok(exe) = std::env::current_exe() {
         // exe is in target/debug/ or target/release/, workspace is ../../
-        if let Some(workspace) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+        if let Some(workspace) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
             let candidate = workspace.join("SOUL.md");
             if candidate.exists() {
                 return candidate;
@@ -535,7 +531,11 @@ fn detect_genre_packs_path() -> PathBuf {
 
     // Check relative to exe
     if let Ok(exe) = std::env::current_exe() {
-        if let Some(workspace) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent()) {
+        if let Some(workspace) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+        {
             let candidate = workspace
                 .parent()
                 .map(|p| p.join("sidequest-content/genre_packs"))

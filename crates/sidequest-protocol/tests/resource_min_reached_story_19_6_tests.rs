@@ -62,7 +62,10 @@ fn resource_min_reached_json_roundtrip() {
     let json = serde_json::to_string(&msg).unwrap();
     let back: GameMessage = serde_json::from_str(&json).unwrap();
 
-    assert_eq!(msg, back, "ResourceMinReached should survive JSON round-trip");
+    assert_eq!(
+        msg, back,
+        "ResourceMinReached should survive JSON round-trip"
+    );
 }
 
 /// Deserialize from raw JSON.

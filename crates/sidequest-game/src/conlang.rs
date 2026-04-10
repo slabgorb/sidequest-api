@@ -68,7 +68,10 @@ impl MorphemeGlossary {
 
     /// Return all morphemes matching the given category.
     pub fn by_category(&self, category: MorphemeCategory) -> Vec<&Morpheme> {
-        self.morphemes.iter().filter(|m| m.category == category).collect()
+        self.morphemes
+            .iter()
+            .filter(|m| m.category == category)
+            .collect()
     }
 
     /// Shorthand for `by_category(MorphemeCategory::Root)`.
@@ -318,7 +321,12 @@ mod tests {
 
     fn populated_glossary() -> MorphemeGlossary {
         let mut g = MorphemeGlossary::new("draconic", "Draconic");
-        g.add(sample_morpheme_with_hint("zar", "fire", "zahr", MorphemeCategory::Root));
+        g.add(sample_morpheme_with_hint(
+            "zar",
+            "fire",
+            "zahr",
+            MorphemeCategory::Root,
+        ));
         g.add(sample_morpheme("kel", "of the", MorphemeCategory::Particle));
         g.add(sample_morpheme("vor", "great", MorphemeCategory::Prefix));
         g.add(sample_morpheme("thi", "one who", MorphemeCategory::Suffix));
@@ -607,13 +615,48 @@ mod tests {
 
     fn glossary_with_hints() -> MorphemeGlossary {
         let mut g = MorphemeGlossary::new("draconic", "Draconic");
-        g.add(sample_morpheme_with_hint("zar", "fire", "zahr", MorphemeCategory::Root));
-        g.add(sample_morpheme_with_hint("dra", "dragon", "drah", MorphemeCategory::Root));
-        g.add(sample_morpheme_with_hint("kel", "stone", "kel", MorphemeCategory::Root));
-        g.add(sample_morpheme_with_hint("vor", "great", "vohr", MorphemeCategory::Prefix));
-        g.add(sample_morpheme_with_hint("ash", "dark", "ahsh", MorphemeCategory::Prefix));
-        g.add(sample_morpheme_with_hint("thi", "one who", "thee", MorphemeCategory::Suffix));
-        g.add(sample_morpheme_with_hint("nar", "born of", "nahr", MorphemeCategory::Suffix));
+        g.add(sample_morpheme_with_hint(
+            "zar",
+            "fire",
+            "zahr",
+            MorphemeCategory::Root,
+        ));
+        g.add(sample_morpheme_with_hint(
+            "dra",
+            "dragon",
+            "drah",
+            MorphemeCategory::Root,
+        ));
+        g.add(sample_morpheme_with_hint(
+            "kel",
+            "stone",
+            "kel",
+            MorphemeCategory::Root,
+        ));
+        g.add(sample_morpheme_with_hint(
+            "vor",
+            "great",
+            "vohr",
+            MorphemeCategory::Prefix,
+        ));
+        g.add(sample_morpheme_with_hint(
+            "ash",
+            "dark",
+            "ahsh",
+            MorphemeCategory::Prefix,
+        ));
+        g.add(sample_morpheme_with_hint(
+            "thi",
+            "one who",
+            "thee",
+            MorphemeCategory::Suffix,
+        ));
+        g.add(sample_morpheme_with_hint(
+            "nar",
+            "born of",
+            "nahr",
+            MorphemeCategory::Suffix,
+        ));
         g
     }
 
@@ -674,15 +717,26 @@ mod tests {
         for name in &bank.names {
             match name.pattern {
                 NamePattern::Root => {
-                    assert!(!name.gloss.contains('-'), "Root gloss should be a single meaning");
+                    assert!(
+                        !name.gloss.contains('-'),
+                        "Root gloss should be a single meaning"
+                    );
                 }
                 NamePattern::PrefixRoot | NamePattern::RootSuffix => {
-                    assert_eq!(name.gloss.matches('-').count(), 1,
-                        "Two-part gloss should have one dash: {}", name.gloss);
+                    assert_eq!(
+                        name.gloss.matches('-').count(),
+                        1,
+                        "Two-part gloss should have one dash: {}",
+                        name.gloss
+                    );
                 }
                 NamePattern::PrefixRootSuffix => {
-                    assert_eq!(name.gloss.matches('-').count(), 2,
-                        "Three-part gloss should have two dashes: {}", name.gloss);
+                    assert_eq!(
+                        name.gloss.matches('-').count(),
+                        2,
+                        "Three-part gloss should have two dashes: {}",
+                        name.gloss
+                    );
                 }
             }
         }
@@ -696,8 +750,11 @@ mod tests {
         // All morphemes in glossary_with_hints have pronunciation hints,
         // so every generated name should have a pronunciation.
         for name in &bank.names {
-            assert!(name.pronunciation.is_some(),
-                "Expected pronunciation for '{}' but got None", name.name);
+            assert!(
+                name.pronunciation.is_some(),
+                "Expected pronunciation for '{}' but got None",
+                name.name
+            );
         }
     }
 
@@ -705,7 +762,12 @@ mod tests {
     fn generate_pronunciation_none_when_hint_missing() {
         let mut glossary = MorphemeGlossary::new("draconic", "Draconic");
         // Root with hint, prefix without hint
-        glossary.add(sample_morpheme_with_hint("zar", "fire", "zahr", MorphemeCategory::Root));
+        glossary.add(sample_morpheme_with_hint(
+            "zar",
+            "fire",
+            "zahr",
+            MorphemeCategory::Root,
+        ));
         glossary.add(sample_morpheme("vor", "great", MorphemeCategory::Prefix));
         // Force PrefixRoot only
         let config = NameGenConfig {
@@ -716,8 +778,12 @@ mod tests {
         };
         let bank = NameBank::generate(&glossary, &config);
         for name in &bank.names {
-            assert!(name.pronunciation.is_none(),
-                "Expected no pronunciation for '{}' but got {:?}", name.name, name.pronunciation);
+            assert!(
+                name.pronunciation.is_none(),
+                "Expected no pronunciation for '{}' but got {:?}",
+                name.name,
+                name.pronunciation
+            );
         }
     }
 
@@ -727,13 +793,25 @@ mod tests {
         let config = default_config(50, 42);
         let bank = NameBank::generate(&glossary, &config);
         let has_root = bank.names.iter().any(|n| n.pattern == NamePattern::Root);
-        let has_prefix_root = bank.names.iter().any(|n| n.pattern == NamePattern::PrefixRoot);
-        let has_root_suffix = bank.names.iter().any(|n| n.pattern == NamePattern::RootSuffix);
-        let has_prefix_root_suffix = bank.names.iter().any(|n| n.pattern == NamePattern::PrefixRootSuffix);
+        let has_prefix_root = bank
+            .names
+            .iter()
+            .any(|n| n.pattern == NamePattern::PrefixRoot);
+        let has_root_suffix = bank
+            .names
+            .iter()
+            .any(|n| n.pattern == NamePattern::RootSuffix);
+        let has_prefix_root_suffix = bank
+            .names
+            .iter()
+            .any(|n| n.pattern == NamePattern::PrefixRootSuffix);
         assert!(has_root, "Expected some Root pattern names");
         assert!(has_prefix_root, "Expected some PrefixRoot pattern names");
         assert!(has_root_suffix, "Expected some RootSuffix pattern names");
-        assert!(has_prefix_root_suffix, "Expected some PrefixRootSuffix pattern names");
+        assert!(
+            has_prefix_root_suffix,
+            "Expected some PrefixRootSuffix pattern names"
+        );
     }
 
     #[test]
@@ -747,14 +825,28 @@ mod tests {
     #[test]
     fn generate_roots_only_glossary_uses_root_pattern() {
         let mut glossary = MorphemeGlossary::new("draconic", "Draconic");
-        glossary.add(sample_morpheme_with_hint("zar", "fire", "zahr", MorphemeCategory::Root));
-        glossary.add(sample_morpheme_with_hint("dra", "dragon", "drah", MorphemeCategory::Root));
+        glossary.add(sample_morpheme_with_hint(
+            "zar",
+            "fire",
+            "zahr",
+            MorphemeCategory::Root,
+        ));
+        glossary.add(sample_morpheme_with_hint(
+            "dra",
+            "dragon",
+            "drah",
+            MorphemeCategory::Root,
+        ));
         let config = default_config(10, 42);
         let bank = NameBank::generate(&glossary, &config);
         assert_eq!(bank.names.len(), 10);
         for name in &bank.names {
-            assert_eq!(name.pattern, NamePattern::Root,
-                "With only roots, pattern should be Root but got {:?}", name.pattern);
+            assert_eq!(
+                name.pattern,
+                NamePattern::Root,
+                "With only roots, pattern should be Root but got {:?}",
+                name.pattern
+            );
         }
     }
 
@@ -786,12 +878,16 @@ mod tests {
 
     #[test]
     fn format_prompt_single_name_includes_name_and_gloss() {
-        let bank = make_bank(vec![
-            make_name("zar", "fire", None),
-        ]);
+        let bank = make_bank(vec![make_name("zar", "fire", None)]);
         let result = format_name_bank_for_prompt(&bank, 10);
-        assert!(result.contains("zar"), "Output should contain the name 'zar'");
-        assert!(result.contains("fire"), "Output should contain the gloss 'fire'");
+        assert!(
+            result.contains("zar"),
+            "Output should contain the name 'zar'"
+        );
+        assert!(
+            result.contains("fire"),
+            "Output should contain the gloss 'fire'"
+        );
     }
 
     #[test]
@@ -804,29 +900,38 @@ mod tests {
         let result = format_name_bank_for_prompt(&bank, 10);
         // Each name should appear on its own line
         let lines: Vec<&str> = result.lines().collect();
-        let name_lines: Vec<&&str> = lines.iter().filter(|l| !l.starts_with("##") && (l.contains("zar") || l.contains("dra") || l.contains("kel"))).collect();
+        let name_lines: Vec<&&str> = lines
+            .iter()
+            .filter(|l| {
+                !l.starts_with("##")
+                    && (l.contains("zar") || l.contains("dra") || l.contains("kel"))
+            })
+            .collect();
         assert_eq!(name_lines.len(), 3, "Each name should be on its own line");
     }
 
     #[test]
     fn format_prompt_starts_with_section_header() {
-        let bank = make_bank(vec![
-            make_name("zar", "fire", None),
-        ]);
+        let bank = make_bank(vec![make_name("zar", "fire", None)]);
         let result = format_name_bank_for_prompt(&bank, 10);
         let first_line = result.lines().next().unwrap();
-        assert!(first_line.starts_with("##"), "Output should start with a markdown header, got: '{}'", first_line);
+        assert!(
+            first_line.starts_with("##"),
+            "Output should start with a markdown header, got: '{}'",
+            first_line
+        );
     }
 
     #[test]
     fn format_prompt_header_contains_language_id() {
-        let bank = make_bank(vec![
-            make_name("zar", "fire", None),
-        ]);
+        let bank = make_bank(vec![make_name("zar", "fire", None)]);
         let result = format_name_bank_for_prompt(&bank, 10);
         let first_line = result.lines().next().unwrap();
-        assert!(first_line.contains("draconic") || first_line.contains("Draconic"),
-            "Header should contain language_id, got: '{}'", first_line);
+        assert!(
+            first_line.contains("draconic") || first_line.contains("Draconic"),
+            "Header should contain language_id, got: '{}'",
+            first_line
+        );
     }
 
     #[test]
@@ -843,7 +948,10 @@ mod tests {
         assert!(result.contains("zar"), "First name should be included");
         assert!(result.contains("dra"), "Second name should be included");
         assert!(!result.contains("kel"), "Third name should NOT be included");
-        assert!(!result.contains("vor"), "Fourth name should NOT be included");
+        assert!(
+            !result.contains("vor"),
+            "Fourth name should NOT be included"
+        );
         assert!(!result.contains("thi"), "Fifth name should NOT be included");
     }
 
@@ -860,32 +968,32 @@ mod tests {
 
     #[test]
     fn format_prompt_max_names_zero_returns_empty_string() {
-        let bank = make_bank(vec![
-            make_name("zar", "fire", None),
-        ]);
+        let bank = make_bank(vec![make_name("zar", "fire", None)]);
         let result = format_name_bank_for_prompt(&bank, 0);
         assert_eq!(result, "");
     }
 
     #[test]
     fn format_prompt_includes_pronunciation_when_present() {
-        let bank = make_bank(vec![
-            make_name("zar", "fire", Some("zahr")),
-        ]);
+        let bank = make_bank(vec![make_name("zar", "fire", Some("zahr"))]);
         let result = format_name_bank_for_prompt(&bank, 10);
-        assert!(result.contains("zahr"), "Output should include pronunciation 'zahr'");
+        assert!(
+            result.contains("zahr"),
+            "Output should include pronunciation 'zahr'"
+        );
     }
 
     #[test]
     fn format_prompt_omits_pronunciation_gracefully_when_absent() {
-        let bank = make_bank(vec![
-            make_name("zar", "fire", None),
-        ]);
+        let bank = make_bank(vec![make_name("zar", "fire", None)]);
         let result = format_name_bank_for_prompt(&bank, 10);
         assert!(result.contains("zar"), "Name should still appear");
         assert!(result.contains("fire"), "Gloss should still appear");
         // Should not contain empty parens or "None"
-        assert!(!result.contains("None"), "Should not contain literal 'None'");
+        assert!(
+            !result.contains("None"),
+            "Should not contain literal 'None'"
+        );
     }
 
     #[test]
@@ -896,7 +1004,12 @@ mod tests {
         ]);
         let result = format_name_bank_for_prompt(&bank, 10);
         for line in result.lines() {
-            assert_eq!(line, line.trim_end(), "Line has trailing whitespace: '{}'", line);
+            assert_eq!(
+                line,
+                line.trim_end(),
+                "Line has trailing whitespace: '{}'",
+                line
+            );
         }
     }
 }

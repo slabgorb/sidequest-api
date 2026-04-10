@@ -58,14 +58,12 @@ pub fn propose_ocean_shifts(event: PersonalityEvent, npc_name: &str) -> Vec<Ocea
                 cause: "emotional fallout from betrayal".to_string(),
             },
         ],
-        PersonalityEvent::NearDeath => vec![
-            OceanShiftProposal {
-                npc_name: name,
-                dimension: OceanDimension::Neuroticism,
-                delta: 1.5,
-                cause: "near-death experience".to_string(),
-            },
-        ],
+        PersonalityEvent::NearDeath => vec![OceanShiftProposal {
+            npc_name: name,
+            dimension: OceanDimension::Neuroticism,
+            delta: 1.5,
+            cause: "near-death experience".to_string(),
+        }],
         PersonalityEvent::Victory => vec![
             OceanShiftProposal {
                 npc_name: name.clone(),
@@ -140,7 +138,13 @@ pub fn apply_ocean_shifts(
 
         let proposals = propose_ocean_shifts(*event, npc_name);
         for proposal in &proposals {
-            profile.apply_shift(proposal.dimension, proposal.delta, proposal.cause.clone(), turn, &mut log);
+            profile.apply_shift(
+                proposal.dimension,
+                proposal.delta,
+                proposal.cause.clone(),
+                turn,
+                &mut log,
+            );
         }
         // Regenerate summary from mutated profile
         entry.ocean_summary = profile.behavioral_summary();

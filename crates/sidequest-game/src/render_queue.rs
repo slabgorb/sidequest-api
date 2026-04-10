@@ -266,6 +266,51 @@ struct QueueState {
     queue_depth: usize,
 }
 
+/// Parameters passed to the render callback closure registered with
+/// [`RenderQueue::spawn`].
+///
+/// Introduced to replace a 10-positional-argument closure signature that
+/// caused wide test-fixture churn every time a new field was added (see
+/// story 35-15 commit body). Callers destructure in the closure parameter
+/// position:
+///
+/// ```ignore
+/// RenderQueue::spawn(config, |params: RenderJobParams| async move {
+///     let RenderJobParams { prompt, art_style, tier, width, height, .. } = params;
+///     // ...
+/// });
+/// ```
+///
+/// Marked `#[non_exhaustive]` so future fields can be added without
+/// requiring `{ field1, field2, .. }` destructurings to be rewritten.
+/// External crates cannot construct this via struct literal, which is
+/// intentional — only the queue worker ever builds it.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RenderJobParams {
+    /// The rendered prompt fragment from the subject.
+    pub prompt: String,
+    /// Composed art style string (positive_suffix + tag overrides).
+    pub art_style: String,
+    /// Tier label: `"portrait"`, `"scene_illustration"`, or `"landscape"`.
+    pub tier: String,
+    /// Negative prompt for exclusion.
+    pub negative_prompt: String,
+    /// Raw narration text for daemon-side visual extraction.
+    pub narration: String,
+    /// Target image width in pixels (from `tier_to_dimensions`).
+    pub width: u32,
+    /// Target image height in pixels (from `tier_to_dimensions`).
+    pub height: u32,
+    /// Genre pack's preferred Flux variant (`"dev"` or `"schnell"`, or
+    /// empty to use the daemon's tier default).
+    pub variant: String,
+    /// Optional absolute path to a LoRA `.safetensors` file.
+    pub lora_path: Option<String>,
+    /// Optional LoRA scale (0.0–2.0). `None` lets the daemon default to 1.0.
+    pub lora_scale: Option<f32>,
+}
+
 /// A render job sent through the channel to the worker.
 struct RenderJob {
     job_id: Uuid,
@@ -281,6 +326,18 @@ struct RenderJob {
     width: u32,
     /// Target image height in pixels (from tier_to_dimensions).
     height: u32,
+    /// Genre pack's preferred Flux variant (`"dev"` or `"schnell"`). Empty
+    /// string means "use the daemon's tier default." Sourced from
+    /// `visual_style.yaml::preferred_model`. Previously read in Rust and
+    /// silently dropped at the enqueue boundary (parameter `_image_model`
+    /// was prefixed with `_` → unused). Story 35-15 closes that wire.
+    variant: String,
+    /// Optional absolute path to a LoRA `.safetensors` file. Forwarded to
+    /// the daemon as `RenderParams.lora_path`. Story 35-15.
+    lora_path: Option<String>,
+    /// Optional LoRA scale (0.0–1.0). `None` lets the daemon default to
+    /// 1.0 — no silent fallback on the Rust side. Story 35-15.
+    lora_scale: Option<f32>,
 }
 
 /// The async render queue.
@@ -300,11 +357,17 @@ pub struct RenderQueue {
 impl RenderQueue {
     /// Spawn the render queue with a background worker.
     ///
-    /// `render_fn` is called for each job — pass a closure that calls
-    /// the daemon client. Returns `(image_url, generation_ms)` on success.
+    /// `render_fn` is called for each job with a [`RenderJobParams`] struct.
+    /// Pass a closure that calls the daemon client and returns
+    /// `(image_url, generation_ms)` on success.
+    ///
+    /// The closure signature used to take 10 positional `String`/`u32`/
+    /// `Option` arguments, which made adding a new field ripple through
+    /// every test fixture. Packing them into one struct compresses that
+    /// blast radius to a single destructuring site.
     pub fn spawn<F, Fut>(config: RenderQueueConfig, render_fn: F) -> Self
     where
-        F: Fn(String, String, String, String, String, u32, u32) -> Fut + Send + 'static,
+        F: Fn(RenderJobParams) -> Fut + Send + 'static,
         Fut: std::future::Future<Output = Result<(String, u64), String>> + Send,
     {
         let state = Arc::new(Mutex::new(QueueState {
@@ -330,8 +393,22 @@ impl RenderQueue {
                     }
                 }
 
-                // Call the render function
-                let result = render_fn(job.prompt, job.art_style, job.tier.clone(), job.negative_prompt, job.narration, job.width, job.height).await;
+                // Call the render function with packed params.
+                // `job.tier` is cloned because it's also moved into the
+                // success result below; everything else moves.
+                let params = RenderJobParams {
+                    prompt: job.prompt,
+                    art_style: job.art_style,
+                    tier: job.tier.clone(),
+                    negative_prompt: job.negative_prompt,
+                    narration: job.narration,
+                    width: job.width,
+                    height: job.height,
+                    variant: job.variant,
+                    lora_path: job.lora_path,
+                    lora_scale: job.lora_scale,
+                };
+                let result = render_fn(params).await;
 
                 // Update state and broadcast
                 let broadcast_msg = match result {
@@ -406,9 +483,11 @@ impl RenderQueue {
         &self,
         subject: RenderSubject,
         art_style: &str,
-        _image_model: &str,
+        variant: &str,
         negative_prompt: &str,
         narration: &str,
+        lora_path: Option<&str>,
+        lora_scale: Option<f32>,
     ) -> Result<EnqueueResult, QueueError> {
         let content_hash = compute_content_hash(&subject);
         let mut guard = self.state.lock().await;
@@ -469,6 +548,9 @@ impl RenderQueue {
             narration: narration.to_string(),
             width: dims.width,
             height: dims.height,
+            variant: variant.to_string(),
+            lora_path: lora_path.map(str::to_string),
+            lora_scale,
         };
         if self.job_tx.send(job).await.is_err() {
             let mut guard = self.state.lock().await;

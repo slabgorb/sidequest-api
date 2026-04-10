@@ -8,8 +8,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use sidequest_genre::{AudioConfig, MoodTrack, TrackVariation};
 pub use sidequest_genre::FactionThemeDef;
+use sidequest_genre::{AudioConfig, MoodTrack, TrackVariation};
 use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 
 use crate::theme_rotator::{RotationConfig, ThemeRotator};
@@ -362,9 +362,7 @@ impl MusicDirector {
                 );
                 continue;
             }
-            let mood_map = themed_tracks
-                .entry(theme.mood.clone())
-                .or_default();
+            let mood_map = themed_tracks.entry(theme.mood.clone()).or_default();
             for variation in &theme.variations {
                 // OTEL: detect unrecognized variation_type strings before
                 // as_variation() silently defaults to Full. sidequest-genre
@@ -466,7 +464,9 @@ impl MusicDirector {
             // Fallback: Full — preferred variation is missing but Full
             // is registered for this mood. CLAUDE.md no-silent-fallbacks:
             // surface on the watcher channel. Story 35-13.
-            if preferred != TrackVariation::Full && mood_variations.contains_key(&TrackVariation::Full) {
+            if preferred != TrackVariation::Full
+                && mood_variations.contains_key(&TrackVariation::Full)
+            {
                 tracing::warn!(
                     mood = mood_key,
                     preferred = ?preferred,
@@ -716,18 +716,22 @@ impl MusicDirector {
     fn find_matching_faction_theme(&self, ctx: &FactionContext) -> Option<&FactionThemeDef> {
         // Check location faction
         if let Some(ref loc_faction) = ctx.location_faction {
-            if let Some(theme) = self.faction_themes.iter().find(|t| {
-                t.faction_id == *loc_faction && t.triggers.location
-            }) {
+            if let Some(theme) = self
+                .faction_themes
+                .iter()
+                .find(|t| t.faction_id == *loc_faction && t.triggers.location)
+            {
                 return Some(theme);
             }
         }
 
         // Check actor factions (first match wins)
         for actor_faction in &ctx.actor_factions {
-            if let Some(theme) = self.faction_themes.iter().find(|t| {
-                t.faction_id == *actor_faction && t.triggers.npc_present
-            }) {
+            if let Some(theme) = self
+                .faction_themes
+                .iter()
+                .find(|t| t.faction_id == *actor_faction && t.triggers.npc_present)
+            {
                 return Some(theme);
             }
         }
@@ -832,10 +836,7 @@ impl MusicDirector {
         variation: &TrackVariation,
     ) -> Option<String> {
         let mood_key = classification.primary.as_str();
-        let tracks = self
-            .themed_tracks
-            .get(mood_key)?
-            .get(variation)?;
+        let tracks = self.themed_tracks.get(mood_key)?.get(variation)?;
         if tracks.is_empty() {
             return None;
         }
@@ -857,26 +858,34 @@ impl MusicDirector {
             TrackVariation::Overture if ctx.session_start => {
                 "priority_1_overture: session_start".to_string()
             }
-            TrackVariation::Overture => {
-                "priority_1_overture: location_arrival".to_string()
-            }
+            TrackVariation::Overture => "priority_1_overture: location_arrival".to_string(),
             TrackVariation::Resolution if ctx.combat_just_ended => {
                 "priority_2_resolution: combat_just_ended".to_string()
             }
-            TrackVariation::Resolution => {
-                "priority_2_resolution: quest_completed".to_string()
-            }
+            TrackVariation::Resolution => "priority_2_resolution: quest_completed".to_string(),
             TrackVariation::TensionBuild if classification.intensity >= 0.7 => {
-                format!("priority_3_tension_build: intensity={:.1}", classification.intensity)
+                format!(
+                    "priority_3_tension_build: intensity={:.1}",
+                    classification.intensity
+                )
             }
             TrackVariation::TensionBuild => {
-                format!("priority_3_tension_build: drama_weight={:.1}", ctx.drama_weight)
+                format!(
+                    "priority_3_tension_build: drama_weight={:.1}",
+                    ctx.drama_weight
+                )
             }
             TrackVariation::Ambient if classification.intensity <= 0.3 => {
-                format!("priority_4_ambient: low_intensity={:.1}", classification.intensity)
+                format!(
+                    "priority_4_ambient: low_intensity={:.1}",
+                    classification.intensity
+                )
             }
             TrackVariation::Ambient => {
-                format!("priority_4_ambient: scene_turn_count={}", ctx.scene_turn_count)
+                format!(
+                    "priority_4_ambient: scene_turn_count={}",
+                    ctx.scene_turn_count
+                )
             }
             TrackVariation::Sparse => {
                 format!(
@@ -897,7 +906,9 @@ impl MusicDirector {
 
         // Try primary key first
         if let Some(tracks) = self.mood_tracks.get(mood_key) {
-            return self.rotator.select(mood_key, tracks, classification.intensity);
+            return self
+                .rotator
+                .select(mood_key, tracks, classification.intensity);
         }
 
         // Try resolving through alias chain to find tracks
@@ -905,7 +916,9 @@ impl MusicDirector {
         let resolved_key = resolved.as_str();
         if resolved_key != mood_key {
             if let Some(tracks) = self.mood_tracks.get(resolved_key) {
-                return self.rotator.select(resolved_key, tracks, classification.intensity);
+                return self
+                    .rotator
+                    .select(resolved_key, tracks, classification.intensity);
             }
         }
 
@@ -916,9 +929,10 @@ impl MusicDirector {
             "exploration" => &["teahouse"],
             _ => &[],
         };
-        if let Some((alias, tracks)) = fallbacks.iter().find_map(|alias| {
-            self.mood_tracks.get(*alias).map(|t| (*alias, t))
-        }) {
+        if let Some((alias, tracks)) = fallbacks
+            .iter()
+            .find_map(|alias| self.mood_tracks.get(*alias).map(|t| (*alias, t)))
+        {
             return self.rotator.select(alias, tracks, classification.intensity);
         }
 
@@ -1011,17 +1025,25 @@ impl MusicDirector {
             current_track: self.current_track.clone(),
             rotation_history: self.rotator.history_snapshot(),
             available_moods: self.mood_tracks.keys().cloned().collect(),
-            tracks_per_mood: self.mood_tracks.iter()
+            tracks_per_mood: self
+                .mood_tracks
+                .iter()
                 .map(|(k, v)| (k.clone(), v.iter().map(|t| t.title.clone()).collect()))
                 .collect(),
-            current_variation: self.current_variation.map(|v| format!("{v:?}").to_lowercase()),
+            current_variation: self
+                .current_variation
+                .map(|v| format!("{v:?}").to_lowercase()),
             variation_reason: self.variation_reason.clone(),
         }
     }
 
     /// Classify mood and return both the classification result and the keyword matches
     /// that led to it (for OTEL telemetry).
-    pub fn classify_mood_with_reasoning(&self, _narration: &str, ctx: &MoodContext) -> MoodClassificationWithReason {
+    pub fn classify_mood_with_reasoning(
+        &self,
+        _narration: &str,
+        ctx: &MoodContext,
+    ) -> MoodClassificationWithReason {
         // Encounter mood override takes highest priority — resolve through alias chain
         if let Some(ref mood_str) = ctx.encounter_mood_override {
             return MoodClassificationWithReason {
@@ -1037,36 +1059,59 @@ impl MusicDirector {
         // State-based overrides
         if ctx.in_combat {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: MoodKey::COMBAT, intensity: 0.8, confidence: 1.0 },
+                classification: MoodClassification {
+                    primary: MoodKey::COMBAT,
+                    intensity: 0.8,
+                    confidence: 1.0,
+                },
                 reason: "state_override: in_combat".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.in_chase {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: MoodKey::TENSION, intensity: 0.9, confidence: 1.0 },
+                classification: MoodClassification {
+                    primary: MoodKey::TENSION,
+                    intensity: 0.9,
+                    confidence: 1.0,
+                },
                 reason: "state_override: in_chase".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.quest_completed {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: MoodKey::TRIUMPH, intensity: 0.7, confidence: 0.9 },
+                classification: MoodClassification {
+                    primary: MoodKey::TRIUMPH,
+                    intensity: 0.7,
+                    confidence: 0.9,
+                },
                 reason: "state_override: quest_completed".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.npc_died {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: MoodKey::SORROW, intensity: 0.7, confidence: 0.8 },
+                classification: MoodClassification {
+                    primary: MoodKey::SORROW,
+                    intensity: 0.7,
+                    confidence: 0.8,
+                },
                 reason: "state_override: npc_died".to_string(),
                 keyword_matches: vec![],
             };
         }
         if ctx.party_health_pct > 0.0 && ctx.party_health_pct < 0.3 {
             return MoodClassificationWithReason {
-                classification: MoodClassification { primary: MoodKey::TENSION, intensity: 0.6, confidence: 0.7 },
-                reason: format!("state_override: low_health ({}%)", (ctx.party_health_pct * 100.0) as u8),
+                classification: MoodClassification {
+                    primary: MoodKey::TENSION,
+                    intensity: 0.6,
+                    confidence: 0.7,
+                },
+                reason: format!(
+                    "state_override: low_health ({}%)",
+                    (ctx.party_health_pct * 100.0) as u8
+                ),
                 keyword_matches: vec![],
             };
         }
@@ -1074,12 +1119,15 @@ impl MusicDirector {
         // No state-based override. Narrator's scene_mood is used for track selection
         // in the dispatch pipeline. This telemetry classification defaults to Exploration.
         MoodClassificationWithReason {
-            classification: MoodClassification { primary: MoodKey::EXPLORATION, intensity: 0.4, confidence: 0.2 },
+            classification: MoodClassification {
+                primary: MoodKey::EXPLORATION,
+                intensity: 0.4,
+                confidence: 0.2,
+            },
             reason: "default: no state override, defer to narrator scene_mood".to_string(),
             keyword_matches: vec![],
         }
     }
-
 }
 
 impl std::fmt::Debug for MusicDirector {
@@ -1174,7 +1222,8 @@ mod tests {
             in_combat: true,
             ..Default::default()
         };
-        let classification = director.classify_mood("A gentle breeze blows through the meadow", &ctx);
+        let classification =
+            director.classify_mood("A gentle breeze blows through the meadow", &ctx);
         assert_eq!(classification.primary, MoodKey::COMBAT);
         assert_eq!(classification.confidence, 1.0);
 
@@ -1222,7 +1271,8 @@ mod tests {
         let result2 = director.evaluate("The battle continues.", &ctx);
         assert!(
             matches!(result2, MusicEvalResult::Suppressed { .. }),
-            "Same mood should be suppressed unless intensity >= 0.8, got {:?}", result2
+            "Same mood should be suppressed unless intensity >= 0.8, got {:?}",
+            result2
         );
     }
 
@@ -1265,7 +1315,11 @@ mod tests {
             MusicEvalResult::Cue(c) => c,
             other => panic!("Expected Cue, got {:?}", other),
         };
-        assert_eq!(cue.action, AudioAction::Play, "Combat start should use Play (immediate)");
+        assert_eq!(
+            cue.action,
+            AudioAction::Play,
+            "Combat start should use Play (immediate)"
+        );
     }
 
     #[test]
@@ -1314,7 +1368,8 @@ mod tests {
         let director = MusicDirector::new(&config);
 
         let ctx = MoodContext::default();
-        let classification = director.classify_mood("Some unclassifiable text about nothing in particular", &ctx);
+        let classification =
+            director.classify_mood("Some unclassifiable text about nothing in particular", &ctx);
         assert_eq!(classification.primary, MoodKey::EXPLORATION);
     }
 
@@ -1356,6 +1411,10 @@ mod tests {
         assert_eq!(json["channel"], "Music");
         assert_eq!(json["action"], "FadeIn");
         let vol = json["volume"].as_f64().unwrap();
-        assert!((vol - 0.8).abs() < 0.001, "Volume should be ~0.8, got {}", vol);
+        assert!(
+            (vol - 0.8).abs() < 0.001,
+            "Volume should be ~0.8, got {}",
+            vol
+        );
     }
 }

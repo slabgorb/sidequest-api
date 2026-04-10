@@ -213,9 +213,8 @@ impl TensionTracker {
         match event {
             CombatEvent::Boring => {
                 self.boring_streak += 1;
-                self.action_tension = clamp01(
-                    self.action_tension + BORING_BASE * self.boring_streak as f64,
-                );
+                self.action_tension =
+                    clamp01(self.action_tension + BORING_BASE * self.boring_streak as f64);
             }
             CombatEvent::Dramatic => {
                 self.action_tension = 0.0;
@@ -253,7 +252,10 @@ impl TensionTracker {
         let target_sentences = 1 + (dw * 5.0).floor() as u8;
 
         let escalation_beat = if self.boring_streak >= thresholds.escalation_streak {
-            Some("The environment shifts — introduce a new element to break the monotony.".to_string())
+            Some(
+                "The environment shifts — introduce a new element to break the monotony."
+                    .to_string(),
+            )
         } else {
             None
         };
@@ -291,11 +293,7 @@ pub fn classify_round(round: &RoundResult, killed: Option<&str>) -> CombatEvent 
         return CombatEvent::Dramatic;
     }
 
-    let total_damage: i32 = round
-        .damage_events
-        .iter()
-        .map(|e| e.damage.max(0))
-        .sum();
+    let total_damage: i32 = round.damage_events.iter().map(|e| e.damage.max(0)).sum();
 
     if total_damage >= DRAMATIC_DAMAGE_THRESHOLD {
         return CombatEvent::Dramatic;
@@ -385,11 +383,7 @@ pub fn classify_combat_outcome(
         return TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow);
     }
 
-    let total_damage: i32 = round
-        .damage_events
-        .iter()
-        .map(|e| e.damage.max(0))
-        .sum();
+    let total_damage: i32 = round.damage_events.iter().map(|e| e.damage.max(0)).sum();
 
     // Near miss — target survived at low HP
     if let Some(ratio) = lowest_hp_ratio {
@@ -491,7 +485,10 @@ mod tests {
     fn boring_turn_increases_action_tension() {
         let mut tracker = TensionTracker::new();
         tracker.record_event(CombatEvent::Boring);
-        assert!(tracker.action_tension() > 0.0, "boring turn should ramp action tension");
+        assert!(
+            tracker.action_tension() > 0.0,
+            "boring turn should ramp action tension"
+        );
     }
 
     #[test]
@@ -538,7 +535,8 @@ mod tests {
         let mut fresh = TensionTracker::new();
         fresh.record_event(CombatEvent::Boring);
         assert_eq!(
-            fresh_boring, fresh.action_tension(),
+            fresh_boring,
+            fresh.action_tension(),
             "after dramatic reset, boring ramp should restart from scratch",
         );
     }
@@ -552,7 +550,10 @@ mod tests {
         let mut tracker = TensionTracker::new();
         // Character at 80/100 HP → took 20% damage
         tracker.update_stakes(80, 100);
-        assert!(tracker.stakes_tension() > 0.0, "damage should raise stakes tension");
+        assert!(
+            tracker.stakes_tension() > 0.0,
+            "damage should raise stakes tension"
+        );
     }
 
     #[test]
@@ -593,11 +594,7 @@ mod tests {
     fn zero_hp_maxes_stakes() {
         let mut tracker = TensionTracker::new();
         tracker.update_stakes(0, 100);
-        assert_eq!(
-            tracker.stakes_tension(),
-            1.0,
-            "0 HP should be max stakes",
-        );
+        assert_eq!(tracker.stakes_tension(), 1.0, "0 HP should be max stakes",);
     }
 
     // =========================================================================

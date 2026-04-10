@@ -128,7 +128,9 @@ fn prompt_includes_encountergen_section_when_registered_with_genre() {
     let prompt_result = orch.build_narrator_prompt("look around", &context);
 
     assert!(
-        prompt_result.prompt_text.contains("<tool name=\"ENCOUNTER\">"),
+        prompt_result
+            .prompt_text
+            .contains("<tool name=\"ENCOUNTER\">"),
         "Narrator prompt should contain encounter tool section when tool is registered"
     );
     // Genre is now an env var (story 23-11), not a CLI flag in the prompt
@@ -162,7 +164,9 @@ fn prompt_includes_loadoutgen_section_when_registered_with_genre() {
     let prompt_result = orch.build_narrator_prompt("look around", &context);
 
     assert!(
-        prompt_result.prompt_text.contains("<tool name=\"LOADOUT\">"),
+        prompt_result
+            .prompt_text
+            .contains("<tool name=\"LOADOUT\">"),
         "Narrator prompt should contain loadout tool section when tool is registered"
     );
 }
@@ -327,7 +331,9 @@ fn wiring_script_tools_registered_injected_and_allowed() {
     // Step 2: Verify tools are injected into prompt (compact XML format, story 23-11)
     let prompt_result = orch.build_narrator_prompt("enter the tavern", &context);
     assert!(
-        prompt_result.prompt_text.contains("<tool name=\"ENCOUNTER\">"),
+        prompt_result
+            .prompt_text
+            .contains("<tool name=\"ENCOUNTER\">"),
         "Wiring check: encounter section should be in prompt"
     );
     assert!(
@@ -335,7 +341,9 @@ fn wiring_script_tools_registered_injected_and_allowed() {
         "Wiring check: NPC section should be in prompt"
     );
     assert!(
-        prompt_result.prompt_text.contains("<tool name=\"LOADOUT\">"),
+        prompt_result
+            .prompt_text
+            .contains("<tool name=\"LOADOUT\">"),
         "Wiring check: loadout section should be in prompt"
     );
 

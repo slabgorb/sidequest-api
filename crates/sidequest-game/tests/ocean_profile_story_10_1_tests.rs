@@ -105,9 +105,15 @@ fn ocean_profile_has_five_dimensions_in_json() {
     let val: serde_json::Value = serde_json::from_str(&json).unwrap();
     let ocean = val.get("ocean").expect("ocean field missing from NPC JSON");
     assert!(ocean.get("openness").is_some(), "missing openness");
-    assert!(ocean.get("conscientiousness").is_some(), "missing conscientiousness");
+    assert!(
+        ocean.get("conscientiousness").is_some(),
+        "missing conscientiousness"
+    );
     assert!(ocean.get("extraversion").is_some(), "missing extraversion");
-    assert!(ocean.get("agreeableness").is_some(), "missing agreeableness");
+    assert!(
+        ocean.get("agreeableness").is_some(),
+        "missing agreeableness"
+    );
     assert!(ocean.get("neuroticism").is_some(), "missing neuroticism");
 }
 
@@ -122,12 +128,20 @@ fn ocean_values_clamped_to_valid_range() {
     let ocean = val.get("ocean").expect("ocean field missing");
 
     let o = ocean["openness"].as_f64().expect("openness not f64");
-    let c = ocean["conscientiousness"].as_f64().expect("conscientiousness not f64");
+    let c = ocean["conscientiousness"]
+        .as_f64()
+        .expect("conscientiousness not f64");
     let n = ocean["neuroticism"].as_f64().expect("neuroticism not f64");
 
     assert!(o >= 0.0, "openness should be clamped to >= 0.0, got {o}");
-    assert!(c <= 10.0, "conscientiousness should be clamped to <= 10.0, got {c}");
-    assert!(n <= 10.0, "neuroticism should be clamped to <= 10.0, got {n}");
+    assert!(
+        c <= 10.0,
+        "conscientiousness should be clamped to <= 10.0, got {c}"
+    );
+    assert!(
+        n <= 10.0,
+        "neuroticism should be clamped to <= 10.0, got {n}"
+    );
 }
 
 // ─── AC-3: Serde round-trip (YAML and JSON) ─────────────
@@ -142,8 +156,13 @@ fn ocean_yaml_roundtrip() {
     let v1: serde_json::Value = serde_json::from_str(&json1).unwrap();
     let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
     let ocean1 = v1.get("ocean").expect("ocean missing after first deser");
-    let ocean2 = v2.get("ocean").expect("ocean missing after YAML round-trip");
-    assert_eq!(ocean1, ocean2, "OCEAN profile should survive YAML round-trip");
+    let ocean2 = v2
+        .get("ocean")
+        .expect("ocean missing after YAML round-trip");
+    assert_eq!(
+        ocean1, ocean2,
+        "OCEAN profile should survive YAML round-trip"
+    );
 }
 
 #[test]
@@ -155,8 +174,13 @@ fn ocean_json_roundtrip() {
     let v1: serde_json::Value = serde_json::from_str(&json).unwrap();
     let v2: serde_json::Value = serde_json::from_str(&json2).unwrap();
     let ocean1 = v1.get("ocean").expect("ocean missing after first deser");
-    let ocean2 = v2.get("ocean").expect("ocean missing after JSON round-trip");
-    assert_eq!(ocean1, ocean2, "OCEAN profile should survive JSON round-trip");
+    let ocean2 = v2
+        .get("ocean")
+        .expect("ocean missing after JSON round-trip");
+    assert_eq!(
+        ocean1, ocean2,
+        "OCEAN profile should survive JSON round-trip"
+    );
 }
 
 // ─── AC-4: Default impl — all five at 5.0 ───────────────
@@ -187,11 +211,31 @@ ocean: {}
     let ocean = val.get("ocean").expect("ocean field missing");
 
     let expected = 5.0_f64;
-    assert_eq!(ocean["openness"].as_f64().unwrap(), expected, "default openness");
-    assert_eq!(ocean["conscientiousness"].as_f64().unwrap(), expected, "default conscientiousness");
-    assert_eq!(ocean["extraversion"].as_f64().unwrap(), expected, "default extraversion");
-    assert_eq!(ocean["agreeableness"].as_f64().unwrap(), expected, "default agreeableness");
-    assert_eq!(ocean["neuroticism"].as_f64().unwrap(), expected, "default neuroticism");
+    assert_eq!(
+        ocean["openness"].as_f64().unwrap(),
+        expected,
+        "default openness"
+    );
+    assert_eq!(
+        ocean["conscientiousness"].as_f64().unwrap(),
+        expected,
+        "default conscientiousness"
+    );
+    assert_eq!(
+        ocean["extraversion"].as_f64().unwrap(),
+        expected,
+        "default extraversion"
+    );
+    assert_eq!(
+        ocean["agreeableness"].as_f64().unwrap(),
+        expected,
+        "default agreeableness"
+    );
+    assert_eq!(
+        ocean["neuroticism"].as_f64().unwrap(),
+        expected,
+        "default neuroticism"
+    );
 }
 
 // ─── AC-5: NPC has optional ocean field ──────────────────

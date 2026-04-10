@@ -4,10 +4,12 @@
 //! endpoints for the React frontend to interact with the game engine.
 
 use clap::Parser;
-use sidequest_agents::orchestrator::Orchestrator;
 use sidequest_agents::exercise_tracker::SubsystemTracker;
+use sidequest_agents::orchestrator::Orchestrator;
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
-use sidequest_server::{create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType};
+use sidequest_server::{
+    create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -27,30 +29,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Both dispatch (TurnRecord construction) and bridge (OTEL + JSONL) share the channel.
     let watcher_tx_for_state = watcher_tx.clone();
 
-    let orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
+    let orchestrator =
+        Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
 
     // ADR-059: Tool binaries are now called server-side by dispatch/pregen.rs,
     // not registered on the orchestrator for narrator tool calls.
     // Binary paths are discovered and stored on AppState (below).
 
-    let save_dir = args
-        .save_dir()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(".sidequest")
-                .join("saves")
-        });
+    let save_dir = args.save_dir().map(|p| p.to_path_buf()).unwrap_or_else(|| {
+        dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".sidequest")
+            .join("saves")
+    });
 
     // Store discovered binary paths for server-side pre-generation (ADR-059)
     let (namegen_for_state, encountergen_for_state, loadoutgen_for_state) =
         if let Ok(exe) = std::env::current_exe() {
             let dir = exe.parent();
             (
-                dir.map(|d| d.join("sidequest-namegen")).filter(|p| p.exists()),
-                dir.map(|d| d.join("sidequest-encountergen")).filter(|p| p.exists()),
-                dir.map(|d| d.join("sidequest-loadoutgen")).filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-namegen"))
+                    .filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-encountergen"))
+                    .filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-loadoutgen"))
+                    .filter(|p| p.exists()),
             )
         } else {
             (None, None, None)
@@ -115,9 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// Bridge TurnRecords from the orchestrator's mpsc channel into WatcherEvents
 /// on the broadcast channel. This is the single point where per-turn telemetry
 /// becomes visible to the GM dashboard.
-async fn turn_record_bridge(
-    mut rx: tokio::sync::mpsc::Receiver<TurnRecord>,
-) {
+async fn turn_record_bridge(mut rx: tokio::sync::mpsc::Receiver<TurnRecord>) {
     tracing::info!("turn record bridge started, awaiting TurnRecords");
 
     // Story 26-2: SubsystemTracker accumulates agent invocation counts.
@@ -147,21 +148,31 @@ async fn turn_record_bridge(
             "TurnRecord → WatcherEvent bridge"
         );
 
-        let patches: Vec<serde_json::Value> = record.patches_applied.iter()
-            .map(|p| serde_json::json!({
-                "patch_type": p.patch_type,
-                "fields_changed": p.fields_changed,
-            }))
+        let patches: Vec<serde_json::Value> = record
+            .patches_applied
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "patch_type": p.patch_type,
+                    "fields_changed": p.fields_changed,
+                })
+            })
             .collect();
-        let beats_fired: Vec<serde_json::Value> = record.beats_fired.iter()
+        let beats_fired: Vec<serde_json::Value> = record
+            .beats_fired
+            .iter()
             .map(|(name, thresh)| serde_json::json!({"trope": name, "threshold": thresh}))
             .collect();
-        let spans: Vec<serde_json::Value> = record.spans.iter()
-            .map(|(name, start_ms, dur_ms)| serde_json::json!({
-                "name": name,
-                "start_ms": start_ms,
-                "duration_ms": dur_ms,
-            }))
+        let spans: Vec<serde_json::Value> = record
+            .spans
+            .iter()
+            .map(|(name, start_ms, dur_ms)| {
+                serde_json::json!({
+                    "name": name,
+                    "start_ms": start_ms,
+                    "duration_ms": dur_ms,
+                })
+            })
             .collect();
 
         let mut builder = WatcherEventBuilder::new("orchestrator", WatcherEventType::TurnComplete)
@@ -186,7 +197,9 @@ async fn turn_record_bridge(
 
         // Story 26-2: Emit SubsystemExerciseSummary at tracker's summary interval.
         if tracker.turn_count % tracker.summary_interval == 0 {
-            let histogram: Vec<serde_json::Value> = tracker.histogram().iter()
+            let histogram: Vec<serde_json::Value> = tracker
+                .histogram()
+                .iter()
                 .map(|(name, count)| serde_json::json!({"agent": name, "count": count}))
                 .collect();
             WatcherEventBuilder::new("watcher", WatcherEventType::SubsystemExerciseSummary)

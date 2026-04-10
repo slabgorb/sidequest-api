@@ -55,8 +55,7 @@ fn classify_with_classifier_combat() {
 fn classify_with_classifier_dialogue() {
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Dialogue);
-    let route =
-        IntentRouter::classify_with_classifier("I talk to the merchant", &ctx, &classifier);
+    let route = IntentRouter::classify_with_classifier("I talk to the merchant", &ctx, &classifier);
     // ADR-067: All intents route to narrator, state-based defaults to Exploration
     assert_eq!(route.intent(), Intent::Exploration);
     assert_eq!(route.agent_name(), "narrator");
@@ -76,11 +75,8 @@ fn classify_with_classifier_examine() {
     // ADR-067: State-based inference ignores classifier, defaults to Exploration
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Examine);
-    let route = IntentRouter::classify_with_classifier(
-        "I examine the strange markings",
-        &ctx,
-        &classifier,
-    );
+    let route =
+        IntentRouter::classify_with_classifier("I examine the strange markings", &ctx, &classifier);
     assert_eq!(route.intent(), Intent::Exploration);
     assert_eq!(route.agent_name(), "narrator");
 }
@@ -135,8 +131,7 @@ fn state_override_chase() {
         ..Default::default()
     };
     let classifier = MockClassifier(Intent::Dialogue);
-    let route =
-        IntentRouter::classify_with_classifier("I talk to the merchant", &ctx, &classifier);
+    let route = IntentRouter::classify_with_classifier("I talk to the merchant", &ctx, &classifier);
     assert_eq!(route.intent(), Intent::Chase);
 }
 
@@ -162,8 +157,7 @@ fn no_state_override_defaults_to_exploration() {
     // ADR-067: Without state overrides, defaults to Exploration (narrator handles all)
     let ctx = TurnContext::default();
     let classifier = MockClassifier(Intent::Combat);
-    let route =
-        IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
+    let route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
     assert_eq!(route.intent(), Intent::Exploration);
 }
 

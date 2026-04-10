@@ -19,9 +19,7 @@ use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::state::GameSnapshot;
-use sidequest_game::tension_tracker::{
-    CombatEvent, DeliveryMode, DramaThresholds, TensionTracker,
-};
+use sidequest_game::tension_tracker::{CombatEvent, DeliveryMode, DramaThresholds, TensionTracker};
 use sidequest_protocol::NonBlankString;
 
 // ============================================================================
@@ -514,7 +512,8 @@ fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -
             hp: current_hp,
             max_hp,
             ac: 10,
-            xp: 0,            inventory: Inventory::default(),
+            xp: 0,
+            inventory: Inventory::default(),
             statuses: vec![],
         },
         backstory: NonBlankString::new("test").unwrap(),

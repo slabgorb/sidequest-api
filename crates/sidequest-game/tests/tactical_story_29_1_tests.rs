@@ -21,8 +21,8 @@
 use std::collections::HashMap;
 
 use sidequest_game::tactical::{
-    CardinalDirection, CellProperties, ExitGap, FeatureDef, FeatureType, GridParseError,
-    GridPos, TacticalCell, TacticalGrid,
+    CardinalDirection, CellProperties, ExitGap, FeatureDef, FeatureType, GridParseError, GridPos,
+    TacticalCell, TacticalGrid,
 };
 
 use sidequest_genre::models::world::LegendEntry;
@@ -129,20 +129,29 @@ fn void_not_walkable() {
 fn water_walkable_double_cost() {
     let props = TacticalCell::Water.properties();
     assert!(props.walkable);
-    assert!(props.movement_cost > 1.0, "Water should cost more than normal terrain");
+    assert!(
+        props.movement_cost > 1.0,
+        "Water should cost more than normal terrain"
+    );
 }
 
 #[test]
 fn difficult_terrain_walkable_double_cost() {
     let props = TacticalCell::DifficultTerrain.properties();
     assert!(props.walkable);
-    assert!(props.movement_cost > 1.0, "Difficult terrain should cost more than normal");
+    assert!(
+        props.movement_cost > 1.0,
+        "Difficult terrain should cost more than normal"
+    );
 }
 
 #[test]
 fn closed_door_blocks_los_but_walkable() {
     let props = TacticalCell::DoorClosed.properties();
-    assert!(props.walkable, "Closed door is traversable (opens on entry)");
+    assert!(
+        props.walkable,
+        "Closed door is traversable (opens on entry)"
+    );
     assert!(props.blocks_los, "Closed door blocks line of sight");
 }
 
@@ -211,7 +220,8 @@ fn uppercase_without_legend_entry_is_unknown() {
     let result = TacticalGrid::parse(raw, &HashMap::new());
     let err = result.expect_err("Uppercase 'A' without legend entry should be rejected");
     match err {
-        GridParseError::UnknownGlyph { glyph, .. } | GridParseError::MissingLegend { glyph, .. } => {
+        GridParseError::UnknownGlyph { glyph, .. }
+        | GridParseError::MissingLegend { glyph, .. } => {
             assert_eq!(glyph, 'A');
         }
         other => panic!("Expected UnknownGlyph or MissingLegend, got: {:?}", other),
@@ -228,7 +238,11 @@ fn uneven_rows_returns_error() {
     let result = TacticalGrid::parse(raw, &HashMap::new());
     let err = result.expect_err("Uneven rows should be rejected");
     match err {
-        GridParseError::UnevenRows { expected_width, actual_width, row } => {
+        GridParseError::UnevenRows {
+            expected_width,
+            actual_width,
+            row,
+        } => {
             assert_eq!(expected_width, 3);
             assert_eq!(actual_width, 2);
             assert_eq!(row, 1);
@@ -342,9 +356,18 @@ fn multiple_legend_entries_all_resolved() {
     let grid = TacticalGrid::parse(raw, &leg).unwrap();
 
     assert_eq!(grid.legend().len(), 3);
-    assert_eq!(grid.legend().get(&'P').unwrap().feature_type, FeatureType::Cover);
-    assert_eq!(grid.legend().get(&'T').unwrap().feature_type, FeatureType::Hazard);
-    assert_eq!(grid.legend().get(&'A').unwrap().feature_type, FeatureType::Atmosphere);
+    assert_eq!(
+        grid.legend().get(&'P').unwrap().feature_type,
+        FeatureType::Cover
+    );
+    assert_eq!(
+        grid.legend().get(&'T').unwrap().feature_type,
+        FeatureType::Hazard
+    );
+    assert_eq!(
+        grid.legend().get(&'A').unwrap().feature_type,
+        FeatureType::Atmosphere
+    );
 }
 
 /// Feature cells are walkable (you can stand on/in them).
@@ -426,11 +449,19 @@ fn rectangular_room_perimeter_is_walls() {
     let grid = TacticalGrid::parse(raw, &HashMap::new()).unwrap();
     // Top row all walls
     for x in 0..4 {
-        assert_eq!(grid.cell_at(x, 0), Some(&TacticalCell::Wall), "Top wall at x={x}");
+        assert_eq!(
+            grid.cell_at(x, 0),
+            Some(&TacticalCell::Wall),
+            "Top wall at x={x}"
+        );
     }
     // Bottom row all walls
     for x in 0..4 {
-        assert_eq!(grid.cell_at(x, 3), Some(&TacticalCell::Wall), "Bottom wall at x={x}");
+        assert_eq!(
+            grid.cell_at(x, 3),
+            Some(&TacticalCell::Wall),
+            "Bottom wall at x={x}"
+        );
     }
     // Interior is floor
     assert_eq!(grid.cell_at(1, 1), Some(&TacticalCell::Floor));
@@ -443,10 +474,7 @@ fn rectangular_room_perimeter_is_walls() {
 
 #[test]
 fn room_with_features_preserves_positions() {
-    let leg = legend(&[
-        ('P', "cover", "Pillar"),
-        ('T', "hazard", "Trap"),
-    ]);
+    let leg = legend(&[('P', "cover", "Pillar"), ('T', "hazard", "Trap")]);
     let raw = "\
 ####\n\
 #P.#\n\
@@ -659,7 +687,10 @@ fn all_walls_no_exits() {
 ###\n\
 ###";
     let grid = TacticalGrid::parse(raw, &HashMap::new()).unwrap();
-    assert!(grid.exits().is_empty(), "Solid wall grid should have no exits");
+    assert!(
+        grid.exits().is_empty(),
+        "Solid wall grid should have no exits"
+    );
 }
 
 /// Whitespace-only lines should not count as rows.

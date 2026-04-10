@@ -61,7 +61,11 @@ pub(super) fn update_npc_registry(
                         .arg("--genre")
                         .arg(ctx.genre_slug)
                         .arg("--role")
-                        .arg(if npc.role.is_empty() { "unknown" } else { &npc.role })
+                        .arg(if npc.role.is_empty() {
+                            "unknown"
+                        } else {
+                            &npc.role
+                        })
                         .stdout(std::process::Stdio::piped())
                         .stderr(std::process::Stdio::piped())
                         .output()
@@ -78,38 +82,54 @@ pub(super) fn update_npc_registry(
                 });
 
                 let (ocean_profile, ocean_summary, source) = if let Some(ref gen) = namegen_result {
-                    let profile = gen.get("ocean").and_then(|o| {
-                        Some(sidequest_genre::OceanProfile {
-                            openness: o.get("openness")?.as_f64()?,
-                            conscientiousness: o.get("conscientiousness")?.as_f64()?,
-                            extraversion: o.get("extraversion")?.as_f64()?,
-                            agreeableness: o.get("agreeableness")?.as_f64()?,
-                            neuroticism: o.get("neuroticism")?.as_f64()?,
+                    let profile = gen
+                        .get("ocean")
+                        .and_then(|o| {
+                            Some(sidequest_genre::OceanProfile {
+                                openness: o.get("openness")?.as_f64()?,
+                                conscientiousness: o.get("conscientiousness")?.as_f64()?,
+                                extraversion: o.get("extraversion")?.as_f64()?,
+                                agreeableness: o.get("agreeableness")?.as_f64()?,
+                                neuroticism: o.get("neuroticism")?.as_f64()?,
+                            })
                         })
-                    }).unwrap_or_else(sidequest_genre::OceanProfile::random);
-                    let summary = gen.get("ocean_summary")
+                        .unwrap_or_else(sidequest_genre::OceanProfile::random);
+                    let summary = gen
+                        .get("ocean_summary")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                         .unwrap_or_else(|| profile.behavioral_summary());
-                    let src = gen.get("archetype")
+                    let src = gen
+                        .get("archetype")
                         .and_then(|v| v.as_str())
                         .unwrap_or("namegen")
                         .to_string();
                     (profile, summary, src)
                 } else {
                     let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
-                    let from_pack = GenreCode::new(ctx.genre_slug).ok()
+                    let from_pack = GenreCode::new(ctx.genre_slug)
+                        .ok()
                         .and_then(|code| loader.load(&code).ok())
                         .and_then(|pack| {
-                            let with_ocean: Vec<_> = pack.archetypes.iter()
-                                .filter(|a| a.ocean.is_some()).collect();
-                            if with_ocean.is_empty() { return None; }
+                            let with_ocean: Vec<_> = pack
+                                .archetypes
+                                .iter()
+                                .filter(|a| a.ocean.is_some())
+                                .collect();
+                            if with_ocean.is_empty() {
+                                return None;
+                            }
                             use rand::prelude::IndexedRandom;
                             let arch = with_ocean.choose(&mut rand::rng())?;
                             let profile = arch.ocean.as_ref()?.with_jitter(1.5);
                             Some((profile, arch.name.as_str().to_string()))
                         })
-                        .unwrap_or_else(|| (sidequest_genre::OceanProfile::random(), "random".to_string()));
+                        .unwrap_or_else(|| {
+                            (
+                                sidequest_genre::OceanProfile::random(),
+                                "random".to_string(),
+                            )
+                        });
                     let summary = from_pack.0.behavioral_summary();
                     (from_pack.0, summary, from_pack.1)
                 };
@@ -134,7 +154,8 @@ pub(super) fn update_npc_registry(
                     if validated { "namegen-enriched" } else { "fallback" }
                 );
 
-                let npc_slug = npc.name
+                let npc_slug = npc
+                    .name
                     .to_lowercase()
                     .replace(' ', "_")
                     .replace('\'', "")

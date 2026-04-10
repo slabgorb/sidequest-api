@@ -64,7 +64,10 @@ target: pit_bottom
     let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(exit.target(), "pit_bottom");
     assert_eq!(exit.display_name(), "chute down");
-    assert!(!exit.requires_reverse(), "ChuteDown should NOT require reverse");
+    assert!(
+        !exit.requires_reverse(),
+        "ChuteDown should NOT require reverse"
+    );
 }
 
 #[test]
@@ -76,7 +79,10 @@ target: upper_level
     let exit: RoomExit = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(exit.target(), "upper_level");
     assert_eq!(exit.display_name(), "chute up");
-    assert!(!exit.requires_reverse(), "ChuteUp should NOT require reverse");
+    assert!(
+        !exit.requires_reverse(),
+        "ChuteUp should NOT require reverse"
+    );
 }
 
 #[test]
@@ -137,7 +143,10 @@ exits:
     assert_eq!(room.room_type, "treasure");
     assert_eq!(room.size, (3, 2));
     assert!((room.keeper_awareness_modifier - 1.3).abs() < f64::EPSILON);
-    assert_eq!(room.description, Some("Glittering piles of gold and gems".to_string()));
+    assert_eq!(
+        room.description,
+        Some("Glittering piles of gold and gems".to_string())
+    );
     assert_eq!(room.exits.len(), 2);
     assert_eq!(room.exits[0].target(), "great_hall");
     assert_eq!(room.exits[1].target(), "escape_tunnel");
@@ -164,8 +173,10 @@ room_type: normal
 exits: []
 "#;
     let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
-    assert!((room.keeper_awareness_modifier - 1.0).abs() < f64::EPSILON,
-        "keeper_awareness_modifier should default to 1.0");
+    assert!(
+        (room.keeper_awareness_modifier - 1.0).abs() < f64::EPSILON,
+        "keeper_awareness_modifier should default to 1.0"
+    );
 }
 
 #[test]
@@ -177,7 +188,10 @@ room_type: normal
 exits: []
 "#;
     let room: RoomDef = serde_yaml::from_str(yaml).unwrap();
-    assert!(room.description.is_none(), "description should be None when absent");
+    assert!(
+        room.description.is_none(),
+        "description should be None when absent"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -216,7 +230,10 @@ world_name: Low Fantasy World
 starting_region: town
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    assert!(config.rooms.is_none(), "rooms should be None when absent from YAML");
+    assert!(
+        config.rooms.is_none(),
+        "rooms should be None when absent from YAML"
+    );
 }
 
 #[test]
@@ -240,7 +257,10 @@ rooms:
         target: entrance_hall
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    let rooms = config.rooms.as_ref().expect("rooms should be Some when present");
+    let rooms = config
+        .rooms
+        .as_ref()
+        .expect("rooms should be Some when present");
     assert_eq!(rooms.len(), 2);
     assert_eq!(rooms[0].id, "entrance_hall");
     assert_eq!(rooms[0].room_type, "entrance");
@@ -286,7 +306,10 @@ routes:
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.navigation_mode, NavigationMode::Region);
-    assert!(config.rooms.is_none(), "rooms should be None for existing packs");
+    assert!(
+        config.rooms.is_none(),
+        "rooms should be None for existing packs"
+    );
     assert_eq!(config.regions.len(), 2);
     assert_eq!(config.routes.len(), 1);
 }
@@ -375,7 +398,10 @@ fn validation_rejects_invalid_exit_target() {
     let result = pack.validate();
     assert!(result.is_err(), "should reject exit to nonexistent room");
     let msg = format!("{}", result.unwrap_err());
-    assert!(msg.contains("nonexistent_room"), "error should mention invalid target, got: {msg}");
+    assert!(
+        msg.contains("nonexistent_room"),
+        "error should mention invalid target, got: {msg}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -400,7 +426,10 @@ fn validation_rejects_door_without_reverse() {
 "#,
     );
     let result = pack.validate();
-    assert!(result.is_err(), "Door A→B without B→A should fail validation");
+    assert!(
+        result.is_err(),
+        "Door A→B without B→A should fail validation"
+    );
 }
 
 #[test]
@@ -473,7 +502,11 @@ fn validation_passes_valid_bidirectional_graph() {
 "#,
     );
     let result = pack.validate();
-    assert!(result.is_ok(), "valid bidirectional graph should pass, got: {:?}", result.unwrap_err());
+    assert!(
+        result.is_ok(),
+        "valid bidirectional graph should pass, got: {:?}",
+        result.unwrap_err()
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -500,7 +533,10 @@ fn validation_rejects_no_entrance_room() {
 "#,
     );
     let result = pack.validate();
-    assert!(result.is_err(), "should require exactly one room with room_type 'entrance'");
+    assert!(
+        result.is_err(),
+        "should require exactly one room with room_type 'entrance'"
+    );
     let msg = format!("{}", result.unwrap_err());
     assert!(
         msg.to_lowercase().contains("entrance"),
@@ -536,7 +572,10 @@ fn validation_rejects_orphaned_room() {
 "#,
     );
     let result = pack.validate();
-    assert!(result.is_err(), "orphaned room unreachable from entrance should fail");
+    assert!(
+        result.is_err(),
+        "orphaned room unreachable from entrance should fail"
+    );
     let msg = format!("{}", result.unwrap_err());
     assert!(
         msg.contains("orphan"),

@@ -17,10 +17,10 @@ use sidequest_agents::context_builder::ContextBuilder;
 use sidequest_agents::prompt_framework::{
     AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
 };
-use sidequest_game::npc::Npc;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::disposition::Disposition;
 use sidequest_game::inventory::Inventory;
+use sidequest_game::npc::Npc;
 use sidequest_genre::OceanProfile;
 use sidequest_protocol::NonBlankString;
 
@@ -47,7 +47,7 @@ fn npc_with_ocean(name: &str, ocean: OceanProfile) -> Npc {
         location: Some(NonBlankString::new("Town Square").unwrap()),
         pronouns: None,
         appearance: None,
-            age: None,
+        age: None,
         build: None,
         height: None,
         distinguishing_features: vec![],
@@ -75,7 +75,7 @@ fn npc_without_ocean(name: &str) -> Npc {
         location: Some(NonBlankString::new("Town Square").unwrap()),
         pronouns: None,
         appearance: None,
-            age: None,
+        age: None,
         build: None,
         height: None,
         distinguishing_features: vec![],
@@ -212,10 +212,12 @@ fn ocean_label_associates_name_with_summary() {
     let prompt = registry.compose("narrator");
 
     // The name and summary should appear in proximity — name before summary.
-    let name_pos = prompt.find("Elara the Scholar")
+    let name_pos = prompt
+        .find("Elara the Scholar")
         .expect("Should find NPC name in prompt");
     let summary = scholar_ocean().behavioral_summary();
-    let summary_pos = prompt.find(&summary)
+    let summary_pos = prompt
+        .find(&summary)
         .expect("Should find behavioral summary in prompt");
 
     assert!(
@@ -327,10 +329,7 @@ fn empty_npc_list_produces_no_section() {
     registry.register_ocean_personalities_section("narrator", &npcs);
 
     let after = registry.compose("narrator");
-    assert_eq!(
-        before, after,
-        "Empty NPC list should not change the prompt",
-    );
+    assert_eq!(before, after, "Empty NPC list should not change the prompt",);
 }
 
 // =========================================================================
@@ -370,7 +369,7 @@ fn ocean_section_contains_behavior_guidance() {
 
     // Should reference behavior/behavioral in the instruction
     assert!(
-        prompt.contains("behavio"),  // matches "behavior" and "behaviour"
+        prompt.contains("behavio"), // matches "behavior" and "behaviour"
         "Prompt should reference behavioral shaping.\nGot:\n{}",
         prompt,
     );
@@ -529,9 +528,11 @@ fn ocean_section_appears_before_player_action_in_prompt() {
 
     let prompt = registry.compose("narrator");
 
-    let ocean_pos = prompt.find("Elara the Scholar")
+    let ocean_pos = prompt
+        .find("Elara the Scholar")
         .expect("OCEAN section should be in prompt");
-    let action_pos = prompt.find("The player says:")
+    let action_pos = prompt
+        .find("The player says:")
         .expect("Player action should be in prompt");
 
     assert!(
@@ -562,9 +563,11 @@ fn ocean_section_appears_after_identity_in_prompt() {
 
     let prompt = registry.compose("narrator");
 
-    let identity_pos = prompt.find("You are the narrator.")
+    let identity_pos = prompt
+        .find("You are the narrator.")
         .expect("Identity should be in prompt");
-    let ocean_pos = prompt.find("Elara the Scholar")
+    let ocean_pos = prompt
+        .find("Elara the Scholar")
         .expect("OCEAN section should be in prompt");
 
     assert!(

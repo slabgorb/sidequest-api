@@ -6,7 +6,7 @@
 //! 3. Request serialization produces the correct JSON-RPC envelope
 //! 4. Response deserialization handles the daemon's expected format
 
-use sidequest_daemon_client::{EmbedParams, EmbedResult, build_request_json};
+use sidequest_daemon_client::{build_request_json, EmbedParams, EmbedResult};
 
 // ============================================================
 // AC-3: EmbedParams type exists with required fields
@@ -45,8 +45,7 @@ fn embed_result_deserializes_from_daemon_response() {
         "latency_ms": 42
     });
 
-    let result: EmbedResult =
-        serde_json::from_value(json).expect("EmbedResult should deserialize");
+    let result: EmbedResult = serde_json::from_value(json).expect("EmbedResult should deserialize");
     assert_eq!(result.embedding.len(), 5);
     assert!((result.embedding[0] - 0.1).abs() < f32::EPSILON);
     assert_eq!(result.model, "all-MiniLM-L6-v2");

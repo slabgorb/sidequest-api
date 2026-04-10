@@ -10,10 +10,10 @@
 //! ACs from story context: spike injection, linear decay, spike cleanup,
 //! spike replacement, drama_weight as max, clamped output, full observe flow
 
-use sidequest_game::tension_tracker::{DamageEvent, RoundResult};
 use sidequest_game::tension_tracker::{
     classify_combat_outcome, DetailedCombatEvent, TensionTracker, TurnClassification,
 };
+use sidequest_game::tension_tracker::{DamageEvent, RoundResult};
 
 // ============================================================================
 // Helpers
@@ -493,10 +493,7 @@ fn drama_weight_never_exceeds_one_with_spike_and_tension() {
         "drama_weight must be <= 1.0 even with high tension + spike, got {}",
         tracker.drama_weight(),
     );
-    assert!(
-        tracker.drama_weight() >= 0.0,
-        "drama_weight must be >= 0.0",
-    );
+    assert!(tracker.drama_weight() >= 0.0, "drama_weight must be >= 0.0",);
 }
 
 #[test]

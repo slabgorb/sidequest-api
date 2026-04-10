@@ -220,7 +220,9 @@ fn narrator_sections_zone_ordering_is_correct() {
     // Identity must be Primacy
     let primacy = builder.sections_by_zone(AttentionZone::Primacy);
     assert!(
-        primacy.iter().any(|s| s.category == SectionCategory::Identity),
+        primacy
+            .iter()
+            .any(|s| s.category == SectionCategory::Identity),
         "Primacy zone must contain identity section"
     );
 
@@ -279,7 +281,9 @@ fn tool_sections_use_wrapper_command_names() {
     );
     // Should NOT contain a full filesystem path to a binary
     assert!(
-        !composed.contains("/target/") && !composed.contains("/debug/") && !composed.contains("/release/"),
+        !composed.contains("/target/")
+            && !composed.contains("/debug/")
+            && !composed.contains("/release/"),
         "Tool section should not contain binary build paths"
     );
 }
@@ -371,7 +375,10 @@ fn narrator_zone_breakdown_shows_guardrail_sections() {
         .zones
         .iter()
         .find(|z| z.zone == AttentionZone::Primacy);
-    assert!(primacy_zone.is_some(), "Breakdown should include Primacy zone");
+    assert!(
+        primacy_zone.is_some(),
+        "Breakdown should include Primacy zone"
+    );
 
     let primacy = primacy_zone.unwrap();
     // Should have identity + at least 2 guardrails = 3+ sections

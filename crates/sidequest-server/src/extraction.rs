@@ -78,8 +78,6 @@ pub(crate) fn strip_location_header(text: &str) -> String {
     text.to_string()
 }
 
-
-
 // ---------------------------------------------------------------------------
 // Combat bracket patterns — compiled once, reused forever
 // ---------------------------------------------------------------------------
@@ -125,10 +123,7 @@ pub(crate) fn strip_combat_brackets(text: &str) -> String {
     }
 
     if stripped_count > 0 {
-        tracing::debug!(
-            stripped_count,
-            "combat_brackets.stripped from narration"
-        );
+        tracing::debug!(stripped_count, "combat_brackets.stripped from narration");
     }
 
     // Collapse multiple blank lines left by removed brackets
@@ -304,7 +299,10 @@ mod tests {
                       [COMBAT: Riissor the Rotting — Synth (HP 12) | Kael HP 8/8]\n\
                       You barely dodge the blow.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "The creature lunges forward.\nYou barely dodge the blow.");
+        assert_eq!(
+            result,
+            "The creature lunges forward.\nYou barely dodge the blow."
+        );
     }
 
     #[test]
@@ -313,7 +311,10 @@ mod tests {
                       [Kael's charge — first strike lands. Riissor takes 2 damage. HP: 10/12]\n\
                       The creature staggers backward.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "Your blade connects with a sickening crack.\nThe creature staggers backward.");
+        assert_eq!(
+            result,
+            "Your blade connects with a sickening crack.\nThe creature staggers backward."
+        );
     }
 
     #[test]
@@ -329,7 +330,10 @@ mod tests {
         let input = "He said [something odd] and walked away.\n\
                       The [ancient rune] glowed faintly.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "He said [something odd] and walked away.\nThe [ancient rune] glowed faintly.");
+        assert_eq!(
+            result,
+            "He said [something odd] and walked away.\nThe [ancient rune] glowed faintly."
+        );
     }
 
     #[test]
@@ -365,7 +369,10 @@ mod tests {
         // A line that IS a bracket but has no combat keywords is preserved
         let input = "[The ancient prophecy speaks of a chosen one]\nYou continue reading.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "[The ancient prophecy speaks of a chosen one]\nYou continue reading.");
+        assert_eq!(
+            result,
+            "[The ancient prophecy speaks of a chosen one]\nYou continue reading."
+        );
     }
 
     // === strip_fourth_wall tests ===
@@ -394,9 +401,13 @@ mod tests {
 
     #[test]
     fn strip_fourth_wall_case_insensitive() {
-        let input = "The road stretches ahead.\nWhat Genre are we playing?\nDust swirls at your feet.";
+        let input =
+            "The road stretches ahead.\nWhat Genre are we playing?\nDust swirls at your feet.";
         let result = strip_fourth_wall(input);
-        assert_eq!(result, "The road stretches ahead.\nDust swirls at your feet.");
+        assert_eq!(
+            result,
+            "The road stretches ahead.\nDust swirls at your feet."
+        );
     }
 
     #[test]

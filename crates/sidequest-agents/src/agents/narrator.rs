@@ -294,7 +294,10 @@ impl NarratorAgent {
     pub fn build_dialogue_context(&self, builder: &mut ContextBuilder) {
         builder.add_section(PromptSection::new(
             "narrator_dialogue_rules",
-            format!("<dialogue-rules>\n{}\n</dialogue-rules>", NARRATOR_DIALOGUE_RULES),
+            format!(
+                "<dialogue-rules>\n{}\n</dialogue-rules>",
+                NARRATOR_DIALOGUE_RULES
+            ),
             AttentionZone::Early,
             SectionCategory::Guardrail,
         ));

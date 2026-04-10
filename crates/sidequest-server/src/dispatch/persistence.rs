@@ -15,9 +15,12 @@ pub(super) fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_
     // Without this, snapshot.npcs retains stale HP values and enemy damage resets
     // between turns (the HP changes only live in npc_registry during the turn).
     for entry in ctx.npc_registry.iter() {
-        if let Some(npc) = ctx.snapshot.npcs.iter_mut().find(|n| {
-            n.core.name.as_str().eq_ignore_ascii_case(&entry.name)
-        }) {
+        if let Some(npc) = ctx
+            .snapshot
+            .npcs
+            .iter_mut()
+            .find(|n| n.core.name.as_str().eq_ignore_ascii_case(&entry.name))
+        {
             npc.core.hp = entry.hp;
             npc.core.max_hp = entry.max_hp;
         }
@@ -25,7 +28,6 @@ pub(super) fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_
     ctx.snapshot.genie_wishes = ctx.genie_wishes.clone();
     ctx.snapshot.axis_values = ctx.axis_values.clone();
     // combat/chase sync removed in story 28-9 — encounter is maintained directly via apply_beat().
-
 
     ctx.snapshot.discovered_regions = ctx.discovered_regions.clone();
     ctx.snapshot.active_tropes = ctx.trope_states.clone();
@@ -80,7 +82,12 @@ pub(super) async fn persist_game_state(
     match ctx
         .state
         .persistence()
-        .append_narrative(ctx.genre_slug, ctx.world_slug, ctx.player_name_for_save, &narrative_entry)
+        .append_narrative(
+            ctx.genre_slug,
+            ctx.world_slug,
+            ctx.player_name_for_save,
+            &narrative_entry,
+        )
         .await
     {
         Ok(()) => {
@@ -103,7 +110,10 @@ pub(super) async fn persist_game_state(
             .field("beat", enc.beat)
             .field("metric_name", &enc.metric.name)
             .field("metric_current", enc.metric.current)
-            .field("metric_threshold", enc.metric.threshold_high.or(enc.metric.threshold_low))
+            .field(
+                "metric_threshold",
+                enc.metric.threshold_high.or(enc.metric.threshold_low),
+            )
             .field("phase", enc.structured_phase.map(|p| format!("{:?}", p)))
             .field("resolved", enc.resolved)
             .field("actor_count", enc.actors.len())

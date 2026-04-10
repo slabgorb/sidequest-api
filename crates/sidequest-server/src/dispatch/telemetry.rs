@@ -68,7 +68,9 @@ pub(super) fn emit_telemetry(
     // Build timing spans for flame chart visualization
     let state_done = std::time::Instant::now();
     let preprocess_ms = preprocess_done.duration_since(turn_start).as_millis() as u64;
-    let agent_ms = result.agent_duration_ms.unwrap_or_else(|| agent_done.duration_since(preprocess_done).as_millis() as u64);
+    let agent_ms = result
+        .agent_duration_ms
+        .unwrap_or_else(|| agent_done.duration_since(preprocess_done).as_millis() as u64);
     let agent_start_ms = preprocess_ms;
     let state_start_ms = agent_start_ms + agent_ms;
     let state_ms = state_done.duration_since(agent_done).as_millis() as u64;

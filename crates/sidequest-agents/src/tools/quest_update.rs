@@ -37,17 +37,28 @@ pub struct InvalidQuestUpdate(String);
 /// Rejects empty or whitespace-only inputs. Trims leading/trailing whitespace
 /// from both fields.
 #[tracing::instrument(name = "tool.quest_update", skip_all, fields(quest_name = %quest_name, status = %status))]
-pub fn validate_quest_update(quest_name: &str, status: &str) -> Result<QuestUpdate, InvalidQuestUpdate> {
+pub fn validate_quest_update(
+    quest_name: &str,
+    status: &str,
+) -> Result<QuestUpdate, InvalidQuestUpdate> {
     let trimmed_name = quest_name.trim();
     let trimmed_status = status.trim();
 
     if trimmed_name.is_empty() {
-        tracing::warn!(valid = false, "quest update validation failed — empty quest name");
-        return Err(InvalidQuestUpdate("quest name must not be empty".to_string()));
+        tracing::warn!(
+            valid = false,
+            "quest update validation failed — empty quest name"
+        );
+        return Err(InvalidQuestUpdate(
+            "quest name must not be empty".to_string(),
+        ));
     }
 
     if trimmed_status.is_empty() {
-        tracing::warn!(valid = false, "quest update validation failed — empty status");
+        tracing::warn!(
+            valid = false,
+            "quest update validation failed — empty status"
+        );
         return Err(InvalidQuestUpdate("status must not be empty".to_string()));
     }
 

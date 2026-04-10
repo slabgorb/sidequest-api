@@ -90,9 +90,7 @@ fn advance_fires_beats_across_gap() {
     assert!((tropes[0].progression() - 0.35).abs() < 1e-9);
     assert_eq!(fired.len(), 1);
     assert_eq!(fired[0].beat.event, "Quarter mark");
-    assert!(tropes[0]
-        .fired_beats()
-        .contains(&OrderedFloat(0.25)));
+    assert!(tropes[0].fired_beats().contains(&OrderedFloat(0.25)));
 }
 
 #[test]
@@ -105,12 +103,8 @@ fn advance_fires_multiple_beats() {
 
     assert!((tropes[0].progression() - 0.7).abs() < 1e-9);
     assert_eq!(fired.len(), 2);
-    assert!(tropes[0]
-        .fired_beats()
-        .contains(&OrderedFloat(0.25)));
-    assert!(tropes[0]
-        .fired_beats()
-        .contains(&OrderedFloat(0.5)));
+    assert!(tropes[0].fired_beats().contains(&OrderedFloat(0.25)));
+    assert!(tropes[0].fired_beats().contains(&OrderedFloat(0.5)));
 }
 
 #[test]

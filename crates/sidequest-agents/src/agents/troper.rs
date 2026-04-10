@@ -318,12 +318,7 @@ impl TroperAgent {
         let active: Vec<&TropeState> = self
             .trope_states
             .iter()
-            .filter(|ts| {
-                matches!(
-                    ts.status(),
-                    TropeStatus::Active | TropeStatus::Progressing
-                )
-            })
+            .filter(|ts| matches!(ts.status(), TropeStatus::Active | TropeStatus::Progressing))
             .collect();
 
         if active.is_empty() {
@@ -395,9 +390,9 @@ impl Agent for TroperAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
     use sidequest_genre::TropeEscalation;
     use sidequest_protocol::NonBlankString;
+    use std::collections::HashSet;
 
     fn make_beat(trope_id: &str, trope_name: &str, at: f64, event: &str) -> FiredBeat {
         FiredBeat {
@@ -661,11 +656,8 @@ mod tests {
         let defs = vec![make_trope_def_with_triggers("x", "X", vec!["y"])];
         let active: HashSet<String> = HashSet::new();
 
-        let result = TroperAgent::parse_trigger_response(
-            r#"{"trope_activations": []}"#,
-            &defs,
-            &active,
-        );
+        let result =
+            TroperAgent::parse_trigger_response(r#"{"trope_activations": []}"#, &defs, &active);
 
         assert!(result.is_empty());
     }

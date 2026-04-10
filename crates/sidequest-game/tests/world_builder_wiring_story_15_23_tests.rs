@@ -45,8 +45,8 @@ chapters:
 "#;
 
     let value: serde_json::Value = serde_yaml::from_str(yaml).unwrap();
-    let chapters = parse_history_chapters(&value)
-        .expect("should parse history chapters from YAML value");
+    let chapters =
+        parse_history_chapters(&value).expect("should parse history chapters from YAML value");
 
     assert_eq!(chapters.len(), 2);
     assert_eq!(chapters[0].id, "fresh");
@@ -60,8 +60,7 @@ chapters:
 #[test]
 fn parse_history_chapters_returns_empty_on_none() {
     let value = serde_json::Value::Null;
-    let chapters = parse_history_chapters(&value)
-        .expect("null should return empty vec, not error");
+    let chapters = parse_history_chapters(&value).expect("null should return empty vec, not error");
     assert!(chapters.is_empty());
 }
 
@@ -76,8 +75,8 @@ fn parse_history_chapters_returns_error_on_malformed() {
 fn parse_history_chapters_handles_missing_chapters_key() {
     // history.yaml without a "chapters" key — just an empty object
     let value = serde_json::json!({});
-    let chapters = parse_history_chapters(&value)
-        .expect("missing chapters key should return empty vec");
+    let chapters =
+        parse_history_chapters(&value).expect("missing chapters key should return empty vec");
     assert!(chapters.is_empty());
 }
 
@@ -114,17 +113,24 @@ chapters:
         CampaignMaturity::Fresh,
         "low_fantasy",
         "shattered_reach",
-    ).expect("should materialize at Fresh");
+    )
+    .expect("should materialize at Fresh");
 
     assert_eq!(snap.campaign_maturity, CampaignMaturity::Fresh);
     assert_eq!(snap.genre_slug, "low_fantasy");
     assert_eq!(snap.world_slug, "shattered_reach");
     // Fresh should include fresh chapter lore but NOT early chapter data
-    assert!(snap.lore_established.contains(&"The world is new.".to_string()));
-    assert!(!snap.lore_established.contains(&"Factions emerged.".to_string()));
+    assert!(snap
+        .lore_established
+        .contains(&"The world is new.".to_string()));
+    assert!(!snap
+        .lore_established
+        .contains(&"Factions emerged.".to_string()));
     // Fresh should NOT create a character from the early chapter
-    assert!(snap.characters.is_empty(),
-        "Fresh maturity should not apply early chapter's character");
+    assert!(
+        snap.characters.is_empty(),
+        "Fresh maturity should not apply early chapter's character"
+    );
 }
 
 #[test]
@@ -154,7 +160,8 @@ chapters:
         CampaignMaturity::Early,
         "low_fantasy",
         "shattered_reach",
-    ).expect("should materialize at Early");
+    )
+    .expect("should materialize at Early");
 
     assert_eq!(snap.campaign_maturity, CampaignMaturity::Early);
     // Early should include both fresh and early lore
@@ -189,7 +196,8 @@ chapters:
         CampaignMaturity::Veteran,
         "test_genre",
         "test_world",
-    ).expect("should materialize at Veteran");
+    )
+    .expect("should materialize at Veteran");
 
     assert_eq!(snap.lore_established.len(), 4);
     assert_eq!(snap.campaign_maturity, CampaignMaturity::Veteran);
@@ -202,7 +210,8 @@ fn materialize_from_genre_pack_with_no_history() {
         CampaignMaturity::Fresh,
         "test_genre",
         "test_world",
-    ).expect("null history should produce default snapshot");
+    )
+    .expect("null history should produce default snapshot");
 
     assert_eq!(snap.campaign_maturity, CampaignMaturity::Fresh);
     assert_eq!(snap.genre_slug, "test_genre");
@@ -227,7 +236,8 @@ chapters:
         CampaignMaturity::Fresh,
         "neon_dystopia",
         "franchise_nations",
-    ).unwrap();
+    )
+    .unwrap();
 
     assert_eq!(snap.genre_slug, "neon_dystopia");
     assert_eq!(snap.world_slug, "franchise_nations");
@@ -289,7 +299,8 @@ chapters:
         CampaignMaturity::Early,
         "low_fantasy",
         "shattered_reach",
-    ).unwrap();
+    )
+    .unwrap();
 
     // Character
     assert_eq!(snap.characters.len(), 1);
@@ -325,7 +336,10 @@ chapters:
 
     // Tropes
     assert!(!snap.active_tropes.is_empty());
-    assert_eq!(snap.active_tropes[0].trope_definition_id(), "bandit_unification");
+    assert_eq!(
+        snap.active_tropes[0].trope_definition_id(),
+        "bandit_unification"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
