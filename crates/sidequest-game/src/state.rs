@@ -389,19 +389,18 @@ impl From<GameSnapshotRaw> for GameSnapshot {
 impl GameSnapshot {
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
+    ///
+    /// Delegates to `Combatant::hp_fraction()` so the `combatant.bloodied`
+    /// OTEL watcher event added by story 35-10 is reachable from production
+    /// state-build code (CLAUDE.md "No half-wired features"). The trait
+    /// method already short-circuits on `max_hp == 0`, so the previous
+    /// inline guard is no longer needed.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {
         use crate::combatant::Combatant;
         self.characters
             .iter()
             .filter(|c| c.is_friendly)
-            .map(|c| {
-                let max = c.max_hp();
-                if max == 0 {
-                    0.0
-                } else {
-                    c.hp() as f64 / max as f64
-                }
-            })
+            .map(|c| c.hp_fraction())
             .fold(1.0_f64, f64::min)
     }
 
