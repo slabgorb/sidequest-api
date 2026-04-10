@@ -46,17 +46,28 @@ impl Intent {
 
     /// Reconstruct an Intent from its Display string representation.
     /// Used by dispatch to convert ActionResult's classified_intent (String)
-    /// back to the typed enum for TurnRecord construction.
-    pub fn from_display_str(s: &str) -> Self {
+    /// back to the typed enum.
+    ///
+    /// Returns `None` for unrecognized strings — callers MUST decide whether
+    /// to default loudly (panic), default quietly (e.g., to `Exploration`),
+    /// or hard-reject. The previous version of this function silently
+    /// defaulted to `Intent::Exploration`, which created a hidden silent
+    /// fallback that defeated the guest NPC permission gate added in
+    /// story 35-6 (an unknown intent string would slip through as
+    /// `Exploration → Movement` and bypass restrictions). Returning Option
+    /// pushes the fallback decision to the call site where the policy is
+    /// known.
+    pub fn from_display_str(s: &str) -> Option<Self> {
         match s {
-            "Combat" => Intent::Combat,
-            "Dialogue" => Intent::Dialogue,
-            "Examine" => Intent::Examine,
-            "Meta" => Intent::Meta,
-            "Chase" => Intent::Chase,
-            "Backstory" => Intent::Backstory,
-            "Accusation" => Intent::Accusation,
-            _ => Intent::Exploration,
+            "Combat" => Some(Intent::Combat),
+            "Dialogue" => Some(Intent::Dialogue),
+            "Exploration" => Some(Intent::Exploration),
+            "Examine" => Some(Intent::Examine),
+            "Meta" => Some(Intent::Meta),
+            "Chase" => Some(Intent::Chase),
+            "Backstory" => Some(Intent::Backstory),
+            "Accusation" => Some(Intent::Accusation),
+            _ => None,
         }
     }
 }

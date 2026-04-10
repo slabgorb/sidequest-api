@@ -18,9 +18,9 @@ pub(crate) mod catch_up;
 pub(crate) mod connect;
 mod lore_sync;
 mod npc_registry;
+pub(crate) mod pregen;
 mod patching;
 mod persistence;
-pub(crate) mod pregen;
 mod prompt;
 mod render;
 mod response;
@@ -37,15 +37,18 @@ use tracing::Instrument;
 
 use sidequest_agents::orchestrator::TurnContext;
 use sidequest_protocol::{
-    ChapterMarkerPayload, GameMessage, ItemDepletedPayload, MapUpdatePayload, NarrationEndPayload,
-    NarrationPayload, ThinkingPayload,
+    ChapterMarkerPayload, GameMessage, ItemDepletedPayload,
+    MapUpdatePayload, NarrationEndPayload, NarrationPayload, ThinkingPayload,
 };
 
 use crate::extraction::{
-    extract_location_header, strip_combat_brackets, strip_fenced_blocks, strip_fourth_wall,
-    strip_location_header,
+    extract_location_header, strip_combat_brackets,
+    strip_fenced_blocks, strip_fourth_wall, strip_location_header,
 };
-use crate::{shared_session, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
+use crate::{
+    shared_session, AppState, NpcRegistryEntry, WatcherEventBuilder,
+    WatcherEventType,
+};
 
 /// Mutable per-player state passed through the dispatch pipeline.
 pub(crate) struct DispatchContext<'a> {
@@ -137,12 +140,11 @@ impl<'a> DispatchContext<'a> {
     /// Add an item respecting the genre pack's carry mode (story 19-7).
     /// In Count mode, uses the hardcoded carry limit (50).
     /// In Weight mode, checks against weight_limit from InventoryPhilosophy.
-    pub fn add_item(
-        &mut self,
-        item: sidequest_game::Item,
-    ) -> Result<(), sidequest_game::inventory::InventoryError> {
+    pub fn add_item(&mut self, item: sidequest_game::Item) -> Result<(), sidequest_game::inventory::InventoryError> {
         let result = match self.carry_mode {
-            sidequest_game::inventory::CarryMode::Count => self.inventory.add(item, 50),
+            sidequest_game::inventory::CarryMode::Count => {
+                self.inventory.add(item, 50)
+            }
             sidequest_game::inventory::CarryMode::Weight => {
                 let limit = self.weight_limit.unwrap_or(f64::INFINITY);
                 self.inventory.add_weighted(item, limit)
@@ -154,10 +156,7 @@ impl<'a> DispatchContext<'a> {
             }
         };
         if let Err(ref e) = result {
-            if matches!(
-                e,
-                sidequest_game::inventory::InventoryError::Overweight { .. }
-            ) {
+            if matches!(e, sidequest_game::inventory::InventoryError::Overweight { .. }) {
                 WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
                     .field("event", "item_rejected_overweight")
                     .field("total_weight", self.inventory.total_weight())
@@ -172,28 +171,114 @@ impl<'a> DispatchContext<'a> {
     /// Whether any encounter is active (not resolved).
     /// Story 28-9: replaces `combat_state.in_combat() || chase_state.is_some()`.
     pub fn in_encounter(&self) -> bool {
-        self.snapshot
-            .encounter
-            .as_ref()
-            .map_or(false, |e| !e.resolved)
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved)
     }
 
     /// Whether a combat-type encounter is active.
     /// Story 28-9: replaces `combat_state.in_combat()`.
     pub fn in_combat(&self) -> bool {
-        self.snapshot
-            .encounter
-            .as_ref()
-            .map_or(false, |e| !e.resolved && e.encounter_type == "combat")
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "combat")
     }
 
     /// Whether a chase-type encounter is active.
     /// Story 28-9: replaces `chase_state.is_some()`.
     pub fn in_chase(&self) -> bool {
-        self.snapshot
-            .encounter
-            .as_ref()
-            .map_or(false, |e| !e.resolved && e.encounter_type == "chase")
+        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "chase")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Story 35-6: Guest NPC permission gate
+//
+// `sidequest-game::guest_npc` has been fully built since story 8-7 but had
+// zero production consumers in the server crate. This gate closes the wire:
+// guest-NPC players (the `GuestNpc` variant with a restricted
+// `allowed_actions` HashSet) have their intent-classified actions checked
+// against the allowed set, and restricted actions are rejected before
+// state mutation.
+//
+// The gate runs AFTER `process_action()` (which classifies the intent via
+// the existing state-override classifier in `sidequest-agents`) rather than
+// before it — pre-LLM keyword matching on the raw action string is forbidden
+// by `feedback_no_keyword_matching.md` (Zork Problem). The cost: restricted
+// actions still incur the LLM round-trip, but the denial happens before
+// state mutation and broadcast, so the player never sees the unauthorized
+// narration.
+//
+// All decisions emit a `guest_npc` WatcherEvent so the GM panel can verify
+// the gate is running — per CLAUDE.md's OTEL Observability Principle.
+// ---------------------------------------------------------------------------
+
+/// Gating decision produced by mapping a classified `Intent` to an
+/// `ActionCategory` (or bypassing the gate entirely).
+#[derive(Debug, Clone, Copy)]
+enum GateDecision {
+    /// Check this action category against the guest's `allowed_actions`.
+    Check(sidequest_game::guest_npc::ActionCategory),
+    /// Bypass the gate — the intent is not a gameplay turn action.
+    /// Used for `Intent::Meta` (slash commands) and `Intent::Backstory`
+    /// (character establishment).
+    Bypass,
+}
+
+/// Map a classified `Intent` variant to a `GateDecision`.
+///
+/// Covers every current `sidequest_agents::agents::intent_router::Intent`
+/// variant with an explicit arm. Because `Intent` is `#[non_exhaustive]`
+/// across crates, Rust requires a wildcard arm — that arm panics via
+/// `unreachable!()` rather than silently defaulting to a `GateDecision`.
+///
+/// Adding a new `Intent` variant in `sidequest-agents` will NOT fail
+/// compilation here. The build will pass; the panic only fires at runtime
+/// when a guest player is the first to trigger the new variant. The panic
+/// is bounded (one player's task drops, server keeps running) and is loud
+/// enough that the next code review will catch the missing arm. This
+/// upholds the "No Silent Fallbacks" rule by making the failure mode loud
+/// rather than silent — but it is a runtime guarantee, not a compile-time
+/// one.
+///
+/// Ambiguous-variant mapping rationale:
+/// - `Intent::Exploration` → `Movement` — only sensible mapping; exploration
+///   is dominated by moving between areas.
+/// - `Intent::Chase` → `Movement` — chases are movement-dominant (pursuit,
+///   fleeing, navigating terrain). Combat happens WITHIN a chase via
+///   `in_combat`, but the chase action itself is movement. A guest NPC who
+///   should not do combat can still participate in a chase.
+/// - `Intent::Accusation` → `Dialogue` — accusations are verbal acts in
+///   scenario gameplay (ADR-053). A guest NPC with Dialogue privileges can
+///   make accusations.
+/// - `Intent::Meta` → `Bypass` — slash commands (/save, /help, /status) are
+///   not gameplay turn actions, they are UI commands.
+/// - `Intent::Backstory` → `Bypass` — character establishment (describing
+///   hooks, identity) is not a turn action.
+fn map_intent_to_gate_decision(
+    intent: sidequest_agents::agents::intent_router::Intent,
+) -> GateDecision {
+    use sidequest_agents::agents::intent_router::Intent;
+    use sidequest_game::guest_npc::ActionCategory;
+    match intent {
+        Intent::Combat => GateDecision::Check(ActionCategory::Combat),
+        Intent::Dialogue => GateDecision::Check(ActionCategory::Dialogue),
+        Intent::Exploration => GateDecision::Check(ActionCategory::Movement),
+        Intent::Examine => GateDecision::Check(ActionCategory::Examine),
+        Intent::Chase => GateDecision::Check(ActionCategory::Movement),
+        Intent::Accusation => GateDecision::Check(ActionCategory::Dialogue),
+        Intent::Meta => GateDecision::Bypass,
+        Intent::Backstory => GateDecision::Bypass,
+        // `Intent` is `#[non_exhaustive]` across crates, so Rust's type
+        // system forces a wildcard arm. Per the No Silent Fallbacks rule,
+        // this wildcard is LOUD: adding a new variant to `Intent` in
+        // sidequest-agents must cause a panic here, forcing the developer
+        // to come back and make an explicit mapping choice. This is the
+        // opposite of silently defaulting to `Exploration`/`Movement` (the
+        // previous behavior of `Intent::from_display_str` for unknown
+        // strings, which is a silent-fallback pattern this story must not
+        // replicate).
+        _ => unreachable!(
+            "new Intent variant added without updating \
+             map_intent_to_gate_decision — this is intentional loud failure \
+             per Story 35-6 AC-6 (No Silent Fallbacks)"
+        ),
     }
 }
 
@@ -235,10 +320,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             if pc > 1 {
                 WatcherEventBuilder::new("multiplayer", WatcherEventType::AgentSpanOpen)
                     .field("event", "multiplayer_action")
-                    .field(
-                        "session_key",
-                        format!("{}:{}", ctx.genre_slug, ctx.world_slug),
-                    )
+                    .field("session_key", format!("{}:{}", ctx.genre_slug, ctx.world_slug))
                     .field("player_id", ctx.player_id)
                     .field("party_size", pc)
                     .send();
@@ -291,11 +373,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // item state transitions (consumed, sold, given, lost, destroyed). Runs before
     // the narrator LLM call so mutations are visible in the current turn's prompt.
     if let Some(prev_entry) = ctx.narration_history.last() {
-        let carried_names: Vec<String> = ctx
-            .inventory
-            .carried()
-            .map(|i| i.name.as_str().to_string())
-            .collect();
+        let carried_names: Vec<String> = ctx.inventory.carried().map(|i| i.name.as_str().to_string()).collect();
         // FIX: removed carried_names.is_empty() guard that blocked first-item acquisition
         {
             // Split the history entry: "[CharName] Action: ...\nNarrator: ..."
@@ -308,13 +386,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .unwrap_or_default();
 
             if !prev_narration.is_empty() {
-                let mutations =
-                    sidequest_agents::inventory_extractor::extract_inventory_mutations_async(
-                        &prev_action,
-                        &prev_narration,
-                        &carried_names,
-                    )
-                    .await;
+                let mutations = sidequest_agents::inventory_extractor::extract_inventory_mutations_async(
+                    &prev_action,
+                    &prev_narration,
+                    &carried_names,
+                ).await;
 
                 use sidequest_agents::inventory_extractor::MutationAction;
 
@@ -329,18 +405,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 detail = %mutation.detail,
                                 "inventory.two_pass_gold_acquired"
                             );
-                            WatcherEventBuilder::new(
-                                "inventory",
-                                WatcherEventType::StateTransition,
-                            )
-                            .field("action", "gold_acquired")
-                            .field("gold_gained", gold)
-                            .field("total_gold", ctx.inventory.gold)
-                            .field("detail", &mutation.detail)
-                            .send();
+                            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                .field("action", "gold_acquired")
+                                .field("gold_gained", gold)
+                                .field("total_gold", ctx.inventory.gold)
+                                .field("detail", &mutation.detail)
+                                .send();
                         } else {
-                            let item_id = mutation
-                                .item_name
+                            let item_id = mutation.item_name
                                 .to_lowercase()
                                 .replace(' ', "_")
                                 .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
@@ -357,17 +429,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 sidequest_protocol::NonBlankString::new("common"),
                             ) {
                                 let item = sidequest_game::Item {
-                                    id,
-                                    name,
-                                    description: desc,
-                                    category: cat,
-                                    value: 0,
-                                    weight: 1.0,
-                                    rarity,
+                                    id, name, description: desc, category: cat,
+                                    value: 0, weight: 1.0, rarity,
                                     narrative_weight: 0.3,
-                                    tags: vec![],
-                                    equipped: false,
-                                    quantity: 1,
+                                    tags: vec![], equipped: false, quantity: 1,
                                     uses_remaining: None,
                                     state: sidequest_game::ItemState::Carried,
                                 };
@@ -377,15 +442,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     category = %category,
                                     "inventory.two_pass_item_acquired"
                                 );
-                                WatcherEventBuilder::new(
-                                    "inventory",
-                                    WatcherEventType::StateTransition,
-                                )
-                                .field("action", "item_acquired")
-                                .field("item_name", &mutation.item_name)
-                                .field("category", category)
-                                .field("carried_count", ctx.inventory.item_count())
-                                .send();
+                                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                    .field("action", "item_acquired")
+                                    .field("item_name", &mutation.item_name)
+                                    .field("category", category)
+                                    .field("carried_count", ctx.inventory.item_count())
+                                    .send();
                             }
                         }
                         continue;
@@ -411,43 +473,30 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                 detail = %mutation.detail,
                                 "inventory.two_pass_gold_spent"
                             );
-                            WatcherEventBuilder::new(
-                                "inventory",
-                                WatcherEventType::StateTransition,
-                            )
-                            .field("action", "gold_spent")
-                            .field("gold_spent", actual)
-                            .field("total_gold", ctx.inventory.gold)
-                            .field("mutation_action", format!("{}", mutation.action))
-                            .field("detail", &mutation.detail)
-                            .send();
+                            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                .field("action", "gold_spent")
+                                .field("gold_spent", actual)
+                                .field("total_gold", ctx.inventory.gold)
+                                .field("mutation_action", format!("{}", mutation.action))
+                                .field("detail", &mutation.detail)
+                                .send();
                             continue;
                         }
                     }
 
                     // State transition on existing item
                     let item_lower = mutation.item_name.to_lowercase();
-                    let matched_id = ctx
-                        .inventory
-                        .carried()
+                    let matched_id = ctx.inventory.carried()
                         .find(|i| i.name.as_str().to_lowercase() == item_lower)
                         .map(|i| i.id.as_str().to_string());
 
                     if let Some(item_id) = matched_id {
                         let new_state = match &mutation.action {
                             MutationAction::Consumed => sidequest_game::ItemState::Consumed,
-                            MutationAction::Sold => sidequest_game::ItemState::Sold {
-                                to: mutation.detail.clone(),
-                            },
-                            MutationAction::Given => sidequest_game::ItemState::Given {
-                                to: mutation.detail.clone(),
-                            },
-                            MutationAction::Lost => sidequest_game::ItemState::Lost {
-                                reason: mutation.detail.clone(),
-                            },
-                            MutationAction::Destroyed => sidequest_game::ItemState::Destroyed {
-                                reason: mutation.detail.clone(),
-                            },
+                            MutationAction::Sold => sidequest_game::ItemState::Sold { to: mutation.detail.clone() },
+                            MutationAction::Given => sidequest_game::ItemState::Given { to: mutation.detail.clone() },
+                            MutationAction::Lost => sidequest_game::ItemState::Lost { reason: mutation.detail.clone() },
+                            MutationAction::Destroyed => sidequest_game::ItemState::Destroyed { reason: mutation.detail.clone() },
                             MutationAction::Acquired => unreachable!(),
                         };
                         match ctx.inventory.transition(&item_id, new_state) {
@@ -459,16 +508,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                                     detail = %mutation.detail,
                                     "inventory.two_pass_transition"
                                 );
-                                WatcherEventBuilder::new(
-                                    "inventory",
-                                    WatcherEventType::StateTransition,
-                                )
-                                .field("action", "two_pass_transition")
-                                .field("item_name", &mutation.item_name)
-                                .field("new_state", format!("{:?}", mutation.action))
-                                .field("detail", &mutation.detail)
-                                .field("carried_count", ctx.inventory.item_count())
-                                .send();
+                                WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                                    .field("action", "two_pass_transition")
+                                    .field("item_name", &mutation.item_name)
+                                    .field("new_state", format!("{:?}", mutation.action))
+                                    .field("detail", &mutation.detail)
+                                    .field("carried_count", ctx.inventory.item_count())
+                                    .send();
                             }
                             Err(e) => {
                                 tracing::warn!(
@@ -540,16 +586,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             state_summary.push_str("\n\n");
             state_summary.push_str(&creatures);
         }
-        let npcs_injected = if nearby.is_empty() {
-            0
-        } else {
-            nearby.lines().count()
-        };
-        let creatures_injected = if creatures.is_empty() {
-            0
-        } else {
-            creatures.lines().count()
-        };
+        let npcs_injected = if nearby.is_empty() { 0 } else { nearby.lines().count() };
+        let creatures_injected = if creatures.is_empty() { 0 } else { creatures.lines().count() };
         let _mm_span = tracing::info_span!(
             "monster_manual.injected",
             available_npcs = ctx.monster_manual.available_npcs().len(),
@@ -560,8 +598,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             creatures_injected = creatures_injected,
             in_combat = ctx.in_combat(),
             location = %ctx.current_location,
-        )
-        .entered();
+        ).entered();
         tracing::info!("Monster Manual content injected (location-filtered)");
     }
 
@@ -572,8 +609,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             let _advance_span = tracing::info_span!("scenario.advance",
                 turn = turn_number,
                 tension = %format!("{:.2}", scenario.tension()),
-            )
-            .entered();
+            ).entered();
 
             let turn_number_u64 = turn_number as u64;
             let events = scenario.process_between_turns(&mut ctx.snapshot.npcs, turn_number_u64);
@@ -591,10 +627,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .send();
                         npc_action_lines.push(event.description.clone());
                     }
-                    sidequest_game::ScenarioEventType::GossipSpread {
-                        claims_spread,
-                        contradictions_found,
-                    } => {
+                    sidequest_game::ScenarioEventType::GossipSpread { claims_spread, contradictions_found } => {
                         WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
                             .field("event", "scenario.gossip_spread")
                             .field("claims_spread", *claims_spread)
@@ -656,7 +689,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     let progress = scenario.tension() as f64;
                     for beat in &scenario_pack.pacing.escalation_beats {
                         if (progress - beat.at).abs() < 0.05 {
-                            state_summary.push_str(&format!("\n[ESCALATION] {}\n", beat.inject,));
+                            state_summary.push_str(&format!(
+                                "\n[ESCALATION] {}\n",
+                                beat.inject,
+                            ));
                             WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
                                 .field("event", "escalation_beat")
                                 .field("at_threshold", format!("{:.2}", beat.at))
@@ -687,13 +723,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     );
 
     // Check if barrier mode is active (Structured/Cinematic turn mode).
-    let barrier_outcome: Option<barrier::BarrierOutcome> =
-        barrier::handle_barrier(ctx, &mut state_summary)
-            .instrument(tracing::info_span!(
-                "turn.barrier",
-                barrier_mode = tracing::field::Empty
-            ))
-            .await;
+    let barrier_outcome: Option<barrier::BarrierOutcome> = barrier::handle_barrier(ctx, &mut state_summary)
+        .instrument(tracing::info_span!("turn.barrier", barrier_mode = tracing::field::Empty))
+        .await;
 
     // Non-claiming handlers skip the narrator — retrieve shared narration instead.
     // Only the claiming handler runs the expensive LLM call; others poll for the result.
@@ -718,7 +750,9 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     };
                     let _ = ctx.tx.send(msg).await;
                     let end = GameMessage::NarrationEnd {
-                        payload: NarrationEndPayload { state_delta: None },
+                        payload: NarrationEndPayload {
+                            state_delta: None,
+                        },
                         player_id: ctx.player_id.to_string(),
                     };
                     let _ = ctx.tx.send(end).await;
@@ -739,8 +773,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // F9: Wish Consequence Engine — LLM-classified power-grab on clean input.
     if preprocessed.is_power_grab {
-        let _wish_guard =
-            tracing::info_span!("turn.preprocess.wish_check", is_power_grab = true).entered();
+        let _wish_guard = tracing::info_span!("turn.preprocess.wish_check", is_power_grab = true).entered();
         let mut engine =
             sidequest_game::WishConsequenceEngine::with_counter(ctx.genie_wishes.len());
         if let Some(wish) = engine.evaluate(ctx.char_name, &preprocessed.intent, true) {
@@ -804,8 +837,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Recalculate maturity from current turn count — the snapshot's stored
     // value is only set at connect/materialize time and goes stale as turns
     // progress (e.g., turn 6 should be EARLY, not FRESH).
-    let live_maturity =
-        sidequest_game::world_materialization::CampaignMaturity::from_snapshot(&ctx.snapshot);
+    let live_maturity = sidequest_game::world_materialization::CampaignMaturity::from_snapshot(&ctx.snapshot);
     if live_maturity != ctx.snapshot.campaign_maturity {
         tracing::info!(
             stored = ?ctx.snapshot.campaign_maturity,
@@ -843,12 +875,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             let gs = ctx.genre_slug;
             sidequest_genre::GenreCode::new(gs)
                 .ok()
-                .and_then(|gc| {
-                    ctx.state
-                        .genre_cache()
-                        .get_or_load(&gc, ctx.state.genre_loader())
-                        .ok()
-                })
+                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
                 .map(|pack| pack.prompts.clone())
         },
     };
@@ -864,14 +891,181 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         turn_span.record("agent", agent.as_str());
     }
 
+    // -----------------------------------------------------------------
+    // Story 35-6: Guest NPC permission gate.
+    //
+    // Look up the player's PlayerRole from the shared session. If the
+    // player is a GuestNpc, map the classified intent to an ActionCategory
+    // and enforce the allowed_actions set. Full players and solo sessions
+    // fall through this block with zero overhead and no watcher events
+    // (AC-3: no pollution of the guest_npc watcher channel).
+    //
+    // On deny: emit ValidationWarning, log warn, return empty message vec
+    // to abort the turn before state mutation and narration broadcast.
+    // The narration has already been generated by process_action() above
+    // — we deliberately discard it so the guest never learns that the
+    // restricted action was executed internally.
+    //
+    // On allow: emit SubsystemExerciseSummary and fall through to continue
+    // normal dispatch. The GM panel uses the two event types to distinguish
+    // allow from deny.
+    //
+    // On None intent for guest: loud ValidationWarning + reject. Silent
+    // allow-through would reintroduce the exact bug this story closes.
+    // -----------------------------------------------------------------
+    {
+        let role_opt: Option<sidequest_game::guest_npc::PlayerRole> = {
+            let holder = ctx.shared_session_holder.lock().await;
+            match &*holder {
+                Some(ss_arc) => {
+                    let ss = ss_arc.lock().await;
+                    // Use the role() getter — the field is private (rule #9).
+                    ss.players.get(ctx.player_id).map(|ps| ps.role().clone())
+                }
+                None => None,
+            }
+        };
+
+        if let Some(sidequest_game::guest_npc::PlayerRole::GuestNpc {
+            ref npc_name,
+            ref allowed_actions,
+        }) = role_opt
+        {
+            use sidequest_agents::agents::intent_router::Intent;
+            use sidequest_game::guest_npc::{ActionError, PlayerRole};
+
+            // AC-6: no silent fallback for guests. Two ways the intent can be
+            // unclassifiable:
+            //   1. The classifier returned `None` entirely (no classification)
+            //   2. The classifier returned a string that does not match any
+            //      known Intent variant (e.g., LLM produced "Hesitation" or
+            //      garbage tokens). `Intent::from_display_str` now returns
+            //      `Option<Intent>` and yields `None` for unrecognized input
+            //      (story 35-6 fix — previously this case was silently
+            //      defaulted to `Intent::Exploration`, defeating the gate).
+            //
+            // `.and_then` flattens both failure modes into a single None.
+            let classified_opt: Option<Intent> = result
+                .classified_intent
+                .as_deref()
+                .and_then(Intent::from_display_str);
+
+            let Some(classified) = classified_opt else {
+                let raw_intent = result.classified_intent.as_deref().unwrap_or("<none>");
+                WatcherEventBuilder::new(
+                    "guest_npc",
+                    WatcherEventType::ValidationWarning,
+                )
+                .field("decision", "denied")
+                .field("reason", "unclassified_guest_action")
+                .field("player_id", ctx.player_id)
+                .field("npc_name", npc_name.as_str())
+                .field("raw_intent", raw_intent)
+                .field(
+                    "action_raw",
+                    &ctx.action[..ctx.action.len().min(80)],
+                )
+                .send();
+                tracing::warn!(
+                    player_id = %ctx.player_id,
+                    npc_name = %npc_name,
+                    raw_intent,
+                    "guest_npc.gate: denied (unclassified intent — no silent fallback)"
+                );
+                return vec![];
+            };
+
+            match map_intent_to_gate_decision(classified) {
+                GateDecision::Bypass => {
+                    // Meta/Backstory — not a gameplay turn action, gate does
+                    // not apply. Do NOT emit a guest_npc watcher event here
+                    // — bypasses are non-decisions and should not clutter
+                    // the allow/deny signal the GM panel is watching.
+                    tracing::debug!(
+                        player_id = %ctx.player_id,
+                        npc_name = %npc_name,
+                        ?classified,
+                        "guest_npc.gate: bypass (non-gameplay intent)"
+                    );
+                }
+                GateDecision::Check(category) => {
+                    // Reconstruct the role for can_perform(). The HashSet
+                    // clone is cheap (small bounded set) and avoids threading
+                    // a reference out of the Mutex guard's lifetime.
+                    //
+                    // Note: simplify-efficiency flagged this as a redundant
+                    // operation in story 35-6 verify phase. The simplification
+                    // was reverted because the wiring test
+                    // `wiring_dispatch_calls_permission_check_method` enforces
+                    // that the gate calls `.can_perform()` or `.validate_action()`
+                    // as the public API surface, not the internal HashSet directly.
+                    // Inlining the contains() check skips the API contract layer
+                    // and breaks the wiring test. The reconstruction is
+                    // intentional architectural choice.
+                    let role = PlayerRole::GuestNpc {
+                        npc_name: npc_name.clone(),
+                        allowed_actions: allowed_actions.clone(),
+                    };
+                    if role.can_perform(&category) {
+                        // AC-1: allow path — emit SubsystemExerciseSummary.
+                        WatcherEventBuilder::new(
+                            "guest_npc",
+                            WatcherEventType::SubsystemExerciseSummary,
+                        )
+                        .field("decision", "allowed")
+                        .field("player_id", ctx.player_id)
+                        .field("npc_name", npc_name.as_str())
+                        .field("category", format!("{:?}", category))
+                        .send();
+                        tracing::debug!(
+                            player_id = %ctx.player_id,
+                            npc_name = %npc_name,
+                            ?category,
+                            "guest_npc.gate: allowed"
+                        );
+                    } else {
+                        // AC-2: deny path — emit ValidationWarning, log
+                        // warn, return empty vec. Narration from
+                        // process_action() above is silently discarded
+                        // (the LLM cost is already incurred, but the guest
+                        // never sees the restricted-action narration —
+                        // showing it would teach the guest that the gate
+                        // ran "internally").
+                        let err = ActionError::RestrictedAction { category };
+                        WatcherEventBuilder::new(
+                            "guest_npc",
+                            WatcherEventType::ValidationWarning,
+                        )
+                        .field("decision", "denied")
+                        .field("reason", "restricted_action")
+                        .field("player_id", ctx.player_id)
+                        .field("npc_name", npc_name.as_str())
+                        .field("category", format!("{:?}", category))
+                        .field(
+                            "action_raw",
+                            &ctx.action[..ctx.action.len().min(80)],
+                        )
+                        .send();
+                        tracing::warn!(
+                            player_id = %ctx.player_id,
+                            npc_name = %npc_name,
+                            ?category,
+                            error = %err,
+                            "guest_npc.gate: denied (restricted action)"
+                        );
+                        return vec![];
+                    }
+                }
+            }
+        }
+    }
+
     // Story 6-3: Update engagement counter based on intent classification.
     // Meaningful actions (Combat, Dialogue, Chase) reset the counter;
     // non-meaningful actions (Exploration, Examine, Meta) increment it.
     // The counter drives the trope tick multiplier via engagement_multiplier().
     {
-        let is_meaningful = result
-            .classified_intent
-            .as_deref()
+        let is_meaningful = result.classified_intent.as_deref()
             .map(|i| matches!(i, "Combat" | "Dialogue" | "Chase"))
             .unwrap_or(false);
         if is_meaningful {
@@ -887,27 +1081,26 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     // Update preprocessed from inline agent output (approach A — no separate Haiku call).
-    let _preprocessed =
-        if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
-            tracing::info!(
-                you = %rw.you, named = %rw.named, intent = %rw.intent,
-                power_grab = flags.is_power_grab,
-                "Inline preprocessor fields extracted from agent response"
-            );
-            sidequest_game::PreprocessedAction {
-                you: rw.you.clone(),
-                named: rw.named.clone(),
-                intent: rw.intent.clone(),
-                is_power_grab: flags.is_power_grab,
-                references_inventory: flags.references_inventory,
-                references_npc: flags.references_npc,
-                references_ability: flags.references_ability,
-                references_location: flags.references_location,
-            }
-        } else {
-            tracing::debug!("Agent did not produce inline preprocessor fields — using defaults");
-            preprocessed
-        };
+    let _preprocessed = if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
+        tracing::info!(
+            you = %rw.you, named = %rw.named, intent = %rw.intent,
+            power_grab = flags.is_power_grab,
+            "Inline preprocessor fields extracted from agent response"
+        );
+        sidequest_game::PreprocessedAction {
+            you: rw.you.clone(),
+            named: rw.named.clone(),
+            intent: rw.intent.clone(),
+            is_power_grab: flags.is_power_grab,
+            references_inventory: flags.references_inventory,
+            references_npc: flags.references_npc,
+            references_ability: flags.references_ability,
+            references_location: flags.references_location,
+        }
+    } else {
+        tracing::debug!("Agent did not produce inline preprocessor fields — using defaults");
+        preprocessed
+    };
 
     // Watcher: narration generated (with intent classification and agent routing)
     WatcherEventBuilder::new("agent", WatcherEventType::AgentSpanClose)
@@ -953,15 +1146,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     let narration_text = &result.narration;
     // Try header extraction first (**Location**), fall back to game_patch JSON location field.
-    let extracted_location = extract_location_header(narration_text).or_else(|| {
-        if let Some(ref loc) = result.location {
-            tracing::info!(
-                location = %loc,
-                "location.from_game_patch — header extraction missed, using JSON fallback"
-            );
-        }
-        result.location.clone()
-    });
+    let extracted_location = extract_location_header(narration_text)
+        .or_else(|| {
+            if let Some(ref loc) = result.location {
+                tracing::info!(
+                    location = %loc,
+                    "location.from_game_patch — header extraction missed, using JSON fallback"
+                );
+            }
+            result.location.clone()
+        });
     if let Some(location) = extracted_location {
         // Room-graph mode: resolve display name → room ID, then validate + apply.
         // Region mode (rooms empty): always valid — no room graph to check.
@@ -1012,10 +1206,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .send();
 
                     // Story 19-10: Deplete active light source on room transition
-                    let remaining_before = ctx
-                        .inventory
-                        .items
-                        .iter()
+                    let remaining_before = ctx.inventory.items.iter()
                         .find(|item| item.tags.iter().any(|t| t == "light"))
                         .and_then(|item| item.uses_remaining)
                         .unwrap_or(0);
@@ -1101,8 +1292,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     sidequest_game::lore::LoreCategory::Geography,
                     turn_number as u64,
                     std::collections::HashMap::new(),
-                )
-                .await;
+                ).await;
 
                 // POI image fast path: check for pre-rendered landscape image
                 // on first location discovery. Images live in genre pack at
@@ -1120,8 +1310,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .join("poi")
                     .join(format!("{}.png", location_slug));
                 if poi_image_path.exists() {
-                    let served_url =
-                        format!("/genre/{}/images/poi/{}.png", ctx.genre_slug, location_slug);
+                    let served_url = format!(
+                        "/genre/{}/images/poi/{}.png",
+                        ctx.genre_slug, location_slug
+                    );
                     tracing::info!(
                         location = %location,
                         url = %served_url,
@@ -1164,8 +1356,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 },
                 player_id: ctx.player_id.to_string(),
             });
-            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty()
-            {
+            let explored_locs: Vec<sidequest_protocol::ExploredLocation> = if !ctx.rooms.is_empty() {
                 // Room-graph mode: use build_room_graph_explored for full room metadata
                 sidequest_game::build_room_graph_explored(
                     &ctx.rooms,
@@ -1191,10 +1382,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .collect()
             };
             // Story 35-7: OTEL for tactical grid population in MAP_UPDATE
-            let grids_populated = explored_locs
-                .iter()
-                .filter(|l| l.tactical_grid.is_some())
-                .count();
+            let grids_populated = explored_locs.iter().filter(|l| l.tactical_grid.is_some()).count();
             if grids_populated > 0 {
                 WatcherEventBuilder::new("tactical_grid", WatcherEventType::StateTransition)
                     .field("event", "tactical_grid.map_update")
@@ -1215,13 +1403,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
                 .field("event", "cartography_dispatch")
                 .field("has_cartography", ctx.cartography_metadata.is_some())
-                .field(
-                    "navigation_mode",
-                    ctx.cartography_metadata
-                        .as_ref()
-                        .map(|c| c.navigation_mode.as_str())
-                        .unwrap_or("none"),
-                )
+                .field("navigation_mode", ctx.cartography_metadata.as_ref().map(|c| c.navigation_mode.as_str()).unwrap_or("none"))
                 .send();
             ctx.turn_manager.advance_round();
             tracing::info!(
@@ -1233,11 +1415,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
 
     let clean_narration = strip_fourth_wall(
-        &strip_combat_brackets(&strip_fenced_blocks(&strip_location_header(narration_text)))
+            &strip_combat_brackets(
+                &strip_fenced_blocks(&strip_location_header(narration_text))
+            )
             .replace("</s>", "")
             .replace("<|endoftext|>", "")
             .replace("<|end|>", ""),
-    );
+        );
 
     // Claiming handler stores narration so non-claimers can retrieve it
     // via get_resolution_narration() and skip the narrator call entirely.
@@ -1281,7 +1465,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // Story 35-2: Entity reference hot-path validation (informational OTEL only)
     {
-        use sidequest_agents::entity_reference::{extract_potential_references, EntityRegistry};
+        use sidequest_agents::entity_reference::{EntityRegistry, extract_potential_references};
 
         let registry = EntityRegistry::from_snapshot(&ctx.snapshot);
         let references = extract_potential_references(&clean_narration);
@@ -1289,10 +1473,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             if !registry.matches(reference) {
                 WatcherEventBuilder::new("entity_reference", WatcherEventType::ValidationWarning)
                     .field("unresolved_name", reference)
-                    .field(
-                        "narration_excerpt",
-                        &clean_narration.chars().take(120).collect::<String>(),
-                    )
+                    .field("narration_excerpt", &clean_narration.chars().take(120).collect::<String>())
                     .send();
             }
         }
@@ -1328,48 +1509,28 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 npc_name = %name,
                 "monster_manual.npc_activated — narrator used pool NPC"
             );
-            crate::WatcherEventBuilder::new(
-                "monster_manual",
-                crate::WatcherEventType::StateTransition,
-            )
-            .field("action", "npc_activated")
-            .field("name", name)
-            .send();
+            crate::WatcherEventBuilder::new("monster_manual", crate::WatcherEventType::StateTransition)
+                .field("action", "npc_activated")
+                .field("name", name)
+                .send();
         }
     }
 
     // Story 15-14: Enrich registry with structured NPC data (age, appearance, pronouns)
     // from GameSnapshot.npcs — update_npc_registry only gets regex-extracted data.
     {
-        let before: Vec<(String, bool, bool, bool)> = ctx
-            .npc_registry
-            .iter()
-            .map(|e| {
-                (
-                    e.name.clone(),
-                    e.pronouns.is_empty(),
-                    e.age.is_empty(),
-                    e.appearance.is_empty(),
-                )
-            })
-            .collect();
+        let before: Vec<(String, bool, bool, bool)> = ctx.npc_registry.iter().map(|e| {
+            (e.name.clone(), e.pronouns.is_empty(), e.age.is_empty(), e.appearance.is_empty())
+        }).collect();
 
         sidequest_game::enrich_registry_from_npcs(ctx.npc_registry, &ctx.snapshot.npcs);
 
         for (i, entry) in ctx.npc_registry.iter().enumerate() {
-            if let Some((name, was_empty_pronouns, was_empty_age, was_empty_appearance)) =
-                before.get(i)
-            {
+            if let Some((name, was_empty_pronouns, was_empty_age, was_empty_appearance)) = before.get(i) {
                 let mut fields_added: u32 = 0;
-                if *was_empty_pronouns && !entry.pronouns.is_empty() {
-                    fields_added += 1;
-                }
-                if *was_empty_age && !entry.age.is_empty() {
-                    fields_added += 1;
-                }
-                if *was_empty_appearance && !entry.appearance.is_empty() {
-                    fields_added += 1;
-                }
+                if *was_empty_pronouns && !entry.pronouns.is_empty() { fields_added += 1; }
+                if *was_empty_age && !entry.age.is_empty() { fields_added += 1; }
+                if *was_empty_appearance && !entry.appearance.is_empty() { fields_added += 1; }
                 if fields_added > 0 {
                     WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
                         .field("event", "npc.registry_enriched")
@@ -1398,12 +1559,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             ctx.player_id,
                             turn,
                         ) {
-                            WatcherEventBuilder::new("conlang", WatcherEventType::StateTransition)
-                                .field("event", "name_recorded")
-                                .field("name", &generated_name.name)
-                                .field("language_id", &generated_name.language_id)
-                                .field("gloss", &generated_name.gloss)
-                                .send();
+                            WatcherEventBuilder::new(
+                                "conlang",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("event", "name_recorded")
+                            .field("name", &generated_name.name)
+                            .field("language_id", &generated_name.language_id)
+                            .field("gloss", &generated_name.gloss)
+                            .send();
 
                             tracing::info!(
                                 name = %generated_name.name,
@@ -1455,8 +1619,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // State mutations must run before delta computation (delta depends on patched state).
     let mutation_result =
-        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action)
-            .await;
+        state_mutations::apply_state_mutations(ctx, &result, &clean_narration, &effective_action).await;
     let tier_events = mutation_result.tier_events;
 
     // Story 28-8: Encounter creation — the narrator signals a new encounter by emitting
@@ -1464,36 +1627,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // This creates a StructuredEncounter from the genre pack's ConfrontationDef and
     // populates actors from the player characters + NPCs present in the scene.
     if let Some(ref confrontation_type) = result.confrontation {
-        if ctx.snapshot.encounter.is_none()
-            || ctx
-                .snapshot
-                .encounter
-                .as_ref()
-                .map_or(false, |e| e.resolved)
-        {
-            if let Some(def) =
-                crate::find_confrontation_def(&ctx.confrontation_defs, confrontation_type)
-            {
-                let mut encounter =
-                    sidequest_game::encounter::StructuredEncounter::from_confrontation_def(def);
+        if ctx.snapshot.encounter.is_none() || ctx.snapshot.encounter.as_ref().map_or(false, |e| e.resolved) {
+            if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, confrontation_type) {
+                let mut encounter = sidequest_game::encounter::StructuredEncounter::from_confrontation_def(def);
 
                 // Populate actors: player characters + NPCs mentioned this turn
                 for ch in &ctx.snapshot.characters {
-                    encounter
-                        .actors
-                        .push(sidequest_game::encounter::EncounterActor {
-                            name: ch.core.name.as_str().to_string(),
-                            role: "player".to_string(),
-                        });
+                    encounter.actors.push(sidequest_game::encounter::EncounterActor {
+                        name: ch.core.name.as_str().to_string(),
+                        role: "player".to_string(),
+                    });
                 }
                 // Add NPCs from this turn's narration (the narrator knows who's in the scene)
                 for npc_mention in &result.npcs_present {
-                    encounter
-                        .actors
-                        .push(sidequest_game::encounter::EncounterActor {
-                            name: npc_mention.name.clone(),
-                            role: "npc".to_string(),
-                        });
+                    encounter.actors.push(sidequest_game::encounter::EncounterActor {
+                        name: npc_mention.name.clone(),
+                        role: "npc".to_string(),
+                    });
                 }
 
                 WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
@@ -1535,22 +1685,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             beat::dispatch_beat_selection(ctx, beat_id);
 
             // OTEL: encounter.beat dispatched — GM panel lie detector
-            let stat_check_result = ctx
-                .snapshot
-                .encounter
-                .as_ref()
+            let stat_check_result = ctx.snapshot.encounter.as_ref()
                 .map(|e| format!("metric={}", e.metric.current))
                 .unwrap_or_else(|| "no_encounter".to_string());
 
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-                .field(
-                    "event",
-                    if is_player {
-                        "encounter.player_beat"
-                    } else {
-                        "encounter.npc_beat"
-                    },
-                )
+                .field("event", if is_player { "encounter.player_beat" } else { "encounter.npc_beat" })
                 .field("actor", actor)
                 .field("beat_id", beat_id)
                 .field("target", target)
@@ -1577,13 +1717,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     if encounter_just_resolved {
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("event", "encounter.resolved")
-            .field(
-                "encounter_type",
-                ctx.snapshot
-                    .encounter
-                    .as_ref()
-                    .map_or("unknown", |e| &e.encounter_type),
-            )
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
             .field("turn", turn_number)
             .send();
         // Clear resolved encounter so the overlay doesn't keep broadcasting
@@ -1592,13 +1726,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     if encounter_just_started {
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("event", "encounter.started")
-            .field(
-                "encounter_type",
-                ctx.snapshot
-                    .encounter
-                    .as_ref()
-                    .map_or("unknown", |e| &e.encounter_type),
-            )
+            .field("encounter_type", ctx.snapshot.encounter.as_ref().map_or("unknown", |e| &e.encounter_type))
             .field("turn", turn_number)
             .send();
     }
@@ -1688,8 +1816,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 sidequest_game::lore::LoreCategory::Event,
                 turn_number as u64,
                 std::collections::HashMap::new(),
-            )
-            .await;
+            ).await;
         }
     }
 
@@ -1707,8 +1834,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             sidequest_game::lore::LoreCategory::Event,
             turn_number as u64,
             std::collections::HashMap::new(),
-        )
-        .await;
+        ).await;
     }
 
     let system_tick_span = tracing::info_span!(
@@ -1727,8 +1853,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         if ctx.trope_states.is_empty() && !ctx.trope_defs.is_empty() {
             for def in ctx.trope_defs.iter() {
                 let id = def.id.as_deref().unwrap_or(def.name.as_str());
-                ctx.trope_states
-                    .push(sidequest_game::trope::TropeState::new(id));
+                ctx.trope_states.push(sidequest_game::trope::TropeState::new(id));
             }
             tracing::info!(
                 count = ctx.trope_states.len(),
@@ -1738,8 +1863,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         let _tropes_guard = tracing::info_span!(
             "turn.system_tick.tropes",
             active_count = ctx.trope_states.len(),
-        )
-        .entered();
+        ).entered();
         tropes::process_tropes(ctx, &clean_narration, &mut messages)
     };
     system_tick_span.record("tropes_fired", fired_beats.len() as u64);
@@ -1768,8 +1892,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         let _beat_ctx_guard = tracing::info_span!(
             "turn.system_tick.beat_context",
             beats_count = fired_beats.len(),
-        )
-        .entered();
+        ).entered();
 
         let mut troper = sidequest_agents::agents::troper::TroperAgent::new();
         troper.set_fired_beats(fired_beats);
@@ -1788,8 +1911,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             sidequest_game::lore::LoreCategory::Event,
             turn_number as u64,
             meta,
-        )
-        .await;
+        ).await;
     }
 
     // Epic 16: Resource pool decay — apply per-turn decay and mint threshold lore
@@ -1831,15 +1953,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // so RENDER_QUEUED arrives at the UI before NARRATION text.
 
     let location_changed = *ctx.current_location != location_before_turn;
-    audio::process_audio(
-        ctx,
-        &clean_narration,
-        &mut messages,
-        &result,
-        location_changed,
-        encounter_just_resolved,
-    )
-    .await;
+    audio::process_audio(ctx, &clean_narration, &mut messages, &result, location_changed, encounter_just_resolved).await;
 
     // Record this interaction in the turn manager
     ctx.turn_manager.record_interaction();
@@ -1883,7 +1997,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         );
 
         // Generate typed broadcast messages from the delta
-        let broadcast_msgs = sidequest_game::broadcast_state_changes(&delta, ctx.snapshot);
+        let broadcast_msgs =
+            sidequest_game::broadcast_state_changes(&delta, ctx.snapshot);
         for msg in broadcast_msgs {
             let _ = ctx.tx.send(msg).await;
         }
@@ -1894,22 +2009,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     persistence::persist_game_state(ctx, narration_text, &clean_narration).await;
 
     // GM Panel snapshot + timing telemetry
-    telemetry::emit_telemetry(
-        ctx,
-        turn_number,
-        &result,
-        turn_start,
-        preprocess_done,
-        agent_done,
-    );
+    telemetry::emit_telemetry(ctx, turn_number, &result, turn_start, preprocess_done, agent_done);
 
     // ADR-073: Construct and send TurnRecord for training data capture + OTEL bridge.
     if let Some(watcher_tx) = ctx.state.watcher_tx() {
-        use sidequest_agents::agents::intent_router::Intent;
         use sidequest_agents::turn_record::{try_send_record, TurnRecord};
+        use sidequest_agents::agents::intent_router::Intent;
 
-        let classified =
-            Intent::from_display_str(result.classified_intent.as_deref().unwrap_or("Exploration"));
+        // TurnRecord telemetry: classified_intent is informational here, not
+        // gameplay-critical, so an unrecognized string can default to
+        // Exploration without violating the No Silent Fallbacks rule. The
+        // gate at line ~932 is where unrecognized intents are loud — here
+        // we just want a typed value for the training-data record.
+        let classified = result
+            .classified_intent
+            .as_deref()
+            .and_then(Intent::from_display_str)
+            .unwrap_or(Intent::Exploration);
 
         let patches_applied = patching::derive_patches_from_delta(&game_delta);
         let after_game_snapshot = ctx.snapshot.clone();
@@ -1948,8 +2064,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Perception filter population — map player's current status effects to
     // perceptual effects so multiplayer narration rewriting activates (story 8-6).
     if let Some(character) = ctx.snapshot.characters.first() {
-        let perceptual_effects =
-            barrier::map_statuses_to_perceptual_effects(&character.core.statuses);
+        let perceptual_effects = barrier::map_statuses_to_perceptual_effects(&character.core.statuses);
         if !perceptual_effects.is_empty() {
             let holder = ctx.shared_session_holder.lock().await;
             if let Some(ref ss_arc) = *holder {
@@ -1957,21 +2072,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 let char_name = character.core.name.as_str().to_string();
                 ss.perception_filters.insert(
                     ctx.player_id.to_string(),
-                    sidequest_game::perception::PerceptionFilter::new(
-                        char_name,
-                        perceptual_effects.clone(),
-                    ),
+                    sidequest_game::perception::PerceptionFilter::new(char_name, perceptual_effects.clone()),
                 );
                 WatcherEventBuilder::new("perception", WatcherEventType::StateTransition)
                     .field("event", "perception_filter_set")
                     .field("player_id", ctx.player_id)
-                    .field(
-                        "effects",
-                        sidequest_game::perception::PerceptionRewriter::describe_effects(
-                            &perceptual_effects,
-                        )
-                        .as_str(),
-                    )
+                    .field("effects", sidequest_game::perception::PerceptionRewriter::describe_effects(&perceptual_effects).as_str())
                     .send();
             }
         } else {
@@ -2002,6 +2108,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 }
 
 // ── Inline helpers extracted from dispatch_player_action ──────────────────
+
 
 #[cfg(test)]
 mod tests {
