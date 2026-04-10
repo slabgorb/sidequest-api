@@ -14,7 +14,10 @@ pub struct AudioConfig {
     pub mood_tracks: HashMap<String, Vec<MoodTrack>>,
     /// SFX category → file path list.
     pub sfx_library: HashMap<String, Vec<String>>,
-    /// Creature type → voice preset.
+    /// Creature type → voice preset. TTS pipeline was removed in PR #388;
+    /// content repos dropped this field before the model was updated. Defaults
+    /// to an empty map so genre packs without voice presets load cleanly.
+    #[serde(default)]
     pub creature_voice_presets: HashMap<String, CreatureVoicePreset>,
     /// Mixer volume settings.
     pub mixer: MixerConfig,
@@ -160,14 +163,24 @@ pub struct MixerConfig {
     pub music_volume: f64,
     /// SFX volume (0.0–1.0).
     pub sfx_volume: f64,
-    /// Voice volume (0.0–1.0).
+    /// Voice volume (0.0–1.0). Kept for protocol compatibility; TTS pipeline
+    /// was removed in PR #388 but content repos stripped this field from
+    /// audio.yaml before the model was updated. Defaults to 1.0 so genre
+    /// packs without the field load cleanly.
+    #[serde(default = "default_voice_volume")]
     pub voice_volume: f64,
-    /// Whether to duck music during voice.
+    /// Whether to duck music during voice. Also TTS-related legacy; defaults
+    /// to `false` since there is no voice stream to duck for anymore.
+    #[serde(default)]
     pub duck_music_for_voice: bool,
     /// Ducking amount in decibels.
     pub duck_amount_db: f64,
     /// Default crossfade duration in milliseconds.
     pub crossfade_default_ms: u32,
+}
+
+fn default_voice_volume() -> f64 {
+    1.0
 }
 
 /// A themed music collection with variations.

@@ -7,7 +7,9 @@
 use std::collections::HashMap;
 
 use rand::Rng;
-use sidequest_genre::{BackstoryTables, CharCreationScene, MechanicalEffects, RulesConfig};
+use sidequest_genre::{
+    BackstoryTables, CharCreationScene, EquipmentTables, MechanicalEffects, RulesConfig,
+};
 use tracing::info_span;
 use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat};
 
@@ -224,6 +226,10 @@ pub struct CharacterBuilder {
     rolled_stats: Option<Vec<(String, i32)>>,
     /// Optional backstory random tables from the genre pack.
     backstory_tables: Option<BackstoryTables>,
+    /// Optional equipment random tables from the genre pack. Story 31-3.
+    /// When set AND a scene declares `equipment_generation: random_table`,
+    /// the builder rolls one item per slot (or `rolls_per_slot` override).
+    equipment_tables: Option<EquipmentTables>,
 }
 
 impl CharacterBuilder {
@@ -299,7 +305,21 @@ impl CharacterBuilder {
                 .unwrap_or_else(|| "Class".to_string()),
             rolled_stats,
             backstory_tables,
+            equipment_tables: None,
         }
+    }
+
+    /// Attach an `EquipmentTables` to this builder. Fluent setter — chain
+    /// after `new()` or `try_new()`. When set, scenes with
+    /// `mechanical_effects.equipment_generation == Some("random_table")`
+    /// will roll starting inventory from these tables during `build()`.
+    ///
+    /// Story 31-3: chose a setter over a 4th positional parameter to keep
+    /// the blast radius small across the 52 existing `CharacterBuilder::new`
+    /// call sites.
+    pub fn with_equipment_tables(mut self, tables: EquipmentTables) -> Self {
+        self.equipment_tables = Some(tables);
+        self
     }
 
     /// Roll 3d6 for each ability score in order. Returns (name, total) pairs.
@@ -851,8 +871,9 @@ impl CharacterBuilder {
             }
         }
 
-        // Inventory from item hints
-        let items: Vec<Item> = acc
+        // Inventory composition: item hints first, then random equipment tables
+        // when a scene directive opts in. Story 31-3.
+        let mut items: Vec<Item> = acc
             .item_hints
             .iter()
             .enumerate()
@@ -879,6 +900,82 @@ impl CharacterBuilder {
                 }
             })
             .collect();
+
+        // Equipment random tables: apply when any scene declared
+        // `equipment_generation: random_table` AND tables are wired in.
+        // Story 31-3: wire genre-pack equipment_tables into CharacterBuilder.
+        let random_table_requested = self.results.iter().any(|r| {
+            r.effects_applied
+                .equipment_generation
+                .as_deref()
+                == Some("random_table")
+        });
+        let (equipment_method, equipment_added) =
+            if random_table_requested && self.equipment_tables.is_some() {
+                let tables = self.equipment_tables.as_ref().unwrap();
+                let mut rng = rand::rng();
+                let mut added = 0usize;
+                // Iterate slots in sorted order for deterministic-under-fixed-seed
+                // behavior. Random selection within each slot still varies.
+                let mut slot_names: Vec<&String> = tables.tables.keys().collect();
+                slot_names.sort();
+                for slot in slot_names {
+                    let candidates = &tables.tables[slot];
+                    if candidates.is_empty() {
+                        continue;
+                    }
+                    let rolls = tables.rolls_per_slot.get(slot).copied().unwrap_or(1);
+                    for _ in 0..rolls {
+                        let pick = &candidates[rng.random_range(0..candidates.len())];
+                        let display_name = humanize_snake_case(pick);
+                        let id = match NonBlankString::new(pick) {
+                            Ok(id) => id,
+                            Err(_) => continue, // blank id — skip without inserting
+                        };
+                        items.push(Item {
+                            id,
+                            name: NonBlankString::new(&display_name)
+                                .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
+                            description: NonBlankString::new(&format!(
+                                "Starting equipment ({}): {}",
+                                slot, display_name
+                            ))
+                            .unwrap(),
+                            category: NonBlankString::new(slot).unwrap_or_else(|_| {
+                                NonBlankString::new("misc").unwrap()
+                            }),
+                            value: 0,
+                            weight: 1.0,
+                            rarity: NonBlankString::new("common").unwrap(),
+                            narrative_weight: 0.3,
+                            tags: vec![],
+                            equipped: false,
+                            quantity: 1,
+                            uses_remaining: None,
+                            state: ItemState::Carried,
+                        });
+                        added += 1;
+                    }
+                }
+                ("tables", added)
+            } else if random_table_requested {
+                // Directive present but no tables wired — silent no-op is
+                // intentional here because the directive is optional content,
+                // not a configuration error. OTEL span records the decision.
+                ("none", 0)
+            } else {
+                ("hints", 0)
+            };
+
+        // OTEL: chargen.equipment_composed — GM panel verification that the
+        // equipment subsystem engaged (or didn't, and why).
+        let _equipment_span = info_span!(
+            "chargen.equipment_composed",
+            method = equipment_method,
+            items_added = equipment_added,
+        )
+        .entered();
+        drop(_equipment_span);
 
         // Compose backstory: fragments → tables → mechanical labels → fallback
         let backstory_text = if !acc.backstory_fragments.is_empty() {
