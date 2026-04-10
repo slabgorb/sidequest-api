@@ -331,12 +331,8 @@ pub(crate) async fn apply_state_mutations(
             let value = delta.abs();
             match ctx.snapshot.process_resource_patch_with_lore(name, op, value, ctx.lore_store, turn) {
                 Ok(patch_result) => {
-                    // Transitional: sync pool.current back to legacy
-                    // resource_state so persistence captures the change.
-                    // Phase 5 removes resource_state entirely.
-                    if let Some(pool) = ctx.snapshot.resources.get(name) {
-                        ctx.resource_state.insert(name.clone(), pool.current);
-                    }
+                    // Phase 5: snapshot.resources is already mutated in-place
+                    // by process_resource_patch_with_lore — no sync needed.
                     let mut builder = WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
                         .field("event", "resource_pool.patched")
                         .field("resource", name)

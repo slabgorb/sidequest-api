@@ -80,8 +80,6 @@ pub(crate) struct DispatchContext<'a> {
     pub state: &'a AppState,
     pub continuity_corrections: &'a mut String,
     pub genie_wishes: &'a mut Vec<sidequest_game::GenieWish>,
-    pub resource_state: &'a mut HashMap<String, f64>,
-    pub resource_declarations: &'a [sidequest_genre::ResourceDeclaration],
     /// Confrontation type definitions from genre pack rules.yaml (story 28-1).
     /// Used by apply_beat(), format_encounter_context(), and beat population.
     pub confrontation_defs: Vec<sidequest_genre::ConfrontationDef>,
@@ -1667,12 +1665,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             }
         }
 
-        // Transitional: sync pool decay back into legacy resource_state so
-        // persistence (which still reads resource_state) captures the change.
-        // Phase 6 removes resource_state entirely; this line goes with it.
-        for (name, pool) in &ctx.snapshot.resources {
-            ctx.resource_state.insert(name.clone(), pool.current);
-        }
+        // Phase 5: pool decay mutates snapshot.resources directly.
+        // No sync needed — persistence reads snapshot.resources.
     }
 
     drop(_system_tick_guard);
@@ -2863,7 +2857,8 @@ fn sync_locals_to_snapshot(ctx: &mut DispatchContext<'_>, _narration_text: &str)
     ctx.snapshot.active_tropes = ctx.trope_states.clone();
     ctx.snapshot.achievement_tracker = ctx.achievement_tracker.clone();
     ctx.snapshot.quest_log = ctx.quest_log.clone();
-    ctx.snapshot.resource_state = ctx.resource_state.clone();
+    // Phase 5: snapshot.resources is mutated in-place by patch + decay,
+    // no end-of-turn sync required.
     if let Some(ref cj) = ctx.character_json {
         if let Ok(ch) = serde_json::from_value::<sidequest_game::Character>(cj.clone()) {
             if let Some(saved_ch) = ctx.snapshot.characters.first_mut() {

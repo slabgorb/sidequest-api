@@ -874,8 +874,6 @@ pub(crate) async fn dispatch_character_creation(
     continuity_corrections: &mut String,
     quest_log: &mut HashMap<String, String>,
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
-    resource_state: &mut HashMap<String, f64>,
-    resource_declarations: &[sidequest_genre::ResourceDeclaration],
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
     snapshot: &mut sidequest_game::state::GameSnapshot,
     narrator_verbosity: sidequest_protocol::NarratorVerbosity,
@@ -1406,8 +1404,6 @@ pub(crate) async fn dispatch_character_creation(
                             state,
                             continuity_corrections,
                             genie_wishes,
-                            resource_state,
-                            resource_declarations,
                             sfx_library: {
                                 let genre_slug = session.genre_slug().unwrap_or("");
                                 sidequest_genre::GenreCode::new(genre_slug)

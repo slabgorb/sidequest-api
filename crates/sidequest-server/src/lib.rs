@@ -1159,8 +1159,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut continuity_corrections = String::new();
     let mut quest_log: HashMap<String, String> = HashMap::new();
     let mut genie_wishes: Vec<sidequest_game::GenieWish> = vec![];
-    let mut resource_state: HashMap<String, f64> = HashMap::new();
-    let mut resource_declarations: Vec<sidequest_genre::ResourceDeclaration> = vec![];
+    // Phase 5: resource_state / resource_declarations removed. Pools live on
+    // snapshot.resources; genre pack declarations flow through
+    // init_resource_pools() once on connect and are not stored long-term.
+    // `pools_initialized` prevents re-running init on every turn.
+    let mut pools_initialized = false;
     let mut achievement_tracker = sidequest_game::achievement::AchievementTracker::default();
     // Canonical game snapshot — carried through the dispatch pipeline (story 15-8).
     let mut snapshot = sidequest_game::state::GameSnapshot::default();
@@ -1220,8 +1223,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         &mut continuity_corrections,
                         &mut quest_log,
                         &mut genie_wishes,
-                        &mut resource_state,
-                        &resource_declarations,
                         &mut achievement_tracker,
                         &mut snapshot,
                         narrator_verbosity,
@@ -1236,27 +1237,32 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         "dispatch_message.returned"
                     );
 
-                    // Epic 16: Load resource declarations from genre pack after connect
-                    if resource_declarations.is_empty() {
+                    // Epic 16: Initialize resource pools from genre pack on first
+                    // post-connect message. init_resource_pools is an upsert, so if
+                    // the save already has pools (via backward-compat migration in
+                    // GameSnapshotRaw), their `current` values are preserved and
+                    // only metadata is refreshed from the pack.
+                    if !pools_initialized {
                         if let (Some(genre), Some(_world)) = (session.genre_slug(), session.world_slug()) {
                             if let Ok(genre_code) = GenreCode::new(genre) {
                                 if let Ok(pack) = state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
-                                    resource_declarations = pack.rules.resources.clone();
-                                    if !resource_declarations.is_empty() {
-                                        snapshot.init_resource_pools(&resource_declarations);
+                                    let declarations = &pack.rules.resources;
+                                    if !declarations.is_empty() {
+                                        snapshot.init_resource_pools(declarations);
                                         tracing::info!(
                                             genre = %genre,
-                                            resource_count = resource_declarations.len(),
-                                            pool_names = ?resource_declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
+                                            resource_count = declarations.len(),
+                                            pool_names = ?declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
                                             "resource_pools.initialized — genre resources loaded into snapshot"
                                         );
                                         WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
                                             .field("event", "resource_pools.initialized")
                                             .field("genre", genre)
-                                            .field("count", resource_declarations.len())
-                                            .field("pools", resource_declarations.iter().map(|r| r.name.clone()).collect::<Vec<_>>())
+                                            .field("count", declarations.len())
+                                            .field("pools", declarations.iter().map(|r| r.name.clone()).collect::<Vec<_>>())
                                             .send();
                                     }
+                                    pools_initialized = true;
                                 }
                             }
                         }
@@ -1443,8 +1449,6 @@ async fn dispatch_message(
     continuity_corrections: &mut String,
     quest_log: &mut HashMap<String, String>,
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
-    resource_state: &mut HashMap<String, f64>,
-    resource_declarations: &[sidequest_genre::ResourceDeclaration],
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
     snapshot: &mut sidequest_game::state::GameSnapshot,
     narrator_verbosity: sidequest_protocol::NarratorVerbosity,
@@ -1743,8 +1747,6 @@ async fn dispatch_message(
                 continuity_corrections,
                 quest_log,
                 genie_wishes,
-                resource_state,
-                resource_declarations,
                 achievement_tracker,
                 snapshot,
                 narrator_verbosity,
@@ -1813,8 +1815,6 @@ async fn dispatch_message(
                     state,
                     continuity_corrections,
                     genie_wishes,
-                    resource_state,
-                    resource_declarations,
                     sfx_library: {
                         let gs = session.genre_slug().unwrap_or("");
                         sidequest_genre::GenreCode::new(gs)
