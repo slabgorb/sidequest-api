@@ -146,7 +146,7 @@ fn no_chase_patch_in_state_module() {
 /// fields). So AC-1 + AC-2 passing implies AC-4.
 #[test]
 fn snapshot_encounter_field_is_the_sole_mutation_target() {
-    let mut snapshot = GameSnapshot::default();
+    let snapshot = GameSnapshot::default();
     let json_before = serde_json::to_value(&snapshot).unwrap();
     let obj = json_before.as_object().unwrap();
 

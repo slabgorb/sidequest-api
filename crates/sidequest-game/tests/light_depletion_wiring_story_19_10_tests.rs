@@ -39,6 +39,7 @@ fn make_torch(uses: u32) -> Item {
         equipped: true,
         quantity: 1,
         uses_remaining: Some(uses),
+        state: Default::default(),
     }
 }
 
@@ -56,6 +57,7 @@ fn make_sword() -> Item {
         equipped: true,
         quantity: 1,
         uses_remaining: None,
+        state: Default::default(),
     }
 }
 
@@ -73,11 +75,14 @@ fn two_room_graph() -> Vec<RoomDef> {
                 is_locked: false,
             }],
             keeper_awareness_modifier: 1.0,
+            grid: None,
+            legend: None,
+            tactical_scale: None,
         },
         RoomDef {
             id: "corridor".to_string(),
             name: "Dark Corridor".to_string(),
-            description: Some("A long, dark corridor.".to_string()),
+            description: Some("A long, dark corridor.".to_string()), grid: None, legend: None, tactical_scale: None,
             room_type: "corridor".to_string(),
             size: (1, 1),
             exits: vec![RoomExit::Door {
@@ -95,7 +100,7 @@ fn three_room_loop() -> Vec<RoomDef> {
         RoomDef {
             id: "entrance".to_string(),
             name: "Entrance Hall".to_string(),
-            description: Some("A dusty stone entrance.".to_string()),
+            description: Some("A dusty stone entrance.".to_string()), grid: None, legend: None, tactical_scale: None,
             room_type: "entrance".to_string(),
             size: (1, 1),
             exits: vec![RoomExit::Corridor {
@@ -106,7 +111,7 @@ fn three_room_loop() -> Vec<RoomDef> {
         RoomDef {
             id: "hallway".to_string(),
             name: "Central Hallway".to_string(),
-            description: Some("A junction of corridors.".to_string()),
+            description: Some("A junction of corridors.".to_string()), grid: None, legend: None, tactical_scale: None,
             room_type: "corridor".to_string(),
             size: (2, 2),
             exits: vec![
@@ -123,7 +128,7 @@ fn three_room_loop() -> Vec<RoomDef> {
         RoomDef {
             id: "vault".to_string(),
             name: "Treasure Vault".to_string(),
-            description: Some("Glittering gold and ancient relics.".to_string()),
+            description: Some("Glittering gold and ancient relics.".to_string()), grid: None, legend: None, tactical_scale: None,
             room_type: "room".to_string(),
             size: (3, 3),
             exits: vec![RoomExit::Door {

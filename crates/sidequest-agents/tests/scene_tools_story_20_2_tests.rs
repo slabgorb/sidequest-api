@@ -63,7 +63,7 @@ fn extraction_with_mood_and_intent() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![],
+    beat_selections: vec![], confrontation: None, location: None,
     }
 }
 

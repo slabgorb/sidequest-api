@@ -31,7 +31,7 @@ fn three_room_graph() -> Vec<RoomDef> {
             exits: vec![RoomExit::Corridor {
                 target: "corridor".into(),
             }],
-            description: None,
+            description: None, grid: None, legend: None, tactical_scale: None,
         },
         RoomDef {
             id: "corridor".into(),
@@ -48,7 +48,7 @@ fn three_room_graph() -> Vec<RoomDef> {
                     is_locked: false,
                 },
             ],
-            description: None,
+            description: None, grid: None, legend: None, tactical_scale: None,
         },
         RoomDef {
             id: "chamber".into(),
@@ -60,7 +60,7 @@ fn three_room_graph() -> Vec<RoomDef> {
                 target: "corridor".into(),
                 is_locked: false,
             }],
-            description: None,
+            description: None, grid: None, legend: None, tactical_scale: None,
         },
     ]
 }
@@ -276,7 +276,7 @@ fn test_init_room_graph_no_entrance_room() {
         size: (2, 2),
         keeper_awareness_modifier: 1.0,
         exits: vec![],
-        description: None,
+        description: None, grid: None, legend: None, tactical_scale: None,
     }];
     let mut snap = GameSnapshot::default();
 

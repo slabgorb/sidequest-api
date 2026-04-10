@@ -10,7 +10,7 @@
 //! ACs from story context: spike injection, linear decay, spike cleanup,
 //! spike replacement, drama_weight as max, clamped output, full observe flow
 
-use sidequest_game::combat::{DamageEvent, RoundResult};
+use sidequest_game::tension_tracker::{DamageEvent, RoundResult};
 use sidequest_game::tension_tracker::{
     classify_combat_outcome, DetailedCombatEvent, TensionTracker, TurnClassification,
 };

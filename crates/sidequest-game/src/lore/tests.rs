@@ -620,6 +620,7 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
         openings: vec![],
         inventory: None,
         backstory_tables: None,
+        equipment_tables: None,
     }
 }
 

@@ -110,6 +110,7 @@ fn rules_3d6_strict() -> RulesConfig {
         confrontations: vec![],
         resources: vec![],
         xp_affinity: None,
+        initiative_rules: std::collections::HashMap::new(),
     }
 }
 

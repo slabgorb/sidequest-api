@@ -11,9 +11,9 @@
 //! ACs: event types with spike data, classification function, observe integration,
 //! boring_streak tracking, spike injection per event type
 
-use sidequest_game::combat::{DamageEvent, RoundResult};
 use sidequest_game::tension_tracker::{
-    classify_combat_outcome, DetailedCombatEvent, TensionTracker, TurnClassification,
+    classify_combat_outcome, DamageEvent, DetailedCombatEvent, RoundResult, TensionTracker,
+    TurnClassification,
 };
 
 // ============================================================================

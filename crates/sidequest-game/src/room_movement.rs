@@ -4,7 +4,7 @@
 //! a valid room reachable via an exit from the current room. Invalid moves
 //! are rejected with `DispatchError::InvalidRoomTransition`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use sidequest_genre::{RoomDef, RoomExit};
 use sidequest_protocol::{ExploredLocation, RoomExitInfo, TacticalFeaturePayload, TacticalGridPayload};

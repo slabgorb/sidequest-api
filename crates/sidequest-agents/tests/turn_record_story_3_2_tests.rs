@@ -23,7 +23,7 @@ use sidequest_agents::agents::intent_router::Intent;
 use sidequest_agents::turn_record::{
     run_validator, PatchSummary, TurnIdCounter, TurnRecord, WATCHER_CHANNEL_CAPACITY,
 };
-use sidequest_game::{CombatState, GameSnapshot, StateDelta, TurnManager};
+use sidequest_game::{GameSnapshot, StateDelta, TurnManager};
 
 // ===========================================================================
 // Test infrastructure: mock TurnRecord construction
@@ -41,8 +41,6 @@ fn mock_game_snapshot() -> GameSnapshot {
         quest_log: HashMap::new(),
         notes: vec![],
         narrative_log: vec![],
-        combat: CombatState::new(),
-        chase: None,
         active_tropes: vec![],
         atmosphere: "tense and electric".to_string(),
         current_region: "flickering_reach".to_string(),
@@ -101,6 +99,8 @@ fn make_mock_record(turn_id: u64) -> TurnRecord {
         agent_duration_ms: 2400,
         is_degraded: false,
         spans: vec![],
+        prompt_text: None,
+        raw_response_text: None,
     }
 }
 
@@ -913,6 +913,8 @@ fn turn_record_with_empty_collections_is_valid() {
         agent_duration_ms: 800,
         is_degraded: false,
         spans: vec![],
+        prompt_text: None,
+        raw_response_text: None,
     };
 
     assert!(record.patches_applied.is_empty());

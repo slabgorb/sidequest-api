@@ -706,49 +706,11 @@ fn extra_lore_is_deduplicated() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AC-11: Combat setup
+// AC-11: Combat setup — removed; GameSnapshot.combat was replaced
+// with encounter: Option<StructuredEncounter> in story 16-2.
+// WorldBuilder::with_combat coverage needs a new test against
+// StructuredEncounter (followup story).
 // ═══════════════════════════════════════════════════════════════
-
-#[test]
-fn with_combat_creates_combat_state() {
-    let snap = WorldBuilder::new()
-        .at_maturity(CampaignMaturity::Early)
-        .with_chapters(vec![make_chapter_with_character()])
-        .with_combat(None)
-        .build();
-
-    assert!(snap.combat.in_combat(), "combat should be active");
-    assert!(!snap.combat.turn_order().is_empty(), "turn order should be populated");
-}
-
-#[test]
-fn with_combat_uses_provided_enemies() {
-    let enemies = vec![
-        ("Bandit Leader".to_string(), 24, 24),
-        ("Bandit".to_string(), 12, 12),
-    ];
-
-    let snap = WorldBuilder::new()
-        .at_maturity(CampaignMaturity::Early)
-        .with_chapters(vec![make_chapter_with_character()])
-        .with_combat(Some(enemies))
-        .build();
-
-    assert!(snap.combat.in_combat());
-    // Turn order should include character + enemies
-    assert!(snap.combat.turn_order().len() >= 3,
-        "turn order should include character and enemies");
-}
-
-#[test]
-fn with_combat_default_enemies() {
-    // None means use default enemies
-    let snap = WorldBuilder::new()
-        .with_combat(None)
-        .build();
-
-    assert!(snap.combat.in_combat());
-}
 
 // ═══════════════════════════════════════════════════════════════
 // AC-12: Build is idempotent / repeatable

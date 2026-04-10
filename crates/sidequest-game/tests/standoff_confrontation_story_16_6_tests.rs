@@ -22,10 +22,10 @@
 //!   AC-Integration: Complete standoff sequence from start to combat escalation
 
 use sidequest_game::encounter::{
-    EncounterActor, EncounterMetric, EncounterPhase, MetricDirection, SecondaryStats,
-    StructuredEncounter, StatValue,
+    EncounterActor, EncounterPhase, MetricDirection,
+    StructuredEncounter,
 };
-use sidequest_genre::{BeatDef, ConfrontationDef, SecondaryStatDef};
+use sidequest_genre::{BeatDef, ConfrontationDef};
 
 // =========================================================================
 // AC-Loads: Standoff declaration parses from spaghetti_western rules.yaml

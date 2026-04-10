@@ -58,7 +58,7 @@ fn make_room(id: &str, modifier: f64) -> RoomDef {
         size: (2, 2),
         keeper_awareness_modifier: modifier,
         exits: vec![],
-        description: None,
+        description: None, grid: None, legend: None, tactical_scale: None,
     }
 }
 
