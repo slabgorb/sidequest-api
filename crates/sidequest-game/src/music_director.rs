@@ -366,6 +366,28 @@ impl MusicDirector {
                 .entry(theme.mood.clone())
                 .or_default();
             for variation in &theme.variations {
+                // OTEL: detect unrecognized variation_type strings before
+                // as_variation() silently defaults to Full. sidequest-genre
+                // does not depend on sidequest-telemetry, so the detection
+                // lives at the sole production call site. A genre pack
+                // author who writes `variation_type: "fill"` (typo of
+                // "full") will now surface on the GM panel as
+                // `unknown_variation_type` with the exact typo string, the
+                // owning theme name, the mood key, and the fallback target.
+                // CLAUDE.md no-silent-fallbacks. Story 35-14.
+                if !matches!(
+                    variation.variation_type.as_str(),
+                    "full" | "overture" | "ambient" | "sparse" | "tension_build" | "resolution"
+                ) {
+                    WatcherEventBuilder::new("music_director", WatcherEventType::StateTransition)
+                        .severity(Severity::Warn)
+                        .field("action", "unknown_variation_type")
+                        .field("variation_type", variation.variation_type.as_str())
+                        .field("theme", theme.name.as_str())
+                        .field("mood", theme.mood.as_str())
+                        .field("fallback_to", "full")
+                        .send();
+                }
                 let tv = variation.as_variation();
                 let energy = match tv {
                     TrackVariation::Ambient => 0.3,
