@@ -493,6 +493,63 @@ fn audio_config_exploration_sparse_only() -> AudioConfig {
     config
 }
 
+/// Themes are registered for `exploration` only. A classification with
+/// `primary: MoodKey::COMBAT` will find nothing in `themed_tracks` and
+/// hit the outer-`if let Some` no-match path in `select_variation()`.
+/// Also registers a `combat` mood_track so that the director's
+/// construction doesn't panic on the missing mood, but crucially the
+/// `themes` vec has no combat entry — so `themed_tracks["combat"]` is
+/// `None` when `select_variation()` runs.
+fn audio_config_themes_for_exploration_only() -> AudioConfig {
+    let mut mood_tracks = HashMap::new();
+    mood_tracks.insert(
+        "exploration".to_string(),
+        vec![MoodTrack {
+            path: "audio/music/explore_1.ogg".to_string(),
+            title: "Wanderer's Path".to_string(),
+            bpm: 90,
+            energy: 0.4,
+        }],
+    );
+    mood_tracks.insert(
+        "combat".to_string(),
+        vec![MoodTrack {
+            path: "audio/music/combat_1.ogg".to_string(),
+            title: "Battle Drums".to_string(),
+            bpm: 140,
+            energy: 0.9,
+        }],
+    );
+    AudioConfig {
+        mood_tracks,
+        mood_keywords: HashMap::new(),
+        sfx_library: HashMap::new(),
+        creature_voice_presets: HashMap::new(),
+        mixer: MixerConfig {
+            music_volume: 0.6,
+            sfx_volume: 0.8,
+            voice_volume: 1.0,
+            duck_music_for_voice: true,
+            duck_amount_db: -12.0,
+            crossfade_default_ms: 3000,
+        },
+        // Only exploration has themed variations — combat does not.
+        themes: vec![AudioTheme {
+            name: "forest".to_string(),
+            mood: "exploration".to_string(),
+            base_prompt: "ambient forest".to_string(),
+            variations: vec![AudioVariation {
+                variation_type: "full".to_string(),
+                path: "audio/themes/exploration/full.ogg".to_string(),
+            }],
+        }],
+        ai_generation: None,
+        mixer_defaults: None,
+        mood_aliases: HashMap::new(),
+        faction_themes: Vec::new(),
+    }
+}
+
 #[test]
 fn audio_variation_fallback_to_full_emits_watcher_event() {
     let (_guard, mut rx) = fresh_subscriber();
@@ -602,6 +659,87 @@ fn audio_variation_fallback_to_first_available_emits_watcher_event() {
          (either a `reason` field or a `full_available=false` flag), \
          got fields: {:?}",
         evt.fields.keys().collect::<Vec<_>>()
+    );
+}
+
+// ===========================================================================
+// AC-4 (rework) — the outer `if let Some(mood_variations)` fallback path.
+// ===========================================================================
+//
+// Reviewer finding on story 35-13: when `themed_tracks` has no entry for the
+// classified mood key at all (e.g., a genre pack that registers a new mood in
+// char_creation.yaml without a matching theme bundle in audio_config.yaml),
+// `select_variation()` silently returns `preferred` without emitting any
+// watcher event. This is the exact class of silent fallback the story was
+// written to surface. AC-4 covers "audio variation generation fails and
+// system falls back to default" — the missing-mood-key path IS a fallback
+// to default, just at the OUTER level, before the intra-mood branches that
+// stories 35-13 Pass 1 already instrumented.
+
+#[test]
+fn audio_variation_fallback_when_mood_missing_from_themed_tracks() {
+    let (_guard, mut rx) = fresh_subscriber();
+
+    // Themes registered for EXPLORATION only. Combat mood_tracks exist
+    // (so the director has fallback material via mood_tracks), but NO
+    // combat theme bundle — `themed_tracks["combat"]` is None.
+    let config = audio_config_themes_for_exploration_only();
+    let director = MusicDirector::new(&config);
+
+    let classification = MoodClassification {
+        primary: MoodKey::COMBAT,
+        intensity: 0.8,
+        confidence: 0.9,
+    };
+    let ctx = MoodContext {
+        in_combat: true,
+        ..Default::default()
+    };
+
+    // Call select_variation — we don't care what it RETURNS (the return
+    // value falls through to mood_tracks in evaluate()); we care that
+    // the missing-theme condition is surfaced on the watcher channel.
+    let _ = director.select_variation(&classification, &ctx);
+
+    let events = drain_events(&mut rx);
+    let fallback = find_events(&events, "music_director", "variation_fallback");
+
+    assert!(
+        !fallback.is_empty(),
+        "select_variation() must emit music_director.variation_fallback \
+         watcher event when the classified mood has NO entry in themed_tracks \
+         at all. Currently the outer `if let Some(mood_variations)` has no \
+         else branch and returns `preferred` silently — violates CLAUDE.md \
+         no-silent-fallbacks and the story's AC-4. Got {} other events.",
+        events.len()
+    );
+
+    let evt = &fallback[0];
+    assert_eq!(
+        evt.fields.get("mood").and_then(serde_json::Value::as_str),
+        Some("combat"),
+        "variation_fallback must record the mood key that had no themed entry"
+    );
+    // The `reason` field must distinguish this outer-level fallback from
+    // the two intra-mood fallbacks (preferred_unavailable, only_first_available).
+    let reason = evt
+        .fields
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .expect("variation_fallback must carry a reason field");
+    assert!(
+        reason == "mood_not_in_themed_tracks" || reason.contains("mood"),
+        "reason must identify the missing-mood case (suggested: \
+         'mood_not_in_themed_tracks'), got {:?}",
+        reason
+    );
+    // `full_available` must be false — there's nothing available for this mood.
+    assert_eq!(
+        evt.fields
+            .get("full_available")
+            .and_then(serde_json::Value::as_bool),
+        Some(false),
+        "full_available must be false — the entire mood has no themed tracks"
     );
 }
 
