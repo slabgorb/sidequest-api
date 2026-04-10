@@ -14,12 +14,19 @@
 //! `TELEMETRY_LOCK` serializes the global broadcast channel; events are
 //! drained into a Vec and filtered by `(component, action)`.
 
-use sidequest_game::combatant::Combatant;
+use std::collections::HashMap;
+
+use sidequest_game::character::Character;
 use sidequest_game::consequence::WishConsequenceEngine;
+use sidequest_game::creature_core::CreatureCore;
+use sidequest_game::delta::{compute_delta, snapshot as state_snapshot};
+use sidequest_game::inventory::Inventory;
 use sidequest_game::party_reconciliation::{
     PartyReconciliation, PlayerLocation, ReconciliationResult,
 };
 use sidequest_game::progression;
+use sidequest_game::state::{broadcast_state_changes, GameSnapshot};
+use sidequest_protocol::NonBlankString;
 use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent};
 
 // ---------------------------------------------------------------------------
@@ -70,30 +77,45 @@ fn find_events(events: &[WatcherEvent], component: &str, action: &str) -> Vec<Wa
         .collect()
 }
 
-/// Minimal Combatant impl for trait-level OTEL tests.
-struct TestCombatant {
-    name: String,
-    hp: i32,
-    max_hp: i32,
-    level: u32,
-    ac: i32,
+/// Build a friendly `Character` with the given HP / max HP for bloodied-threshold
+/// tests. All other fields are given sensible defaults — these tests care only
+/// about the `is_friendly` flag and the HP pair that drives the bloodied check
+/// inside `broadcast_state_changes`.
+fn make_friendly(name: &str, hp: i32, max_hp: i32) -> Character {
+    Character {
+        core: CreatureCore {
+            name: NonBlankString::new(name).unwrap(),
+            description: NonBlankString::new("A test combatant").unwrap(),
+            personality: NonBlankString::new("stoic").unwrap(),
+            level: 3,
+            hp,
+            max_hp,
+            ac: 15,
+            xp: 0,
+            inventory: Inventory::default(),
+            statuses: vec![],
+        },
+        backstory: NonBlankString::new("Test backstory").unwrap(),
+        narrative_state: "Exploring".to_string(),
+        hooks: vec![],
+        char_class: NonBlankString::new("Fighter").unwrap(),
+        race: NonBlankString::new("Human").unwrap(),
+        pronouns: String::new(),
+        stats: HashMap::new(),
+        abilities: vec![],
+        known_facts: vec![],
+        affinities: vec![],
+        is_friendly: true,
+    }
 }
 
-impl Combatant for TestCombatant {
-    fn name(&self) -> &str {
-        &self.name
-    }
-    fn hp(&self) -> i32 {
-        self.hp
-    }
-    fn max_hp(&self) -> i32 {
-        self.max_hp
-    }
-    fn level(&self) -> u32 {
-        self.level
-    }
-    fn ac(&self) -> i32 {
-        self.ac
+/// Build a minimal `GameSnapshot` containing the given characters. All other
+/// fields inherit from `GameSnapshot::default()` — sufficient for the narrow
+/// `broadcast_state_changes` path exercised by the bloodied tests.
+fn snapshot_with_characters(characters: Vec<Character>) -> GameSnapshot {
+    GameSnapshot {
+        characters,
+        ..GameSnapshot::default()
     }
 }
 
@@ -223,50 +245,68 @@ fn consequence_rotation_advances_in_emitted_events() {
 }
 
 // ===========================================================================
-// combatant — Combatant::hp_fraction (bloodied threshold)
+// combatant — broadcast_state_changes (bloodied threshold, Option A rework)
 // ===========================================================================
 //
-// hp_fraction() is the canonical "is this combatant bloodied?" check. Firing
-// a watcher event when the result crosses below 0.5 gives the GM panel a
-// signal that combat math actually consulted the Combatant trait — without
-// flooding the channel on every accessor call.
+// Story 35-10 originally instrumented `Combatant::hp_fraction()` — a pure
+// accessor — with a side effect, but `hp_fraction()` had no production
+// callers, making the OTEL event unreachable from any live game session.
+//
+// Rework #3 (Architect decision — Option A): the `combatant.bloodied`
+// emission lives in `broadcast_state_changes`, the function dispatched from
+// `sidequest-server/src/dispatch/mod.rs:1737` every turn to build the
+// PARTY_STATUS message. Emission is gated on `delta.characters_changed()`
+// so it fires only when combat math has actually mutated a character this
+// turn (transition-at-mutation-site pattern per `disposition::apply_delta`).
+//
+// This set of tests exercises `broadcast_state_changes` directly with
+// fabricated `GameSnapshot` + `StateDelta` fixtures — no source-grepping,
+// no `include_str!` wiring loopholes. The behavior under test is exactly
+// what dispatch/mod.rs calls at runtime.
 
 #[test]
-fn combatant_hp_fraction_below_half_emits_bloodied_event() {
+fn broadcast_state_changes_emits_bloodied_when_friendly_drops_below_half() {
     let (_guard, mut rx) = fresh_subscriber();
 
-    let bloodied = TestCombatant {
-        name: "Grog".to_string(),
-        hp: 12,
-        max_hp: 30,
-        level: 3,
-        ac: 15,
-    };
-    let frac = bloodied.hp_fraction();
-    assert!(frac < 0.5, "test fixture must be in bloodied range");
+    let before_state = snapshot_with_characters(vec![make_friendly("Grog", 30, 30)]);
+    let after_state = snapshot_with_characters(vec![make_friendly("Grog", 12, 30)]);
+    let delta = compute_delta(
+        &state_snapshot(&before_state),
+        &state_snapshot(&after_state),
+    );
+    assert!(
+        delta.characters_changed(),
+        "test precondition: HP mutation must register as characters_changed",
+    );
+
+    let _messages = broadcast_state_changes(&delta, &after_state);
 
     let events = drain_events(&mut rx);
-    let bloodied_events = find_events(&events, "combatant", "bloodied");
+    let bloodied = find_events(&events, "combatant", "bloodied");
 
     assert!(
-        !bloodied_events.is_empty(),
-        "hp_fraction() called on a combatant below 0.5 max_hp must emit \
-         combatant.bloodied; got {} other events",
+        !bloodied.is_empty(),
+        "broadcast_state_changes must emit combatant.bloodied when a friendly \
+         character is below 0.5 max_hp AND characters_changed — without this \
+         emission the GM panel cannot see combat engage. Got {} other events.",
         events.len()
     );
 
-    let evt = &bloodied_events[0];
+    let evt = &bloodied[0];
     assert_eq!(
         evt.fields.get("name").and_then(serde_json::Value::as_str),
-        Some("Grog")
+        Some("Grog"),
+        "bloodied event must carry the combatant name",
     );
     assert_eq!(
         evt.fields.get("hp").and_then(serde_json::Value::as_i64),
-        Some(12)
+        Some(12),
+        "bloodied event must carry current hp",
     );
     assert_eq!(
         evt.fields.get("max_hp").and_then(serde_json::Value::as_i64),
-        Some(30)
+        Some(30),
+        "bloodied event must carry max_hp",
     );
     let hp_frac = evt
         .fields
@@ -275,83 +315,123 @@ fn combatant_hp_fraction_below_half_emits_bloodied_event() {
         .expect("hp_fraction field must be a number");
     assert!(
         (hp_frac - 0.4).abs() < 1e-5,
-        "hp_fraction should be ~0.4 (12/30), got {hp_frac}"
+        "hp_fraction should be ~0.4 (12/30), got {hp_frac}",
     );
 }
 
 #[test]
-fn combatant_hp_fraction_at_full_hp_does_not_emit_bloodied_event() {
+fn broadcast_state_changes_does_not_emit_bloodied_at_full_hp() {
     let (_guard, mut rx) = fresh_subscriber();
 
-    let healthy = TestCombatant {
-        name: "Pike".to_string(),
-        hp: 30,
-        max_hp: 30,
-        level: 3,
-        ac: 15,
-    };
-    let _ = healthy.hp_fraction();
+    // Before/after HP both drive characters_changed=true, but the final
+    // "after" state is at full HP. No bloodied event should fire.
+    let before_state = snapshot_with_characters(vec![make_friendly("Pike", 20, 30)]);
+    let after_state = snapshot_with_characters(vec![make_friendly("Pike", 30, 30)]);
+    let delta = compute_delta(
+        &state_snapshot(&before_state),
+        &state_snapshot(&after_state),
+    );
+    assert!(delta.characters_changed());
+
+    let _ = broadcast_state_changes(&delta, &after_state);
 
     let events = drain_events(&mut rx);
-    let bloodied_events = find_events(&events, "combatant", "bloodied");
+    let bloodied = find_events(&events, "combatant", "bloodied");
 
     assert!(
-        bloodied_events.is_empty(),
-        "hp_fraction() at full HP must NOT emit combatant.bloodied — \
-         a noisy event would flood the GM panel; got {} bloodied events",
-        bloodied_events.len()
+        bloodied.is_empty(),
+        "full-HP friendly must NOT emit combatant.bloodied even when the delta \
+         marks characters_changed — a noisy event would flood the GM panel. \
+         Got {} bloodied events.",
+        bloodied.len()
     );
 }
 
 #[test]
-fn combatant_hp_fraction_at_half_exactly_does_not_emit_bloodied_event() {
+fn broadcast_state_changes_does_not_emit_bloodied_at_exactly_half() {
     let (_guard, mut rx) = fresh_subscriber();
 
-    let half = TestCombatant {
-        name: "Vex".to_string(),
-        hp: 15,
-        max_hp: 30,
-        level: 3,
-        ac: 15,
-    };
-    let frac = half.hp_fraction();
-    assert!((frac - 0.5).abs() < f64::EPSILON, "fixture must be exactly 0.5");
+    let before_state = snapshot_with_characters(vec![make_friendly("Vex", 30, 30)]);
+    let after_state = snapshot_with_characters(vec![make_friendly("Vex", 15, 30)]);
+    let delta = compute_delta(
+        &state_snapshot(&before_state),
+        &state_snapshot(&after_state),
+    );
+    assert!(delta.characters_changed());
+
+    let _ = broadcast_state_changes(&delta, &after_state);
 
     let events = drain_events(&mut rx);
-    let bloodied_events = find_events(&events, "combatant", "bloodied");
+    let bloodied = find_events(&events, "combatant", "bloodied");
 
     assert!(
-        bloodied_events.is_empty(),
-        "hp_fraction() at exactly 0.5 must NOT emit bloodied — the threshold \
-         is strict less-than, not less-than-or-equal"
+        bloodied.is_empty(),
+        "hp_fraction exactly 0.5 must NOT emit bloodied — the threshold is \
+         strict less-than, not less-than-or-equal. Got {} events.",
+        bloodied.len()
     );
 }
 
 #[test]
-fn combatant_hp_fraction_zero_max_hp_does_not_emit_bloodied_event() {
+fn broadcast_state_changes_does_not_emit_bloodied_when_max_hp_is_zero() {
     let (_guard, mut rx) = fresh_subscriber();
 
-    let degenerate = TestCombatant {
-        name: "Phantom".to_string(),
-        hp: 0,
-        max_hp: 0,
-        level: 1,
-        ac: 0,
-    };
-    let frac = degenerate.hp_fraction();
-    assert_eq!(
-        frac, 0.0,
-        "zero max_hp must return 0.0 per existing trait contract"
+    // Degenerate combatant (max_hp=0). Vary `level` between before and after
+    // so the delta still registers characters_changed — the point of this
+    // test is that max_hp=0 must short-circuit regardless of delta state.
+    let mut before_char = make_friendly("Phantom", 0, 0);
+    before_char.core.level = 1;
+    let mut after_char = make_friendly("Phantom", 0, 0);
+    after_char.core.level = 2;
+    let before_state = snapshot_with_characters(vec![before_char]);
+    let after_state = snapshot_with_characters(vec![after_char]);
+    let delta = compute_delta(
+        &state_snapshot(&before_state),
+        &state_snapshot(&after_state),
     );
+    assert!(delta.characters_changed());
+
+    let _ = broadcast_state_changes(&delta, &after_state);
 
     let events = drain_events(&mut rx);
-    let bloodied_events = find_events(&events, "combatant", "bloodied");
+    let bloodied = find_events(&events, "combatant", "bloodied");
 
     assert!(
-        bloodied_events.is_empty(),
-        "hp_fraction() with max_hp=0 must NOT emit bloodied — there is no \
-         meaningful HP state to report. Otherwise every uninitialized \
-         combatant floods the channel."
+        bloodied.is_empty(),
+        "max_hp=0 degenerate combatant must NOT emit bloodied — there is no \
+         meaningful HP state to report. Every uninitialized combatant would \
+         flood the channel otherwise."
+    );
+}
+
+#[test]
+fn broadcast_state_changes_does_not_emit_bloodied_when_delta_characters_unchanged() {
+    let (_guard, mut rx) = fresh_subscriber();
+
+    // Same state before and after — delta.characters_changed() is false,
+    // even though the friendly is in the bloodied range. The emission must
+    // be gated on the delta, not on the absolute HP value, so the GM panel
+    // only sees an event on the turn combat math actually ran.
+    let state = snapshot_with_characters(vec![make_friendly("Grog", 12, 30)]);
+    let snap = state_snapshot(&state);
+    let delta = compute_delta(&snap, &snap);
+    assert!(
+        !delta.characters_changed(),
+        "test precondition: snapshotting the same state twice must produce \
+         an empty characters delta",
+    );
+
+    let _ = broadcast_state_changes(&delta, &state);
+
+    let events = drain_events(&mut rx);
+    let bloodied = find_events(&events, "combatant", "bloodied");
+
+    assert!(
+        bloodied.is_empty(),
+        "bloodied emission must be gated on delta.characters_changed() — \
+         when characters are unchanged the GM has no new combat info to log. \
+         Got {} events.",
+        bloodied.len()
     );
 }
 
@@ -689,22 +769,45 @@ fn wiring_progression_reached_by_state_mutations() {
 }
 
 #[test]
-fn wiring_combatant_hp_fraction_reached_by_state() {
-    // Reviewer rework (35-10): the previous assertion grepped for
-    // `Combatant::hp(` / `Combatant::max_hp(`, both of which appear in
-    // state.rs for unrelated state-build reasons. That gave false confidence:
-    // the OTEL event lives in `hp_fraction()`, not in the raw accessors. To
-    // actually prove the combatant.bloodied event is reachable from
-    // production, this assertion must grep for the literal `hp_fraction(`
-    // call. If state.rs (or any state-building production code) does not
-    // delegate the bloodied check to `hp_fraction()`, the OTEL event is dead.
-    let src = include_str!("../src/state.rs");
+fn wiring_broadcast_state_changes_reaches_combatant_bloodied_in_production() {
+    // Behavioral wiring test (rework #3 — Option A, Architect decision).
+    //
+    // Prior attempts used `include_str!` + `src.contains(...)` to source-grep
+    // for call sites. Both earlier targets (`Combatant::hp(` and
+    // `hp_fraction(`) were vacuous — the first matched unrelated inline
+    // accessor calls, the second matched a doc comment. Source-greppy wiring
+    // assertions are structurally loophole-prone.
+    //
+    // This test exercises the real production function:
+    // `sidequest_game::state::broadcast_state_changes` is called from
+    // `sidequest-server/src/dispatch/mod.rs:1737` on every turn to build the
+    // PARTY_STATUS message that ships to clients. If the combatant.bloodied
+    // emission is removed or mis-gated inside that function, this test
+    // fails — no more grep loopholes, no more "the doc comment kept the
+    // assertion green" situations.
+    //
+    // CLAUDE.md "No half-wired features" + OTEL Observability Principle:
+    // the instrumented code MUST be reachable from production code paths.
+    let (_guard, mut rx) = fresh_subscriber();
+
+    let before_state = snapshot_with_characters(vec![make_friendly("WiringProbe", 30, 30)]);
+    let after_state = snapshot_with_characters(vec![make_friendly("WiringProbe", 10, 30)]);
+    let delta = compute_delta(
+        &state_snapshot(&before_state),
+        &state_snapshot(&after_state),
+    );
+
+    let _ = broadcast_state_changes(&delta, &after_state);
+
+    let events = drain_events(&mut rx);
+    let bloodied = find_events(&events, "combatant", "bloodied");
+
     assert!(
-        src.contains("hp_fraction("),
-        "state.rs must call Combatant::hp_fraction() (not inline the \
-         hp/max_hp ratio math) — without this call the combatant.bloodied \
-         OTEL event is unreachable from production state code, even though \
-         the trait method is defined and tested. CLAUDE.md \"No half-wired \
-         features\" requires the instrumented method to have a non-test caller."
+        !bloodied.is_empty(),
+        "broadcast_state_changes (called every turn from \
+         sidequest-server/src/dispatch/mod.rs:1737) must emit combatant.bloodied \
+         when a friendly character's HP drops below half. Without this emission \
+         the GM panel cannot verify combat math is engaged — CLAUDE.md OTEL \
+         Observability Principle + \"No half-wired features\" violation."
     );
 }
