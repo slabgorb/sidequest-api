@@ -10,6 +10,7 @@ use rand::Rng;
 use sidequest_genre::{
     BackstoryTables, CharCreationScene, EquipmentTables, MechanicalEffects, RulesConfig,
 };
+use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 use tracing::info_span;
 use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat};
 
@@ -910,11 +911,12 @@ impl CharacterBuilder {
                 .as_deref()
                 == Some("random_table")
         });
-        let (equipment_method, equipment_added) =
+        let (equipment_method, equipment_added, equipment_skipped) =
             if random_table_requested && self.equipment_tables.is_some() {
                 let tables = self.equipment_tables.as_ref().unwrap();
                 let mut rng = rand::rng();
                 let mut added = 0usize;
+                let mut skipped = 0usize;
                 for (slot, candidates) in &tables.tables {
                     if candidates.is_empty() {
                         continue;
@@ -926,15 +928,21 @@ impl CharacterBuilder {
                         let id = match NonBlankString::new(pick) {
                             Ok(id) => id,
                             Err(_) => {
-                                // Blank id — skip, but record it so the GM panel
-                                // can surface a malformed equipment_tables.yaml
-                                // entry rather than silently producing short
-                                // inventories.
-                                tracing::warn!(
-                                    slot = %slot,
-                                    pick = %pick,
-                                    "chargen.equipment_tables: blank item id, skipping"
-                                );
+                                // Blank id — emit a watcher event so the GM
+                                // panel surfaces the malformed content entry
+                                // instead of silently producing a short
+                                // inventory. Reaches the broadcast channel
+                                // via sidequest_telemetry::emit().
+                                WatcherEventBuilder::new(
+                                    "chargen",
+                                    WatcherEventType::StateTransition,
+                                )
+                                .severity(Severity::Warn)
+                                .field("action", "blank_item_id_skipped")
+                                .field("slot", slot.as_str())
+                                .field("pick", pick.as_str())
+                                .send();
+                                skipped += 1;
                                 continue;
                             }
                         };
@@ -963,25 +971,36 @@ impl CharacterBuilder {
                         added += 1;
                     }
                 }
-                ("tables", added)
+                ("tables", added, skipped)
             } else if random_table_requested {
-                // Directive present but no tables wired — silent no-op is
-                // intentional here because the directive is optional content,
-                // not a configuration error. OTEL event records the decision.
-                ("none", 0)
+                // Directive present but no equipment_tables wired — this is a
+                // misconfiguration, not graceful degradation. Emit a Warn so
+                // the GM panel surfaces it. CLAUDE.md: no silent fallbacks.
+                WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                    .severity(Severity::Warn)
+                    .field("action", "equipment_tables_missing")
+                    .field(
+                        "reason",
+                        "scene declared `equipment_generation: random_table` but \
+                         CharacterBuilder has no equipment_tables wired",
+                    )
+                    .send();
+                ("none", 0, 0)
             } else {
-                ("hints", 0)
+                ("hints", 0, 0)
             };
 
         // OTEL: chargen.equipment_composed — GM panel verification that the
-        // equipment subsystem engaged (or didn't, and why). Emitted as a
-        // tracing event (not a span) since there is no meaningful duration
-        // to measure — this is a point-in-time composition decision.
-        tracing::info!(
-            target: "chargen.equipment_composed",
-            method = equipment_method,
-            items_added = equipment_added,
-        );
+        // equipment subsystem engaged. Emitted through the sidequest-telemetry
+        // broadcast channel (NOT a tracing span, which would only reach
+        // stdout). The `watcher` component = "chargen" lets the GM panel
+        // filter for chargen-related events.
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "equipment_composed")
+            .field("method", equipment_method)
+            .field("items_added", equipment_added as i64)
+            .field("items_skipped", equipment_skipped as i64)
+            .send();
 
         // Compose backstory: fragments → tables → mechanical labels → fallback
         let backstory_text = if !acc.backstory_fragments.is_empty() {

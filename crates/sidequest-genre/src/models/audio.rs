@@ -9,6 +9,7 @@ use std::collections::HashMap;
 
 /// Audio configuration for music, SFX, and voice.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AudioConfig {
     /// Mood → track list mappings.
     pub mood_tracks: HashMap<String, Vec<MoodTrack>>,
@@ -158,6 +159,7 @@ pub struct AudioEffect {
 
 /// Mixer volume configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MixerConfig {
     /// Music volume (0.0–1.0).
     pub music_volume: f64,
