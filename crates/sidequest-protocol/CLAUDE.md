@@ -5,10 +5,13 @@ between server and client.
 
 ## COMPLETE — Do Not Rewrite
 
-- **GameMessage** — `message.rs` (763 LOC) — tagged enum with 23 variants covering
-  the entire WebSocket protocol: PLAYER_ACTION, NARRATION, NARRATION_CHUNK,
-  NARRATION_END, SESSION_EVENT, CHARACTER_CREATION, TURN_STATUS, PARTY_STATUS,
-  COMBAT_EVENT, IMAGE, AUDIO_CUE, TTS_START/CHUNK/END, VOICE_*, ERROR, etc.
+- **GameMessage** — `message.rs` — tagged enum covering the entire WebSocket
+  protocol: PLAYER_ACTION, NARRATION, NARRATION_END, SESSION_EVENT,
+  CHARACTER_CREATION, TURN_STATUS, PARTY_STATUS, IMAGE, AUDIO_CUE, VOICE_*,
+  ERROR, and more. The NARRATION_CHUNK variant and the TTS_START/CHUNK/END
+  variants were retired in Epic 27 / ADR-076 when the Kokoro TTS pipeline was
+  removed; narration delivery is now a simplified two-message flow (NARRATION
+  + NARRATION_END).
 - **NarrationPayload** — text + state_delta + footnotes. Uses `#[serde(deny_unknown_fields)]`.
   **Has 3 fields only: text, state_delta, footnotes. Do NOT add fields without
   updating both server and client.**

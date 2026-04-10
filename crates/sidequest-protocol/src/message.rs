@@ -114,16 +114,13 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Partial narration text (streaming).
-    #[serde(rename = "NARRATION_CHUNK")]
-    NarrationChunk {
-        /// The typed payload for this message.
-        payload: NarrationChunkPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// End of narration stream.
+    /// Turn-completion marker. Carries the final `StateDelta` when one exists.
+    ///
+    /// Signals the UI to flush its narration buffer and commit accumulated
+    /// state atomically with the preceding `Narration` payload, so that an
+    /// end-of-turn state delta applies in the same render commit as the
+    /// narration text. Emitted by the dispatch layer at the end of every
+    /// narration turn (ADR-076 — post-TTS protocol collapse).
     #[serde(rename = "NARRATION_END")]
     NarrationEnd {
         /// The typed payload for this message.
@@ -456,15 +453,11 @@ pub enum FactCategory {
     Ability,
 }
 
-/// Partial narration text (streaming chunk).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NarrationChunkPayload {
-    /// The partial text being streamed.
-    pub text: String,
-}
-
-/// End of narration stream, optionally with final state delta.
+/// Turn-completion payload, optionally carrying the final state delta.
+///
+/// Sent at the end of every narration turn so the UI can flush its narration
+/// buffer and apply the accumulated state changes atomically with the preceding
+/// `Narration` render (ADR-076).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NarrationEndPayload {

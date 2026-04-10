@@ -1,9 +1,12 @@
-//! Speculative prerendering — queue image generation during voice playback.
+//! Speculative prerendering — queue image generation during the gap between
+//! narration turns.
 //!
-//! While TTS narration is playing (5–15 seconds), the [`PrerenderScheduler`]
-//! predicts what the next scene image will be and submits a speculative render
-//! job. If the prediction matches the actual next render request, the image
-//! is already cached — zero perceived latency.
+//! Between turns, the [`PrerenderScheduler`] predicts what the next scene
+//! image will be and submits a speculative render job. If the prediction
+//! matches the actual next render request, the image is already cached —
+//! zero perceived latency for the player. The scheduler queues against turn
+//! boundaries; whatever reading/thinking time the player takes between
+//! actions is amortized render latency.
 
 use crate::subject::{RenderSubject, SceneType, SubjectTier};
 
@@ -94,7 +97,7 @@ impl WasteTracker {
     }
 }
 
-/// Schedules speculative image renders during TTS playback windows.
+/// Schedules speculative image renders during the gap between narration turns.
 #[derive(Debug)]
 pub struct PrerenderScheduler {
     config: PrerenderConfig,

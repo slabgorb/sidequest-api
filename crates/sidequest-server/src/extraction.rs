@@ -1,7 +1,8 @@
 //! Text extraction utilities and format conversion for narration processing.
 //!
 //! Pure functions that parse narrator output for location headers,
-//! TTS-clean text, and audio cue conversion.
+//! narration display cleanup (stage direction stripping, punctuation
+//! normalization), and audio cue conversion.
 
 use regex::Regex;
 use std::sync::LazyLock;
@@ -152,7 +153,7 @@ pub(crate) fn strip_combat_brackets(text: &str) -> String {
 /// Strip fenced code blocks from narration text (e.g. ```game_patch ... ```).
 ///
 /// The narrator emits structured JSON blocks (game_patch, etc.) inline with prose.
-/// These must be removed before the narration reaches the client or TTS pipeline.
+/// These must be removed before the narration reaches the client for display.
 /// Returns the text with all fenced blocks removed and whitespace normalized.
 pub(crate) fn strip_fenced_blocks(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
