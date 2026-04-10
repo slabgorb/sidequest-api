@@ -4,6 +4,7 @@
 //! the same genre:world session and reconciles them to a single canonical
 //! location. Prevents split-party states that lack narrative justification.
 
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use std::collections::HashMap;
 
 /// A player's location at session resume time.
@@ -64,8 +65,12 @@ impl PartyReconciliation {
         players: &[PlayerLocation],
         split_party_allowed: bool,
     ) -> ReconciliationResult {
+        let player_count = players.len();
+
+
         // Nothing to reconcile with 0 or 1 players
-        if players.len() <= 1 {
+        if player_count <= 1 {
+            emit_watcher_event("no_action_needed", player_count, None, 0);
             return ReconciliationResult::NoActionNeeded;
         }
 
@@ -79,6 +84,7 @@ impl PartyReconciliation {
 
         // All locations empty → nothing to reconcile
         if location_counts.is_empty() {
+            emit_watcher_event("no_action_needed", player_count, None, 0);
             return ReconciliationResult::NoActionNeeded;
         }
 
@@ -94,11 +100,13 @@ impl PartyReconciliation {
         let truly_same = all_same && !has_empty;
 
         if truly_same {
+            emit_watcher_event("no_action_needed", player_count, None, 0);
             return ReconciliationResult::NoActionNeeded;
         }
 
         // Locations diverge — check split-party flag
         if split_party_allowed {
+            emit_watcher_event("split_party_allowed", player_count, None, 0);
             return ReconciliationResult::SplitPartyAllowed;
         }
 
@@ -125,6 +133,14 @@ impl PartyReconciliation {
             })
             .collect();
 
+        let moved_count = players_moved.len();
+        emit_watcher_event(
+            "reconciled",
+            player_count,
+            Some(target_location.as_str()),
+            moved_count,
+        );
+
         // Generate narration
         let narration_text = format!("The party regroups at the {}.", target_location);
 
@@ -134,6 +150,29 @@ impl PartyReconciliation {
             narration_text,
         }
     }
+}
+
+/// Emit `party_reconciliation.reconciled` watcher event for all three result
+/// variants (story 35-10). Single event component+action with the variant
+/// discriminated by the `result` field. `target_location` is null and
+/// `moved_count` is 0 for the no-op variants.
+fn emit_watcher_event(
+    result: &str,
+    player_count: usize,
+    target_location: Option<&str>,
+    moved_count: usize,
+) {
+    let target_field = match target_location {
+        Some(loc) => serde_json::Value::String(loc.to_string()),
+        None => serde_json::Value::Null,
+    };
+    WatcherEventBuilder::new("party_reconciliation", WatcherEventType::StateTransition)
+        .field("action", "reconciled")
+        .field("result", result.to_string())
+        .field("player_count", player_count as u64)
+        .field("target_location", target_field)
+        .field("moved_count", moved_count as u64)
+        .send();
 }
 
 impl PlayerLocation {
