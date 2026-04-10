@@ -1666,6 +1666,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 );
             }
         }
+
+        // Transitional: sync pool decay back into legacy resource_state so
+        // persistence (which still reads resource_state) captures the change.
+        // Phase 6 removes resource_state entirely; this line goes with it.
+        for (name, pool) in &ctx.snapshot.resources {
+            ctx.resource_state.insert(name.clone(), pool.current);
+        }
     }
 
     drop(_system_tick_guard);

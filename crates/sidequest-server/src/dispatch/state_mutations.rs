@@ -359,15 +359,24 @@ pub(crate) async fn apply_state_mutations(
                     );
                 }
                 Err(e) => {
-                    if let Some(current) = ctx.resource_state.get_mut(name) {
-                        *current += delta;
-                        if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
-                            *current = current.clamp(decl.min, decl.max);
-                        }
-                        tracing::info!(resource = %name, delta = %delta, new_value = %current, "resource.delta_applied_legacy");
-                    } else {
-                        tracing::debug!(resource = %name, error = %e, "resource.delta_ignored — not in pool or state");
-                    }
+                    // No silent fallback — if the narrator named a resource
+                    // that doesn't exist in the pool, that's a configuration
+                    // bug worth surfacing. The legacy resource_state fallback
+                    // used to paper over this by silently mutating the loose
+                    // HashMap; phase 1c removes that path per CLAUDE.md rules.
+                    tracing::warn!(
+                        resource = %name,
+                        delta = %delta,
+                        error = %e,
+                        "resource_pool.delta_rejected — resource not declared in genre pack"
+                    );
+                    WatcherEventBuilder::new("resource_pool", WatcherEventType::ValidationWarning)
+                        .field("event", "resource_pool.delta_rejected")
+                        .field("resource", name)
+                        .field("delta", delta)
+                        .field("error", format!("{e}"))
+                        .field("turn", turn)
+                        .send();
                 }
             }
         }

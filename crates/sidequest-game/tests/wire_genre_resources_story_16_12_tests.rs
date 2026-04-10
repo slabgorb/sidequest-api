@@ -610,3 +610,123 @@ fn init_pools_from_empty_declarations_no_crash() {
     snap.init_resource_pools(&rules.resources);
     assert!(snap.resources.is_empty());
 }
+
+// ═══════════════════════════════════════════════════════════
+// Upsert semantics — story consolidation phase 1a (2026-04)
+//
+// init_resource_pools must be idempotent and must preserve `current`
+// when called a second time with the same declarations. This is what
+// makes old-save migration work: the deserializer creates minimal
+// pools with the saved `current`, then init_resource_pools populates
+// genre-pack metadata without clobbering the player's progress.
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn init_resource_pools_preserves_current_on_second_call() {
+    let decl = ResourceDeclaration {
+        name: "luck".to_string(),
+        label: "Luck".to_string(),
+        min: 0.0,
+        max: 10.0,
+        starting: 5.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    let mut snap = GameSnapshot::default();
+
+    // First call — creates pool at starting value.
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+    assert!((snap.resources["luck"].current - 5.0).abs() < f64::EPSILON);
+
+    // Simulate gameplay: player's current drops to 2.
+    snap.resources.get_mut("luck").unwrap().current = 2.0;
+
+    // Second call (e.g., after save/load re-runs session init).
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+
+    // Current MUST be preserved — not reset to starting.
+    assert!(
+        (snap.resources["luck"].current - 2.0).abs() < f64::EPSILON,
+        "init_resource_pools must preserve existing current on upsert; \
+         got {} (expected 2.0 — was reset to starting 5.0?)",
+        snap.resources["luck"].current
+    );
+}
+
+#[test]
+fn init_resource_pools_populates_label_from_declaration() {
+    let decl = ResourceDeclaration {
+        name: "heat".to_string(),
+        label: "Heat".to_string(),
+        min: 0.0,
+        max: 5.0,
+        starting: 0.0,
+        voluntary: false,
+        decay_per_turn: -0.1,
+        thresholds: vec![],
+    };
+    let mut snap = GameSnapshot::default();
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+
+    assert_eq!(
+        snap.resources["heat"].label, "Heat",
+        "label must be populated from genre pack declaration"
+    );
+}
+
+#[test]
+fn init_resource_pools_updates_bounds_but_reclamps_current() {
+    let decl_wide = ResourceDeclaration {
+        name: "fuel".to_string(),
+        label: "Fuel".to_string(),
+        min: 0.0,
+        max: 100.0,
+        starting: 50.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    let mut snap = GameSnapshot::default();
+    snap.init_resource_pools(std::slice::from_ref(&decl_wide));
+
+    // Player has 80 fuel.
+    snap.resources.get_mut("fuel").unwrap().current = 80.0;
+
+    // Genre pack is re-loaded with narrower bounds (e.g., mod balance patch).
+    let decl_narrow = ResourceDeclaration {
+        name: "fuel".to_string(),
+        label: "Fuel".to_string(),
+        min: 0.0,
+        max: 50.0,
+        starting: 25.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    snap.init_resource_pools(std::slice::from_ref(&decl_narrow));
+
+    // Current re-clamps to the new max (80 > 50 → 50).
+    assert!(
+        (snap.resources["fuel"].current - 50.0).abs() < f64::EPSILON,
+        "current must re-clamp when bounds narrow; got {}",
+        snap.resources["fuel"].current
+    );
+    assert!((snap.resources["fuel"].max - 50.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn resource_pool_label_serde_defaults_empty() {
+    // Old saves predating the label field should deserialize with label = "".
+    let json = r#"{
+        "name": "luck",
+        "current": 3.0,
+        "min": 0.0,
+        "max": 10.0,
+        "voluntary": true,
+        "decay_per_turn": 0.0
+    }"#;
+    let pool: ResourcePool = serde_json::from_str(json).unwrap();
+    assert_eq!(pool.label, "", "old saves without label should deserialize with empty label");
+    assert!((pool.current - 3.0).abs() < f64::EPSILON);
+}
