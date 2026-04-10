@@ -23,7 +23,7 @@ use sidequest_agents::agents::intent_router::Intent;
 use sidequest_agents::turn_record::{
     run_validator, PatchSummary, TurnIdCounter, TurnRecord, WATCHER_CHANNEL_CAPACITY,
 };
-use sidequest_game::{CombatState, GameSnapshot, StateDelta, TurnManager};
+use sidequest_game::{GameSnapshot, StateDelta, TurnManager};
 
 // ===========================================================================
 // Test infrastructure: mock TurnRecord construction
@@ -41,8 +41,6 @@ fn mock_game_snapshot() -> GameSnapshot {
         quest_log: HashMap::new(),
         notes: vec![],
         narrative_log: vec![],
-        combat: CombatState::new(),
-        chase: None,
         active_tropes: vec![],
         atmosphere: "tense and electric".to_string(),
         current_region: "flickering_reach".to_string(),

@@ -221,25 +221,10 @@ fn turn_result_carries_state_delta() {
 }
 
 // ============================================================================
-// Patch extraction
+// Patch extraction — CombatPatch/ChasePatch removed in story 16-2
+// (ADR-033 confrontation engine). Patch extraction now flows through
+// the narrator's game_patch JSON, not typed CombatPatch/ChasePatch.
 // ============================================================================
-
-#[test]
-fn deserialize_combat_patch() {
-    use sidequest_agents::patches::CombatPatch;
-
-    let json = r#"{"advance_round": true}"#;
-    let patch: CombatPatch = serde_json::from_str(json).unwrap();
-    assert!(patch.advance_round);
-}
-
-#[test]
-fn deserialize_chase_patch() {
-    use sidequest_agents::patches::ChasePatch;
-
-    let json = r#"{"roll": 0.7}"#;
-    let patch: ChasePatch = serde_json::from_str(json).unwrap();
-}
 
 // ============================================================================
 // Routing table completeness

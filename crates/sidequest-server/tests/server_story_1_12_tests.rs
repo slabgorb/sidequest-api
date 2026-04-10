@@ -256,6 +256,10 @@ async fn server_accepts_mock_game_service() {
             _context: &sidequest_agents::orchestrator::TurnContext,
         ) -> sidequest_agents::orchestrator::ActionResult {
             sidequest_agents::orchestrator::ActionResult {
+                confrontation: None,
+                location: None,
+                prompt_text: None,
+                raw_response_text: None,
                 narration: format!("Mock response to: {}", action),
                 beat_selections: vec![],
                 is_degraded: false,

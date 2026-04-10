@@ -172,91 +172,10 @@ fn apply_world_patch_emits_span_with_fields() {
     );
 }
 
-/// apply_combat_patch must emit a span with patch_type="combat" and fields_changed.
-#[test]
-fn apply_combat_patch_emits_span_with_fields() {
-    use sidequest_game::CombatPatch;
-
-    let mut snapshot = test_snapshot();
-    let patch = CombatPatch {
-        advance_round: true,
-        ..Default::default()
-    };
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        snapshot.apply_combat_patch(&patch);
-    });
-
-    let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "apply_combat_patch").expect("Expected an 'apply_combat_patch' span");
-
-    assert!(
-        has_field(span, "patch_type"),
-        "Combat patch span missing 'patch_type' field"
-    );
-    assert!(
-        has_field(span, "fields_changed"),
-        "Combat patch span missing 'fields_changed' field"
-    );
-
-    let patch_type = span
-        .fields
-        .iter()
-        .find(|(name, _)| name == "patch_type")
-        .map(|(_, v)| v.as_str());
-    assert_eq!(
-        patch_type,
-        Some("combat"),
-        "apply_combat_patch span should have patch_type='combat'"
-    );
-}
-
-/// apply_chase_patch must emit a span with patch_type="chase" and fields_changed.
-#[test]
-fn apply_chase_patch_emits_span_with_fields() {
-    use sidequest_game::{ChasePatch, ChaseType};
-
-    let mut snapshot = test_snapshot();
-    let patch = ChasePatch {
-        start: Some((ChaseType::Footrace, 10.0)),
-        ..Default::default()
-    };
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        snapshot.apply_chase_patch(&patch);
-    });
-
-    let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "apply_chase_patch").expect("Expected an 'apply_chase_patch' span");
-
-    assert!(
-        has_field(span, "patch_type"),
-        "Chase patch span missing 'patch_type' field"
-    );
-    assert!(
-        has_field(span, "fields_changed"),
-        "Chase patch span missing 'fields_changed' field"
-    );
-
-    let patch_type = span
-        .fields
-        .iter()
-        .find(|(name, _)| name == "patch_type")
-        .map(|(_, v)| v.as_str());
-    assert_eq!(
-        patch_type,
-        Some("chase"),
-        "apply_chase_patch span should have patch_type='chase'"
-    );
-}
+// apply_combat_patch / apply_chase_patch tests removed — CombatPatch/ChasePatch
+// were deleted in story 16-2 (ADR-033 confrontation engine). Patch telemetry
+// now flows through apply_world_patch + apply_npc_patch, which remain covered
+// above.
 
 // ===========================================================================
 // AC: Delta span — compute_delta() contains fields_changed and is_empty

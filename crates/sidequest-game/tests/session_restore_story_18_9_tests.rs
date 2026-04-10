@@ -21,7 +21,6 @@
 use std::collections::HashMap;
 
 use sidequest_game::character::Character;
-use sidequest_game::combat::CombatState;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::{Inventory, Item};
 use sidequest_game::known_fact::{Confidence, FactSource, KnownFact};
@@ -184,8 +183,6 @@ fn rich_snapshot() -> GameSnapshot {
         ]),
         notes: vec![],
         narrative_log: vec![],
-        combat: CombatState::new(),
-        chase: None,
         active_tropes: vec![],
         atmosphere: "eerie".to_string(),
         current_region: "flickering_reach".to_string(),

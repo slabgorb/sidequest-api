@@ -18,7 +18,6 @@
 use std::collections::HashMap;
 
 use sidequest_game::character::Character;
-use sidequest_game::combat::CombatState;
 use sidequest_game::commands::GmCommand;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::disposition::Disposition;
@@ -49,8 +48,6 @@ fn test_snapshot() -> GameSnapshot {
         notes: vec![],
         narrative_log: vec![],
         active_tropes: vec![],
-        combat: CombatState::default(),
-        chase: None,
         turn_manager: TurnManager::new(),
         active_stakes: String::new(),
         lore_established: vec![],

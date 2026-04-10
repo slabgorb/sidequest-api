@@ -27,8 +27,8 @@ use sidequest_agents::entity_reference::{
 use sidequest_agents::patch_legality::ValidationResult;
 use sidequest_agents::turn_record::{PatchSummary, TurnRecord};
 use sidequest_game::{
-    Character, CombatState, CreatureCore, Disposition, GameSnapshot, Inventory, Item, Npc,
-    StateDelta, TurnManager,
+    Character, CreatureCore, Disposition, GameSnapshot, Inventory, Item, Npc, StateDelta,
+    TurnManager,
 };
 use sidequest_protocol::NonBlankString;
 
@@ -48,8 +48,6 @@ fn mock_game_snapshot() -> GameSnapshot {
         quest_log: HashMap::new(),
         notes: vec![],
         narrative_log: vec![],
-        combat: CombatState::new(),
-        chase: None,
         active_tropes: vec![],
         atmosphere: "tense and electric".to_string(),
         current_region: "flickering_reach".to_string(),

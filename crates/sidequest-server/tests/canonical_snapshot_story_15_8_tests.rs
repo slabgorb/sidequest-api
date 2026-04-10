@@ -25,7 +25,6 @@
 use std::collections::HashMap;
 
 use sidequest_game::character::Character;
-use sidequest_game::combat::CombatState;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::{Inventory, Item};
 use sidequest_game::narrative::NarrativeEntry;
@@ -119,8 +118,6 @@ fn dispatch_snapshot() -> GameSnapshot {
                 entry_type: None,
             },
         ],
-        combat: CombatState::new(),
-        chase: None,
         active_tropes: vec![],
         atmosphere: "desolate and windswept".to_string(),
         current_region: "flickering_reach".to_string(),
@@ -348,9 +345,9 @@ fn persist_game_state_otel_uses_persistence_component() {
 fn snapshot_patch_in_place_preserves_fields_across_turns() {
     let mut snapshot = dispatch_snapshot();
 
-    // Turn 1: combat starts, location changes
+    // Turn 1: location changes (combat state tests removed — GameSnapshot.combat
+    // was replaced by encounter: Option<StructuredEncounter> in story 16-2).
     snapshot.location = "Arena of the Damned".to_string();
-    snapshot.combat.set_in_combat(true);
     snapshot.turn_manager.advance();
     snapshot.narrative_log.push(NarrativeEntry {
         timestamp: 2000,
@@ -371,8 +368,7 @@ fn snapshot_patch_in_place_preserves_fields_across_turns() {
     snapshot.discovered_regions.push("arena_district".to_string());
     snapshot.turn_manager.advance();
 
-    // Turn 3: combat ends, quest log updated
-    snapshot.combat.set_in_combat(false);
+    // Turn 3: quest log updated
     snapshot.quest_log.insert(
         "Arena Champion".to_string(),
         "Defeat the champion of the arena".to_string(),
@@ -383,7 +379,6 @@ fn snapshot_patch_in_place_preserves_fields_across_turns() {
     assert_eq!(snapshot.location, "Arena of the Damned");
     assert!(snapshot.characters.first().unwrap().core.hp == 12);
     assert_eq!(snapshot.characters.first().unwrap().core.inventory.items.len(), 3);
-    assert!(!snapshot.combat.in_combat());
     assert_eq!(snapshot.narrative_log.len(), 2);
     assert_eq!(snapshot.discovered_regions.len(), 3);
     assert!(snapshot.quest_log.contains_key("Arena Champion"));
