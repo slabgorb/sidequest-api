@@ -104,6 +104,7 @@ fn rules_with_hp_formula() -> RulesConfig {
         confrontations: vec![],
         resources: vec![],
         xp_affinity: None,
+        initiative_rules: std::collections::HashMap::new(),
     }
 }
 

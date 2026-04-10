@@ -67,7 +67,7 @@ fn extraction_with_items() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![],
+    beat_selections: vec![], confrontation: None, location: None,
     }
 }
 
@@ -88,7 +88,7 @@ fn extraction_no_items() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![],
+    beat_selections: vec![], confrontation: None, location: None,
     }
 }
 

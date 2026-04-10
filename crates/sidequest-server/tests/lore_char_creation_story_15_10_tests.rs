@@ -40,6 +40,8 @@ fn test_mechanical_effects() -> MechanicalEffects {
         catch_phrase: None,
         stat_bonuses: HashMap::new(),
         pronoun_hint: None,
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -64,6 +66,7 @@ fn test_char_creation_scenes() -> Vec<CharCreationScene> {
             allows_freeform: None,
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
         CharCreationScene {
             id: "motivation".to_string(),
@@ -84,6 +87,7 @@ fn test_char_creation_scenes() -> Vec<CharCreationScene> {
             allows_freeform: None,
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
     ]
 }

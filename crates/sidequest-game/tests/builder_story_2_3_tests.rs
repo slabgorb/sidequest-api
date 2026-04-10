@@ -51,6 +51,8 @@ fn effects_warrior() -> MechanicalEffects {
         catch_phrase: None,
         pronoun_hint: None,
         stat_bonuses: std::collections::HashMap::new(),
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -73,6 +75,8 @@ fn effects_scholar() -> MechanicalEffects {
         catch_phrase: None,
         pronoun_hint: None,
         stat_bonuses: std::collections::HashMap::new(),
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -95,6 +99,8 @@ fn effects_empty() -> MechanicalEffects {
         catch_phrase: None,
         pronoun_hint: None,
         stat_bonuses: std::collections::HashMap::new(),
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -126,6 +132,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(false),
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
         CharCreationScene {
             id: "calling".to_string(),
@@ -146,6 +153,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(true),
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
         CharCreationScene {
             id: "backstory".to_string(),
@@ -163,6 +171,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(true),
             hook_prompt: Some("Tell me more about this person...".to_string()),
             loading_text: None,
+            mechanical_effects: None,
         },
     ]
 }
@@ -184,6 +193,7 @@ fn scene_with_hook_prompt() -> CharCreationScene {
         allows_freeform: Some(false),
         hook_prompt: Some("Who betrayed you, and why?".to_string()),
             loading_text: None,
+            mechanical_effects: None,
     }
 }
 
@@ -222,6 +232,7 @@ fn test_rules() -> RulesConfig {
         confrontations: vec![],
         resources: vec![],
         xp_affinity: None,
+        initiative_rules: std::collections::HashMap::new(),
     }
 }
 
@@ -426,6 +437,7 @@ fn answer_followup_advances_past_scene() {
         allows_freeform: Some(false),
         hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
     });
     let rules = test_rules();
     let mut builder = CharacterBuilder::new(scenes, &rules, None);
@@ -727,6 +739,7 @@ fn build_uses_default_race_and_class_when_not_hinted() {
         allows_freeform: Some(false),
         hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
     }];
     let rules = test_rules();
     let mut builder = CharacterBuilder::new(scenes, &rules, None);
@@ -1149,7 +1162,7 @@ fn scene_input_type_is_non_exhaustive() {
 fn builder_new_requires_at_least_one_scene() {
     let rules = test_rules();
     // Empty scenes should fail — can't create a character with no creation flow
-    let result = CharacterBuilder::try_new(vec![], &rules);
+    let result = CharacterBuilder::try_new(vec![], &rules, None);
     assert!(
         result.is_err(),
         "CharacterBuilder must reject empty scene list"

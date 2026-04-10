@@ -19,7 +19,7 @@ fn make_trope_def(id: &str, rate_per_turn: f64, escalation: Vec<(f64, &str)>) ->
     TropeDefinition {
         id: Some(id.to_string()),
         name: NonBlankString::new(id).unwrap(),
-        description: None,
+        description: None, grid: None, legend: None, tactical_scale: None,
         category: "test".into(),
         triggers: vec![],
         narrative_hints: vec![],
@@ -58,7 +58,7 @@ fn make_room(id: &str, modifier: f64) -> RoomDef {
         size: (2, 2),
         keeper_awareness_modifier: modifier,
         exits: vec![],
-        description: None,
+        description: None, grid: None, legend: None, tactical_scale: None,
     }
 }
 

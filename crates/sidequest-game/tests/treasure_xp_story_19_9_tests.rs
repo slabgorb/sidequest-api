@@ -35,7 +35,7 @@ fn sample_dungeon() -> Vec<RoomDef> {
             exits: vec![RoomExit::Corridor {
                 target: "corridor".into(),
             }],
-            description: None,
+            description: None, grid: None, legend: None, tactical_scale: None,
         },
         RoomDef {
             id: "corridor".into(),
@@ -52,7 +52,7 @@ fn sample_dungeon() -> Vec<RoomDef> {
                     is_locked: false,
                 },
             ],
-            description: None,
+            description: None, grid: None, legend: None, tactical_scale: None,
         },
         RoomDef {
             id: "treasure_room".into(),
@@ -64,7 +64,7 @@ fn sample_dungeon() -> Vec<RoomDef> {
                 target: "corridor".into(),
                 is_locked: false,
             }],
-            description: None,
+            description: None, grid: None, legend: None, tactical_scale: None,
         },
     ]
 }

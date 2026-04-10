@@ -101,6 +101,8 @@ fn make_mock_record(turn_id: u64) -> TurnRecord {
         agent_duration_ms: 2400,
         is_degraded: false,
         spans: vec![],
+        prompt_text: None,
+        raw_response_text: None,
     }
 }
 
@@ -913,6 +915,8 @@ fn turn_record_with_empty_collections_is_valid() {
         agent_duration_ms: 800,
         is_degraded: false,
         spans: vec![],
+        prompt_text: None,
+        raw_response_text: None,
     };
 
     assert!(record.patches_applied.is_empty());

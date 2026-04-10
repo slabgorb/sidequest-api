@@ -59,7 +59,7 @@ fn minimal_extraction() -> NarratorExtraction {
             references_ability: true,
             references_location: true,
         }),
-        beat_selections: vec![],
+        beat_selections: vec![], confrontation: None, location: None,
     }
 }
 
@@ -426,7 +426,7 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
         sfx_triggers: vec![],
         action_rewrite: None, // narrator didn't emit
         action_flags: None,   // narrator didn't emit
-        beat_selections: vec![],
+        beat_selections: vec![], confrontation: None, location: None,
     };
 
     let rewrite = ActionRewrite {
