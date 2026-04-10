@@ -27,13 +27,13 @@ fn visual_style_without_lora_fields_still_deserializes() {
     let yaml = r#"
 positive_suffix: oil painting, dramatic lighting
 negative_prompt: blurry, low quality
-preferred_model: flux-schnell
+preferred_model: schnell
 base_seed: 42
 "#;
     let style: VisualStyle = serde_yaml::from_str(yaml)
         .expect("existing non-LoRA visual_style YAML must continue to deserialize");
 
-    assert_eq!(style.preferred_model, "flux-schnell");
+    assert_eq!(style.preferred_model, "schnell");
     assert_eq!(style.base_seed, 42);
 
     // Both new fields must default to None when absent from YAML.
@@ -95,7 +95,7 @@ fn visual_style_deserializes_with_lora_and_trigger() {
     let yaml = r#"
 positive_suffix: spaghetti western cinematography, sergio leone style
 negative_prompt: modern, clean, digital
-preferred_model: flux-dev
+preferred_model: dev
 base_seed: 1898
 lora: lora/spaghetti_western_style.safetensors
 lora_trigger: sw_style
@@ -125,7 +125,7 @@ fn visual_style_with_lora_but_no_trigger_deserializes() {
     let yaml = r#"
 positive_suffix: cave painting aesthetic
 negative_prompt: modern
-preferred_model: flux-dev
+preferred_model: dev
 base_seed: 100
 lora: lora/cave_paintings.safetensors
 "#;
@@ -151,7 +151,7 @@ fn visual_style_with_trigger_but_no_lora_deserializes() {
     let yaml = r#"
 positive_suffix: painterly fantasy
 negative_prompt: photographic
-preferred_model: flux-dev
+preferred_model: dev
 base_seed: 1
 lora_trigger: orphan_trigger
 "#;
@@ -181,7 +181,7 @@ fn lora_trigger_field_is_named_lora_trigger_not_trigger_word() {
     let yaml = r#"
 positive_suffix: test
 negative_prompt: test
-preferred_model: flux-dev
+preferred_model: dev
 base_seed: 0
 lora: lora/test.safetensors
 lora_trigger: test_trigger_value
@@ -209,7 +209,7 @@ fn visual_style_roundtrips_through_serde() {
     let original_yaml = r#"
 positive_suffix: test suffix
 negative_prompt: test negative
-preferred_model: flux-dev
+preferred_model: dev
 base_seed: 123
 lora: lora/roundtrip.safetensors
 lora_trigger: rt_style

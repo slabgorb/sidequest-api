@@ -47,14 +47,17 @@ fn test_config() -> RenderQueueConfig {
 
 /// Captured call arguments from the worker closure.
 ///
-/// When Dev extends the `render_fn` signature to `|prompt, style, tier,
-/// neg, narration, w, h, lora_path, lora_scale|`, this fixture will
-/// record what each render received. The trailing lora fields use
+/// Dev extended the `render_fn` signature to take 10 positional args:
+/// `|prompt, style, tier, neg, narration, w, h, variant, lora_path, lora_scale|`.
+/// This fixture records what each render received. `variant` is the
+/// Flux model override ("dev" / "schnell" / ""), previously dropped at
+/// the dead `_image_model` parameter. The trailing lora fields use
 /// `Option` to distinguish "not sent" from "sent with a value."
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct CapturedCall {
     prompt: String,
+    variant: String,
     lora_path: Option<String>,
     lora_scale: Option<f32>,
 }
@@ -84,12 +87,14 @@ async fn enqueue_without_lora_passes_none_to_worker() {
               _narration: String,
               _w: u32,
               _h: u32,
+              variant: String,
               lora_path: Option<String>,
               lora_scale: Option<f32>| {
             let captures = Arc::clone(&captures_clone);
             async move {
                 captures.lock().unwrap().push(CapturedCall {
                     prompt: prompt.clone(),
+                    variant,
                     lora_path: lora_path.clone(),
                     lora_scale,
                 });
@@ -102,8 +107,10 @@ async fn enqueue_without_lora_passes_none_to_worker() {
     );
 
     let subject = make_subject("non_lora_genre");
+    // Empty variant → daemon falls back to tier default. This is the
+    // correct "absence of override" contract per story 35-15's wiring fix.
     let result = queue
-        .enqueue(subject, "oil_painting", "flux-schnell", "", "", None, None)
+        .enqueue(subject, "oil_painting", "", "", "", None, None)
         .await
         .expect("enqueue must succeed");
 
@@ -129,6 +136,15 @@ async fn enqueue_without_lora_passes_none_to_worker() {
         "worker must receive lora_scale: None for non-LoRA enqueue, got {:?}",
         calls[0].lora_scale
     );
+    // Variant regression — an empty variant string must survive the wire
+    // verbatim as "" (not silently defaulted to "dev" or "schnell").
+    // The daemon is the single source of truth for the tier fallback.
+    assert_eq!(
+        calls[0].variant, "",
+        "worker must receive variant: \"\" for no-override enqueue — \
+         Rust must not silently default. Got {:?}",
+        calls[0].variant
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -149,12 +165,14 @@ async fn enqueue_with_lora_path_forwards_to_worker() {
               _narration: String,
               _w: u32,
               _h: u32,
+              variant: String,
               lora_path: Option<String>,
               lora_scale: Option<f32>| {
             let captures = Arc::clone(&captures_clone);
             async move {
                 captures.lock().unwrap().push(CapturedCall {
                     prompt: prompt.clone(),
+                    variant,
                     lora_path,
                     lora_scale,
                 });
@@ -169,7 +187,9 @@ async fn enqueue_with_lora_path_forwards_to_worker() {
         .enqueue(
             subject,
             "sw_style",
-            "flux-dev",
+            "dev", // variant — story 35-15 closed the dead wire; "dev" is a
+                   // canonical Flux variant, matching the daemon's TIER_CONFIGS
+                   // vocabulary. Previously passed as "flux-dev" (dead string).
             "",
             "",
             Some(lora_abs),
@@ -195,6 +215,15 @@ async fn enqueue_with_lora_path_forwards_to_worker() {
         Some(0.85),
         "worker must receive the lora_scale verbatim from enqueue"
     );
+    // Variant must also survive the wire. Pre-story-35-15 this was
+    // silently dropped at `_image_model`; now the value reaches the
+    // worker closure (and onward to RenderParams.variant for the daemon).
+    assert_eq!(
+        calls[0].variant, "dev",
+        "worker must receive variant: \"dev\" verbatim from enqueue — \
+         story 35-15 closed the silent drop at `_image_model`. Got {:?}",
+        calls[0].variant
+    );
 }
 
 #[tokio::test]
@@ -216,12 +245,14 @@ async fn enqueue_with_lora_path_and_no_scale_forwards_none_scale() {
               _: String,
               _: u32,
               _: u32,
+              variant: String,
               lora_path: Option<String>,
               lora_scale: Option<f32>| {
             let captures = Arc::clone(&captures_clone);
             async move {
                 captures.lock().unwrap().push(CapturedCall {
                     prompt,
+                    variant,
                     lora_path,
                     lora_scale,
                 });
@@ -235,7 +266,7 @@ async fn enqueue_with_lora_path_and_no_scale_forwards_none_scale() {
         .enqueue(
             subject,
             "cave_painting",
-            "flux-dev",
+            "dev",
             "",
             "",
             Some("/tmp/cave.safetensors"),
@@ -277,9 +308,16 @@ async fn enqueue_signature_accepts_none_lora_explicitly() {
     // we're asserting queue behavior, not the argument.
     let queue = RenderQueue::spawn(
         test_config(),
-        |_: String, _: String, _: String, _: String, _: String, _: u32, _: u32, _: Option<String>, _: Option<f32>| async {
-            Ok(("ok".to_string(), 0u64))
-        },
+        |_: String,
+         _: String,
+         _: String,
+         _: String,
+         _: String,
+         _: u32,
+         _: u32,
+         _: String,
+         _: Option<String>,
+         _: Option<f32>| async { Ok(("ok".to_string(), 0u64)) },
     );
 
     let subject = make_subject("none_test");
@@ -287,11 +325,11 @@ async fn enqueue_signature_accepts_none_lora_explicitly() {
         .enqueue(
             subject,
             "oil_painting",
-            "flux-schnell",
+            "", // variant — explicit empty (no override)
             "",
             "",
-            None,        // lora_path — explicit None
-            None,        // lora_scale — explicit None
+            None, // lora_path — explicit None
+            None, // lora_scale — explicit None
         )
         .await;
 

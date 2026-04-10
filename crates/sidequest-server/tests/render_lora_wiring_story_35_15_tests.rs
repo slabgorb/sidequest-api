@@ -232,7 +232,33 @@ fn wiring_dispatch_render_preserves_non_lora_path() {
 }
 
 // ===========================================================================
-// 6. Architect's gap finding — PromptComposer substitution inline.
+// 6. Variant wire — companion fix in story 35-15. `visual_style.preferred_model`
+//    was previously read in dispatch/render.rs and passed to `enqueue()`
+//    where the parameter was prefixed `_image_model` (unused). Now it's
+//    renamed to `variant` and flows through to the daemon's RenderParams.
+//    This test asserts the production code still references preferred_model
+//    from the VisualStyle struct — a regression guard for the companion wire.
+// ===========================================================================
+
+#[test]
+fn wiring_dispatch_render_passes_preferred_model_as_variant() {
+    let source = include_str!("../src/dispatch/render.rs");
+    let production_code = source
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(source);
+
+    assert!(
+        production_code.contains("preferred_model"),
+        "dispatch/render.rs must reference `vs.preferred_model` to feed \
+         the variant wire. Story 35-15 renamed `_image_model` → `variant` \
+         and plumbed it through to the daemon; the read site in dispatch \
+         must survive."
+    );
+}
+
+// ===========================================================================
+// 7. Architect's gap finding — PromptComposer substitution inline.
 //    Since no `PromptComposer` type exists in Rust (only a format! macro),
 //    the trigger substitution must happen inline in dispatch/render.rs.
 //    This is an assertion about *where* the logic lives, not whether a

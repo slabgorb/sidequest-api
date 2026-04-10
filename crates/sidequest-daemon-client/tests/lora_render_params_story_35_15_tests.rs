@@ -206,6 +206,87 @@ fn render_request_with_lora_path_but_no_scale_lets_daemon_default() {
     );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Variant wire — the companion fix landed in story 35-15 alongside the
+// LoRA wire. Previously `preferred_model` was read from YAML and silently
+// dropped at the `_image_model` parameter in RenderQueue::enqueue().
+// Now it's plumbed through `RenderParams.variant` to the daemon.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn default_render_params_has_empty_variant() {
+    // REGRESSION: empty default means "let the daemon fall back to its
+    // tier default." This is the no-override contract — no silent Rust
+    // fallback to "dev" or "schnell".
+    let params = RenderParams::default();
+    assert_eq!(
+        params.variant, "",
+        "RenderParams::default().variant must be empty (no override). \
+         Got {:?}. The daemon owns the tier-default fallback.",
+        params.variant
+    );
+}
+
+#[test]
+fn render_request_with_empty_variant_omits_field_from_json() {
+    // Parallel to the lora_path skip_serializing_if test: absence of
+    // override MUST be absence of key, not `"variant":""` or
+    // `"variant":null`. The daemon uses `params.get("variant", "")` and
+    // `if requested_variant:` — present-but-empty would still fall through
+    // to the tier default, but a buggy future daemon rewrite could treat
+    // empty string as an invalid override. Absence is the safer contract.
+    let params = RenderParams::default();
+    let json = build_request_json("render", &params);
+    let params_obj = json["params"].as_object().unwrap();
+
+    assert!(
+        !params_obj.contains_key("variant"),
+        "Empty variant must be OMITTED from JSON (skip_serializing_if). \
+         Found: {}",
+        serde_json::to_string(&params_obj).unwrap()
+    );
+}
+
+#[test]
+fn render_request_with_variant_override_includes_it_in_json() {
+    let params = RenderParams {
+        prompt: "test".to_string(),
+        art_style: "test".to_string(),
+        tier: "portrait".to_string(),
+        variant: "dev".to_string(),
+        ..Default::default()
+    };
+    let json = build_request_json("render", &params);
+    let params_obj = json["params"].as_object().unwrap();
+
+    assert!(
+        params_obj.contains_key("variant"),
+        "Non-empty variant must be PRESENT in JSON. Found: {}",
+        serde_json::to_string(&params_obj).unwrap()
+    );
+    assert_eq!(
+        params_obj["variant"].as_str(),
+        Some("dev"),
+        "variant JSON value must match the Rust-side value verbatim"
+    );
+}
+
+#[test]
+fn render_request_schnell_variant_survives_serialization() {
+    // Both canonical variants must round-trip. The daemon validates
+    // against {"dev", "schnell"} and raises loudly for anything else —
+    // this test just proves Rust doesn't corrupt the value on the way out.
+    let params = RenderParams {
+        prompt: "test".to_string(),
+        art_style: "test".to_string(),
+        tier: "text_overlay".to_string(),
+        variant: "schnell".to_string(),
+        ..Default::default()
+    };
+    let json = build_request_json("render", &params);
+    assert_eq!(json["params"]["variant"].as_str(), Some("schnell"));
+}
+
 #[test]
 fn lora_path_survives_full_request_envelope() {
     // Verifies the outer JSON-RPC envelope doesn't strip the lora fields.

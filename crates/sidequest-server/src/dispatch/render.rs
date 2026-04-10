@@ -107,7 +107,19 @@ pub(crate) async fn process_render(
     tracing::info!(decision = ?decision, "BeatFilter decision");
     if matches!(decision, sidequest_game::FilterDecision::Render { .. }) {
         if let Some(ref queue) = ctx.state.inner.render_queue {
-            let (art_style, model, neg_prompt) = match ctx.visual_style {
+            // Story 35-15: LoRA wiring. Per ADR-032, when the genre pack's
+            // visual_style declares a `lora`, resolve it to an absolute path
+            // (relative to the genre pack dir), substitute the `lora_trigger`
+            // for `positive_suffix` in the composed CLIP prompt, and emit a
+            // `render / lora_activated` watcher event so the GM panel can
+            // verify the LoRA is engaged (the daemon-side span attributes
+            // do NOT surface to the watcher WebSocket — the Rust emission
+            // is authoritative).
+            //
+            // The daemon does NOT auto-prepend trigger words (verified
+            // against flux_mlx_worker.py:206 `_compose_prompt()`); the
+            // substitution happens here in Rust.
+            let (art_style, model, neg_prompt, lora_path, lora_trigger) = match ctx.visual_style {
                 Some(ref vs) => {
                     let location = extract_location_header(narration_text)
                         .unwrap_or_default()
@@ -120,25 +132,79 @@ pub(crate) async fn process_render(
                     } else {
                         None
                     };
-                    let style = match tag_override {
-                        Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
-                        None => vs.positive_suffix.clone(),
+
+                    // When a LoRA is active AND a trigger word is provided,
+                    // substitute the trigger for positive_suffix per
+                    // ADR-032 ("The positive_suffix is dropped from the
+                    // CLIP prompt entirely when a LoRA is active").
+                    let base_style: String = match (vs.lora.as_deref(), vs.lora_trigger.as_deref()) {
+                        (Some(_), Some(trigger)) => trigger.to_string(),
+                        _ => vs.positive_suffix.clone(),
                     };
+                    let style = match tag_override {
+                        Some(tag) => format!("{}, {}", tag, base_style),
+                        None => base_style,
+                    };
+
+                    // Resolve LoRA path relative to the genre pack dir.
+                    let lora_abs: Option<String> = vs.lora.as_ref().map(|rel| {
+                        ctx.state
+                            .genre_packs_path()
+                            .join(ctx.genre_slug)
+                            .join(rel)
+                            .to_string_lossy()
+                            .into_owned()
+                    });
+
                     (
                         style,
                         vs.preferred_model.clone(),
                         vs.negative_prompt.clone(),
+                        lora_abs,
+                        vs.lora_trigger.clone(),
                     )
                 }
                 None => (
                     "oil_painting".to_string(),
-                    "flux-schnell".to_string(),
+                    // Empty variant → daemon falls back to per-tier default in
+                    // flux_mlx_worker.py TIER_CONFIGS. The pre-existing
+                    // "flux-schnell" literal was never a valid daemon variant
+                    // ("dev"/"schnell" are the only accepted values) — silently
+                    // dead string, now removed. Pre-existing silent fallback
+                    // for missing visual_style is still a Delivery Finding —
+                    // a dedicated story should close the whole None branch.
                     String::new(),
+                    String::new(),
+                    None,
+                    None,
                 ),
             };
-            // Send visual_scene subject as prompt — no narration, daemon skips SubjectExtractor
+
+            // Emit watcher event BEFORE enqueue when LoRA is active — the
+            // GM panel's lie-detector signal per CLAUDE.md OTEL principle.
+            if let Some(ref lora_abs) = lora_path {
+                crate::WatcherEventBuilder::new("render", crate::WatcherEventType::SubsystemExerciseSummary)
+                    .field("action", "lora_activated")
+                    .field("lora_path", lora_abs.as_str())
+                    .field("lora_trigger", lora_trigger.as_deref().unwrap_or(""))
+                    .field("genre", ctx.genre_slug)
+                    .send();
+            }
+
+            // Send visual_scene subject as prompt — no narration, daemon skips SubjectExtractor.
+            // `model` carries `visual_style.preferred_model` as the Flux variant override
+            // (empty string → daemon picks per-tier). Story 35-15 closed the dead wire
+            // where this was previously silently dropped at the `_image_model` parameter.
             match queue
-                .enqueue(subject.clone(), &art_style, &model, &neg_prompt, "")
+                .enqueue(
+                    subject.clone(),
+                    &art_style,
+                    &model,
+                    &neg_prompt,
+                    "",
+                    lora_path.as_deref(),
+                    None, // lora_scale — daemon defaults to 1.0 (no silent Rust default)
+                )
                 .await
             {
                 Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {

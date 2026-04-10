@@ -244,4 +244,16 @@ pub struct VisualStyle {
     /// Location-tag → style override mappings.
     #[serde(default)]
     pub visual_tag_overrides: HashMap<String, String>,
+    /// Optional genre-specific LoRA, as a path relative to the genre pack
+    /// directory (e.g. `lora/sw_style.safetensors`). Resolved to an
+    /// absolute path by the dispatch layer and passed to the daemon as
+    /// `RenderParams.lora_path`. Per ADR-032. Story 35-15.
+    #[serde(default)]
+    pub lora: Option<String>,
+    /// Optional LoRA trigger word (e.g. `sw_style`). When set, the
+    /// dispatch layer substitutes this for `positive_suffix` in the
+    /// composed CLIP prompt so the trained LoRA style activates. Per
+    /// ADR-032. Story 35-15.
+    #[serde(default)]
+    pub lora_trigger: Option<String>,
 }

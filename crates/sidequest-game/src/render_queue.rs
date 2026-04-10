@@ -281,6 +281,18 @@ struct RenderJob {
     width: u32,
     /// Target image height in pixels (from tier_to_dimensions).
     height: u32,
+    /// Genre pack's preferred Flux variant (`"dev"` or `"schnell"`). Empty
+    /// string means "use the daemon's tier default." Sourced from
+    /// `visual_style.yaml::preferred_model`. Previously read in Rust and
+    /// silently dropped at the enqueue boundary (parameter `_image_model`
+    /// was prefixed with `_` → unused). Story 35-15 closes that wire.
+    variant: String,
+    /// Optional absolute path to a LoRA `.safetensors` file. Forwarded to
+    /// the daemon as `RenderParams.lora_path`. Story 35-15.
+    lora_path: Option<String>,
+    /// Optional LoRA scale (0.0–1.0). `None` lets the daemon default to
+    /// 1.0 — no silent fallback on the Rust side. Story 35-15.
+    lora_scale: Option<f32>,
 }
 
 /// The async render queue.
@@ -304,7 +316,20 @@ impl RenderQueue {
     /// the daemon client. Returns `(image_url, generation_ms)` on success.
     pub fn spawn<F, Fut>(config: RenderQueueConfig, render_fn: F) -> Self
     where
-        F: Fn(String, String, String, String, String, u32, u32) -> Fut + Send + 'static,
+        F: Fn(
+                String,
+                String,
+                String,
+                String,
+                String,
+                u32,
+                u32,
+                String,
+                Option<String>,
+                Option<f32>,
+            ) -> Fut
+            + Send
+            + 'static,
         Fut: std::future::Future<Output = Result<(String, u64), String>> + Send,
     {
         let state = Arc::new(Mutex::new(QueueState {
@@ -331,7 +356,19 @@ impl RenderQueue {
                 }
 
                 // Call the render function
-                let result = render_fn(job.prompt, job.art_style, job.tier.clone(), job.negative_prompt, job.narration, job.width, job.height).await;
+                let result = render_fn(
+                    job.prompt,
+                    job.art_style,
+                    job.tier.clone(),
+                    job.negative_prompt,
+                    job.narration,
+                    job.width,
+                    job.height,
+                    job.variant,
+                    job.lora_path,
+                    job.lora_scale,
+                )
+                .await;
 
                 // Update state and broadcast
                 let broadcast_msg = match result {
@@ -406,9 +443,11 @@ impl RenderQueue {
         &self,
         subject: RenderSubject,
         art_style: &str,
-        _image_model: &str,
+        variant: &str,
         negative_prompt: &str,
         narration: &str,
+        lora_path: Option<&str>,
+        lora_scale: Option<f32>,
     ) -> Result<EnqueueResult, QueueError> {
         let content_hash = compute_content_hash(&subject);
         let mut guard = self.state.lock().await;
@@ -469,6 +508,9 @@ impl RenderQueue {
             narration: narration.to_string(),
             width: dims.width,
             height: dims.height,
+            variant: variant.to_string(),
+            lora_path: lora_path.map(str::to_string),
+            lora_scale,
         };
         if self.job_tx.send(job).await.is_err() {
             let mut guard = self.state.lock().await;

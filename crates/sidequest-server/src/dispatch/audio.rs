@@ -234,7 +234,16 @@ pub(crate) async fn process_audio(
                         Some(ref vs) => (vs.positive_suffix.clone(), vs.negative_prompt.clone()),
                         None => ("oil_painting".to_string(), String::new()),
                     };
-                    match queue.enqueue(subject.clone(), &art_style, "flux-dev", &neg_prompt, "").await {
+                    // Variant "dev" for mood images — higher quality is worth the
+                    // extra time since mood shifts are rare. Pre-story-35-15 this
+                    // was "flux-dev", which was a silently-dropped dead string
+                    // (no daemon code path read it); now that the variant field
+                    // is actually wired to the daemon, it must match a valid
+                    // variant ("dev" or "schnell").
+                    match queue
+                        .enqueue(subject.clone(), &art_style, "dev", &neg_prompt, "", None, None)
+                        .await
+                    {
                         Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {
                             tracing::info!(%job_id, old_mood = ?pre_telemetry.current_mood, new_mood = %mood_key, "mood_image.queued — mood shift triggered scene render");
                             let dims = sidequest_game::tier_to_dimensions(subject.tier());
