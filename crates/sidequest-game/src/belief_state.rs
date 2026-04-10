@@ -7,6 +7,7 @@
 //! NPCs, used to weight incoming information.
 
 use serde::{Deserialize, Serialize};
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use std::collections::HashMap;
 
 /// Per-NPC knowledge container.
@@ -41,6 +42,20 @@ impl BeliefState {
 
     /// Add a belief to this NPC's knowledge.
     pub fn add_belief(&mut self, belief: Belief) {
+        // OTEL: belief_state.belief_added — GM panel verification that
+        // beliefs are actually flowing into NPC knowledge (scenario engine,
+        // dispatch pipeline, and gossip propagation all land here).
+        let (variant, source_label) = belief_signature(&belief);
+        WatcherEventBuilder::new("belief_state", WatcherEventType::StateTransition)
+            .field("action", "belief_added")
+            .field("variant", variant)
+            .field("subject", belief.subject())
+            .field("content", belief.content())
+            .field("source", source_label)
+            .field("turn_learned", belief.turn_learned())
+            .field("beliefs_count_after", self.beliefs.len() + 1)
+            .send();
+
         self.beliefs.push(belief);
     }
 
@@ -63,9 +78,41 @@ impl BeliefState {
 
     /// Set the credibility score for a named NPC (clamped to 0.0..=1.0).
     pub fn update_credibility(&mut self, npc_name: &str, score: f32) {
+        // OTEL: belief_state.credibility_updated — GM panel visibility into
+        // trust-graph mutations. Captures pre/post clamp for debugging
+        // decay chains from gossip contradictions.
+        let previous = self
+            .credibility_scores
+            .get(npc_name)
+            .map(|c| c.score());
+        let clamped = Credibility::new(score);
+        WatcherEventBuilder::new("belief_state", WatcherEventType::StateTransition)
+            .field("action", "credibility_updated")
+            .field("target_npc", npc_name)
+            .field("previous_score", previous)
+            .field("requested_score", score)
+            .field("new_score", clamped.score())
+            .send();
+
         self.credibility_scores
-            .insert(npc_name.to_string(), Credibility::new(score));
+            .insert(npc_name.to_string(), clamped);
     }
+}
+
+/// Extract `(variant_label, source_label)` from a belief for telemetry.
+fn belief_signature(belief: &Belief) -> (&'static str, String) {
+    let variant = match belief {
+        Belief::Fact { .. } => "fact",
+        Belief::Suspicion { .. } => "suspicion",
+        Belief::Claim { .. } => "claim",
+    };
+    let source = match belief.source() {
+        BeliefSource::Witnessed => "witnessed".to_string(),
+        BeliefSource::ToldBy(name) => format!("told_by:{name}"),
+        BeliefSource::Inferred => "inferred".to_string(),
+        BeliefSource::Overheard => "overheard".to_string(),
+    };
+    (variant, source)
 }
 
 impl Default for BeliefState {
