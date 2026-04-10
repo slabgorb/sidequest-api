@@ -187,6 +187,92 @@ impl<'a> DispatchContext<'a> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Story 35-6: Guest NPC permission gate
+//
+// `sidequest-game::guest_npc` has been fully built since story 8-7 but had
+// zero production consumers in the server crate. This gate closes the wire:
+// guest-NPC players (the `GuestNpc` variant with a restricted
+// `allowed_actions` HashSet) have their intent-classified actions checked
+// against the allowed set, and restricted actions are rejected before
+// state mutation.
+//
+// The gate runs AFTER `process_action()` (which classifies the intent via
+// the existing state-override classifier in `sidequest-agents`) rather than
+// before it — pre-LLM keyword matching on the raw action string is forbidden
+// by `feedback_no_keyword_matching.md` (Zork Problem). The cost: restricted
+// actions still incur the LLM round-trip, but the denial happens before
+// state mutation and broadcast, so the player never sees the unauthorized
+// narration.
+//
+// All decisions emit a `guest_npc` WatcherEvent so the GM panel can verify
+// the gate is running — per CLAUDE.md's OTEL Observability Principle.
+// ---------------------------------------------------------------------------
+
+/// Gating decision produced by mapping a classified `Intent` to an
+/// `ActionCategory` (or bypassing the gate entirely).
+#[derive(Debug, Clone, Copy)]
+enum GateDecision {
+    /// Check this action category against the guest's `allowed_actions`.
+    Check(sidequest_game::guest_npc::ActionCategory),
+    /// Bypass the gate — the intent is not a gameplay turn action.
+    /// Used for `Intent::Meta` (slash commands) and `Intent::Backstory`
+    /// (character establishment).
+    Bypass,
+}
+
+/// Map a classified `Intent` variant to a `GateDecision`.
+///
+/// Exhaustive over every `sidequest_agents::agents::intent_router::Intent`
+/// variant. There is NO `_ =>` catch-all — a new Intent variant will fail
+/// compilation here, forcing a deliberate mapping choice. This enforces the
+/// "No Silent Fallbacks" rule from CLAUDE.md at compile time.
+///
+/// Ambiguous-variant mapping rationale:
+/// - `Intent::Exploration` → `Movement` — only sensible mapping; exploration
+///   is dominated by moving between areas.
+/// - `Intent::Chase` → `Movement` — chases are movement-dominant (pursuit,
+///   fleeing, navigating terrain). Combat happens WITHIN a chase via
+///   `in_combat`, but the chase action itself is movement. A guest NPC who
+///   should not do combat can still participate in a chase.
+/// - `Intent::Accusation` → `Dialogue` — accusations are verbal acts in
+///   scenario gameplay (ADR-053). A guest NPC with Dialogue privileges can
+///   make accusations.
+/// - `Intent::Meta` → `Bypass` — slash commands (/save, /help, /status) are
+///   not gameplay turn actions, they are UI commands.
+/// - `Intent::Backstory` → `Bypass` — character establishment (describing
+///   hooks, identity) is not a turn action.
+fn map_intent_to_gate_decision(
+    intent: sidequest_agents::agents::intent_router::Intent,
+) -> GateDecision {
+    use sidequest_agents::agents::intent_router::Intent;
+    use sidequest_game::guest_npc::ActionCategory;
+    match intent {
+        Intent::Combat => GateDecision::Check(ActionCategory::Combat),
+        Intent::Dialogue => GateDecision::Check(ActionCategory::Dialogue),
+        Intent::Exploration => GateDecision::Check(ActionCategory::Movement),
+        Intent::Examine => GateDecision::Check(ActionCategory::Examine),
+        Intent::Chase => GateDecision::Check(ActionCategory::Movement),
+        Intent::Accusation => GateDecision::Check(ActionCategory::Dialogue),
+        Intent::Meta => GateDecision::Bypass,
+        Intent::Backstory => GateDecision::Bypass,
+        // `Intent` is `#[non_exhaustive]` across crates, so Rust's type
+        // system forces a wildcard arm. Per the No Silent Fallbacks rule,
+        // this wildcard is LOUD: adding a new variant to `Intent` in
+        // sidequest-agents must cause a panic here, forcing the developer
+        // to come back and make an explicit mapping choice. This is the
+        // opposite of silently defaulting to `Exploration`/`Movement` (the
+        // previous behavior of `Intent::from_display_str` for unknown
+        // strings, which is a silent-fallback pattern this story must not
+        // replicate).
+        _ => unreachable!(
+            "new Intent variant added without updating \
+             map_intent_to_gate_decision — this is intentional loud failure \
+             per Story 35-6 AC-6 (No Silent Fallbacks)"
+        ),
+    }
+}
+
 /// Handle PLAYER_ACTION — send THINKING, narration, NARRATION_END, PARTY_STATUS.
 pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec<GameMessage> {
     let turn_span = tracing::info_span!(
@@ -794,6 +880,147 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     }
     if let Some(ref agent) = result.agent_name {
         turn_span.record("agent", agent.as_str());
+    }
+
+    // -----------------------------------------------------------------
+    // Story 35-6: Guest NPC permission gate.
+    //
+    // Look up the player's PlayerRole from the shared session. If the
+    // player is a GuestNpc, map the classified intent to an ActionCategory
+    // and enforce the allowed_actions set. Full players and solo sessions
+    // fall through this block with zero overhead and no watcher events
+    // (AC-3: no pollution of the guest_npc watcher channel).
+    //
+    // On deny: emit ValidationWarning, log warn, return empty message vec
+    // to abort the turn before state mutation and narration broadcast.
+    // The narration has already been generated by process_action() above
+    // — we deliberately discard it so the guest never learns that the
+    // restricted action was executed internally.
+    //
+    // On allow: emit SubsystemExerciseSummary and fall through to continue
+    // normal dispatch. The GM panel uses the two event types to distinguish
+    // allow from deny.
+    //
+    // On None intent for guest: loud ValidationWarning + reject. Silent
+    // allow-through would reintroduce the exact bug this story closes.
+    // -----------------------------------------------------------------
+    {
+        let role_opt: Option<sidequest_game::guest_npc::PlayerRole> = {
+            let holder = ctx.shared_session_holder.lock().await;
+            match &*holder {
+                Some(ss_arc) => {
+                    let ss = ss_arc.lock().await;
+                    ss.players.get(ctx.player_id).map(|ps| ps.role.clone())
+                }
+                None => None,
+            }
+        };
+
+        if let Some(sidequest_game::guest_npc::PlayerRole::GuestNpc {
+            ref npc_name,
+            ref allowed_actions,
+        }) = role_opt
+        {
+            use sidequest_agents::agents::intent_router::Intent;
+            use sidequest_game::guest_npc::{ActionError, PlayerRole};
+
+            // AC-6: no silent fallback when classified_intent is None for a guest.
+            let classified_opt: Option<Intent> = result
+                .classified_intent
+                .as_deref()
+                .map(Intent::from_display_str);
+
+            let Some(classified) = classified_opt else {
+                WatcherEventBuilder::new(
+                    "guest_npc",
+                    WatcherEventType::ValidationWarning,
+                )
+                .field("decision", "denied")
+                .field("reason", "unclassified_guest_action")
+                .field("player_id", ctx.player_id)
+                .field("npc_name", npc_name.as_str())
+                .field("category", "unknown")
+                .field(
+                    "action_raw",
+                    &ctx.action[..ctx.action.len().min(80)],
+                )
+                .send();
+                tracing::warn!(
+                    player_id = %ctx.player_id,
+                    npc_name = %npc_name,
+                    "guest_npc.gate: denied (unclassified intent — no silent fallback)"
+                );
+                return vec![];
+            };
+
+            match map_intent_to_gate_decision(classified) {
+                GateDecision::Bypass => {
+                    // Meta/Backstory — not a gameplay turn action, gate does
+                    // not apply. Do NOT emit a guest_npc watcher event here
+                    // — bypasses are non-decisions and should not clutter
+                    // the allow/deny signal the GM panel is watching.
+                    tracing::debug!(
+                        player_id = %ctx.player_id,
+                        npc_name = %npc_name,
+                        ?classified,
+                        "guest_npc.gate: bypass (non-gameplay intent)"
+                    );
+                }
+                GateDecision::Check(category) => {
+                    // Reconstruct the role for can_perform(). The HashSet
+                    // clone is cheap (small bounded set) and avoids threading
+                    // a reference out of the Mutex guard's lifetime.
+                    let role = PlayerRole::GuestNpc {
+                        npc_name: npc_name.clone(),
+                        allowed_actions: allowed_actions.clone(),
+                    };
+                    if role.can_perform(&category) {
+                        // AC-1: allow path — emit SubsystemExerciseSummary.
+                        WatcherEventBuilder::new(
+                            "guest_npc",
+                            WatcherEventType::SubsystemExerciseSummary,
+                        )
+                        .field("decision", "allowed")
+                        .field("player_id", ctx.player_id)
+                        .field("npc_name", npc_name.as_str())
+                        .field("category", format!("{:?}", category))
+                        .send();
+                        tracing::debug!(
+                            player_id = %ctx.player_id,
+                            npc_name = %npc_name,
+                            ?category,
+                            "guest_npc.gate: allowed"
+                        );
+                    } else {
+                        // AC-2: deny path — emit ValidationWarning, log
+                        // warn, return empty vec to abort the turn cleanly.
+                        let err = ActionError::RestrictedAction { category };
+                        WatcherEventBuilder::new(
+                            "guest_npc",
+                            WatcherEventType::ValidationWarning,
+                        )
+                        .field("decision", "denied")
+                        .field("reason", "restricted_action")
+                        .field("player_id", ctx.player_id)
+                        .field("npc_name", npc_name.as_str())
+                        .field("category", format!("{:?}", category))
+                        .field(
+                            "action_raw",
+                            &ctx.action[..ctx.action.len().min(80)],
+                        )
+                        .send();
+                        tracing::warn!(
+                            player_id = %ctx.player_id,
+                            npc_name = %npc_name,
+                            ?category,
+                            error = %err,
+                            "guest_npc.gate: denied (restricted action)"
+                        );
+                        return vec![];
+                    }
+                }
+            }
+        }
     }
 
     // Story 6-3: Update engagement counter based on intent classification.

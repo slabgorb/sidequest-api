@@ -503,19 +503,24 @@ fn wiring_mapper_references_all_intent_variants() {
 }
 
 #[test]
-fn wiring_mapper_does_not_use_catch_all_for_intent() {
-    // A catch-all (`_ => ...`) in the Intent-to-ActionCategory match is a
-    // silent fallback and violates the CLAUDE.md "No Silent Fallbacks" rule.
-    // Enforce exhaustiveness by forbidding `_ =>` in the same file as the
-    // mapper.
+fn wiring_mapper_silent_wildcard_forbidden_loud_wildcard_ok() {
+    // The No Silent Fallbacks rule (CLAUDE.md) forbids a wildcard arm that
+    // silently defaults to a `GateDecision::Check(...)` or `Bypass` for
+    // unknown `Intent` variants. But `Intent` is `#[non_exhaustive]` across
+    // crates — Rust's type system REQUIRES a wildcard arm in downstream
+    // matches, regardless of whether all current variants are covered.
     //
-    // This is a heuristic — `_ =>` may legitimately appear in other matches
-    // in the same file. The test narrows to lines near an Intent:: match
-    // arm.
+    // This test therefore enforces the semantic rule, not a blanket ban on
+    // `_ =>`: if a wildcard arm exists in the mapper's match, the next ~250
+    // bytes must contain a LOUD failure marker (unreachable!, panic!, or
+    // todo!). A wildcard that silently returns a GateDecision is a failure.
+    //
+    // The rationale for the loud wildcard is: a new `Intent` variant added
+    // upstream (e.g., `Intent::Ability`) must force a developer decision
+    // here, not silently take a default. `unreachable!` at runtime on an
+    // unexpected variant is the intended loud failure mode.
     let production = dispatch_dir_production_source();
 
-    // Only check if the mapper is actually present. Other tests enforce
-    // existence; this one enforces exhaustiveness.
     let Some(intent_match_pos) = production.find("Intent::Combat") else {
         panic!(
             "Prerequisite: `Intent::Combat` must appear in dispatch \
@@ -525,21 +530,35 @@ fn wiring_mapper_does_not_use_catch_all_for_intent() {
     };
 
     // Examine a 1200-byte window starting at the mapper (large enough to
-    // cover 8 match arms on separate lines).
+    // cover 8 match arms on separate lines plus a wildcard with a loud
+    // panic message).
     let window_end = (intent_match_pos + 1200).min(production.len());
     let window = &production[intent_match_pos..window_end];
 
-    // A catch-all arm for an Intent match would look like `_ =>` or
-    // `_ => ActionCategory::` near the mapper.
-    let has_wildcard_arm = window.contains("_ =>") || window.contains("_=>");
-    assert!(
-        !has_wildcard_arm,
-        "The Intent-to-ActionCategory mapper must use exhaustive match arms, \
-         not a `_ =>` catch-all. A wildcard silently defaults unknown Intent \
-         variants and violates the No Silent Fallbacks rule (CLAUDE.md). \
-         Story 35-6 AC-6. Window examined:\n{}",
-        &window[..window.len().min(400)]
-    );
+    let wildcard_idx = window.find("_ =>").or_else(|| window.find("_=>"));
+
+    if let Some(wi) = wildcard_idx {
+        // Wildcard present — enforce the loud-failure rule within the
+        // next 250 bytes (enough to cover an `unreachable!` with a
+        // multi-line message).
+        let check_end = (wi + 250).min(window.len());
+        let wildcard_region = &window[wi..check_end];
+        let is_loud = wildcard_region.contains("unreachable!")
+            || wildcard_region.contains("panic!")
+            || wildcard_region.contains("todo!");
+        assert!(
+            is_loud,
+            "Wildcard arm `_ =>` in the Intent-to-ActionCategory mapper \
+             must lead to a loud failure (unreachable!, panic!, or todo!) \
+             to satisfy the No Silent Fallbacks rule. A wildcard that maps \
+             to a default category or GateDecision::Bypass is a silent \
+             fallback and defeats the gate. Story 35-6 AC-6. Region \
+             examined:\n{}",
+            &wildcard_region[..wildcard_region.len().min(400)]
+        );
+    }
+    // If no wildcard is present, the compiler enforces exhaustiveness
+    // (non-cross-crate enum case) — nothing more to check.
 }
 
 // ============================================================================
@@ -653,10 +672,13 @@ fn wiring_ac3_guest_npc_watcher_is_inside_guest_role_branch() {
         );
     };
 
-    // Walk backward 600 bytes from the emission site to find the enclosing
-    // branch marker. 600 bytes is enough to cover a few levels of match/if
-    // but not the whole function.
-    let start = emit_pos.saturating_sub(600);
+    // Walk backward 1200 bytes from the emission site to find the enclosing
+    // branch marker. Rust's verbose multi-line let-else + multi-line pattern
+    // match syntax means the `PlayerRole::GuestNpc` marker can be 20+ lines
+    // above the emit site even in a tight gate implementation. The 1200-byte
+    // window covers ~30 lines, which is enough for any reasonable gate layout
+    // without being so large it covers the entire function body.
+    let start = emit_pos.saturating_sub(1200);
     let window = &production[start..emit_pos];
 
     let inside_guest_branch = window.contains("GuestNpc {")

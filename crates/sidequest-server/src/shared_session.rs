@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 
 use sidequest_game::barrier::TurnBarrier;
 use sidequest_game::builder::CharacterBuilder;
+use sidequest_game::guest_npc::PlayerRole;
 use sidequest_game::multiplayer::MultiplayerSession;
 
 /// Server-internal wrapper for targeted broadcast messages.
@@ -51,6 +52,19 @@ pub fn game_session_key(genre: &str, world: &str) -> String {
 /// inventory, and combat stance.
 pub struct PlayerState {
     pub player_name: String,
+    /// Player role for multiplayer permission gating (story 35-6).
+    ///
+    /// Defaults to `PlayerRole::Full` — full agency, no action restrictions.
+    /// Guest NPC players (ADR-029) get `PlayerRole::GuestNpc { .. }` with a
+    /// restricted `allowed_actions` set. The dispatch pipeline reads this
+    /// field after intent classification and calls `can_perform()` to enforce
+    /// the restriction, emitting OTEL watcher events on every decision.
+    ///
+    /// There is NO silent fallback: if this field is `GuestNpc` and the
+    /// classified intent is `None`, the gate rejects the action loudly. See
+    /// `dispatch/mod.rs::dispatch_player_action` and the wiring tests at
+    /// `tests/guest_npc_wiring_story_35_6_tests.rs`.
+    pub role: PlayerRole,
     pub session: Session,
     pub builder: Option<CharacterBuilder>,
     pub character_json: Option<serde_json::Value>,
@@ -69,9 +83,14 @@ pub struct PlayerState {
 
 impl PlayerState {
     /// Create a new player state with defaults.
+    ///
+    /// `role` defaults to `PlayerRole::Full` — guest NPC roles must be set
+    /// explicitly by the connect handshake (future story — 35-6 wires the
+    /// enforcement path but leaves role selection at connect time out of scope).
     pub fn new(player_name: String) -> Self {
         Self {
             player_name,
+            role: PlayerRole::Full,
             session: Session::new(),
             builder: None,
             character_json: None,
