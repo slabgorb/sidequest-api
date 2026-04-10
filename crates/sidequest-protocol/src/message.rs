@@ -116,11 +116,12 @@ pub enum GameMessage {
 
     /// Turn-completion marker. Carries the final `StateDelta` when one exists.
     ///
-    /// Signals the UI to flush its narration buffer and commit accumulated
-    /// state atomically with the preceding `Narration` payload, so that an
-    /// end-of-turn state delta applies in the same render commit as the
-    /// narration text. Emitted by the dispatch layer at the end of every
-    /// narration turn (ADR-076 — post-TTS protocol collapse).
+    /// Emitted by the dispatch layer at the end of every narration turn.
+    /// The UI processes this message through its normal state-mirror
+    /// pipeline — React's automatic batching applies any final state delta
+    /// in the same render commit as the preceding `Narration`, with no
+    /// explicit buffering required on the client side (ADR-076 — post-TTS
+    /// protocol collapse).
     #[serde(rename = "NARRATION_END")]
     NarrationEnd {
         /// The typed payload for this message.
@@ -455,9 +456,11 @@ pub enum FactCategory {
 
 /// Turn-completion payload, optionally carrying the final state delta.
 ///
-/// Sent at the end of every narration turn so the UI can flush its narration
-/// buffer and apply the accumulated state changes atomically with the preceding
-/// `Narration` render (ADR-076).
+/// Sent at the end of every narration turn. The UI applies the optional
+/// `state_delta` through its normal state-mirror pipeline — no explicit
+/// buffering is required on the client side because React's automatic
+/// batching already coalesces consecutive `setState` calls into a single
+/// commit (ADR-076).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NarrationEndPayload {
