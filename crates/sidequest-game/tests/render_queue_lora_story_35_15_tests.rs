@@ -45,6 +45,42 @@ fn test_config() -> RenderQueueConfig {
         .expect("valid config")
 }
 
+/// Spawns a `RenderQueue` whose worker captures every call into the
+/// supplied `captures` vec, returning the queue. Eliminates ~25 lines
+/// of closure boilerplate that would otherwise repeat across every test
+/// needing to inspect what reached the worker. The mock render result
+/// is `(format!("/tmp/mock/{prompt}.png"), 42u64)` — tests that need
+/// alternative return semantics build their own closure inline.
+///
+/// Extracted in the verify phase per the simplify-reuse high-confidence
+/// finding for story 35-15.
+fn make_capturing_queue(captures: Arc<Mutex<Vec<CapturedCall>>>) -> RenderQueue {
+    RenderQueue::spawn(
+        test_config(),
+        move |prompt: String,
+              _art_style: String,
+              _tier: String,
+              _neg: String,
+              _narration: String,
+              _w: u32,
+              _h: u32,
+              variant: String,
+              lora_path: Option<String>,
+              lora_scale: Option<f32>| {
+            let captures = Arc::clone(&captures);
+            async move {
+                captures.lock().unwrap().push(CapturedCall {
+                    prompt: prompt.clone(),
+                    variant,
+                    lora_path: lora_path.clone(),
+                    lora_scale,
+                });
+                Ok((format!("/tmp/mock/{prompt}.png"), 42u64))
+            }
+        },
+    )
+}
+
 /// Captured call arguments from the worker closure.
 ///
 /// Dev extended the `render_fn` signature to take 10 positional args:
@@ -76,35 +112,7 @@ async fn enqueue_without_lora_passes_none_to_worker() {
     // the two extra positional args, this test fails to compile — that's
     // a legitimate RED state.
     let captures: Arc<Mutex<Vec<CapturedCall>>> = Arc::new(Mutex::new(Vec::new()));
-    let captures_clone = Arc::clone(&captures);
-
-    let queue = RenderQueue::spawn(
-        test_config(),
-        move |prompt: String,
-              _art_style: String,
-              _tier: String,
-              _neg: String,
-              _narration: String,
-              _w: u32,
-              _h: u32,
-              variant: String,
-              lora_path: Option<String>,
-              lora_scale: Option<f32>| {
-            let captures = Arc::clone(&captures_clone);
-            async move {
-                captures.lock().unwrap().push(CapturedCall {
-                    prompt: prompt.clone(),
-                    variant,
-                    lora_path: lora_path.clone(),
-                    lora_scale,
-                });
-                Ok((
-                    format!("/tmp/mock/{prompt}.png"),
-                    42u64,
-                ))
-            }
-        },
-    );
+    let queue = make_capturing_queue(Arc::clone(&captures));
 
     let subject = make_subject("non_lora_genre");
     // Empty variant → daemon falls back to tier default. This is the
@@ -154,32 +162,7 @@ async fn enqueue_without_lora_passes_none_to_worker() {
 #[tokio::test]
 async fn enqueue_with_lora_path_forwards_to_worker() {
     let captures: Arc<Mutex<Vec<CapturedCall>>> = Arc::new(Mutex::new(Vec::new()));
-    let captures_clone = Arc::clone(&captures);
-
-    let queue = RenderQueue::spawn(
-        test_config(),
-        move |prompt: String,
-              _art_style: String,
-              _tier: String,
-              _neg: String,
-              _narration: String,
-              _w: u32,
-              _h: u32,
-              variant: String,
-              lora_path: Option<String>,
-              lora_scale: Option<f32>| {
-            let captures = Arc::clone(&captures_clone);
-            async move {
-                captures.lock().unwrap().push(CapturedCall {
-                    prompt: prompt.clone(),
-                    variant,
-                    lora_path,
-                    lora_scale,
-                });
-                Ok((format!("/tmp/mock/{prompt}.png"), 42u64))
-            }
-        },
-    );
+    let queue = make_capturing_queue(Arc::clone(&captures));
 
     let subject = make_subject("spaghetti_western_entity");
     let lora_abs = "/abs/genre_packs/spaghetti_western/lora/sw_style.safetensors";
@@ -234,32 +217,7 @@ async fn enqueue_with_lora_path_and_no_scale_forwards_none_scale() {
     // be a silent default on the Rust side, violating the "no silent
     // fallbacks" rule — the Python daemon owns the default).
     let captures: Arc<Mutex<Vec<CapturedCall>>> = Arc::new(Mutex::new(Vec::new()));
-    let captures_clone = Arc::clone(&captures);
-
-    let queue = RenderQueue::spawn(
-        test_config(),
-        move |prompt: String,
-              _: String,
-              _: String,
-              _: String,
-              _: String,
-              _: u32,
-              _: u32,
-              variant: String,
-              lora_path: Option<String>,
-              lora_scale: Option<f32>| {
-            let captures = Arc::clone(&captures_clone);
-            async move {
-                captures.lock().unwrap().push(CapturedCall {
-                    prompt,
-                    variant,
-                    lora_path,
-                    lora_scale,
-                });
-                Ok(("ok".to_string(), 1u64))
-            }
-        },
-    );
+    let queue = make_capturing_queue(Arc::clone(&captures));
 
     let subject = make_subject("cave_entity");
     queue
