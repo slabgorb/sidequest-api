@@ -10,8 +10,51 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sidequest_genre::{AudioConfig, MoodTrack, TrackVariation};
 pub use sidequest_genre::FactionThemeDef;
+use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 
 use crate::theme_rotator::{RotationConfig, ThemeRotator};
+
+/// Convert a `TrackVariation` to its lowercase string name for OTEL fields.
+/// Matches the `#[serde(rename_all = "snake_case")]` serialization used on
+/// the AudioVariation YAML side, so the watcher field values round-trip
+/// cleanly with the genre pack input format.
+fn variation_label(variation: TrackVariation) -> &'static str {
+    match variation {
+        TrackVariation::Full => "full",
+        TrackVariation::Overture => "overture",
+        TrackVariation::Ambient => "ambient",
+        TrackVariation::Sparse => "sparse",
+        TrackVariation::TensionBuild => "tension_build",
+        TrackVariation::Resolution => "resolution",
+        // `TrackVariation` is #[non_exhaustive]; any future variant that
+        // lands without a label update surfaces as "unknown" on the
+        // watcher channel rather than silently dropping the event.
+        _ => "unknown",
+    }
+}
+
+/// Emit a `music_director.variation_fallback` watcher event. Called from
+/// both silent-degradation branches of `select_variation()`. Keeping this
+/// in one place means the event field shape is guaranteed identical
+/// between the two branches (so the GM panel filter logic only needs to
+/// know one schema). Story 35-13.
+fn emit_variation_fallback(
+    mood: &str,
+    preferred: TrackVariation,
+    selected: TrackVariation,
+    reason: &'static str,
+    full_available: bool,
+) {
+    WatcherEventBuilder::new("music_director", WatcherEventType::StateTransition)
+        .severity(Severity::Warn)
+        .field("action", "variation_fallback")
+        .field("mood", mood)
+        .field("preferred", variation_label(preferred))
+        .field("selected", variation_label(selected))
+        .field("reason", reason)
+        .field("full_available", full_available)
+        .send();
+}
 
 // ───────────────────────────────────────────────────────────────────
 // Core types
@@ -301,6 +344,24 @@ impl MusicDirector {
         let mut themed_tracks: HashMap<String, HashMap<TrackVariation, Vec<MoodTrack>>> =
             HashMap::new();
         for theme in &audio_config.themes {
+            // Skip theme bundles with no variations. Without this guard,
+            // `entry(mood).or_default()` would insert the mood key with an
+            // empty inner HashMap, and `select_variation` would later hit a
+            // `Some(empty_map)` fall-through that bypasses the else branch
+            // and returns `preferred` silently. With the skip, the mood key
+            // stays absent from `themed_tracks`, and the missing-mood else
+            // branch fires with `reason="mood_not_in_themed_tracks"`.
+            // Story 35-13 Pass 3 — CLAUDE.md no-silent-fallbacks.
+            if theme.variations.is_empty() {
+                tracing::warn!(
+                    mood = %theme.mood,
+                    theme_name = %theme.name,
+                    "audio theme has no variations — skipping themed-track \
+                     registration; select_variation will fall through to \
+                     mood_tracks with a variation_fallback event"
+                );
+                continue;
+            }
             let mood_map = themed_tracks
                 .entry(theme.mood.clone())
                 .or_default();
@@ -380,16 +441,28 @@ impl MusicDirector {
             if mood_variations.contains_key(&preferred) {
                 return preferred;
             }
-            // Fallback: Full
+            // Fallback: Full — preferred variation is missing but Full
+            // is registered for this mood. CLAUDE.md no-silent-fallbacks:
+            // surface on the watcher channel. Story 35-13.
             if preferred != TrackVariation::Full && mood_variations.contains_key(&TrackVariation::Full) {
                 tracing::warn!(
                     mood = mood_key,
                     preferred = ?preferred,
                     "variation fallback: preferred not available, using Full"
                 );
+                emit_variation_fallback(
+                    mood_key,
+                    preferred,
+                    TrackVariation::Full,
+                    "preferred_unavailable",
+                    true,
+                );
                 return TrackVariation::Full;
             }
-            // Fallback: any available
+            // Fallback: first available — neither the preferred variation
+            // NOR Full is registered. More severe than the previous branch
+            // (genre pack theme bundle has only one variation for this
+            // mood). Story 35-13.
             if let Some((&first_available, _)) = mood_variations.iter().next() {
                 tracing::warn!(
                     mood = mood_key,
@@ -397,12 +470,39 @@ impl MusicDirector {
                     selected = ?first_available,
                     "variation fallback: neither preferred nor Full available, using first available"
                 );
+                emit_variation_fallback(
+                    mood_key,
+                    preferred,
+                    first_available,
+                    "only_first_available",
+                    false,
+                );
                 return first_available;
             }
+        } else {
+            // Outermost fallback: the mood key has no entry in themed_tracks
+            // at all. A genre pack registered this mood without a matching
+            // theme bundle. The caller's preference is passed through
+            // unchanged so evaluate() can fall through to the un-themed
+            // mood_tracks pool. CLAUDE.md no-silent-fallbacks: surface the
+            // gap on the watcher channel even though there's no themed
+            // track to select. Story 35-13 rework.
+            tracing::warn!(
+                mood = mood_key,
+                preferred = ?preferred,
+                "variation fallback: mood has no themed_tracks entry at all"
+            );
+            emit_variation_fallback(
+                mood_key,
+                preferred,
+                preferred,
+                "mood_not_in_themed_tracks",
+                false,
+            );
         }
 
-        // No themed tracks at all — return preferred anyway (evaluate will
-        // fall back to mood_tracks)
+        // No themed tracks for this mood — return preferred anyway (evaluate
+        // will fall through to the un-themed mood_tracks pool).
         preferred
     }
 
