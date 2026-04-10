@@ -148,19 +148,13 @@ mod message_type_tests {
         assert_eq!(msg, decoded);
     }
 
-    #[test]
-    fn narration_chunk_round_trip() {
-        let msg = GameMessage::NarrationChunk {
-            payload: NarrationChunkPayload {
-                text: "partial text...".into(),
-            },
-            player_id: String::new(),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"NARRATION_CHUNK""#));
-        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg, decoded);
-    }
+    // NOTE: `narration_chunk_round_trip` was removed for story 27-9 (ADR-076
+    // narration protocol collapse). Keeping it here would cause a compile-time
+    // failure when Dev deletes the `NarrationChunk` variant in the GREEN phase,
+    // which is not a clean RED→GREEN transition. The replacement assertion —
+    // `narration_chunk_json_does_not_deserialize_as_game_message` — lives in
+    // `narration_collapse_story_27_9_tests.rs` and verifies the same contract
+    // from the opposite side: that the JSON shape no longer deserializes.
 
     #[test]
     fn narration_end_round_trip() {
