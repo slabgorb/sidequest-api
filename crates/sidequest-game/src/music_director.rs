@@ -344,6 +344,24 @@ impl MusicDirector {
         let mut themed_tracks: HashMap<String, HashMap<TrackVariation, Vec<MoodTrack>>> =
             HashMap::new();
         for theme in &audio_config.themes {
+            // Skip theme bundles with no variations. Without this guard,
+            // `entry(mood).or_default()` would insert the mood key with an
+            // empty inner HashMap, and `select_variation` would later hit a
+            // `Some(empty_map)` fall-through that bypasses the else branch
+            // and returns `preferred` silently. With the skip, the mood key
+            // stays absent from `themed_tracks`, and the missing-mood else
+            // branch fires with `reason="mood_not_in_themed_tracks"`.
+            // Story 35-13 Pass 3 — CLAUDE.md no-silent-fallbacks.
+            if theme.variations.is_empty() {
+                tracing::warn!(
+                    mood = %theme.mood,
+                    theme_name = %theme.name,
+                    "audio theme has no variations — skipping themed-track \
+                     registration; select_variation will fall through to \
+                     mood_tracks with a variation_fallback event"
+                );
+                continue;
+            }
             let mood_map = themed_tracks
                 .entry(theme.mood.clone())
                 .or_default();
