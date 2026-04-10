@@ -970,6 +970,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     // Reconstruct the role for can_perform(). The HashSet
                     // clone is cheap (small bounded set) and avoids threading
                     // a reference out of the Mutex guard's lifetime.
+                    //
+                    // Note: simplify-efficiency flagged this as a redundant
+                    // operation in story 35-6 verify phase. The simplification
+                    // was reverted because the wiring test
+                    // `wiring_dispatch_calls_permission_check_method` enforces
+                    // that the gate calls `.can_perform()` or `.validate_action()`
+                    // as the public API surface, not the internal HashSet directly.
+                    // Inlining the contains() check skips the API contract layer
+                    // and breaks the wiring test. The reconstruction is
+                    // intentional architectural choice.
                     let role = PlayerRole::GuestNpc {
                         npc_name: npc_name.clone(),
                         allowed_actions: allowed_actions.clone(),
