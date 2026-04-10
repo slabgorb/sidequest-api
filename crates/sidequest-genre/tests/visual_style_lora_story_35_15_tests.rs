@@ -207,90 +207,21 @@ lora_trigger: test_trigger_value
 // ─────────────────────────────────────────────────────────────────────────
 
 // ─────────────────────────────────────────────────────────────────────────
-// REWORK (2026-04-10) — Reviewer finding #2 (HIGH) + #3 (HIGH)
+// REWORK Pass 2 (2026-04-10) — Finding A (reviewer self-correction)
+//
+// The first-pass review's finding #2 (add deny_unknown_fields to VisualStyle)
+// was WRONG. It contradicts the pre-existing `visual_style_accepts_extra_fields`
+// test in `tests/model_tests.rs:799` which intentionally documents VisualStyle
+// as an exempt from the deny_unknown_fields convention — genre extensibility
+// is a core feature. The two rejection tests written in Rework Pass 1
+// (`visual_style_rejects_unknown_fields` and
+// `visual_style_rejects_another_unknown_field`) have been DELETED per the
+// architect's Rework Pass 2 assessment. See reviewer assessment Finding A.
 // ─────────────────────────────────────────────────────────────────────────
 
-#[test]
-fn visual_style_rejects_unknown_fields() {
-    // Reviewer finding #2 (HIGH, R16 rule violation):
-    // `sidequest-genre/src/models/mod.rs:3` documents the project
-    // convention: *"Structs use #[serde(deny_unknown_fields)] where
-    // appropriate to catch YAML typos."* 15+ peer types in this crate
-    // have the attribute (EquipmentTables, AudioConfig, PackMeta,
-    // Legends, 14× Scenario*). VisualStyle does not, which means a
-    // YAML typo like `loratrigger:` (missing underscore) silently
-    // produces `lora_trigger: None` and the LoRA wire never activates
-    // — a double-silent failure with finding #1 (LoRA-no-trigger
-    // falls through to positive_suffix with no warning).
-    //
-    // Dev must add `#[serde(deny_unknown_fields)]` to the VisualStyle
-    // struct. WARNING: this will break any existing YAML that has
-    // fields not in the struct. Pre-audit (done by TEA during rework
-    // prep): spaghetti_western/visual_style.yaml has `portrait_style`
-    // and `poi_style` fields that are NOT in the struct and have ZERO
-    // Rust consumers. Dev must also delete those dead fields from the
-    // content YAML as part of this rework — they're pre-existing dead
-    // wires, same class as the `_image_model` dead parameter and the
-    // `preferred_model: flux` dead string closed in 35-15's original
-    // commit.
-    let yaml_with_typo = r#"
-positive_suffix: test
-negative_prompt: test
-preferred_model: dev
-base_seed: 0
-lora: lora/test.safetensors
-loratrigger: test_style
-"#;
-    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml_with_typo);
-    assert!(
-        result.is_err(),
-        "VisualStyle deserialization must reject unknown field \
-         `loratrigger` (typo of `lora_trigger`). Add \
-         #[serde(deny_unknown_fields)] to the struct per the project \
-         convention in sidequest-genre/src/models/mod.rs. Without this, \
-         YAML typos silently produce None values and the LoRA wire never \
-         activates — reviewer finding #2 (HIGH, R16 rule violation). \
-         Got: {result:?}"
-    );
-
-    // The error message must mention the offending field name so
-    // genre pack authors can find the typo quickly.
-    let err = result.err().unwrap();
-    let err_str = err.to_string();
-    assert!(
-        err_str.contains("loratrigger") || err_str.contains("unknown field"),
-        "VisualStyle deserialization error must mention the offending \
-         field name (or the standard 'unknown field' serde message). \
-         Got: {err_str}"
-    );
-}
-
-#[test]
-fn visual_style_rejects_another_unknown_field() {
-    // Double-check coverage: portrait_style was a real dead-YAML field
-    // in spaghetti_western/visual_style.yaml before this rework. Dev
-    // must delete it AND add deny_unknown_fields so future typos don't
-    // sneak in. This test enforces that portrait_style specifically is
-    // no longer silently accepted.
-    let yaml_with_dead_field = r#"
-positive_suffix: test
-negative_prompt: test
-preferred_model: dev
-base_seed: 0
-portrait_style: >-
-  extreme close-up, film grain
-"#;
-    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml_with_dead_field);
-    assert!(
-        result.is_err(),
-        "VisualStyle deserialization must reject unknown field \
-         `portrait_style`. Pre-rework, spaghetti_western/visual_style.yaml \
-         had this field as pre-existing dead YAML (zero Rust consumers). \
-         Dev must delete the dead field from the content YAML AND add \
-         #[serde(deny_unknown_fields)] so this class of dead wire cannot \
-         sneak back in. Got: {result:?}"
-    );
-}
+// ─────────────────────────────────────────────────────────────────────────
+// REWORK (2026-04-10) — Reviewer finding #3 (HIGH)
+// ─────────────────────────────────────────────────────────────────────────
 
 #[test]
 fn visual_style_has_lora_scale_field() {
@@ -365,6 +296,126 @@ lora_trigger: test
          None (daemon uses its 1.0 default). Got: {:?}",
         style.lora_scale
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// REWORK Pass 2 (2026-04-10) — Finding F: lora_scale validator
+//
+// `lora_scale` is a strength multiplier passed to Flux LoRA on the daemon.
+// `serde_yaml` deserializes `.nan`, `.inf`, `-.inf` as valid f32 values
+// with no validation, and the daemon behavior on non-finite LoRA scales is
+// unspecified. These tests enforce the custom `validate_lora_scale`
+// deserializer that rejects non-finite, negative, and out-of-range values
+// at YAML-parse time so malformed configs never reach the daemon.
+//
+// Accepted range: [0.0, 2.0]. See `validate_lora_scale` doc comment for
+// rationale on the upper bound.
+// ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn lora_scale_nan_yaml_fails_to_deserialize() {
+    // Primary Finding F regression: `.nan` in YAML must be rejected.
+    let yaml = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora_scale: .nan
+"#;
+    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_err(),
+        "lora_scale: .nan must be rejected by validate_lora_scale. Got: {result:?}"
+    );
+    let err_msg = result.err().unwrap().to_string();
+    assert!(
+        err_msg.contains("lora_scale") || err_msg.contains("finite"),
+        "Error message must cite lora_scale or finiteness. Got: {err_msg}"
+    );
+}
+
+#[test]
+fn lora_scale_positive_infinity_yaml_fails_to_deserialize() {
+    let yaml = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora_scale: .inf
+"#;
+    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_err(),
+        "lora_scale: .inf must be rejected by validate_lora_scale. Got: {result:?}"
+    );
+}
+
+#[test]
+fn lora_scale_negative_infinity_yaml_fails_to_deserialize() {
+    let yaml = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora_scale: -.inf
+"#;
+    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_err(),
+        "lora_scale: -.inf must be rejected by validate_lora_scale. Got: {result:?}"
+    );
+}
+
+#[test]
+fn lora_scale_negative_value_yaml_fails_to_deserialize() {
+    let yaml = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora_scale: -0.5
+"#;
+    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_err(),
+        "negative lora_scale must be rejected (no semantic meaning for negative LoRA strength). Got: {result:?}"
+    );
+}
+
+#[test]
+fn lora_scale_above_two_yaml_fails_to_deserialize() {
+    // 2.0 is the canonical upper bound — values like `20` (typo of `2.0`)
+    // must not silently reach the daemon.
+    let yaml = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora_scale: 20.0
+"#;
+    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_err(),
+        "lora_scale: 20.0 must be rejected (above 2.0 upper bound — likely a typo). Got: {result:?}"
+    );
+}
+
+#[test]
+fn lora_scale_boundary_values_deserialize() {
+    // Happy-path boundaries: 0.0, 1.0 (daemon default), 2.0 (upper cap).
+    for scale in ["0.0", "1.0", "2.0", "0.75"] {
+        let yaml = format!(
+            "positive_suffix: test\nnegative_prompt: test\npreferred_model: dev\nbase_seed: 0\nlora_scale: {scale}\n"
+        );
+        let style: VisualStyle = serde_yaml::from_str(&yaml)
+            .unwrap_or_else(|e| panic!("lora_scale: {scale} must deserialize cleanly, got {e}"));
+        let expected: f32 = scale.parse().unwrap();
+        assert_eq!(
+            style.lora_scale,
+            Some(expected),
+            "lora_scale: {scale} must round-trip as Some({expected})"
+        );
+    }
 }
 
 #[test]
