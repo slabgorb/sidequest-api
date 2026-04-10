@@ -331,6 +331,9 @@ pub(crate) async fn apply_state_mutations(
             let value = delta.abs();
             match ctx.snapshot.process_resource_patch_with_lore(name, op, value, ctx.lore_store, turn) {
                 Ok(patch_result) => {
+                    // Transitional: sync pool.current back to legacy
+                    // resource_state so persistence captures the change.
+                    // Phase 5 removes resource_state entirely.
                     if let Some(pool) = ctx.snapshot.resources.get(name) {
                         ctx.resource_state.insert(name.clone(), pool.current);
                     }
@@ -341,8 +344,9 @@ pub(crate) async fn apply_state_mutations(
                         .field("old_value", patch_result.old_value)
                         .field("new_value", patch_result.new_value)
                         .field("turn", turn);
-                    if let Some(decl) = ctx.resource_declarations.iter().find(|d| d.name == *name) {
-                        builder = builder.field("max", decl.max).field("label", &decl.label);
+                    // OTEL label/max come from the pool itself now (phase 3).
+                    if let Some(pool) = ctx.snapshot.resources.get(name) {
+                        builder = builder.field("max", pool.max).field("label", pool.label.clone());
                     }
                     if !patch_result.crossed_thresholds.is_empty() {
                         builder = builder.field("thresholds_crossed",

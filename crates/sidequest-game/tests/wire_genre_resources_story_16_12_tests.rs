@@ -15,7 +15,7 @@
 use sidequest_genre::{load_genre_pack, ResourceDeclaration, RulesConfig};
 use sidequest_game::lore::LoreStore;
 use sidequest_game::state::{
-    GameSnapshot, ResourcePatchOp, ResourcePool, ResourceThreshold,
+    GameSnapshot, ResourcePatchOp, ResourcePool,
 };
 use std::path::PathBuf;
 
@@ -729,4 +729,128 @@ fn resource_pool_label_serde_defaults_empty() {
     let pool: ResourcePool = serde_json::from_str(json).unwrap();
     assert_eq!(pool.label, "", "old saves without label should deserialize with empty label");
     assert!((pool.current - 3.0).abs() < f64::EPSILON);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Phase 4 — GameSnapshot migration from legacy resource_state
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn old_save_with_resource_state_migrates_to_resources_map() {
+    // Minimal save JSON shaped like a pre-phase-4 persistence file:
+    // resource_state is populated, resources is absent.
+    let json = r#"{
+        "genre_slug": "spaghetti_western",
+        "world_slug": "border_town",
+        "resource_state": { "luck": 2.5, "heat": 3.0 },
+        "resource_declarations": [
+            { "name": "luck", "label": "Luck", "min": 0.0, "max": 6.0,
+              "starting": 3.0, "voluntary": true, "decay_per_turn": 0.0 },
+            { "name": "heat", "label": "Heat", "min": 0.0, "max": 5.0,
+              "starting": 0.0, "voluntary": false, "decay_per_turn": -0.1 }
+        ]
+    }"#;
+
+    let snap: GameSnapshot = serde_json::from_str(json)
+        .expect("old-format save with resource_state should deserialize");
+
+    // Migration populated the resources map.
+    assert_eq!(snap.resources.len(), 2);
+    assert!(
+        (snap.resources["luck"].current - 2.5).abs() < f64::EPSILON,
+        "luck.current must be preserved from resource_state, got {}",
+        snap.resources["luck"].current
+    );
+    assert!(
+        (snap.resources["heat"].current - 3.0).abs() < f64::EPSILON,
+        "heat.current must be preserved"
+    );
+    // Labels and bounds came from resource_declarations.
+    assert_eq!(snap.resources["luck"].label, "Luck");
+    assert_eq!(snap.resources["heat"].label, "Heat");
+    assert!((snap.resources["luck"].max - 6.0).abs() < f64::EPSILON);
+    assert!((snap.resources["heat"].decay_per_turn - (-0.1)).abs() < f64::EPSILON);
+}
+
+#[test]
+fn new_save_with_resources_takes_precedence_over_legacy_fields() {
+    // Both resources and resource_state are present. The new field wins.
+    let json = r#"{
+        "genre_slug": "test",
+        "world_slug": "test",
+        "resource_state": { "luck": 9.9 },
+        "resources": {
+            "luck": {
+                "name": "luck",
+                "label": "Luck",
+                "current": 4.0,
+                "min": 0.0,
+                "max": 6.0,
+                "voluntary": true,
+                "decay_per_turn": 0.0
+            }
+        }
+    }"#;
+
+    let snap: GameSnapshot = serde_json::from_str(json).unwrap();
+    assert!(
+        (snap.resources["luck"].current - 4.0).abs() < f64::EPSILON,
+        "resources field (4.0) must take precedence over legacy resource_state (9.9)"
+    );
+}
+
+#[test]
+fn migration_without_declarations_produces_minimal_pool() {
+    // Very old save with resource_state but no resource_declarations
+    // (e.g., a save from before story 16-1 completed). Migration should
+    // still produce a usable pool with unbounded defaults; the next
+    // init_resource_pools() call will populate metadata.
+    let json = r#"{
+        "genre_slug": "test",
+        "world_slug": "test",
+        "resource_state": { "mana": 7.0 }
+    }"#;
+
+    let snap: GameSnapshot = serde_json::from_str(json).unwrap();
+    assert_eq!(snap.resources.len(), 1);
+    let mana = &snap.resources["mana"];
+    assert!((mana.current - 7.0).abs() < f64::EPSILON);
+    assert_eq!(mana.label, "", "no declaration → empty label for upsert to fill");
+    assert_eq!(mana.name, "mana");
+}
+
+#[test]
+fn migration_then_init_populates_metadata_without_resetting_current() {
+    // End-to-end migration + upsert test: load an old save with
+    // minimal pool data, then run init_resource_pools with the genre
+    // pack declarations. Current should be preserved; metadata should
+    // be populated from the pack.
+    let json = r#"{
+        "genre_slug": "test",
+        "world_slug": "test",
+        "resource_state": { "luck": 1.5 }
+    }"#;
+    let mut snap: GameSnapshot = serde_json::from_str(json).unwrap();
+
+    // Simulate session load calling init_resource_pools with genre pack decls.
+    let decl = ResourceDeclaration {
+        name: "luck".to_string(),
+        label: "Luck".to_string(),
+        min: 0.0,
+        max: 6.0,
+        starting: 3.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+
+    let luck = &snap.resources["luck"];
+    assert!(
+        (luck.current - 1.5).abs() < f64::EPSILON,
+        "saved current (1.5) must survive the init_resource_pools upsert"
+    );
+    assert_eq!(luck.label, "Luck", "label populated by upsert");
+    assert!((luck.max - 6.0).abs() < f64::EPSILON, "max populated by upsert");
+    assert!(luck.voluntary, "voluntary populated by upsert");
 }

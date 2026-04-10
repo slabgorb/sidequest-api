@@ -309,23 +309,37 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
-    // Resource state injection (story 16-1)
-    if !ctx.resource_declarations.is_empty() {
+    // Resource state injection — reads directly from ResourcePool (phase 2
+    // of resource consolidation). Each pool carries its own label/bounds/
+    // decay from init_resource_pools(), so no need to cross-reference a
+    // separate declarations vec.
+    if !ctx.snapshot.resources.is_empty() {
         state_summary.push_str("\n\nGENRE RESOURCES — Current State:\n");
-        for decl in ctx.resource_declarations {
-            let current = ctx
-                .resource_state
-                .get(&decl.name)
-                .copied()
-                .unwrap_or(decl.starting);
-            let vol_label = if decl.voluntary {
+        // Sort by name for stable prompt output — HashMap iteration order
+        // is non-deterministic and the narrator's cache key depends on
+        // exact prompt bytes.
+        let mut pools: Vec<&sidequest_game::ResourcePool> =
+            ctx.snapshot.resources.values().collect();
+        pools.sort_by(|a, b| a.name.cmp(&b.name));
+        for pool in pools {
+            let vol_label = if pool.voluntary {
                 "voluntary"
             } else {
                 "involuntary"
             };
-            let mut line = format!("{}: {}/{} ({})", decl.label, current, decl.max, vol_label);
-            if decl.decay_per_turn.abs() > f64::EPSILON {
-                line.push_str(&format!(", decay {}/turn", decl.decay_per_turn.abs()));
+            // Fall back to name if label is empty (migrated old save with
+            // minimal pool entry that hasn't been upsert-populated yet).
+            let display_label = if pool.label.is_empty() {
+                &pool.name
+            } else {
+                &pool.label
+            };
+            let mut line = format!(
+                "{}: {}/{} ({})",
+                display_label, pool.current, pool.max, vol_label
+            );
+            if pool.decay_per_turn.abs() > f64::EPSILON {
+                line.push_str(&format!(", decay {}/turn", pool.decay_per_turn.abs()));
             }
             state_summary.push_str(&format!("- {}\n", line));
         }

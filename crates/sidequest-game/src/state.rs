@@ -299,6 +299,68 @@ struct GameSnapshotRaw {
 
 impl From<GameSnapshotRaw> for GameSnapshot {
     fn from(raw: GameSnapshotRaw) -> Self {
+        // Resource system migration (phase 4 of resource consolidation).
+        //
+        // Old saves store resources in `resource_state: HashMap<String, f64>` with
+        // metadata in a parallel `resource_declarations` vec. New saves store them
+        // as `resources: HashMap<String, ResourcePool>`.
+        //
+        // If `resources` is populated, use it directly (new save). Otherwise,
+        // synthesize minimal ResourcePool entries from the legacy fields so the
+        // player's saved values survive deserialization. The next
+        // `init_resource_pools()` call on session load will upsert the
+        // genre-pack metadata (label, min, max, decay, thresholds) without
+        // clobbering `current` — that's what phase 1a's upsert semantics enable.
+        let resources = if !raw.resources.is_empty() {
+            raw.resources
+        } else if !raw.resource_state.is_empty() {
+            let mut pools: HashMap<String, ResourcePool> = HashMap::new();
+            for (name, current) in &raw.resource_state {
+                // Look up metadata from legacy declarations if present;
+                // otherwise synthesize unbounded defaults that init_resource_pools
+                // will overwrite on the next session load.
+                let decl = raw
+                    .resource_declarations
+                    .iter()
+                    .find(|d| d.name == *name);
+                let pool = if let Some(d) = decl {
+                    ResourcePool {
+                        name: d.name.clone(),
+                        label: d.label.clone(),
+                        current: *current,
+                        min: d.min,
+                        max: d.max,
+                        voluntary: d.voluntary,
+                        decay_per_turn: d.decay_per_turn,
+                        thresholds: d
+                            .thresholds
+                            .iter()
+                            .map(|t| crate::resource_pool::ResourceThreshold {
+                                at: t.at,
+                                event_id: t.event_id.clone(),
+                                narrator_hint: t.narrator_hint.clone(),
+                            })
+                            .collect(),
+                    }
+                } else {
+                    ResourcePool {
+                        name: name.clone(),
+                        label: String::new(), // upsert fills this on session load
+                        current: *current,
+                        min: f64::MIN,
+                        max: f64::MAX,
+                        voluntary: false,
+                        decay_per_turn: 0.0,
+                        thresholds: Vec::new(),
+                    }
+                };
+                pools.insert(name.clone(), pool);
+            }
+            pools
+        } else {
+            HashMap::new()
+        };
+
         Self {
             genre_slug: raw.genre_slug,
             world_slug: raw.world_slug,
@@ -332,7 +394,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             resource_declarations: raw.resource_declarations,
             discovered_rooms: raw.discovered_rooms,
             player_dead: raw.player_dead,
-            resources: raw.resources,
+            resources,
         }
     }
 }
