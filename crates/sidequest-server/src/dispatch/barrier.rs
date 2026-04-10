@@ -6,7 +6,6 @@ use sidequest_protocol::{
     ActionRevealPayload, GameMessage, PlayerActionEntry, SessionEventPayload, TurnStatusPayload,
 };
 
-use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 

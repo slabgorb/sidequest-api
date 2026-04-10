@@ -466,7 +466,7 @@ fn shared_boundary_positions(
     a_exit: &ExitGap,
     b: &PlacedRoom,
     b_grid: &TacticalGrid,
-    b_exit: &ExitGap,
+    _b_exit: &ExitGap,
 ) -> HashSet<(i32, i32)> {
     let mut boundary = HashSet::new();
 

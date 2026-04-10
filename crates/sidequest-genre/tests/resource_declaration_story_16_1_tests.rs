@@ -8,7 +8,6 @@
 //!   AC5 (All genres): Works for packs with and without resource declarations
 
 use sidequest_genre::{ResourceDeclaration, RulesConfig};
-use std::collections::HashMap;
 
 // =========================================================================
 // AC1: ResourceDeclaration deserializes from YAML

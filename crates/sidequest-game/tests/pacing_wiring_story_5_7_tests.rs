@@ -20,7 +20,7 @@ use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::tension_tracker::{
-    CombatEvent, DeliveryMode, DramaThresholds, PacingHint, TensionTracker,
+    CombatEvent, DeliveryMode, DramaThresholds, TensionTracker,
 };
 use sidequest_protocol::NonBlankString;
 
@@ -66,7 +66,7 @@ fn pacing_hint_from_tense_tracker_has_high_drama() {
 
 #[test]
 fn pacing_hint_mid_drama_yields_sentence_delivery() {
-    let mut tracker = TensionTracker::with_values(0.5, 0.0);
+    let tracker = TensionTracker::with_values(0.5, 0.0);
     let thresholds = DramaThresholds::default();
     let hint = tracker.pacing_hint(&thresholds);
     assert_eq!(
@@ -78,7 +78,7 @@ fn pacing_hint_mid_drama_yields_sentence_delivery() {
 
 #[test]
 fn pacing_hint_drama_weight_matches_tracker() {
-    let mut tracker = TensionTracker::with_values(0.4, 0.6);
+    let tracker = TensionTracker::with_values(0.4, 0.6);
     let thresholds = DramaThresholds::default();
     let hint = tracker.pacing_hint(&thresholds);
     assert!(
@@ -106,7 +106,7 @@ fn zero_drama_targets_one_sentence() {
 
 #[test]
 fn max_drama_targets_six_sentences() {
-    let mut tracker = TensionTracker::with_values(1.0, 0.0);
+    let tracker = TensionTracker::with_values(1.0, 0.0);
     let thresholds = DramaThresholds::default();
     let hint = tracker.pacing_hint(&thresholds);
     assert_eq!(
@@ -117,7 +117,7 @@ fn max_drama_targets_six_sentences() {
 
 #[test]
 fn mid_drama_targets_proportional_sentences() {
-    let mut tracker = TensionTracker::with_values(0.5, 0.0);
+    let tracker = TensionTracker::with_values(0.5, 0.0);
     let thresholds = DramaThresholds::default();
     let hint = tracker.pacing_hint(&thresholds);
     // formula: 1 + floor(drama_weight * 5)
@@ -136,7 +136,7 @@ fn mid_drama_targets_proportional_sentences() {
 fn delivery_mode_instant_below_sentence_threshold() {
     let thresholds = DramaThresholds::default();
     // Default sentence_delivery_min is 0.30
-    let mut tracker = TensionTracker::with_values(0.29, 0.0);
+    let tracker = TensionTracker::with_values(0.29, 0.0);
     let hint = tracker.pacing_hint(&thresholds);
     assert_eq!(hint.delivery_mode, DeliveryMode::Instant);
 }
@@ -144,7 +144,7 @@ fn delivery_mode_instant_below_sentence_threshold() {
 #[test]
 fn delivery_mode_sentence_at_boundary() {
     let thresholds = DramaThresholds::default();
-    let mut tracker = TensionTracker::with_values(0.30, 0.0);
+    let tracker = TensionTracker::with_values(0.30, 0.0);
     let hint = tracker.pacing_hint(&thresholds);
     assert_eq!(hint.delivery_mode, DeliveryMode::Sentence);
 }
@@ -183,7 +183,7 @@ fn custom_thresholds_shift_delivery_breakpoints() {
         escalation_streak: 3,
         ramp_length: 6,
     };
-    let mut tracker = TensionTracker::with_values(0.55, 0.0);
+    let tracker = TensionTracker::with_values(0.55, 0.0);
     let hint = tracker.pacing_hint(&thresholds);
     assert_eq!(
         hint.delivery_mode,
@@ -249,7 +249,7 @@ fn escalation_beat_is_nonempty_string() {
 
 #[test]
 fn narrator_directive_includes_sentence_count() {
-    let mut tracker = TensionTracker::with_values(0.6, 0.0);
+    let tracker = TensionTracker::with_values(0.6, 0.0);
     let thresholds = DramaThresholds::default();
     let hint = tracker.pacing_hint(&thresholds);
     let directive = hint.narrator_directive();

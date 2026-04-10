@@ -34,7 +34,6 @@ use sidequest_genre::{
     WorldConfig,
     WorldLore,
 };
-use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════
 // AC: Full model hierarchy — each YAML file type deserializes

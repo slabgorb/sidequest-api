@@ -16,7 +16,7 @@ use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::known_fact::{Confidence, FactSource, KnownFact};
-use sidequest_game::narrative_sheet::{AbilityEntry, KnowledgeEntry, NarrativeSheet};
+use sidequest_game::narrative_sheet::NarrativeSheet;
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
 

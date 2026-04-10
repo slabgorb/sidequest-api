@@ -11,7 +11,6 @@
 use sidequest_genre::{
     CartographyConfig, GraphEdge, NavigationMode, SubGraph, Terrain, WorldGraphNode,
 };
-use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════
 // NavigationMode::Hierarchical

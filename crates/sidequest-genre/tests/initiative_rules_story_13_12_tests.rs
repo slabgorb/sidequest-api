@@ -13,7 +13,6 @@
 //! These tests WILL NOT COMPILE until the types are created — this is the RED
 //! state for Rust TDD.
 
-use std::collections::HashMap;
 
 use sidequest_genre::{InitiativeRule, RulesConfig};
 

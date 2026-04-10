@@ -9,13 +9,13 @@
 //! All tests here are expected to FAIL (compile error or assertion failure).
 //! Dev must implement the missing APIs to make them pass.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use sidequest_game::multiplayer::MultiplayerSession;
 use sidequest_game::turn_mode::TurnMode;
-use sidequest_game::turn_reminder::{ReminderConfig, ReminderError, ReminderResult};
+use sidequest_game::turn_reminder::{ReminderConfig, ReminderResult};
 
 use tokio::sync::RwLock;
 

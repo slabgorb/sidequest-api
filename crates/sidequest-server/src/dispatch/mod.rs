@@ -36,11 +36,9 @@ use std::sync::Arc;
 use tracing::Instrument;
 
 use sidequest_agents::orchestrator::TurnContext;
-use sidequest_genre::{GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ActionRevealPayload, ChapterMarkerPayload, GameMessage, InventoryPayload, ItemDepletedPayload,
-    MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
-    PlayerActionEntry, SessionEventPayload, ThinkingPayload, TurnStatusPayload,
+    ChapterMarkerPayload, GameMessage, ItemDepletedPayload,
+    MapUpdatePayload, NarrationEndPayload, NarrationPayload, ThinkingPayload,
 };
 
 use crate::extraction::{
@@ -48,7 +46,7 @@ use crate::extraction::{
     strip_fenced_blocks, strip_fourth_wall, strip_location_header,
 };
 use crate::{
-    shared_session, AppState, NpcRegistryEntry, Severity, WatcherEventBuilder,
+    shared_session, AppState, NpcRegistryEntry, WatcherEventBuilder,
     WatcherEventType,
 };
 

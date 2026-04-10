@@ -30,12 +30,12 @@
 
 use std::collections::HashMap;
 
-use sidequest_game::tactical::{CardinalDirection, ExitGap, TacticalCell, TacticalGrid};
+use sidequest_game::tactical::TacticalGrid;
 use sidequest_genre::models::world::{LegendEntry, RoomDef, RoomExit};
 
 // Import the validation module that Dev will create.
 // This import fails to compile → RED state.
-use sidequest_validate::tactical::{validate_tactical_grid, ValidationError, ValidationResult};
+use sidequest_validate::tactical::{validate_tactical_grid, ValidationError};
 
 // ==========================================================================
 // Helper: build a legend HashMap from tuples
