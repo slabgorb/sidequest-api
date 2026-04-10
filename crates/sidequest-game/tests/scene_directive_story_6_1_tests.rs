@@ -269,11 +269,11 @@ fn narrative_hints_passed_through_as_is() {
     let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
     assert_eq!(directive.narrative_hints.len(), 2);
-    assert_eq!(directive.narrative_hints[0], "The air is thick with tension");
     assert_eq!(
-        directive.narrative_hints[1],
-        "A storm brews on the horizon"
+        directive.narrative_hints[0],
+        "The air is thick with tension"
     );
+    assert_eq!(directive.narrative_hints[1], "A storm brews on the horizon");
 }
 
 #[test]
@@ -319,7 +319,10 @@ fn high_urgency_beat_gets_high_priority() {
 
     let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
-    assert_eq!(directive.mandatory_elements[0].priority, DirectivePriority::High);
+    assert_eq!(
+        directive.mandatory_elements[0].priority,
+        DirectivePriority::High
+    );
 }
 
 #[test]
@@ -330,7 +333,10 @@ fn medium_urgency_beat_gets_medium_priority() {
 
     let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
-    assert_eq!(directive.mandatory_elements[0].priority, DirectivePriority::Medium);
+    assert_eq!(
+        directive.mandatory_elements[0].priority,
+        DirectivePriority::Medium
+    );
 }
 
 #[test]
@@ -341,7 +347,10 @@ fn low_urgency_beat_gets_low_priority() {
 
     let directive = format_scene_directive(&beats, &stakes, &hints, &[]);
 
-    assert_eq!(directive.mandatory_elements[0].priority, DirectivePriority::Low);
+    assert_eq!(
+        directive.mandatory_elements[0].priority,
+        DirectivePriority::Low
+    );
 }
 
 #[test]

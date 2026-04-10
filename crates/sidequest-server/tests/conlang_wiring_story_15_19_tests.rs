@@ -40,7 +40,11 @@ fn conlang_format_reachable_from_game_crate() {
     record_language_knowledge(&mut store, &morpheme, "player-1", 3).unwrap();
 
     let frags = query_all_language_knowledge(&store, "player-1");
-    assert_eq!(frags.len(), 1, "Should find the recorded language knowledge");
+    assert_eq!(
+        frags.len(),
+        1,
+        "Should find the recorded language knowledge"
+    );
 
     let prompt_text = format_language_knowledge_for_prompt(&frags);
     assert!(
@@ -226,9 +230,7 @@ fn record_name_knowledge_creates_language_lore_fragment() {
 /// format_name_bank_for_prompt produces markdown with name entries.
 #[test]
 fn format_name_bank_for_prompt_produces_markdown() {
-    use sidequest_game::{
-        format_name_bank_for_prompt, GeneratedName, NameBank, NamePattern,
-    };
+    use sidequest_game::{format_name_bank_for_prompt, GeneratedName, NameBank, NamePattern};
 
     let bank = NameBank {
         language_id: "draconic".to_string(),

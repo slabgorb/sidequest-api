@@ -180,10 +180,7 @@ fn apply_shift_clamps_below_zero() {
     );
 
     let val = profile.get(OceanDimension::Openness);
-    assert!(
-        val.abs() < f64::EPSILON,
-        "should clamp to 0.0, got {val}"
-    );
+    assert!(val.abs() < f64::EPSILON, "should clamp to 0.0, got {val}");
     assert!(
         log.shifts()[0].new_value.abs() < f64::EPSILON,
         "logged new_value should also be clamped to 0.0"

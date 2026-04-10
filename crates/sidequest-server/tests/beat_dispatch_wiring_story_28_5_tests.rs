@@ -107,7 +107,10 @@ beats:
 #[test]
 fn dispatch_has_beat_selection_handler() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
         production_code.contains("beat_selection")
@@ -128,11 +131,13 @@ fn dispatch_has_beat_selection_handler() {
 #[test]
 fn dispatch_routes_attack_stat_check() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
-        production_code.contains("resolve_attack")
-            || production_code.contains("apply_hp_delta"),
+        production_code.contains("resolve_attack") || production_code.contains("apply_hp_delta"),
         "dispatch must route stat_check 'attack' to resolve_attack() or apply_hp_delta() \
          on CreatureCore — story 28-5 AC-Attack-Beat-Routing"
     );
@@ -147,7 +152,10 @@ fn dispatch_routes_attack_stat_check() {
 #[test]
 fn dispatch_routes_escape_stat_check() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     // The dispatch must reference escape resolution — either direct "escape"
     // matching or chase/separation logic
@@ -169,11 +177,13 @@ fn dispatch_routes_escape_stat_check() {
 #[test]
 fn dispatch_checks_resolution_after_apply_beat() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
-        production_code.contains(".resolved")
-            || production_code.contains("is_resolved"),
+        production_code.contains(".resolved") || production_code.contains("is_resolved"),
         "dispatch must check encounter resolution after apply_beat() \
          — story 28-5 AC-Resolution-Check"
     );
@@ -188,7 +198,10 @@ fn dispatch_checks_resolution_after_apply_beat() {
 #[test]
 fn dispatch_handles_escalation() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
         production_code.contains("escalates_to")
@@ -208,7 +221,10 @@ fn dispatch_handles_escalation() {
 #[test]
 fn dispatch_emits_beat_dispatched_otel() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
         production_code.contains("beat_dispatched"),
@@ -221,7 +237,10 @@ fn dispatch_emits_beat_dispatched_otel() {
 #[test]
 fn beat_dispatched_otel_includes_beat_id() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     // The OTEL event must reference beat_id in the field builder
     assert!(
@@ -235,7 +254,10 @@ fn beat_dispatched_otel_includes_beat_id() {
 #[test]
 fn beat_dispatched_otel_includes_stat_check() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
         production_code.contains("\"stat_check\""),
@@ -253,7 +275,10 @@ fn beat_dispatched_otel_includes_stat_check() {
 #[test]
 fn dispatch_emits_stat_check_resolved_otel() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
         production_code.contains("stat_check_resolved"),
@@ -271,7 +296,10 @@ fn dispatch_emits_stat_check_resolved_otel() {
 #[test]
 fn apply_beat_has_non_test_consumer_in_dispatch() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     assert!(
         production_code.contains("apply_beat"),
@@ -290,7 +318,10 @@ fn apply_beat_has_non_test_consumer_in_dispatch() {
 #[test]
 fn beat_dispatch_reachable_from_dispatch_player_action() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     // dispatch_player_action must reference the beat dispatch mechanism
     // Either by calling a named function or inline beat handling
@@ -320,7 +351,10 @@ fn apply_beat_attack_applies_metric_delta() {
     assert_eq!(encounter.metric.current, 20, "HP starts at 20");
 
     let result = encounter.apply_beat("attack", &def);
-    assert!(result.is_ok(), "apply_beat should succeed for valid beat_id");
+    assert!(
+        result.is_ok(),
+        "apply_beat should succeed for valid beat_id"
+    );
     assert_eq!(
         encounter.metric.current, 15,
         "attack beat with metric_delta -5 should reduce HP from 20 to 15"
@@ -360,7 +394,10 @@ fn apply_beat_resolves_encounter_on_threshold_cross() {
         assert!(result.is_ok());
     }
 
-    assert_eq!(encounter.metric.current, 0, "HP should be 0 after 4 attacks");
+    assert_eq!(
+        encounter.metric.current, 0,
+        "HP should be 0 after 4 attacks"
+    );
     assert!(
         encounter.resolved,
         "encounter must be resolved when metric crosses threshold_low"
@@ -385,8 +422,7 @@ fn apply_beat_resolution_flag_resolves_encounter() {
 /// Escalation target is reported from confrontation def after encounter resolves.
 #[test]
 fn escalation_target_detected_when_resolved_with_escalates_to() {
-    let def: ConfrontationDef =
-        serde_yaml::from_str(standoff_with_escalation_yaml()).unwrap();
+    let def: ConfrontationDef = serde_yaml::from_str(standoff_with_escalation_yaml()).unwrap();
     let mut encounter = sidequest_game::StructuredEncounter::from_confrontation_def(&def);
 
     // Resolve via draw beat
@@ -405,8 +441,7 @@ fn escalation_target_detected_when_resolved_with_escalates_to() {
 /// escalate_to_combat produces a new combat encounter carrying actors.
 #[test]
 fn escalate_to_combat_creates_new_encounter() {
-    let def: ConfrontationDef =
-        serde_yaml::from_str(standoff_with_escalation_yaml()).unwrap();
+    let def: ConfrontationDef = serde_yaml::from_str(standoff_with_escalation_yaml()).unwrap();
     let mut encounter = sidequest_game::StructuredEncounter::from_confrontation_def(&def);
 
     // Add actors before resolution
@@ -486,7 +521,10 @@ fn apply_beat_increments_beat_counter() {
     assert_eq!(encounter.beat, 1, "beat should be 1 after first apply_beat");
 
     encounter.apply_beat("intimidate", &def).unwrap();
-    assert_eq!(encounter.beat, 2, "beat should be 2 after second apply_beat");
+    assert_eq!(
+        encounter.beat, 2,
+        "beat should be 2 after second apply_beat"
+    );
 }
 
 /// Phase transitions correctly based on beat number.
@@ -526,7 +564,10 @@ fn apply_beat_transitions_phases_by_beat_number() {
 #[test]
 fn dispatch_uses_find_confrontation_def_for_beat_dispatch() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
-    let production_code = dispatch_src.split("#[cfg(test)]").next().unwrap_or(dispatch_src);
+    let production_code = dispatch_src
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(dispatch_src);
 
     // find_confrontation_def is already used in the overlay section,
     // but it must also appear in the beat dispatch section alongside apply_beat

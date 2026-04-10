@@ -80,14 +80,14 @@ mod agent_trait_tests {
         let agent = NarratorAgent::new();
         let mut builder = ContextBuilder::new();
         agent.build_context(&mut builder);
-        
+
         // The agency rule is added via build_context in the structured template system (story 23-1).
         // Verify it exists by checking the sections.
         let sections = builder.build();
         let has_agency_guardrail = sections
             .iter()
             .any(|s| s.content.contains("NEVER") || s.content.contains("Agency"));
-        
+
         assert!(
             has_agency_guardrail,
             "Narrator must have agency guardrail section in build_context"

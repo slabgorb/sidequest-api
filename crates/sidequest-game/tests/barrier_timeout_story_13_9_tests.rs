@@ -51,7 +51,11 @@ async fn timeout_result_lists_missing_players() {
     barrier.submit_action("player-1", "I search the room");
 
     let result = barrier.wait_for_turn().await;
-    assert_eq!(result.missing_players.len(), 2, "should have 2 missing players");
+    assert_eq!(
+        result.missing_players.len(),
+        2,
+        "should have 2 missing players"
+    );
     assert!(
         result.missing_players.contains(&"player-2".to_string()),
         "player-2 should be missing"
@@ -76,7 +80,11 @@ async fn timeout_narration_contains_all_players_including_missing() {
     let result = barrier.wait_for_turn().await;
 
     // All 3 players should have narration entries, even timed-out ones
-    assert_eq!(result.narration.len(), 3, "all 3 players should have narration");
+    assert_eq!(
+        result.narration.len(),
+        3,
+        "all 3 players should have narration"
+    );
     assert!(result.narration.contains_key("player-1"));
     assert!(result.narration.contains_key("player-2"));
     assert!(result.narration.contains_key("player-3"));
@@ -91,11 +99,25 @@ async fn timeout_missing_players_have_hesitates_action() {
 
     let result = barrier.wait_for_turn().await;
 
-    let p2 = result.narration.get("player-2").expect("player-2 narration missing");
-    let p3 = result.narration.get("player-3").expect("player-3 narration missing");
+    let p2 = result
+        .narration
+        .get("player-2")
+        .expect("player-2 narration missing");
+    let p3 = result
+        .narration
+        .get("player-3")
+        .expect("player-3 narration missing");
 
-    assert!(p2.contains("hesitate"), "player-2 should hesitate, got: {}", p2);
-    assert!(p3.contains("hesitate"), "player-3 should hesitate, got: {}", p3);
+    assert!(
+        p2.contains("hesitate"),
+        "player-2 should hesitate, got: {}",
+        p2
+    );
+    assert!(
+        p3.contains("hesitate"),
+        "player-3 should hesitate, got: {}",
+        p3
+    );
 }
 
 #[tokio::test]
@@ -107,10 +129,14 @@ async fn timeout_submitter_has_their_actual_action() {
 
     let result = barrier.wait_for_turn().await;
 
-    let p1 = result.narration.get("player-1").expect("player-1 narration missing");
+    let p1 = result
+        .narration
+        .get("player-1")
+        .expect("player-1 narration missing");
     assert!(
         p1.contains("search") || p1.contains("room"),
-        "player-1 should have their submitted action, got: {}", p1
+        "player-1 should have their submitted action, got: {}",
+        p1
     );
 }
 
@@ -133,13 +159,17 @@ async fn format_auto_resolved_context_includes_missing_names() {
     let context = result.format_auto_resolved_context();
 
     assert!(
-        context.contains("auto-resolved") || context.contains("timed out") || context.contains("did not act"),
-        "context should mention auto-resolution, got: {}", context
+        context.contains("auto-resolved")
+            || context.contains("timed out")
+            || context.contains("did not act"),
+        "context should mention auto-resolution, got: {}",
+        context
     );
     // Should reference the CHARACTER names, not player IDs
     assert!(
         context.contains("Elara") || context.contains("Brak"),
-        "context should reference missing character names, got: {}", context
+        "context should reference missing character names, got: {}",
+        context
     );
 }
 
@@ -163,14 +193,16 @@ async fn named_actions_after_timeout_marks_auto_resolved() {
     let thorn_action = named.get("Thorn").expect("Thorn should have an action");
     assert!(
         thorn_action.contains("search"),
-        "Thorn should have real action, got: {}", thorn_action
+        "Thorn should have real action, got: {}",
+        thorn_action
     );
 
     // Elara and Brak should have hesitates
     let elara_action = named.get("Elara").expect("Elara should have an action");
     assert!(
         elara_action.contains("hesitate"),
-        "Elara should have hesitates, got: {}", elara_action
+        "Elara should have hesitates, got: {}",
+        elara_action
     );
 }
 
@@ -195,7 +227,8 @@ async fn full_submission_has_empty_auto_resolved_context() {
     let context = result.format_auto_resolved_context();
     assert!(
         context.is_empty(),
-        "full submission should have empty auto-resolved context, got: {}", context
+        "full submission should have empty auto-resolved context, got: {}",
+        context
     );
 }
 
@@ -225,5 +258,8 @@ async fn e2e_three_player_one_afk() {
 
     // Verify auto-resolved context mentions Brak
     let context = result.format_auto_resolved_context();
-    assert!(context.contains("Brak"), "auto-resolved context should mention Brak");
+    assert!(
+        context.contains("Brak"),
+        "auto-resolved context should mention Brak"
+    );
 }

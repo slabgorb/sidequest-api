@@ -222,9 +222,7 @@ impl GenrePack {
                     message: format!(
                         "initiative rule '{}' has primary_stat '{}' \
                          which is not a declared ability score (valid: {:?})",
-                        encounter_type,
-                        rule.primary_stat,
-                        self.rules.ability_score_names
+                        encounter_type, rule.primary_stat, self.rules.ability_score_names
                     ),
                 });
             }
@@ -300,12 +298,7 @@ impl GenrePack {
                     let has_return = rooms
                         .iter()
                         .find(|r| r.id == exit.target())
-                        .map(|target_room| {
-                            target_room
-                                .exits
-                                .iter()
-                                .any(|e| e.target() == room.id)
-                        })
+                        .map(|target_room| target_room.exits.iter().any(|e| e.target() == room.id))
                         .unwrap_or(false);
 
                     if !has_return {
@@ -331,9 +324,7 @@ impl GenrePack {
                 .collect();
             if entrance_rooms.is_empty() {
                 errors.push(GenreError::ValidationError {
-                    message: format!(
-                        "world '{world_slug}' has no room with room_type 'entrance'"
-                    ),
+                    message: format!("world '{world_slug}' has no room with room_type 'entrance'"),
                 });
             } else if entrance_rooms.len() > 1 {
                 errors.push(GenreError::ValidationError {

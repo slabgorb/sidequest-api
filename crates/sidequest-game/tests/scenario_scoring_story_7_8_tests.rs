@@ -169,12 +169,7 @@ fn evidence_coverage_partial_discovery() {
 
 #[test]
 fn evidence_coverage_no_discovery() {
-    let state = make_scenario_state(
-        standard_clues(),
-        &[],
-        standard_npc_roles(),
-        "guilty_npc",
-    );
+    let state = make_scenario_state(standard_clues(), &[], standard_npc_roles(), "guilty_npc");
     let result = make_accusation_result(false, EvidenceQuality::Circumstantial);
     let input = make_input(&state, &result, 5, &[]);
     let score = score_scenario(&input);
@@ -264,12 +259,7 @@ fn interrogation_breadth_partial() {
 
 #[test]
 fn interrogation_breadth_none_questioned() {
-    let state = make_scenario_state(
-        standard_clues(),
-        &[],
-        standard_npc_roles(),
-        "guilty_npc",
-    );
+    let state = make_scenario_state(standard_clues(), &[], standard_npc_roles(), "guilty_npc");
     let result = make_accusation_result(false, EvidenceQuality::Circumstantial);
     let npcs_questioned: Vec<String> = vec![];
     let input = make_input(&state, &result, 5, &npcs_questioned);
@@ -475,17 +465,16 @@ fn turn_count_recorded() {
 
 #[test]
 fn turn_count_zero_is_valid() {
-    let state = make_scenario_state(
-        standard_clues(),
-        &[],
-        standard_npc_roles(),
-        "guilty_npc",
-    );
+    let state = make_scenario_state(standard_clues(), &[], standard_npc_roles(), "guilty_npc");
     let result = make_accusation_result(false, EvidenceQuality::Circumstantial);
     let input = make_input(&state, &result, 0, &[]);
     let score = score_scenario(&input);
 
-    assert_eq!(score.total_turns(), 0, "Zero turns should be recorded as-is");
+    assert_eq!(
+        score.total_turns(),
+        0,
+        "Zero turns should be recorded as-is"
+    );
 }
 
 // ===========================================================================

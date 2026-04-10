@@ -22,7 +22,9 @@ use sidequest_game::state::GameSnapshot;
 fn snapshot_has_no_combat_field() {
     let snapshot = GameSnapshot::default();
     let json = serde_json::to_value(&snapshot).unwrap();
-    let obj = json.as_object().expect("GameSnapshot should serialize as JSON object");
+    let obj = json
+        .as_object()
+        .expect("GameSnapshot should serialize as JSON object");
 
     assert!(
         !obj.contains_key("combat"),
@@ -38,7 +40,9 @@ fn snapshot_has_no_combat_field() {
 fn snapshot_has_no_chase_field() {
     let snapshot = GameSnapshot::default();
     let json = serde_json::to_value(&snapshot).unwrap();
-    let obj = json.as_object().expect("GameSnapshot should serialize as JSON object");
+    let obj = json
+        .as_object()
+        .expect("GameSnapshot should serialize as JSON object");
 
     assert!(
         !obj.contains_key("chase"),
@@ -53,7 +57,9 @@ fn snapshot_has_no_chase_field() {
 fn encounter_is_sole_encounter_field() {
     let snapshot = GameSnapshot::default();
     let json = serde_json::to_value(&snapshot).unwrap();
-    let obj = json.as_object().expect("GameSnapshot should serialize as JSON object");
+    let obj = json
+        .as_object()
+        .expect("GameSnapshot should serialize as JSON object");
 
     // encounter field must exist (the surviving model)
     assert!(
@@ -153,11 +159,7 @@ fn snapshot_encounter_field_is_the_sole_mutation_target() {
     // Collect all encounter-adjacent field names
     let encounter_fields: Vec<&str> = obj
         .keys()
-        .filter(|k| {
-            k.contains("combat")
-                || k.contains("chase")
-                || k.contains("encounter")
-        })
+        .filter(|k| k.contains("combat") || k.contains("chase") || k.contains("encounter"))
         .map(|k| k.as_str())
         .collect();
 

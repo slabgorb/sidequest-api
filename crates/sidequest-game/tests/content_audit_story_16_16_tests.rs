@@ -92,9 +92,23 @@ fn all_confrontations_have_required_fields() {
         let pack = sidequest_genre::load_genre_pack(&packs_dir.join(genre))
             .unwrap_or_else(|e| panic!("{} failed to load: {e}", genre));
         for conf in &pack.rules.confrontations {
-            assert!(!conf.confrontation_type.is_empty(), "{}: confrontation missing type", genre);
-            assert!(!conf.label.is_empty(), "{}: confrontation '{}' missing label", genre, conf.confrontation_type);
-            assert!(!conf.category.is_empty(), "{}: confrontation '{}' missing category", genre, conf.confrontation_type);
+            assert!(
+                !conf.confrontation_type.is_empty(),
+                "{}: confrontation missing type",
+                genre
+            );
+            assert!(
+                !conf.label.is_empty(),
+                "{}: confrontation '{}' missing label",
+                genre,
+                conf.confrontation_type
+            );
+            assert!(
+                !conf.category.is_empty(),
+                "{}: confrontation '{}' missing category",
+                genre,
+                conf.confrontation_type
+            );
             assert!(
                 !conf.beats.is_empty(),
                 "{}: confrontation '{}' has no beats",

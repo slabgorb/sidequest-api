@@ -35,7 +35,10 @@ fn sample_dungeon() -> Vec<RoomDef> {
             exits: vec![RoomExit::Corridor {
                 target: "corridor".into(),
             }],
-            description: None, grid: None, legend: None, tactical_scale: None,
+            description: None,
+            grid: None,
+            legend: None,
+            tactical_scale: None,
         },
         RoomDef {
             id: "corridor".into(),
@@ -52,7 +55,10 @@ fn sample_dungeon() -> Vec<RoomDef> {
                     is_locked: false,
                 },
             ],
-            description: None, grid: None, legend: None, tactical_scale: None,
+            description: None,
+            grid: None,
+            legend: None,
+            tactical_scale: None,
         },
         RoomDef {
             id: "treasure_room".into(),
@@ -64,7 +70,10 @@ fn sample_dungeon() -> Vec<RoomDef> {
                 target: "corridor".into(),
                 is_locked: false,
             }],
-            description: None, grid: None, legend: None, tactical_scale: None,
+            description: None,
+            grid: None,
+            legend: None,
+            tactical_scale: None,
         },
     ]
 }
@@ -76,9 +85,7 @@ fn config_with_affinity(affinity: &str) -> TreasureXpConfig {
 }
 
 fn config_without_affinity() -> TreasureXpConfig {
-    TreasureXpConfig {
-        xp_affinity: None,
-    }
+    TreasureXpConfig { xp_affinity: None }
 }
 
 fn snapshot_at_location(location: &str) -> GameSnapshot {
@@ -164,8 +171,7 @@ fn gold_increase_in_region_mode_grants_affinity_progress() {
 #[test]
 fn xp_affinity_name_drives_which_affinity_receives_progress() {
     let mut snap = snapshot_at_location("Town Square");
-    snap.characters
-        .push(test_character_with_affinities(vec![]));
+    snap.characters.push(test_character_with_affinities(vec![]));
     let config = config_with_affinity("Treasure Hunter");
 
     let result = apply_treasure_xp(&mut snap, 25, &config, None);
@@ -181,13 +187,15 @@ fn xp_affinity_name_drives_which_affinity_receives_progress() {
 #[test]
 fn missing_xp_affinity_config_means_no_effect() {
     let mut snap = snapshot_at_location("Town Square");
-    snap.characters
-        .push(test_character_with_affinities(vec![]));
+    snap.characters.push(test_character_with_affinities(vec![]));
     let config = config_without_affinity();
 
     let result = apply_treasure_xp(&mut snap, 100, &config, None);
 
-    assert!(!result.applied, "No xp_affinity configured = no treasure XP");
+    assert!(
+        !result.applied,
+        "No xp_affinity configured = no treasure XP"
+    );
     assert_eq!(result.gold_amount, 0);
     assert!(result.affinity_name.is_none());
 }
@@ -208,7 +216,10 @@ fn gold_increase_in_dungeon_corridor_no_effect() {
 
     let result = apply_treasure_xp(&mut snap, 200, &config, Some(&rooms));
 
-    assert!(!result.applied, "Should not grant XP inside dungeon corridor");
+    assert!(
+        !result.applied,
+        "Should not grant XP inside dungeon corridor"
+    );
     assert_eq!(result.gold_amount, 0);
 }
 
@@ -284,8 +295,7 @@ fn cumulative_gold_extractions_accumulate_progress() {
 #[test]
 fn zero_gold_delta_no_effect() {
     let mut snap = snapshot_at_location("Town");
-    snap.characters
-        .push(test_character_with_affinities(vec![]));
+    snap.characters.push(test_character_with_affinities(vec![]));
     let config = config_with_affinity("Plunderer");
 
     let result = apply_treasure_xp(&mut snap, 0, &config, None);
@@ -297,8 +307,7 @@ fn zero_gold_delta_no_effect() {
 fn affinity_created_if_absent_on_character() {
     let mut snap = snapshot_at_location("Town");
     // Character has no affinities at all
-    snap.characters
-        .push(test_character_with_affinities(vec![]));
+    snap.characters.push(test_character_with_affinities(vec![]));
     let config = config_with_affinity("Plunderer");
 
     let result = apply_treasure_xp(&mut snap, 30, &config, None);
@@ -372,8 +381,7 @@ fn location_not_in_room_graph_is_surface() {
     // Player location doesn't match any room ID → treated as outside the graph
     let rooms = sample_dungeon();
     let mut snap = snapshot_at_location("Town of Millhaven");
-    snap.characters
-        .push(test_character_with_affinities(vec![]));
+    snap.characters.push(test_character_with_affinities(vec![]));
     let config = config_with_affinity("Plunderer");
 
     let result = apply_treasure_xp(&mut snap, 50, &config, Some(&rooms));

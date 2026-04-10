@@ -101,11 +101,7 @@ pub enum ResourcePatchError {
 /// - turn_created: the current turn number
 ///
 /// Duplicates are silently skipped (LoreStore rejects duplicate IDs).
-pub fn mint_threshold_lore(
-    thresholds: &[ResourceThreshold],
-    store: &mut LoreStore,
-    turn: u64,
-) {
+pub fn mint_threshold_lore(thresholds: &[ResourceThreshold], store: &mut LoreStore, turn: u64) {
     for threshold in thresholds {
         let fragment = LoreFragment::new(
             threshold.event_id.clone(),
@@ -136,11 +132,7 @@ fn detect_crossings(
 
 impl ResourcePool {
     /// Apply a raw value change (unclamped delta or set), clamp, and detect threshold crossings.
-    fn apply_and_clamp(
-        &mut self,
-        op: &ResourcePatchOp,
-        value: f64,
-    ) -> ResourcePatchResult {
+    fn apply_and_clamp(&mut self, op: &ResourcePatchOp, value: f64) -> ResourcePatchResult {
         let old_value = self.current;
         let raw = match op {
             ResourcePatchOp::Add => self.current + value,
@@ -295,5 +287,4 @@ impl GameSnapshot {
         mint_threshold_lore(&result.crossed_thresholds, store, turn);
         Ok(result)
     }
-
 }

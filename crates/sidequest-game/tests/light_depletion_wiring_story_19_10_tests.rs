@@ -82,7 +82,10 @@ fn two_room_graph() -> Vec<RoomDef> {
         RoomDef {
             id: "corridor".to_string(),
             name: "Dark Corridor".to_string(),
-            description: Some("A long, dark corridor.".to_string()), grid: None, legend: None, tactical_scale: None,
+            description: Some("A long, dark corridor.".to_string()),
+            grid: None,
+            legend: None,
+            tactical_scale: None,
             room_type: "corridor".to_string(),
             size: (1, 1),
             exits: vec![RoomExit::Door {
@@ -100,7 +103,10 @@ fn three_room_loop() -> Vec<RoomDef> {
         RoomDef {
             id: "entrance".to_string(),
             name: "Entrance Hall".to_string(),
-            description: Some("A dusty stone entrance.".to_string()), grid: None, legend: None, tactical_scale: None,
+            description: Some("A dusty stone entrance.".to_string()),
+            grid: None,
+            legend: None,
+            tactical_scale: None,
             room_type: "entrance".to_string(),
             size: (1, 1),
             exits: vec![RoomExit::Corridor {
@@ -111,7 +117,10 @@ fn three_room_loop() -> Vec<RoomDef> {
         RoomDef {
             id: "hallway".to_string(),
             name: "Central Hallway".to_string(),
-            description: Some("A junction of corridors.".to_string()), grid: None, legend: None, tactical_scale: None,
+            description: Some("A junction of corridors.".to_string()),
+            grid: None,
+            legend: None,
+            tactical_scale: None,
             room_type: "corridor".to_string(),
             size: (2, 2),
             exits: vec![
@@ -128,7 +137,10 @@ fn three_room_loop() -> Vec<RoomDef> {
         RoomDef {
             id: "vault".to_string(),
             name: "Treasure Vault".to_string(),
-            description: Some("Glittering gold and ancient relics.".to_string()), grid: None, legend: None, tactical_scale: None,
+            description: Some("Glittering gold and ancient relics.".to_string()),
+            grid: None,
+            legend: None,
+            tactical_scale: None,
             room_type: "room".to_string(),
             size: (3, 3),
             exits: vec![RoomExit::Door {
@@ -234,9 +246,7 @@ fn dispatch_constructs_item_depleted_message_on_exhaustion() {
         .items
         .iter()
         .find(|item| item.tags.iter().any(|t| t == "light"));
-    let remaining_before = light_item
-        .and_then(|i| i.uses_remaining)
-        .unwrap_or(0);
+    let remaining_before = light_item.and_then(|i| i.uses_remaining).unwrap_or(0);
 
     // Step 2: Call deplete
     let depleted = inv.deplete_light_on_transition();
@@ -280,7 +290,9 @@ fn six_use_torch_full_lifecycle_with_room_moves() {
     let mut inv = Inventory::default();
     inv.add(make_torch(6), 10).unwrap();
 
-    let destinations = ["corridor", "entrance", "corridor", "entrance", "corridor", "entrance"];
+    let destinations = [
+        "corridor", "entrance", "corridor", "entrance", "corridor", "entrance",
+    ];
     let mut item_depleted_fired = false;
     let mut item_depleted_name = String::new();
     let mut item_depleted_remaining_before = 0u32;
@@ -318,7 +330,10 @@ fn six_use_torch_full_lifecycle_with_room_moves() {
     }
 
     // Verify the ItemDepleted data
-    assert!(item_depleted_fired, "ItemDepleted must fire on 6th transition");
+    assert!(
+        item_depleted_fired,
+        "ItemDepleted must fire on 6th transition"
+    );
     assert_eq!(item_depleted_name, "Torch");
     assert_eq!(
         item_depleted_remaining_before, 1,
@@ -326,7 +341,10 @@ fn six_use_torch_full_lifecycle_with_room_moves() {
     );
 
     // Torch is gone
-    assert!(inv.find("torch").is_none(), "Torch removed after exhaustion");
+    assert!(
+        inv.find("torch").is_none(),
+        "Torch removed after exhaustion"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -347,7 +365,11 @@ fn region_mode_no_room_transition_no_depletion() {
 
     // Inventory should be untouched (dispatch doesn't call deplete in region mode)
     let torch = inv.find("torch").expect("Torch exists");
-    assert_eq!(torch.uses_remaining, Some(6), "Torch unchanged in region mode");
+    assert_eq!(
+        torch.uses_remaining,
+        Some(6),
+        "Torch unchanged in region mode"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════

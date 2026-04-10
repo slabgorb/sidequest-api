@@ -192,12 +192,18 @@ impl MonsterManual {
 
     /// Available NPCs (not yet used in narration).
     pub fn available_npcs(&self) -> Vec<&ManualNpc> {
-        self.npcs.iter().filter(|n| n.state == EntryState::Available).collect()
+        self.npcs
+            .iter()
+            .filter(|n| n.state == EntryState::Available)
+            .collect()
     }
 
     /// Available encounters.
     pub fn available_encounters(&self) -> Vec<&ManualEncounter> {
-        self.encounters.iter().filter(|e| e.state == EntryState::Available).collect()
+        self.encounters
+            .iter()
+            .filter(|e| e.state == EntryState::Available)
+            .collect()
     }
 
     /// Whether the Manual needs more Available entries.
@@ -219,15 +225,25 @@ impl MonsterManual {
         let loc_lower = current_location.to_lowercase();
 
         // Active NPCs at current location → full profiles
-        let at_location: Vec<_> = self.npcs.iter()
+        let at_location: Vec<_> = self
+            .npcs
+            .iter()
             .filter(|n| n.state == EntryState::Active)
-            .filter(|n| n.activated_location.as_ref()
-                .map(|l| l.to_lowercase().contains(&loc_lower) || loc_lower.contains(&l.to_lowercase()))
-                .unwrap_or(true)) // Active with no location → assume present
+            .filter(|n| {
+                n.activated_location
+                    .as_ref()
+                    .map(|l| {
+                        l.to_lowercase().contains(&loc_lower)
+                            || loc_lower.contains(&l.to_lowercase())
+                    })
+                    .unwrap_or(true)
+            }) // Active with no location → assume present
             .collect();
 
         // Available NPCs → name-only, capped at 3 so the narrator knows who exists
-        let available: Vec<_> = self.npcs.iter()
+        let available: Vec<_> = self
+            .npcs
+            .iter()
             .filter(|n| n.state == EntryState::Available)
             .take(3)
             .collect();
@@ -241,10 +257,14 @@ impl MonsterManual {
         if !at_location.is_empty() {
             lines.push("NPCs present at this location:".to_string());
             for npc in &at_location {
-                let ocean_summary = npc.data.get("ocean_summary")
+                let ocean_summary = npc
+                    .data
+                    .get("ocean_summary")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let quirks: Vec<&str> = npc.data.get("dialogue_quirks")
+                let quirks: Vec<&str> = npc
+                    .data
+                    .get("dialogue_quirks")
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(2).collect())
                     .unwrap_or_default();
@@ -261,7 +281,8 @@ impl MonsterManual {
         }
 
         if !available.is_empty() {
-            let names: Vec<String> = available.iter()
+            let names: Vec<String> = available
+                .iter()
                 .map(|n| format!("{} ({})", n.name, n.role))
                 .collect();
             lines.push(format!("Other known NPCs: {}", names.join(", ")));
@@ -278,7 +299,9 @@ impl MonsterManual {
     /// When not in combat, includes only name + tier for at most 2 encounters.
     /// The narrator doesn't need 8 creature stat blocks to describe a marketplace.
     pub fn format_area_creatures(&self, in_combat: bool) -> String {
-        let available: Vec<_> = self.encounters.iter()
+        let available: Vec<_> = self
+            .encounters
+            .iter()
             .filter(|e| e.state == EntryState::Available)
             .collect();
         if available.is_empty() {
@@ -290,9 +313,15 @@ impl MonsterManual {
         for enc in available.iter().take(limit) {
             if let Some(enemies) = enc.data.get("enemies").and_then(|v| v.as_array()) {
                 for enemy in enemies {
-                    let name = enemy.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                    let name = enemy
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown");
                     let class = enemy.get("class").and_then(|v| v.as_str()).unwrap_or("");
-                    let tier_label = enemy.get("tier_label").and_then(|v| v.as_str()).unwrap_or("?");
+                    let tier_label = enemy
+                        .get("tier_label")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
                     let hp = enemy.get("hp").and_then(|v| v.as_u64()).unwrap_or(0);
                     let role = enemy.get("role").and_then(|v| v.as_str()).unwrap_or("");
                     lines.push(format!(
@@ -301,11 +330,13 @@ impl MonsterManual {
                     ));
                     // Full stat blocks only during combat
                     if in_combat {
-                        let abilities: Vec<&str> = enemy.get("abilities")
+                        let abilities: Vec<&str> = enemy
+                            .get("abilities")
                             .and_then(|v| v.as_array())
                             .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(3).collect())
                             .unwrap_or_default();
-                        let weaknesses: Vec<&str> = enemy.get("weaknesses")
+                        let weaknesses: Vec<&str> = enemy
+                            .get("weaknesses")
                             .and_then(|v| v.as_array())
                             .map(|arr| arr.iter().filter_map(|v| v.as_str()).take(2).collect())
                             .unwrap_or_default();
@@ -327,9 +358,21 @@ impl MonsterManual {
 
     /// Add a pre-generated NPC from namegen JSON output.
     pub fn add_npc(&mut self, data: serde_json::Value, location_tags: Vec<String>) {
-        let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let role = data.get("role").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let culture = data.get("culture").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let name = data
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let role = data
+            .get("role")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let culture = data
+            .get("culture")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
 
         // Don't add duplicates
         if self.find_npc_by_name(&name).is_some() {
@@ -349,9 +392,18 @@ impl MonsterManual {
 
     /// Add a pre-generated encounter from encountergen JSON output.
     pub fn add_encounter(&mut self, data: serde_json::Value, tier: u32, terrain_tags: Vec<String>) {
-        let enemy_names: Vec<String> = data.get("enemies")
+        let enemy_names: Vec<String> = data
+            .get("enemies")
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|e| e.get("name").and_then(|v| v.as_str()).map(|s| s.to_string())).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|e| {
+                        e.get("name")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         let label = if enemy_names.is_empty() {
             format!("encounter (tier {})", tier)
@@ -411,15 +463,24 @@ mod tests {
     #[test]
     fn lifecycle_transitions() {
         let mut manual = MonsterManual::new("mutant_wasteland", "flickering_reach");
-        manual.add_npc(serde_json::json!({"name": "A", "role": "r", "culture": "c"}), vec![]);
-        manual.add_npc(serde_json::json!({"name": "B", "role": "r", "culture": "c"}), vec![]);
+        manual.add_npc(
+            serde_json::json!({"name": "A", "role": "r", "culture": "c"}),
+            vec![],
+        );
+        manual.add_npc(
+            serde_json::json!({"name": "B", "role": "r", "culture": "c"}),
+            vec![],
+        );
 
         assert_eq!(manual.available_npcs().len(), 2);
 
         manual.mark_active("A", "The Collapsed Transit Hub");
         assert_eq!(manual.available_npcs().len(), 1);
         assert_eq!(manual.npcs[0].state, EntryState::Active);
-        assert_eq!(manual.npcs[0].activated_location.as_deref(), Some("The Collapsed Transit Hub"));
+        assert_eq!(
+            manual.npcs[0].activated_location.as_deref(),
+            Some("The Collapsed Transit Hub")
+        );
 
         manual.mark_all_dormant();
         assert_eq!(manual.npcs[0].state, EntryState::Dormant);
@@ -429,19 +490,25 @@ mod tests {
     #[test]
     fn format_nearby_npcs_filters_by_location() {
         let mut manual = MonsterManual::new("mutant_wasteland", "flickering_reach");
-        manual.add_npc(serde_json::json!({
-            "name": "Krag Dustwelder",
-            "role": "mechanic",
-            "culture": "Scrapborn",
-            "ocean_summary": "blunt and competitive",
-            "dialogue_quirks": ["quotes prices", "mentions danger casually"]
-        }), vec![]);
-        manual.add_npc(serde_json::json!({
-            "name": "Zara Volt",
-            "role": "trader",
-            "culture": "Vaultborn",
-            "ocean_summary": "calm and shrewd"
-        }), vec![]);
+        manual.add_npc(
+            serde_json::json!({
+                "name": "Krag Dustwelder",
+                "role": "mechanic",
+                "culture": "Scrapborn",
+                "ocean_summary": "blunt and competitive",
+                "dialogue_quirks": ["quotes prices", "mentions danger casually"]
+            }),
+            vec![],
+        );
+        manual.add_npc(
+            serde_json::json!({
+                "name": "Zara Volt",
+                "role": "trader",
+                "culture": "Vaultborn",
+                "ocean_summary": "calm and shrewd"
+            }),
+            vec![],
+        );
 
         // Mark Krag active at the hub
         manual.mark_active("Krag Dustwelder", "The Hub");
@@ -463,17 +530,21 @@ mod tests {
     #[test]
     fn format_area_creatures_combat_vs_exploration() {
         let mut manual = MonsterManual::new("mutant_wasteland", "flickering_reach");
-        manual.add_encounter(serde_json::json!({
-            "enemies": [{
-                "name": "Salt Burrower",
-                "class": "Beastkin",
-                "tier_label": "tier-2",
-                "hp": 14,
-                "role": "ambush predator",
-                "abilities": ["Burrow Ambush", "Mandible Crush"],
-                "weaknesses": ["bright light", "fire"]
-            }]
-        }), 2, vec![]);
+        manual.add_encounter(
+            serde_json::json!({
+                "enemies": [{
+                    "name": "Salt Burrower",
+                    "class": "Beastkin",
+                    "tier_label": "tier-2",
+                    "hp": 14,
+                    "role": "ambush predator",
+                    "abilities": ["Burrow Ambush", "Mandible Crush"],
+                    "weaknesses": ["bright light", "fire"]
+                }]
+            }),
+            2,
+            vec![],
+        );
 
         // In combat: full stat blocks
         let output = manual.format_area_creatures(true);

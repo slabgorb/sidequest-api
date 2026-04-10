@@ -91,9 +91,18 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
 
         // Guard: validate accused NPC exists in the roster before resolving.
         // A typo would permanently resolve the scenario against a phantom NPC.
-        let npc_exists = ctx.snapshot.npcs.iter().any(|n| n.core.name.as_str() == accused_npc_name);
+        let npc_exists = ctx
+            .snapshot
+            .npcs
+            .iter()
+            .any(|n| n.core.name.as_str() == accused_npc_name);
         if !npc_exists {
-            let valid_names: Vec<String> = ctx.snapshot.npcs.iter().map(|n| n.core.name.to_string()).collect();
+            let valid_names: Vec<String> = ctx
+                .snapshot
+                .npcs
+                .iter()
+                .map(|n| n.core.name.to_string())
+                .collect();
             return Some(vec![
                 GameMessage::Narration {
                     payload: NarrationPayload {
@@ -167,9 +176,18 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
             WatcherEventBuilder::new("scenario", WatcherEventType::StateTransition)
                 .field("event", "scenario.scored")
                 .field("grade", format!("{:?}", score.grade()))
-                .field("evidence_coverage", format!("{:.0}%", score.evidence_coverage() * 100.0))
-                .field("interrogation_breadth", format!("{:.0}%", score.interrogation_breadth() * 100.0))
-                .field("deduction_quality", format!("{:?}", score.deduction_quality()))
+                .field(
+                    "evidence_coverage",
+                    format!("{:.0}%", score.evidence_coverage() * 100.0),
+                )
+                .field(
+                    "interrogation_breadth",
+                    format!("{:.0}%", score.interrogation_breadth() * 100.0),
+                )
+                .field(
+                    "deduction_quality",
+                    format!("{:?}", score.deduction_quality()),
+                )
                 .field("total_turns", score.total_turns())
                 .send();
 
@@ -212,7 +230,9 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
             return Some(vec![
                 GameMessage::Narration {
                     payload: NarrationPayload {
-                        text: "No active scenario — /accuse is only available during scenario play.".to_string(),
+                        text:
+                            "No active scenario — /accuse is only available during scenario play."
+                                .to_string(),
                         state_delta: None,
                         footnotes: vec![],
                     },

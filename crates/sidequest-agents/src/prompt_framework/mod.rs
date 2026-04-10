@@ -100,7 +100,12 @@ impl PromptRegistry {
 
         self.register_section(
             agent_name,
-            PromptSection::new("pacing", content, AttentionZone::Late, SectionCategory::Context),
+            PromptSection::new(
+                "pacing",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Context,
+            ),
         );
     }
 
@@ -111,11 +116,7 @@ impl PromptRegistry {
     /// position as footnote protocol, so the LLM sees it with high recency attention.
     ///
     /// Story 14-3: Per-session verbosity control.
-    pub fn register_verbosity_section(
-        &mut self,
-        agent_name: &str,
-        verbosity: NarratorVerbosity,
-    ) {
+    pub fn register_verbosity_section(&mut self, agent_name: &str, verbosity: NarratorVerbosity) {
         if !NARRATING_AGENTS.contains(&agent_name) {
             return;
         }
@@ -219,9 +220,9 @@ impl PromptRegistry {
         let entries: Vec<String> = npcs
             .iter()
             .filter_map(|npc| {
-                npc.ocean.as_ref().map(|ocean| {
-                    format!("- {}: {}", npc.core.name, ocean.behavioral_summary())
-                })
+                npc.ocean
+                    .as_ref()
+                    .map(|ocean| format!("- {}: {}", npc.core.name, ocean.behavioral_summary()))
             })
             .collect();
 
@@ -270,7 +271,10 @@ impl PromptRegistry {
 
             let mut char_block = format!("{}:", character.core.name);
             for ability in &involuntary {
-                char_block.push_str(&format!("\n  - {}: {}", ability.name, ability.genre_description));
+                char_block.push_str(&format!(
+                    "\n  - {}: {}",
+                    ability.name, ability.genre_description
+                ));
             }
             entries.push(char_block);
         }
@@ -304,11 +308,7 @@ impl PromptRegistry {
     /// Empty directives are suppressed (no section registered).
     ///
     /// Story 6-2: Parallel to `register_pacing_section()`.
-    pub fn register_scene_directive(
-        &mut self,
-        agent_name: &str,
-        directive: &SceneDirective,
-    ) {
+    pub fn register_scene_directive(&mut self, agent_name: &str, directive: &SceneDirective) {
         if let Some(content) = render_scene_directive(directive) {
             self.register_section(
                 agent_name,
@@ -329,11 +329,7 @@ impl PromptRegistry {
     /// Does nothing if the character has no known facts.
     ///
     /// Story 9-4: Parallel to `register_ocean_personalities_section()`.
-    pub fn register_knowledge_section(
-        &mut self,
-        agent_name: &str,
-        character: &Character,
-    ) {
+    pub fn register_knowledge_section(&mut self, agent_name: &str, character: &Character) {
         if character.known_facts.is_empty() {
             return;
         }
@@ -424,10 +420,7 @@ If nothing new is revealed and nothing prior is referenced, omit the footnotes a
             } else {
                 "involuntary"
             };
-            let mut line = format!(
-                "{}: {}/{} ({})",
-                decl.label, current, decl.max, vol_label
-            );
+            let mut line = format!("{}: {}/{} ({})", decl.label, current, decl.max, vol_label);
             if decl.decay_per_turn.abs() > f64::EPSILON {
                 line.push_str(&format!(", decay {}/turn", decl.decay_per_turn.abs()));
             }

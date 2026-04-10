@@ -22,9 +22,11 @@ use sidequest_agents::orchestrator::{
     ActionFlags, ActionRewrite, NarratorExtraction, PersonalityEvent,
 };
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
-use sidequest_agents::tools::personality_event::{validate_personality_event, PersonalityEventResult};
-use sidequest_agents::tools::resource_change::{validate_resource_change, ResourceChangeResult};
+use sidequest_agents::tools::personality_event::{
+    validate_personality_event, PersonalityEventResult,
+};
 use sidequest_agents::tools::play_sfx::{validate_play_sfx, PlaySfxResult};
+use sidequest_agents::tools::resource_change::{validate_resource_change, ResourceChangeResult};
 use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
 
 // ============================================================================
@@ -70,7 +72,9 @@ fn extraction_with_personality_events() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![], confrontation: None, location: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -93,7 +97,9 @@ fn extraction_with_resource_deltas() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![], confrontation: None, location: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -114,7 +120,9 @@ fn extraction_with_sfx() -> NarratorExtraction {
         sfx_triggers: vec!["sword_clash".to_string()],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![], confrontation: None, location: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -135,7 +143,9 @@ fn extraction_empty() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![], confrontation: None, location: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -165,7 +175,11 @@ fn sample_sfx_library() -> Vec<String> {
 /// Valid betrayal event must be accepted.
 #[test]
 fn validate_personality_event_betrayal() {
-    let result = validate_personality_event("Toggler Copperjaw", "betrayal", "Toggler betrayed the party");
+    let result = validate_personality_event(
+        "Toggler Copperjaw",
+        "betrayal",
+        "Toggler betrayed the party",
+    );
     assert!(result.is_ok(), "valid betrayal event must succeed");
     let event = result.unwrap();
     assert_eq!(event.npc(), "Toggler Copperjaw");
@@ -176,7 +190,8 @@ fn validate_personality_event_betrayal() {
 /// Valid near_death event must be accepted.
 #[test]
 fn validate_personality_event_near_death() {
-    let result = validate_personality_event("Reva", "near_death", "Reva nearly fell into the abyss");
+    let result =
+        validate_personality_event("Reva", "near_death", "Reva nearly fell into the abyss");
     assert!(result.is_ok());
     let event = result.unwrap();
     assert_eq!(event.event_type_str(), "near_death");
@@ -201,7 +216,11 @@ fn validate_personality_event_defeat() {
 /// Valid social_bonding event must be accepted.
 #[test]
 fn validate_personality_event_social_bonding() {
-    let result = validate_personality_event("Patchwork", "social_bonding", "Patchwork and Kael shared a quiet moment");
+    let result = validate_personality_event(
+        "Patchwork",
+        "social_bonding",
+        "Patchwork and Kael shared a quiet moment",
+    );
     assert!(result.is_ok());
     assert_eq!(result.unwrap().event_type_str(), "social_bonding");
 }
@@ -210,7 +229,10 @@ fn validate_personality_event_social_bonding() {
 #[test]
 fn validate_personality_event_case_insensitive() {
     let result = validate_personality_event("Toggler", "BETRAYAL", "betrayal event");
-    assert!(result.is_ok(), "event_type matching must be case-insensitive");
+    assert!(
+        result.is_ok(),
+        "event_type matching must be case-insensitive"
+    );
     assert_eq!(result.unwrap().event_type_str(), "betrayal");
 }
 
@@ -254,13 +276,18 @@ fn validate_personality_event_trims_npc_name() {
 #[test]
 fn validate_personality_event_allows_empty_description() {
     let result = validate_personality_event("Toggler", "betrayal", "");
-    assert!(result.is_ok(), "empty description should be allowed — it's optional OTEL context");
+    assert!(
+        result.is_ok(),
+        "empty description should be allowed — it's optional OTEL context"
+    );
 }
 
 /// PersonalityEventResult must serialize to the expected JSON shape.
 #[test]
 fn personality_event_serializes_to_json() {
-    let event = validate_personality_event("Toggler Copperjaw", "betrayal", "Toggler betrayed trust").unwrap();
+    let event =
+        validate_personality_event("Toggler Copperjaw", "betrayal", "Toggler betrayed trust")
+            .unwrap();
     let json = serde_json::to_value(&event).expect("PersonalityEventResult must serialize");
     assert_eq!(json["npc"], "Toggler Copperjaw");
     assert_eq!(json["event_type"], "betrayal");
@@ -298,7 +325,10 @@ fn validate_resource_change_positive_delta() {
 fn validate_resource_change_case_insensitive() {
     let valid_resources = sample_resource_names();
     let result = validate_resource_change("LUCK", -1.0, &valid_resources);
-    assert!(result.is_ok(), "resource name matching must be case-insensitive");
+    assert!(
+        result.is_ok(),
+        "resource name matching must be case-insensitive"
+    );
     assert_eq!(result.unwrap().resource(), "luck");
 }
 
@@ -323,7 +353,10 @@ fn validate_resource_change_rejects_empty_name() {
 fn validate_resource_change_rejects_whitespace_name() {
     let valid_resources = sample_resource_names();
     let result = validate_resource_change("   ", -1.0, &valid_resources);
-    assert!(result.is_err(), "whitespace-only resource name must be rejected");
+    assert!(
+        result.is_err(),
+        "whitespace-only resource name must be rejected"
+    );
 }
 
 /// Zero delta must be accepted (LLM might emit zero — it's harmless).
@@ -485,7 +518,6 @@ fn narrator_prompt_omits_sfx_triggers_schema() {
     );
 }
 
-
 // ============================================================================
 // AC-5: assemble_turn collects all three into respective ActionResult fields
 // ============================================================================
@@ -509,7 +541,11 @@ fn assemble_turn_tool_personality_events_override_narrator() {
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
-    assert_eq!(result.personality_events.len(), 1, "tool events must replace narrator events");
+    assert_eq!(
+        result.personality_events.len(),
+        1,
+        "tool events must replace narrator events"
+    );
     assert_eq!(result.personality_events[0].npc, "Reva");
 }
 
@@ -584,7 +620,10 @@ fn assemble_turn_tool_resource_deltas_override_narrator() {
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
     assert!(result.resource_deltas.contains_key("heat"));
-    assert!(!result.resource_deltas.contains_key("luck"), "narrator deltas must be overridden");
+    assert!(
+        !result.resource_deltas.contains_key("luck"),
+        "narrator deltas must be overridden"
+    );
     assert_eq!(result.resource_deltas.len(), 1);
 }
 
@@ -760,9 +799,18 @@ fn tool_call_results_has_sfx_triggers_field() {
 #[test]
 fn tool_call_results_default_new_fields_are_none() {
     let defaults = ToolCallResults::default();
-    assert!(defaults.personality_events.is_none(), "default personality_events must be None");
-    assert!(defaults.resource_deltas.is_none(), "default resource_deltas must be None");
-    assert!(defaults.sfx_triggers.is_none(), "default sfx_triggers must be None");
+    assert!(
+        defaults.personality_events.is_none(),
+        "default personality_events must be None"
+    );
+    assert!(
+        defaults.resource_deltas.is_none(),
+        "default resource_deltas must be None"
+    );
+    assert!(
+        defaults.sfx_triggers.is_none(),
+        "default sfx_triggers must be None"
+    );
 }
 
 // ============================================================================
@@ -855,12 +903,17 @@ fn cleanup_sidecar(session_id: &str) {
 #[test]
 fn parser_extracts_personality_event_from_sidecar() {
     let sid = test_session_id("parse-personality");
-    write_sidecar(&sid, &[
-        r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed trust"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed trust"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let events = results.personality_events.expect("personality_event tool result should populate");
+    let events = results
+        .personality_events
+        .expect("personality_event tool result should populate");
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].npc, "Toggler");
 
@@ -871,13 +924,18 @@ fn parser_extracts_personality_event_from_sidecar() {
 #[test]
 fn parser_accumulates_multiple_personality_events() {
     let sid = test_session_id("parse-personality-multi");
-    write_sidecar(&sid, &[
-        r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed"}}"#,
-        r#"{"tool":"personality_event","result":{"npc":"Reva","event_type":"victory","description":"won"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed"}}"#,
+            r#"{"tool":"personality_event","result":{"npc":"Reva","event_type":"victory","description":"won"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let events = results.personality_events.expect("multiple personality events should accumulate");
+    let events = results
+        .personality_events
+        .expect("multiple personality events should accumulate");
     assert_eq!(events.len(), 2);
 
     cleanup_sidecar(&sid);
@@ -887,9 +945,12 @@ fn parser_accumulates_multiple_personality_events() {
 #[test]
 fn parser_rejects_invalid_personality_event_type() {
     let sid = test_session_id("parse-personality-invalid");
-    write_sidecar(&sid, &[
-        r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"love","description":"not valid"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"love","description":"not valid"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert!(
@@ -904,12 +965,15 @@ fn parser_rejects_invalid_personality_event_type() {
 #[test]
 fn parser_extracts_resource_change_from_sidecar() {
     let sid = test_session_id("parse-resource");
-    write_sidecar(&sid, &[
-        r#"{"tool":"resource_change","result":{"resource":"luck","delta":-1.0}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"resource_change","result":{"resource":"luck","delta":-1.0}}"#],
+    );
 
     let results = parse_tool_results(&sid);
-    let deltas = results.resource_deltas.expect("resource_change tool result should populate");
+    let deltas = results
+        .resource_deltas
+        .expect("resource_change tool result should populate");
     assert_eq!(deltas.len(), 1);
     assert!((deltas["luck"] - (-1.0)).abs() < f64::EPSILON);
 
@@ -920,13 +984,18 @@ fn parser_extracts_resource_change_from_sidecar() {
 #[test]
 fn parser_accumulates_multiple_resource_changes() {
     let sid = test_session_id("parse-resource-multi");
-    write_sidecar(&sid, &[
-        r#"{"tool":"resource_change","result":{"resource":"luck","delta":-1.0}}"#,
-        r#"{"tool":"resource_change","result":{"resource":"heat","delta":0.5}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"resource_change","result":{"resource":"luck","delta":-1.0}}"#,
+            r#"{"tool":"resource_change","result":{"resource":"heat","delta":0.5}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let deltas = results.resource_deltas.expect("multiple resource changes should accumulate");
+    let deltas = results
+        .resource_deltas
+        .expect("multiple resource changes should accumulate");
     assert_eq!(deltas.len(), 2);
 
     cleanup_sidecar(&sid);
@@ -936,12 +1005,15 @@ fn parser_accumulates_multiple_resource_changes() {
 #[test]
 fn parser_extracts_play_sfx_from_sidecar() {
     let sid = test_session_id("parse-sfx");
-    write_sidecar(&sid, &[
-        r#"{"tool":"play_sfx","result":{"sfx_id":"sword_clash"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"play_sfx","result":{"sfx_id":"sword_clash"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
-    let sfx = results.sfx_triggers.expect("play_sfx tool result should populate");
+    let sfx = results
+        .sfx_triggers
+        .expect("play_sfx tool result should populate");
     assert_eq!(sfx.len(), 1);
     assert_eq!(sfx[0], "sword_clash");
 
@@ -952,13 +1024,18 @@ fn parser_extracts_play_sfx_from_sidecar() {
 #[test]
 fn parser_accumulates_multiple_sfx() {
     let sid = test_session_id("parse-sfx-multi");
-    write_sidecar(&sid, &[
-        r#"{"tool":"play_sfx","result":{"sfx_id":"sword_clash"}}"#,
-        r#"{"tool":"play_sfx","result":{"sfx_id":"door_creak"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"play_sfx","result":{"sfx_id":"sword_clash"}}"#,
+            r#"{"tool":"play_sfx","result":{"sfx_id":"door_creak"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let sfx = results.sfx_triggers.expect("multiple SFX triggers should accumulate");
+    let sfx = results
+        .sfx_triggers
+        .expect("multiple SFX triggers should accumulate");
     assert_eq!(sfx.len(), 2);
 
     cleanup_sidecar(&sid);
@@ -968,18 +1045,34 @@ fn parser_accumulates_multiple_sfx() {
 #[test]
 fn parser_handles_mixed_tool_records() {
     let sid = test_session_id("parse-mixed");
-    write_sidecar(&sid, &[
-        r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed"}}"#,
-        r#"{"tool":"resource_change","result":{"resource":"luck","delta":-1.0}}"#,
-        r#"{"tool":"play_sfx","result":{"sfx_id":"sword_clash"}}"#,
-        r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed"}}"#,
+            r#"{"tool":"resource_change","result":{"resource":"luck","delta":-1.0}}"#,
+            r#"{"tool":"play_sfx","result":{"sfx_id":"sword_clash"}}"#,
+            r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    assert!(results.personality_events.is_some(), "personality_events should be populated");
-    assert!(results.resource_deltas.is_some(), "resource_deltas should be populated");
-    assert!(results.sfx_triggers.is_some(), "sfx_triggers should be populated");
-    assert_eq!(results.scene_mood.as_deref(), Some("tension"), "existing tools must still work");
+    assert!(
+        results.personality_events.is_some(),
+        "personality_events should be populated"
+    );
+    assert!(
+        results.resource_deltas.is_some(),
+        "resource_deltas should be populated"
+    );
+    assert!(
+        results.sfx_triggers.is_some(),
+        "sfx_triggers should be populated"
+    );
+    assert_eq!(
+        results.scene_mood.as_deref(),
+        Some("tension"),
+        "existing tools must still work"
+    );
 
     cleanup_sidecar(&sid);
 }
@@ -992,9 +1085,12 @@ fn parser_handles_mixed_tool_records() {
 #[test]
 fn personality_event_e2e_sidecar_to_action_result() {
     let sid = test_session_id("e2e-personality");
-    write_sidecar(&sid, &[
-        r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed the party"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"personality_event","result":{"npc":"Toggler","event_type":"betrayal","description":"betrayed the party"}}"#,
+        ],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_with_personality_events(); // has narrator fallback event
@@ -1010,16 +1106,20 @@ fn personality_event_e2e_sidecar_to_action_result() {
 #[test]
 fn resource_change_e2e_sidecar_to_action_result() {
     let sid = test_session_id("e2e-resource");
-    write_sidecar(&sid, &[
-        r#"{"tool":"resource_change","result":{"resource":"heat","delta":0.5}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"resource_change","result":{"resource":"heat","delta":0.5}}"#],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_with_resource_deltas(); // has narrator fallback delta
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
     assert!(result.resource_deltas.contains_key("heat"));
-    assert!(!result.resource_deltas.contains_key("luck"), "narrator deltas must be overridden");
+    assert!(
+        !result.resource_deltas.contains_key("luck"),
+        "narrator deltas must be overridden"
+    );
 
     cleanup_sidecar(&sid);
 }
@@ -1028,9 +1128,10 @@ fn resource_change_e2e_sidecar_to_action_result() {
 #[test]
 fn play_sfx_e2e_sidecar_to_action_result() {
     let sid = test_session_id("e2e-sfx");
-    write_sidecar(&sid, &[
-        r#"{"tool":"play_sfx","result":{"sfx_id":"door_creak"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"play_sfx","result":{"sfx_id":"door_creak"}}"#],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_with_sfx(); // has narrator fallback SFX

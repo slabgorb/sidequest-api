@@ -34,11 +34,8 @@ pub fn select_lore_for_prompt<'a>(
 
     // Check if semantic search is viable: we have a query embedding AND at least
     // one fragment has an embedding.
-    let use_semantic = query_embedding.is_some()
-        && store
-            .fragments
-            .values()
-            .any(|f| f.embedding().is_some());
+    let use_semantic =
+        query_embedding.is_some() && store.fragments.values().any(|f| f.embedding().is_some());
 
     let mut fragments: Vec<&LoreFragment> = store.fragments.values().collect();
 
@@ -68,11 +65,12 @@ pub fn select_lore_for_prompt<'a>(
         fragments.sort_by(|a, b| {
             let priority_a = fragment_priority(a, priority_categories);
             let priority_b = fragment_priority(b, priority_categories);
-            priority_a.cmp(&priority_b)
-                .then_with(|| {
-                    // Within same priority, prefer more recent game events
-                    b.turn_created().unwrap_or(0).cmp(&a.turn_created().unwrap_or(0))
-                })
+            priority_a.cmp(&priority_b).then_with(|| {
+                // Within same priority, prefer more recent game events
+                b.turn_created()
+                    .unwrap_or(0)
+                    .cmp(&a.turn_created().unwrap_or(0))
+            })
         });
     }
 
@@ -161,8 +159,7 @@ pub fn summarize_lore_retrieval<'a>(
     budget: usize,
     priority_categories: Option<&[LoreCategory]>,
 ) -> LoreRetrievalSummary {
-    let selected_ids: std::collections::HashSet<&str> =
-        selected.iter().map(|f| f.id()).collect();
+    let selected_ids: std::collections::HashSet<&str> = selected.iter().map(|f| f.id()).collect();
 
     let rejected: Vec<FragmentSummary> = store
         .fragments
@@ -179,7 +176,10 @@ pub fn summarize_lore_retrieval<'a>(
         selected: selected.iter().map(|f| fragment_to_summary(f)).collect(),
         rejected,
         context_hint: priority_categories.map(|cats| {
-            cats.iter().map(|c| format!("{c}")).collect::<Vec<_>>().join(", ")
+            cats.iter()
+                .map(|c| format!("{c}"))
+                .collect::<Vec<_>>()
+                .join(", ")
         }),
         total_fragments: store.len(),
     }

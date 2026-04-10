@@ -111,7 +111,10 @@ pub(crate) fn process_tropes(
         .field("beats_fired", fired.len())
         .field("achievements_earned", earned.len())
         .field("engagement_multiplier", multiplier)
-        .field("turns_since_meaningful", ctx.snapshot.turns_since_meaningful)
+        .field(
+            "turns_since_meaningful",
+            ctx.snapshot.turns_since_meaningful,
+        )
         .send();
 
     for ts in ctx.trope_states.iter() {

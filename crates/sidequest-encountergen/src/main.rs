@@ -21,7 +21,10 @@ use serde::Serialize;
 use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 
 #[derive(Parser)]
-#[command(name = "sidequest-encountergen", about = "Generate enemy encounter stat blocks from genre pack data")]
+#[command(
+    name = "sidequest-encountergen",
+    about = "Generate enemy encounter stat blocks from genre pack data"
+)]
 struct Cli {
     /// Path to the genre_packs/ directory. Also reads SIDEQUEST_CONTENT_PATH env var.
     #[arg(long, env = "SIDEQUEST_CONTENT_PATH")]
@@ -131,7 +134,9 @@ fn find_power_tier<'a>(
     level: u32,
 ) -> Option<&'a sidequest_genre::PowerTier> {
     power_tiers.get(class).and_then(|tiers| {
-        tiers.iter().find(|t| level >= t.level_range[0] && level <= t.level_range[1])
+        tiers
+            .iter()
+            .find(|t| level >= t.level_range[0] && level <= t.level_range[1])
     })
 }
 
@@ -154,9 +159,10 @@ fn main() {
 
     // Check for world-level creatures.yaml — if present, sample from creature
     // definitions instead of generating humanoid NPCs from rules.yaml.
-    let creatures_path = cli.world.as_ref().map(|w| {
-        genre_dir.join("worlds").join(w).join("creatures.yaml")
-    });
+    let creatures_path = cli
+        .world
+        .as_ref()
+        .map(|w| genre_dir.join("worlds").join(w).join("creatures.yaml"));
     let creatures: Option<Vec<serde_yaml::Value>> = creatures_path
         .as_ref()
         .filter(|p| p.exists())
@@ -172,17 +178,24 @@ fn main() {
         if !creature_list.is_empty() {
             // Filter by tier if specified
             let filtered: Vec<&serde_yaml::Value> = if let Some(tier) = cli.tier {
-                creature_list.iter().filter(|c| {
-                    c.get("threat_level")
-                        .and_then(|t| t.as_u64())
-                        .map(|t| t == tier as u64)
-                        .unwrap_or(false)
-                }).collect()
+                creature_list
+                    .iter()
+                    .filter(|c| {
+                        c.get("threat_level")
+                            .and_then(|t| t.as_u64())
+                            .map(|t| t == tier as u64)
+                            .unwrap_or(false)
+                    })
+                    .collect()
             } else {
                 creature_list.iter().collect()
             };
 
-            let pool = if filtered.is_empty() { creature_list.iter().collect::<Vec<_>>() } else { filtered };
+            let pool = if filtered.is_empty() {
+                creature_list.iter().collect::<Vec<_>>()
+            } else {
+                filtered
+            };
 
             for _ in 0..cli.count {
                 let creature = pool[rng.random_range(0..pool.len())];
@@ -221,8 +234,8 @@ fn write_sidecar(block: &EncounterBlock) {
         Err(_) => return,
     };
 
-    let sidecar_path = std::path::PathBuf::from(&dir)
-        .join(format!("sidequest-tools-{session_id}.jsonl"));
+    let sidecar_path =
+        std::path::PathBuf::from(&dir).join(format!("sidequest-tools-{session_id}.jsonl"));
     let _ = std::fs::create_dir_all(&dir);
 
     use std::io::Write;
@@ -250,10 +263,17 @@ fn write_sidecar(block: &EncounterBlock) {
 /// Convert a creature definition from creatures.yaml into an EnemyBlock.
 fn creature_to_enemy_block(creature: &serde_yaml::Value, rng: &mut impl Rng) -> EnemyBlock {
     let str_field = |key: &str| -> String {
-        creature.get(key).and_then(|v| v.as_str()).unwrap_or("").to_string()
+        creature
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
     };
     let u64_field = |key: &str, default: u64| -> u64 {
-        creature.get(key).and_then(|v| v.as_u64()).unwrap_or(default)
+        creature
+            .get(key)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(default)
     };
 
     let name = str_field("name");
@@ -263,18 +283,36 @@ fn creature_to_enemy_block(creature: &serde_yaml::Value, rng: &mut impl Rng) -> 
     let damage = str_field("damage");
     let morale = str_field("morale");
 
-    let abilities: Vec<String> = creature.get("abilities")
+    let abilities: Vec<String> = creature
+        .get("abilities")
         .and_then(|a| a.as_sequence())
-        .map(|seq| seq.iter().filter_map(|a| {
-            let aname = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let adesc = a.get("description").and_then(|v| v.as_str()).unwrap_or("");
-            if aname.is_empty() { None } else { Some(format!("{} — {}", aname, adesc.chars().take(80).collect::<String>())) }
-        }).collect())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|a| {
+                    let aname = a.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let adesc = a.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                    if aname.is_empty() {
+                        None
+                    } else {
+                        Some(format!(
+                            "{} — {}",
+                            aname,
+                            adesc.chars().take(80).collect::<String>()
+                        ))
+                    }
+                })
+                .collect()
+        })
         .unwrap_or_default();
 
-    let tags: Vec<String> = creature.get("tags")
+    let tags: Vec<String> = creature
+        .get("tags")
         .and_then(|t| t.as_sequence())
-        .map(|seq| seq.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .map(|seq| {
+            seq.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
 
     let tier_label = format!("tier-{}", threat_level);
@@ -285,18 +323,29 @@ fn creature_to_enemy_block(creature: &serde_yaml::Value, rng: &mut impl Rng) -> 
         race: tags.first().cloned().unwrap_or_else(|| "beast".to_string()),
         level: threat_level,
         tier_label,
-        role: if !damage.is_empty() { format!("{}, morale: {}", damage, morale) } else { morale },
+        role: if !damage.is_empty() {
+            format!("{}, morale: {}", damage, morale)
+        } else {
+            morale
+        },
         hp,
         abilities,
         weaknesses: vec![format!("AC {}", ac)],
         disposition: -20, // creatures are hostile
         personality: vec![],
         dialogue_quirks: vec![],
-        inventory: creature.get("loot")
+        inventory: creature
+            .get("loot")
             .and_then(|l| l.as_sequence())
-            .map(|seq| seq.iter().filter_map(|v| {
-                v.get("description").and_then(|d| d.as_str()).map(String::from)
-            }).collect())
+            .map(|seq| {
+                seq.iter()
+                    .filter_map(|v| {
+                        v.get("description")
+                            .and_then(|d| d.as_str())
+                            .map(String::from)
+                    })
+                    .collect()
+            })
             .unwrap_or_default(),
         stat_scores: HashMap::new(),
         ocean: OceanValues {
@@ -308,7 +357,8 @@ fn creature_to_enemy_block(creature: &serde_yaml::Value, rng: &mut impl Rng) -> 
         },
         ocean_summary: "feral and aggressive".to_string(),
         trope_connections: vec![],
-        visual_prompt: creature.get("description")
+        visual_prompt: creature
+            .get("description")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .chars()
@@ -329,7 +379,12 @@ fn generate_enemy(
 
     // Select class
     let class = if let Some(ref c) = cli.class {
-        if !pack.rules.allowed_classes.iter().any(|ac| ac.eq_ignore_ascii_case(c)) {
+        if !pack
+            .rules
+            .allowed_classes
+            .iter()
+            .any(|ac| ac.eq_ignore_ascii_case(c))
+        {
             eprintln!(
                 "Class '{}' not found. Available: {}",
                 c,
@@ -343,7 +398,8 @@ fn generate_enemy(
     };
 
     // Select race
-    let race = pack.rules.allowed_races[rng.random_range(0..pack.rules.allowed_races.len())].clone();
+    let race =
+        pack.rules.allowed_races[rng.random_range(0..pack.rules.allowed_races.len())].clone();
 
     // Select tier and level
     let tier = cli.tier.unwrap_or_else(|| rng.random_range(1..=3)); // tier 4 (level 10) is rare for NPCs
@@ -363,7 +419,11 @@ fn generate_enemy(
                 eprintln!(
                     "Archetype '{}' not found. Available: {}",
                     name,
-                    pack.archetypes.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", ")
+                    pack.archetypes
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
                 std::process::exit(1);
             })
@@ -380,7 +440,11 @@ fn generate_enemy(
                 eprintln!(
                     "Culture '{}' not found. Available: {}",
                     name,
-                    pack.cultures.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")
+                    pack.cultures
+                        .iter()
+                        .map(|c| c.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
                 std::process::exit(1);
             })
@@ -405,7 +469,10 @@ fn generate_enemy(
     }
 
     // Role
-    let role = cli.role.clone().unwrap_or_else(|| archetype.name.as_str().to_lowercase());
+    let role = cli
+        .role
+        .clone()
+        .unwrap_or_else(|| archetype.name.as_str().to_lowercase());
 
     // Generate ability scores from archetype stat_ranges
     let stat_scores: HashMap<String, i32> = pack
@@ -440,13 +507,7 @@ fn generate_enemy(
         .map(|t| t.label.clone())
         .unwrap_or_else(|| format!("tier-{}", tier));
 
-    let visual_prompt = build_visual_prompt(
-        pack,
-        &class,
-        level,
-        archetype,
-        cli.context.as_deref(),
-    );
+    let visual_prompt = build_visual_prompt(pack, &class, level, archetype, cli.context.as_deref());
 
     EnemyBlock {
         name,
@@ -473,7 +534,12 @@ fn generate_enemy(
 // ── Abilities ───────────────────────────────────────────────
 
 /// Generate abilities from class + tier. Higher tiers unlock more powerful abilities.
-fn generate_abilities(class: &str, tier: u32, archetype: &NpcArchetype, rng: &mut impl Rng) -> Vec<String> {
+fn generate_abilities(
+    class: &str,
+    tier: u32,
+    archetype: &NpcArchetype,
+    rng: &mut impl Rng,
+) -> Vec<String> {
     let mut abilities = Vec::new();
 
     // Base class abilities (every enemy gets at least one)
@@ -493,8 +559,16 @@ fn generate_abilities(class: &str, tier: u32, archetype: &NpcArchetype, rng: &mu
         "pureblood" => &[
             &["First Aid", "Old-World Knowledge", "Steady Aim"],
             &["Field Surgery", "Tactical Analysis", "Precision Shot"],
-            &["Command Presence", "Pre-War Tech Override", "Suppressing Fire"],
-            &["Architect's Will", "Orbital Strike Beacon", "Civilization's Shield"],
+            &[
+                "Command Presence",
+                "Pre-War Tech Override",
+                "Suppressing Fire",
+            ],
+            &[
+                "Architect's Will",
+                "Orbital Strike Beacon",
+                "Civilization's Shield",
+            ],
         ],
         "synth" => &[
             &["Overclock", "Synthetic Resilience", "Scan"],
@@ -512,7 +586,11 @@ fn generate_abilities(class: &str, tier: u32, archetype: &NpcArchetype, rng: &mu
             &["Jury-Rig", "Shock Prod", "Smoke Bomb"],
             &["Turret Deploy", "Electrified Net", "Gadget Barrage"],
             &["Mech Suit Engage", "Tesla Coil", "Drone Swarm"],
-            &["Forge Master's Arsenal", "Fabricator Beam", "Walking Workshop"],
+            &[
+                "Forge Master's Arsenal",
+                "Fabricator Beam",
+                "Walking Workshop",
+            ],
         ],
         _ => &[
             &["Strike", "Defend", "Retreat"],
@@ -522,7 +600,9 @@ fn generate_abilities(class: &str, tier: u32, archetype: &NpcArchetype, rng: &mu
         ],
     };
 
-    let tier_idx = (tier as usize).saturating_sub(1).min(class_abilities.len() - 1);
+    let tier_idx = (tier as usize)
+        .saturating_sub(1)
+        .min(class_abilities.len() - 1);
 
     // Pick abilities from current tier and below
     for t in 0..=tier_idx {
@@ -547,7 +627,11 @@ fn generate_abilities(class: &str, tier: u32, archetype: &NpcArchetype, rng: &mu
     }
 
     // Add one archetype-flavored ability if typical_classes overlap
-    if archetype.typical_classes.iter().any(|c| c.eq_ignore_ascii_case(class)) {
+    if archetype
+        .typical_classes
+        .iter()
+        .any(|c| c.eq_ignore_ascii_case(class))
+    {
         let archetype_flavor = format!("{}'s Instinct", archetype.name.as_str());
         abilities.push(archetype_flavor);
     }
@@ -564,20 +648,34 @@ fn generate_weaknesses(class: &str, race: &str, rng: &mut impl Rng) -> Vec<Strin
     match class.to_lowercase().as_str() {
         "scavenger" => weaknesses.push("low durability — light or no armor".to_string()),
         "mutant" => weaknesses.push("radiation dependency — weakens in clean zones".to_string()),
-        "pureblood" => weaknesses.push("contamination vulnerability — no mutation resistance".to_string()),
-        "synth" => weaknesses.push("EMP vulnerability — stunned by electromagnetic pulses".to_string()),
+        "pureblood" => {
+            weaknesses.push("contamination vulnerability — no mutation resistance".to_string())
+        }
+        "synth" => {
+            weaknesses.push("EMP vulnerability — stunned by electromagnetic pulses".to_string())
+        }
         "beastkin" => weaknesses.push("fire aversion — panics near open flame".to_string()),
-        "tinker" => weaknesses.push("gadget fragility — abilities break on critical failure".to_string()),
+        "tinker" => {
+            weaknesses.push("gadget fragility — abilities break on critical failure".to_string())
+        }
         _ => weaknesses.push("no special resistances".to_string()),
     }
 
     // Race-based weakness (50% chance for a second weakness)
     if rng.random_range(0..2) == 0 {
         match race.to_lowercase().as_str() {
-            r if r.contains("mutant") => weaknesses.push("unstable mutations — random debuff under stress".to_string()),
-            r if r.contains("synthetic") => weaknesses.push("memory fragmentation — confused by paradoxes".to_string()),
-            r if r.contains("plant") => weaknesses.push("drought vulnerability — weakened without water".to_string()),
-            r if r.contains("animal") || r.contains("uplifted") => weaknesses.push("pack instinct — morale breaks when isolated".to_string()),
+            r if r.contains("mutant") => {
+                weaknesses.push("unstable mutations — random debuff under stress".to_string())
+            }
+            r if r.contains("synthetic") => {
+                weaknesses.push("memory fragmentation — confused by paradoxes".to_string())
+            }
+            r if r.contains("plant") => {
+                weaknesses.push("drought vulnerability — weakened without water".to_string())
+            }
+            r if r.contains("animal") || r.contains("uplifted") => {
+                weaknesses.push("pack instinct — morale breaks when isolated".to_string())
+            }
             _ => {}
         }
     }
@@ -591,7 +689,15 @@ fn jitter_ocean(archetype: &NpcArchetype, rng: &mut impl Rng) -> OceanValues {
     let base = archetype
         .ocean
         .as_ref()
-        .map(|o| (o.openness, o.conscientiousness, o.extraversion, o.agreeableness, o.neuroticism))
+        .map(|o| {
+            (
+                o.openness,
+                o.conscientiousness,
+                o.extraversion,
+                o.agreeableness,
+                o.neuroticism,
+            )
+        })
         .unwrap_or((5.0, 5.0, 5.0, 5.0, 5.0));
 
     let j = |v: f64, rng: &mut dyn rand::RngCore| -> f64 {
@@ -620,11 +726,36 @@ fn summarize_ocean(o: &OceanValues) -> String {
     }
 
     [
-        label(o.openness, "conventional and practical", "balanced between tradition and novelty", "curious and imaginative"),
-        label(o.conscientiousness, "spontaneous and flexible", "moderately organized", "meticulous and disciplined"),
-        label(o.extraversion, "reserved and quiet", "selectively social", "outgoing and talkative"),
-        label(o.agreeableness, "blunt and competitive", "pragmatic", "warm and cooperative"),
-        label(o.neuroticism, "emotionally steady", "occasionally anxious", "easily stressed and reactive"),
+        label(
+            o.openness,
+            "conventional and practical",
+            "balanced between tradition and novelty",
+            "curious and imaginative",
+        ),
+        label(
+            o.conscientiousness,
+            "spontaneous and flexible",
+            "moderately organized",
+            "meticulous and disciplined",
+        ),
+        label(
+            o.extraversion,
+            "reserved and quiet",
+            "selectively social",
+            "outgoing and talkative",
+        ),
+        label(
+            o.agreeableness,
+            "blunt and competitive",
+            "pragmatic",
+            "warm and cooperative",
+        ),
+        label(
+            o.neuroticism,
+            "emotionally steady",
+            "occasionally anxious",
+            "easily stressed and reactive",
+        ),
     ]
     .join(", ")
 }

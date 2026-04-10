@@ -79,10 +79,7 @@ pub fn seed_lore_from_genre_pack(store: &mut LoreStore, genre_pack: &GenrePack) 
 /// scene choices.
 ///
 /// Returns the number of fragments added.
-pub fn seed_lore_from_char_creation(
-    store: &mut LoreStore,
-    scenes: &[CharCreationScene],
-) -> usize {
+pub fn seed_lore_from_char_creation(store: &mut LoreStore, scenes: &[CharCreationScene]) -> usize {
     let mut count = 0;
 
     for scene in scenes {

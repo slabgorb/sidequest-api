@@ -68,8 +68,12 @@ pub struct TurnManager {
     submitted: HashSet<String>,
 }
 
-fn default_round() -> u32 { 1 }
-fn default_interaction() -> u64 { 1 }
+fn default_round() -> u32 {
+    1
+}
+fn default_interaction() -> u64 {
+    1
+}
 
 impl TurnManager {
     /// Create a new turn manager starting at round 1, interaction 1.

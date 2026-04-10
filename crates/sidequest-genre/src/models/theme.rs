@@ -44,7 +44,10 @@ impl GenreTheme {
         let font = if self.web_font_family.contains(',') {
             self.web_font_family.clone()
         } else {
-            format!("'{}', Georgia, 'Times New Roman', serif", self.web_font_family)
+            format!(
+                "'{}', Georgia, 'Times New Roman', serif",
+                self.web_font_family
+            )
         };
 
         format!(

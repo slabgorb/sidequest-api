@@ -52,7 +52,10 @@ impl CommandHandler for StatusCommand {
         if !ch.abilities.is_empty() {
             output.push_str("\nAbilities:\n");
             for ability in &ch.abilities {
-                output.push_str(&format!("  • {} — {}\n", ability.genre_description, ability.mechanical_effect));
+                output.push_str(&format!(
+                    "  • {} — {}\n",
+                    ability.genre_description, ability.mechanical_effect
+                ));
             }
         }
 
@@ -296,9 +299,7 @@ impl GmCommand {
                 );
             }
             None => {
-                return CommandResult::Error(
-                    "Usage: /gm set <field> <value>".to_string(),
-                );
+                return CommandResult::Error("Usage: /gm set <field> <value>".to_string());
             }
         };
 
@@ -323,14 +324,10 @@ impl GmCommand {
         let (region, location) = match args.split_once(' ') {
             Some((r, l)) => (r, l),
             None if !args.is_empty() => {
-                return CommandResult::Error(
-                    "Usage: /gm teleport <region> <location>".to_string(),
-                );
+                return CommandResult::Error("Usage: /gm teleport <region> <location>".to_string());
             }
             None => {
-                return CommandResult::Error(
-                    "Usage: /gm teleport <region> <location>".to_string(),
-                );
+                return CommandResult::Error("Usage: /gm teleport <region> <location>".to_string());
             }
         };
 
@@ -374,9 +371,7 @@ impl GmCommand {
 
     fn handle_dmg(args: &str) -> CommandResult {
         if args.is_empty() {
-            return CommandResult::Error(
-                "Usage: /gm dmg <target> <amount>".to_string(),
-            );
+            return CommandResult::Error("Usage: /gm dmg <target> <amount>".to_string());
         }
 
         // Find the last word as the amount, everything before is the target name
@@ -384,9 +379,7 @@ impl GmCommand {
         let (target, amount_str) = match args_trimmed.rsplit_once(' ') {
             Some((t, a)) => (t, a),
             None => {
-                return CommandResult::Error(
-                    "Usage: /gm dmg <target> <amount>".to_string(),
-                );
+                return CommandResult::Error("Usage: /gm dmg <target> <amount>".to_string());
             }
         };
 

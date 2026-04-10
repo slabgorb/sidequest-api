@@ -18,8 +18,8 @@
 
 use std::collections::HashMap;
 
-use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, RulesConfig};
 use sidequest_game::builder::{BuilderError, CharacterBuilder};
+use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, RulesConfig};
 
 // ============================================================================
 // Test fixtures
@@ -131,7 +131,9 @@ fn rules_unknown_method() -> RulesConfig {
 }
 
 /// Drive builder through all scenes to Confirmation, then build.
-fn build_character_with_rules(rules: &RulesConfig) -> Result<sidequest_game::Character, BuilderError> {
+fn build_character_with_rules(
+    rules: &RulesConfig,
+) -> Result<sidequest_game::Character, BuilderError> {
     let scenes = caverns_scenes();
     let mut builder = CharacterBuilder::new(scenes, rules, None);
 
@@ -147,7 +149,10 @@ fn build_character_with_rules(rules: &RulesConfig) -> Result<sidequest_game::Cha
     builder.apply_freeform("")?;
 
     // Now in Confirmation phase
-    assert!(builder.is_confirmation(), "Should be in Confirmation after all scenes");
+    assert!(
+        builder.is_confirmation(),
+        "Should be in Confirmation after all scenes"
+    );
 
     builder.build("Grist the Ratcatcher")
 }
@@ -479,11 +484,7 @@ fn point_buy_spends_exact_budget() {
     let rules = rules_point_buy_27();
     let character = build_character_with_rules(&rules).expect("build should succeed");
 
-    let total_cost: u32 = character
-        .stats
-        .values()
-        .map(|&v| point_buy_cost(v))
-        .sum();
+    let total_cost: u32 = character.stats.values().map(|&v| point_buy_cost(v)).sum();
 
     assert_eq!(
         total_cost, 27,

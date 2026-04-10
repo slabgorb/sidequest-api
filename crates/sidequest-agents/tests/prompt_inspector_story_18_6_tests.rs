@@ -54,14 +54,16 @@ fn sample_builder() -> ContextBuilder {
 
     builder.add_section(PromptSection::new(
         "active_tropes",
-        "Active tropes: The Flickering (escalation: 3/5), Merchant Conspiracy (escalation: 1/5)".to_string(),
+        "Active tropes: The Flickering (escalation: 3/5), Merchant Conspiracy (escalation: 1/5)"
+            .to_string(),
         AttentionZone::Valley,
         SectionCategory::State,
     ));
 
     builder.add_section(PromptSection::new(
         "output_format",
-        "Respond in second person. Use vivid sensory details. Keep responses under 300 words.".to_string(),
+        "Respond in second person. Use vivid sensory details. Keep responses under 300 words."
+            .to_string(),
         AttentionZone::Late,
         SectionCategory::Format,
     ));
@@ -87,23 +89,38 @@ fn zone_breakdown_returns_all_zones() {
 
     // Must have entries for each zone that has sections
     assert!(
-        breakdown.zones.iter().any(|z| z.zone == AttentionZone::Primacy),
+        breakdown
+            .zones
+            .iter()
+            .any(|z| z.zone == AttentionZone::Primacy),
         "Breakdown must include Primacy zone"
     );
     assert!(
-        breakdown.zones.iter().any(|z| z.zone == AttentionZone::Early),
+        breakdown
+            .zones
+            .iter()
+            .any(|z| z.zone == AttentionZone::Early),
         "Breakdown must include Early zone"
     );
     assert!(
-        breakdown.zones.iter().any(|z| z.zone == AttentionZone::Valley),
+        breakdown
+            .zones
+            .iter()
+            .any(|z| z.zone == AttentionZone::Valley),
         "Breakdown must include Valley zone"
     );
     assert!(
-        breakdown.zones.iter().any(|z| z.zone == AttentionZone::Late),
+        breakdown
+            .zones
+            .iter()
+            .any(|z| z.zone == AttentionZone::Late),
         "Breakdown must include Late zone"
     );
     assert!(
-        breakdown.zones.iter().any(|z| z.zone == AttentionZone::Recency),
+        breakdown
+            .zones
+            .iter()
+            .any(|z| z.zone == AttentionZone::Recency),
         "Breakdown must include Recency zone"
     );
 }
@@ -113,13 +130,25 @@ fn zone_breakdown_has_correct_section_counts() {
     let builder = sample_builder();
     let breakdown = builder.zone_breakdown();
 
-    let primacy = breakdown.zones.iter().find(|z| z.zone == AttentionZone::Primacy).unwrap();
+    let primacy = breakdown
+        .zones
+        .iter()
+        .find(|z| z.zone == AttentionZone::Primacy)
+        .unwrap();
     assert_eq!(primacy.sections.len(), 1, "Primacy should have 1 section");
 
-    let early = breakdown.zones.iter().find(|z| z.zone == AttentionZone::Early).unwrap();
+    let early = breakdown
+        .zones
+        .iter()
+        .find(|z| z.zone == AttentionZone::Early)
+        .unwrap();
     assert_eq!(early.sections.len(), 2, "Early should have 2 sections");
 
-    let valley = breakdown.zones.iter().find(|z| z.zone == AttentionZone::Valley).unwrap();
+    let valley = breakdown
+        .zones
+        .iter()
+        .find(|z| z.zone == AttentionZone::Valley)
+        .unwrap();
     assert_eq!(valley.sections.len(), 2, "Valley should have 2 sections");
 }
 
@@ -132,12 +161,20 @@ fn zone_breakdown_sections_have_metadata() {
     let builder = sample_builder();
     let breakdown = builder.zone_breakdown();
 
-    let primacy = breakdown.zones.iter().find(|z| z.zone == AttentionZone::Primacy).unwrap();
+    let primacy = breakdown
+        .zones
+        .iter()
+        .find(|z| z.zone == AttentionZone::Primacy)
+        .unwrap();
     let identity_section = &primacy.sections[0];
 
-    assert_eq!(identity_section.name, "agent_identity", "Section name must be preserved");
     assert_eq!(
-        identity_section.category, SectionCategory::Identity,
+        identity_section.name, "agent_identity",
+        "Section name must be preserved"
+    );
+    assert_eq!(
+        identity_section.category,
+        SectionCategory::Identity,
         "Section category must be preserved"
     );
     assert!(
@@ -241,8 +278,14 @@ fn zone_breakdown_empty_builder_returns_empty() {
     let builder = ContextBuilder::new();
     let breakdown = builder.zone_breakdown();
 
-    assert!(breakdown.zones.is_empty(), "Empty builder should produce empty zone list");
-    assert!(breakdown.full_prompt.is_empty(), "Empty builder should produce empty prompt");
+    assert!(
+        breakdown.zones.is_empty(),
+        "Empty builder should produce empty zone list"
+    );
+    assert!(
+        breakdown.full_prompt.is_empty(),
+        "Empty builder should produce empty prompt"
+    );
 }
 
 // ============================================================================
@@ -259,7 +302,10 @@ fn zone_breakdown_serializes_to_json() {
 
     let value = json.unwrap();
     assert!(value.get("zones").is_some(), "JSON must have 'zones' field");
-    assert!(value.get("full_prompt").is_some(), "JSON must have 'full_prompt' field");
+    assert!(
+        value.get("full_prompt").is_some(),
+        "JSON must have 'full_prompt' field"
+    );
 
     // Verify zones array has entries
     let zones = value["zones"].as_array().unwrap();
@@ -267,9 +313,18 @@ fn zone_breakdown_serializes_to_json() {
 
     // Verify each zone entry structure
     let first_zone = &zones[0];
-    assert!(first_zone.get("zone").is_some(), "Zone entry must have 'zone' field");
-    assert!(first_zone.get("total_tokens").is_some(), "Zone entry must have 'total_tokens' field");
-    assert!(first_zone.get("sections").is_some(), "Zone entry must have 'sections' field");
+    assert!(
+        first_zone.get("zone").is_some(),
+        "Zone entry must have 'zone' field"
+    );
+    assert!(
+        first_zone.get("total_tokens").is_some(),
+        "Zone entry must have 'total_tokens' field"
+    );
+    assert!(
+        first_zone.get("sections").is_some(),
+        "Zone entry must have 'sections' field"
+    );
 }
 
 // ============================================================================

@@ -8,7 +8,7 @@
 
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::world_materialization::{
-    CampaignMaturity, HistoryChapter, materialize_world, parse_history_chapters,
+    materialize_world, parse_history_chapters, CampaignMaturity, HistoryChapter,
 };
 
 // ============================================================================
@@ -59,13 +59,11 @@ fn connect_rs_emits_otel_world_materialization_event_returning_trigger() {
 fn materialize_world_sets_campaign_maturity_on_fresh_snapshot() {
     let mut snap = GameSnapshot::default();
     // Chapter IDs must be exact maturity keys: "fresh", "early", "mid", "veteran"
-    let chapters = vec![
-        HistoryChapter {
-            id: "fresh".to_string(),
-            label: "Ancient origins".to_string(),
-            ..Default::default()
-        },
-    ];
+    let chapters = vec![HistoryChapter {
+        id: "fresh".to_string(),
+        label: "Ancient origins".to_string(),
+        ..Default::default()
+    }];
     materialize_world(&mut snap, &chapters);
 
     assert_eq!(snap.campaign_maturity, CampaignMaturity::Fresh);
@@ -92,20 +90,22 @@ fn materialize_world_filters_chapters_by_maturity() {
     materialize_world(&mut snap, &chapters);
 
     assert_eq!(snap.campaign_maturity, CampaignMaturity::Fresh);
-    assert_eq!(snap.world_history.len(), 1, "Fresh snapshot should only include fresh-tier chapters");
+    assert_eq!(
+        snap.world_history.len(),
+        1,
+        "Fresh snapshot should only include fresh-tier chapters"
+    );
     assert_eq!(snap.world_history[0].id, "fresh");
 }
 
 #[test]
 fn materialize_world_is_idempotent() {
     let mut snap = GameSnapshot::default();
-    let chapters = vec![
-        HistoryChapter {
-            id: "fresh".to_string(),
-            label: "Ancient origins".to_string(),
-            ..Default::default()
-        },
-    ];
+    let chapters = vec![HistoryChapter {
+        id: "fresh".to_string(),
+        label: "Ancient origins".to_string(),
+        ..Default::default()
+    }];
     materialize_world(&mut snap, &chapters);
     let first_history = snap.world_history.clone();
     let first_maturity = snap.campaign_maturity.clone();

@@ -47,7 +47,7 @@ fn test_item(id: &str, name: &str, value: i32) -> Item {
         tags: vec![],
         equipped: false,
         quantity: 1,
-                uses_remaining: None,
+        uses_remaining: None,
         state: sidequest_game::ItemState::Carried,
     }
 }
@@ -157,11 +157,11 @@ fn snapshot_with_merchant(
 #[test]
 fn merchant_buy_transaction_updates_inventories() {
     let mut state = snapshot_with_merchant(
-        200,                                          // player gold
-        vec![],                                       // player items
-        "Gruk",                                       // merchant name
-        vec![test_item("sword", "Iron Sword", 100)],  // merchant items
-        500,                                          // merchant gold
+        200,                                         // player gold
+        vec![],                                      // player items
+        "Gruk",                                      // merchant name
+        vec![test_item("sword", "Iron Sword", 100)], // merchant items
+        500,                                         // merchant gold
     );
 
     let request = MerchantTransactionRequest {
@@ -195,11 +195,11 @@ fn merchant_buy_transaction_updates_inventories() {
 #[test]
 fn merchant_sell_transaction_updates_inventories() {
     let mut state = snapshot_with_merchant(
-        50,                                            // player gold
-        vec![test_item("shield", "Iron Shield", 80)],  // player items
-        "Gruk",                                        // merchant name
-        vec![],                                        // merchant items
-        500,                                           // merchant gold
+        50,                                           // player gold
+        vec![test_item("shield", "Iron Shield", 80)], // player items
+        "Gruk",                                       // merchant name
+        vec![],                                       // merchant items
+        500,                                          // merchant gold
     );
 
     let request = MerchantTransactionRequest {
@@ -233,7 +233,7 @@ fn merchant_sell_transaction_updates_inventories() {
 #[test]
 fn merchant_buy_insufficient_gold_returns_error() {
     let mut state = snapshot_with_merchant(
-        10,                                           // not enough gold
+        10, // not enough gold
         vec![],
         "Gruk",
         vec![test_item("sword", "Iron Sword", 100)],
@@ -351,11 +351,7 @@ fn multiple_merchant_transactions_applied_sequentially() {
     // Player items: sword only (bought sword, sold shield)
     assert_eq!(state.characters[0].core.inventory.item_count(), 1);
     assert!(
-        state.characters[0]
-            .core
-            .inventory
-            .find("sword")
-            .is_some(),
+        state.characters[0].core.inventory.find("sword").is_some(),
         "Player should have the sword"
     );
     // Player gold: 300 - 100 (buy sword) + 40 (sell shield) = 240
@@ -447,16 +443,13 @@ mod otel_tests {
                 .push((field.name().to_string(), format!("{:?}", value)));
         }
         fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-            self.0
-                .push((field.name().to_string(), value.to_string()));
+            self.0.push((field.name().to_string(), value.to_string()));
         }
         fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-            self.0
-                .push((field.name().to_string(), value.to_string()));
+            self.0.push((field.name().to_string(), value.to_string()));
         }
         fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-            self.0
-                .push((field.name().to_string(), value.to_string()));
+            self.0.push((field.name().to_string(), value.to_string()));
         }
     }
 

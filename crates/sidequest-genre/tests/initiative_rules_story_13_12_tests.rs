@@ -13,7 +13,6 @@
 //! These tests WILL NOT COMPILE until the types are created — this is the RED
 //! state for Rust TDD.
 
-
 use sidequest_genre::{InitiativeRule, RulesConfig};
 
 // ===========================================================================
@@ -135,7 +134,10 @@ initiative_rules:
     assert!(initiative.contains_key("combat"), "Missing combat");
     assert!(initiative.contains_key("chase"), "Missing chase");
     assert!(initiative.contains_key("social"), "Missing social");
-    assert!(initiative.contains_key("exploration"), "Missing exploration");
+    assert!(
+        initiative.contains_key("exploration"),
+        "Missing exploration"
+    );
 
     assert_eq!(initiative["combat"].primary_stat, "DEX");
     assert_eq!(initiative["chase"].primary_stat, "DEX");
@@ -188,21 +190,23 @@ fn loader_reads_initiative_rules_from_caverns() {
     //
     // The GENRE_PACKS_PATH env var must point to sidequest-content/genre_packs/
     // or we use a relative path from the test working directory.
-    let genre_packs_path = std::env::var("GENRE_PACKS_PATH")
-        .unwrap_or_else(|_| {
-            // Relative path from sidequest-api workspace root
-            "../../sidequest-content/genre_packs".to_string()
-        });
+    let genre_packs_path = std::env::var("GENRE_PACKS_PATH").unwrap_or_else(|_| {
+        // Relative path from sidequest-api workspace root
+        "../../sidequest-content/genre_packs".to_string()
+    });
     let pack_path = std::path::Path::new(&genre_packs_path).join("caverns_and_claudes");
 
     if !pack_path.exists() {
         // Skip if content repo not available (CI without subrepo)
-        eprintln!("SKIP: caverns_and_claudes not found at {}", pack_path.display());
+        eprintln!(
+            "SKIP: caverns_and_claudes not found at {}",
+            pack_path.display()
+        );
         return;
     }
 
-    let pack = sidequest_genre::load_genre_pack(&pack_path)
-        .expect("Failed to load caverns_and_claudes");
+    let pack =
+        sidequest_genre::load_genre_pack(&pack_path).expect("Failed to load caverns_and_claudes");
 
     // Verify initiative_rules is populated
     let initiative = &pack.rules.initiative_rules;
@@ -230,7 +234,12 @@ fn loader_reads_initiative_rules_from_caverns() {
     );
 
     // Verify stats are valid ability score names
-    let valid_stats: Vec<&str> = pack.rules.ability_score_names.iter().map(|s| s.as_str()).collect();
+    let valid_stats: Vec<&str> = pack
+        .rules
+        .ability_score_names
+        .iter()
+        .map(|s| s.as_str())
+        .collect();
     for (encounter_type, rule) in initiative {
         assert!(
             valid_stats.contains(&rule.primary_stat.as_str()),
@@ -297,5 +306,8 @@ primary_stat: CHA
 description: "Charm"
 "#;
     let rule: InitiativeRule = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(rule.primary_stat, "CHA", "Stat name should be case-preserved");
+    assert_eq!(
+        rule.primary_stat, "CHA",
+        "Stat name should be case-preserved"
+    );
 }

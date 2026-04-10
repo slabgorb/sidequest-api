@@ -3,7 +3,7 @@
 use rand::Rng;
 use sidequest_protocol::GameMessage;
 
-use crate::extraction::audio_cue_to_game_message;
+use crate::extraction::{audio_cue_to_game_message, extract_location_header};
 use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
@@ -20,7 +20,11 @@ pub(crate) async fn process_audio(
 ) {
     let in_combat = ctx.in_combat();
     let in_chase = ctx.in_chase();
-    let encounter_mood = ctx.snapshot.encounter.as_ref().and_then(|e| e.mood_override.clone());
+    let encounter_mood = ctx
+        .snapshot
+        .encounter
+        .as_ref()
+        .and_then(|e| e.mood_override.clone());
     if let Some(ref mut director) = ctx.music_director {
         tracing::info!("music_director_present — evaluating mood");
         let turn_number = ctx.turn_manager.interaction();
@@ -32,13 +36,20 @@ pub(crate) async fn process_audio(
             } else {
                 1.0
             },
-            quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
+            quest_completed: result
+                .quest_updates
+                .values()
+                .any(|v| v.starts_with("completed")),
             npc_died: ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0),
             // Encounter mood override — read directly from snapshot encounter (story 28-9)
             encounter_mood_override: encounter_mood,
             // Story 12-1: cinematic variation context
             location_changed,
-            scene_turn_count: if location_changed { 0 } else { turn_number as u32 },
+            scene_turn_count: if location_changed {
+                0
+            } else {
+                turn_number as u32
+            },
             drama_weight: 0.0, // drama_weight removed with CombatState (story 28-9)
             combat_just_ended: encounter_just_resolved,
             session_start: turn_number <= 1,
@@ -86,12 +97,20 @@ pub(crate) async fn process_audio(
             use sidequest_genre::GenreCode;
             GenreCode::new(ctx.genre_slug)
                 .ok()
-                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .and_then(|gc| {
+                    ctx.state
+                        .genre_cache()
+                        .get_or_load(&gc, ctx.state.genre_loader())
+                        .ok()
+                })
                 .and_then(|pack| pack.worlds.get(ctx.world_slug).cloned())
                 .and_then(|world| {
                     // Match by region name (case-insensitive) against cartography regions
                     let loc_lower = ctx.snapshot.location.to_lowercase();
-                    world.cartography.regions.values()
+                    world
+                        .cartography
+                        .regions
+                        .values()
                         .find(|r| r.name.to_lowercase() == loc_lower)
                         .and_then(|r| r.controlled_by.clone())
                 })
@@ -131,18 +150,28 @@ pub(crate) async fn process_audio(
 
                 // Emit rich music telemetry to watcher
                 {
-                    let mut builder = WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
-                        .field("turn_number", turn_approx)
-                        .field("mood_classified", mood_reasoning.classification.primary.as_str())
-                        .field("mood_reason", &mood_reasoning.reason)
-                        .field("narrator_scene_mood", mood_key)
-                        .field("intensity", mood_reasoning.classification.intensity)
-                        .field("confidence", mood_reasoning.classification.confidence);
+                    let mut builder = WatcherEventBuilder::new(
+                        "music_director",
+                        WatcherEventType::AgentSpanClose,
+                    )
+                    .field("turn_number", turn_approx)
+                    .field(
+                        "mood_classified",
+                        mood_reasoning.classification.primary.as_str(),
+                    )
+                    .field("mood_reason", &mood_reasoning.reason)
+                    .field("narrator_scene_mood", mood_key)
+                    .field("intensity", mood_reasoning.classification.intensity)
+                    .field("confidence", mood_reasoning.classification.confidence);
                     if !mood_reasoning.keyword_matches.is_empty() {
-                        builder = builder.field("keyword_matches",
-                            mood_reasoning.keyword_matches.iter()
+                        builder = builder.field(
+                            "keyword_matches",
+                            mood_reasoning
+                                .keyword_matches
+                                .iter()
                                 .map(|(mood, kw)| format!("{}:{}", mood, kw))
-                                .collect::<Vec<_>>());
+                                .collect::<Vec<_>>(),
+                        );
                     }
                     // Story 12-1: variation telemetry from post-evaluate snapshot
                     let post_telemetry = director.telemetry_snapshot();
@@ -186,7 +215,10 @@ pub(crate) async fn process_audio(
                 );
                 WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
                     .field("turn_number", turn_approx)
-                    .field("mood_classified", mood_reasoning.classification.primary.as_str())
+                    .field(
+                        "mood_classified",
+                        mood_reasoning.classification.primary.as_str(),
+                    )
                     .field("mood_reason", &mood_reasoning.reason)
                     .field("narrator_scene_mood", mood_key)
                     .field("suppressed", true)
@@ -206,7 +238,10 @@ pub(crate) async fn process_audio(
                 );
                 WatcherEventBuilder::new("music_director", WatcherEventType::ValidationWarning)
                     .field("turn_number", turn_approx)
-                    .field("mood_classified", mood_reasoning.classification.primary.as_str())
+                    .field(
+                        "mood_classified",
+                        mood_reasoning.classification.primary.as_str(),
+                    )
                     .field("mood_reason", &mood_reasoning.reason)
                     .field("narrator_scene_mood", mood_key)
                     .field("no_track_mood", &mood)
@@ -230,29 +265,233 @@ pub(crate) async fn process_audio(
                     0.5,
                 );
                 if let Some(subject) = mood_subject {
-                    let (art_style, neg_prompt) = match ctx.visual_style {
-                        Some(ref vs) => (vs.positive_suffix.clone(), vs.negative_prompt.clone()),
-                        None => ("oil_painting".to_string(), String::new()),
-                    };
-                    match queue.enqueue(subject.clone(), &art_style, "flux-dev", &neg_prompt, "").await {
+                    // Rework Pass 1 finding #5: read visual_style.preferred_model,
+                    // visual_style.lora, and visual_style.lora_trigger the same
+                    // way dispatch/render.rs does, so mood images and scene
+                    // images stay visually consistent within a session.
+                    //
+                    // Rework Pass 2 mirror: audio.rs must apply the same
+                    // symmetric loud-failure and debounce patterns as
+                    // dispatch/render.rs. The prior audio.rs code copied
+                    // only the happy path — silent fall-through on
+                    // (Some, None), silent `return None` on path traversal,
+                    // no `lora_activated` telemetry, and no `tag_override`
+                    // application. Fixes Findings B, C, D, E, and I.
+                    //
+                    // Finding I: apply location-based visual_tag_overrides
+                    // so mood images in a "wasteland" location get the
+                    // same genre-pack style overrides as scene images.
+                    let location = extract_location_header(clean_narration)
+                        .unwrap_or_default()
+                        .to_lowercase();
+                    let tag_override_opt = ctx.visual_style.as_ref().and_then(|vs| {
+                        if location.is_empty() {
+                            None
+                        } else {
+                            vs.visual_tag_overrides
+                                .iter()
+                                .find(|(key, _)| location.contains(key.as_str()))
+                                .map(|(_, val)| val.clone())
+                        }
+                    });
+
+                    let (art_style, model, neg_prompt, lora_path, lora_trigger, lora_scale) =
+                        match ctx.visual_style {
+                            Some(ref vs) => {
+                                // Finding C+D+E: mirror render.rs
+                                // (base_style, lora_active) pattern.
+                                let (base_style, lora_active): (String, bool) = match (
+                                    vs.lora.as_deref(),
+                                    vs.lora_trigger.as_deref(),
+                                ) {
+                                    (Some(_), Some(trigger)) => (trigger.to_string(), true),
+                                    (Some(lora), None) => {
+                                        if ctx.state.mark_lora_warned(ctx.genre_slug) {
+                                            tracing::warn!(
+                                                lora = %lora,
+                                                genre = %ctx.genre_slug,
+                                                "lora set without lora_trigger — LoRA will load but trained style will not activate (silent no-op). Add lora_trigger to visual_style.yaml."
+                                            );
+                                            WatcherEventBuilder::new(
+                                                "render",
+                                                WatcherEventType::ValidationWarning,
+                                            )
+                                            .field("action", "lora_trigger_missing")
+                                            .field("lora", lora)
+                                            .field("genre", ctx.genre_slug)
+                                            .send();
+                                        }
+                                        // Finding E: LoRA effectively disabled.
+                                        (vs.positive_suffix.clone(), false)
+                                    }
+                                    _ => (vs.positive_suffix.clone(), false),
+                                };
+
+                                // Finding I: tag_override composition mirrors
+                                // render.rs so scene+mood rendering stay
+                                // visually consistent within a location.
+                                let style = match tag_override_opt.as_deref() {
+                                    Some(tag) => format!("{}, {}", tag, base_style),
+                                    None => base_style,
+                                };
+
+                                // Finding B: loud failure on path traversal
+                                // mirrors render.rs. Finding E: gate on
+                                // lora_active so misconfigured LoRA does
+                                // not fire lora_activated telemetry.
+                                // Finding G: canonicalize both base and
+                                // resolved to catch symlink escapes, and
+                                // distinguish missing-file failures with a
+                                // dedicated `lora_file_not_found` action
+                                // code for GM-panel diagnosis.
+                                let lora_abs: Option<String> = if lora_active {
+                                    vs.lora.as_ref().and_then(|rel| {
+                                        let base = ctx
+                                            .state
+                                            .genre_packs_path()
+                                            .join(ctx.genre_slug);
+                                        let resolved = base.join(rel);
+                                        let base_canon = match std::fs::canonicalize(&base) {
+                                            Ok(p) => p,
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    base = %base.display(),
+                                                    error = %e,
+                                                    "lora base (genre pack dir) cannot be canonicalized — genre pack path is missing or inaccessible"
+                                                );
+                                                WatcherEventBuilder::new(
+                                                    "render",
+                                                    WatcherEventType::ValidationWarning,
+                                                )
+                                                .field("action", "lora_base_not_accessible")
+                                                .field("base", base.to_string_lossy().as_ref())
+                                                .field("genre", ctx.genre_slug)
+                                                .send();
+                                                return None;
+                                            }
+                                        };
+                                        let resolved_canon = match std::fs::canonicalize(&resolved) {
+                                            Ok(p) => p,
+                                            Err(e) => {
+                                                tracing::error!(
+                                                    lora = %rel,
+                                                    genre = %ctx.genre_slug,
+                                                    resolved = %resolved.display(),
+                                                    error = %e,
+                                                    "lora file not found or not accessible — genre pack references a LoRA file that cannot be canonicalized"
+                                                );
+                                                WatcherEventBuilder::new(
+                                                    "render",
+                                                    WatcherEventType::ValidationWarning,
+                                                )
+                                                .field("action", "lora_file_not_found")
+                                                .field("lora", rel.as_str())
+                                                .field("genre", ctx.genre_slug)
+                                                .send();
+                                                return None;
+                                            }
+                                        };
+                                        if !resolved_canon.starts_with(&base_canon) {
+                                            tracing::error!(
+                                                lora = %rel,
+                                                genre = %ctx.genre_slug,
+                                                resolved = %resolved_canon.display(),
+                                                base = %base_canon.display(),
+                                                "lora path escapes genre pack directory (after canonicalization — catches symlink escapes) — rejecting."
+                                            );
+                                            WatcherEventBuilder::new(
+                                                "render",
+                                                WatcherEventType::ValidationWarning,
+                                            )
+                                            .field("action", "lora_path_traversal_rejected")
+                                            .field("lora", rel.as_str())
+                                            .field("genre", ctx.genre_slug)
+                                            .send();
+                                            return None;
+                                        }
+                                        Some(resolved_canon.to_string_lossy().into_owned())
+                                    })
+                                } else {
+                                    None
+                                };
+
+                                (
+                                    style,
+                                    vs.preferred_model.clone(),
+                                    vs.negative_prompt.clone(),
+                                    lora_abs,
+                                    vs.lora_trigger.clone(),
+                                    vs.lora_scale,
+                                )
+                            }
+                            None => (
+                                "oil_painting".to_string(),
+                                String::new(),
+                                String::new(),
+                                None,
+                                None,
+                                None,
+                            ),
+                        };
+
+                    // Mirror dispatch/render.rs: emit lora_activated watcher
+                    // event BEFORE enqueue when the LoRA is active on mood
+                    // image render. Without this emission the GM panel sees
+                    // lora_activated for scene images but is silent on mood
+                    // images — the exact compound opacity the reviewer's
+                    // Rework Pass 2 Devil's Advocate section flagged.
+                    if let Some(ref lora_abs) = lora_path {
+                        WatcherEventBuilder::new(
+                            "render",
+                            WatcherEventType::SubsystemExerciseSummary,
+                        )
+                        .field("action", "lora_activated")
+                        .field("lora_path", lora_abs.as_str())
+                        .field("lora_trigger", lora_trigger.as_deref().unwrap_or(""))
+                        .field("genre", ctx.genre_slug)
+                        .field("source", "mood_image")
+                        .send();
+                    }
+
+                    match queue
+                        .enqueue(
+                            subject.clone(),
+                            &art_style,
+                            &model,
+                            &neg_prompt,
+                            "",
+                            lora_path.as_deref(),
+                            lora_scale,
+                        )
+                        .await
+                    {
                         Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {
                             tracing::info!(%job_id, old_mood = ?pre_telemetry.current_mood, new_mood = %mood_key, "mood_image.queued — mood shift triggered scene render");
                             let dims = sidequest_game::tier_to_dimensions(subject.tier());
-                            let _ = ctx.tx.send(sidequest_protocol::GameMessage::RenderQueued {
-                                payload: sidequest_protocol::RenderQueuedPayload {
-                                    render_id: job_id.to_string(),
-                                    tier: "scene".to_string(),
-                                    width: dims.width,
-                                    height: dims.height,
-                                },
-                                player_id: ctx.player_id.to_string(),
-                            }).await;
-                            WatcherEventBuilder::new("mood_image", WatcherEventType::StateTransition)
-                                .field("action", "mood_image_queued")
-                                .field("old_mood", &pre_telemetry.current_mood.as_deref().unwrap_or("none"))
-                                .field("new_mood", mood_key)
-                                .field("location", &*ctx.current_location)
-                                .send();
+                            let _ = ctx
+                                .tx
+                                .send(sidequest_protocol::GameMessage::RenderQueued {
+                                    payload: sidequest_protocol::RenderQueuedPayload {
+                                        render_id: job_id.to_string(),
+                                        tier: "scene".to_string(),
+                                        width: dims.width,
+                                        height: dims.height,
+                                    },
+                                    player_id: ctx.player_id.to_string(),
+                                })
+                                .await;
+                            WatcherEventBuilder::new(
+                                "mood_image",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("action", "mood_image_queued")
+                            .field(
+                                "old_mood",
+                                &pre_telemetry.current_mood.as_deref().unwrap_or("none"),
+                            )
+                            .field("new_mood", mood_key)
+                            .field("location", &*ctx.current_location)
+                            .send();
                         }
                         Ok(_) => {}
                         Err(e) => tracing::warn!(error = %e, "mood_image.enqueue_failed"),

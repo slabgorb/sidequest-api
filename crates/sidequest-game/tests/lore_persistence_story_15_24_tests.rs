@@ -5,9 +5,7 @@
 
 use std::collections::HashMap;
 
-use sidequest_game::{
-    LoreCategory, LoreFragment, LoreSource, SqliteStore,
-};
+use sidequest_game::{LoreCategory, LoreFragment, LoreSource, SqliteStore};
 
 fn temp_store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -17,7 +15,13 @@ fn temp_store() -> (SqliteStore, tempfile::TempDir) {
     (store, dir)
 }
 
-fn test_fragment(id: &str, category: LoreCategory, content: &str, source: LoreSource, turn: Option<u64>) -> LoreFragment {
+fn test_fragment(
+    id: &str,
+    category: LoreCategory,
+    content: &str,
+    source: LoreSource,
+    turn: Option<u64>,
+) -> LoreFragment {
     LoreFragment::new(
         id.to_string(),
         category,
@@ -31,7 +35,13 @@ fn test_fragment(id: &str, category: LoreCategory, content: &str, source: LoreSo
 #[test]
 fn append_and_load_single_fragment() {
     let (store, _dir) = temp_store();
-    let fragment = test_fragment("evt-1-abc", LoreCategory::Event, "The hero slew the dragon", LoreSource::GameEvent, Some(5));
+    let fragment = test_fragment(
+        "evt-1-abc",
+        LoreCategory::Event,
+        "The hero slew the dragon",
+        LoreSource::GameEvent,
+        Some(5),
+    );
 
     store.append_lore_fragment(&fragment).unwrap();
     let loaded = store.load_lore_fragments().unwrap();
@@ -48,9 +58,33 @@ fn append_and_load_single_fragment() {
 fn append_multiple_fragments_preserves_all() {
     let (store, _dir) = temp_store();
 
-    store.append_lore_fragment(&test_fragment("f1", LoreCategory::History, "The kingdom fell", LoreSource::GenrePack, None)).unwrap();
-    store.append_lore_fragment(&test_fragment("f2", LoreCategory::Geography, "A mountain pass", LoreSource::GameEvent, Some(3))).unwrap();
-    store.append_lore_fragment(&test_fragment("f3", LoreCategory::Character, "A mysterious stranger", LoreSource::CharacterCreation, Some(1))).unwrap();
+    store
+        .append_lore_fragment(&test_fragment(
+            "f1",
+            LoreCategory::History,
+            "The kingdom fell",
+            LoreSource::GenrePack,
+            None,
+        ))
+        .unwrap();
+    store
+        .append_lore_fragment(&test_fragment(
+            "f2",
+            LoreCategory::Geography,
+            "A mountain pass",
+            LoreSource::GameEvent,
+            Some(3),
+        ))
+        .unwrap();
+    store
+        .append_lore_fragment(&test_fragment(
+            "f3",
+            LoreCategory::Character,
+            "A mysterious stranger",
+            LoreSource::CharacterCreation,
+            Some(1),
+        ))
+        .unwrap();
 
     let loaded = store.load_lore_fragments().unwrap();
     assert_eq!(loaded.len(), 3);
@@ -59,11 +93,23 @@ fn append_multiple_fragments_preserves_all() {
 #[test]
 fn duplicate_id_silently_ignored() {
     let (store, _dir) = temp_store();
-    let fragment = test_fragment("dup-1", LoreCategory::Event, "First version", LoreSource::GameEvent, Some(1));
+    let fragment = test_fragment(
+        "dup-1",
+        LoreCategory::Event,
+        "First version",
+        LoreSource::GameEvent,
+        Some(1),
+    );
 
     store.append_lore_fragment(&fragment).unwrap();
     // Same ID, different content — INSERT OR IGNORE should skip it
-    let dup = test_fragment("dup-1", LoreCategory::Faction, "Second version", LoreSource::GameEvent, Some(2));
+    let dup = test_fragment(
+        "dup-1",
+        LoreCategory::Faction,
+        "Second version",
+        LoreSource::GameEvent,
+        Some(2),
+    );
     store.append_lore_fragment(&dup).unwrap();
 
     let loaded = store.load_lore_fragments().unwrap();
@@ -116,7 +162,15 @@ fn all_categories_roundtrip() {
     ];
 
     for (id, cat) in &categories {
-        store.append_lore_fragment(&test_fragment(id, cat.clone(), "test", LoreSource::GameEvent, None)).unwrap();
+        store
+            .append_lore_fragment(&test_fragment(
+                id,
+                cat.clone(),
+                "test",
+                LoreSource::GameEvent,
+                None,
+            ))
+            .unwrap();
     }
 
     let loaded = store.load_lore_fragments().unwrap();
@@ -124,16 +178,43 @@ fn all_categories_roundtrip() {
 
     // Custom category should survive roundtrip
     let custom = loaded.iter().find(|f| f.id() == "x").unwrap();
-    assert_eq!(custom.category(), &LoreCategory::Custom("Prophecy".to_string()));
+    assert_eq!(
+        custom.category(),
+        &LoreCategory::Custom("Prophecy".to_string())
+    );
 }
 
 #[test]
 fn all_sources_roundtrip() {
     let (store, _dir) = temp_store();
 
-    store.append_lore_fragment(&test_fragment("s1", LoreCategory::Event, "a", LoreSource::GenrePack, None)).unwrap();
-    store.append_lore_fragment(&test_fragment("s2", LoreCategory::Event, "b", LoreSource::CharacterCreation, None)).unwrap();
-    store.append_lore_fragment(&test_fragment("s3", LoreCategory::Event, "c", LoreSource::GameEvent, None)).unwrap();
+    store
+        .append_lore_fragment(&test_fragment(
+            "s1",
+            LoreCategory::Event,
+            "a",
+            LoreSource::GenrePack,
+            None,
+        ))
+        .unwrap();
+    store
+        .append_lore_fragment(&test_fragment(
+            "s2",
+            LoreCategory::Event,
+            "b",
+            LoreSource::CharacterCreation,
+            None,
+        ))
+        .unwrap();
+    store
+        .append_lore_fragment(&test_fragment(
+            "s3",
+            LoreCategory::Event,
+            "c",
+            LoreSource::GameEvent,
+            None,
+        ))
+        .unwrap();
 
     let loaded = store.load_lore_fragments().unwrap();
     assert_eq!(loaded[0].source(), &LoreSource::GenrePack);
@@ -150,7 +231,15 @@ fn fragments_survive_store_reopen() {
     {
         let store = SqliteStore::open(db_path.to_str().unwrap()).unwrap();
         store.init_session("genre", "world").unwrap();
-        store.append_lore_fragment(&test_fragment("persist-1", LoreCategory::History, "The war began", LoreSource::GameEvent, Some(1))).unwrap();
+        store
+            .append_lore_fragment(&test_fragment(
+                "persist-1",
+                LoreCategory::History,
+                "The war began",
+                LoreSource::GameEvent,
+                Some(1),
+            ))
+            .unwrap();
     }
 
     // Second session: reopen and verify
@@ -168,7 +257,15 @@ fn fragments_survive_store_reopen() {
 fn token_estimate_recomputed_on_load() {
     let (store, _dir) = temp_store();
     let content = "a".repeat(100); // 100 chars → 25 tokens
-    store.append_lore_fragment(&test_fragment("tok-1", LoreCategory::Event, &content, LoreSource::GameEvent, Some(1))).unwrap();
+    store
+        .append_lore_fragment(&test_fragment(
+            "tok-1",
+            LoreCategory::Event,
+            &content,
+            LoreSource::GameEvent,
+            Some(1),
+        ))
+        .unwrap();
 
     let loaded = store.load_lore_fragments().unwrap();
     assert_eq!(loaded[0].token_estimate(), 25);

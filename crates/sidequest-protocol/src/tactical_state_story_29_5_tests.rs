@@ -21,35 +21,48 @@ mod tactical_state_payload_tests {
                 width: 5,
                 height: 3,
                 cells: vec![
-                    vec!["wall".into(), "wall".into(), "door_closed".into(), "wall".into(), "wall".into()],
-                    vec!["wall".into(), "floor".into(), "floor".into(), "floor".into(), "wall".into()],
-                    vec!["wall".into(), "wall".into(), "wall".into(), "wall".into(), "wall".into()],
+                    vec![
+                        "wall".into(),
+                        "wall".into(),
+                        "door_closed".into(),
+                        "wall".into(),
+                        "wall".into(),
+                    ],
+                    vec![
+                        "wall".into(),
+                        "floor".into(),
+                        "floor".into(),
+                        "floor".into(),
+                        "wall".into(),
+                    ],
+                    vec![
+                        "wall".into(),
+                        "wall".into(),
+                        "wall".into(),
+                        "wall".into(),
+                        "wall".into(),
+                    ],
                 ],
-                features: vec![
-                    TacticalFeaturePayload {
-                        glyph: 'A',
-                        feature_type: "cover".to_string(),
-                        label: "Stalagmite".to_string(),
-                        positions: vec![[1, 1]],
-                    },
-                ],
+                features: vec![TacticalFeaturePayload {
+                    glyph: 'A',
+                    feature_type: "cover".to_string(),
+                    label: "Stalagmite".to_string(),
+                    positions: vec![[1, 1]],
+                }],
             },
-            entities: vec![
-                TacticalEntityPayload {
-                    id: "player-1".to_string(),
-                    name: "Tormund".to_string(),
-                    x: 2,
-                    y: 1,
-                    size: 1,
-                    faction: "player".to_string(),
-                },
-            ],
+            entities: vec![TacticalEntityPayload {
+                id: "player-1".to_string(),
+                name: "Tormund".to_string(),
+                x: 2,
+                y: 1,
+                size: 1,
+                faction: "player".to_string(),
+            }],
             zones: vec![],
         };
 
         let json = serde_json::to_string(&payload).expect("serialize");
-        let deserialized: TacticalStatePayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: TacticalStatePayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.room_id, "mawdeep_entrance");
         assert_eq!(deserialized.grid.width, 5);
         assert_eq!(deserialized.grid.height, 3);
@@ -77,8 +90,7 @@ mod tactical_state_payload_tests {
         };
 
         let json = serde_json::to_string(&payload).expect("serialize");
-        let deserialized: TacticalStatePayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: TacticalStatePayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.grid.width, 0);
         assert!(deserialized.grid.cells.is_empty());
     }
@@ -97,8 +109,7 @@ mod tactical_state_payload_tests {
         };
 
         let json = serde_json::to_string(&grid).expect("serialize");
-        let deserialized: TacticalGridPayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: TacticalGridPayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.cells[0][0], "floor");
         assert_eq!(deserialized.cells[0][1], "water");
         assert_eq!(deserialized.cells[0][2], "difficult_terrain");
@@ -133,8 +144,7 @@ mod tactical_state_payload_tests {
         };
 
         let json = serde_json::to_string(&entity).expect("serialize");
-        let deserialized: TacticalEntityPayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: TacticalEntityPayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.id, "goblin-1");
         assert_eq!(deserialized.x, 4);
         assert_eq!(deserialized.y, 2);
@@ -159,8 +169,7 @@ mod tactical_action_payload_tests {
         };
 
         let json = serde_json::to_string(&payload).expect("serialize");
-        let deserialized: TacticalActionPayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: TacticalActionPayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.action_type, "move");
         assert_eq!(deserialized.entity_id.as_deref(), Some("player-1"));
         assert_eq!(deserialized.target, Some([3, 2]));
@@ -177,8 +186,7 @@ mod tactical_action_payload_tests {
         };
 
         let json = serde_json::to_string(&payload).expect("serialize");
-        let deserialized: TacticalActionPayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: TacticalActionPayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.action_type, "inspect");
         assert!(deserialized.entity_id.is_none());
         assert_eq!(deserialized.target, Some([1, 1]));
@@ -194,8 +202,7 @@ mod tactical_action_payload_tests {
         };
 
         let json = serde_json::to_string(&payload).expect("serialize");
-        let deserialized: TacticalActionPayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: TacticalActionPayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.action_type, "target");
         assert_eq!(deserialized.ability.as_deref(), Some("fireball"));
     }
@@ -365,8 +372,7 @@ mod effect_zone_payload_tests {
         };
 
         let json = serde_json::to_string(&zone).expect("serialize");
-        let deserialized: EffectZonePayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: EffectZonePayload = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(deserialized.zone_type, "circle");
         assert_eq!(deserialized.label, "Fireball");
         assert_eq!(deserialized.color.as_deref(), Some("#FF4400"));
@@ -383,8 +389,7 @@ mod effect_zone_payload_tests {
         };
 
         let json = serde_json::to_string(&zone).expect("serialize");
-        let deserialized: EffectZonePayload =
-            serde_json::from_str(&json).expect("deserialize");
+        let deserialized: EffectZonePayload = serde_json::from_str(&json).expect("deserialize");
         assert!(deserialized.color.is_none());
         assert_eq!(deserialized.zone_type, "rect");
     }

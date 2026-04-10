@@ -185,7 +185,11 @@ fn inventory_roundtrip_preserves_uses_remaining() {
     let json = serde_json::to_string(&inv).unwrap();
     let back: Inventory = serde_json::from_str(&json).unwrap();
 
-    assert_eq!(back.items[0].uses_remaining, Some(6), "Torch uses preserved");
+    assert_eq!(
+        back.items[0].uses_remaining,
+        Some(6),
+        "Torch uses preserved"
+    );
     assert_eq!(back.items[1].uses_remaining, None, "Sword None preserved");
 }
 
@@ -202,7 +206,9 @@ fn consume_use_decrements_remaining() {
     let result = inv.consume_use("torch");
     assert!(result.is_none(), "Item should NOT be removed when uses > 0");
 
-    let torch = inv.find("torch").expect("Torch should still be in inventory");
+    let torch = inv
+        .find("torch")
+        .expect("Torch should still be in inventory");
     assert_eq!(
         torch.uses_remaining,
         Some(5),
@@ -218,7 +224,10 @@ fn consume_use_removes_at_zero() {
     inv.add(make_torch(1), 10).unwrap();
 
     let removed = inv.consume_use("torch");
-    assert!(removed.is_some(), "Item should be transitioned when uses hits 0");
+    assert!(
+        removed.is_some(),
+        "Item should be transitioned when uses hits 0"
+    );
 
     let removed_item = removed.unwrap();
     assert_eq!(removed_item.id.as_str(), "torch");
@@ -227,8 +236,16 @@ fn consume_use_removes_at_zero() {
         Some(0),
         "Consumed item should show 0 uses remaining"
     );
-    assert_eq!(inv.item_count(), 0, "Torch should no longer be in carried count after depletion");
-    assert_eq!(inv.ledger_size(), 1, "Torch stays in ledger as Consumed record");
+    assert_eq!(
+        inv.item_count(),
+        0,
+        "Torch should no longer be in carried count after depletion"
+    );
+    assert_eq!(
+        inv.ledger_size(),
+        1,
+        "Torch stays in ledger as Consumed record"
+    );
     assert!(
         inv.find("torch").is_none(),
         "find() must not return consumed torch — only carried items"
@@ -242,10 +259,7 @@ fn consume_use_infinite_item_no_change() {
     inv.add(make_sword(), 10).unwrap();
 
     let result = inv.consume_use("sword_iron");
-    assert!(
-        result.is_none(),
-        "Infinite-use item should not be removed"
-    );
+    assert!(result.is_none(), "Infinite-use item should not be removed");
 
     let sword = inv.find("sword_iron").expect("Sword should still exist");
     assert_eq!(
@@ -281,7 +295,10 @@ fn consume_use_progressive_decrement() {
     assert!(removed.is_some(), "Should be consumed at 0");
     assert_eq!(inv.item_count(), 0, "No longer carried");
     assert_eq!(inv.ledger_size(), 1, "Still in ledger as Consumed record");
-    assert!(inv.find("torch").is_none(), "find() returns only carried items");
+    assert!(
+        inv.find("torch").is_none(),
+        "find() returns only carried items"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -473,7 +490,11 @@ fn depletion_preserves_other_items() {
     // Exhaust torch
     let depleted = inv.deplete_light_on_transition();
     assert!(depleted.is_some());
-    assert_eq!(inv.item_count(), 2, "Only torch removed; sword + rope remain");
+    assert_eq!(
+        inv.item_count(),
+        2,
+        "Only torch removed; sword + rope remain"
+    );
     assert!(inv.find("sword_iron").is_some());
     assert!(inv.find("rope_50ft").is_some());
 }

@@ -149,8 +149,8 @@ fn narrative_primacy_directive_appears_before_game_state_in_composed_prompt() {
 
     // Scene directive (Early — narrative primacy)
     let directive = sample_directive();
-    let rendered = render_scene_directive_text(&directive)
-        .expect("Non-empty directive should render");
+    let rendered =
+        render_scene_directive_text(&directive).expect("Non-empty directive should render");
     builder.add_section(PromptSection::new(
         "scene_directive",
         &rendered,
@@ -205,8 +205,8 @@ fn narrative_primacy_directive_appears_after_identity_in_composed_prompt() {
     ));
 
     let directive = sample_directive();
-    let rendered = render_scene_directive_text(&directive)
-        .expect("Non-empty directive should render");
+    let rendered =
+        render_scene_directive_text(&directive).expect("Non-empty directive should render");
     builder.add_section(PromptSection::new(
         "scene_directive",
         &rendered,
@@ -277,7 +277,11 @@ fn rendered_directive_contains_source_labels() {
 #[test]
 fn rendered_directive_shows_element_content_after_label() {
     let mut registry = PromptRegistry::new();
-    let beats = vec![fired_beat("a dragon lands on the town hall", 0.8, "survival")];
+    let beats = vec![fired_beat(
+        "a dragon lands on the town hall",
+        0.8,
+        "survival",
+    )];
     let directive = format_scene_directive(&beats, &[], &[], &[]);
 
     registry.register_scene_directive("narrator", &directive);
@@ -429,9 +433,11 @@ fn no_hints_section_when_hints_empty() {
 #[test]
 fn full_pipeline_directive_through_context_builder() {
     // Step 1: Create scene directive from game state (story 6-1 formatter)
-    let beats = vec![
-        fired_beat("a distant explosion rocks the marketplace", 0.8, "safety"),
-    ];
+    let beats = vec![fired_beat(
+        "a distant explosion rocks the marketplace",
+        0.8,
+        "safety",
+    )];
     let stakes = vec![active_stake("the trade routes are severed")];
     let hints = vec!["Smoke rises from the east".to_string()];
     let directive = format_scene_directive(&beats, &stakes, &hints, &[]);

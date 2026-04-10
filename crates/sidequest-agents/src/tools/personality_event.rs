@@ -60,8 +60,13 @@ pub fn validate_personality_event(
 ) -> Result<PersonalityEventResult, InvalidPersonalityEvent> {
     let trimmed_npc = npc.trim();
     if trimmed_npc.is_empty() {
-        tracing::warn!(valid = false, "personality event validation failed — empty NPC name");
-        return Err(InvalidPersonalityEvent("NPC name must not be empty".to_string()));
+        tracing::warn!(
+            valid = false,
+            "personality event validation failed — empty NPC name"
+        );
+        return Err(InvalidPersonalityEvent(
+            "NPC name must not be empty".to_string(),
+        ));
     }
 
     let lowered = event_type.trim().to_lowercase();

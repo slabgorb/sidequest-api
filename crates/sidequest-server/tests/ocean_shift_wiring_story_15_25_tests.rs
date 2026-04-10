@@ -116,9 +116,7 @@ fn propose_ocean_shifts_produces_proposals() {
 /// apply_ocean_shifts mutates NPC OCEAN profiles in the registry.
 #[test]
 fn apply_ocean_shifts_mutates_npc_profiles() {
-    use sidequest_game::{
-        apply_ocean_shifts, NpcRegistryEntry, OceanProfile, PersonalityEvent,
-    };
+    use sidequest_game::{apply_ocean_shifts, NpcRegistryEntry, OceanProfile, PersonalityEvent};
 
     let mut registry = vec![NpcRegistryEntry {
         name: "Mira".to_string(),

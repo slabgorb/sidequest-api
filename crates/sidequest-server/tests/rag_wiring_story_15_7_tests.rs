@@ -5,8 +5,8 @@
 //! 2. apply_state_mutations processes lore_established entries
 //! 3. OTEL events are emitted for lore operations
 
-use std::collections::HashMap;
 use sidequest_agents::orchestrator::ActionResult;
+use std::collections::HashMap;
 
 // ============================================================
 // AC-1: ActionResult carries lore_established from agent output

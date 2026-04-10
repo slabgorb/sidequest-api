@@ -343,7 +343,7 @@ fn format_encounter_context_works_for_combat_type() {
 // =========================================================================
 
 fn build_standoff_encounter() -> sidequest_game::StructuredEncounter {
-    use sidequest_game::{EncounterMetric, MetricDirection, StructuredEncounter, EncounterPhase};
+    use sidequest_game::{EncounterMetric, EncounterPhase, MetricDirection, StructuredEncounter};
 
     StructuredEncounter {
         encounter_type: "standoff".to_string(),
@@ -367,7 +367,7 @@ fn build_standoff_encounter() -> sidequest_game::StructuredEncounter {
 }
 
 fn build_combat_encounter() -> sidequest_game::StructuredEncounter {
-    use sidequest_game::{EncounterMetric, MetricDirection, StructuredEncounter, EncounterPhase};
+    use sidequest_game::{EncounterMetric, EncounterPhase, MetricDirection, StructuredEncounter};
 
     StructuredEncounter {
         encounter_type: "combat".to_string(),

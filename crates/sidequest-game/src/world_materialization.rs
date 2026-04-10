@@ -13,9 +13,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 
+use crate::belief_state::BeliefState;
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
-use crate::belief_state::BeliefState;
 use crate::disposition::Disposition;
 use crate::inventory::Inventory;
 use crate::narrative::NarrativeEntry;
@@ -327,7 +327,9 @@ impl WorldBuilder {
         snap.campaign_maturity = self.maturity.clone();
 
         // Filter chapters by maturity (cumulative — include all at or below target)
-        let applicable: Vec<&HistoryChapter> = self.chapters.iter()
+        let applicable: Vec<&HistoryChapter> = self
+            .chapters
+            .iter()
             .filter(|ch| {
                 CampaignMaturity::from_chapter_id(&ch.id)
                     .map(|ch_maturity| ch_maturity <= self.maturity)
@@ -424,17 +426,32 @@ impl WorldBuilder {
     fn apply_character(&self, snap: &mut GameSnapshot, char_data: &ChapterCharacter) {
         if snap.characters.is_empty() {
             // Create character — use provided values or sensible defaults
-            let name = if char_data.name.is_empty() { "Adventurer" } else { &char_data.name };
-            let race = if char_data.race.is_empty() { "Human" } else { &char_data.race };
-            let class = if char_data.class.is_empty() { "Fighter" } else { &char_data.class };
+            let name = if char_data.name.is_empty() {
+                "Adventurer"
+            } else {
+                &char_data.name
+            };
+            let race = if char_data.race.is_empty() {
+                "Human"
+            } else {
+                &char_data.race
+            };
+            let class = if char_data.class.is_empty() {
+                "Fighter"
+            } else {
+                &char_data.class
+            };
             let description = char_data.description.as_deref().unwrap_or("An adventurer.");
             let personality = char_data.personality.as_deref().unwrap_or("Determined.");
             let backstory = char_data.backstory.as_deref().unwrap_or("");
 
             let core = CreatureCore {
-                name: NonBlankString::new(name).unwrap_or_else(|_| NonBlankString::new("Adventurer").unwrap()),
-                description: NonBlankString::new(description).unwrap_or_else(|_| NonBlankString::new("An adventurer.").unwrap()),
-                personality: NonBlankString::new(personality).unwrap_or_else(|_| NonBlankString::new("Determined.").unwrap()),
+                name: NonBlankString::new(name)
+                    .unwrap_or_else(|_| NonBlankString::new("Adventurer").unwrap()),
+                description: NonBlankString::new(description)
+                    .unwrap_or_else(|_| NonBlankString::new("An adventurer.").unwrap()),
+                personality: NonBlankString::new(personality)
+                    .unwrap_or_else(|_| NonBlankString::new("Determined.").unwrap()),
                 level: char_data.level,
                 hp: char_data.hp.unwrap_or(20),
                 max_hp: char_data.max_hp.unwrap_or(20),
@@ -446,12 +463,18 @@ impl WorldBuilder {
 
             let character = Character {
                 core,
-                backstory: NonBlankString::new(if backstory.is_empty() { "Unknown origins." } else { backstory })
-                    .unwrap_or_else(|_| NonBlankString::new("Unknown origins.").unwrap()),
+                backstory: NonBlankString::new(if backstory.is_empty() {
+                    "Unknown origins."
+                } else {
+                    backstory
+                })
+                .unwrap_or_else(|_| NonBlankString::new("Unknown origins.").unwrap()),
                 narrative_state: String::new(),
                 hooks: Vec::new(),
-                char_class: NonBlankString::new(class).unwrap_or_else(|_| NonBlankString::new("Fighter").unwrap()),
-                race: NonBlankString::new(race).unwrap_or_else(|_| NonBlankString::new("Human").unwrap()),
+                char_class: NonBlankString::new(class)
+                    .unwrap_or_else(|_| NonBlankString::new("Fighter").unwrap()),
+                race: NonBlankString::new(race)
+                    .unwrap_or_else(|_| NonBlankString::new("Human").unwrap()),
                 pronouns: String::new(),
                 stats: HashMap::new(),
                 abilities: Vec::new(),
@@ -515,7 +538,9 @@ impl WorldBuilder {
         }
 
         // Check for existing NPC by name
-        let existing = snap.npcs.iter_mut()
+        let existing = snap
+            .npcs
+            .iter_mut()
             .find(|n| n.core.name.as_str() == npc_data.name);
 
         if let Some(npc) = existing {
@@ -544,10 +569,14 @@ impl WorldBuilder {
         // Create new NPC
         let name = NonBlankString::new(&npc_data.name)
             .unwrap_or_else(|_| NonBlankString::new("Unknown NPC").unwrap());
-        let description = npc_data.description.as_deref()
+        let description = npc_data
+            .description
+            .as_deref()
             .and_then(|d| NonBlankString::new(d).ok())
             .unwrap_or_else(|| NonBlankString::new("An NPC.").unwrap());
-        let personality = npc_data.personality.as_deref()
+        let personality = npc_data
+            .personality
+            .as_deref()
             .and_then(|p| NonBlankString::new(p).ok())
             .unwrap_or_else(|| NonBlankString::new("Neutral.").unwrap());
 
@@ -568,7 +597,10 @@ impl WorldBuilder {
             core,
             voice_id: None,
             disposition: Disposition::new(npc_data.disposition.unwrap_or(0)),
-            location: npc_data.location.as_deref().and_then(|l| NonBlankString::new(l).ok()),
+            location: npc_data
+                .location
+                .as_deref()
+                .and_then(|l| NonBlankString::new(l).ok()),
             pronouns: None,
             appearance: None,
             age: None,
@@ -596,7 +628,9 @@ impl WorldBuilder {
         };
 
         // Find existing trope
-        let existing = snap.active_tropes.iter_mut()
+        let existing = snap
+            .active_tropes
+            .iter_mut()
             .find(|t| t.trope_definition_id() == trope_data.id);
 
         let trope = if let Some(trope) = existing {
@@ -618,7 +652,11 @@ impl WorldBuilder {
             let name = format!("Extra NPC #{}", i + 1);
             let core = CreatureCore {
                 name: NonBlankString::new(&name).unwrap(),
-                description: NonBlankString::new(&format!("Generated NPC for stress testing (#{})", i + 1)).unwrap(),
+                description: NonBlankString::new(&format!(
+                    "Generated NPC for stress testing (#{})",
+                    i + 1
+                ))
+                .unwrap(),
                 personality: NonBlankString::new("Neutral.").unwrap(),
                 level: 1,
                 hp: 10,
@@ -659,7 +697,9 @@ impl WorldBuilder {
     /// Set up combat encounter with optional custom enemies.
     /// Story 28-9: Uses StructuredEncounter instead of deleted CombatState.
     fn setup_combat(&self, snap: &mut GameSnapshot, enemies: Option<&Vec<(String, i32, i32)>>) {
-        use crate::encounter::{EncounterActor, EncounterMetric, MetricDirection, StructuredEncounter};
+        use crate::encounter::{
+            EncounterActor, EncounterMetric, MetricDirection, StructuredEncounter,
+        };
 
         let enemy_list: Vec<(String, i32, i32)> = match enemies {
             Some(list) => list.clone(),
@@ -667,7 +707,9 @@ impl WorldBuilder {
         };
 
         // Build actors: characters first, then enemies
-        let mut actors: Vec<EncounterActor> = snap.characters.iter()
+        let mut actors: Vec<EncounterActor> = snap
+            .characters
+            .iter()
             .map(|c| EncounterActor {
                 name: c.core.name.as_str().to_string(),
                 role: "player".to_string(),

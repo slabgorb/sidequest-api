@@ -50,7 +50,10 @@ impl PartyReconciliation {
     /// Returns `NoActionNeeded` when all players share the same location (or ≤1 player),
     /// `SplitPartyAllowed` when the flag is set and locations diverge, or `Reconciled`
     /// with the target location, moved players, and a narration line.
-    pub fn reconcile(players: &[PlayerLocation], split_party_allowed: bool) -> ReconciliationResult {
+    pub fn reconcile(
+        players: &[PlayerLocation],
+        split_party_allowed: bool,
+    ) -> ReconciliationResult {
         // Nothing to reconcile with 0 or 1 players
         if players.len() <= 1 {
             return ReconciliationResult::NoActionNeeded;
@@ -72,9 +75,9 @@ impl PartyReconciliation {
         // Check if all non-empty locations are the same
         let unique_locations: Vec<&&str> = location_counts.keys().collect();
         let all_same = unique_locations.len() <= 1
-            && players.iter().all(|p| {
-                p.location.is_empty() || p.location == **unique_locations[0]
-            });
+            && players
+                .iter()
+                .all(|p| p.location.is_empty() || p.location == **unique_locations[0]);
 
         // Players with empty locations count as divergent (they need to be moved)
         let has_empty = players.iter().any(|p| p.location.is_empty());
@@ -113,10 +116,7 @@ impl PartyReconciliation {
             .collect();
 
         // Generate narration
-        let narration_text = format!(
-            "The party regroups at the {}.",
-            target_location
-        );
+        let narration_text = format!("The party regroups at the {}.", target_location);
 
         ReconciliationResult::Reconciled {
             target_location,

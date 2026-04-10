@@ -45,6 +45,30 @@ pub struct RenderParams {
     /// Target image height in pixels (from tier_to_dimensions).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
+    /// Flux variant override: `"dev"` or `"schnell"`. Empty string means
+    /// "use the daemon's tier default" (see flux_mlx_worker.py
+    /// `TIER_CONFIGS[tier]["model"]`). Sourced from the genre pack's
+    /// `visual_style.yaml::preferred_model`. Previously the YAML field
+    /// was read by Rust and silently dropped at the enqueue boundary;
+    /// story 35-15 closes that wire. The daemon validates: non-empty
+    /// values must be in `{"dev", "schnell"}` — unknown variants raise
+    /// loudly (no silent fallback).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub variant: String,
+    /// Optional absolute path to a `.safetensors` LoRA file. When set,
+    /// the daemon's FluxMLXWorker constructs Flux1 with `lora_paths=[path]`
+    /// instead of using the base model. Read at
+    /// `sidequest_daemon/media/workers/flux_mlx_worker.py:155`. Per
+    /// ADR-032. Story 35-15.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_path: Option<String>,
+    /// Optional LoRA scale (typically 0.0–1.0). When absent, the daemon
+    /// defaults to 1.0 (full weight) at
+    /// `sidequest_daemon/media/workers/flux_mlx_worker.py:156`. The Rust
+    /// side sends `None` rather than silently defaulting to 1.0 — the
+    /// daemon owns the default (no silent fallback). Story 35-15.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_scale: Option<f32>,
 }
 
 /// Parameters for a `warm_up` request.
@@ -144,7 +168,12 @@ pub struct RenderResult {
     /// Path to the generated image.
     /// Accepts `image_url`, `image_path`, `output_path`, `path`, or `file` from the daemon.
     /// No default — if the daemon doesn't return a path, we want a loud error.
-    #[serde(alias = "image_path", alias = "output_path", alias = "path", alias = "file")]
+    #[serde(
+        alias = "image_path",
+        alias = "output_path",
+        alias = "path",
+        alias = "file"
+    )]
     pub image_url: String,
     /// Time taken to generate the image in milliseconds.
     /// Accepts both `generation_ms` and `elapsed_ms` from the daemon.

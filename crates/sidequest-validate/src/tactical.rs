@@ -43,9 +43,7 @@ pub enum ValidationError {
         b_widths: Vec<u32>,
     },
     /// Rule 9: Rooms with grids cannot be laid out without overlap.
-    LayoutFailed {
-        message: String,
-    },
+    LayoutFailed { message: String },
 }
 
 /// Result type alias for validation.

@@ -30,8 +30,8 @@ fn map_update_deserializes_with_cartography_metadata() {
         },
         "player_id": "p1"
     });
-    let msg: crate::GameMessage = serde_json::from_value(json_val)
-        .expect("MAP_UPDATE with cartography should deserialize");
+    let msg: crate::GameMessage =
+        serde_json::from_value(json_val).expect("MAP_UPDATE with cartography should deserialize");
     match msg {
         crate::GameMessage::MapUpdate { payload, .. } => {
             let payload_json = serde_json::to_value(&payload).unwrap();
@@ -99,7 +99,9 @@ fn cartography_regions_carry_full_metadata() {
     match msg {
         crate::GameMessage::MapUpdate { payload, .. } => {
             let payload_json = serde_json::to_value(&payload).unwrap();
-            let carto = payload_json.get("cartography").expect("cartography present");
+            let carto = payload_json
+                .get("cartography")
+                .expect("cartography present");
             let regions = carto.get("regions").and_then(|v| v.as_object()).unwrap();
             assert_eq!(regions.len(), 2, "should have two regions");
             let eldergrove = regions.get("Eldergrove").unwrap();
@@ -147,7 +149,9 @@ fn cartography_supports_room_graph_navigation_mode() {
     match msg {
         crate::GameMessage::MapUpdate { payload, .. } => {
             let payload_json = serde_json::to_value(&payload).unwrap();
-            let carto = payload_json.get("cartography").expect("cartography present");
+            let carto = payload_json
+                .get("cartography")
+                .expect("cartography present");
             assert_eq!(
                 carto.get("navigation_mode").and_then(|v| v.as_str()),
                 Some("room_graph"),
@@ -172,8 +176,8 @@ fn map_update_without_cartography_still_deserializes() {
         },
         "player_id": "p1"
     });
-    let msg: crate::GameMessage = serde_json::from_value(json_val)
-        .expect("MAP_UPDATE without cartography should still work");
+    let msg: crate::GameMessage =
+        serde_json::from_value(json_val).expect("MAP_UPDATE without cartography should still work");
     match msg {
         crate::GameMessage::MapUpdate { payload, .. } => {
             assert_eq!(payload.current_location, "Dark Cave");
@@ -221,8 +225,8 @@ fn map_update_with_cartography_round_trips() {
         },
         "player_id": "p2"
     });
-    let msg: crate::GameMessage = serde_json::from_value(json_val.clone())
-        .expect("should deserialize with cartography");
+    let msg: crate::GameMessage =
+        serde_json::from_value(json_val.clone()).expect("should deserialize with cartography");
     let re_serialized = serde_json::to_value(&msg).unwrap();
     let round_tripped: crate::GameMessage =
         serde_json::from_value(re_serialized.clone()).expect("should survive round-trip");

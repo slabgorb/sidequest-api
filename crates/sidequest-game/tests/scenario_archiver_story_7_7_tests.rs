@@ -69,12 +69,7 @@ fn build_rich_scenario_state() -> ScenarioState {
     let clue_graph =
         sidequest_game::clue_activation::ClueGraph::new(vec![murder_weapon, witness_testimony]);
 
-    let mut state = ScenarioState::new(
-        clue_graph,
-        npc_roles,
-        "barkeep".to_string(),
-        adjacency,
-    );
+    let mut state = ScenarioState::new(clue_graph, npc_roles, "barkeep".to_string(), adjacency);
 
     // Set tension to a non-default value
     state.set_tension(0.65);
@@ -152,19 +147,13 @@ fn archiver_preserves_tension_at_boundary_values() {
     state.set_tension(1.0);
 
     archiver.save("max-tension", &state).expect("save");
-    let loaded = archiver
-        .load("max-tension")
-        .expect("load")
-        .expect("found");
+    let loaded = archiver.load("max-tension").expect("load").expect("found");
     assert_eq!(loaded.tension(), 1.0, "max tension must survive");
 
     // Test with tension at zero
     state.set_tension(0.0);
     archiver.save("zero-tension", &state).expect("save");
-    let loaded = archiver
-        .load("zero-tension")
-        .expect("load")
-        .expect("found");
+    let loaded = archiver.load("zero-tension").expect("load").expect("found");
     assert_eq!(loaded.tension(), 0.0, "zero tension must survive");
 }
 
@@ -295,10 +284,7 @@ fn archiver_rejects_version_mismatch() {
                 "found version should match what was stored"
             );
         }
-        other => panic!(
-            "expected VersionMismatch error, got: {:?}",
-            other
-        ),
+        other => panic!("expected VersionMismatch error, got: {:?}", other),
     }
 }
 
@@ -575,10 +561,7 @@ fn archiver_handles_empty_scenario_state() {
         loaded.discovered_clues().is_empty(),
         "no clues should be discovered"
     );
-    assert!(
-        loaded.npc_roles().is_empty(),
-        "no NPC roles should exist"
-    );
+    assert!(loaded.npc_roles().is_empty(), "no NPC roles should exist");
 }
 
 #[test]
@@ -599,8 +582,14 @@ fn archiver_independent_sessions_dont_interfere() {
     archiver.save("session-a", &state_a).expect("save a");
     archiver.save("session-b", &state_b).expect("save b");
 
-    let loaded_a = archiver.load("session-a").expect("load a").expect("found a");
-    let loaded_b = archiver.load("session-b").expect("load b").expect("found b");
+    let loaded_a = archiver
+        .load("session-a")
+        .expect("load a")
+        .expect("found a");
+    let loaded_b = archiver
+        .load("session-b")
+        .expect("load b")
+        .expect("found b");
 
     assert_eq!(
         loaded_a.tension(),

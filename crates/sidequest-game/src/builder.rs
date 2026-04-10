@@ -10,9 +10,11 @@ use rand::Rng;
 use sidequest_genre::{
     BackstoryTables, CharCreationScene, EquipmentTables, MechanicalEffects, RulesConfig,
 };
+use sidequest_protocol::{
+    CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat,
+};
 use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 use tracing::info_span;
-use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat};
 
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
@@ -324,10 +326,7 @@ impl CharacterBuilder {
     }
 
     /// Roll 3d6 for each ability score in order. Returns (name, total) pairs.
-    fn roll_3d6_stats(
-        ability_score_names: &[String],
-        rng: &mut impl Rng,
-    ) -> Vec<(String, i32)> {
+    fn roll_3d6_stats(ability_score_names: &[String], rng: &mut impl Rng) -> Vec<(String, i32)> {
         let results: Vec<(String, i32)> = ability_score_names
             .iter()
             .map(|name| {
@@ -353,10 +352,7 @@ impl CharacterBuilder {
             })
             .collect();
 
-        let span = info_span!(
-            "chargen.stats_generated",
-            method = "roll_3d6_strict",
-        );
+        let span = info_span!("chargen.stats_generated", method = "roll_3d6_strict",);
         let _guard = span.enter();
         for (name, val) in &results {
             tracing::info!(stat = %name, value = val, "stat generated");
@@ -500,10 +496,7 @@ impl CharacterBuilder {
         }
 
         // Apply scene-level mechanical effects (stat rolling, equipment gen, etc.)
-        let effects = scene
-            .mechanical_effects
-            .clone()
-            .unwrap_or_default();
+        let effects = scene.mechanical_effects.clone().unwrap_or_default();
 
         // Record as an auto-advanced scene result
         self.results.push(SceneResult {
@@ -699,10 +692,7 @@ impl CharacterBuilder {
 
         // Use scene-level mechanical_effects if present (e.g., the_roll has
         // stat_generation, the_kit has equipment_generation). Otherwise empty.
-        let effects = scene
-            .mechanical_effects
-            .clone()
-            .unwrap_or_default();
+        let effects = scene.mechanical_effects.clone().unwrap_or_default();
 
         // Process scene-level stat_generation directive
         if let Some(ref method) = effects.stat_generation {
@@ -823,7 +813,8 @@ impl CharacterBuilder {
 
         // HP from hp_formula or class_hp_bases fallback
         let base_hp = if let Some(ref formula) = self.hp_formula {
-            let hp_result = Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)?;
+            let hp_result =
+                Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)?;
             let con_mod = stats.get("CON").map(|&v| (v - 10) / 2);
             let _span = info_span!(
                 "chargen.hp_formula",
@@ -914,8 +905,11 @@ impl CharacterBuilder {
                         .unwrap_or_else(|_| NonBlankString::new(&format!("item_{}", i)).unwrap()),
                     name: NonBlankString::new(&display_name)
                         .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
-                    description: NonBlankString::new(&format!("Starting equipment: {}", display_name))
-                        .unwrap(),
+                    description: NonBlankString::new(&format!(
+                        "Starting equipment: {}",
+                        display_name
+                    ))
+                    .unwrap(),
                     category: NonBlankString::new("weapon").unwrap(),
                     value: 10,
                     weight: 3.0,
@@ -933,90 +927,85 @@ impl CharacterBuilder {
         // Equipment random tables: apply when any scene declared
         // `equipment_generation: random_table` AND tables are wired in.
         // Story 31-3: wire genre-pack equipment_tables into CharacterBuilder.
-        let random_table_requested = self.results.iter().any(|r| {
-            r.effects_applied
-                .equipment_generation
-                .as_deref()
-                == Some("random_table")
-        });
-        let (equipment_method, equipment_added, equipment_skipped) =
-            if random_table_requested && self.equipment_tables.is_some() {
-                let tables = self.equipment_tables.as_ref().unwrap();
-                let mut rng = rand::rng();
-                let mut added = 0usize;
-                let mut skipped = 0usize;
-                for (slot, candidates) in &tables.tables {
-                    if candidates.is_empty() {
-                        continue;
-                    }
-                    let rolls = tables.rolls_per_slot.get(slot).copied().unwrap_or(1);
-                    for _ in 0..rolls {
-                        let pick = &candidates[rng.random_range(0..candidates.len())];
-                        let display_name = humanize_snake_case(pick);
-                        let id = match NonBlankString::new(pick) {
-                            Ok(id) => id,
-                            Err(_) => {
-                                // Blank id — emit a watcher event so the GM
-                                // panel surfaces the malformed content entry
-                                // instead of silently producing a short
-                                // inventory. Reaches the broadcast channel
-                                // via sidequest_telemetry::emit().
-                                WatcherEventBuilder::new(
-                                    "chargen",
-                                    WatcherEventType::StateTransition,
-                                )
+        let random_table_requested = self
+            .results
+            .iter()
+            .any(|r| r.effects_applied.equipment_generation.as_deref() == Some("random_table"));
+        let (equipment_method, equipment_added, equipment_skipped) = if random_table_requested
+            && self.equipment_tables.is_some()
+        {
+            let tables = self.equipment_tables.as_ref().unwrap();
+            let mut rng = rand::rng();
+            let mut added = 0usize;
+            let mut skipped = 0usize;
+            for (slot, candidates) in &tables.tables {
+                if candidates.is_empty() {
+                    continue;
+                }
+                let rolls = tables.rolls_per_slot.get(slot).copied().unwrap_or(1);
+                for _ in 0..rolls {
+                    let pick = &candidates[rng.random_range(0..candidates.len())];
+                    let display_name = humanize_snake_case(pick);
+                    let id = match NonBlankString::new(pick) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            // Blank id — emit a watcher event so the GM
+                            // panel surfaces the malformed content entry
+                            // instead of silently producing a short
+                            // inventory. Reaches the broadcast channel
+                            // via sidequest_telemetry::emit().
+                            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
                                 .severity(Severity::Warn)
                                 .field("action", "blank_item_id_skipped")
                                 .field("slot", slot.as_str())
                                 .field("pick", pick.as_str())
                                 .send();
-                                skipped += 1;
-                                continue;
-                            }
-                        };
-                        items.push(Item {
-                            id,
-                            name: NonBlankString::new(&display_name)
-                                .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
-                            description: NonBlankString::new(&format!(
-                                "Starting equipment ({}): {}",
-                                slot, display_name
-                            ))
-                            .unwrap(),
-                            category: NonBlankString::new(slot).unwrap_or_else(|_| {
-                                NonBlankString::new("misc").unwrap()
-                            }),
-                            value: 0,
-                            weight: 1.0,
-                            rarity: NonBlankString::new("common").unwrap(),
-                            narrative_weight: 0.3,
-                            tags: vec![],
-                            equipped: false,
-                            quantity: 1,
-                            uses_remaining: None,
-                            state: ItemState::Carried,
-                        });
-                        added += 1;
-                    }
+                            skipped += 1;
+                            continue;
+                        }
+                    };
+                    items.push(Item {
+                        id,
+                        name: NonBlankString::new(&display_name)
+                            .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
+                        description: NonBlankString::new(&format!(
+                            "Starting equipment ({}): {}",
+                            slot, display_name
+                        ))
+                        .unwrap(),
+                        category: NonBlankString::new(slot)
+                            .unwrap_or_else(|_| NonBlankString::new("misc").unwrap()),
+                        value: 0,
+                        weight: 1.0,
+                        rarity: NonBlankString::new("common").unwrap(),
+                        narrative_weight: 0.3,
+                        tags: vec![],
+                        equipped: false,
+                        quantity: 1,
+                        uses_remaining: None,
+                        state: ItemState::Carried,
+                    });
+                    added += 1;
                 }
-                ("tables", added, skipped)
-            } else if random_table_requested {
-                // Directive present but no equipment_tables wired — this is a
-                // misconfiguration, not graceful degradation. Emit a Warn so
-                // the GM panel surfaces it. CLAUDE.md: no silent fallbacks.
-                WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
-                    .severity(Severity::Warn)
-                    .field("action", "equipment_tables_missing")
-                    .field(
-                        "reason",
-                        "scene declared `equipment_generation: random_table` but \
+            }
+            ("tables", added, skipped)
+        } else if random_table_requested {
+            // Directive present but no equipment_tables wired — this is a
+            // misconfiguration, not graceful degradation. Emit a Warn so
+            // the GM panel surfaces it. CLAUDE.md: no silent fallbacks.
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .severity(Severity::Warn)
+                .field("action", "equipment_tables_missing")
+                .field(
+                    "reason",
+                    "scene declared `equipment_generation: random_table` but \
                          CharacterBuilder has no equipment_tables wired",
-                    )
-                    .send();
-                ("none", 0, 0)
-            } else {
-                ("hints", 0, 0)
-            };
+                )
+                .send();
+            ("none", 0, 0)
+        } else {
+            ("hints", 0, 0)
+        };
 
         // OTEL: chargen.equipment_composed — GM panel verification that the
         // equipment subsystem engaged. Emitted through the sidequest-telemetry
@@ -1248,7 +1237,9 @@ impl CharacterBuilder {
                     parts.push(format!("Rig Trait: {}", rt));
                 }
                 if !acc.item_hints.is_empty() {
-                    let display_items: Vec<String> = acc.item_hints.iter()
+                    let display_items: Vec<String> = acc
+                        .item_hints
+                        .iter()
                         .map(|h| humanize_snake_case(h))
                         .collect();
                     parts.push(format!("Equipment: {}", display_items.join(", ")));
@@ -1326,10 +1317,8 @@ impl CharacterBuilder {
                     .collect()
             }
             "point_buy" => {
-                let values = Self::allocate_point_buy(
-                    self.ability_score_names.len(),
-                    self.point_buy_budget,
-                );
+                let values =
+                    Self::allocate_point_buy(self.ability_score_names.len(), self.point_buy_budget);
                 tracing::info!(
                     method = "point_buy",
                     budget = self.point_buy_budget,
@@ -1492,15 +1481,11 @@ impl CharacterBuilder {
         }
 
         // Evaluate left to right
-        let mut result: i32 = tokens[0]
-            .parse()
-            .map_err(|_| tokens[0].clone())?;
+        let mut result: i32 = tokens[0].parse().map_err(|_| tokens[0].clone())?;
         let mut i = 1;
         while i + 1 < tokens.len() {
             let op = &tokens[i];
-            let operand: i32 = tokens[i + 1]
-                .parse()
-                .map_err(|_| tokens[i + 1].clone())?;
+            let operand: i32 = tokens[i + 1].parse().map_err(|_| tokens[i + 1].clone())?;
             match op.as_str() {
                 "+" => result += operand,
                 "-" => result -= operand,

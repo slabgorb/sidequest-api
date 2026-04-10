@@ -143,7 +143,11 @@ fn resource_section_uses_valley_zone() {
 
     registry.register_resource_section("narrator", &declarations, &state);
 
-    let sections = registry.get_sections("narrator", Some(SectionCategory::State), Some(AttentionZone::Valley));
+    let sections = registry.get_sections(
+        "narrator",
+        Some(SectionCategory::State),
+        Some(AttentionZone::Valley),
+    );
     assert!(
         !sections.is_empty(),
         "resource section must be in Valley zone with State category"

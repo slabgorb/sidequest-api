@@ -59,10 +59,7 @@ fn find_events(events: &[WatcherEvent], component: &str, action: &str) -> Vec<Wa
         .iter()
         .filter(|e| {
             e.component == component
-                && e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    == Some(action)
+                && e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action)
         })
         .cloned()
         .collect()

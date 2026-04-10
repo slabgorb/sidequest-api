@@ -14,7 +14,9 @@ use crate::agent::Agent;
 use crate::client::ClaudeClient;
 use crate::context_builder::ContextBuilder;
 use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
-use sidequest_game::perception::{PerceptionFilter, PerceptionRewriter, RewriteStrategy, RewriterError};
+use sidequest_game::perception::{
+    PerceptionFilter, PerceptionRewriter, RewriteStrategy, RewriterError,
+};
 
 /// System prompt for the Resonator agent.
 const RESONATOR_SYSTEM_PROMPT: &str = "\
@@ -147,7 +149,6 @@ impl ClaudeRewriteStrategy {
             agent: ResonatorAgent::new(),
         }
     }
-
 }
 
 impl RewriteStrategy for ClaudeRewriteStrategy {
@@ -335,14 +336,8 @@ mod tests {
             "wound: betrayal by a mentor".to_string(),
             "goal: find the lost artifact".to_string(),
         ];
-        let prompt = agent.build_rewrite_prompt(
-            "The elder speaks.",
-            "Thorn",
-            &hooks,
-            "",
-            "none",
-            "fantasy",
-        );
+        let prompt =
+            agent.build_rewrite_prompt("The elder speaks.", "Thorn", &hooks, "", "none", "fantasy");
         assert!(prompt.contains("betrayal by a mentor"));
         assert!(prompt.contains("find the lost artifact"));
     }
@@ -380,14 +375,8 @@ mod tests {
     #[test]
     fn build_rewrite_prompt_omits_effects_section_when_none() {
         let agent = ResonatorAgent::new();
-        let prompt = agent.build_rewrite_prompt(
-            "The tavern is warm.",
-            "Thorn",
-            &[],
-            "",
-            "none",
-            "fantasy",
-        );
+        let prompt =
+            agent.build_rewrite_prompt("The tavern is warm.", "Thorn", &[], "", "none", "fantasy");
         assert!(
             !prompt.contains("ACTIVE PERCEPTUAL EFFECTS"),
             "should omit effects section when 'none'"

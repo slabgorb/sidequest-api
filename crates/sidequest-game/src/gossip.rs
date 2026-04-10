@@ -133,9 +133,7 @@ impl GossipEngine {
 
         for i in 0..all.len() {
             for j in (i + 1)..all.len() {
-                if all[i].subject() == all[j].subject()
-                    && all[i].content() != all[j].content()
-                {
+                if all[i].subject() == all[j].subject() && all[i].content() != all[j].content() {
                     let source_a = Self::extract_source_name(&all[i]);
                     let source_b = Self::extract_source_name(&all[j]);
                     contradictions.push(Contradiction {
@@ -155,16 +153,10 @@ impl GossipEngine {
     /// Decay credibility for both sources named in a contradiction.
     pub fn decay_credibility(state: &mut BeliefState, contradiction: &Contradiction) {
         let cred_a = state.credibility_of(&contradiction.belief_a_source).score();
-        state.update_credibility(
-            &contradiction.belief_a_source,
-            cred_a - CREDIBILITY_DECAY,
-        );
+        state.update_credibility(&contradiction.belief_a_source, cred_a - CREDIBILITY_DECAY);
 
         let cred_b = state.credibility_of(&contradiction.belief_b_source).score();
-        state.update_credibility(
-            &contradiction.belief_b_source,
-            cred_b - CREDIBILITY_DECAY,
-        );
+        state.update_credibility(&contradiction.belief_b_source, cred_b - CREDIBILITY_DECAY);
     }
 
     /// Extract the source NPC name from a belief, or "unknown" for Witnessed/Inferred/Overheard.

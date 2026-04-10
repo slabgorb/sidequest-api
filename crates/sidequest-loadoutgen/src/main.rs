@@ -18,7 +18,10 @@ use serde::Serialize;
 use sidequest_genre::load_genre_pack;
 
 #[derive(Parser)]
-#[command(name = "sidequest-loadoutgen", about = "Generate starting equipment set from genre pack data")]
+#[command(
+    name = "sidequest-loadoutgen",
+    about = "Generate starting equipment set from genre pack data"
+)]
 struct Cli {
     /// Path to the genre_packs/ directory. Also reads SIDEQUEST_CONTENT_PATH env var.
     #[arg(long, env = "SIDEQUEST_CONTENT_PATH")]
@@ -114,8 +117,8 @@ fn write_sidecar(loadout: &LoadoutBlock) {
         Err(_) => return,
     };
 
-    let sidecar_path = std::path::PathBuf::from(&dir)
-        .join(format!("sidequest-tools-{session_id}.jsonl"));
+    let sidecar_path =
+        std::path::PathBuf::from(&dir).join(format!("sidequest-tools-{session_id}.jsonl"));
     let _ = std::fs::create_dir_all(&dir);
 
     use std::io::Write;
@@ -165,8 +168,11 @@ fn generate_loadout(
     let mut equipment: Vec<LoadoutItem> = equipment_ids
         .iter()
         .filter_map(|id| {
-            inventory.item_catalog.iter().find(|item| item.id == *id).map(|item| {
-                LoadoutItem {
+            inventory
+                .item_catalog
+                .iter()
+                .find(|item| item.id == *id)
+                .map(|item| LoadoutItem {
                     id: item.id.clone(),
                     name: item.name.clone(),
                     description: item.description.clone(),
@@ -174,8 +180,7 @@ fn generate_loadout(
                     value: item.value,
                     tags: item.tags.clone(),
                     lore: item.lore.clone(),
-                }
-            })
+                })
         })
         .collect();
 
@@ -223,7 +228,8 @@ fn generate_loadout(
         .unwrap_or_else(|| "gold".to_string());
 
     // Generate narrative hook
-    let narrative_hook = build_narrative_hook(&cli.class, &equipment, starting_gold, &currency_name);
+    let narrative_hook =
+        build_narrative_hook(&cli.class, &equipment, starting_gold, &currency_name);
 
     LoadoutBlock {
         class: cli.class.clone(),

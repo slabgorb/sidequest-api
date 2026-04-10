@@ -21,9 +21,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sidequest_game::tactical::{
-    CardinalDirection, GridPos, TacticalCell, TacticalGrid,
-};
+use sidequest_game::tactical::{CardinalDirection, GridPos, TacticalCell, TacticalGrid};
 
 // Import the layout module types — these don't exist yet (RED).
 use sidequest_game::tactical::layout::{
@@ -284,16 +282,8 @@ fn entrance_room_placed_at_origin() {
         .iter()
         .find(|r| r.room_id() == "room_a")
         .expect("Entrance room should be in layout");
-    assert_eq!(
-        entrance.offset_x(),
-        0,
-        "Entrance room X offset must be 0"
-    );
-    assert_eq!(
-        entrance.offset_y(),
-        0,
-        "Entrance room Y offset must be 0"
-    );
+    assert_eq!(entrance.offset_x(), 0, "Entrance room X offset must be 0");
+    assert_eq!(entrance.offset_y(), 0, "Entrance room Y offset must be 0");
 }
 
 // ==========================================================================
@@ -308,8 +298,16 @@ fn adjacent_rooms_share_wall_segment_at_exit() {
     let grids = parse_grids(&rooms);
     let layout = layout_tree(&rooms, &grids).expect("Layout should succeed");
 
-    let room_a = layout.rooms().iter().find(|r| r.room_id() == "room_a").unwrap();
-    let room_b = layout.rooms().iter().find(|r| r.room_id() == "room_b").unwrap();
+    let room_a = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_a")
+        .unwrap();
+    let room_b = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_b")
+        .unwrap();
 
     // Room A is 5 tall, placed at origin. Its south wall is at local y=4.
     // Room B's north wall is at local y=0.
@@ -333,8 +331,16 @@ fn shared_wall_cells_overlap_at_boundary() {
     let grids = parse_grids(&rooms);
     let layout = layout_tree(&rooms, &grids).expect("Layout should succeed");
 
-    let room_a = layout.rooms().iter().find(|r| r.room_id() == "room_a").unwrap();
-    let room_b = layout.rooms().iter().find(|r| r.room_id() == "room_b").unwrap();
+    let room_a = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_a")
+        .unwrap();
+    let room_b = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_b")
+        .unwrap();
 
     // At the shared wall row, both rooms should have cells.
     // The gap cells should be floor in both rooms.
@@ -371,8 +377,16 @@ fn exit_gaps_align_in_global_coordinates() {
     let grids = parse_grids(&rooms);
     let layout = layout_tree(&rooms, &grids).expect("Layout should succeed");
 
-    let room_a = layout.rooms().iter().find(|r| r.room_id() == "room_a").unwrap();
-    let room_b = layout.rooms().iter().find(|r| r.room_id() == "room_b").unwrap();
+    let room_a = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_a")
+        .unwrap();
+    let room_b = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_b")
+        .unwrap();
 
     // Room A's south exit: cells at columns [2, 3], row = height-1
     let a_exit = grids["room_a"]
@@ -438,10 +452,7 @@ fn no_overlap_when_rooms_far_apart() {
     let placed = vec![PlacedRoom::new("room_1".to_string(), 0, 0, grid.clone())];
     let candidate = PlacedRoom::new("room_2".to_string(), 100, 100, grid);
     let overlaps = check_overlap(&placed, &candidate);
-    assert!(
-        overlaps.is_empty(),
-        "Distant rooms should not overlap"
-    );
+    assert!(overlaps.is_empty(), "Distant rooms should not overlap");
 }
 
 /// Void cells should NOT count as overlaps (AC-7 corollary).
@@ -489,8 +500,12 @@ fn layout_error_on_unresolvable_overlap() {
         "hub",
         "entrance",
         vec![
-            RoomExit::Corridor { target: "room_b".to_string() },
-            RoomExit::Corridor { target: "room_c".to_string() },
+            RoomExit::Corridor {
+                target: "room_b".to_string(),
+            },
+            RoomExit::Corridor {
+                target: "room_c".to_string(),
+            },
         ],
         "######\n#....#\n#....#\n#....#\n#....#\n###..#\n#.....   ",
     );
@@ -506,8 +521,12 @@ fn layout_error_on_unresolvable_overlap() {
         "hub",
         "entrance",
         vec![
-            RoomExit::Corridor { target: "wide_room".to_string() },
-            RoomExit::Corridor { target: "tall_room".to_string() },
+            RoomExit::Corridor {
+                target: "wide_room".to_string(),
+            },
+            RoomExit::Corridor {
+                target: "tall_room".to_string(),
+            },
         ],
         "#.#\n...\n...\n...\n...\n...\n#.#",
     );
@@ -515,14 +534,18 @@ fn layout_error_on_unresolvable_overlap() {
     let wide = room_def(
         "wide_room",
         "normal",
-        vec![RoomExit::Corridor { target: "hub".to_string() }],
+        vec![RoomExit::Corridor {
+            target: "hub".to_string(),
+        }],
         "#.##########\n............\n############",
     );
     // Tall room: 3x12 with west exit at row 1 (matches hub's east exit)
     let tall = room_def(
         "tall_room",
         "normal",
-        vec![RoomExit::Corridor { target: "hub".to_string() }],
+        vec![RoomExit::Corridor {
+            target: "hub".to_string(),
+        }],
         "###\n...\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n#.#\n###",
     );
     let rooms = vec![hub, wide, tall];
@@ -530,7 +553,11 @@ fn layout_error_on_unresolvable_overlap() {
     let result = layout_tree(&rooms, &grids);
 
     match result {
-        Err(LayoutError::Overlap { room_a, room_b, cells }) => {
+        Err(LayoutError::Overlap {
+            room_a,
+            room_b,
+            cells,
+        }) => {
             assert!(
                 !cells.is_empty(),
                 "LayoutError::Overlap must include the conflicting cells"
@@ -607,7 +634,11 @@ fn unreachable_room_not_placed() {
         !placed_ids.contains("isolated"),
         "Unreachable rooms should not be in the layout"
     );
-    assert_eq!(placed_ids.len(), 3, "Only the 3 connected rooms should be placed");
+    assert_eq!(
+        placed_ids.len(),
+        3,
+        "Only the 3 connected rooms should be placed"
+    );
 }
 
 // ==========================================================================
@@ -635,7 +666,10 @@ fn no_non_void_cell_collisions_in_layout() {
                     }
                     let gx = placed.offset_x() + x as i32;
                     let gy = placed.offset_y() + y as i32;
-                    occupied.entry((gx, gy)).or_default().push((placed.room_id(), cell));
+                    occupied
+                        .entry((gx, gy))
+                        .or_default()
+                        .push((placed.room_id(), cell));
                 }
             }
         }
@@ -682,19 +716,31 @@ fn linear_chain_three_rooms() {
     assert_eq!(layout.rooms().len(), 3);
 
     // Entrance at origin
-    let room_a = layout.rooms().iter().find(|r| r.room_id() == "room_a").unwrap();
+    let room_a = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_a")
+        .unwrap();
     assert_eq!(room_a.offset_x(), 0);
     assert_eq!(room_a.offset_y(), 0);
 
     // Room B is south of Room A (shared wall)
-    let room_b = layout.rooms().iter().find(|r| r.room_id() == "room_b").unwrap();
+    let room_b = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_b")
+        .unwrap();
     assert!(
         room_b.offset_y() > room_a.offset_y(),
         "Room B should be south of Room A"
     );
 
     // Room C is east of Room B (shared wall)
-    let room_c = layout.rooms().iter().find(|r| r.room_id() == "room_c").unwrap();
+    let room_c = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "room_c")
+        .unwrap();
     assert!(
         room_c.offset_x() > room_b.offset_x(),
         "Room C should be east of Room B"
@@ -715,10 +761,26 @@ fn t_junction_hub_with_three_spokes() {
     // All 4 rooms placed
     assert_eq!(layout.rooms().len(), 4);
 
-    let hub = layout.rooms().iter().find(|r| r.room_id() == "hub").unwrap();
-    let north = layout.rooms().iter().find(|r| r.room_id() == "north_spoke").unwrap();
-    let east = layout.rooms().iter().find(|r| r.room_id() == "east_spoke").unwrap();
-    let south = layout.rooms().iter().find(|r| r.room_id() == "south_spoke").unwrap();
+    let hub = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "hub")
+        .unwrap();
+    let north = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "north_spoke")
+        .unwrap();
+    let east = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "east_spoke")
+        .unwrap();
+    let south = layout
+        .rooms()
+        .iter()
+        .find(|r| r.room_id() == "south_spoke")
+        .unwrap();
 
     // Hub at origin (it's the entrance)
     assert_eq!(hub.offset_x(), 0);
@@ -761,7 +823,10 @@ fn t_junction_no_collisions() {
                     }
                     let gx = placed.offset_x() + x as i32;
                     let gy = placed.offset_y() + y as i32;
-                    occupied.entry((gx, gy)).or_default().push((placed.room_id(), cell));
+                    occupied
+                        .entry((gx, gy))
+                        .or_default()
+                        .push((placed.room_id(), cell));
                 }
             }
         }
@@ -846,7 +911,10 @@ fn align_rooms_south_to_north() {
 
     // B's north wall should align with A's south wall (shared wall)
     let a_south_y = 0 + (grid_a.height() as i32 - 1); // = 4
-    assert_eq!(by, a_south_y, "B's offset_y should place its north wall at A's south wall");
+    assert_eq!(
+        by, a_south_y,
+        "B's offset_y should place its north wall at A's south wall"
+    );
 
     // Exit gap columns should align
     for (a_col, b_col) in a_south_exit.cells.iter().zip(b_north_exit.cells.iter()) {
@@ -883,7 +951,10 @@ fn align_rooms_east_to_west() {
 
     // C's west wall should align with B's east wall (shared wall)
     let b_east_x = 0 + (grid_b.width() as i32 - 1); // = 4
-    assert_eq!(cx, b_east_x, "C's offset_x should place its west wall at B's east wall");
+    assert_eq!(
+        cx, b_east_x,
+        "C's offset_x should place its west wall at B's east wall"
+    );
 
     // Exit gap rows should align
     for (b_row, c_row) in b_east_exit.cells.iter().zip(c_west_exit.cells.iter()) {
@@ -1012,10 +1083,7 @@ fn no_entrance_room_errors() {
     )];
     let grids = parse_grids(&rooms);
     let result = layout_tree(&rooms, &grids);
-    assert!(
-        result.is_err(),
-        "Layout with no entrance room should fail"
-    );
+    assert!(result.is_err(), "Layout with no entrance room should fail");
 }
 
 // ==========================================================================

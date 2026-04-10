@@ -33,9 +33,7 @@ fn journal_request_variant_exists() {
 #[test]
 fn journal_response_variant_exists() {
     let msg = GameMessage::JournalResponse {
-        payload: JournalResponsePayload {
-            entries: vec![],
-        },
+        payload: JournalResponsePayload { entries: vec![] },
         player_id: "p1".to_string(),
     };
     assert!(matches!(msg, GameMessage::JournalResponse { .. }));
@@ -127,9 +125,7 @@ fn journal_response_carries_entries() {
 
 #[test]
 fn journal_response_empty_entries() {
-    let payload = JournalResponsePayload {
-        entries: vec![],
-    };
+    let payload = JournalResponsePayload { entries: vec![] };
     assert!(payload.entries.is_empty());
 }
 
@@ -169,20 +165,24 @@ fn journal_request_serializes_with_type_tag() {
     };
     let json = serde_json::to_string(&msg).expect("serialize");
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(v["type"], "JOURNAL_REQUEST", "must use SCREAMING_CASE type tag");
+    assert_eq!(
+        v["type"], "JOURNAL_REQUEST",
+        "must use SCREAMING_CASE type tag"
+    );
 }
 
 #[test]
 fn journal_response_serializes_with_type_tag() {
     let msg = GameMessage::JournalResponse {
-        payload: JournalResponsePayload {
-            entries: vec![],
-        },
+        payload: JournalResponsePayload { entries: vec![] },
         player_id: "".to_string(),
     };
     let json = serde_json::to_string(&msg).expect("serialize");
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(v["type"], "JOURNAL_RESPONSE", "must use SCREAMING_CASE type tag");
+    assert_eq!(
+        v["type"], "JOURNAL_RESPONSE",
+        "must use SCREAMING_CASE type tag"
+    );
 }
 
 #[test]
@@ -223,8 +223,10 @@ fn journal_request_category_none_serializes_without_field() {
     let json = serde_json::to_string(&payload).expect("serialize");
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
     // category: None should be absent from the wire format (skip_serializing_if)
-    assert!(v.get("category").is_none() || v["category"].is_null(),
-        "None category should not appear in JSON or be null");
+    assert!(
+        v.get("category").is_none() || v["category"].is_null(),
+        "None category should not appear in JSON or be null"
+    );
 }
 
 // ============================================================================

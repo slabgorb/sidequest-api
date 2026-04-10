@@ -9,10 +9,10 @@
 
 use std::collections::HashSet;
 
-use sidequest_game::state::{GameSnapshot, WorldStatePatch};
 use sidequest_game::room_movement::{
-    validate_room_transition, apply_validated_move, init_room_graph_location, DispatchError,
+    apply_validated_move, init_room_graph_location, validate_room_transition, DispatchError,
 };
+use sidequest_game::state::{GameSnapshot, WorldStatePatch};
 use sidequest_genre::{RoomDef, RoomExit};
 
 // ═══════════════════════════════════════════════════════════
@@ -31,7 +31,10 @@ fn three_room_graph() -> Vec<RoomDef> {
             exits: vec![RoomExit::Corridor {
                 target: "corridor".into(),
             }],
-            description: None, grid: None, legend: None, tactical_scale: None,
+            description: None,
+            grid: None,
+            legend: None,
+            tactical_scale: None,
         },
         RoomDef {
             id: "corridor".into(),
@@ -48,7 +51,10 @@ fn three_room_graph() -> Vec<RoomDef> {
                     is_locked: false,
                 },
             ],
-            description: None, grid: None, legend: None, tactical_scale: None,
+            description: None,
+            grid: None,
+            legend: None,
+            tactical_scale: None,
         },
         RoomDef {
             id: "chamber".into(),
@@ -60,7 +66,10 @@ fn three_room_graph() -> Vec<RoomDef> {
                 target: "corridor".into(),
                 is_locked: false,
             }],
-            description: None, grid: None, legend: None, tactical_scale: None,
+            description: None,
+            grid: None,
+            legend: None,
+            tactical_scale: None,
         },
     ]
 }
@@ -93,7 +102,10 @@ fn test_location_validation_rejects_unreachable_room() {
         }) => {
             assert_eq!(from_room, "entrance");
             assert_eq!(to_room, "chamber");
-            assert!(!reason.is_empty(), "reason should explain why move was rejected");
+            assert!(
+                !reason.is_empty(),
+                "reason should explain why move was rejected"
+            );
         }
         other => panic!(
             "expected DispatchError::InvalidRoomTransition, got {:?}",
@@ -142,7 +154,10 @@ fn test_session_init_sets_entrance_location() {
 
     init_room_graph_location(&mut snap, &rooms);
 
-    assert_eq!(snap.location, "entrance", "location should be the entrance room ID");
+    assert_eq!(
+        snap.location, "entrance",
+        "location should be the entrance room ID"
+    );
     assert_eq!(
         snap.discovered_rooms,
         HashSet::from(["entrance".to_string()]),
@@ -259,10 +274,16 @@ fn test_discovered_rooms_serde_roundtrip() {
 
     let json = serde_json::to_string(&snap.discovered_rooms).unwrap();
     // Sorted order: corridor < entrance
-    assert_eq!(json, r#"["corridor","entrance"]"#, "should serialize as sorted Vec");
+    assert_eq!(
+        json, r#"["corridor","entrance"]"#,
+        "should serialize as sorted Vec"
+    );
 
     let roundtrip: HashSet<String> = serde_json::from_str(&json).unwrap();
-    assert_eq!(roundtrip, snap.discovered_rooms, "should roundtrip through serde");
+    assert_eq!(
+        roundtrip, snap.discovered_rooms,
+        "should roundtrip through serde"
+    );
 }
 
 #[test]
@@ -276,7 +297,10 @@ fn test_init_room_graph_no_entrance_room() {
         size: (2, 2),
         keeper_awareness_modifier: 1.0,
         exits: vec![],
-        description: None, grid: None, legend: None, tactical_scale: None,
+        description: None,
+        grid: None,
+        legend: None,
+        tactical_scale: None,
     }];
     let mut snap = GameSnapshot::default();
 

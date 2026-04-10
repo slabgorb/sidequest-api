@@ -14,21 +14,21 @@ use std::fs;
 
 /// Read the dispatch module source code for structural verification.
 fn dispatch_source() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/dispatch/mod.rs");
-    fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
 }
 
 /// Extract a function body from source code by name.
 fn extract_fn_body(src: &str, fn_name: &str) -> String {
     let search = format!("fn {}(", fn_name);
-    let start = src.find(&search)
+    let start = src
+        .find(&search)
         .unwrap_or_else(|| panic!("Function '{}' not found in source", fn_name));
     let from_fn = &src[start..];
 
     // Find the opening brace
-    let brace_start = from_fn.find('{')
+    let brace_start = from_fn
+        .find('{')
         .unwrap_or_else(|| panic!("No opening brace found for '{}'", fn_name));
     let body_start = brace_start + 1;
 
@@ -56,8 +56,7 @@ fn extract_fn_body(src: &str, fn_name: &str) -> String {
 fn persistence_source() -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../sidequest-game/src/persistence.rs");
-    fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read persistence.rs: {e}"))
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read persistence.rs: {e}"))
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -87,11 +86,13 @@ fn append_narrative_called_before_save() {
     // table is append-only and should record the entry even if the snapshot save
     // subsequently fails.  This also prevents the duplicate-write bug where
     // append_narrative was called both before AND inside the save-success branch.
-    let save_pos = persist_fn.find("persistence()")
+    let save_pos = persist_fn
+        .find("persistence()")
         .and_then(|start| persist_fn[start..].find(".save(").map(|p| start + p))
         .expect("persist_game_state must call persistence().save()");
 
-    let append_pos = persist_fn.find("append_narrative")
+    let append_pos = persist_fn
+        .find("append_narrative")
         .expect("persist_game_state must call append_narrative");
 
     assert!(
@@ -113,7 +114,8 @@ fn persist_game_state_emits_narrative_appended_otel() {
     let persist_fn = extract_fn_body(&src, "persist_game_state");
 
     assert!(
-        persist_fn.contains("narrative_appended") || persist_fn.contains("persistence.narrative_appended"),
+        persist_fn.contains("narrative_appended")
+            || persist_fn.contains("persistence.narrative_appended"),
         "persist_game_state() must emit an OTEL event for narrative_appended \
          so the GM panel can verify narrative persistence is working."
     );
@@ -156,7 +158,8 @@ fn persistence_handle_has_append_narrative_method() {
 
     // PersistenceHandle (the async wrapper) must have append_narrative
     // method available for the server dispatch to call
-    let handle_section = src.find("impl PersistenceHandle")
+    let handle_section = src
+        .find("impl PersistenceHandle")
         .or_else(|| src.find("impl PersistenceWorker"))
         .expect("PersistenceHandle or PersistenceWorker impl must exist");
     let from_impl = &src[handle_section..];

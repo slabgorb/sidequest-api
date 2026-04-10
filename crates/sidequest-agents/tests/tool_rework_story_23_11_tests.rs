@@ -272,15 +272,21 @@ fn prompt_has_no_filesystem_paths() {
 
     // Check for the specific paths we registered
     assert!(
-        !result.prompt_text.contains("/usr/local/bin/sidequest-encountergen"),
+        !result
+            .prompt_text
+            .contains("/usr/local/bin/sidequest-encountergen"),
         "Prompt must not contain binary filesystem paths"
     );
     assert!(
-        !result.prompt_text.contains("/usr/local/bin/sidequest-namegen"),
+        !result
+            .prompt_text
+            .contains("/usr/local/bin/sidequest-namegen"),
         "Prompt must not contain binary filesystem paths"
     );
     assert!(
-        !result.prompt_text.contains("/usr/local/bin/sidequest-loadoutgen"),
+        !result
+            .prompt_text
+            .contains("/usr/local/bin/sidequest-loadoutgen"),
         "Prompt must not contain binary filesystem paths"
     );
     assert!(
@@ -297,10 +303,7 @@ fn allowed_tools_still_use_binary_paths() {
     let orch = orchestrator_with_tools();
     let tools = orch.narrator_allowed_tools();
 
-    assert!(
-        !tools.is_empty(),
-        "Allowed tools should be populated"
-    );
+    assert!(!tools.is_empty(), "Allowed tools should be populated");
     for tool in &tools {
         assert!(
             tool.starts_with("Bash(") && tool.ends_with(":*)"),
@@ -377,7 +380,9 @@ fn env_var_genre_matches_context_genre() {
         let ctx = context_with_genre(genre);
         let result = orch.build_narrator_prompt("explore", &ctx);
 
-        let env_genre = result.env_vars.get("SIDEQUEST_GENRE")
+        let env_genre = result
+            .env_vars
+            .get("SIDEQUEST_GENRE")
             .unwrap_or_else(|| panic!("SIDEQUEST_GENRE missing for genre {genre}"));
         assert_eq!(
             env_genre, genre,
@@ -430,11 +435,15 @@ fn encounter_tool_preserves_checklist() {
     let result = orch.build_narrator_prompt("look around", &ctx);
 
     assert!(
-        result.prompt_text.contains("Use the generated name in your narration"),
+        result
+            .prompt_text
+            .contains("Use the generated name in your narration"),
         "Encounter tool must preserve checklist item about using generated names"
     );
     assert!(
-        result.prompt_text.contains("Reference abilities from the abilities list"),
+        result
+            .prompt_text
+            .contains("Reference abilities from the abilities list"),
         "Encounter tool must preserve checklist item about referencing abilities"
     );
 }
@@ -447,7 +456,9 @@ fn npc_tool_preserves_checklist() {
     let result = orch.build_narrator_prompt("look around", &ctx);
 
     assert!(
-        result.prompt_text.contains("Use the generated name exactly"),
+        result
+            .prompt_text
+            .contains("Use the generated name exactly"),
         "NPC tool must preserve checklist item about using generated name exactly"
     );
     assert!(
@@ -485,7 +496,8 @@ fn npc_tool_has_mandatory_pre_introduction_rule() {
     let result = orch.build_narrator_prompt("look around", &ctx);
 
     assert!(
-        result.prompt_text.contains("MANDATORY") && result.prompt_text.contains("BEFORE introducing"),
+        result.prompt_text.contains("MANDATORY")
+            && result.prompt_text.contains("BEFORE introducing"),
         "NPC tool must contain 'MANDATORY: Call this BEFORE introducing any new NPC' rule"
     );
 }

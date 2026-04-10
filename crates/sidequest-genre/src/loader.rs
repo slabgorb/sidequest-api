@@ -49,10 +49,8 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
     let beat_vocabulary: Option<BeatVocabulary> =
         load_yaml_optional(&path.join("beat_vocabulary.yaml"))?;
     let voice_presets: Option<VoicePresets> = load_yaml_optional(&path.join("voice_presets.yaml"))?;
-    let drama_thresholds: Option<DramaThresholds> =
-        load_yaml_optional(&path.join("pacing.yaml"))?;
-    let inventory: Option<InventoryConfig> =
-        load_yaml_optional(&path.join("inventory.yaml"))?;
+    let drama_thresholds: Option<DramaThresholds> = load_yaml_optional(&path.join("pacing.yaml"))?;
+    let inventory: Option<InventoryConfig> = load_yaml_optional(&path.join("inventory.yaml"))?;
     let openings: Vec<OpeningHook> =
         load_yaml_optional(&path.join("openings.yaml"))?.unwrap_or_default();
     let backstory_tables: Option<BackstoryTables> =
@@ -156,8 +154,7 @@ fn load_single_world(
 
     // When navigation_mode is RoomGraph, load rooms from a separate rooms.yaml file
     if cartography.navigation_mode == NavigationMode::RoomGraph {
-        let rooms: Option<Vec<RoomDef>> =
-            load_yaml_optional(&world_path.join("rooms.yaml"))?;
+        let rooms: Option<Vec<RoomDef>> = load_yaml_optional(&world_path.join("rooms.yaml"))?;
         cartography.rooms = rooms;
     }
 
@@ -183,8 +180,7 @@ fn load_single_world(
         load_yaml_optional(&world_path.join("archetypes.yaml"))?.unwrap_or_default();
     let visual_style: Option<serde_json::Value> =
         load_yaml_optional(&world_path.join("visual_style.yaml"))?;
-    let history: Option<serde_json::Value> =
-        load_yaml_optional(&world_path.join("history.yaml"))?;
+    let history: Option<serde_json::Value> = load_yaml_optional(&world_path.join("history.yaml"))?;
 
     // Portrait manifest — rich appearance descriptions for NPC portrait generation.
     let portrait_manifest: Vec<PortraitManifestEntry> = {
@@ -214,7 +210,9 @@ fn load_single_world(
 }
 
 /// Load legends.yaml flexibly: accepts Vec<Legend> or a map with a "legends" key.
-fn load_legends_flexible(path: &Path) -> Result<(Vec<Legend>, Option<serde_json::Value>), GenreError> {
+fn load_legends_flexible(
+    path: &Path,
+) -> Result<(Vec<Legend>, Option<serde_json::Value>), GenreError> {
     if !path.exists() {
         return Ok((Vec::new(), None));
     }
@@ -227,8 +225,7 @@ fn load_legends_flexible(path: &Path) -> Result<(Vec<Legend>, Option<serde_json:
     }
 
     // Try as a map — extract "legends" key if present, keep full raw value
-    let raw: serde_json::Value =
-        serde_yaml::from_str(&content).map_err(|e| load_error(path, e))?;
+    let raw: serde_json::Value = serde_yaml::from_str(&content).map_err(|e| load_error(path, e))?;
 
     let legends = if let Some(legends_val) = raw.get("legends") {
         serde_json::from_value::<Vec<Legend>>(legends_val.clone())

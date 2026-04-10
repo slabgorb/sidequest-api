@@ -154,9 +154,8 @@ fn multiplayer_barrier_should_use_disabled_config() {
     //
     // The correct construction is TurnBarrier::new(session, TurnBarrierConfig::disabled())
     // NOT TurnBarrier::with_adaptive(session, AdaptiveTimeout::default()).
-    let session = MultiplayerSession::with_player_ids(
-        vec!["player1".to_string(), "player2".to_string()],
-    );
+    let session =
+        MultiplayerSession::with_player_ids(vec!["player1".to_string(), "player2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
     let config = barrier.config();
     assert!(
@@ -169,9 +168,7 @@ fn multiplayer_barrier_should_use_disabled_config() {
 async fn barrier_resolves_on_all_submissions_not_timeout() {
     // Two players, no timeout. Both submit → barrier resolves.
     // This verifies the notify path works without timeout.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string(), "p2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     // Submit both actions
@@ -203,9 +200,11 @@ async fn disconnect_removes_player_and_resolves_barrier() {
     // 3 players. P1 submits. P2 disconnects (removed). P3 submits.
     // After disconnect, only P1 and P3 are in the expected set.
     // Both have submitted → barrier resolves.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string(), "p3".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec![
+        "p1".to_string(),
+        "p2".to_string(),
+        "p3".to_string(),
+    ]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "I search the room");
@@ -230,9 +229,7 @@ async fn disconnect_removes_player_and_resolves_barrier() {
 async fn disconnect_of_only_remaining_unsubmitted_player_resolves() {
     // 2 players. P1 submits. P2 disconnects. Barrier should resolve
     // because the only expected player (P1) has submitted.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string(), "p2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "I negotiate with the merchant");
@@ -248,9 +245,7 @@ async fn disconnect_of_only_remaining_unsubmitted_player_resolves() {
 
 #[test]
 fn remove_unknown_player_returns_error() {
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     let result = barrier.remove_player("ghost");
@@ -270,17 +265,11 @@ fn remove_unknown_player_returns_error() {
 #[test]
 fn barrier_tracks_submissions_for_status() {
     // After P1 submits but before P2, barrier should NOT be met.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string(), "p2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "I draw my sword");
-    assert_eq!(
-        barrier.player_count(),
-        2,
-        "Still 2 players in session"
-    );
+    assert_eq!(barrier.player_count(), 2, "Still 2 players in session");
     // Barrier should NOT be met yet
     // We verify via named_actions — P1 has submitted, P2 has not
     let actions = barrier.named_actions();
@@ -295,9 +284,7 @@ fn barrier_tracks_submissions_for_status() {
 async fn barrier_resolved_span_is_emitted() {
     // The barrier.resolved span already exists in barrier.rs resolve().
     // Verify it's present by checking the resolution path completes.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string(), "p2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "attack");
@@ -369,9 +356,11 @@ fn full_multiplayer_lifecycle_transitions() {
 async fn all_players_disconnect_except_submitter_resolves() {
     // 3 players. P1 submits. P2 and P3 disconnect. Barrier resolves with
     // only P1 remaining.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string(), "p3".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec![
+        "p1".to_string(),
+        "p2".to_string(),
+        "p3".to_string(),
+    ]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "I flee");
@@ -386,16 +375,18 @@ async fn all_players_disconnect_except_submitter_resolves() {
 #[test]
 fn duplicate_submission_is_idempotent() {
     // Submitting twice for the same player should not double-count.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string(), "p2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "I attack");
-    barrier.submit_action("p1", "I attack again");  // should be ignored
+    barrier.submit_action("p1", "I attack again"); // should be ignored
 
     let actions = barrier.named_actions();
-    assert_eq!(actions.len(), 1, "Duplicate submission should not create second entry");
+    assert_eq!(
+        actions.len(),
+        1,
+        "Duplicate submission should not create second entry"
+    );
 }
 
 // ===========================================================================

@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use sidequest_game::{
-    AudioAction, AudioChannel, MoodKey, MoodClassification, MoodContext, MusicDirector,
+    AudioAction, AudioChannel, MoodClassification, MoodContext, MoodKey, MusicDirector,
     MusicEvalResult,
 };
 use sidequest_genre::{AudioConfig, AudioTheme, AudioVariation, MixerConfig, MoodTrack};
@@ -277,11 +277,23 @@ fn track_variation_is_non_exhaustive() {
 fn mood_context_new_fields_exist_with_defaults() {
     let ctx = MoodContext::default();
 
-    assert_eq!(ctx.location_changed, false, "location_changed should default to false");
-    assert_eq!(ctx.scene_turn_count, 0, "scene_turn_count should default to 0");
+    assert_eq!(
+        ctx.location_changed, false,
+        "location_changed should default to false"
+    );
+    assert_eq!(
+        ctx.scene_turn_count, 0,
+        "scene_turn_count should default to 0"
+    );
     assert_eq!(ctx.drama_weight, 0.0, "drama_weight should default to 0.0");
-    assert_eq!(ctx.combat_just_ended, false, "combat_just_ended should default to false");
-    assert_eq!(ctx.session_start, false, "session_start should default to false");
+    assert_eq!(
+        ctx.combat_just_ended, false,
+        "combat_just_ended should default to false"
+    );
+    assert_eq!(
+        ctx.session_start, false,
+        "session_start should default to false"
+    );
 }
 
 /// AC2: MoodContext new fields can be set explicitly.
@@ -644,7 +656,8 @@ fn music_director_indexes_themes_by_variation() {
     };
     let ctx = mood_ctx_with_new_fields(false, 0, 0.0, false, true); // session_start → Overture
 
-    let MusicEvalResult::Cue(audio_cue) = director.evaluate("Arriving at a new location", &ctx) else {
+    let MusicEvalResult::Cue(audio_cue) = director.evaluate("Arriving at a new location", &ctx)
+    else {
         panic!("should produce a cue for session start");
     };
     let track_id = audio_cue.track_id.unwrap();
@@ -705,10 +718,7 @@ fn theme_rotator_uses_variation_keying() {
     // Telemetry should show per-variation history keying
     let telemetry = director.telemetry_snapshot();
     // The history keys should include variation suffix (e.g. "exploration:overture")
-    let has_variation_key = telemetry
-        .rotation_history
-        .keys()
-        .any(|k| k.contains(':'));
+    let has_variation_key = telemetry.rotation_history.keys().any(|k| k.contains(':'));
     assert!(
         has_variation_key,
         "rotation history should use '{{mood}}:{{variation}}' keying, got keys: {:?}",
@@ -798,7 +808,8 @@ fn full_pipeline_classify_to_audio_cue() {
     );
 
     // evaluate should produce a cue with the overture track
-    let MusicEvalResult::Cue(cue) = director.evaluate("Welcome to the enchanted forest", &ctx) else {
+    let MusicEvalResult::Cue(cue) = director.evaluate("Welcome to the enchanted forest", &ctx)
+    else {
         panic!("should produce an AudioCue");
     };
     assert_eq!(cue.channel, AudioChannel::Music);
@@ -828,7 +839,9 @@ fn full_pipeline_combat_end_resolution() {
         scene_turn_count: 1,
         ..Default::default()
     };
-    let MusicEvalResult::Cue(cue) = director.evaluate("The battle is over, silence falls.", &post_combat_ctx) else {
+    let MusicEvalResult::Cue(cue) =
+        director.evaluate("The battle is over, silence falls.", &post_combat_ctx)
+    else {
         panic!("mood change post-combat should produce a cue");
     };
     assert!(

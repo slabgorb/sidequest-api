@@ -108,8 +108,12 @@ fn rules_3d6() -> RulesConfig {
         stat_generation: "roll_3d6_strict".to_string(),
         point_buy_budget: 0,
         ability_score_names: vec![
-            "STR".to_string(), "DEX".to_string(), "CON".to_string(),
-            "INT".to_string(), "WIS".to_string(), "CHA".to_string(),
+            "STR".to_string(),
+            "DEX".to_string(),
+            "CON".to_string(),
+            "INT".to_string(),
+            "WIS".to_string(),
+            "CHA".to_string(),
         ],
         allowed_classes: vec!["Delver".to_string()],
         allowed_races: vec!["Human".to_string()],
@@ -145,20 +149,31 @@ fn test_backstory_tables() -> sidequest_genre::BackstoryTables {
     sidequest_genre::BackstoryTables {
         template: "Former {trade}. {feature}. {reason}.".to_string(),
         tables: HashMap::from([
-            ("trade".to_string(), vec![
-                "ratcatcher".to_string(), "gravedigger".to_string(),
-                "turnip farmer".to_string(), "tallow chandler".to_string(),
-            ]),
-            ("feature".to_string(), vec![
-                "Missing three fingers on the left hand".to_string(),
-                "Torch burns up both arms".to_string(),
-                "One glass eye that doesn't match".to_string(),
-            ]),
-            ("reason".to_string(), vec![
-                "Delves because the alternative is debtor's prison".to_string(),
-                "Heard there was gold down there and believed it".to_string(),
-                "Lost a bet with someone who didn't survive to collect".to_string(),
-            ]),
+            (
+                "trade".to_string(),
+                vec![
+                    "ratcatcher".to_string(),
+                    "gravedigger".to_string(),
+                    "turnip farmer".to_string(),
+                    "tallow chandler".to_string(),
+                ],
+            ),
+            (
+                "feature".to_string(),
+                vec![
+                    "Missing three fingers on the left hand".to_string(),
+                    "Torch burns up both arms".to_string(),
+                    "One glass eye that doesn't match".to_string(),
+                ],
+            ),
+            (
+                "reason".to_string(),
+                vec![
+                    "Delves because the alternative is debtor's prison".to_string(),
+                    "Heard there was gold down there and believed it".to_string(),
+                    "Lost a bet with someone who didn't survive to collect".to_string(),
+                ],
+            ),
         ]),
     }
 }
@@ -170,7 +185,7 @@ fn build_caverns_character() -> Result<sidequest_game::Character, BuilderError> 
     let tables = test_backstory_tables();
     let mut builder = CharacterBuilder::new(scenes, &rules, Some(tables));
     builder.apply_freeform("")?; // the_roll
-    builder.apply_choice(0)?;    // pronouns
+    builder.apply_choice(0)?; // pronouns
     builder.build("Grist")
 }
 
@@ -269,7 +284,9 @@ fn genre_without_tables_uses_fallback_gracefully() {
     let mut builder = CharacterBuilder::new(scenes, &rules, None);
     builder.apply_freeform("").unwrap();
     builder.apply_choice(0).unwrap();
-    let character = builder.build("Nobody").expect("build should succeed without tables");
+    let character = builder
+        .build("Nobody")
+        .expect("build should succeed without tables");
 
     // Should get some backstory — either fallback or mechanical labels
     assert!(
@@ -345,26 +362,24 @@ fn template_with_missing_table_key_does_not_produce_literal_placeholder() {
 #[test]
 fn pronoun_choice_with_item_hint_is_not_pronoun_only() {
     // A choice that sets both pronoun and item — should NOT be filtered as pronoun-only
-    let scenes = vec![
-        CharCreationScene {
-            id: "identity".to_string(),
-            title: "Who Are You?".to_string(),
-            narration: "Tell me about yourself.".to_string(),
-            choices: vec![CharCreationChoice {
-                label: "The Armed Woman".to_string(),
-                description: "A woman with a blade at her hip and murder in her eyes.".to_string(),
-                mechanical_effects: MechanicalEffects {
-                    pronoun_hint: Some("she/her".to_string()),
-                    item_hint: Some("Short Sword".to_string()),
-                    ..MechanicalEffects::default()
-                },
-            }],
-            allows_freeform: Some(false),
-            hook_prompt: None,
-            loading_text: None,
-            mechanical_effects: None,
-        },
-    ];
+    let scenes = vec![CharCreationScene {
+        id: "identity".to_string(),
+        title: "Who Are You?".to_string(),
+        narration: "Tell me about yourself.".to_string(),
+        choices: vec![CharCreationChoice {
+            label: "The Armed Woman".to_string(),
+            description: "A woman with a blade at her hip and murder in her eyes.".to_string(),
+            mechanical_effects: MechanicalEffects {
+                pronoun_hint: Some("she/her".to_string()),
+                item_hint: Some("Short Sword".to_string()),
+                ..MechanicalEffects::default()
+            },
+        }],
+        allows_freeform: Some(false),
+        hook_prompt: None,
+        loading_text: None,
+        mechanical_effects: None,
+    }];
 
     let rules = rules_standard();
     let mut builder = CharacterBuilder::new(scenes, &rules, None);

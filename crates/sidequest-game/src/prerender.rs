@@ -278,7 +278,10 @@ mod tests {
             ..Default::default()
         };
         let result = scheduler.speculate(&ctx);
-        assert!(result.is_none(), "Should disable after sustained low hit rate");
+        assert!(
+            result.is_none(),
+            "Should disable after sustained low hit rate"
+        );
     }
 
     #[test]
@@ -301,7 +304,10 @@ mod tests {
         let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
         let ctx = PrerenderContext::default();
         let result = scheduler.speculate(&ctx);
-        assert!(result.is_none(), "No prediction possible should return None gracefully");
+        assert!(
+            result.is_none(),
+            "No prediction possible should return None gracefully"
+        );
     }
 
     #[test]

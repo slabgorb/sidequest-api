@@ -161,7 +161,9 @@ impl SqliteStore {
             std::fs::read_dir(root).map_err(|e| PersistError::Database(e.to_string()))?;
         for genre_entry in genre_dirs.flatten() {
             let genre_path = genre_entry.path();
-            if !genre_path.is_dir() { continue; }
+            if !genre_path.is_dir() {
+                continue;
+            }
             let genre_slug = match genre_path.file_name().and_then(|n| n.to_str()) {
                 Some(name) => name.to_string(),
                 None => continue,
@@ -172,18 +174,30 @@ impl SqliteStore {
             };
             for world_entry in world_dirs.flatten() {
                 let world_path = world_entry.path();
-                if !world_path.is_dir() { continue; }
+                if !world_path.is_dir() {
+                    continue;
+                }
                 let world_slug = match world_path.file_name().and_then(|n| n.to_str()) {
                     Some(name) => name.to_string(),
                     None => continue,
                 };
                 let db_path = world_path.join("save.db");
                 if db_path.exists() {
-                    if let Ok(store) = SqliteStore::open(db_path.to_str().expect("Database path contains invalid UTF-8")) {
+                    if let Ok(store) = SqliteStore::open(
+                        db_path
+                            .to_str()
+                            .expect("Database path contains invalid UTF-8"),
+                    ) {
                         let meta = store.load_meta();
                         saves.push(SaveListEntry {
-                            genre_slug: meta.as_ref().map(|m| m.genre_slug.clone()).unwrap_or(genre_slug.clone()),
-                            world_slug: meta.as_ref().map(|m| m.world_slug.clone()).unwrap_or(world_slug.clone()),
+                            genre_slug: meta
+                                .as_ref()
+                                .map(|m| m.genre_slug.clone())
+                                .unwrap_or(genre_slug.clone()),
+                            world_slug: meta
+                                .as_ref()
+                                .map(|m| m.world_slug.clone())
+                                .unwrap_or(world_slug.clone()),
                         });
                     }
                 }
@@ -281,7 +295,11 @@ impl SessionStore for SqliteStore {
     fn load(&self) -> Result<Option<SavedSession>, PersistError> {
         let state_json: Option<String> = self
             .conn
-            .query_row("SELECT snapshot_json FROM game_state WHERE id = 1", [], |row| row.get(0))
+            .query_row(
+                "SELECT snapshot_json FROM game_state WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
             .ok();
         let state_json = match state_json {
             Some(json) => json,
@@ -301,8 +319,13 @@ impl SessionStore for SqliteStore {
             .iter()
             .map(|c| Combatant::name(c).to_string())
             .collect();
-        let recap = crate::narrative::generate_recap(&entries, &character_names, &snapshot.location);
-        Ok(Some(SavedSession { meta, snapshot, recap }))
+        let recap =
+            crate::narrative::generate_recap(&entries, &character_names, &snapshot.location);
+        Ok(Some(SavedSession {
+            meta,
+            snapshot,
+            recap,
+        }))
     }
 
     fn append_narrative(&self, entry: &NarrativeEntry) -> Result<(), PersistError> {
@@ -354,7 +377,9 @@ impl SessionStore for SqliteStore {
 
     fn generate_recap(&self) -> Result<Option<String>, PersistError> {
         let entries = self.recent_narrative(3)?;
-        if entries.is_empty() { return Ok(None); }
+        if entries.is_empty() {
+            return Ok(None);
+        }
         let mut recap = String::from("Previously On...\n\n");
         for entry in &entries {
             let content = if entry.content.len() > 200 {
@@ -426,8 +451,16 @@ impl SqliteStore {
                 let content: String = row.get(2)?;
                 let source_str: String = row.get(3)?;
                 let turn_created: Option<i64> = row.get(4)?;
-                let metadata_json: String = row.get::<_, String>(5).unwrap_or_else(|_| "{}".to_string());
-                Ok((id, category_str, content, source_str, turn_created, metadata_json))
+                let metadata_json: String =
+                    row.get::<_, String>(5).unwrap_or_else(|_| "{}".to_string());
+                Ok((
+                    id,
+                    category_str,
+                    content,
+                    source_str,
+                    turn_created,
+                    metadata_json,
+                ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -439,7 +472,8 @@ impl SqliteStore {
                 "CharacterCreation" => LoreSource::CharacterCreation,
                 _ => LoreSource::GameEvent,
             };
-            let metadata: HashMap<String, String> = serde_json::from_str(&metadata_json).unwrap_or_default();
+            let metadata: HashMap<String, String> =
+                serde_json::from_str(&metadata_json).unwrap_or_default();
             let fragment = LoreFragment::new(
                 id,
                 category,
@@ -577,42 +611,68 @@ pub struct PersistenceHandle {
 impl PersistenceHandle {
     /// Save a game snapshot for a genre/world/player session.
     #[tracing::instrument(skip(self, snapshot), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
-    pub async fn save(&self, genre_slug: &str, world_slug: &str, player_name: &str, snapshot: &GameSnapshot) -> Result<(), PersistError> {
+    pub async fn save(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+        snapshot: &GameSnapshot,
+    ) -> Result<(), PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(PersistenceCommand::Save {
-            genre_slug: genre_slug.to_string(),
-            world_slug: world_slug.to_string(),
-            player_name: player_name.to_string(),
-            snapshot: snapshot.clone(),
-            reply: reply_tx,
-        }).await.map_err(|_| PersistError::WorkerGone)?;
+        self.tx
+            .send(PersistenceCommand::Save {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                snapshot: snapshot.clone(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
     /// Load a saved session, or None if no save exists.
     #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
-    pub async fn load(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<Option<SavedSession>, PersistError> {
+    pub async fn load(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+    ) -> Result<Option<SavedSession>, PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(PersistenceCommand::Load {
-            genre_slug: genre_slug.to_string(),
-            world_slug: world_slug.to_string(),
-            player_name: player_name.to_string(),
-            reply: reply_tx,
-        }).await.map_err(|_| PersistError::WorkerGone)?;
+        self.tx
+            .send(PersistenceCommand::Load {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
     /// Append a narrative entry to a session's log.
     #[tracing::instrument(skip(self, entry), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
-    pub async fn append_narrative(&self, genre_slug: &str, world_slug: &str, player_name: &str, entry: &NarrativeEntry) -> Result<(), PersistError> {
+    pub async fn append_narrative(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+        entry: &NarrativeEntry,
+    ) -> Result<(), PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(PersistenceCommand::AppendNarrative {
-            genre_slug: genre_slug.to_string(),
-            world_slug: world_slug.to_string(),
-            player_name: player_name.to_string(),
-            entry: entry.clone(),
-            reply: reply_tx,
-        }).await.map_err(|_| PersistError::WorkerGone)?;
+        self.tx
+            .send(PersistenceCommand::AppendNarrative {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                entry: entry.clone(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
@@ -620,26 +680,39 @@ impl PersistenceHandle {
     #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
     pub async fn exists(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> bool {
         let (reply_tx, reply_rx) = oneshot::channel();
-        let sent = self.tx.send(PersistenceCommand::Exists {
-            genre_slug: genre_slug.to_string(),
-            world_slug: world_slug.to_string(),
-            player_name: player_name.to_string(),
-            reply: reply_tx,
-        }).await;
-        if sent.is_err() { return false; }
+        let sent = self
+            .tx
+            .send(PersistenceCommand::Exists {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                reply: reply_tx,
+            })
+            .await;
+        if sent.is_err() {
+            return false;
+        }
         reply_rx.await.unwrap_or(false)
     }
 
     /// Delete a saved session (permadeath wipe). Removes the .db file and evicts the store cache.
     #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
-    pub async fn delete(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<(), PersistError> {
+    pub async fn delete(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+    ) -> Result<(), PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(PersistenceCommand::Delete {
-            genre_slug: genre_slug.to_string(),
-            world_slug: world_slug.to_string(),
-            player_name: player_name.to_string(),
-            reply: reply_tx,
-        }).await.map_err(|_| PersistError::WorkerGone)?;
+        self.tx
+            .send(PersistenceCommand::Delete {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
@@ -647,34 +720,54 @@ impl PersistenceHandle {
     #[tracing::instrument(skip(self))]
     pub async fn list_saves(&self) -> Result<Vec<SaveListEntry>, PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(PersistenceCommand::ListSaves { reply: reply_tx }).await.map_err(|_| PersistError::WorkerGone)?;
+        self.tx
+            .send(PersistenceCommand::ListSaves { reply: reply_tx })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
     /// Persist a lore fragment for a genre/world/player session.
     #[tracing::instrument(skip(self, fragment), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
-    pub async fn append_lore_fragment(&self, genre_slug: &str, world_slug: &str, player_name: &str, fragment: &LoreFragment) -> Result<(), PersistError> {
+    pub async fn append_lore_fragment(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+        fragment: &LoreFragment,
+    ) -> Result<(), PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(PersistenceCommand::AppendLoreFragment {
-            genre_slug: genre_slug.to_string(),
-            world_slug: world_slug.to_string(),
-            player_name: player_name.to_string(),
-            fragment: fragment.clone(),
-            reply: reply_tx,
-        }).await.map_err(|_| PersistError::WorkerGone)?;
+        self.tx
+            .send(PersistenceCommand::AppendLoreFragment {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                fragment: fragment.clone(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
     /// Load all persisted lore fragments for a genre/world/player session.
     #[tracing::instrument(skip(self), fields(genre = %genre_slug, world = %world_slug, player = %player_name))]
-    pub async fn load_lore_fragments(&self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<Vec<LoreFragment>, PersistError> {
+    pub async fn load_lore_fragments(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+    ) -> Result<Vec<LoreFragment>, PersistError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(PersistenceCommand::LoadLoreFragments {
-            genre_slug: genre_slug.to_string(),
-            world_slug: world_slug.to_string(),
-            player_name: player_name.to_string(),
-            reply: reply_tx,
-        }).await.map_err(|_| PersistError::WorkerGone)?;
+        self.tx
+            .send(PersistenceCommand::LoadLoreFragments {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
         reply_rx.await.map_err(|_| PersistError::WorkerGone)?
     }
 
@@ -745,13 +838,32 @@ impl PersistenceWorker {
         // Sanitize player_name for filesystem safety
         let safe_name: String = player_name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
-        let safe_name = if safe_name.is_empty() { "default".to_string() } else { safe_name.to_lowercase() };
-        self.save_dir.join(genre_slug).join(world_slug).join(&safe_name).join("save.db")
+        let safe_name = if safe_name.is_empty() {
+            "default".to_string()
+        } else {
+            safe_name.to_lowercase()
+        };
+        self.save_dir
+            .join(genre_slug)
+            .join(world_slug)
+            .join(&safe_name)
+            .join("save.db")
     }
 
-    fn get_or_open_store(&mut self, genre_slug: &str, world_slug: &str, player_name: &str) -> Result<&SqliteStore, PersistError> {
+    fn get_or_open_store(
+        &mut self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+    ) -> Result<&SqliteStore, PersistError> {
         let key = Self::store_key(genre_slug, world_slug, player_name);
         if !self.stores.contains_key(&key) {
             let db_path = self.db_path(genre_slug, world_slug, player_name);
@@ -759,7 +871,11 @@ impl PersistenceWorker {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| PersistError::Database(format!("mkdir failed: {}", e)))?;
             }
-            let store = SqliteStore::open(db_path.to_str().expect("Database path contains invalid UTF-8"))?;
+            let store = SqliteStore::open(
+                db_path
+                    .to_str()
+                    .expect("Database path contains invalid UTF-8"),
+            )?;
             store.init_session(genre_slug, world_slug)?;
             tracing::info!(genre = %genre_slug, world = %world_slug, "Session store opened");
             self.stores.insert(key.clone(), store);
@@ -769,7 +885,13 @@ impl PersistenceWorker {
 
     fn handle_command(&mut self, cmd: PersistenceCommand) {
         match cmd {
-            PersistenceCommand::Save { genre_slug, world_slug, player_name, snapshot, reply } => {
+            PersistenceCommand::Save {
+                genre_slug,
+                world_slug,
+                player_name,
+                snapshot,
+                reply,
+            } => {
                 let _span = tracing::info_span!("persistence_save", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
                 let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| {
                     store.save(&snapshot)?;
@@ -811,7 +933,12 @@ impl PersistenceWorker {
                 }
                 let _ = reply.send(result);
             }
-            PersistenceCommand::Load { genre_slug, world_slug, player_name, reply } => {
+            PersistenceCommand::Load {
+                genre_slug,
+                world_slug,
+                player_name,
+                reply,
+            } => {
                 let _span = tracing::info_span!("persistence_load", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
                 let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| {
                     let mut saved = store.load()?;
@@ -860,33 +987,67 @@ impl PersistenceWorker {
                 }
                 let _ = reply.send(result);
             }
-            PersistenceCommand::AppendNarrative { genre_slug, world_slug, player_name, entry, reply } => {
-                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.append_narrative(&entry));
+            PersistenceCommand::AppendNarrative {
+                genre_slug,
+                world_slug,
+                player_name,
+                entry,
+                reply,
+            } => {
+                let result = self
+                    .get_or_open_store(&genre_slug, &world_slug, &player_name)
+                    .and_then(|store| store.append_narrative(&entry));
                 let _ = reply.send(result);
             }
-            PersistenceCommand::Exists { genre_slug, world_slug, player_name, reply } => {
+            PersistenceCommand::Exists {
+                genre_slug,
+                world_slug,
+                player_name,
+                reply,
+            } => {
                 let db_path = self.db_path(&genre_slug, &world_slug, &player_name);
                 let exists = db_path.exists();
                 tracing::debug!(genre = %genre_slug, world = %world_slug, player = %player_name, exists, "Checking save");
                 let _ = reply.send(exists);
             }
-            PersistenceCommand::AppendLoreFragment { genre_slug, world_slug, player_name, fragment, reply } => {
-                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.append_lore_fragment(&fragment));
+            PersistenceCommand::AppendLoreFragment {
+                genre_slug,
+                world_slug,
+                player_name,
+                fragment,
+                reply,
+            } => {
+                let result = self
+                    .get_or_open_store(&genre_slug, &world_slug, &player_name)
+                    .and_then(|store| store.append_lore_fragment(&fragment));
                 let _ = reply.send(result);
             }
-            PersistenceCommand::LoadLoreFragments { genre_slug, world_slug, player_name, reply } => {
-                let result = self.get_or_open_store(&genre_slug, &world_slug, &player_name).and_then(|store| store.load_lore_fragments());
+            PersistenceCommand::LoadLoreFragments {
+                genre_slug,
+                world_slug,
+                player_name,
+                reply,
+            } => {
+                let result = self
+                    .get_or_open_store(&genre_slug, &world_slug, &player_name)
+                    .and_then(|store| store.load_lore_fragments());
                 let _ = reply.send(result);
             }
-            PersistenceCommand::Delete { genre_slug, world_slug, player_name, reply } => {
+            PersistenceCommand::Delete {
+                genre_slug,
+                world_slug,
+                player_name,
+                reply,
+            } => {
                 let _span = tracing::info_span!("persistence_delete", genre = %genre_slug, world = %world_slug, player = %player_name).entered();
                 // Evict cached store so the Connection is dropped before we delete the file
                 let key = Self::store_key(&genre_slug, &world_slug, &player_name);
                 self.stores.remove(&key);
                 let db_path = self.db_path(&genre_slug, &world_slug, &player_name);
                 let result = if db_path.exists() {
-                    std::fs::remove_file(&db_path)
-                        .map_err(|e| PersistError::Database(format!("failed to delete save: {}", e)))
+                    std::fs::remove_file(&db_path).map_err(|e| {
+                        PersistError::Database(format!("failed to delete save: {}", e))
+                    })
                 } else {
                     Ok(())
                 };

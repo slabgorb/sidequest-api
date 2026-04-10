@@ -29,7 +29,14 @@ pub fn validate_continuity_llm(
     time_of_day: &str,
     character_description: &str,
 ) -> ValidationResult {
-    let prompt = build_validation_prompt(narration, location, dead_npcs, inventory_items, time_of_day, character_description);
+    let prompt = build_validation_prompt(
+        narration,
+        location,
+        dead_npcs,
+        inventory_items,
+        time_of_day,
+        character_description,
+    );
 
     // Fast path: if the prompt builder found no state facts worth checking,
     // skip the LLM call entirely (~15-22s saved per turn).
@@ -87,7 +94,14 @@ pub async fn validate_continuity_llm_async(
     let character_description = character_description.to_string();
 
     match tokio::task::spawn_blocking(move || {
-        validate_continuity_llm(&narration, &location, &dead_npcs, &inventory_items, &time_of_day, &character_description)
+        validate_continuity_llm(
+            &narration,
+            &location,
+            &dead_npcs,
+            &inventory_items,
+            &time_of_day,
+            &character_description,
+        )
     })
     .await
     {
@@ -113,7 +127,10 @@ fn build_validation_prompt(
         state_facts.push(format!("Current location: {location}"));
     }
     if !dead_npcs.is_empty() {
-        state_facts.push(format!("Dead NPCs (hp=0, should not act or speak): {}", dead_npcs.join(", ")));
+        state_facts.push(format!(
+            "Dead NPCs (hp=0, should not act or speak): {}",
+            dead_npcs.join(", ")
+        ));
     }
     if !inventory_items.is_empty() {
         state_facts.push(format!("Player inventory: {}", inventory_items.join(", ")));

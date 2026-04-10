@@ -7,9 +7,7 @@
 //!   AC1 — DramaThresholds is deserializable from YAML (via YAML shape validation)
 //!   AC6 — Thresholds flow through to pacing_hint()
 
-use sidequest_game::tension_tracker::{
-    CombatEvent, DeliveryMode, DramaThresholds, TensionTracker,
-};
+use sidequest_game::tension_tracker::{CombatEvent, DeliveryMode, DramaThresholds, TensionTracker};
 
 // ============================================================================
 // AC1: DramaThresholds is deserializable from YAML
@@ -19,8 +17,7 @@ use sidequest_game::tension_tracker::{
 /// This validates the expected YAML shape. Once Deserialize is derived,
 /// the genre-crate tests handle typed deserialization.
 fn thresholds_from_yaml_value(yaml: &str) -> DramaThresholds {
-    let value: serde_yaml::Value =
-        serde_yaml::from_str(yaml).expect("YAML should parse");
+    let value: serde_yaml::Value = serde_yaml::from_str(yaml).expect("YAML should parse");
     let map = value.as_mapping().expect("top-level should be a mapping");
 
     let get_f64 = |key: &str, default: f64| -> f64 {
@@ -127,7 +124,10 @@ fn custom_thresholds_change_delivery_mode_boundary() {
     tracker.record_event(CombatEvent::Boring);
 
     let dw = tracker.drama_weight();
-    assert!(dw > 0.0, "two boring turns should produce non-zero drama_weight");
+    assert!(
+        dw > 0.0,
+        "two boring turns should produce non-zero drama_weight"
+    );
 
     let custom = DramaThresholds {
         sentence_delivery_min: 0.01,
@@ -151,7 +151,10 @@ fn custom_thresholds_raise_streaming_boundary() {
     tracker.inject_spike(0.85);
 
     let dw = tracker.drama_weight();
-    assert!(dw > 0.70, "spike of 0.85 should produce drama_weight > 0.70");
+    assert!(
+        dw > 0.70,
+        "spike of 0.85 should produce drama_weight > 0.70"
+    );
 
     // Default thresholds → should be Streaming
     let default_hint = tracker.pacing_hint(&DramaThresholds::default());

@@ -100,7 +100,8 @@ fn delta_tier_includes_narrator_voice() {
 
     let ctx = context_with_genre("spaghetti_western", "Speak in terse, dusty prose");
 
-    let result = orch.build_narrator_prompt_tiered("draw my pistol", &ctx, NarratorPromptTier::Delta);
+    let result =
+        orch.build_narrator_prompt_tiered("draw my pistol", &ctx, NarratorPromptTier::Delta);
 
     assert!(
         result.prompt_text.contains("<genre-voice>"),
@@ -120,7 +121,8 @@ fn delta_tier_includes_world_state_tracking() {
 
     let ctx = context_with_genre("low_fantasy", "Grim narrator voice");
 
-    let result = orch.build_narrator_prompt_tiered("enter the tavern", &ctx, NarratorPromptTier::Delta);
+    let result =
+        orch.build_narrator_prompt_tiered("enter the tavern", &ctx, NarratorPromptTier::Delta);
 
     assert!(
         result.prompt_text.contains("<genre-world-state>"),
@@ -138,7 +140,8 @@ fn delta_tier_includes_npc_behavior() {
 
     let ctx = context_with_genre("neon_dystopia", "Cyberpunk narrator voice");
 
-    let result = orch.build_narrator_prompt_tiered("talk to the fixer", &ctx, NarratorPromptTier::Delta);
+    let result =
+        orch.build_narrator_prompt_tiered("talk to the fixer", &ctx, NarratorPromptTier::Delta);
 
     assert!(
         result.prompt_text.contains("<genre-npc>"),
@@ -164,7 +167,8 @@ fn delta_tier_uses_character_name_not_numeric_index() {
         ..Default::default()
     };
 
-    let result = orch.build_narrator_prompt_tiered("search the room", &ctx, NarratorPromptTier::Delta);
+    let result =
+        orch.build_narrator_prompt_tiered("search the room", &ctx, NarratorPromptTier::Delta);
 
     assert!(
         result.prompt_text.contains("Four-fingered Jack"),
@@ -248,10 +252,22 @@ fn full_tier_prompt_contains_all_grounding_sections() {
 
     let result = orch.build_narrator_prompt_tiered("look around", &ctx, NarratorPromptTier::Full);
 
-    assert!(result.prompt_text.contains("<genre>"), "Full tier must have genre identity");
-    assert!(result.prompt_text.contains("<genre-voice>"), "Full tier must have narrator voice");
-    assert!(result.prompt_text.contains("<genre-world-state>"), "Full tier must have world state");
-    assert!(result.prompt_text.contains("<genre-npc>"), "Full tier must have NPC behavior");
+    assert!(
+        result.prompt_text.contains("<genre>"),
+        "Full tier must have genre identity"
+    );
+    assert!(
+        result.prompt_text.contains("<genre-voice>"),
+        "Full tier must have narrator voice"
+    );
+    assert!(
+        result.prompt_text.contains("<genre-world-state>"),
+        "Full tier must have world state"
+    );
+    assert!(
+        result.prompt_text.contains("<genre-npc>"),
+        "Full tier must have NPC behavior"
+    );
 }
 
 // ============================================================================

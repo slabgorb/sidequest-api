@@ -477,10 +477,10 @@ impl TurnBarrier {
             let turn = self.inner.current_resolution_turn.lock().unwrap();
             *turn
         };
-        
+
         let mut session = self.inner.session.lock().unwrap();
         let current_turn = session.turn_number();
-        
+
         // Only the FIRST task from a given initial turn should perform the actual resolution.
         // All tasks for the same initial turn coordinate: only one calls force_resolve_turn(),
         // the others just return the narration.
@@ -502,11 +502,11 @@ impl TurnBarrier {
                 // This initial turn has already been resolved by a previous task.
                 // Return the same result without modifying state.
                 let missing: Vec<String> = vec![];
-                let narration = session.named_actions();  // Return current state snapshot
+                let narration = session.named_actions(); // Return current state snapshot
                 (false, missing, narration)
             }
         };
-        
+
         // Track this turn as resolved and bump the epoch.
         // Set just_resolved so late-arriving wait_for_turn() calls return immediately.
         *self.inner.last_resolved_turn.lock().unwrap() = current_turn;

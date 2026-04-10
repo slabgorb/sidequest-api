@@ -124,5 +124,4 @@ mod tests {
         assert_eq!(cue.action, AudioAction::FadeIn);
         assert_eq!(cue.track_id, Some("forest.ogg".to_string()));
     }
-
 }

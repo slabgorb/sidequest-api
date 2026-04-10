@@ -21,7 +21,10 @@ fn session_restore_is_reachable_from_server_crate() {
     let result = extract_character_state(&empty_snapshot);
 
     // Empty snapshot → None (no characters to restore, no silent fallback)
-    assert!(result.is_none(), "Empty snapshot must return None — no silent fallback to defaults");
+    assert!(
+        result.is_none(),
+        "Empty snapshot must return None — no silent fallback to defaults"
+    );
 }
 
 /// Type contract proof: extract_character_state returns RestoredCharacterState
@@ -34,8 +37,10 @@ fn session_restore_is_reachable_from_server_crate() {
 fn session_restore_type_contract_matches_dispatch_expectations() {
     // Verify the function pointer type — this is a compile-time check.
     // If extract_character_state's signature changes, this won't compile.
-    let _: fn(&sidequest_game::state::GameSnapshot) -> Option<sidequest_game::session_restore::RestoredCharacterState>
-        = sidequest_game::session_restore::extract_character_state;
+    let _: fn(
+        &sidequest_game::state::GameSnapshot,
+    ) -> Option<sidequest_game::session_restore::RestoredCharacterState> =
+        sidequest_game::session_restore::extract_character_state;
 
     // Verify RestoredCharacterState field types at compile time via assignment.
     // dispatch_connect does:
@@ -43,7 +48,7 @@ fn session_restore_type_contract_matches_dispatch_expectations() {
     //   *character_name_store = Some(restored.character_name.as_str().to_string());  // converts NonBlankString
     // If these types change, the lines below won't compile.
     fn _type_check(r: sidequest_game::session_restore::RestoredCharacterState) {
-        let _: serde_json::Value = r.character_json;  // must be Value, not Option<Value>
-        let _: &str = r.character_name.as_str();  // must have as_str() (NonBlankString)
+        let _: serde_json::Value = r.character_json; // must be Value, not Option<Value>
+        let _: &str = r.character_name.as_str(); // must have as_str() (NonBlankString)
     }
 }

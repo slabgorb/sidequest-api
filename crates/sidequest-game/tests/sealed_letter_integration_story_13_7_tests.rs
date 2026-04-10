@@ -110,7 +110,11 @@ async fn barrier_does_not_resolve_until_all_four_submit() {
 
     // named_actions should only have 3
     let actions = barrier.named_actions();
-    assert_eq!(actions.len(), 3, "Only 3 actions submitted — barrier should not have resolved");
+    assert_eq!(
+        actions.len(),
+        3,
+        "Only 3 actions submitted — barrier should not have resolved"
+    );
 
     // Now submit the 4th
     barrier.submit_action("dave", "I cast fireball");
@@ -121,10 +125,7 @@ async fn barrier_does_not_resolve_until_all_four_submit() {
         result.claimed_resolution,
         "First wait_for_turn after barrier met should claim resolution"
     );
-    assert!(
-        !result.timed_out,
-        "Should not time out — all 4 submitted"
-    );
+    assert!(!result.timed_out, "Should not time out — all 4 submitted");
     assert!(
         result.missing_players.is_empty(),
         "No missing players when all 4 submit"
@@ -148,10 +149,22 @@ async fn named_actions_keyed_by_character_name_not_player_id() {
     assert_eq!(actions.len(), 4, "All 4 actions present");
 
     // Keys must be character names, not player IDs
-    assert!(actions.contains_key("Alice"), "Key should be character name 'Alice', not player id 'alice'");
-    assert!(actions.contains_key("Bob"), "Key should be character name 'Bob'");
-    assert!(actions.contains_key("Carol"), "Key should be character name 'Carol'");
-    assert!(actions.contains_key("Dave"), "Key should be character name 'Dave'");
+    assert!(
+        actions.contains_key("Alice"),
+        "Key should be character name 'Alice', not player id 'alice'"
+    );
+    assert!(
+        actions.contains_key("Bob"),
+        "Key should be character name 'Bob'"
+    );
+    assert!(
+        actions.contains_key("Carol"),
+        "Key should be character name 'Carol'"
+    );
+    assert!(
+        actions.contains_key("Dave"),
+        "Key should be character name 'Dave'"
+    );
 
     // Verify action text is preserved
     assert_eq!(actions.get("Alice").map(|s| s.as_str()), Some("I attack"));
@@ -185,7 +198,11 @@ async fn sealed_round_context_from_barrier_actions_includes_all_four() {
         &player_dex_stats(),
     );
 
-    assert_eq!(ctx.player_count(), 4, "SealedRoundContext must have 4 players");
+    assert_eq!(
+        ctx.player_count(),
+        4,
+        "SealedRoundContext must have 4 players"
+    );
     assert_eq!(ctx.encounter_type(), "combat");
     assert_eq!(ctx.action_count(), 4);
 }
@@ -216,19 +233,43 @@ async fn sealed_round_prompt_from_barrier_contains_all_actions_and_initiative() 
     assert!(prompt.contains("Carol"), "Prompt must contain Carol");
     assert!(prompt.contains("Dave"), "Prompt must contain Dave");
 
-    assert!(prompt.contains("I attack the goblin"), "Prompt must contain Alice's action");
-    assert!(prompt.contains("I sneak around the side"), "Prompt must contain Bob's action");
-    assert!(prompt.contains("I cast cure light wounds"), "Prompt must contain Carol's action");
-    assert!(prompt.contains("I fire bolt at the goblin"), "Prompt must contain Dave's action");
+    assert!(
+        prompt.contains("I attack the goblin"),
+        "Prompt must contain Alice's action"
+    );
+    assert!(
+        prompt.contains("I sneak around the side"),
+        "Prompt must contain Bob's action"
+    );
+    assert!(
+        prompt.contains("I cast cure light wounds"),
+        "Prompt must contain Carol's action"
+    );
+    assert!(
+        prompt.contains("I fire bolt at the goblin"),
+        "Prompt must contain Dave's action"
+    );
 
     // Initiative context present
-    assert!(prompt.contains("DEX"), "Prompt must include DEX initiative stat");
-    assert!(prompt.contains("combat"), "Prompt must include encounter type");
-    assert!(prompt.contains("initiative"), "Prompt must mention initiative");
+    assert!(
+        prompt.contains("DEX"),
+        "Prompt must include DEX initiative stat"
+    );
+    assert!(
+        prompt.contains("combat"),
+        "Prompt must include encounter type"
+    );
+    assert!(
+        prompt.contains("initiative"),
+        "Prompt must mention initiative"
+    );
 
     // Per-player DEX values
     assert!(prompt.contains("16"), "Prompt must include Bob's DEX (16)");
-    assert!(prompt.contains("14"), "Prompt must include Alice's DEX (14)");
+    assert!(
+        prompt.contains("14"),
+        "Prompt must include Alice's DEX (14)"
+    );
 
     // Simultaneous framing
     assert!(
@@ -319,7 +360,11 @@ async fn turn_counter_increments_after_resolution() {
     barrier.submit_action("dave", "cast");
 
     let _result = barrier.wait_for_turn().await;
-    assert_eq!(barrier.turn_number(), 2, "Turn should be 2 after first resolution");
+    assert_eq!(
+        barrier.turn_number(),
+        2,
+        "Turn should be 2 after first resolution"
+    );
 }
 
 // ===========================================================================
@@ -437,8 +482,14 @@ async fn full_pipeline_barrier_to_sealed_round_to_prompt() {
     );
 
     // Per-player stat values present (for initiative ordering)
-    assert!(prompt.contains("Bob") && prompt.contains("16"), "Bob's DEX 16 must be in prompt");
-    assert!(prompt.contains("Alice") && prompt.contains("14"), "Alice's DEX 14 must be in prompt");
+    assert!(
+        prompt.contains("Bob") && prompt.contains("16"),
+        "Bob's DEX 16 must be in prompt"
+    );
+    assert!(
+        prompt.contains("Alice") && prompt.contains("14"),
+        "Alice's DEX 14 must be in prompt"
+    );
 }
 
 // ===========================================================================

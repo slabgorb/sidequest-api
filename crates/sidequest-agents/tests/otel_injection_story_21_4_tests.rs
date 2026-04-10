@@ -86,7 +86,11 @@ fn client_without_otel_does_not_set_env_vars() {
         .build();
 
     let result = client_without.send("ignored");
-    assert!(result.is_ok(), "dump_env should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "dump_env should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap().text;
 
     // Our sentinel endpoint must NOT appear — it was never configured
@@ -162,7 +166,11 @@ fn send_with_otel_sets_flush_timeout() {
         .build();
 
     let result = client.send("ignored");
-    assert!(result.is_ok(), "env command should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "env command should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap().text;
 
     assert!(
@@ -183,7 +191,11 @@ fn send_with_otel_endpoint_value_appears_in_env() {
         .build();
 
     let result = client.send("ignored");
-    assert!(result.is_ok(), "env command should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "env command should succeed: {:?}",
+        result.err()
+    );
     let output = result.unwrap().text;
 
     let expected = format!("OTEL_EXPORTER_OTLP_ENDPOINT={custom_endpoint}");
@@ -210,7 +222,10 @@ fn send_without_otel_has_no_otel_env_vars() {
         .timeout(Duration::from_secs(5))
         .otel_endpoint(sentinel.to_string())
         .build();
-    let with_output = client_with.send("ignored").expect("dump_env should succeed").text;
+    let with_output = client_with
+        .send("ignored")
+        .expect("dump_env should succeed")
+        .text;
     assert!(
         with_output.contains(sentinel),
         "Sanity check: sentinel must appear when otel_endpoint is set"
@@ -221,7 +236,10 @@ fn send_without_otel_has_no_otel_env_vars() {
         .command_path(dump_env_path())
         .timeout(Duration::from_secs(5))
         .build();
-    let without_output = client_without.send("ignored").expect("dump_env should succeed").text;
+    let without_output = client_without
+        .send("ignored")
+        .expect("dump_env should succeed")
+        .text;
     assert!(
         !without_output.contains(sentinel),
         "Without otel_endpoint, sentinel URL must NOT appear.\nGot:\n{without_output}"
@@ -294,9 +312,7 @@ fn orchestrator_claude_client_accepts_otel_endpoint() {
 #[test]
 fn empty_otel_endpoint_treated_as_none() {
     // An empty string endpoint should be equivalent to no endpoint
-    let client = ClaudeClient::builder()
-        .otel_endpoint(String::new())
-        .build();
+    let client = ClaudeClient::builder().otel_endpoint(String::new()).build();
     assert_eq!(
         client.otel_endpoint(),
         None,

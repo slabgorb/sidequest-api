@@ -102,7 +102,6 @@ impl RenderSubject {
     pub fn narrative_weight(&self) -> f32 {
         self.narrative_weight
     }
-
 }
 
 /// Game state context for resolving entities during extraction.

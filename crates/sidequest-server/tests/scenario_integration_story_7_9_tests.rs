@@ -25,9 +25,9 @@
 /// server crate. Compile-time wiring proof.
 #[test]
 fn scenario_state_importable_from_server_crate() {
-    use sidequest_game::ScenarioState;
     use sidequest_game::ScenarioEvent;
     use sidequest_game::ScenarioEventType;
+    use sidequest_game::ScenarioState;
 
     // Verify types exist and are constructable
     let clue_graph = sidequest_game::ClueGraph::new(vec![]);
@@ -47,9 +47,11 @@ fn scenario_state_importable_from_server_crate() {
 /// initialization path exists.
 #[test]
 fn connect_handler_initializes_scenario_state() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/connect.rs")
-    ).expect("connect.rs must exist");
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/connect.rs"
+    ))
+    .expect("connect.rs must exist");
 
     assert!(
         source.contains("ScenarioState::from_genre_pack"),
@@ -97,9 +99,9 @@ fn scenario_state_serde_roundtrip() {
 /// the turn loop. Source-level check.
 #[test]
 fn dispatch_calls_process_between_turns() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
     assert!(
         source.contains("process_between_turns("),
@@ -113,13 +115,14 @@ fn dispatch_calls_process_between_turns() {
 /// This is currently UNWIRED — prompt.rs has zero scenario references.
 #[test]
 fn prompt_builder_injects_scenario_context() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/prompt.rs")
-    ).expect("dispatch/prompt.rs must exist");
+    let source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/prompt.rs"
+    ))
+    .expect("dispatch/prompt.rs must exist");
 
     assert!(
-        source.contains("format_narrator_context")
-            || source.contains("scenario_state"),
+        source.contains("format_narrator_context") || source.contains("scenario_state"),
         "prompt.rs must call format_narrator_context() or reference scenario_state \
          to inject scenario context into the narrator prompt — AC2. \
          Without this, the narrator has zero awareness of scenario tension, \
@@ -132,9 +135,9 @@ fn prompt_builder_injects_scenario_context() {
 /// discovery) need to flow from process_between_turns() into prompt context.
 #[test]
 fn scenario_events_injected_into_prompt_context() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
     // The dispatch loop must format scenario events into the state_summary
     // or an equivalent narrator-visible string.
@@ -153,13 +156,15 @@ fn scenario_events_injected_into_prompt_context() {
 /// ScenarioState::handle_accusation(). Currently NOT wired.
 #[test]
 fn accuse_command_routed_to_scenario() {
-    let slash_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/slash.rs")
-    ).expect("dispatch/slash.rs must exist");
+    let slash_source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/slash.rs"
+    ))
+    .expect("dispatch/slash.rs must exist");
 
-    let mod_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let mod_source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
     let has_accuse = slash_source.contains("accuse")
         || mod_source.contains("accuse")
@@ -178,13 +183,15 @@ fn accuse_command_routed_to_scenario() {
 /// processed (not just called and dropped).
 #[test]
 fn accusation_result_triggers_resolution() {
-    let mod_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let mod_source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
-    let slash_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/slash.rs")
-    ).expect("dispatch/slash.rs must exist");
+    let slash_source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/slash.rs"
+    ))
+    .expect("dispatch/slash.rs must exist");
 
     let combined = format!("{}\n{}", mod_source, slash_source);
 
@@ -222,9 +229,9 @@ fn accusation_types_importable() {
 /// Between-turn processing must be wrapped in a `scenario:advance` span.
 #[test]
 fn otel_scenario_advance_span_exists() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
     assert!(
         source.contains("scenario:advance")
@@ -238,9 +245,9 @@ fn otel_scenario_advance_span_exists() {
 /// Clue discovery events must emit OTEL events.
 #[test]
 fn otel_clue_discovered_event_exists() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
     assert!(
         source.contains("clue_discovered")
@@ -255,9 +262,9 @@ fn otel_clue_discovered_event_exists() {
 /// Gossip propagation must emit OTEL events.
 #[test]
 fn otel_gossip_spread_event_exists() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
     assert!(
         source.contains("gossip_spread")
@@ -272,9 +279,9 @@ fn otel_gossip_spread_event_exists() {
 /// NPC autonomous actions must emit OTEL events with the scenario namespace.
 #[test]
 fn otel_npc_action_event_uses_scenario_namespace() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
     // Existing code uses "npc_actions" prefix. AC4 requires "scenario:npc_action"
     // to group all scenario OTEL under a unified namespace.
@@ -290,13 +297,15 @@ fn otel_npc_action_event_uses_scenario_namespace() {
 /// Accusation resolution must emit OTEL events.
 #[test]
 fn otel_accusation_resolved_event_exists() {
-    let source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
-    let slash_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/slash.rs")
-    ).expect("dispatch/slash.rs must exist");
+    let slash_source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/slash.rs"
+    ))
+    .expect("dispatch/slash.rs must exist");
 
     let combined = format!("{}\n{}", source, slash_source);
 
@@ -319,21 +328,27 @@ fn otel_accusation_resolved_event_exists() {
 /// if any piece is missing, the scenario system is half-wired.
 #[test]
 fn scenario_lifecycle_fully_wired() {
-    let connect_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/connect.rs")
-    ).expect("connect.rs must exist");
+    let connect_source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/connect.rs"
+    ))
+    .expect("connect.rs must exist");
 
-    let mod_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs")
-    ).expect("dispatch/mod.rs must exist");
+    let mod_source =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/mod.rs"))
+            .expect("dispatch/mod.rs must exist");
 
-    let prompt_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/prompt.rs")
-    ).expect("dispatch/prompt.rs must exist");
+    let prompt_source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/prompt.rs"
+    ))
+    .expect("dispatch/prompt.rs must exist");
 
-    let slash_source = std::fs::read_to_string(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/dispatch/slash.rs")
-    ).expect("dispatch/slash.rs must exist");
+    let slash_source = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/dispatch/slash.rs"
+    ))
+    .expect("dispatch/slash.rs must exist");
 
     // 1. Initialization
     assert!(
@@ -358,16 +373,14 @@ fn scenario_lifecycle_fully_wired() {
     // 4. Accusation handling
     let all_dispatch = format!("{}\n{}", mod_source, slash_source);
     assert!(
-        all_dispatch.contains("handle_accusation")
-            || all_dispatch.contains("accuse"),
+        all_dispatch.contains("handle_accusation") || all_dispatch.contains("accuse"),
         "LIFECYCLE GAP: No accusation handling in dispatch pipeline. \
          Players cannot resolve scenarios."
     );
 
     // 5. OTEL observability (at least the advance span)
     assert!(
-        mod_source.contains("scenario:advance")
-            || mod_source.contains("scenario.advance"),
+        mod_source.contains("scenario:advance") || mod_source.contains("scenario.advance"),
         "LIFECYCLE GAP: No scenario:advance OTEL span. GM panel cannot \
          verify scenario processing is active."
     );
@@ -404,9 +417,9 @@ fn game_snapshot_scenario_state_roundtrip() {
 #[test]
 fn all_scenario_types_reachable_from_server() {
     // Core scenario types
-    use sidequest_game::ScenarioState;
     use sidequest_game::ScenarioEvent;
     use sidequest_game::ScenarioEventType;
+    use sidequest_game::ScenarioState;
 
     // Accusation types
     use sidequest_game::Accusation;
@@ -415,15 +428,15 @@ fn all_scenario_types_reachable_from_server() {
     use sidequest_game::EvidenceSummary;
 
     // Scoring types
-    use sidequest_game::ScenarioScore;
-    use sidequest_game::ScenarioGrade;
     use sidequest_game::DeductionQuality;
+    use sidequest_game::ScenarioGrade;
+    use sidequest_game::ScenarioScore;
     use sidequest_game::ScenarioScoreInput;
 
     // Belief state types (used by scenario engine)
-    use sidequest_game::BeliefState;
     use sidequest_game::Belief;
     use sidequest_game::BeliefSource;
+    use sidequest_game::BeliefState;
 
     // Gossip types
     use sidequest_game::GossipEngine;

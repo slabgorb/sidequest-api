@@ -186,10 +186,7 @@ fn rich_snapshot() -> GameSnapshot {
         active_tropes: vec![],
         atmosphere: "eerie".to_string(),
         current_region: "flickering_reach".to_string(),
-        discovered_regions: vec![
-            "flickering_reach".to_string(),
-            "south_ridge".to_string(),
-        ],
+        discovered_regions: vec!["flickering_reach".to_string(), "south_ridge".to_string()],
         discovered_routes: vec!["reach_to_ridge".to_string()],
         turn_manager: TurnManager::new(),
         last_saved_at: Some(chrono::Utc::now()),
@@ -214,9 +211,16 @@ fn persistence_roundtrip_preserves_full_character_state() {
     let snapshot = rich_snapshot();
 
     store.save(&snapshot).unwrap();
-    let loaded = store.load().unwrap().expect("Load after save should return Some");
+    let loaded = store
+        .load()
+        .unwrap()
+        .expect("Load after save should return Some");
 
-    let restored = loaded.snapshot.characters.first().expect("Must have character");
+    let restored = loaded
+        .snapshot
+        .characters
+        .first()
+        .expect("Must have character");
 
     // AC-2: Level and XP
     assert_eq!(restored.core.level, 5, "Level must survive roundtrip");
@@ -263,7 +267,10 @@ fn persistence_roundtrip_preserves_inventory_item_details() {
     assert_eq!(sword.name.as_str(), "Rusty Iron Sword");
     assert!(sword.equipped, "Equipped state must survive roundtrip");
     assert_eq!(sword.quantity, 1);
-    assert!((sword.narrative_weight - 0.6).abs() < f64::EPSILON, "Narrative weight must survive");
+    assert!(
+        (sword.narrative_weight - 0.6).abs() < f64::EPSILON,
+        "Narrative weight must survive"
+    );
     assert_eq!(sword.tags, vec!["melee", "blade"]);
     assert_eq!(sword.category.as_str(), "weapon");
     assert_eq!(sword.rarity.as_str(), "common");
@@ -274,10 +281,16 @@ fn persistence_roundtrip_preserves_inventory_item_details() {
     assert_eq!(potion.unwrap().quantity, 3, "Stack quantity must survive");
 
     // Verify evolved item
-    let amulet = inv.items.iter().find(|i| i.id.as_str() == "amulet_whispers");
+    let amulet = inv
+        .items
+        .iter()
+        .find(|i| i.id.as_str() == "amulet_whispers");
     assert!(amulet.is_some(), "Evolved amulet must survive roundtrip");
     let amulet = amulet.unwrap();
-    assert!(amulet.is_evolved(), "Amulet narrative_weight >= 0.7 must survive");
+    assert!(
+        amulet.is_evolved(),
+        "Amulet narrative_weight >= 0.7 must survive"
+    );
     assert!(amulet.equipped, "Amulet equipped state must survive");
 }
 
@@ -394,7 +407,9 @@ fn extract_character_state_returns_known_facts() {
         "Extracted known facts must have all 4 facts"
     );
     assert!(
-        result.known_facts[0].content.contains("old mines were sealed"),
+        result.known_facts[0]
+            .content
+            .contains("old mines were sealed"),
         "First fact content must match"
     );
 }
@@ -415,7 +430,8 @@ fn extract_character_state_returns_character_name() {
     let result = extract_character_state(&snapshot).unwrap();
 
     assert_eq!(
-        result.character_name.as_str(), "Kael Stormwind",
+        result.character_name.as_str(),
+        "Kael Stormwind",
         "Character name must be extracted"
     );
 }

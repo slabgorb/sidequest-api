@@ -136,9 +136,14 @@ pub fn seed_manual(state: &AppState, genre: &str, world: &str, manual: &mut Mons
     // ── Encounters: tier 1 + tier 2 ───────────────────────
     if let Some(encountergen_binary) = state.encountergen_binary_path() {
         for tier in [1u32, 2] {
-            if let Some(data) =
-                generate_encounter(encountergen_binary, genre_packs_path, genre, world, Some(tier), 2)
-            {
+            if let Some(data) = generate_encounter(
+                encountergen_binary,
+                genre_packs_path,
+                genre,
+                world,
+                Some(tier),
+                2,
+            ) {
                 tracing::info!(tier = tier, "pregen.encounter_generated");
                 manual.add_encounter(data, tier, vec![]);
             }

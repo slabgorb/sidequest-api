@@ -10,9 +10,7 @@
 //! tropes, and extras (extra NPCs, extra lore, combat setup).
 
 use sidequest_game::state::GameSnapshot;
-use sidequest_game::world_materialization::{
-    CampaignMaturity, HistoryChapter, WorldBuilder,
-};
+use sidequest_game::world_materialization::{CampaignMaturity, HistoryChapter, WorldBuilder};
 
 // ═══════════════════════════════════════════════════════════════
 // AC-1: WorldBuilder fluent API — construct and configure builder
@@ -95,9 +93,9 @@ fn history_chapter_has_quests_field() {
         id: "early".to_string(),
         label: "Test".to_string(),
         lore: vec![],
-        quests: vec![
-            ("Clear the cellar".to_string(), "completed".to_string()),
-        ].into_iter().collect(),
+        quests: vec![("Clear the cellar".to_string(), "completed".to_string())]
+            .into_iter()
+            .collect(),
         ..Default::default()
     };
     assert_eq!(chapter.quests.len(), 1);
@@ -119,7 +117,10 @@ fn history_chapter_has_scene_context_fields() {
     assert_eq!(chapter.location.as_deref(), Some("Millhaven"));
     assert_eq!(chapter.time_of_day.as_deref(), Some("evening"));
     assert_eq!(chapter.atmosphere.as_deref(), Some("A quiet town."));
-    assert_eq!(chapter.active_stakes.as_deref(), Some("Bandits are coming."));
+    assert_eq!(
+        chapter.active_stakes.as_deref(),
+        Some("Bandits are coming.")
+    );
 }
 
 #[test]
@@ -170,7 +171,7 @@ fn history_chapter_has_tropes() {
 
 // Use the expanded chapter types from world_materialization
 use sidequest_game::world_materialization::{
-    ChapterCharacter, ChapterNpc, ChapterNarrativeEntry, ChapterTrope,
+    ChapterCharacter, ChapterNarrativeEntry, ChapterNpc, ChapterTrope,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -264,7 +265,10 @@ fn second_chapter_updates_existing_character() {
 
     assert_eq!(snap.characters.len(), 1, "should update, not duplicate");
     let char = &snap.characters[0];
-    assert_eq!(char.core.level, 7, "level should be updated to mid chapter value");
+    assert_eq!(
+        char.core.level, 7,
+        "level should be updated to mid chapter value"
+    );
     assert_eq!(char.core.hp, 58);
     assert_eq!(char.core.ac, 16);
 }
@@ -308,10 +312,17 @@ fn chapter_application_creates_npcs() {
         .with_chapters(vec![make_chapter_with_npcs()])
         .build();
 
-    assert!(snap.npcs.len() >= 2, "should have at least 2 NPCs, got {}", snap.npcs.len());
+    assert!(
+        snap.npcs.len() >= 2,
+        "should have at least 2 NPCs, got {}",
+        snap.npcs.len()
+    );
     let names: Vec<&str> = snap.npcs.iter().map(|n| n.core.name.as_str()).collect();
     assert!(names.contains(&"Old Maren"), "should contain Old Maren");
-    assert!(names.contains(&"Corporal Hask"), "should contain Corporal Hask");
+    assert!(
+        names.contains(&"Corporal Hask"),
+        "should contain Corporal Hask"
+    );
 }
 
 #[test]
@@ -344,7 +355,9 @@ fn chapter_npc_updates_existing_npc() {
         .with_chapters(vec![early, mid])
         .build();
 
-    let maren_count = snap.npcs.iter()
+    let maren_count = snap
+        .npcs
+        .iter()
         .filter(|n| n.core.name.as_str() == "Old Maren")
         .count();
     assert_eq!(maren_count, 1, "should update existing NPC, not duplicate");
@@ -365,7 +378,9 @@ fn make_chapter_with_world_data() -> HistoryChapter {
         quests: vec![
             ("Clear the cellar".to_string(), "completed".to_string()),
             ("Scout the bandit camp".to_string(), "active".to_string()),
-        ].into_iter().collect(),
+        ]
+        .into_iter()
+        .collect(),
         notes: vec!["Pik may have overheard something.".to_string()],
         narrative_log: vec![ChapterNarrativeEntry {
             speaker: "narrator".to_string(),
@@ -383,7 +398,9 @@ fn chapter_application_populates_lore() {
         .build();
 
     assert_eq!(snap.lore_established.len(), 2);
-    assert!(snap.lore_established.contains(&"Thornfield was a Freeholder community.".to_string()));
+    assert!(snap
+        .lore_established
+        .contains(&"Thornfield was a Freeholder community.".to_string()));
 }
 
 #[test]
@@ -406,11 +423,17 @@ fn chapter_application_deduplicates_lore() {
         .with_chapters(vec![ch1, ch2])
         .build();
 
-    let shared_count = snap.lore_established.iter()
+    let shared_count = snap
+        .lore_established
+        .iter()
         .filter(|l| *l == "Shared lore.")
         .count();
     assert_eq!(shared_count, 1, "duplicate lore should be deduplicated");
-    assert_eq!(snap.lore_established.len(), 2, "should have 2 unique lore entries");
+    assert_eq!(
+        snap.lore_established.len(),
+        2,
+        "should have 2 unique lore entries"
+    );
 }
 
 #[test]
@@ -422,7 +445,10 @@ fn chapter_application_populates_quest_log() {
 
     assert_eq!(snap.quest_log.len(), 2);
     assert_eq!(snap.quest_log.get("Clear the cellar").unwrap(), "completed");
-    assert_eq!(snap.quest_log.get("Scout the bandit camp").unwrap(), "active");
+    assert_eq!(
+        snap.quest_log.get("Scout the bandit camp").unwrap(),
+        "active"
+    );
 }
 
 #[test]
@@ -443,7 +469,10 @@ fn chapter_application_populates_narrative_log() {
         .with_chapters(vec![make_chapter_with_world_data()])
         .build();
 
-    assert!(!snap.narrative_log.is_empty(), "narrative log should have entries");
+    assert!(
+        !snap.narrative_log.is_empty(),
+        "narrative log should have entries"
+    );
     assert_eq!(snap.narrative_log[0].content, "The fire took everything.");
 }
 
@@ -497,10 +526,14 @@ fn later_chapter_overwrites_scene_context() {
         .with_chapters(vec![early, mid])
         .build();
 
-    assert_eq!(snap.location, "The Ashen Citadel",
-        "later chapter should overwrite location");
-    assert_eq!(snap.time_of_day, "dawn",
-        "later chapter should overwrite time_of_day");
+    assert_eq!(
+        snap.location, "The Ashen Citadel",
+        "later chapter should overwrite location"
+    );
+    assert_eq!(
+        snap.time_of_day, "dawn",
+        "later chapter should overwrite time_of_day"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -563,12 +596,16 @@ fn chapter_application_updates_existing_trope() {
         .with_chapters(vec![early, mid])
         .build();
 
-    let bandit_tropes: Vec<_> = snap.active_tropes.iter()
+    let bandit_tropes: Vec<_> = snap
+        .active_tropes
+        .iter()
         .filter(|t| t.trope_definition_id() == "bandit_unification")
         .collect();
     assert_eq!(bandit_tropes.len(), 1, "should update, not duplicate trope");
-    assert!((bandit_tropes[0].progression() - 0.55).abs() < f64::EPSILON,
-        "progression should be updated to mid chapter value");
+    assert!(
+        (bandit_tropes[0].progression() - 0.55).abs() < f64::EPSILON,
+        "progression should be updated to mid chapter value"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -662,19 +699,24 @@ fn with_extra_npcs_adds_generated_npcs() {
         .with_extra_npcs(5)
         .build();
 
-    assert!(snap.npcs.len() >= 5,
-        "should have at least 5 extra NPCs, got {}", snap.npcs.len());
+    assert!(
+        snap.npcs.len() >= 5,
+        "should have at least 5 extra NPCs, got {}",
+        snap.npcs.len()
+    );
 }
 
 #[test]
 fn extra_npcs_have_unique_names() {
-    let snap = WorldBuilder::new()
-        .with_extra_npcs(10)
-        .build();
+    let snap = WorldBuilder::new().with_extra_npcs(10).build();
 
     let names: Vec<&str> = snap.npcs.iter().map(|n| n.core.name.as_str()).collect();
     let unique: std::collections::HashSet<&str> = names.iter().copied().collect();
-    assert_eq!(names.len(), unique.len(), "extra NPC names should be unique");
+    assert_eq!(
+        names.len(),
+        unique.len(),
+        "extra NPC names should be unique"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -688,21 +730,25 @@ fn with_extra_lore_adds_generated_entries() {
         .with_extra_lore(3)
         .build();
 
-    assert!(snap.lore_established.len() >= 3,
-        "should have at least 3 lore entries, got {}", snap.lore_established.len());
+    assert!(
+        snap.lore_established.len() >= 3,
+        "should have at least 3 lore entries, got {}",
+        snap.lore_established.len()
+    );
 }
 
 #[test]
 fn extra_lore_is_deduplicated() {
     // Even with extra lore, no duplicates should appear
-    let snap = WorldBuilder::new()
-        .with_extra_lore(5)
-        .build();
+    let snap = WorldBuilder::new().with_extra_lore(5).build();
 
-    let unique: std::collections::HashSet<&str> = snap.lore_established
-        .iter().map(|l| l.as_str()).collect();
-    assert_eq!(snap.lore_established.len(), unique.len(),
-        "extra lore should not create duplicates");
+    let unique: std::collections::HashSet<&str> =
+        snap.lore_established.iter().map(|l| l.as_str()).collect();
+    assert_eq!(
+        snap.lore_established.len(),
+        unique.len(),
+        "extra lore should not create duplicates"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -777,8 +823,8 @@ tropes:
     progression: 0.15
 "#;
 
-    let chapter: HistoryChapter = serde_yaml::from_str(yaml)
-        .expect("expanded HistoryChapter should deserialize from YAML");
+    let chapter: HistoryChapter =
+        serde_yaml::from_str(yaml).expect("expanded HistoryChapter should deserialize from YAML");
 
     assert_eq!(chapter.id, "early");
     assert!(chapter.character.is_some());
@@ -800,8 +846,8 @@ id: fresh
 label: "The Beginning"
 "#;
 
-    let chapter: HistoryChapter = serde_yaml::from_str(yaml)
-        .expect("minimal HistoryChapter should deserialize");
+    let chapter: HistoryChapter =
+        serde_yaml::from_str(yaml).expect("minimal HistoryChapter should deserialize");
 
     assert_eq!(chapter.id, "fresh");
     assert_eq!(chapter.label, "The Beginning");

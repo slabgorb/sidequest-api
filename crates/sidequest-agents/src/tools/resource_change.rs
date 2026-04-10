@@ -44,21 +44,27 @@ pub fn validate_resource_change(
 ) -> Result<ResourceChangeResult, InvalidResourceChange> {
     let trimmed = resource.trim();
     if trimmed.is_empty() {
-        tracing::warn!(valid = false, "resource change validation failed — empty resource name");
-        return Err(InvalidResourceChange("resource name must not be empty".to_string()));
+        tracing::warn!(
+            valid = false,
+            "resource change validation failed — empty resource name"
+        );
+        return Err(InvalidResourceChange(
+            "resource name must not be empty".to_string(),
+        ));
     }
 
     if !delta.is_finite() {
-        tracing::warn!(valid = false, "resource change validation failed — non-finite delta");
+        tracing::warn!(
+            valid = false,
+            "resource change validation failed — non-finite delta"
+        );
         return Err(InvalidResourceChange(format!(
             "delta must be finite, got {delta}"
         )));
     }
 
     let lowered = trimmed.to_lowercase();
-    let matched = valid_resources
-        .iter()
-        .find(|r| r.to_lowercase() == lowered);
+    let matched = valid_resources.iter().find(|r| r.to_lowercase() == lowered);
 
     match matched {
         Some(canonical) => {
