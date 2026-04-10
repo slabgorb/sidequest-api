@@ -733,6 +733,144 @@ fn audio_variation_fallback_when_mood_missing_from_themed_tracks() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Fixture + test for the `Some(empty HashMap)` silent path.
+// ---------------------------------------------------------------------------
+//
+// `MusicDirector::new()` uses `themed_tracks.entry(mood).or_default()` before
+// iterating `theme.variations`. If a genre pack registers an AudioTheme with
+// `variations: []` (a structurally-valid but semantically-malformed bundle),
+// the outer mood key is inserted with an empty inner HashMap. `select_variation`
+// then hits `Some({})` — the outer `if let Some(mood_variations)` matches, but
+// all three inner conditionals (contains_key preferred, contains_key Full,
+// iter().next()) fail on the empty map. Control falls out of the Some arm
+// WITHOUT entering the else branch (added in the first rework pass), and the
+// function returns `preferred` silently.
+//
+// Reviewer Pass 2 flagged this as [MEDIUM] non-blocking. Per Keith's direction
+// "fix all wiring immediately": we close this path in Pass 3 rather than
+// tracking as a follow-up story.
+
+/// AudioConfig with an intentionally-malformed theme: the combat theme has
+/// `variations: []`, which forces `MusicDirector::new()` to insert `combat` into
+/// `themed_tracks` with an empty inner HashMap. Any `select_variation` call
+/// classified as combat will hit the `Some(empty_map)` fall-through.
+fn audio_config_combat_theme_with_empty_variations() -> AudioConfig {
+    let mut mood_tracks = HashMap::new();
+    mood_tracks.insert(
+        "combat".to_string(),
+        vec![MoodTrack {
+            path: "audio/music/combat_1.ogg".to_string(),
+            title: "Battle Drums".to_string(),
+            bpm: 140,
+            energy: 0.9,
+        }],
+    );
+    AudioConfig {
+        mood_tracks,
+        mood_keywords: HashMap::new(),
+        sfx_library: HashMap::new(),
+        creature_voice_presets: HashMap::new(),
+        mixer: MixerConfig {
+            music_volume: 0.6,
+            sfx_volume: 0.8,
+            voice_volume: 1.0,
+            duck_music_for_voice: true,
+            duck_amount_db: -12.0,
+            crossfade_default_ms: 3000,
+        },
+        // Malformed on purpose: the theme bundle has an empty variations vec.
+        // Pre-Pass-3 code inserts "combat" into themed_tracks anyway (via
+        // or_default) with an empty inner HashMap.
+        themes: vec![AudioTheme {
+            name: "battle".to_string(),
+            mood: "combat".to_string(),
+            base_prompt: "epic battle".to_string(),
+            variations: vec![],
+        }],
+        ai_generation: None,
+        mixer_defaults: None,
+        mood_aliases: HashMap::new(),
+        faction_themes: Vec::new(),
+    }
+}
+
+#[test]
+fn audio_variation_fallback_when_mood_has_empty_variations() {
+    let (_guard, mut rx) = fresh_subscriber();
+
+    // Malformed genre pack: combat theme exists but `variations: []`.
+    // themed_tracks["combat"] = Some(empty HashMap).
+    let config = audio_config_combat_theme_with_empty_variations();
+    let director = MusicDirector::new(&config);
+
+    let classification = MoodClassification {
+        primary: MoodKey::COMBAT,
+        intensity: 0.8,
+        confidence: 0.9,
+    };
+    let ctx = MoodContext {
+        in_combat: true,
+        ..Default::default()
+    };
+
+    // We don't care what select_variation returns — evaluate() will fall
+    // through to mood_tracks. We care that the malformed-theme condition
+    // is surfaced on the watcher channel.
+    let _ = director.select_variation(&classification, &ctx);
+
+    let events = drain_events(&mut rx);
+    let fallback = find_events(&events, "music_director", "variation_fallback");
+
+    assert!(
+        !fallback.is_empty(),
+        "select_variation() must emit music_director.variation_fallback \
+         when `themed_tracks` contains the mood key but the inner HashMap \
+         is empty. This is the Some(empty_map) fall-through: the outer \
+         `if let Some(mood_variations)` matches, but all three inner \
+         emission branches skip because the map is empty, and control \
+         falls out of the Some arm WITHOUT entering the else branch. \
+         Pre-Pass-3 this returned `preferred` silently. Got {} events total.",
+        events.len()
+    );
+
+    let evt = &fallback[0];
+    assert_eq!(
+        evt.fields.get("mood").and_then(serde_json::Value::as_str),
+        Some("combat"),
+        "variation_fallback must record the mood key with the empty variations"
+    );
+    // The `reason` field must distinguish this from the other three
+    // variation_fallback cases. Accept any of: a dedicated
+    // "mood_variations_empty" reason, OR the same "mood_not_in_themed_tracks"
+    // reason that the None-case else branch uses (which would be the case
+    // if Dev chose the "guard at construction time" fix — skip inserting
+    // empty mood keys so they produce None instead of Some(empty)).
+    let reason = evt
+        .fields
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .expect("variation_fallback must carry a reason field");
+    assert!(
+        reason == "mood_variations_empty"
+            || reason == "mood_not_in_themed_tracks"
+            || reason.contains("empty")
+            || reason.contains("mood"),
+        "reason must identify the empty-variations case — suggested values: \
+         'mood_variations_empty' (if Dev adds a new reason label) or \
+         'mood_not_in_themed_tracks' (if Dev guards at construction time \
+         by skipping empty themes so the key is never inserted), got {:?}",
+        reason
+    );
+    assert_eq!(
+        evt.fields
+            .get("full_available")
+            .and_then(serde_json::Value::as_bool),
+        Some(false),
+        "full_available must be false — the mood's variations vec is empty"
+    );
+}
+
 // ===========================================================================
 // A5 wiring assertions — production code paths reach these subsystems.
 // ===========================================================================
