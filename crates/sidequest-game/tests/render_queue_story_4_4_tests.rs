@@ -334,7 +334,7 @@ fn all_tiers_have_positive_dimensions() {
 async fn enqueue_returns_queued_with_job_id() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -363,7 +363,7 @@ async fn enqueue_returns_queued_with_job_id() {
 async fn enqueue_is_non_blocking() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -393,7 +393,7 @@ async fn enqueue_is_non_blocking() {
 async fn duplicate_subject_returns_deduplicated() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -434,7 +434,7 @@ async fn duplicate_subject_returns_deduplicated() {
 async fn different_subjects_not_deduplicated() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -472,7 +472,7 @@ async fn queue_rejects_when_full() {
     let config = RenderQueueConfig::new(1, 4, Duration::from_secs(60)).unwrap();
     let queue = RenderQueue::spawn(
         config,
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -529,7 +529,7 @@ async fn queue_rejects_when_full() {
 async fn job_status_returns_queued_after_enqueue() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -562,7 +562,7 @@ async fn job_status_returns_queued_after_enqueue() {
 async fn job_status_returns_none_for_unknown_id() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -647,7 +647,7 @@ fn render_job_result_success_carries_all_fields() {
 async fn cache_len_increases_after_enqueue() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -673,7 +673,7 @@ async fn cache_len_increases_after_enqueue() {
 async fn duplicate_enqueue_does_not_increase_cache_len() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -705,7 +705,7 @@ async fn duplicate_enqueue_does_not_increase_cache_len() {
 async fn multiple_enqueues_complete_without_blocking() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -1060,7 +1060,7 @@ fn content_hash_is_order_independent_on_entities() {
 async fn shutdown_completes_without_panic() {
     let queue = RenderQueue::spawn(
         default_config(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );
@@ -1076,7 +1076,7 @@ async fn shutdown_completes_without_panic() {
 async fn spawn_with_default_config_succeeds() {
     let queue = RenderQueue::spawn(
         RenderQueueConfig::default(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+        |_params: sidequest_game::render_queue::RenderJobParams| async {
             Ok(("test.png".to_string(), 100))
         },
     );

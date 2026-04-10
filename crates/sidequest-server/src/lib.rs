@@ -257,16 +257,18 @@ impl AppState {
         // Render pipeline — daemon client connects lazily on first render
         let render_queue = sidequest_game::RenderQueue::spawn(
             sidequest_game::RenderQueueConfig::default(),
-            |prompt,
-             art_style,
-             tier,
-             _negative_prompt,
-             _narration,
-             width: u32,
-             height: u32,
-             variant: String,
-             lora_path: Option<String>,
-             lora_scale: Option<f32>| async move {
+            |params: sidequest_game::RenderJobParams| async move {
+                let sidequest_game::RenderJobParams {
+                    prompt,
+                    art_style,
+                    tier,
+                    width,
+                    height,
+                    variant,
+                    lora_path,
+                    lora_scale,
+                    ..
+                } = params;
                 // ── OTel: render pipeline start ──────────────────────────
                 tracing::info!(
                     prompt_len = prompt.len(),

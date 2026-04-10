@@ -151,8 +151,8 @@ pub use prerender::{PrerenderConfig, PrerenderContext, PrerenderScheduler, Waste
 pub use progression::{level_to_damage, level_to_defense, level_to_hp, xp_for_level};
 pub use render_queue::{
     compute_content_hash, tier_to_dimensions, EnqueueResult, ImageDimensions, QueueError,
-    RenderJobResult, RenderQueue, RenderQueueConfig, RenderStatus, DEFAULT_CACHE_TTL,
-    MAX_QUEUE_DEPTH,
+    RenderJobParams, RenderJobResult, RenderQueue, RenderQueueConfig, RenderStatus,
+    DEFAULT_CACHE_TTL, MAX_QUEUE_DEPTH,
 };
 pub use resource_pool::{
     mint_threshold_lore, ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult,
