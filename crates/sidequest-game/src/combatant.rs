@@ -45,7 +45,7 @@ pub trait Combatant {
         if frac < 0.5 {
             WatcherEventBuilder::new("combatant", WatcherEventType::StateTransition)
                 .field("action", "bloodied")
-                .field("name", self.name().to_string())
+                .field("name", self.name())
                 .field("hp", self.hp())
                 .field("max_hp", self.max_hp())
                 .field("hp_fraction", frac)

@@ -162,15 +162,11 @@ fn emit_watcher_event(
     target_location: Option<&str>,
     moved_count: usize,
 ) {
-    let target_field = match target_location {
-        Some(loc) => serde_json::Value::String(loc.to_string()),
-        None => serde_json::Value::Null,
-    };
     WatcherEventBuilder::new("party_reconciliation", WatcherEventType::StateTransition)
         .field("action", "reconciled")
-        .field("result", result.to_string())
+        .field("result", result)
         .field("player_count", player_count as u64)
-        .field("target_location", target_field)
+        .field("target_location", target_location)
         .field("moved_count", moved_count as u64)
         .send();
 }

@@ -108,7 +108,7 @@ impl WishConsequenceEngine {
             WatcherEventBuilder::new("consequence", WatcherEventType::StateTransition)
                 .field("action", "wish_evaluated")
                 .field("is_power_grab", false)
-                .field("wisher_name", player_name.to_string())
+                .field("wisher_name", player_name)
                 .field("category", serde_json::Value::Null)
                 .field("rotation_counter", self.rotation_counter as u64)
                 .send();
@@ -123,8 +123,8 @@ impl WishConsequenceEngine {
         WatcherEventBuilder::new("consequence", WatcherEventType::StateTransition)
             .field("action", "wish_evaluated")
             .field("is_power_grab", true)
-            .field("wisher_name", player_name.to_string())
-            .field("category", category_str(category).to_string())
+            .field("wisher_name", player_name)
+            .field("category", category_str(category))
             .field("rotation_counter", self.rotation_counter as u64)
             .send();
 

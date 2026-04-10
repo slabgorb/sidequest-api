@@ -33,7 +33,7 @@ fn emit_stat_scaled(stat: &'static str, base: i32, level: u32, scaled: i32) {
     }
     WatcherEventBuilder::new("progression", WatcherEventType::StateTransition)
         .field("action", "stat_scaled")
-        .field("stat", stat.to_string())
+        .field("stat", stat)
         .field("base", base)
         .field("level", level as u64)
         .field("scaled", scaled)
