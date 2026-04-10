@@ -5,22 +5,19 @@
 //! `RenderQueue::enqueue()` must accept `lora_path` and `lora_scale`
 //! parameters, and the background worker closure must receive them.
 //!
-//! The existing `RenderQueue::spawn` closure signature at
-//! `render_queue.rs:305-307` takes 7 positional args:
-//! `Fn(String, String, String, String, String, u32, u32) -> Fut`.
-//!
-//! Per the architect's Delivery Finding (Improvement, non-blocking),
-//! this closure should eventually be refactored to take a `RenderParams`
-//! struct instead of 9 positional args, but for 35-15 we extend the
-//! positional signature — story scope is "wire it, don't refactor it."
-//!
-//! These tests capture the extended closure arguments via
-//! `Arc<Mutex<Vec<...>>>` so we can observe what reached the worker.
+//! The `RenderQueue::spawn` closure was refactored post-35-15 to take a
+//! single `RenderJobParams` struct instead of 10 positional args (closing
+//! the architect's Delivery Finding from the 35-15 session). These tests
+//! destructure `RenderJobParams` in the capturing closure and capture the
+//! relevant fields via `Arc<Mutex<Vec<...>>>` so we can observe what
+//! reached the worker.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use sidequest_game::render_queue::{EnqueueResult, RenderQueue, RenderQueueConfig};
+use sidequest_game::render_queue::{
+    EnqueueResult, RenderJobParams, RenderQueue, RenderQueueConfig,
+};
 use sidequest_game::subject::{RenderSubject, SceneType, SubjectTier};
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -52,40 +49,35 @@ fn test_config() -> RenderQueueConfig {
 /// Extracted in the verify phase per the simplify-reuse high-confidence
 /// finding for story 35-15.
 fn make_capturing_queue(captures: Arc<Mutex<Vec<CapturedCall>>>) -> RenderQueue {
-    RenderQueue::spawn(
-        test_config(),
-        move |prompt: String,
-              _art_style: String,
-              _tier: String,
-              _neg: String,
-              _narration: String,
-              _w: u32,
-              _h: u32,
-              variant: String,
-              lora_path: Option<String>,
-              lora_scale: Option<f32>| {
-            let captures = Arc::clone(&captures);
-            async move {
-                captures.lock().unwrap().push(CapturedCall {
-                    prompt: prompt.clone(),
-                    variant,
-                    lora_path: lora_path.clone(),
-                    lora_scale,
-                });
-                Ok((format!("/tmp/mock/{prompt}.png"), 42u64))
-            }
-        },
-    )
+    RenderQueue::spawn(test_config(), move |params: RenderJobParams| {
+        let captures = Arc::clone(&captures);
+        let RenderJobParams {
+            prompt,
+            variant,
+            lora_path,
+            lora_scale,
+            ..
+        } = params;
+        async move {
+            captures.lock().unwrap().push(CapturedCall {
+                prompt: prompt.clone(),
+                variant,
+                lora_path: lora_path.clone(),
+                lora_scale,
+            });
+            Ok((format!("/tmp/mock/{prompt}.png"), 42u64))
+        }
+    })
 }
 
 /// Captured call arguments from the worker closure.
 ///
-/// Dev extended the `render_fn` signature to take 10 positional args:
-/// `|prompt, style, tier, neg, narration, w, h, variant, lora_path, lora_scale|`.
-/// This fixture records what each render received. `variant` is the
-/// Flux model override ("dev" / "schnell" / ""), previously dropped at
-/// the dead `_image_model` parameter. The trailing lora fields use
-/// `Option` to distinguish "not sent" from "sent with a value."
+/// The `render_fn` signature now takes a `RenderJobParams` struct. This
+/// fixture records the subset of fields the 35-15 ACs assert on: `prompt`
+/// (for the mock image-url template), `variant` (the Flux model override —
+/// "dev" / "schnell" / "", previously dropped at the dead `_image_model`
+/// parameter), and the two LoRA fields. `Option` on the LoRA fields
+/// distinguishes "not sent" from "sent with a value."
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 struct CapturedCall {
