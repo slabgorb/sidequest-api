@@ -9,9 +9,11 @@ These systems are fully implemented and production-ready. Do NOT stub, recreate,
 or rewrite them. Use the existing types and functions.
 
 ### Core Game State
-- **GameSnapshot** — `state.rs` (577 LOC) — master state composition struct.
-  Captures characters, NPCs, location, combat, chase, tropes, atmosphere, lore,
-  stakes, turns. Has typed patch types: WorldStatePatch, NpcPatch, CombatPatch, ChasePatch.
+- **GameSnapshot** — `state.rs` (919 LOC) — master state composition struct.
+  Captures characters, NPCs, location, `encounter`, tropes, atmosphere, lore,
+  stakes, turns. Typed patch types: `WorldStatePatch`, `NpcPatch`. (Combat/chase
+  are unified under `encounter: Option<StructuredEncounter>` — see ADR-033. The
+  old `CombatPatch`/`ChasePatch` types were removed with story 16-2.)
 - **Character** — `character.rs` (170 LOC) — player character with narrative identity
   (backstory, hooks) + mechanical stats. Embeds CreatureCore via composition.
   Implements Combatant trait.
@@ -23,18 +25,23 @@ or rewrite them. Use the existing types and functions.
 - **CharacterBuilder** — `builder.rs` (903 LOC) — multi-phase state machine for
   character creation. Loads CharCreationScene from genre pack, produces Character.
 
-### Combat & Turn Sequencing
-- **CombatState** — `combat.rs` (198 LOC) — round tracking, damage log, status
-  effects, turn order, available actions. StatusEffect with tick/expiry.
-- **TurnManager** — `turn.rs` (118 LOC) — round counter, phase tracking, input
+### Encounters & Turn Sequencing
+- **StructuredEncounter** — `encounter.rs` (617 LOC) — universal encounter model
+  (ADR-033 confrontation engine). Replaces the old split `CombatState`/`ChaseState`.
+  One string-keyed `encounter_type` ("combat", "chase", "standoff", "negotiation"),
+  one `EncounterMetric` (HP descending for combat, separation ascending for chase,
+  etc.), one `SecondaryStats` block, shared `EncounterActor` list with string roles,
+  shared phase/beat tracking. Constructors: `::combat(combatants, hp)`, `::chase(
+  escape_threshold, rig_type, goal)`. Stored at `GameSnapshot.encounter`.
+- **TurnManager** — `turn.rs` (165 LOC) — round counter, phase tracking, input
   barrier. TurnPhase: InputCollection -> IntentRouting -> AgentExecution -> StatePatch -> Broadcast.
 - **TurnMode** — `turn_mode.rs` (79 LOC) — FreePlay / Structured / Cinematic state
   machine. Drives barrier behavior for multiplayer.
-- **TurnBarrier** — `barrier.rs` (302 LOC) — concurrent turn coordination with
+- **TurnBarrier** — `barrier.rs` (536 LOC) — concurrent turn coordination with
   adaptive timeout. Arc-wrapped with Mutex + Notify.
 - **TurnReminder** — `turn_reminder.rs` (161 LOC) — idle player detection with
   mode-aware checks.
-- **Combatant trait** — `combatant.rs` (154 LOC) — shared combat interface. Implemented
+- **Combatant trait** — `combatant.rs` (153 LOC) — shared combat interface. Implemented
   by Character, Npc, CreatureCore.
 - **HP clamping** — `hp.rs` (109 LOC) — pure function, fixes Python overflow bug.
 
@@ -89,10 +96,10 @@ or rewrite them. Use the existing types and functions.
 - **Inventory** — `inventory.rs` (346 LOC) — Item with narrative_weight-driven
   evolution (unnamed -> named at 0.5 -> evolved at 0.7). Carry limits, gold tracking.
   **Do NOT use Vec<String> for items. Use the Item struct.**
-- **ChaseState** — `chase.rs` (133 LOC) — chase resolution (Footrace/Stealth/
-  Negotiation). Escape threshold, round recording.
-- **ChaseDepth** — `chase_depth.rs` — camera modes, cinematography, terrain modifiers,
-  danger levels, and outcome resolution for cinematic chases.
+- **ChaseDepth** — `chase_depth.rs` (900 LOC) — camera modes, cinematography,
+  terrain modifiers, danger levels, and outcome resolution for cinematic chases.
+  Operates on a `StructuredEncounter` with `encounter_type == "chase"` — the old
+  `ChaseState` was removed with story 16-2.
 - **TropeEngine** — `trope.rs` (225 LOC) — trope runtime with passive progression +
   engagement multiplier. Escalation thresholds trigger FiredBeat events.
 - **Disposition** — `disposition.rs` (223 LOC) — newtype i32 with Attitude derivation
@@ -135,6 +142,7 @@ These exist and compile but have gaps in their implementation:
 
 - **Composition over inheritance**: GameSnapshot composes domain structs; Character/Npc embed CreatureCore
 - **Trait-based abstraction**: Combatant, CommandHandler, SessionStore, TtsSynthesizer, RewriteStrategy
-- **Typed patches**: WorldStatePatch, NpcPatch, CombatPatch for composable state mutations
+- **Typed patches**: WorldStatePatch, NpcPatch for composable state mutations
+- **Unified encounters**: StructuredEncounter (ADR-033) collapses combat/chase/standoff/negotiation into one model — no per-type state structs
 - **Actor pattern**: PersistenceWorker owns SQLite Connection (single-threaded, !Send)
 - **Newtype pattern**: Disposition(i32), TropeStatus, TurnStatus for semantic richness
