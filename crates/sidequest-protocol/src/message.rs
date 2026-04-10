@@ -114,16 +114,14 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Partial narration text (streaming).
-    #[serde(rename = "NARRATION_CHUNK")]
-    NarrationChunk {
-        /// The typed payload for this message.
-        payload: NarrationChunkPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// End of narration stream.
+    /// Turn-completion marker. Carries the final `StateDelta` when one exists.
+    ///
+    /// Emitted by the dispatch layer at the end of every narration turn.
+    /// The UI processes this message through its normal state-mirror
+    /// pipeline — React's automatic batching applies any final state delta
+    /// in the same render commit as the preceding `Narration`, with no
+    /// explicit buffering required on the client side (ADR-076 — post-TTS
+    /// protocol collapse).
     #[serde(rename = "NARRATION_END")]
     NarrationEnd {
         /// The typed payload for this message.
@@ -456,15 +454,13 @@ pub enum FactCategory {
     Ability,
 }
 
-/// Partial narration text (streaming chunk).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NarrationChunkPayload {
-    /// The partial text being streamed.
-    pub text: String,
-}
-
-/// End of narration stream, optionally with final state delta.
+/// Turn-completion payload, optionally carrying the final state delta.
+///
+/// Sent at the end of every narration turn. The UI applies the optional
+/// `state_delta` through its normal state-mirror pipeline — no explicit
+/// buffering is required on the client side because React's automatic
+/// batching already coalesces consecutive `setState` calls into a single
+/// commit (ADR-076).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NarrationEndPayload {

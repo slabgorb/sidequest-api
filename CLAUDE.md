@@ -99,7 +99,7 @@ Before designing or modifying a subsystem, check the relevant ADR (75 total):
 | Progression | 021 (four-track progression), 052 (narrative axis system) |
 | Narrative pacing | 024 (dual-track tension), 025 (pacing detection), 050 (image pacing throttle), 051 (two-tier turn counter) |
 | Session persistence | 023 (state + recap) |
-| Frontend / protocol | 026 (client state mirror), 027 (reactive state messaging), 054 (WebRTC voice chat disabled), 065 (protocol message decomposition) |
+| Frontend / protocol | 026 (client state mirror), 027 (reactive state messaging), 054 (WebRTC voice chat disabled), 065 (protocol message decomposition), 076 (narration protocol collapse post-TTS) |
 | Multiplayer | 028 (perception rewriter), 029 (guest NPC players), 030 (scenario packs), 053 (scenario system) |
 | Telemetry | 031 (game watcher semantic telemetry), 058 (Claude subprocess OTEL passthrough) |
 | Media | 032 (genre LoRA style training), 034 (portrait identity consistency), 056 (script tool generators) |

@@ -43,3 +43,7 @@ mod cartography_wiring_story_26_10_tests;
 #[cfg(test)]
 #[path = "tactical_state_story_29_5_tests.rs"]
 mod tactical_state_story_29_5_tests;
+
+#[cfg(test)]
+#[path = "narration_collapse_story_27_9_tests.rs"]
+mod narration_collapse_story_27_9_tests;
