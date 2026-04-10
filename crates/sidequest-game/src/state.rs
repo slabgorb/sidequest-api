@@ -184,14 +184,6 @@ pub struct GameSnapshot {
     /// None when no scenario is active.
     #[serde(default)]
     pub scenario_state: Option<ScenarioState>,
-    /// Current resource values keyed by resource name (story 16-1).
-    /// Lightweight tracking — formal ResourcePool comes in story 16-10.
-    #[serde(default)]
-    pub resource_state: HashMap<String, f64>,
-    /// Resource declarations loaded from genre pack (story 16-1).
-    /// Used for bounds clamping during delta application.
-    #[serde(default)]
-    pub resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
     /// Room IDs the player has visited in room-graph mode (story 19-2).
     /// Empty in region mode. Serializes as sorted Vec for deterministic JSON.
     #[serde(default)]
@@ -390,8 +382,6 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             axis_values: raw.axis_values,
             achievement_tracker: raw.achievement_tracker,
             scenario_state: raw.scenario_state,
-            resource_state: raw.resource_state,
-            resource_declarations: raw.resource_declarations,
             discovered_rooms: raw.discovered_rooms,
             player_dead: raw.player_dead,
             resources,
@@ -400,73 +390,6 @@ impl From<GameSnapshotRaw> for GameSnapshot {
 }
 
 impl GameSnapshot {
-    /// Apply resource deltas to tracked state (story 16-1).
-    ///
-    /// Only modifies resources that already exist in `resource_state`.
-    /// Unknown resources in the delta map are silently ignored (not created).
-    /// Values are clamped to [min, max] if a matching `ResourceDeclaration` exists.
-    pub fn apply_resource_deltas(&mut self, deltas: &HashMap<String, f64>) {
-        for (name, delta) in deltas {
-            if let Some(current) = self.resource_state.get_mut(name) {
-                *current += delta;
-                // Clamp to bounds if declaration exists
-                if let Some(decl) = self.resource_declarations.iter().find(|d| d.name == *name) {
-                    *current = current.clamp(decl.min, decl.max);
-                }
-            }
-        }
-    }
-
-    /// Apply decay_per_turn from all resource declarations (story 19-6).
-    ///
-    /// Builds a delta map from `resource_declarations` and applies via `apply_resource_deltas`.
-    /// Returns resources that *reached* min this tick (were above min before, at min after).
-    /// Resources already at min are not re-reported.
-    pub fn apply_decay_per_turn(&mut self) -> Vec<(String, f64)> {
-        // Snapshot pre-decay values and identify which are already at min
-        let pre_values: HashMap<String, f64> = self.resource_state.clone();
-        let at_min_before: std::collections::HashSet<String> = self
-            .resource_declarations
-            .iter()
-            .filter(|d| {
-                pre_values
-                    .get(&d.name)
-                    .map(|v| (*v - d.min).abs() < 1e-12)
-                    .unwrap_or(false)
-            })
-            .map(|d| d.name.clone())
-            .collect();
-
-        // Build deltas from declarations
-        let deltas: HashMap<String, f64> = self
-            .resource_declarations
-            .iter()
-            .filter(|d| d.decay_per_turn.abs() > 1e-12)
-            .map(|d| (d.name.clone(), d.decay_per_turn))
-            .collect();
-
-        if deltas.is_empty() {
-            return vec![];
-        }
-
-        self.apply_resource_deltas(&deltas);
-
-        // Find resources that just reached min (weren't at min before, are now)
-        self.resource_declarations
-            .iter()
-            .filter(|d| {
-                if at_min_before.contains(&d.name) {
-                    return false; // already at min, don't re-report
-                }
-                self.resource_state
-                    .get(&d.name)
-                    .map(|v| (*v - d.min).abs() < 1e-12)
-                    .unwrap_or(false)
-            })
-            .map(|d| (d.name.clone(), d.min))
-            .collect()
-    }
-
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {

@@ -141,7 +141,19 @@ fn dispatch_snapshot() -> GameSnapshot {
         world_history: vec![],
         genie_wishes: vec![],
         axis_values: vec![],
-        resource_state: HashMap::from([("Luck".to_string(), 0.75)]),
+        resources: HashMap::from([(
+            "Luck".to_string(),
+            sidequest_game::ResourcePool {
+                name: "Luck".to_string(),
+                label: "Luck".to_string(),
+                current: 0.75,
+                min: 0.0,
+                max: 6.0,
+                voluntary: true,
+                decay_per_turn: 0.0,
+                thresholds: vec![],
+            },
+        )]),
         ..GameSnapshot::default()
     }
 }
@@ -436,8 +448,12 @@ fn save_without_prior_load_then_load_recovers_all_fields() {
     // Turn manager — round survives save/load
     assert_eq!(loaded_snap.turn_manager.round(), snapshot.turn_manager.round());
 
-    // Resource state
-    assert_eq!(*loaded_snap.resource_state.get("Luck").unwrap_or(&0.0), 0.75);
+    // Resource state — now carried via ResourcePool
+    assert!(
+        (loaded_snap.resources.get("Luck").map(|p| p.current).unwrap_or(0.0) - 0.75).abs()
+            < f64::EPSILON,
+        "Luck ResourcePool current must survive save/load"
+    );
 }
 
 // ============================================================================
