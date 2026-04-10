@@ -3,8 +3,6 @@
 //! port-lessons.md #10: Character, NPC, and Enemy all independently define
 //! name, hp, max_hp, level, ac. This trait unifies the interface.
 
-use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
-
 /// Common interface for anything that participates in combat.
 ///
 /// Character, NPC, and Enemy all implement this trait. Default methods
@@ -32,26 +30,16 @@ pub trait Combatant {
 
     /// Current HP as a fraction of max HP (0.0 to 1.0).
     ///
-    /// Emits a `combatant.bloodied` watcher event when the result is strictly
-    /// less than 0.5 (story 35-10). Threshold-gated so the GM panel sees
-    /// meaningful "this combatant is now bloodied" signals without flooding
-    /// the channel on every state-build query. Skips emission when
-    /// `max_hp == 0` because there is no meaningful HP state to report.
+    /// Returns 0.0 when `max_hp == 0` (degenerate combatant — no meaningful
+    /// HP state to report). Pure accessor: no side effects, no telemetry.
+    /// The `combatant.bloodied` OTEL emission lives at the per-turn state-ship
+    /// site (`state::broadcast_state_changes`) rather than inside this default
+    /// trait method — see story 35-10 for the rationale.
     fn hp_fraction(&self) -> f64 {
         if self.max_hp() == 0 {
             return 0.0;
         }
-        let frac = self.hp() as f64 / self.max_hp() as f64;
-        if frac < 0.5 {
-            WatcherEventBuilder::new("combatant", WatcherEventType::StateTransition)
-                .field("action", "bloodied")
-                .field("name", self.name())
-                .field("hp", self.hp())
-                .field("max_hp", self.max_hp())
-                .field("hp_fraction", frac)
-                .send();
-        }
-        frac
+        self.hp() as f64 / self.max_hp() as f64
     }
 }
 
