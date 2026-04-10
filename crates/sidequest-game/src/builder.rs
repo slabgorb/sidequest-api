@@ -915,12 +915,7 @@ impl CharacterBuilder {
                 let tables = self.equipment_tables.as_ref().unwrap();
                 let mut rng = rand::rng();
                 let mut added = 0usize;
-                // Iterate slots in sorted order for deterministic-under-fixed-seed
-                // behavior. Random selection within each slot still varies.
-                let mut slot_names: Vec<&String> = tables.tables.keys().collect();
-                slot_names.sort();
-                for slot in slot_names {
-                    let candidates = &tables.tables[slot];
+                for (slot, candidates) in &tables.tables {
                     if candidates.is_empty() {
                         continue;
                     }
@@ -930,7 +925,18 @@ impl CharacterBuilder {
                         let display_name = humanize_snake_case(pick);
                         let id = match NonBlankString::new(pick) {
                             Ok(id) => id,
-                            Err(_) => continue, // blank id — skip without inserting
+                            Err(_) => {
+                                // Blank id — skip, but record it so the GM panel
+                                // can surface a malformed equipment_tables.yaml
+                                // entry rather than silently producing short
+                                // inventories.
+                                tracing::warn!(
+                                    slot = %slot,
+                                    pick = %pick,
+                                    "chargen.equipment_tables: blank item id, skipping"
+                                );
+                                continue;
+                            }
                         };
                         items.push(Item {
                             id,
@@ -961,21 +967,21 @@ impl CharacterBuilder {
             } else if random_table_requested {
                 // Directive present but no tables wired — silent no-op is
                 // intentional here because the directive is optional content,
-                // not a configuration error. OTEL span records the decision.
+                // not a configuration error. OTEL event records the decision.
                 ("none", 0)
             } else {
                 ("hints", 0)
             };
 
         // OTEL: chargen.equipment_composed — GM panel verification that the
-        // equipment subsystem engaged (or didn't, and why).
-        let _equipment_span = info_span!(
-            "chargen.equipment_composed",
+        // equipment subsystem engaged (or didn't, and why). Emitted as a
+        // tracing event (not a span) since there is no meaningful duration
+        // to measure — this is a point-in-time composition decision.
+        tracing::info!(
+            target: "chargen.equipment_composed",
             method = equipment_method,
             items_added = equipment_added,
-        )
-        .entered();
-        drop(_equipment_span);
+        );
 
         // Compose backstory: fragments → tables → mechanical labels → fallback
         let backstory_text = if !acc.backstory_fragments.is_empty() {
