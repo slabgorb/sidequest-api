@@ -6,15 +6,12 @@
 //! is already cached — zero perceived latency.
 
 use crate::subject::{RenderSubject, SceneType, SubjectTier};
-use crate::tts_stream::TtsSegment;
 
 /// Configuration for speculative prerendering.
 #[derive(Debug, Clone)]
 pub struct PrerenderConfig {
     /// Whether speculation is enabled.
     pub enabled: bool,
-    /// Minimum TTS duration (ms) to trigger speculation (default 3000).
-    pub min_tts_duration_ms: u64,
     /// Maximum concurrent speculative render jobs (default 1).
     pub max_speculative_jobs: usize,
     /// Minimum hit rate before disabling speculation (default 0.3).
@@ -25,7 +22,6 @@ impl Default for PrerenderConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            min_tts_duration_ms: 3000,
             max_speculative_jobs: 1,
             min_hit_rate: 0.3,
         }
@@ -117,30 +113,11 @@ impl PrerenderScheduler {
         }
     }
 
-    /// Estimate TTS playback duration from segments.
+    /// Speculatively prerender based on game context.
     ///
-    /// Uses a rough heuristic of ~150ms per word plus pause hints.
-    pub fn estimate_tts_duration(segments: &[TtsSegment]) -> u64 {
-        segments
-            .iter()
-            .map(|s| {
-                let word_count = s.text.split_whitespace().count() as u64;
-                let speech_ms = word_count * 150;
-                let pause_ms = s.pause_after_ms as u64;
-                speech_ms + pause_ms
-            })
-            .sum()
-    }
-
-    /// Called when TTS streaming begins. Returns a speculative RenderSubject
-    /// if conditions are met, or `None` if speculation is skipped.
-    ///
-    /// The caller should submit the returned subject to the render queue.
-    pub fn on_tts_start(
-        &mut self,
-        segments: &[TtsSegment],
-        ctx: &PrerenderContext,
-    ) -> Option<RenderSubject> {
+    /// Returns a `RenderSubject` if conditions are met, or `None` if speculation
+    /// is skipped. The caller should submit the returned subject to the render queue.
+    pub fn speculate(&mut self, ctx: &PrerenderContext) -> Option<RenderSubject> {
         if !self.config.enabled {
             return None;
         }
@@ -153,29 +130,16 @@ impl PrerenderScheduler {
             return None;
         }
 
-        let duration = Self::estimate_tts_duration(segments);
-        if duration < self.config.min_tts_duration_ms {
-            return None;
-        }
-
         if self.pending_hash.is_some() {
-            // Already have a pending speculative render
             return None;
         }
 
         let subject = Self::predict_next_subject(ctx)?;
 
-        // Store hash for later hit/miss tracking
         let hash = crate::render_queue::compute_content_hash(&subject);
         self.pending_hash = Some(hash);
 
         Some(subject)
-    }
-
-    /// Called when TTS streaming ends. Clears the pending state.
-    pub fn on_tts_end(&mut self) {
-        // Note: we don't clear pending_hash here because we need it
-        // to track hit/miss when the actual render comes through.
     }
 
     /// Record whether a render matched the speculative prerender.
@@ -240,53 +204,15 @@ impl PrerenderScheduler {
 mod tests {
     use super::*;
 
-    fn segments(word_count: usize) -> Vec<TtsSegment> {
-        let text = (0..word_count).map(|i| format!("word{}", i)).collect::<Vec<_>>().join(" ");
-        vec![TtsSegment {
-            text,
-            index: 0,
-            is_last: true,
-            speaker: "narrator".to_string(),
-            pause_after_ms: 200,
-        }]
-    }
-
-    #[test]
-    fn triggers_on_tts_start() {
-        let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
-        let segs = segments(30); // 30 * 150 + 200 = 4700ms > 3000ms
-        let ctx = PrerenderContext {
-            in_combat: true,
-            combatant_names: vec!["Goblin".to_string()],
-            ..Default::default()
-        };
-        let result = scheduler.on_tts_start(&segs, &ctx);
-        assert!(result.is_some(), "Should trigger speculation for long TTS");
-    }
-
-    #[test]
-    fn duration_gate() {
-        let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
-        let segs = segments(5); // 5 * 150 + 200 = 950ms < 3000ms
-        let ctx = PrerenderContext {
-            in_combat: true,
-            combatant_names: vec!["Goblin".to_string()],
-            ..Default::default()
-        };
-        let result = scheduler.on_tts_start(&segs, &ctx);
-        assert!(result.is_none(), "Short TTS should not trigger speculation");
-    }
-
     #[test]
     fn combat_prediction() {
         let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
-        let segs = segments(30);
         let ctx = PrerenderContext {
             in_combat: true,
             combatant_names: vec!["Dragon".to_string(), "Knight".to_string()],
             ..Default::default()
         };
-        let subject = scheduler.on_tts_start(&segs, &ctx).unwrap();
+        let subject = scheduler.speculate(&ctx).unwrap();
         assert_eq!(*subject.scene_type(), SceneType::Combat);
         assert_eq!(*subject.tier(), SubjectTier::Scene);
     }
@@ -294,12 +220,11 @@ mod tests {
     #[test]
     fn location_prediction() {
         let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
-        let segs = segments(30);
         let ctx = PrerenderContext {
             pending_destination: Some("Crystal Caverns".to_string()),
             ..Default::default()
         };
-        let subject = scheduler.on_tts_start(&segs, &ctx).unwrap();
+        let subject = scheduler.speculate(&ctx).unwrap();
         assert_eq!(*subject.scene_type(), SceneType::Exploration);
         assert_eq!(*subject.tier(), SubjectTier::Landscape);
     }
@@ -307,12 +232,11 @@ mod tests {
     #[test]
     fn dialogue_prediction() {
         let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
-        let segs = segments(30);
         let ctx = PrerenderContext {
             active_dialogue_npc: Some("Elara".to_string()),
             ..Default::default()
         };
-        let subject = scheduler.on_tts_start(&segs, &ctx).unwrap();
+        let subject = scheduler.speculate(&ctx).unwrap();
         assert_eq!(*subject.scene_type(), SceneType::Dialogue);
         assert_eq!(*subject.tier(), SubjectTier::Portrait);
     }
@@ -320,17 +244,15 @@ mod tests {
     #[test]
     fn dedup_integration() {
         let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
-        let segs = segments(30);
         let ctx = PrerenderContext {
             in_combat: true,
             combatant_names: vec!["Goblin".to_string()],
             ..Default::default()
         };
 
-        let subject = scheduler.on_tts_start(&segs, &ctx).unwrap();
+        let subject = scheduler.speculate(&ctx).unwrap();
         let hash = crate::render_queue::compute_content_hash(&subject);
 
-        // Record the same hash as a hit
         scheduler.record_outcome(hash);
         assert_eq!(scheduler.waste_tracker().hits, 1);
     }
@@ -343,18 +265,16 @@ mod tests {
         };
         let mut scheduler = PrerenderScheduler::new(config);
 
-        // Record 10+ misses (past learning period)
         for _ in 0..11 {
             scheduler.waste.record_miss();
         }
 
-        let segs = segments(30);
         let ctx = PrerenderContext {
             in_combat: true,
             combatant_names: vec!["Goblin".to_string()],
             ..Default::default()
         };
-        let result = scheduler.on_tts_start(&segs, &ctx);
+        let result = scheduler.speculate(&ctx);
         assert!(result.is_none(), "Should disable after sustained low hit rate");
     }
 
@@ -365,46 +285,20 @@ mod tests {
             ..Default::default()
         };
         let mut scheduler = PrerenderScheduler::new(config);
-        let segs = segments(30);
         let ctx = PrerenderContext {
             in_combat: true,
             combatant_names: vec!["Goblin".to_string()],
             ..Default::default()
         };
-        assert!(scheduler.on_tts_start(&segs, &ctx).is_none());
+        assert!(scheduler.speculate(&ctx).is_none());
     }
 
     #[test]
     fn graceful_noop_no_prediction() {
         let mut scheduler = PrerenderScheduler::new(PrerenderConfig::default());
-        let segs = segments(30);
-        // Empty context — no combat, no destination, no NPC
         let ctx = PrerenderContext::default();
-        let result = scheduler.on_tts_start(&segs, &ctx);
+        let result = scheduler.speculate(&ctx);
         assert!(result.is_none(), "No prediction possible should return None gracefully");
-    }
-
-    #[test]
-    fn duration_estimation() {
-        let segs = vec![
-            TtsSegment {
-                text: "Hello there friend".to_string(),
-                index: 0,
-                is_last: false,
-                speaker: "narrator".to_string(),
-                pause_after_ms: 200,
-            },
-            TtsSegment {
-                text: "How are you".to_string(),
-                index: 1,
-                is_last: true,
-                speaker: "narrator".to_string(),
-                pause_after_ms: 0,
-            },
-        ];
-        let duration = PrerenderScheduler::estimate_tts_duration(&segs);
-        // 3 words * 150 + 200 + 3 words * 150 + 0 = 450 + 200 + 450 + 0 = 1100
-        assert_eq!(duration, 1100);
     }
 
     #[test]

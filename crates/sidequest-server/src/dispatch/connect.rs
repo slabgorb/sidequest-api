@@ -453,9 +453,7 @@ pub(crate) async fn dispatch_connect(
                                 *axes_config = Some(pack.axes.clone());
                                 *music_director =
                                     Some(sidequest_game::MusicDirector::new(&pack.audio));
-                                *audio_mixer.lock().await = Some(sidequest_game::AudioMixer::new(
-                                    sidequest_game::DuckConfig::default(),
-                                ));
+                                *audio_mixer.lock().await = Some(sidequest_game::AudioMixer::new());
                                 *prerender_scheduler.lock().await =
                                     Some(sidequest_game::PrerenderScheduler::new(
                                         sidequest_game::PrerenderConfig::default(),
@@ -715,9 +713,7 @@ pub(crate) async fn start_character_creation(
 
     // Initialize audio subsystems from genre pack
     *music_director_out = Some(sidequest_game::MusicDirector::new(&pack.audio));
-    *audio_mixer_lock.lock().await = Some(sidequest_game::AudioMixer::new(
-        sidequest_game::DuckConfig::default(),
-    ));
+    *audio_mixer_lock.lock().await = Some(sidequest_game::AudioMixer::new());
     *prerender_lock.lock().await = Some(sidequest_game::PrerenderScheduler::new(
         sidequest_game::PrerenderConfig::default(),
     ));

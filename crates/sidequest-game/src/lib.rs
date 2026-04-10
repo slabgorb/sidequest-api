@@ -63,7 +63,6 @@ pub mod scene_relevance;
 pub mod scene_directive;
 pub mod sealed_round;
 pub mod session_restore;
-pub mod segmenter;
 pub mod slash_router;
 pub mod state;
 pub mod subject;
@@ -73,11 +72,9 @@ pub mod tension_tracker;
 pub mod theme_rotator;
 pub mod treasure_xp;
 pub mod trope;
-pub mod tts_stream;
 pub mod turn;
 pub mod turn_mode;
 pub mod turn_reminder;
-pub mod voice_router;
 pub mod world_materialization;
 
 pub use accusation::{
@@ -89,7 +86,7 @@ pub use affinity::{
     AffinityState, AffinityTierUpEvent, check_affinity_thresholds,
     format_abilities_context, increment_affinity_progress, resolve_abilities, MAX_TIER, TIER_NAMES,
 };
-pub use audio_mixer::{AudioMixer, DuckConfig};
+pub use audio_mixer::AudioMixer;
 pub use axis::{format_tone_context, AxisValue, ToneCommand};
 pub use beat_filter::{BeatFilter, BeatFilterConfig, FilterContext, FilterDecision};
 pub use character::Character;
@@ -165,7 +162,6 @@ pub use scenario_scoring::{
 };
 pub use scenario_state::{ScenarioEvent, ScenarioEventType, ScenarioState};
 pub use scene_relevance::{ImagePromptVerdict, SceneRelevanceValidator};
-pub use segmenter::{Segment, SentenceSegmenter};
 pub use room_movement::{apply_validated_move, build_room_graph_explored, init_room_graph_location, validate_room_transition, DispatchError, RoomTransition};
 pub use resource_pool::{
     mint_threshold_lore, ResourcePatch, ResourcePatchError, ResourcePatchOp, ResourcePatchResult,
@@ -182,7 +178,6 @@ pub use tension_tracker::{CombatEvent, DamageEvent, DeliveryMode, DramaThreshold
 pub use treasure_xp::{apply_treasure_xp, TreasureXpConfig, TreasureXpResult};
 pub use theme_rotator::{RotationConfig, ThemeRotator};
 pub use turn::{TurnManager, TurnPhase};
-pub use voice_router::{VoiceAssignment, VoiceRouter};
 pub use world_materialization::{
     materialize_from_genre_pack, materialize_world, parse_history_chapters, CampaignMaturity,
     ChapterCharacter, ChapterNarrativeEntry, ChapterNpc, ChapterTrope, HistoryChapter,
