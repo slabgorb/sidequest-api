@@ -223,10 +223,19 @@ enum GateDecision {
 
 /// Map a classified `Intent` variant to a `GateDecision`.
 ///
-/// Exhaustive over every `sidequest_agents::agents::intent_router::Intent`
-/// variant. There is NO `_ =>` catch-all — a new Intent variant will fail
-/// compilation here, forcing a deliberate mapping choice. This enforces the
-/// "No Silent Fallbacks" rule from CLAUDE.md at compile time.
+/// Covers every current `sidequest_agents::agents::intent_router::Intent`
+/// variant with an explicit arm. Because `Intent` is `#[non_exhaustive]`
+/// across crates, Rust requires a wildcard arm — that arm panics via
+/// `unreachable!()` rather than silently defaulting to a `GateDecision`.
+///
+/// Adding a new `Intent` variant in `sidequest-agents` will NOT fail
+/// compilation here. The build will pass; the panic only fires at runtime
+/// when a guest player is the first to trigger the new variant. The panic
+/// is bounded (one player's task drops, server keeps running) and is loud
+/// enough that the next code review will catch the missing arm. This
+/// upholds the "No Silent Fallbacks" rule by making the failure mode loud
+/// rather than silent — but it is a runtime guarantee, not a compile-time
+/// one.
 ///
 /// Ambiguous-variant mapping rationale:
 /// - `Intent::Exploration` → `Movement` — only sensible mapping; exploration
@@ -910,7 +919,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             match &*holder {
                 Some(ss_arc) => {
                     let ss = ss_arc.lock().await;
-                    ss.players.get(ctx.player_id).map(|ps| ps.role.clone())
+                    // Use the role() getter — the field is private (rule #9).
+                    ss.players.get(ctx.player_id).map(|ps| ps.role().clone())
                 }
                 None => None,
             }
@@ -924,13 +934,24 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             use sidequest_agents::agents::intent_router::Intent;
             use sidequest_game::guest_npc::{ActionError, PlayerRole};
 
-            // AC-6: no silent fallback when classified_intent is None for a guest.
+            // AC-6: no silent fallback for guests. Two ways the intent can be
+            // unclassifiable:
+            //   1. The classifier returned `None` entirely (no classification)
+            //   2. The classifier returned a string that does not match any
+            //      known Intent variant (e.g., LLM produced "Hesitation" or
+            //      garbage tokens). `Intent::from_display_str` now returns
+            //      `Option<Intent>` and yields `None` for unrecognized input
+            //      (story 35-6 fix — previously this case was silently
+            //      defaulted to `Intent::Exploration`, defeating the gate).
+            //
+            // `.and_then` flattens both failure modes into a single None.
             let classified_opt: Option<Intent> = result
                 .classified_intent
                 .as_deref()
-                .map(Intent::from_display_str);
+                .and_then(Intent::from_display_str);
 
             let Some(classified) = classified_opt else {
+                let raw_intent = result.classified_intent.as_deref().unwrap_or("<none>");
                 WatcherEventBuilder::new(
                     "guest_npc",
                     WatcherEventType::ValidationWarning,
@@ -939,7 +960,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .field("reason", "unclassified_guest_action")
                 .field("player_id", ctx.player_id)
                 .field("npc_name", npc_name.as_str())
-                .field("category", "unknown")
+                .field("raw_intent", raw_intent)
                 .field(
                     "action_raw",
                     &ctx.action[..ctx.action.len().min(80)],
@@ -948,6 +969,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 tracing::warn!(
                     player_id = %ctx.player_id,
                     npc_name = %npc_name,
+                    raw_intent,
                     "guest_npc.gate: denied (unclassified intent — no silent fallback)"
                 );
                 return vec![];
@@ -1003,7 +1025,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         );
                     } else {
                         // AC-2: deny path — emit ValidationWarning, log
-                        // warn, return empty vec to abort the turn cleanly.
+                        // warn, return empty vec. Narration from
+                        // process_action() above is silently discarded
+                        // (the LLM cost is already incurred, but the guest
+                        // never sees the restricted-action narration —
+                        // showing it would teach the guest that the gate
+                        // ran "internally").
                         let err = ActionError::RestrictedAction { category };
                         WatcherEventBuilder::new(
                             "guest_npc",
@@ -1989,9 +2016,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         use sidequest_agents::turn_record::{try_send_record, TurnRecord};
         use sidequest_agents::agents::intent_router::Intent;
 
-        let classified = Intent::from_display_str(
-            result.classified_intent.as_deref().unwrap_or("Exploration"),
-        );
+        // TurnRecord telemetry: classified_intent is informational here, not
+        // gameplay-critical, so an unrecognized string can default to
+        // Exploration without violating the No Silent Fallbacks rule. The
+        // gate at line ~932 is where unrecognized intents are loud — here
+        // we just want a typed value for the training-data record.
+        let classified = result
+            .classified_intent
+            .as_deref()
+            .and_then(Intent::from_display_str)
+            .unwrap_or(Intent::Exploration);
 
         let patches_applied = patching::derive_patches_from_delta(&game_delta);
         let after_game_snapshot = ctx.snapshot.clone();

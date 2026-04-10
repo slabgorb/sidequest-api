@@ -57,14 +57,18 @@ pub struct PlayerState {
     /// Defaults to `PlayerRole::Full` — full agency, no action restrictions.
     /// Guest NPC players (ADR-029) get `PlayerRole::GuestNpc { .. }` with a
     /// restricted `allowed_actions` set. The dispatch pipeline reads this
-    /// field after intent classification and calls `can_perform()` to enforce
-    /// the restriction, emitting OTEL watcher events on every decision.
+    /// field via `role()` after intent classification and calls
+    /// `can_perform()` to enforce the restriction, emitting OTEL watcher
+    /// events on every decision.
     ///
-    /// There is NO silent fallback: if this field is `GuestNpc` and the
-    /// classified intent is `None`, the gate rejects the action loudly. See
-    /// `dispatch/mod.rs::dispatch_player_action` and the wiring tests at
-    /// `tests/guest_npc_wiring_story_35_6_tests.rs`.
-    pub role: PlayerRole,
+    /// **Private with crate-only setter** to satisfy rust.md rule #9
+    /// (security-critical fields must be private with getters). The
+    /// `pub(crate) set_role` method is the only sanctioned write site —
+    /// it should be called from the connect handshake when assigning a
+    /// guest NPC role. Direct field mutation is impossible from outside
+    /// the crate, preventing accidental privilege escalation by future
+    /// code that holds `&mut PlayerState`.
+    role: PlayerRole,
     pub session: Session,
     pub builder: Option<CharacterBuilder>,
     pub character_json: Option<serde_json::Value>,
@@ -104,6 +108,32 @@ impl PlayerState {
             display_location: String::new(),
             inventory: sidequest_game::Inventory::default(),
         }
+    }
+
+    /// Read the player's role for permission gating.
+    ///
+    /// Used by `dispatch_player_action` to look up whether the player is
+    /// a guest NPC and what action categories they may perform. Story 35-6.
+    pub fn role(&self) -> &PlayerRole {
+        &self.role
+    }
+
+    /// Assign the player's role. **Crate-only** — the only sanctioned write
+    /// site is the connect handshake when binding a guest NPC to a player.
+    ///
+    /// Marked `pub(crate)` to satisfy rust.md rule #9 (security-critical
+    /// fields must not be mutable from outside the crate). Direct field
+    /// assignment is impossible because the field itself is private.
+    /// Story 35-6.
+    ///
+    /// Currently has no callers — the connect handshake protocol extension
+    /// for guest NPCs is a future story (35-6 wires the enforcement gate
+    /// but leaves role assignment at connect time out of scope). The
+    /// `#[allow(dead_code)]` documents that the setter is intentionally
+    /// part of the API surface awaiting the connect handshake story.
+    #[allow(dead_code)]
+    pub(crate) fn set_role(&mut self, role: PlayerRole) {
+        self.role = role;
     }
 }
 
