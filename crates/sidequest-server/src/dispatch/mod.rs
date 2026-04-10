@@ -10,15 +10,20 @@
 //! - `state_mutations` — post-narration state mutations (HP, XP, items, etc.)
 //! - `tropes` — trope engine (activation, tick, escalation)
 
+mod aside;
 mod audio;
+mod barrier;
+mod beat;
 pub(crate) mod catch_up;
 pub(crate) mod connect;
 mod lore_sync;
+mod npc_registry;
 pub(crate) mod pregen;
 mod patching;
 mod persistence;
 mod prompt;
 mod render;
+mod response;
 mod session_sync;
 mod slash;
 mod state_mutations;
