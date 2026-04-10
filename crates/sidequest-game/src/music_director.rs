@@ -10,8 +10,28 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use sidequest_genre::{AudioConfig, MoodTrack, TrackVariation};
 pub use sidequest_genre::FactionThemeDef;
+use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 
 use crate::theme_rotator::{RotationConfig, ThemeRotator};
+
+/// Convert a `TrackVariation` to its lowercase string name for OTEL fields.
+/// Matches the `#[serde(rename_all = "snake_case")]` serialization used on
+/// the AudioVariation YAML side, so the watcher field values round-trip
+/// cleanly with the genre pack input format.
+fn variation_label(variation: TrackVariation) -> &'static str {
+    match variation {
+        TrackVariation::Full => "full",
+        TrackVariation::Overture => "overture",
+        TrackVariation::Ambient => "ambient",
+        TrackVariation::Sparse => "sparse",
+        TrackVariation::TensionBuild => "tension_build",
+        TrackVariation::Resolution => "resolution",
+        // `TrackVariation` is #[non_exhaustive]; any future variant that
+        // lands without a label update surfaces as "unknown" on the
+        // watcher channel rather than silently dropping the event.
+        _ => "unknown",
+    }
+}
 
 // ───────────────────────────────────────────────────────────────────
 // Core types
@@ -387,6 +407,19 @@ impl MusicDirector {
                     preferred = ?preferred,
                     "variation fallback: preferred not available, using Full"
                 );
+                // OTEL: music_director.variation_fallback — surface the
+                // degradation on the watcher channel so the GM panel can
+                // see that a genre pack's theme bundle is incomplete
+                // (CLAUDE.md: no silent fallbacks). Story 35-13.
+                WatcherEventBuilder::new("music_director", WatcherEventType::StateTransition)
+                    .severity(Severity::Warn)
+                    .field("action", "variation_fallback")
+                    .field("mood", mood_key)
+                    .field("preferred", variation_label(preferred))
+                    .field("selected", variation_label(TrackVariation::Full))
+                    .field("reason", "preferred_unavailable")
+                    .field("full_available", true)
+                    .send();
                 return TrackVariation::Full;
             }
             // Fallback: any available
@@ -397,6 +430,21 @@ impl MusicDirector {
                     selected = ?first_available,
                     "variation fallback: neither preferred nor Full available, using first available"
                 );
+                // OTEL: music_director.variation_fallback — the more
+                // severe fallback branch: neither the preferred variation
+                // NOR Full is registered for this mood. The GM panel
+                // needs to see this because it usually indicates a
+                // genre pack with only one variation file per mood.
+                // Story 35-13.
+                WatcherEventBuilder::new("music_director", WatcherEventType::StateTransition)
+                    .severity(Severity::Warn)
+                    .field("action", "variation_fallback")
+                    .field("mood", mood_key)
+                    .field("preferred", variation_label(preferred))
+                    .field("selected", variation_label(first_available))
+                    .field("reason", "only_first_available")
+                    .field("full_available", false)
+                    .send();
                 return first_available;
             }
         }

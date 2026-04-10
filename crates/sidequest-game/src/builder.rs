@@ -833,13 +833,41 @@ impl CharacterBuilder {
                 con_modifier = ?con_mod,
             )
             .entered();
+            // OTEL: chargen.hp_formula_evaluated — GM panel verification
+            // that the hp_formula evaluator engaged for this class.
+            // Story 35-13.
+            let mut builder = WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "hp_formula_evaluated")
+                .field("formula", formula.as_str())
+                .field("class", class_str)
+                .field("hp_result", hp_result as i64);
+            builder = match con_mod {
+                Some(m) => builder.field("con_modifier", m as i64),
+                None => builder.field("con_modifier", serde_json::Value::Null),
+            };
+            builder.send();
             hp_result
         } else {
-            self.class_hp_bases
-                .get(class_str)
-                .copied()
-                .or(self.default_hp)
-                .unwrap_or(10) as i32
+            // No hp_formula set — fall back to class_hp_bases lookup. This
+            // is a deliberate configuration choice for genres like low_fantasy
+            // that use fixed per-class HP, not a silent failure. Emit a
+            // watcher event so the GM panel can see which fallback chain
+            // resolved the HP (CLAUDE.md: no silent fallbacks).
+            // Story 35-13.
+            let (hp_value, source) = if let Some(&class_hp) = self.class_hp_bases.get(class_str) {
+                (class_hp as i32, "class_hp_bases")
+            } else if let Some(default) = self.default_hp {
+                (default as i32, "default_hp")
+            } else {
+                (10, "hardcoded_10")
+            };
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "hp_fallback")
+                .field("class", class_str)
+                .field("hp_result", hp_value as i64)
+                .field("source", source)
+                .send();
+            hp_value
         };
 
         let ac = self.default_ac.unwrap_or(10) as i32;
@@ -1003,9 +1031,9 @@ impl CharacterBuilder {
             .send();
 
         // Compose backstory: fragments → tables → mechanical labels → fallback
-        let backstory_text = if !acc.backstory_fragments.is_empty() {
+        let (backstory_text, backstory_method) = if !acc.backstory_fragments.is_empty() {
             let _span = info_span!("chargen.backstory_composed", method = "fragments").entered();
-            acc.backstory_fragments.join(" ")
+            (acc.backstory_fragments.join(" "), "fragments")
         } else if let Some(ref tables) = self.backstory_tables {
             let _span = info_span!("chargen.backstory_composed", method = "tables").entered();
             let mut rng = rand::rng();
@@ -1016,7 +1044,7 @@ impl CharacterBuilder {
                     result = result.replace(&format!("{{{}}}", key), pick);
                 }
             }
-            result
+            (result, "tables")
         } else {
             let _span = info_span!("chargen.backstory_composed", method = "fallback").entered();
             let mut parts = Vec::new();
@@ -1026,12 +1054,25 @@ impl CharacterBuilder {
             if let Some(ref pt) = acc.personality_trait {
                 parts.push(format!("Personality: {}", pt));
             }
-            if parts.is_empty() {
+            let text = if parts.is_empty() {
                 "A wanderer with a mysterious past".to_string()
             } else {
                 parts.join(". ")
-            }
+            };
+            (text, "fallback")
         };
+
+        // OTEL: chargen.backstory_composed — GM panel verification that
+        // the backstory subsystem engaged, and which composition method
+        // was used (fragments / tables / fallback). Critical for catching
+        // genre-pack misconfiguration where a genre silently falls through
+        // to the hardcoded "wanderer with a mysterious past" default.
+        // Story 35-13.
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "backstory_composed")
+            .field("method", backstory_method)
+            .field("length", backstory_text.len() as i64)
+            .send();
 
         let character = Character {
             core: CreatureCore {
@@ -1343,6 +1384,17 @@ impl CharacterBuilder {
                 }
             }
         }
+
+        // OTEL: chargen.stats_generated — GM panel verification that the
+        // stats subsystem engaged. Emitted through the sidequest-telemetry
+        // broadcast channel (NOT just tracing::info!, which only reaches
+        // stdout). Story 35-13.
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "stats_generated")
+            .field("method", self.stat_generation.as_str())
+            .field("stat_count", stats.len() as i64)
+            .field("stats", &stats)
+            .send();
 
         Ok(stats)
     }
