@@ -815,6 +815,13 @@ pub(crate) async fn start_character_creation(
             return vec![];
         }
     };
+    // Story 31-3: wire optional equipment_tables into the builder so scenes
+    // with `equipment_generation: random_table` can roll starting inventory.
+    let b = if let Some(ref equipment_tables) = pack.equipment_tables {
+        b.with_equipment_tables(equipment_tables.clone())
+    } else {
+        b
+    };
 
     // Display-only scenes (no choices, no freeform) are now first-class:
     // they emit CHARACTER_CREATION messages with input_type="continue" and

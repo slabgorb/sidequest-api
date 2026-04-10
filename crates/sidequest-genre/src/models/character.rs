@@ -198,6 +198,35 @@ impl<'de> serde::Deserialize<'de> for BackstoryTables {
 }
 
 // ═══════════════════════════════════════════════════════════
+// equipment_tables.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// Random equipment generation tables loaded from `equipment_tables.yaml`.
+///
+/// Consumed by `CharacterBuilder` when a character creation scene declares
+/// `equipment_generation: random_table` in its `mechanical_effects`. Each
+/// slot holds candidate item_ids; the builder rolls one (or `rolls_per_slot`)
+/// item per slot and appends them to the starting inventory.
+///
+/// All referenced item_ids must resolve against the genre pack's
+/// `inventory.item_catalog` — enforced by the wiring test, not by the
+/// deserializer.
+///
+/// Story 31-3: Equipment generation wiring (final piece of Epic 31).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EquipmentTables {
+    /// Slot name → candidate item_ids. Slot names are genre-defined
+    /// (e.g., "weapon", "armor", "utility", "consumable") — not an enum.
+    pub tables: HashMap<String, Vec<String>>,
+    /// Optional per-slot roll count override. Slots not listed default to
+    /// one roll. Example: `{ "light": 3, "consumable": 2 }` yields three
+    /// torches and two rations.
+    #[serde(default)]
+    pub rolls_per_slot: HashMap<String, u32>,
+}
+
+// ═══════════════════════════════════════════════════════════
 // visual_style.yaml
 // ═══════════════════════════════════════════════════════════
 
