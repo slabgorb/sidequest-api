@@ -689,13 +689,22 @@ fn wiring_progression_reached_by_state_mutations() {
 }
 
 #[test]
-fn wiring_combatant_trait_reached_by_state_broadcast() {
+fn wiring_combatant_hp_fraction_reached_by_state() {
+    // Reviewer rework (35-10): the previous assertion grepped for
+    // `Combatant::hp(` / `Combatant::max_hp(`, both of which appear in
+    // state.rs for unrelated state-build reasons. That gave false confidence:
+    // the OTEL event lives in `hp_fraction()`, not in the raw accessors. To
+    // actually prove the combatant.bloodied event is reachable from
+    // production, this assertion must grep for the literal `hp_fraction(`
+    // call. If state.rs (or any state-building production code) does not
+    // delegate the bloodied check to `hp_fraction()`, the OTEL event is dead.
     let src = include_str!("../src/state.rs");
     assert!(
-        src.contains("Combatant::hp(") || src.contains("Combatant::max_hp("),
-        "state.rs must call Combatant trait methods (hp/max_hp) when \
-         building party status — without these calls the combatant \
-         hp_fraction OTEL events are unreachable from production state \
-         broadcasts."
+        src.contains("hp_fraction("),
+        "state.rs must call Combatant::hp_fraction() (not inline the \
+         hp/max_hp ratio math) — without this call the combatant.bloodied \
+         OTEL event is unreachable from production state code, even though \
+         the trait method is defined and tested. CLAUDE.md \"No half-wired \
+         features\" requires the instrumented method to have a non-test caller."
     );
 }
