@@ -33,6 +33,29 @@ fn variation_label(variation: TrackVariation) -> &'static str {
     }
 }
 
+/// Emit a `music_director.variation_fallback` watcher event. Called from
+/// both silent-degradation branches of `select_variation()`. Keeping this
+/// in one place means the event field shape is guaranteed identical
+/// between the two branches (so the GM panel filter logic only needs to
+/// know one schema). Story 35-13.
+fn emit_variation_fallback(
+    mood: &str,
+    preferred: TrackVariation,
+    selected: TrackVariation,
+    reason: &'static str,
+    full_available: bool,
+) {
+    WatcherEventBuilder::new("music_director", WatcherEventType::StateTransition)
+        .severity(Severity::Warn)
+        .field("action", "variation_fallback")
+        .field("mood", mood)
+        .field("preferred", variation_label(preferred))
+        .field("selected", variation_label(selected))
+        .field("reason", reason)
+        .field("full_available", full_available)
+        .send();
+}
+
 // ───────────────────────────────────────────────────────────────────
 // Core types
 // ───────────────────────────────────────────────────────────────────
@@ -400,29 +423,28 @@ impl MusicDirector {
             if mood_variations.contains_key(&preferred) {
                 return preferred;
             }
-            // Fallback: Full
+            // Fallback: Full — preferred variation is missing but Full
+            // is registered for this mood. CLAUDE.md no-silent-fallbacks:
+            // surface on the watcher channel. Story 35-13.
             if preferred != TrackVariation::Full && mood_variations.contains_key(&TrackVariation::Full) {
                 tracing::warn!(
                     mood = mood_key,
                     preferred = ?preferred,
                     "variation fallback: preferred not available, using Full"
                 );
-                // OTEL: music_director.variation_fallback — surface the
-                // degradation on the watcher channel so the GM panel can
-                // see that a genre pack's theme bundle is incomplete
-                // (CLAUDE.md: no silent fallbacks). Story 35-13.
-                WatcherEventBuilder::new("music_director", WatcherEventType::StateTransition)
-                    .severity(Severity::Warn)
-                    .field("action", "variation_fallback")
-                    .field("mood", mood_key)
-                    .field("preferred", variation_label(preferred))
-                    .field("selected", variation_label(TrackVariation::Full))
-                    .field("reason", "preferred_unavailable")
-                    .field("full_available", true)
-                    .send();
+                emit_variation_fallback(
+                    mood_key,
+                    preferred,
+                    TrackVariation::Full,
+                    "preferred_unavailable",
+                    true,
+                );
                 return TrackVariation::Full;
             }
-            // Fallback: any available
+            // Fallback: first available — neither the preferred variation
+            // NOR Full is registered. More severe than the previous branch
+            // (genre pack theme bundle has only one variation for this
+            // mood). Story 35-13.
             if let Some((&first_available, _)) = mood_variations.iter().next() {
                 tracing::warn!(
                     mood = mood_key,
@@ -430,21 +452,13 @@ impl MusicDirector {
                     selected = ?first_available,
                     "variation fallback: neither preferred nor Full available, using first available"
                 );
-                // OTEL: music_director.variation_fallback — the more
-                // severe fallback branch: neither the preferred variation
-                // NOR Full is registered for this mood. The GM panel
-                // needs to see this because it usually indicates a
-                // genre pack with only one variation file per mood.
-                // Story 35-13.
-                WatcherEventBuilder::new("music_director", WatcherEventType::StateTransition)
-                    .severity(Severity::Warn)
-                    .field("action", "variation_fallback")
-                    .field("mood", mood_key)
-                    .field("preferred", variation_label(preferred))
-                    .field("selected", variation_label(first_available))
-                    .field("reason", "only_first_available")
-                    .field("full_available", false)
-                    .send();
+                emit_variation_fallback(
+                    mood_key,
+                    preferred,
+                    first_available,
+                    "only_first_available",
+                    false,
+                );
                 return first_available;
             }
         }
