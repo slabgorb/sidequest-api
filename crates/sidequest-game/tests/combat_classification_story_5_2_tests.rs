@@ -4,8 +4,9 @@
 //! The classifier examines a RoundResult and produces a CombatEvent for the
 //! TensionTracker's gambler's ramp.
 
-use sidequest_game::combat::{DamageEvent, RoundResult};
-use sidequest_game::tension_tracker::{classify_round, CombatEvent, TensionTracker};
+use sidequest_game::tension_tracker::{
+    classify_round, CombatEvent, DamageEvent, RoundResult, TensionTracker,
+};
 
 // =========================================================================
 // Classification — dramatic outcomes

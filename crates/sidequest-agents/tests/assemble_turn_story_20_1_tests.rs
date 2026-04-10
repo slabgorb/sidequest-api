@@ -124,7 +124,6 @@ fn assemble_turn_passes_through_narrator_fields() {
 
     assert_eq!(result.scene_mood.as_deref(), Some("combat"));
     assert_eq!(result.scene_intent.as_deref(), Some("Combat"));
-    assert!(result.combat_patch.is_none());
     assert!(result.footnotes.is_empty());
     assert!(result.items_gained.is_empty());
     assert!(result.npcs_present.is_empty());

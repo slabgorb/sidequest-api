@@ -19,7 +19,7 @@ fn make_trope_def(id: &str, rate_per_turn: f64, escalation: Vec<(f64, &str)>) ->
     TropeDefinition {
         id: Some(id.to_string()),
         name: NonBlankString::new(id).unwrap(),
-        description: None, grid: None, legend: None, tactical_scale: None,
+        description: None,
         category: "test".into(),
         triggers: vec![],
         narrative_hints: vec![],
