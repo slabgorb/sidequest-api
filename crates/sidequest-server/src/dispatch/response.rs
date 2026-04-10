@@ -1,8 +1,8 @@
 //! Response message construction — narration, party status, inventory, map, encounters.
 
 use sidequest_protocol::{
-    GameMessage, InventoryPayload, MapUpdatePayload, NarrationEndPayload, NarrationPayload,
-    PartyMember, PartyStatusPayload,
+    GameMessage, MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember,
+    PartyStatusPayload,
 };
 
 use crate::{WatcherEventBuilder, WatcherEventType};
@@ -129,7 +129,10 @@ pub(super) async fn build_response_messages(
     messages.push(narration_end.clone());
     let _ = ctx.tx.send(narration_end).await;
 
-    // Party status
+    // Party status — now carries the per-member sheet and inventory facets
+    // (CHARACTER_SHEET and INVENTORY message types were collapsed into
+    // PARTY_STATUS by 51576be so observers get every teammate's full sheet
+    // and we never race against null characterSheet on the client).
     {
         let char_class: String = ctx
             .character_json
@@ -138,6 +141,22 @@ pub(super) async fn build_response_messages(
             .and_then(|c| c.as_str())
             .unwrap_or("Adventurer")
             .to_string();
+
+        // Pull the acting player's cached sheet off PlayerState (populated at
+        // chargen completion in dispatch/connect.rs) and use the live
+        // dispatch-scope inventory for the inventory facet.
+        let acting_sheet = {
+            let holder = ctx.shared_session_holder.lock().await;
+            match *holder {
+                Some(ref ss_arc) => {
+                    let ss = ss_arc.lock().await;
+                    ss.players.get(ctx.player_id).and_then(|ps| ps.sheet.clone())
+                }
+                None => None,
+            }
+        };
+        let acting_inventory =
+            Some(crate::shared_session::inventory_payload_from(ctx.inventory));
 
         let mut party_members = vec![PartyMember {
             player_id: ctx.player_id.to_string(),
@@ -150,7 +169,10 @@ pub(super) async fn build_response_messages(
             level: *ctx.level,
             portrait_url: None,
             current_location: ctx.current_location.clone(),
+            sheet: acting_sheet,
+            inventory: acting_inventory,
         }];
+        // Observers come from the helper so their cached sheet+inventory ride along.
         let holder = ctx.shared_session_holder.lock().await;
         if let Some(ref ss_arc) = *holder {
             let ss = ss_arc.lock().await;
@@ -158,21 +180,7 @@ pub(super) async fn build_response_messages(
                 if pid == ctx.player_id {
                     continue;
                 }
-                party_members.push(PartyMember {
-                    player_id: pid.clone(),
-                    name: ps.player_name.clone(),
-                    character_name: ps
-                        .character_name
-                        .clone()
-                        .unwrap_or_else(|| ps.player_name.clone()),
-                    current_hp: ps.character_hp,
-                    max_hp: ps.character_max_hp,
-                    statuses: vec![],
-                    class: String::new(),
-                    level: ps.character_level,
-                    portrait_url: None,
-                    current_location: ps.display_location.clone(),
-                });
+                party_members.push(crate::shared_session::party_member_from(pid, ps));
             }
         }
         messages.push(GameMessage::PartyStatus {
@@ -182,25 +190,6 @@ pub(super) async fn build_response_messages(
             player_id: ctx.player_id.to_string(),
         });
     }
-
-    // Inventory
-    messages.push(GameMessage::Inventory {
-        payload: InventoryPayload {
-            items: ctx
-                .inventory
-                .carried()
-                .map(|item| sidequest_protocol::InventoryItem {
-                    name: item.name.as_str().to_string(),
-                    item_type: item.category.as_str().to_string(),
-                    equipped: item.equipped,
-                    quantity: item.quantity,
-                    description: item.description.as_str().to_string(),
-                })
-                .collect(),
-            gold: ctx.inventory.gold,
-        },
-        player_id: ctx.player_id.to_string(),
-    });
 
     // MAP_UPDATE
     tracing::debug!(
