@@ -7,6 +7,7 @@
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::belief_state::{Belief, BeliefSource, BeliefState};
 
@@ -62,14 +63,53 @@ pub enum ScenarioRole {
 /// The action set depends on the NPC's role and tension level.
 /// Higher tension increases the likelihood of desperate actions.
 pub fn select_npc_action(
-    _npc_id: &str,
+    npc_id: &str,
     role: &ScenarioRole,
     belief: &BeliefState,
     tension: f32,
     rng: &mut impl Rng,
 ) -> NpcAction {
     let options = available_actions(role, belief, tension);
-    weighted_select(&options, rng)
+    let available_count = options.len();
+    let action = weighted_select(&options, rng);
+
+    // OTEL: npc_actions.action_selected — GM panel verification that NPCs
+    // are actually choosing autonomous actions. The variant label lets the
+    // GM distinguish desperate-tension behavior (Flee/Confess/DestroyEvidence)
+    // from routine ActNormal cover.
+    WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+        .field("action", "action_selected")
+        .field("npc_id", npc_id)
+        .field("role", role_label(role))
+        .field("tension", tension)
+        .field("available_count", available_count)
+        .field("selected_variant", action_variant(&action))
+        .field("beliefs_count", belief.beliefs().len())
+        .send();
+
+    action
+}
+
+/// Label for a `ScenarioRole` suitable for telemetry fields.
+fn role_label(role: &ScenarioRole) -> &'static str {
+    match role {
+        ScenarioRole::Guilty => "guilty",
+        ScenarioRole::Witness => "witness",
+        ScenarioRole::Innocent => "innocent",
+        ScenarioRole::Accomplice => "accomplice",
+    }
+}
+
+/// Label for an `NpcAction` variant suitable for telemetry fields.
+fn action_variant(action: &NpcAction) -> &'static str {
+    match action {
+        NpcAction::CreateAlibi { .. } => "create_alibi",
+        NpcAction::DestroyEvidence { .. } => "destroy_evidence",
+        NpcAction::Flee { .. } => "flee",
+        NpcAction::Confess { .. } => "confess",
+        NpcAction::ActNormal => "act_normal",
+        NpcAction::SpreadRumor { .. } => "spread_rumor",
+    }
 }
 
 /// Determine which actions are available and their weights.

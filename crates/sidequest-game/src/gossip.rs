@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::belief_state::{Belief, BeliefSource, BeliefState};
 
@@ -105,6 +106,17 @@ impl GossipEngine {
                 }
             }
         }
+
+        // OTEL: gossip.turn_propagated — GM panel summary of gossip activity
+        // for this turn. Captures the aggregate so the GM can distinguish an
+        // active rumor mill from a silent scene where nothing propagated.
+        WatcherEventBuilder::new("gossip", WatcherEventType::StateTransition)
+            .field("action", "turn_propagated")
+            .field("turn", turn)
+            .field("npc_count", npc_names.len())
+            .field("claims_spread", claims_spread)
+            .field("contradictions_found", contradictions_found)
+            .send();
 
         PropagationResult {
             claims_spread,
