@@ -87,30 +87,42 @@ fn wiring_dispatch_render_substitutes_trigger_into_prompt() {
         .next()
         .unwrap_or(source);
 
-    // There must be a code path where `lora_trigger` influences the
-    // composed prompt string. A naive implementation that passes
-    // `lora_path` through without touching the prompt would mean the
-    // LoRA loads but the style never activates — a silent failure that
-    // this test catches.
+    // STRENGTHENED per review finding #8 (2026-04-10). The previous
+    // assertion used `contains("positive_suffix") || contains("art_style")`
+    // which was satisfied by the identifier `art_style` appearing in the
+    // function signature regardless of whether substitution happened. The
+    // OR-disjunction made the test pass on mere co-occurrence rather than
+    // on the substitution logic itself.
     //
-    // The two viable patterns:
-    //   1. An `if let Some(trigger) = ...lora_trigger` block that builds
-    //      a different `art_style` / `positive_suffix` / `positive_prompt`.
-    //   2. A helper function that takes the trigger as input.
+    // The current production idiom at render.rs:140-143 is:
+    //   match (vs.lora.as_deref(), vs.lora_trigger.as_deref()) {
+    //       (Some(_), Some(trigger)) => trigger.to_string(),
+    //       _ => vs.positive_suffix.clone(),
+    //   };
     //
-    // Either pattern leaves `lora_trigger` adjacent to prompt construction
-    // in the source. We assert that the file contains `lora_trigger` in
-    // the same region as `positive_suffix` or `art_style` mutation.
-    let has_trigger_ref = production_code.contains("lora_trigger");
-    let has_positive_suffix_ref = production_code.contains("positive_suffix")
-        || production_code.contains("art_style");
+    // The test now requires the `trigger.to_string` identifier sequence
+    // AND a `match` pattern on `lora_trigger` near it. Both must be
+    // present — the substitution cannot pass this test without actually
+    // producing a String from the trigger value.
+    let has_trigger_binding =
+        production_code.contains("Some(trigger)") && production_code.contains("trigger.to_string");
+    let has_match_on_trigger = production_code.contains("lora_trigger.as_deref()")
+        || production_code.contains("vs.lora_trigger");
+
     assert!(
-        has_trigger_ref && has_positive_suffix_ref,
-        "dispatch/render.rs must use lora_trigger in prompt composition \
-         (per ADR-032). The current file has lora_trigger: {has_trigger_ref}, \
-         positive_suffix/art_style: {has_positive_suffix_ref}. \
-         Dev must substitute the trigger word for the positive_suffix when \
-         LoRA is active — the daemon does NOT auto-prepend trigger words."
+        has_trigger_binding,
+        "dispatch/render.rs must bind `trigger` from the match arm and \
+         produce a String from it (e.g. `Some(trigger) => trigger.to_string()`). \
+         This proves the trigger word actually enters the composed style, \
+         not just that the identifier appears somewhere in the file. \
+         Got has_trigger_binding=false — the substitution pattern is missing \
+         or renamed. Per ADR-032, the daemon does NOT auto-prepend trigger \
+         words; the substitution must happen in Rust."
+    );
+    assert!(
+        has_match_on_trigger,
+        "dispatch/render.rs must match on `lora_trigger` to drive the \
+         substitution. Got has_match_on_trigger=false."
     );
 }
 
@@ -204,10 +216,11 @@ fn wiring_dispatch_render_preserves_non_lora_path() {
         .next()
         .unwrap_or(source);
 
-    // The existing non-LoRA path calls enqueue with art_style from
-    // visual_style.positive_suffix (or the fallback "oil_painting"). That
-    // branch must survive the edit. This test looks for signals that the
-    // non-LoRA case is still handled.
+    // STRENGTHENED per review finding #9 (2026-04-10). Previous version
+    // used `contains("oil_painting") || contains("flux-schnell")` — the
+    // `flux-schnell` literal was removed in story 35-15's initial impl
+    // and the OR disjunction silently masked that removal. Split into
+    // two unambiguous assertions without OR.
     assert!(
         production_code.contains("enqueue("),
         "dispatch/render.rs must still call enqueue() — the non-LoRA \
@@ -216,23 +229,187 @@ fn wiring_dispatch_render_preserves_non_lora_path() {
     assert!(
         production_code.contains("positive_suffix"),
         "dispatch/render.rs must still reference positive_suffix for \
-         non-LoRA genres (existing behavior preserved)"
+         non-LoRA genres (existing behavior preserved). Without this, \
+         the no-LoRA fall-through branch at the `_` match arm cannot \
+         produce a base style."
     );
-    // The `visual_style: None` fallback at dispatch/render.rs:133-137 is
-    // a pre-existing silent fallback flagged as a Delivery Finding; it
-    // must NOT be fixed in 35-15 but also must NOT be removed. Verify
-    // the fallback literals still exist.
+    // The `visual_style: None` fallback at dispatch/render.rs:166-180
+    // is a pre-existing silent fallback flagged as a Delivery Finding;
+    // it must NOT be fixed in 35-15 but also must NOT be removed.
+    // Verify the `oil_painting` literal still exists as the sentinel
+    // for that branch. The previous `flux-schnell` literal was
+    // intentionally removed (it was never a valid daemon variant —
+    // dead string); do NOT re-add it and do NOT use it as an OR
+    // disjunction with oil_painting.
     assert!(
-        production_code.contains("oil_painting") || production_code.contains("flux-schnell"),
-        "dispatch/render.rs must preserve the pre-existing None-visual_style \
-         fallback literals (oil_painting / flux-schnell). This is flagged \
-         as a Delivery Finding for a future story; do not fix in 35-15, \
-         but do not remove either."
+        production_code.contains("oil_painting"),
+        "dispatch/render.rs must preserve the pre-existing `oil_painting` \
+         literal in the None-visual_style fallback. Flagged as a Delivery \
+         Finding for a dedicated fix — out of scope for 35-15, but do \
+         not remove it either."
+    );
+    assert!(
+        !production_code.contains("flux-schnell"),
+        "dispatch/render.rs must NOT contain the `flux-schnell` literal. \
+         Story 35-15 removed it (never a valid daemon variant). If this \
+         assertion fails, someone re-added the dead string."
     );
 }
 
 // ===========================================================================
-// 6. Variant wire — companion fix in story 35-15. `visual_style.preferred_model`
+// REWORK (2026-04-10) — New tests added after Reviewer rejection.
+// Covers Reviewer findings #1 (silent no-op warning), #5 (audio.rs mood
+// image LoRA inheritance), #6 (path traversal guard). Plus a new test
+// added to visual_style_lora_story_35_15_tests.rs for finding #2
+// (deny_unknown_fields) and to render_queue_lora_story_35_15_tests.rs
+// for finding #10 (strengthen enqueue_signature_accepts_none).
+// ===========================================================================
+
+#[test]
+fn wiring_dispatch_render_warns_when_lora_has_no_trigger() {
+    // Reviewer finding #1 (HIGH): When `vs.lora` is Some but
+    // `vs.lora_trigger` is None, the match at dispatch/render.rs:140-143
+    // falls through to `positive_suffix.clone()` with no warning. The
+    // LoRA loads in the daemon but the trigger word never enters the
+    // CLIP prompt — the trained style is loaded but not activated. The
+    // RED-phase test file explicitly said "the wiring code should log a
+    // warning" and Dev didn't add one. Rule: No Silent Fallbacks.
+    //
+    // This test enforces that the production code contains a warning
+    // emission mechanism in the (Some, None) match branch. Accept either
+    // `tracing::warn!` with lora_trigger context OR a WatcherEventBuilder
+    // with ValidationWarning severity — both surface to the GM panel.
+    let source = include_str!("../src/dispatch/render.rs");
+    let production_code = source
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(source);
+
+    // A warning emission must exist AND must be associated with the
+    // lora_trigger being missing. The test looks for a tracing::warn!
+    // or a ValidationWarning watcher event that mentions lora_trigger.
+    let has_tracing_warn =
+        production_code.contains("tracing::warn!") && production_code.contains("lora_trigger");
+    let has_validation_warning = production_code.contains("ValidationWarning")
+        && production_code.contains("lora_trigger");
+
+    assert!(
+        has_tracing_warn || has_validation_warning,
+        "dispatch/render.rs must emit a warning when `vs.lora` is Some \
+         but `vs.lora_trigger` is None — otherwise the LoRA loads but \
+         the trained style never activates (silent no-op). Add a \
+         dedicated `(Some(lora), None)` match arm with either \
+         `tracing::warn!(..., \"lora set without lora_trigger\", ...)` \
+         OR `WatcherEventBuilder::new(\"render\", ValidationWarning) \
+         .field(\"action\", \"lora_trigger_missing\") \
+         .field(\"lora_path\", lora_abs) \
+         .send()`. Without this, a YAML typo in `lora_trigger` produces \
+         zero visible change and zero diagnostic signal — the exact \
+         failure mode `feedback_no_fallbacks` prohibits."
+    );
+}
+
+#[test]
+fn wiring_dispatch_render_validates_lora_path_stays_in_genre_pack_dir() {
+    // Reviewer finding #6 (MEDIUM, latent CRITICAL if community genre
+    // packs are ever accepted): `dispatch/render.rs:150-157` does
+    // `ctx.state.genre_packs_path().join(ctx.genre_slug).join(rel)`
+    // with no validation that the resolved path stays inside the genre
+    // pack directory. A YAML `lora: ../../../etc/passwd.safetensors`
+    // escapes the base dir — PathBuf::join doesn't sanitize.
+    //
+    // Single-user threat model today (only Keith's machine) but the
+    // moment community-submitted genre packs become a thing, this is
+    // a path-traversal vulnerability. Epic 35's "Wiring Remediation"
+    // charter includes closing security gaps introduced by new wires.
+    //
+    // Accept either pattern: explicit starts_with() check on the
+    // resolved path, OR a RelativePath newtype that rejects `..` at
+    // deserialization, OR Path::canonicalize() + prefix check.
+    let source = include_str!("../src/dispatch/render.rs");
+    let production_code = source
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(source);
+
+    let has_starts_with_guard =
+        production_code.contains(".starts_with(") && production_code.contains("genre_packs_path");
+    let has_canonicalize_guard = production_code.contains("canonicalize");
+    let has_relative_path_check = production_code.contains("is_absolute")
+        || production_code.contains("components().any")
+        || production_code.contains("ParentDir");
+
+    assert!(
+        has_starts_with_guard || has_canonicalize_guard || has_relative_path_check,
+        "dispatch/render.rs must validate that the resolved LoRA path \
+         stays within the genre pack directory — otherwise a YAML with \
+         `lora: ../../../etc/passwd.safetensors` escapes the base dir \
+         silently. Accept any of: \
+         (a) `resolved.starts_with(genre_packs_path.join(genre_slug))` \
+             after path construction, \
+         (b) `resolved.canonicalize()?` plus prefix check, \
+         (c) a RelativePath newtype that rejects `..` or `is_absolute()` \
+             at deserialization time. \
+         Finding #6 flagged this as MEDIUM today (single-user) but \
+         CRITICAL if community genre packs are ever accepted."
+    );
+}
+
+#[test]
+fn wiring_dispatch_audio_reads_visual_style_preferred_model() {
+    // Reviewer finding #5 (MEDIUM): dispatch/audio.rs:245 hardcodes
+    // `"dev"` as the variant for mood-image renders and passes
+    // `None, None` for LoRA params — it ignores `vs.preferred_model`,
+    // `vs.lora`, and `vs.lora_trigger`. Result: a genre with
+    // `preferred_model: schnell` has mood images silently rendered at
+    // `dev`; a LoRA-enabled genre has mood images rendered without the
+    // LoRA while scene images use it. Visual inconsistency between mood
+    // and scene within the same session.
+    //
+    // The fix is to extract a shared `resolve_render_style` helper (or
+    // inline the same logic render.rs uses) so both dispatch paths
+    // compose visual style identically. This test enforces that audio.rs
+    // reads `preferred_model` from visual_style rather than hardcoding
+    // a literal.
+    let source = include_str!("../src/dispatch/audio.rs");
+    let production_code = source
+        .split("#[cfg(test)]")
+        .next()
+        .unwrap_or(source);
+
+    // audio.rs must reference preferred_model from the visual_style
+    // context. Accept `vs.preferred_model`, `visual_style.preferred_model`,
+    // or a helper function invocation that takes vs and returns the
+    // variant.
+    let reads_preferred_model = production_code.contains("preferred_model");
+    assert!(
+        reads_preferred_model,
+        "dispatch/audio.rs mood-image enqueue path must read \
+         `vs.preferred_model` (not hardcode `\"dev\"`). A genre with \
+         `preferred_model: schnell` currently has its mood images \
+         silently rendered at dev. Either inline the same read pattern \
+         render.rs uses, or extract a shared helper \
+         `resolve_render_style(vs, genre_packs_path, genre_slug)` and \
+         call it from both dispatch paths."
+    );
+
+    // Also: audio.rs should read lora/lora_trigger so mood images on
+    // LoRA-enabled genres (caverns_and_claudes, spaghetti_western)
+    // actually use the trained style. Otherwise mood images look
+    // visually inconsistent with scene images within the same session.
+    let reads_lora = production_code.contains("vs.lora") || production_code.contains(".lora.as_");
+    assert!(
+        reads_lora,
+        "dispatch/audio.rs mood-image enqueue path must read `vs.lora` \
+         so mood images on LoRA-enabled genres use the same trained \
+         style as scene images. Currently mood images silently render \
+         without the LoRA — visual inconsistency with scene renders \
+         within the same session. Flagged by 4 subagents during review."
+    );
+}
+
+// ===========================================================================
+// 7. Variant wire — companion fix in story 35-15. `visual_style.preferred_model`
 //    was previously read in dispatch/render.rs and passed to `enqueue()`
 //    where the parameter was prefixed `_image_model` (unused). Now it's
 //    renamed to `variant` and flows through to the daemon's RenderParams.

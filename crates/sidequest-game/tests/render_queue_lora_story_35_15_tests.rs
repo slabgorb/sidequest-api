@@ -255,28 +255,22 @@ async fn enqueue_with_lora_path_and_no_scale_forwards_none_scale() {
 
 #[tokio::test]
 async fn enqueue_signature_accepts_none_lora_explicitly() {
-    // This test exists primarily as a compile-time guard: if Dev changes
-    // the enqueue signature to `lora_path: &str` (non-optional), this
-    // test fails to compile. The explicit `None` argument proves the
-    // Option is preserved.
+    // STRENGTHENED per review finding #10 (2026-04-10). Previous version
+    // used an always-Ok mock closure with `matches!(result, Ok(Queued))`
+    // — the runtime assertion had zero discriminating power because the
+    // mock always returns Ok regardless of whether `None` lora params
+    // are forwarded correctly or silently dropped. The defensive comment
+    // claiming "not vacuous" was wrong. This is the exact self-deception
+    // Rule #6 of the lang-review checklist warns against.
     //
-    // The test is NOT vacuous — it asserts that calling with None
-    // produces a successful enqueue result. Rule #6 of the Rust lang-
-    // review checklist forbids `is_none()` on always-None values; here
-    // we're asserting queue behavior, not the argument.
-    let queue = RenderQueue::spawn(
-        test_config(),
-        |_: String,
-         _: String,
-         _: String,
-         _: String,
-         _: String,
-         _: u32,
-         _: u32,
-         _: String,
-         _: Option<String>,
-         _: Option<f32>| async { Ok(("ok".to_string(), 0u64)) },
-    );
+    // The fix: use a capturing closure that records whether `lora_path`
+    // arrived as `None`, and assert on the capture. Now the test has a
+    // real behavioral discriminant — if Dev accidentally converts None
+    // to Some("") or Some("none") somewhere in the wire path, this test
+    // catches it. The compile-time signature guard is preserved by the
+    // explicit `None` arguments in the enqueue call.
+    let captures: Arc<Mutex<Vec<CapturedCall>>> = Arc::new(Mutex::new(Vec::new()));
+    let queue = make_capturing_queue(Arc::clone(&captures));
 
     let subject = make_subject("none_test");
     let result = queue
@@ -291,8 +285,41 @@ async fn enqueue_signature_accepts_none_lora_explicitly() {
         )
         .await;
 
+    // Compile-time signature guard (Options preserved) — the call above
+    // only compiles if enqueue's signature still accepts Option<_>.
     assert!(
         matches!(result, Ok(EnqueueResult::Queued { .. })),
         "enqueue with None lora params must succeed, got {result:?}"
+    );
+
+    // Behavioral assertion: the capturing closure must have received
+    // `lora_path: None`, `lora_scale: None`, and an empty variant. This
+    // is what gives the test discriminating power — if Dev accidentally
+    // converts None to Some("") or Some("none") anywhere in the wire
+    // path, this assertion catches it.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    let calls = captures.lock().unwrap().clone();
+    assert_eq!(
+        calls.len(),
+        1,
+        "worker must have received exactly one call — got {}",
+        calls.len()
+    );
+    assert!(
+        calls[0].lora_path.is_none(),
+        "worker must receive lora_path: None verbatim when None is passed \
+         to enqueue, got {:?}",
+        calls[0].lora_path
+    );
+    assert!(
+        calls[0].lora_scale.is_none(),
+        "worker must receive lora_scale: None verbatim when None is passed \
+         to enqueue, got {:?}",
+        calls[0].lora_scale
+    );
+    assert_eq!(
+        calls[0].variant, "",
+        "worker must receive empty variant verbatim, got {:?}",
+        calls[0].variant
     );
 }

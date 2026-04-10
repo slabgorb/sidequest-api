@@ -200,6 +200,167 @@ lora_trigger: test_trigger_value
 // Round-trip serialization — proves serde(default) doesn't corrupt data
 // ─────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────
+// REWORK (2026-04-10) — Reviewer finding #2 (HIGH) + #3 (HIGH)
+// ─────────────────────────────────────────────────────────────────────────
+
+#[test]
+fn visual_style_rejects_unknown_fields() {
+    // Reviewer finding #2 (HIGH, R16 rule violation):
+    // `sidequest-genre/src/models/mod.rs:3` documents the project
+    // convention: *"Structs use #[serde(deny_unknown_fields)] where
+    // appropriate to catch YAML typos."* 15+ peer types in this crate
+    // have the attribute (EquipmentTables, AudioConfig, PackMeta,
+    // Legends, 14× Scenario*). VisualStyle does not, which means a
+    // YAML typo like `loratrigger:` (missing underscore) silently
+    // produces `lora_trigger: None` and the LoRA wire never activates
+    // — a double-silent failure with finding #1 (LoRA-no-trigger
+    // falls through to positive_suffix with no warning).
+    //
+    // Dev must add `#[serde(deny_unknown_fields)]` to the VisualStyle
+    // struct. WARNING: this will break any existing YAML that has
+    // fields not in the struct. Pre-audit (done by TEA during rework
+    // prep): spaghetti_western/visual_style.yaml has `portrait_style`
+    // and `poi_style` fields that are NOT in the struct and have ZERO
+    // Rust consumers. Dev must also delete those dead fields from the
+    // content YAML as part of this rework — they're pre-existing dead
+    // wires, same class as the `_image_model` dead parameter and the
+    // `preferred_model: flux` dead string closed in 35-15's original
+    // commit.
+    let yaml_with_typo = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora: lora/test.safetensors
+loratrigger: test_style
+"#;
+    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml_with_typo);
+    assert!(
+        result.is_err(),
+        "VisualStyle deserialization must reject unknown field \
+         `loratrigger` (typo of `lora_trigger`). Add \
+         #[serde(deny_unknown_fields)] to the struct per the project \
+         convention in sidequest-genre/src/models/mod.rs. Without this, \
+         YAML typos silently produce None values and the LoRA wire never \
+         activates — reviewer finding #2 (HIGH, R16 rule violation). \
+         Got: {result:?}"
+    );
+
+    // The error message must mention the offending field name so
+    // genre pack authors can find the typo quickly.
+    let err = result.err().unwrap();
+    let err_str = err.to_string();
+    assert!(
+        err_str.contains("loratrigger") || err_str.contains("unknown field"),
+        "VisualStyle deserialization error must mention the offending \
+         field name (or the standard 'unknown field' serde message). \
+         Got: {err_str}"
+    );
+}
+
+#[test]
+fn visual_style_rejects_another_unknown_field() {
+    // Double-check coverage: portrait_style was a real dead-YAML field
+    // in spaghetti_western/visual_style.yaml before this rework. Dev
+    // must delete it AND add deny_unknown_fields so future typos don't
+    // sneak in. This test enforces that portrait_style specifically is
+    // no longer silently accepted.
+    let yaml_with_dead_field = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+portrait_style: >-
+  extreme close-up, film grain
+"#;
+    let result: Result<VisualStyle, _> = serde_yaml::from_str(yaml_with_dead_field);
+    assert!(
+        result.is_err(),
+        "VisualStyle deserialization must reject unknown field \
+         `portrait_style`. Pre-rework, spaghetti_western/visual_style.yaml \
+         had this field as pre-existing dead YAML (zero Rust consumers). \
+         Dev must delete the dead field from the content YAML AND add \
+         #[serde(deny_unknown_fields)] so this class of dead wire cannot \
+         sneak back in. Got: {result:?}"
+    );
+}
+
+#[test]
+fn visual_style_has_lora_scale_field() {
+    // Reviewer finding #3 (HIGH): `lora_scale` is a dead wire in
+    // production code today — it exists on `RenderParams`, threads
+    // through `RenderJob` and the worker closure, and serializes
+    // correctly, but **nothing sets it to a non-None value** in
+    // production. VisualStyle has no `lora_scale` field;
+    // dispatch/render.rs:206 hardcodes `None`. This is the same
+    // dead-wire pattern as the `_image_model` parameter the user
+    // explicitly rejected earlier in the story.
+    //
+    // RESOLUTION PATHS (Dev picks one):
+    //
+    // (a) WIRE IT: Add `lora_scale: Option<f32>` to VisualStyle with
+    //     `#[serde(default)]`. Update dispatch/render.rs to read
+    //     `vs.lora_scale` and pass it to enqueue. This test enforces
+    //     path (a) — the test fails at compile time if Dev doesn't
+    //     add the field, and passes at runtime once the field is
+    //     wired through.
+    //
+    // (b) REMOVE IT: Remove `lora_scale` from RenderParams, RenderJob,
+    //     the closure signature (back to 9 args from 10), and the
+    //     daemon wire. If Dev picks path (b), **delete this test**
+    //     along with the `lora_scale` tests in
+    //     `lora_render_params_story_35_15_tests.rs`.
+    //
+    // Either resolution satisfies the "no half-wired features" rule.
+    // The current state (dead wire in production) does not.
+    let yaml = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora: lora/test.safetensors
+lora_trigger: test
+lora_scale: 0.75
+"#;
+    let style: VisualStyle = serde_yaml::from_str(yaml).expect(
+        "VisualStyle YAML with lora_scale must deserialize — Dev should add \
+         `lora_scale: Option<f32>` with #[serde(default)] to the struct, \
+         then wire it through dispatch/render.rs to RenderParams.lora_scale",
+    );
+    assert_eq!(
+        style.lora_scale,
+        Some(0.75),
+        "VisualStyle must expose lora_scale as Option<f32> when provided \
+         in the YAML. Per reviewer finding #3, either wire it through \
+         dispatch/render.rs to close the dead wire, OR remove lora_scale \
+         from RenderParams entirely and delete this test."
+    );
+}
+
+#[test]
+fn visual_style_without_lora_scale_defaults_to_none() {
+    // Companion to `visual_style_has_lora_scale_field` — asserts
+    // backward compatibility. Most genre packs don't specify a scale
+    // (the daemon defaults to 1.0). An absent `lora_scale` in YAML
+    // must deserialize as `None`, not as `Some(0.0)` or `Some(1.0)`.
+    let yaml = r#"
+positive_suffix: test
+negative_prompt: test
+preferred_model: dev
+base_seed: 0
+lora: lora/test.safetensors
+lora_trigger: test
+"#;
+    let style: VisualStyle = serde_yaml::from_str(yaml).unwrap();
+    assert!(
+        style.lora_scale.is_none(),
+        "VisualStyle without `lora_scale` in YAML must deserialize as \
+         None (daemon uses its 1.0 default). Got: {:?}",
+        style.lora_scale
+    );
+}
+
 #[test]
 fn visual_style_roundtrips_through_serde() {
     // Deserialize → re-serialize → deserialize again must preserve
