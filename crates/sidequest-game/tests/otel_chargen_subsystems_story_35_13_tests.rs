@@ -26,12 +26,12 @@
 
 use std::collections::HashMap;
 
+use sidequest_game::builder::CharacterBuilder;
+use sidequest_game::{MoodClassification, MoodContext, MoodKey, MusicDirector, TrackVariation};
 use sidequest_genre::{
     AudioConfig, AudioTheme, AudioVariation, BackstoryTables, CharCreationChoice,
     CharCreationScene, MechanicalEffects, MixerConfig, MoodTrack, RulesConfig,
 };
-use sidequest_game::builder::CharacterBuilder;
-use sidequest_game::{MoodClassification, MoodContext, MoodKey, MusicDirector, TrackVariation};
 use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent};
 
 // ---------------------------------------------------------------------------
@@ -75,10 +75,7 @@ fn find_events(events: &[WatcherEvent], component: &str, action: &str) -> Vec<Wa
         .iter()
         .filter(|e| {
             e.component == component
-                && e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    == Some(action)
+                && e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action)
         })
         .cloned()
         .collect()
@@ -225,10 +222,7 @@ fn chargen_stats_generation_emits_watcher_event() {
          when stats are rolled/allocated; got {} other events from chargen subsystem. \
          Currently only a tracing::info_span! is emitted, which does not reach the \
          GM panel broadcast channel.",
-        events
-            .iter()
-            .filter(|e| e.component == "chargen")
-            .count()
+        events.iter().filter(|e| e.component == "chargen").count()
     );
 
     let evt = &stats[0];
@@ -257,10 +251,7 @@ fn chargen_stats_generation_records_stat_values() {
 
     let events = drain_events(&mut rx);
     let stats = find_events(&events, "chargen", "stats_generated");
-    assert!(
-        !stats.is_empty(),
-        "chargen.stats_generated must be emitted"
-    );
+    assert!(!stats.is_empty(), "chargen.stats_generated must be emitted");
 
     let evt = &stats[0];
     // The event should carry at least one rolled stat value so the GM panel
@@ -653,8 +644,7 @@ fn audio_variation_fallback_to_first_available_emits_watcher_event() {
     // The GM panel needs to know WHY the fallback reached "first available"
     // — specifically, that Full was also missing for this mood.
     assert!(
-        evt.fields.contains_key("reason")
-            || evt.fields.contains_key("full_available"),
+        evt.fields.contains_key("reason") || evt.fields.contains_key("full_available"),
         "variation_fallback must record why first-available was used \
          (either a `reason` field or a `full_available=false` flag), \
          got fields: {:?}",
@@ -804,8 +794,7 @@ fn wiring_music_director_select_variation_reached_by_evaluate() {
     // fallback watcher event becomes unreachable.
     let src = include_str!("../src/music_director.rs");
     assert!(
-        src.contains("self.select_variation(")
-            || src.contains("select_variation(&classification"),
+        src.contains("self.select_variation(") || src.contains("select_variation(&classification"),
         "music_director.rs::evaluate() must call select_variation() — \
          without this call the music_director.variation_fallback watcher \
          event is unreachable."

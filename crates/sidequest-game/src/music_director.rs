@@ -461,10 +461,30 @@ impl MusicDirector {
                 );
                 return first_available;
             }
+        } else {
+            // Outermost fallback: the mood key has no entry in themed_tracks
+            // at all. A genre pack registered this mood without a matching
+            // theme bundle. The caller's preference is passed through
+            // unchanged so evaluate() can fall through to the un-themed
+            // mood_tracks pool. CLAUDE.md no-silent-fallbacks: surface the
+            // gap on the watcher channel even though there's no themed
+            // track to select. Story 35-13 rework.
+            tracing::warn!(
+                mood = mood_key,
+                preferred = ?preferred,
+                "variation fallback: mood has no themed_tracks entry at all"
+            );
+            emit_variation_fallback(
+                mood_key,
+                preferred,
+                preferred,
+                "mood_not_in_themed_tracks",
+                false,
+            );
         }
 
-        // No themed tracks at all — return preferred anyway (evaluate will
-        // fall back to mood_tracks)
+        // No themed tracks for this mood — return preferred anyway (evaluate
+        // will fall through to the un-themed mood_tracks pool).
         preferred
     }
 

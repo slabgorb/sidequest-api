@@ -835,17 +835,17 @@ impl CharacterBuilder {
             .entered();
             // OTEL: chargen.hp_formula_evaluated — GM panel verification
             // that the hp_formula evaluator engaged for this class.
-            // Story 35-13.
-            let mut builder = WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            // Story 35-13. `field_opt` omits con_modifier entirely when
+            // the rules don't include a CON stat (e.g., genre packs with
+            // non-D&D ability names); the existing test fixture uses CON
+            // so the field is always present under current tests.
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
                 .field("action", "hp_formula_evaluated")
                 .field("formula", formula.as_str())
                 .field("class", class_str)
-                .field("hp_result", hp_result as i64);
-            builder = match con_mod {
-                Some(m) => builder.field("con_modifier", m as i64),
-                None => builder.field("con_modifier", serde_json::Value::Null),
-            };
-            builder.send();
+                .field("hp_result", hp_result as i64)
+                .field_opt("con_modifier", &con_mod.map(i64::from))
+                .send();
             hp_result
         } else {
             // No hp_formula set — fall back to class_hp_bases lookup. This
