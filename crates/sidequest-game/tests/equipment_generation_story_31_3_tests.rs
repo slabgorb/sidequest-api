@@ -724,3 +724,245 @@ fn genre_pack_has_equipment_tables_field() {
     // (Function pointer comparison is stable only for fn items.)
     let _f: fn(&sidequest_genre::GenrePack) -> &Option<EquipmentTables> = _assert_field;
 }
+
+// ============================================================================
+// REWORK (after Reviewer rejection 2026-04-10): Watcher channel emission
+//
+// The original implementation used `tracing::info!(target: "chargen.equipment_composed")`
+// which does NOT reach the GM panel watcher broadcast channel — there is no
+// production tracing::Layer bridging tracing events to the sidequest-telemetry
+// channel. Per CLAUDE.md OTEL Observability Principle, chargen telemetry MUST
+// reach the GM panel via `watcher!` / `WatcherEventBuilder`.
+//
+// These tests verify the correct emission path. They will fail until Dev
+// swaps `tracing::info!` for `watcher!("chargen", StateTransition, ...)` and
+// adds missing emissions at the blank-id skip and the "none" branch.
+// ============================================================================
+
+use sidequest_telemetry::{init_global_channel, subscribe_global, Severity, WatcherEvent};
+
+/// Serializes access to the global telemetry channel so concurrent tests
+/// don't drain each other's events.
+static TELEMETRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Acquire the telemetry lock, initialize the channel (idempotent), and return
+/// a drained receiver ready for the test's events. Recovers from a poisoned
+/// mutex so that the first test-assertion panic doesn't cascade into every
+/// subsequent test.
+fn fresh_subscriber() -> (
+    std::sync::MutexGuard<'static, ()>,
+    tokio::sync::broadcast::Receiver<WatcherEvent>,
+) {
+    let guard = TELEMETRY_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _ = init_global_channel();
+    let mut rx = subscribe_global().expect("channel must be initialized");
+    while rx.try_recv().is_ok() {}
+    (guard, rx)
+}
+
+/// Drain all currently-available events from the receiver (non-blocking).
+fn drain_events(
+    rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>,
+) -> Vec<WatcherEvent> {
+    let mut events = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
+    }
+    events
+}
+
+/// Find all events on the `chargen` component whose `action` field matches.
+fn find_chargen_events(events: &[WatcherEvent], action: &str) -> Vec<WatcherEvent> {
+    events
+        .iter()
+        .filter(|e| {
+            e.component == "chargen"
+                && e.fields
+                    .get("action")
+                    .and_then(serde_json::Value::as_str)
+                    .map_or(false, |a| a == action)
+        })
+        .cloned()
+        .collect()
+}
+
+// ----------------------------------------------------------------------------
+// AC (rework-1): Successful equipment roll emits a chargen watcher event
+// ----------------------------------------------------------------------------
+
+#[test]
+fn watcher_channel_receives_chargen_equipment_composed_event_on_successful_roll() {
+    let (_guard, mut rx) = fresh_subscriber();
+
+    let _character =
+        build_caverns_character_with_tables().expect("build should succeed");
+
+    let events = drain_events(&mut rx);
+    let composed = find_chargen_events(&events, "equipment_composed");
+
+    assert!(
+        !composed.is_empty(),
+        "Building a character with equipment_tables must emit a `chargen` component WatcherEvent \
+         with action=equipment_composed. Got {} chargen events total: {:?}",
+        events.iter().filter(|e| e.component == "chargen").count(),
+        events
+            .iter()
+            .filter(|e| e.component == "chargen")
+            .map(|e| {
+                e.fields
+                    .get("action")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("<no action>")
+                    .to_string()
+            })
+            .collect::<Vec<_>>()
+    );
+
+    let event = &composed[0];
+    assert_eq!(
+        event
+            .fields
+            .get("method")
+            .and_then(serde_json::Value::as_str),
+        Some("tables"),
+        "Event method field must be 'tables' for the successful-roll path. Got: {:?}",
+        event.fields.get("method")
+    );
+
+    let items_added = event
+        .fields
+        .get("items_added")
+        .and_then(serde_json::Value::as_i64);
+    assert!(
+        items_added.is_some() && items_added.unwrap() > 0,
+        "Event must include items_added > 0 for a successful roll. Got: {:?}",
+        event.fields.get("items_added")
+    );
+}
+
+// ----------------------------------------------------------------------------
+// AC (rework-2): Scene directive with no tables wired emits a Warn event
+// ----------------------------------------------------------------------------
+
+#[test]
+fn watcher_channel_receives_warn_when_equipment_directive_has_no_tables() {
+    let (_guard, mut rx) = fresh_subscriber();
+
+    // Build a character with the `the_kit` scene directive but NO equipment_tables
+    // wired into the builder. This is the misconfiguration path — must not be silent.
+    let scenes = caverns_scenes_with_kit();
+    let rules = rules_3d6();
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
+    builder.apply_freeform("").unwrap(); // the_roll
+    builder.apply_choice(0).unwrap(); // pronouns
+    builder.apply_freeform("").unwrap(); // the_kit (directive present, no tables)
+    let _character = builder.build("Grist").expect("build should succeed");
+
+    let events = drain_events(&mut rx);
+
+    // The missing-tables path should surface a specific action tag.
+    let missing = find_chargen_events(&events, "equipment_tables_missing");
+    assert!(
+        !missing.is_empty(),
+        "A scene with `equipment_generation: random_table` directive but no wired tables must emit \
+         a chargen WatcherEvent with action=equipment_tables_missing. This is a misconfiguration, \
+         not graceful degradation, per CLAUDE.md 'No Silent Fallbacks'. Got events: {:?}",
+        events
+            .iter()
+            .filter(|e| e.component == "chargen")
+            .map(|e| e.fields.get("action").cloned())
+            .collect::<Vec<_>>()
+    );
+
+    let event = &missing[0];
+    assert!(
+        matches!(event.severity, Severity::Warn | Severity::Error),
+        "equipment_tables_missing event must be Warn or Error severity (misconfiguration). \
+         Got: {:?}",
+        event.severity
+    );
+}
+
+// ----------------------------------------------------------------------------
+// AC (rework-3): Blank item id in tables emits a skip Warn event
+// ----------------------------------------------------------------------------
+
+#[test]
+fn watcher_channel_receives_warn_on_blank_item_id_skip() {
+    let (_guard, mut rx) = fresh_subscriber();
+
+    // Equipment tables with an intentional blank id to trigger the skip path.
+    let scenes = caverns_scenes_with_kit();
+    let rules = rules_3d6();
+    let tables = EquipmentTables {
+        tables: HashMap::from([(
+            "weapon".to_string(),
+            vec![
+                "".to_string(), // blank — should trigger the skip + warn
+                "dagger_iron".to_string(),
+            ],
+        )]),
+        rolls_per_slot: HashMap::from([("weapon".to_string(), 20)]), // force multiple rolls to hit the blank
+    };
+    let mut builder = CharacterBuilder::new(scenes, &rules, None).with_equipment_tables(tables);
+    builder.apply_freeform("").unwrap();
+    builder.apply_choice(0).unwrap();
+    builder.apply_freeform("").unwrap();
+    let _character = builder.build("Grist").expect("build should succeed");
+
+    let events = drain_events(&mut rx);
+    let skipped = find_chargen_events(&events, "blank_item_id_skipped");
+
+    assert!(
+        !skipped.is_empty(),
+        "A blank item_id in equipment_tables must emit a chargen WatcherEvent with \
+         action=blank_item_id_skipped so content bugs surface to the GM panel. \
+         The previous `tracing::warn!` does NOT reach the watcher channel. Got events: {:?}",
+        events
+            .iter()
+            .filter(|e| e.component == "chargen")
+            .map(|e| e.fields.get("action").cloned())
+            .collect::<Vec<_>>()
+    );
+
+    let event = &skipped[0];
+    assert_eq!(
+        event.fields.get("slot").and_then(serde_json::Value::as_str),
+        Some("weapon"),
+        "blank_item_id_skipped event must include the slot name. Got: {:?}",
+        event.fields.get("slot")
+    );
+    assert!(
+        matches!(event.severity, Severity::Warn | Severity::Error),
+        "blank_item_id_skipped event must be Warn or Error severity. Got: {:?}",
+        event.severity
+    );
+}
+
+// ----------------------------------------------------------------------------
+// AC (rework-4): Successful roll events carry component="chargen" not "tracing"
+//
+// Sanity check that the emission uses the WatcherEventBuilder/watcher! path
+// with a correct component name — catches the case where Dev uses
+// `watcher!("tracing", ...)` or some other component string by accident.
+// ----------------------------------------------------------------------------
+
+#[test]
+fn equipment_watcher_events_use_chargen_component() {
+    let (_guard, mut rx) = fresh_subscriber();
+
+    let _character =
+        build_caverns_character_with_tables().expect("build should succeed");
+
+    let events = drain_events(&mut rx);
+    let chargen_events: Vec<&WatcherEvent> =
+        events.iter().filter(|e| e.component == "chargen").collect();
+
+    assert!(
+        !chargen_events.is_empty(),
+        "Equipment composition must emit at least one WatcherEvent with component='chargen'. \
+         This is a CLAUDE.md OTEL Observability requirement — the GM panel filters by component."
+    );
+}

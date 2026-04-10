@@ -200,3 +200,107 @@ tables:
         "Missing rolls_per_slot should default to empty HashMap"
     );
 }
+
+// ============================================================================
+// REWORK (after Reviewer rejection 2026-04-10): AudioConfig/MixerConfig
+// must reject unknown fields to honor CLAUDE.md "No Silent Fallbacks".
+//
+// The initial Dev fix (making voice_volume/duck_music_for_voice/
+// creature_voice_presets optional with defaults) was correct for content
+// that legitimately dropped those fields, but both parent structs lack
+// #[serde(deny_unknown_fields)]. Typos in adjacent keys silently drop.
+// These tests will fail until Dev adds the attribute.
+// ============================================================================
+
+#[test]
+fn mixer_config_rejects_unknown_fields() {
+    // A mixer with a typo'd key ("musik_volume" instead of "music_volume")
+    // must hard-fail, not silently default music_volume to 0.0 and drop the
+    // typo. This is the failure mode CLAUDE.md "No Silent Fallbacks" targets.
+    let yaml = r#"
+music_volume: 0.8
+sfx_volume: 0.9
+duck_amount_db: -6.0
+crossfade_default_ms: 2000
+musik_volume: 0.3
+"#;
+    let result: Result<sidequest_genre::MixerConfig, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_err(),
+        "MixerConfig must reject unknown fields via #[serde(deny_unknown_fields)]. \
+         Typo'd 'musik_volume' should fail to deserialize, not silently default. Got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn audio_config_rejects_unknown_fields() {
+    // Top-level AudioConfig must also reject unknown fields. A typo at the
+    // audio.yaml root (e.g., "mod_tracks" instead of "mood_tracks") would
+    // silently wipe every mood track binding in the genre pack.
+    let yaml = r#"
+mood_tracks: {}
+sfx_library: {}
+mixer:
+  music_volume: 0.8
+  sfx_volume: 0.9
+  duck_amount_db: -6.0
+  crossfade_default_ms: 2000
+mod_tracks: {}
+"#;
+    let result: Result<sidequest_genre::AudioConfig, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_err(),
+        "AudioConfig must reject unknown fields via #[serde(deny_unknown_fields)]. \
+         Typo'd 'mod_tracks' should fail to deserialize. Got: {:?}",
+        result
+    );
+}
+
+#[test]
+fn mixer_config_still_accepts_missing_voice_volume() {
+    // Regression guard: after adding deny_unknown_fields, the TTS-removal
+    // schema-drift fix must still work — a mixer without voice_volume,
+    // duck_music_for_voice, or creature_voice_presets must still deserialize.
+    let yaml = r#"
+music_volume: 0.3
+sfx_volume: 0.7
+duck_amount_db: -15.0
+crossfade_default_ms: 2000
+"#;
+    let result: Result<sidequest_genre::MixerConfig, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_ok(),
+        "MixerConfig must still deserialize without voice_volume / duck_music_for_voice \
+         (the TTS-removal schema-drift fix). Got: {:?}",
+        result.err()
+    );
+    let mixer = result.unwrap();
+    assert_eq!(mixer.voice_volume, 1.0, "voice_volume should default to 1.0");
+    assert!(!mixer.duck_music_for_voice, "duck_music_for_voice should default to false");
+}
+
+#[test]
+fn audio_config_still_accepts_missing_creature_voice_presets() {
+    let yaml = r#"
+mood_tracks: {}
+sfx_library: {}
+mixer:
+  music_volume: 0.8
+  sfx_volume: 0.9
+  duck_amount_db: -6.0
+  crossfade_default_ms: 2000
+"#;
+    let result: Result<sidequest_genre::AudioConfig, _> = serde_yaml::from_str(yaml);
+    assert!(
+        result.is_ok(),
+        "AudioConfig must still deserialize without creature_voice_presets (TTS removal). \
+         Got: {:?}",
+        result.err()
+    );
+    let config = result.unwrap();
+    assert!(
+        config.creature_voice_presets.is_empty(),
+        "creature_voice_presets should default to empty HashMap"
+    );
+}
