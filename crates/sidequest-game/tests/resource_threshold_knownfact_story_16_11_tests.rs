@@ -38,6 +38,7 @@ fn make_pool_with_thresholds(
 ) -> ResourcePool {
     ResourcePool {
         name: name.to_string(),
+        label: name.to_string(),
         current,
         min,
         max,

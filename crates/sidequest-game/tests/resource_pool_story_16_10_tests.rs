@@ -21,6 +21,7 @@ use std::collections::HashMap;
 fn make_pool(name: &str, current: f64, min: f64, max: f64) -> ResourcePool {
     ResourcePool {
         name: name.to_string(),
+        label: name.to_string(),
         current,
         min,
         max,
@@ -40,6 +41,7 @@ fn make_pool_with_thresholds(
 ) -> ResourcePool {
     ResourcePool {
         name: name.to_string(),
+        label: name.to_string(),
         current,
         min,
         max,
@@ -66,6 +68,7 @@ fn snapshot_with_pools(pools: Vec<ResourcePool>) -> GameSnapshot {
 fn resource_pool_json_roundtrip() {
     let pool = ResourcePool {
         name: "luck".to_string(),
+        label: "Luck".to_string(),
         current: 3.0,
         min: 0.0,
         max: 6.0,
@@ -636,6 +639,7 @@ fn threshold_crossing_on_set_operation() {
 fn resource_pool_decay_reduces_current() {
     let mut pool = ResourcePool {
         name: "heat".to_string(),
+        label: "Heat".to_string(),
         current: 5.0,
         min: 0.0,
         max: 10.0,
@@ -658,6 +662,7 @@ fn resource_pool_decay_reduces_current() {
 fn resource_pool_decay_clamps_to_min() {
     let pool = ResourcePool {
         name: "heat".to_string(),
+        label: "Heat".to_string(),
         current: 0.3,
         min: 0.0,
         max: 10.0,
@@ -680,6 +685,7 @@ fn resource_pool_decay_clamps_to_min() {
 fn resource_pool_positive_decay_increases() {
     let pool = ResourcePool {
         name: "mana".to_string(),
+        label: "Mana".to_string(),
         current: 5.0,
         min: 0.0,
         max: 10.0,
@@ -702,6 +708,7 @@ fn resource_pool_positive_decay_increases() {
 fn resource_pool_positive_decay_clamps_to_max() {
     let pool = ResourcePool {
         name: "mana".to_string(),
+        label: "Mana".to_string(),
         current: 9.5,
         min: 0.0,
         max: 10.0,
