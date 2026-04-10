@@ -150,9 +150,7 @@ beats:
     metric_delta: -5
     stat_check: MIGHT
 "#;
-    let defs: Vec<ConfrontationDef> = vec![
-        serde_yaml::from_str(combat_yaml).unwrap(),
-    ];
+    let defs: Vec<ConfrontationDef> = vec![serde_yaml::from_str(combat_yaml).unwrap()];
 
     let result = find_confrontation_def(&defs, "ship_combat");
     assert!(result.is_none(), "Unknown encounter type must return None");
@@ -214,10 +212,16 @@ fn spaghetti_western_loads_confrontation_defs() {
         .confrontations
         .iter()
         .find(|c| c.confrontation_type == "standoff");
-    assert!(standoff.is_some(), "spaghetti_western must have a 'standoff' confrontation type");
+    assert!(
+        standoff.is_some(),
+        "spaghetti_western must have a 'standoff' confrontation type"
+    );
 
     let standoff = standoff.unwrap();
-    assert!(!standoff.beats.is_empty(), "standoff must have at least one beat");
+    assert!(
+        !standoff.beats.is_empty(),
+        "standoff must have at least one beat"
+    );
     assert_eq!(standoff.category, "pre_combat");
 }
 
@@ -234,9 +238,7 @@ fn victoria_has_no_combat_confrontation_type() {
         .join("sidequest-content")
         .join("genre_packs");
 
-    let vic_rules_path = genre_packs_path
-        .join("victoria")
-        .join("rules.yaml");
+    let vic_rules_path = genre_packs_path.join("victoria").join("rules.yaml");
     assert!(
         vic_rules_path.exists(),
         "victoria/rules.yaml not found at {:?}",

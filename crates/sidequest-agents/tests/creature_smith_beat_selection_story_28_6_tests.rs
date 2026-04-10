@@ -141,7 +141,9 @@ fn game_patch_with_beat_selections_deserializes() {
     // it must deserialize into the extraction struct.
     // This will compile-fail until GamePatchExtraction adds beat_selections.
     let patch: serde_json::Value = serde_json::from_str(json).unwrap();
-    let selections = patch.get("beat_selections").expect("beat_selections field must exist");
+    let selections = patch
+        .get("beat_selections")
+        .expect("beat_selections field must exist");
     assert!(selections.is_array(), "beat_selections must be an array");
     assert_eq!(
         selections.as_array().unwrap().len(),
@@ -174,7 +176,9 @@ fn action_result_has_beat_selections_field() {
         .find("pub struct ActionResult")
         .expect("ActionResult struct must exist");
     let struct_body = &orchestrator_src[action_result_start..];
-    let struct_end = struct_body.find("\n}").expect("ActionResult must have closing brace");
+    let struct_end = struct_body
+        .find("\n}")
+        .expect("ActionResult must have closing brace");
     let struct_text = &struct_body[..struct_end];
 
     assert!(
@@ -195,7 +199,9 @@ fn orchestrator_extracts_beat_selections_from_game_patch() {
         .find("struct GamePatchExtraction")
         .expect("GamePatchExtraction struct must exist");
     let extraction_body = &orchestrator_src[extraction_start..];
-    let extraction_end = extraction_body.find("\n}").expect("GamePatchExtraction must close");
+    let extraction_end = extraction_body
+        .find("\n}")
+        .expect("GamePatchExtraction must close");
     let extraction_text = &extraction_body[..extraction_end];
 
     assert!(
@@ -315,9 +321,7 @@ fn orchestrator_populates_action_result_beat_selections() {
     // (the `ActionResult { combat_patch, chase_patch, ... }` block around line 923)
     assert!(
         orchestrator_src.contains("beat_selections")
-            && orchestrator_src
-                .matches("beat_selections")
-                .count() >= 2,
+            && orchestrator_src.matches("beat_selections").count() >= 2,
         "beat_selections must appear in both GamePatchExtraction and ActionResult \
          construction — extraction alone is useless without wiring into the result"
     );

@@ -438,8 +438,7 @@ fn npc_merge_patch_emits_span() {
     });
 
     let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "npc_merge_patch").expect("Expected a 'npc_merge_patch' span");
+    let span = find_span(&spans, "npc_merge_patch").expect("Expected a 'npc_merge_patch' span");
 
     assert!(
         has_field(span, "npc_name"),
@@ -486,8 +485,7 @@ fn npc_merge_patch_reports_identity_lock() {
     });
 
     let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "npc_merge_patch").expect("Expected a 'npc_merge_patch' span");
+    let span = find_span(&spans, "npc_merge_patch").expect("Expected a 'npc_merge_patch' span");
 
     assert!(
         has_field(span, "identity_fields_locked"),
@@ -607,8 +605,7 @@ fn music_evaluate_emits_span() {
     });
 
     let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "music_evaluate").expect("Expected a 'music_evaluate' span");
+    let span = find_span(&spans, "music_evaluate").expect("Expected a 'music_evaluate' span");
 
     assert!(
         has_field(span, "mood"),
@@ -648,8 +645,7 @@ fn music_evaluate_reports_no_change() {
     });
 
     let spans = captured.lock().unwrap();
-    let span =
-        find_span(&spans, "music_evaluate").expect("Expected a 'music_evaluate' span");
+    let span = find_span(&spans, "music_evaluate").expect("Expected a 'music_evaluate' span");
 
     assert!(
         has_field(span, "mood_changed"),

@@ -218,7 +218,8 @@ fn caverns_character_gets_equipment_from_tables() {
 
     // With three tables and no rolls_per_slot overrides, expect exactly three items.
     assert_eq!(
-        item_count, 3,
+        item_count,
+        3,
         "Expected 3 items (one per table slot), got {}. Inventory: {:?}",
         item_count,
         character
@@ -430,10 +431,7 @@ fn rolls_per_slot_multiplies_item_count() {
                 "weapon".to_string(),
                 vec!["dagger_iron".to_string(), "shortsword_iron".to_string()],
             ),
-            (
-                "armor".to_string(),
-                vec!["leather_armor".to_string()],
-            ),
+            ("armor".to_string(), vec!["leather_armor".to_string()]),
             (
                 "utility".to_string(),
                 vec![
@@ -471,16 +469,10 @@ fn empty_slot_produces_no_item() {
     let rules = rules_3d6();
     let tables = EquipmentTables {
         tables: HashMap::from([
-            (
-                "weapon".to_string(),
-                vec!["dagger_iron".to_string()],
-            ),
+            ("weapon".to_string(), vec!["dagger_iron".to_string()]),
             // Intentionally empty slot — must not crash, must not produce a blank-id item
             ("armor".to_string(), vec![]),
-            (
-                "utility".to_string(),
-                vec!["torch".to_string()],
-            ),
+            ("utility".to_string(), vec!["torch".to_string()]),
         ]),
         rolls_per_slot: HashMap::new(),
     };
@@ -489,7 +481,9 @@ fn empty_slot_produces_no_item() {
     builder.apply_freeform("").unwrap();
     builder.apply_choice(0).unwrap();
     builder.apply_freeform("").unwrap();
-    let character = builder.build("Grist").expect("build should succeed with empty slot");
+    let character = builder
+        .build("Grist")
+        .expect("build should succeed with empty slot");
 
     // Must have exactly 2 items (weapon + utility, no armor from empty slot).
     assert_eq!(
@@ -645,10 +639,7 @@ fn equipment_tables_is_reexported_at_crate_root() {
     // If this compiles and runs, the re-export exists. The act of constructing
     // a value proves the type is public and the path is stable.
     let tables = sidequest_genre::EquipmentTables {
-        tables: HashMap::from([(
-            "test".to_string(),
-            vec!["item_a".to_string()],
-        )]),
+        tables: HashMap::from([("test".to_string(), vec!["item_a".to_string()])]),
         rolls_per_slot: HashMap::new(),
     };
     assert_eq!(tables.tables.len(), 1);
@@ -690,12 +681,8 @@ fn dispatch_connect_wires_equipment_tables_into_builder() {
     path.push("dispatch");
     path.push("connect.rs");
 
-    let source = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!(
-            "Could not read dispatch/connect.rs at {:?}: {}",
-            path, e
-        )
-    });
+    let source = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Could not read dispatch/connect.rs at {:?}: {}", path, e));
 
     assert!(
         source.contains("with_equipment_tables"),
@@ -763,9 +750,7 @@ fn fresh_subscriber() -> (
 }
 
 /// Drain all currently-available events from the receiver (non-blocking).
-fn drain_events(
-    rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>,
-) -> Vec<WatcherEvent> {
+fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
         events.push(event);
@@ -796,8 +781,7 @@ fn find_chargen_events(events: &[WatcherEvent], action: &str) -> Vec<WatcherEven
 fn watcher_channel_receives_chargen_equipment_composed_event_on_successful_roll() {
     let (_guard, mut rx) = fresh_subscriber();
 
-    let _character =
-        build_caverns_character_with_tables().expect("build should succeed");
+    let _character = build_caverns_character_with_tables().expect("build should succeed");
 
     let events = drain_events(&mut rx);
     let composed = find_chargen_events(&events, "equipment_composed");
@@ -953,8 +937,7 @@ fn watcher_channel_receives_warn_on_blank_item_id_skip() {
 fn equipment_watcher_events_use_chargen_component() {
     let (_guard, mut rx) = fresh_subscriber();
 
-    let _character =
-        build_caverns_character_with_tables().expect("build should succeed");
+    let _character = build_caverns_character_with_tables().expect("build should succeed");
 
     let events = drain_events(&mut rx);
     let chargen_events: Vec<&WatcherEvent> =

@@ -16,8 +16,8 @@
 //!   - sidequest-game/src/multiplayer.rs — MultiplayerSession, named_actions()
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
@@ -57,7 +57,10 @@ async fn barrier_result_narration_contains_submitted_actions() {
     let result = barrier.wait_for_turn().await;
 
     // TurnBarrierResult.narration must contain the actual submitted actions
-    assert!(!result.narration.is_empty(), "narration map should not be empty after barrier resolution");
+    assert!(
+        !result.narration.is_empty(),
+        "narration map should not be empty after barrier resolution"
+    );
 
     // Verify both players' actions are present (keyed by player_id)
     assert!(
@@ -81,8 +84,14 @@ async fn barrier_result_narration_values_match_submitted_text() {
     let result = barrier.wait_for_turn().await;
 
     // Narration values should contain the actual action text
-    let p1_narration = result.narration.get("player-1").expect("player-1 narration missing");
-    let p2_narration = result.narration.get("player-2").expect("player-2 narration missing");
+    let p1_narration = result
+        .narration
+        .get("player-1")
+        .expect("player-1 narration missing");
+    let p2_narration = result
+        .narration
+        .get("player-2")
+        .expect("player-2 narration missing");
 
     assert!(
         p1_narration.contains("search") || p1_narration.contains("merchant"),
@@ -140,7 +149,10 @@ async fn barrier_try_claim_resolution_returns_true_only_once() {
 
     let result = barrier.wait_for_turn().await;
     assert!(!result.timed_out, "barrier should resolve without timeout");
-    assert!(result.claimed_resolution, "first task should claim resolution");
+    assert!(
+        result.claimed_resolution,
+        "first task should claim resolution"
+    );
 
     // Second turn: verify that claim state is reset for the next turn
     // Submit new actions
@@ -148,9 +160,15 @@ async fn barrier_try_claim_resolution_returns_true_only_once() {
     barrier.submit_action("player-2", "I follow");
 
     let result2 = barrier.wait_for_turn().await;
-    assert!(!result2.timed_out, "second barrier should resolve without timeout");
+    assert!(
+        !result2.timed_out,
+        "second barrier should resolve without timeout"
+    );
     // This task should also claim for the second turn (since it's the only one calling wait_for_turn)
-    assert!(result2.claimed_resolution, "first task of second turn should also claim resolution");
+    assert!(
+        result2.claimed_resolution,
+        "first task of second turn should also claim resolution"
+    );
 }
 
 #[tokio::test]
@@ -171,7 +189,10 @@ async fn barrier_concurrent_handlers_only_one_claims() {
         let count = claim_count.clone();
         handles.push(tokio::spawn(async move {
             let result = b.wait_for_turn().await;
-            eprintln!("Task {} - claimed_resolution: {}", id, result.claimed_resolution);
+            eprintln!(
+                "Task {} - claimed_resolution: {}",
+                id, result.claimed_resolution
+            );
             if result.claimed_resolution {
                 count.fetch_add(1, Ordering::SeqCst);
             }
@@ -195,8 +216,7 @@ async fn barrier_concurrent_handlers_only_one_claims() {
     let final_count = claim_count.load(Ordering::SeqCst);
     eprintln!("Final claim count: {}", final_count);
     assert_eq!(
-        final_count,
-        1,
+        final_count, 1,
         "exactly one handler should claim resolution, not {}",
         final_count
     );
@@ -225,13 +245,14 @@ async fn barrier_stores_narration_result_for_non_claimers() {
         let b = barrier.clone();
         let text_ref = stored_text.clone();
         let _pid = player_id.to_string();
-        
+
         handles.push(tokio::spawn(async move {
             let result = b.wait_for_turn().await;
-            
+
             if result.claimed_resolution {
                 // This handler won — run narrator and store result
-                let narration = "The party searches while keeping watch. Thorn finds a hidden compartment.";
+                let narration =
+                    "The party searches while keeping watch. Thorn finds a hidden compartment.";
                 b.store_resolution_narration(narration.to_string());
                 *text_ref.lock().unwrap() = Some(narration.to_string());
             } else {
@@ -306,7 +327,10 @@ async fn four_player_barrier_result_contains_all_actions() {
         result.narration.len()
     );
     assert!(!result.timed_out, "should not have timed out");
-    assert!(result.missing_players.is_empty(), "no players should be missing");
+    assert!(
+        result.missing_players.is_empty(),
+        "no players should be missing"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +348,10 @@ async fn barrier_timeout_sets_timed_out_flag() {
 
     let result = barrier.wait_for_turn().await;
 
-    assert!(result.timed_out, "should have timed out with only 1 of 2 players");
+    assert!(
+        result.timed_out,
+        "should have timed out with only 1 of 2 players"
+    );
     assert!(
         !result.missing_players.is_empty(),
         "should report missing players"

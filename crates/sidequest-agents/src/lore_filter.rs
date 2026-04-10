@@ -168,15 +168,15 @@ impl<'a> LoreFilter<'a> {
         for npc in npcs {
             let npc_faction_id = format!("faction_{}", npc.role);
             // Upgrade or insert a faction entry at Full detail.
-            let entry = selections.entry(npc_faction_id.clone()).or_insert_with(|| {
-                LoreSelection {
+            let entry = selections
+                .entry(npc_faction_id.clone())
+                .or_insert_with(|| LoreSelection {
                     entity_id: npc_faction_id.clone(),
                     entity_name: format!("{}'s faction", npc.name),
                     category: "faction".to_string(),
                     detail_level: DetailLevel::NameOnly,
                     reason: String::new(),
-                }
-            });
+                });
             entry.detail_level = DetailLevel::Full;
             entry.reason = format!("npc_presence:{}", npc.name);
         }
@@ -209,14 +209,26 @@ impl<'a> LoreFilter<'a> {
     pub fn format_prompt_section(selections: &[LoreSelection]) -> String {
         let mut content = String::new();
 
-        let full: Vec<_> = selections.iter().filter(|s| s.detail_level == DetailLevel::Full).collect();
-        let summary: Vec<_> = selections.iter().filter(|s| s.detail_level == DetailLevel::Summary).collect();
-        let name_only: Vec<_> = selections.iter().filter(|s| s.detail_level == DetailLevel::NameOnly).collect();
+        let full: Vec<_> = selections
+            .iter()
+            .filter(|s| s.detail_level == DetailLevel::Full)
+            .collect();
+        let summary: Vec<_> = selections
+            .iter()
+            .filter(|s| s.detail_level == DetailLevel::Summary)
+            .collect();
+        let name_only: Vec<_> = selections
+            .iter()
+            .filter(|s| s.detail_level == DetailLevel::NameOnly)
+            .collect();
 
         if !full.is_empty() {
             content.push_str("[NEARBY LORE — FULL DETAIL]\n");
             for s in &full {
-                content.push_str(&format!("- {} ({}): {}\n", s.entity_name, s.category, s.entity_id));
+                content.push_str(&format!(
+                    "- {} ({}): {}\n",
+                    s.entity_name, s.category, s.entity_id
+                ));
             }
         }
 

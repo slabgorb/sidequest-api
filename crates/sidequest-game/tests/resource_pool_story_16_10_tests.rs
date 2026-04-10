@@ -28,7 +28,6 @@ fn make_pool(name: &str, current: f64, min: f64, max: f64) -> ResourcePool {
         voluntary: true,
         decay_per_turn: 0.0,
         thresholds: vec![],
-
     }
 }
 
@@ -48,7 +47,6 @@ fn make_pool_with_thresholds(
         voluntary: true,
         decay_per_turn: 0.0,
         thresholds,
-
     }
 }
 
@@ -86,7 +84,6 @@ fn resource_pool_json_roundtrip() {
                 narrator_hint: "Out of luck entirely.".to_string(),
             },
         ],
-
     };
 
     let json = serde_json::to_string(&pool).unwrap();
@@ -148,20 +145,19 @@ fn resource_threshold_json_roundtrip() {
 #[test]
 fn game_snapshot_resources_default_empty() {
     let snap = GameSnapshot::default();
-    assert!(snap.resources.is_empty(), "default should have no resource pools");
+    assert!(
+        snap.resources.is_empty(),
+        "default should have no resource pools"
+    );
 }
 
 #[test]
 fn game_snapshot_resources_json_roundtrip() {
     let mut snap = GameSnapshot::default();
-    snap.resources.insert(
-        "luck".to_string(),
-        make_pool("luck", 3.0, 0.0, 6.0),
-    );
-    snap.resources.insert(
-        "heat".to_string(),
-        make_pool("heat", 0.0, 0.0, 10.0),
-    );
+    snap.resources
+        .insert("luck".to_string(), make_pool("luck", 3.0, 0.0, 6.0));
+    snap.resources
+        .insert("heat".to_string(), make_pool("heat", 0.0, 0.0, 10.0));
 
     let json = serde_json::to_string(&snap).unwrap();
     let restored: GameSnapshot = serde_json::from_str(&json).unwrap();
@@ -252,7 +248,10 @@ decay_per_turn: -0.1
     assert_eq!(pool.name, "heat");
     assert!(!pool.voluntary);
     assert!((pool.decay_per_turn - (-0.1)).abs() < f64::EPSILON);
-    assert!(pool.thresholds.is_empty(), "missing thresholds should default to empty vec");
+    assert!(
+        pool.thresholds.is_empty(),
+        "missing thresholds should default to empty vec"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -347,7 +346,10 @@ fn resource_patch_clamps_to_min() {
     };
     let result = snap.apply_resource_patch(&patch);
 
-    assert!(result.is_ok(), "subtract exceeding current should clamp, not error");
+    assert!(
+        result.is_ok(),
+        "subtract exceeding current should clamp, not error"
+    );
     assert!(
         (snap.resources["luck"].current - 0.0).abs() < f64::EPSILON,
         "luck should be clamped to min 0.0"
@@ -472,13 +474,11 @@ fn threshold_crossing_detected_on_subtract() {
         3.0,
         0.0,
         6.0,
-        vec![
-            ResourceThreshold {
-                at: 1.0,
-                event_id: "luck_critical".to_string(),
-                narrator_hint: "Nearly out of luck.".to_string(),
-            },
-        ],
+        vec![ResourceThreshold {
+            at: 1.0,
+            event_id: "luck_critical".to_string(),
+            narrator_hint: "Nearly out of luck.".to_string(),
+        }],
     );
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -504,13 +504,11 @@ fn threshold_not_crossed_when_still_above() {
         3.0,
         0.0,
         6.0,
-        vec![
-            ResourceThreshold {
-                at: 1.0,
-                event_id: "luck_critical".to_string(),
-                narrator_hint: "Nearly out of luck.".to_string(),
-            },
-        ],
+        vec![ResourceThreshold {
+            at: 1.0,
+            event_id: "luck_critical".to_string(),
+            narrator_hint: "Nearly out of luck.".to_string(),
+        }],
     );
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -579,13 +577,11 @@ fn threshold_not_re_triggered_when_already_below() {
         0.5,
         0.0,
         6.0,
-        vec![
-            ResourceThreshold {
-                at: 1.0,
-                event_id: "luck_critical".to_string(),
-                narrator_hint: "Nearly out of luck.".to_string(),
-            },
-        ],
+        vec![ResourceThreshold {
+            at: 1.0,
+            event_id: "luck_critical".to_string(),
+            narrator_hint: "Nearly out of luck.".to_string(),
+        }],
     );
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -610,13 +606,11 @@ fn threshold_crossing_on_set_operation() {
         5.0,
         0.0,
         6.0,
-        vec![
-            ResourceThreshold {
-                at: 2.0,
-                event_id: "luck_low".to_string(),
-                narrator_hint: "Running low.".to_string(),
-            },
-        ],
+        vec![ResourceThreshold {
+            at: 2.0,
+            event_id: "luck_low".to_string(),
+            narrator_hint: "Running low.".to_string(),
+        }],
     );
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -646,7 +640,6 @@ fn resource_pool_decay_reduces_current() {
         voluntary: false,
         decay_per_turn: -0.5,
         thresholds: vec![],
-
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -669,7 +662,6 @@ fn resource_pool_decay_clamps_to_min() {
         voluntary: false,
         decay_per_turn: -0.5,
         thresholds: vec![],
-
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -692,7 +684,6 @@ fn resource_pool_positive_decay_increases() {
         voluntary: true,
         decay_per_turn: 1.0,
         thresholds: vec![],
-
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -715,7 +706,6 @@ fn resource_pool_positive_decay_clamps_to_max() {
         voluntary: true,
         decay_per_turn: 1.0,
         thresholds: vec![],
-
     };
     let mut snap = snapshot_with_pools(vec![pool]);
 
@@ -803,7 +793,10 @@ fn involuntary_resource_allows_engine_modification() {
     };
     let result = snap.apply_resource_patch(&patch);
 
-    assert!(result.is_ok(), "engine should always be able to modify resources");
+    assert!(
+        result.is_ok(),
+        "engine should always be able to modify resources"
+    );
     assert!(
         (snap.resources["heat"].current - 4.0).abs() < f64::EPSILON,
         "engine modification should apply"
@@ -825,7 +818,10 @@ fn involuntary_resource_allows_add_from_player() {
     let result = snap.apply_resource_patch_player(&patch);
 
     // Adding to involuntary is fine — only subtract is restricted
-    assert!(result.is_ok(), "player should be able to add to involuntary resource");
+    assert!(
+        result.is_ok(),
+        "player should be able to add to involuntary resource"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -844,10 +840,16 @@ fn init_pools_from_declarations() {
 
     snap.init_resource_pools(&[decl]);
 
-    assert!(snap.resources.contains_key("luck"), "pool should be created from declaration");
+    assert!(
+        snap.resources.contains_key("luck"),
+        "pool should be created from declaration"
+    );
     let pool = &snap.resources["luck"];
     assert_eq!(pool.name, "luck");
-    assert!((pool.current - 3.0).abs() < f64::EPSILON, "current should equal starting");
+    assert!(
+        (pool.current - 3.0).abs() < f64::EPSILON,
+        "current should equal starting"
+    );
     assert!((pool.min - 0.0).abs() < f64::EPSILON);
     assert!((pool.max - 6.0).abs() < f64::EPSILON);
     assert!(pool.voluntary);
@@ -915,13 +917,11 @@ fn decay_triggers_threshold_crossings() {
         1.0,
         0.0,
         10.0,
-        vec![
-            ResourceThreshold {
-                at: 0.5,
-                event_id: "heat_low".to_string(),
-                narrator_hint: "Cooling down.".to_string(),
-            },
-        ],
+        vec![ResourceThreshold {
+            at: 0.5,
+            event_id: "heat_low".to_string(),
+            narrator_hint: "Cooling down.".to_string(),
+        }],
     );
     let mut pool = pool;
     pool.decay_per_turn = -0.6;
@@ -974,13 +974,11 @@ fn resource_pool_with_thresholds_survives_snapshot_roundtrip() {
         3.0,
         0.0,
         6.0,
-        vec![
-            ResourceThreshold {
-                at: 1.0,
-                event_id: "luck_critical".to_string(),
-                narrator_hint: "Nearly out.".to_string(),
-            },
-        ],
+        vec![ResourceThreshold {
+            at: 1.0,
+            event_id: "luck_critical".to_string(),
+            narrator_hint: "Nearly out.".to_string(),
+        }],
     );
     let snap = snapshot_with_pools(vec![pool]);
 

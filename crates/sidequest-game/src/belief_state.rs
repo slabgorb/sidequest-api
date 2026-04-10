@@ -81,10 +81,7 @@ impl BeliefState {
         // OTEL: belief_state.credibility_updated — GM panel visibility into
         // trust-graph mutations. Captures pre/post clamp for debugging
         // decay chains from gossip contradictions.
-        let previous = self
-            .credibility_scores
-            .get(npc_name)
-            .map(|c| c.score());
+        let previous = self.credibility_scores.get(npc_name).map(|c| c.score());
         let clamped = Credibility::new(score);
         WatcherEventBuilder::new("belief_state", WatcherEventType::StateTransition)
             .field("action", "credibility_updated")

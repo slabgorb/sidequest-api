@@ -36,7 +36,10 @@ description: "Loyalists who still claim descent from the Aldric bloodline."
 disposition: neutral
 "#;
     let faction: Faction = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(faction.summary, "Descendants of the fallen kingdom seeking to restore order");
+    assert_eq!(
+        faction.summary,
+        "Descendants of the fallen kingdom seeking to restore order"
+    );
 }
 
 #[test]
@@ -160,8 +163,14 @@ regions:
     description: "Fertile central plains dotted with farming villages."
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    let region = config.regions.get("heartland").expect("heartland should exist");
-    assert_eq!(region.summary, "Fertile central plains and trade crossroads");
+    let region = config
+        .regions
+        .get("heartland")
+        .expect("heartland should exist");
+    assert_eq!(
+        region.summary,
+        "Fertile central plains and trade crossroads"
+    );
 }
 
 #[test]
@@ -250,7 +259,8 @@ fn low_fantasy_loads_with_summaries() {
         path.display()
     );
 
-    let pack = sidequest_genre::load_genre_pack(&path).expect("should load low_fantasy with summaries");
+    let pack =
+        sidequest_genre::load_genre_pack(&path).expect("should load low_fantasy with summaries");
 
     // Verify genre-level factions have summaries
     assert!(
@@ -301,7 +311,10 @@ fn low_fantasy_worlds_have_region_summaries() {
             );
         }
     }
-    assert!(checked_any, "At least one low_fantasy world should have regions");
+    assert!(
+        checked_any,
+        "At least one low_fantasy world should have regions"
+    );
 }
 
 #[test]

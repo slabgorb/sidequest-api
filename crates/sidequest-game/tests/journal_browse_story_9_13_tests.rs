@@ -15,8 +15,8 @@ use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::journal::{build_journal_entries, JournalFilter};
 use sidequest_game::known_fact::{Confidence, FactSource, KnownFact};
-use sidequest_protocol::{FactCategory, JournalEntry, JournalSortOrder};
 use sidequest_protocol::NonBlankString;
+use sidequest_protocol::{FactCategory, JournalEntry, JournalSortOrder};
 use std::collections::HashMap;
 
 // ============================================================================
@@ -59,10 +59,7 @@ fn make_character_with_facts(name: &str, facts: Vec<KnownFact>) -> Character {
         char_class: NonBlankString::new("Ranger").unwrap(),
         race: NonBlankString::new("Elf").unwrap(),
         pronouns: String::new(),
-        stats: HashMap::from([
-            ("STR".to_string(), 12),
-            ("DEX".to_string(), 16),
-        ]),
+        stats: HashMap::from([("STR".to_string(), 12), ("DEX".to_string(), 16)]),
         abilities: vec![],
         known_facts: facts,
         affinities: vec![],
@@ -148,7 +145,11 @@ fn known_fact_category_survives_serde() {
 fn build_journal_entries_converts_all_facts() {
     let facts = sample_facts();
     let entries = build_journal_entries(&facts, &JournalFilter::default());
-    assert_eq!(entries.len(), 5, "all 5 facts should produce journal entries");
+    assert_eq!(
+        entries.len(),
+        5,
+        "all 5 facts should produce journal entries"
+    );
 }
 
 #[test]
@@ -164,7 +165,10 @@ fn build_journal_entries_preserves_content() {
 fn build_journal_entries_preserves_category() {
     let facts = sample_facts();
     let entries = build_journal_entries(&facts, &JournalFilter::default());
-    let lore_entry = entries.iter().find(|e| e.content.contains("ancient runes")).unwrap();
+    let lore_entry = entries
+        .iter()
+        .find(|e| e.content.contains("ancient runes"))
+        .unwrap();
     assert_eq!(lore_entry.category, FactCategory::Lore);
 }
 
@@ -172,7 +176,10 @@ fn build_journal_entries_preserves_category() {
 fn build_journal_entries_preserves_source() {
     let facts = sample_facts();
     let entries = build_journal_entries(&facts, &JournalFilter::default());
-    let grove_entry = entries.iter().find(|e| e.content.contains("grove")).unwrap();
+    let grove_entry = entries
+        .iter()
+        .find(|e| e.content.contains("grove"))
+        .unwrap();
     assert_eq!(grove_entry.source, "Observation");
 }
 
@@ -180,7 +187,10 @@ fn build_journal_entries_preserves_source() {
 fn build_journal_entries_preserves_confidence() {
     let facts = sample_facts();
     let entries = build_journal_entries(&facts, &JournalFilter::default());
-    let mirova_entry = entries.iter().find(|e| e.content.contains("Mirova")).unwrap();
+    let mirova_entry = entries
+        .iter()
+        .find(|e| e.content.contains("Mirova"))
+        .unwrap();
     assert_eq!(mirova_entry.confidence, "Suspected");
 }
 
@@ -188,7 +198,10 @@ fn build_journal_entries_preserves_confidence() {
 fn build_journal_entries_preserves_learned_turn() {
     let facts = sample_facts();
     let entries = build_journal_entries(&facts, &JournalFilter::default());
-    let quest_entry = entries.iter().find(|e| e.content.contains("harvest moon")).unwrap();
+    let quest_entry = entries
+        .iter()
+        .find(|e| e.content.contains("harvest moon"))
+        .unwrap();
     assert_eq!(quest_entry.learned_turn, 2);
 }
 
@@ -276,7 +289,11 @@ fn sort_by_time_returns_newest_first() {
     let entries = build_journal_entries(&facts, &filter);
     // Newest is turn 7 (ancient runes), oldest is turn 1 (root-bonding)
     assert_eq!(entries[0].learned_turn, 7, "newest fact should be first");
-    assert_eq!(entries[entries.len() - 1].learned_turn, 1, "oldest fact should be last");
+    assert_eq!(
+        entries[entries.len() - 1].learned_turn,
+        1,
+        "oldest fact should be last"
+    );
     // Verify monotonically non-increasing
     for window in entries.windows(2) {
         assert!(
@@ -352,11 +369,27 @@ fn single_fact_produces_single_entry() {
 #[test]
 fn duplicate_content_facts_both_appear() {
     let facts = vec![
-        make_fact("Same content", 1, FactSource::Dialogue, Confidence::Rumored, FactCategory::Lore),
-        make_fact("Same content", 5, FactSource::Observation, Confidence::Certain, FactCategory::Lore),
+        make_fact(
+            "Same content",
+            1,
+            FactSource::Dialogue,
+            Confidence::Rumored,
+            FactCategory::Lore,
+        ),
+        make_fact(
+            "Same content",
+            5,
+            FactSource::Observation,
+            Confidence::Certain,
+            FactCategory::Lore,
+        ),
     ];
     let entries = build_journal_entries(&facts, &JournalFilter::default());
-    assert_eq!(entries.len(), 2, "duplicate content facts should both appear");
+    assert_eq!(
+        entries.len(),
+        2,
+        "duplicate content facts should both appear"
+    );
     // Should have different fact_ids
     assert_ne!(entries[0].fact_id, entries[1].fact_id);
 }

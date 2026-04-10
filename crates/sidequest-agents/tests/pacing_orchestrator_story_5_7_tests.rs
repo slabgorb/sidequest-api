@@ -27,7 +27,6 @@ fn turn_result_has_existing_fields() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant, // NEW field
-
     };
     assert_eq!(result.narration, "The goblin dodges.");
     assert!(result.state_delta.is_none());
@@ -49,7 +48,6 @@ fn turn_result_carries_delivery_mode() {
         is_degraded: false,
         agent_used: AgentKind::CreatureSmith,
         delivery_mode: DeliveryMode::Streaming,
-
     };
     assert_eq!(
         result.delivery_mode,
@@ -67,7 +65,6 @@ fn turn_result_defaults_to_instant_when_no_combat() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
-
     };
     assert_eq!(
         result.delivery_mode,

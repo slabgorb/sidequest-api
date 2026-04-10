@@ -16,8 +16,8 @@
 
 use std::collections::HashMap;
 
-use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, RulesConfig};
 use sidequest_game::builder::{BuilderError, CharacterBuilder};
+use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, RulesConfig};
 
 // ============================================================================
 // Test fixtures (reusing 31-1 patterns)
@@ -128,7 +128,10 @@ fn build_character(rules: &RulesConfig) -> Result<sidequest_game::Character, Bui
     // Scene 2: the_mouth — auto-advance
     builder.apply_freeform("")?;
 
-    assert!(builder.is_confirmation(), "Should be in Confirmation after all scenes");
+    assert!(
+        builder.is_confirmation(),
+        "Should be in Confirmation after all scenes"
+    );
     builder.build("Grist the Ratcatcher")
 }
 
@@ -244,7 +247,10 @@ fn builder_accepts_hp_formula_from_rules_config() {
     // Verify that CharacterBuilder can be constructed with an hp_formula
     // and that the formula affects the build output.
     let rules = rules_with_hp_formula();
-    assert!(rules.hp_formula.is_some(), "Test fixture should have hp_formula set");
+    assert!(
+        rules.hp_formula.is_some(),
+        "Test fixture should have hp_formula set"
+    );
 
     // Build should succeed — this is the wiring test.
     let character = build_character(&rules).expect("build should succeed with hp_formula");

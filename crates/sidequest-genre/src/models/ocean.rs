@@ -112,10 +112,26 @@ impl OceanProfile {
     /// returns a fallback phrase.
     pub fn behavioral_summary(&self) -> String {
         let dimensions: &[(f64, &str, &str)] = &[
-            (self.openness, "conventional and practical", "curious and imaginative"),
-            (self.conscientiousness, "spontaneous and flexible", "meticulous and disciplined"),
-            (self.extraversion, "reserved and quiet", "outgoing and talkative"),
-            (self.agreeableness, "competitive and blunt", "cooperative and empathetic"),
+            (
+                self.openness,
+                "conventional and practical",
+                "curious and imaginative",
+            ),
+            (
+                self.conscientiousness,
+                "spontaneous and flexible",
+                "meticulous and disciplined",
+            ),
+            (
+                self.extraversion,
+                "reserved and quiet",
+                "outgoing and talkative",
+            ),
+            (
+                self.agreeableness,
+                "competitive and blunt",
+                "cooperative and empathetic",
+            ),
             (self.neuroticism, "calm and steady", "anxious and volatile"),
         ];
 
@@ -213,7 +229,10 @@ impl OceanShiftLog {
 
     /// Return shifts for a specific dimension.
     pub fn shifts_for(&self, dimension: OceanDimension) -> Vec<&OceanShift> {
-        self.shifts.iter().filter(|s| s.dimension == dimension).collect()
+        self.shifts
+            .iter()
+            .filter(|s| s.dimension == dimension)
+            .collect()
     }
 }
 

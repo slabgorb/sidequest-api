@@ -136,14 +136,7 @@ impl WorldBuilderAgent {
         self.faction_summaries = factions
             .iter()
             .filter(|f| f.urgency() != AgendaUrgency::Dormant)
-            .map(|f| {
-                format!(
-                    "{} ({:?}): {}",
-                    f.faction_name(),
-                    f.urgency(),
-                    f.goal()
-                )
-            })
+            .map(|f| format!("{} ({:?}): {}", f.faction_name(), f.urgency(), f.goal()))
             .collect();
         self
     }
@@ -248,7 +241,9 @@ impl WorldBuilderAgent {
     /// and description_tokens fields.
     fn materialized_world_context(&self) -> Option<String> {
         // Filter chapters: include all at or below current maturity
-        let applicable: Vec<&HistoryChapter> = self.history_chapters.iter()
+        let applicable: Vec<&HistoryChapter> = self
+            .history_chapters
+            .iter()
             .filter(|ch| {
                 // Reuse CampaignMaturity ordering — chapter id maps to a maturity level,
                 // and we include it if that level <= our current maturity.
@@ -410,8 +405,8 @@ mod tests {
 
     #[test]
     fn maturity_context_includes_known_npcs() {
-        let agent = WorldBuilderAgent::new()
-            .with_npcs(vec!["Gorm the Smith".into(), "Reva".into()]);
+        let agent =
+            WorldBuilderAgent::new().with_npcs(vec!["Gorm the Smith".into(), "Reva".into()]);
         let ctx = agent.maturity_context();
         assert!(ctx.contains("Gorm the Smith"));
         assert!(ctx.contains("Reva"));
@@ -419,8 +414,8 @@ mod tests {
 
     #[test]
     fn maturity_context_includes_lore() {
-        let agent = WorldBuilderAgent::new()
-            .with_lore(vec!["The old king fell to corruption".into()]);
+        let agent =
+            WorldBuilderAgent::new().with_lore(vec!["The old king fell to corruption".into()]);
         let ctx = agent.maturity_context();
         assert!(ctx.contains("The old king fell to corruption"));
     }
@@ -475,7 +470,11 @@ mod tests {
 
         // No identity section — world builder system prompt must not leak
         let identity = builder.sections_by_category(SectionCategory::Identity);
-        assert_eq!(identity.len(), 0, "inject_world_context must not include identity section");
+        assert_eq!(
+            identity.len(),
+            0,
+            "inject_world_context must not include identity section"
+        );
 
         // State section should still have maturity + locations
         let state = builder.sections_by_category(SectionCategory::State);

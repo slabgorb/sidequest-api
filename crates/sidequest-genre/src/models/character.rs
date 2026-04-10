@@ -232,6 +232,7 @@ pub struct EquipmentTables {
 
 /// Image generation style configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VisualStyle {
     /// Positive prompt suffix for image generation.
     pub positive_suffix: String,
@@ -256,4 +257,9 @@ pub struct VisualStyle {
     /// ADR-032. Story 35-15.
     #[serde(default)]
     pub lora_trigger: Option<String>,
+    /// Optional LoRA strength (typically 0.0–1.0). When `None`, the
+    /// daemon falls back to its 1.0 default. Story 35-15 rework
+    /// finding #3 wired this through to close the dead-wire pattern.
+    #[serde(default)]
+    pub lora_scale: Option<f32>,
 }

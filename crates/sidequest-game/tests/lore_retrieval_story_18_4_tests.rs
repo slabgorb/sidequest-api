@@ -5,10 +5,10 @@
 //! 2. `summarize_lore_retrieval()` produces correct telemetry from select results
 //! 3. Summary serializes to JSON for WatcherEvent fields
 
-use std::collections::HashMap;
 use sidequest_game::lore::{
     LoreCategory, LoreFragment, LoreRetrievalSummary, LoreSource, LoreStore,
 };
+use std::collections::HashMap;
 
 fn make_fragment(id: &str, category: LoreCategory, content: &str) -> LoreFragment {
     LoreFragment::new(
@@ -95,7 +95,10 @@ fn summarize_captures_selected_and_rejected() {
 
     assert_eq!(summary.budget, 60);
     assert_eq!(summary.total_fragments, 5);
-    assert!(!summary.selected.is_empty(), "should have selected fragments");
+    assert!(
+        !summary.selected.is_empty(),
+        "should have selected fragments"
+    );
     assert!(
         !summary.rejected.is_empty(),
         "should have rejected fragments"
@@ -129,14 +132,13 @@ fn summarize_with_priority_categories() {
     let store = build_test_store();
     let cats = [LoreCategory::Geography];
     let selected = sidequest_game::select_lore_for_prompt(&store, 60, Some(&cats), None);
-    let summary = sidequest_game::lore::summarize_lore_retrieval(
-        &store,
-        &selected,
-        60,
-        Some(&cats),
-    );
+    let summary =
+        sidequest_game::lore::summarize_lore_retrieval(&store, &selected, 60, Some(&cats));
 
-    assert!(summary.context_hint.is_some(), "should have priority category hint");
+    assert!(
+        summary.context_hint.is_some(),
+        "should have priority category hint"
+    );
     // Geography fragment should be selected first
     assert!(
         summary.selected.iter().any(|f| f.category == "geography"),

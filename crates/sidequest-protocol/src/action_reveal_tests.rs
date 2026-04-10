@@ -250,7 +250,10 @@ mod action_reveal_deny_unknown_tests {
             "player_id": ""
         }"#;
         let result: Result<GameMessage, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "extra fields in ActionRevealPayload must be rejected");
+        assert!(
+            result.is_err(),
+            "extra fields in ActionRevealPayload must be rejected"
+        );
     }
 
     #[test]
@@ -270,7 +273,10 @@ mod action_reveal_deny_unknown_tests {
             "player_id": ""
         }"#;
         let result: Result<GameMessage, _> = serde_json::from_str(json);
-        assert!(result.is_err(), "extra fields in PlayerActionEntry must be rejected");
+        assert!(
+            result.is_err(),
+            "extra fields in PlayerActionEntry must be rejected"
+        );
     }
 }
 

@@ -147,10 +147,7 @@ fn merchant_context_injected_for_exploration_with_merchant_npc() {
         prompt.contains("Iron Sword"),
         "Prompt should list the Iron Sword item"
     );
-    assert!(
-        prompt.contains("gold"),
-        "Prompt should include gold prices"
-    );
+    assert!(prompt.contains("gold"), "Prompt should include gold prices");
 }
 
 // ============================================================================
@@ -447,12 +444,10 @@ mod otel_tests {
                 .push((field.name().to_string(), format!("{:?}", value)));
         }
         fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-            self.0
-                .push((field.name().to_string(), value.to_string()));
+            self.0.push((field.name().to_string(), value.to_string()));
         }
         fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-            self.0
-                .push((field.name().to_string(), value.to_string()));
+            self.0.push((field.name().to_string(), value.to_string()));
         }
     }
 

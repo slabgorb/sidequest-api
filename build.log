@@ -1,0 +1,648 @@
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:768:5
+    |
+768 |     pub name: String,
+    |     ^^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> crates/sidequest-protocol/src/lib.rs:6:9
+    |
+  6 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:769:5
+    |
+769 |     pub role: String,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:771:5
+    |
+771 |     pub portrait_url: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:777:5
+    |
+777 |     pub name: String,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:778:5
+    |
+778 |     pub current: i32,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:779:5
+    |
+779 |     pub starting: i32,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:780:5
+    |
+780 |     pub direction: String,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:782:5
+    |
+782 |     pub threshold_high: Option<i32>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:784:5
+    |
+784 |     pub threshold_low: Option<i32>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:790:5
+    |
+790 |     pub id: String,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:791:5
+    |
+791 |     pub label: String,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:793:5
+    |
+793 |     pub metric_delta: i32,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:795:5
+    |
+795 |     pub stat_check: String,
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:797:5
+    |
+797 |     pub risk: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:799:5
+    |
+799 |     pub resolution: bool,
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: `sidequest-protocol` (lib) generated 15 warnings
+warning: unreachable pattern
+   --> crates/sidequest-game/src/tactical/layout.rs:113:13
+    |
+113 |             _ => write!(f, "layout error"),
+    |             ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sidequest-game/src/tactical/layout.rs:113:13
+    |
+ 99 | /             LayoutError::Overlap {
+100 | |                 room_a,
+101 | |                 room_b,
+102 | |                 cells,
+103 | |             } => {
+    | |_____________- matches some of the same values
+...
+112 |               LayoutError::NoEntrance => write!(f, "no entrance room found in room list"),
+    |               ----------------------- matches some of the same values
+113 |               _ => write!(f, "layout error"),
+    |               ^ collectively making this unreachable
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+   --> crates/sidequest-game/src/tactical/layout.rs:163:9
+    |
+163 |         _ => {
+    |         ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sidequest-game/src/tactical/layout.rs:163:9
+    |
+139 |         CardinalDirection::South => {
+    |         ------------------------ matches some of the same values
+...
+145 |         CardinalDirection::North => {
+    |         ------------------------ matches some of the same values
+...
+151 |         CardinalDirection::East => {
+    |         ----------------------- matches some of the same values
+...
+157 |         CardinalDirection::West => {
+    |         ----------------------- matches some of the same values
+...
+163 |         _ => {
+    |         ^ collectively making this unreachable
+
+warning: unreachable pattern
+   --> crates/sidequest-game/src/tactical/layout.rs:513:9
+    |
+513 |         _ => {}
+    |         ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sidequest-game/src/tactical/layout.rs:513:9
+    |
+474 |         CardinalDirection::South | CardinalDirection::North => {
+    |         --------------------------------------------------- matches some of the same values
+...
+494 |         CardinalDirection::East | CardinalDirection::West => {
+    |         ------------------------------------------------- matches some of the same values
+...
+513 |         _ => {}
+    |         ^ collectively making this unreachable
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:133:9
+    |
+133 |         subject: String,
+    |         ^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> crates/sidequest-game/src/lib.rs:6:9
+    |
+  6 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:134:9
+    |
+134 |         content: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:135:9
+    |
+135 |         turn_learned: u64,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:136:9
+    |
+136 |         source: BeliefSource,
+    |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:140:9
+    |
+140 |         subject: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:141:9
+    |
+141 |         content: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:142:9
+    |
+142 |         turn_learned: u64,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:143:9
+    |
+143 |         source: BeliefSource,
+    |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:144:9
+    |
+144 |         confidence: f32,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:148:9
+    |
+148 |         subject: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:149:9
+    |
+149 |         content: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:150:9
+    |
+150 |         turn_learned: u64,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:151:9
+    |
+151 |         source: BeliefSource,
+    |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:152:9
+    |
+152 |         believed: bool,
+    |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:71:5
+   |
+71 |     pub genre: String,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:72:5
+   |
+72 |     pub world: String,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:73:5
+   |
+73 |     pub npcs: Vec<ManualNpc>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:74:5
+   |
+74 |     pub encounters: Vec<ManualEncounter>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:196:18
+    |
+196 |     Suppressed { mood: String, intensity: f32 },
+    |                  ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:196:32
+    |
+196 |     Suppressed { mood: String, intensity: f32 },
+    |                                ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:198:20
+    |
+198 |     NoTrackFound { mood: String, variation: String },
+    |                    ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:198:34
+    |
+198 |     NoTrackFound { mood: String, variation: String },
+    |                                  ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:254:5
+    |
+254 |     pub current_mood: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:255:5
+    |
+255 |     pub current_track: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:271:5
+    |
+271 |     pub classification: MoodClassification,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:12:5
+   |
+12 |     pub player_id: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:13:5
+   |
+13 |     pub player_name: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:14:5
+   |
+14 |     pub location: String,
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:20:5
+   |
+20 |     pub player_id: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:21:5
+   |
+21 |     pub player_name: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:22:5
+   |
+22 |     pub old_location: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:23:5
+   |
+23 |     pub new_location: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:35:9
+   |
+35 |         target_location: String,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:36:9
+   |
+36 |         players_moved: Vec<MovedPlayer>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:37:9
+   |
+37 |         narration_text: String,
+   |         ^^^^^^^^^^^^^^^^^^^^^^
+
+   Compiling sidequest-namegen v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-namegen)
+warning: `sidequest-game` (lib) generated 38 warnings
+warning: field `troper` is never read
+   --> crates/sidequest-agents/src/orchestrator.rs:193:5
+    |
+177 | pub struct Orchestrator {
+    |            ------------ field in this struct
+...
+193 |     troper: TroperAgent,
+    |     ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: missing documentation for a struct
+   --> crates/sidequest-agents/src/agents/narrator.rs:251:1
+    |
+251 | pub struct NarratorAgent {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> crates/sidequest-agents/src/lib.rs:6:9
+    |
+  6 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+   --> crates/sidequest-agents/src/agents/narrator.rs:256:5
+    |
+256 |     pub fn new() -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1279:5
+     |
+1279 |     pub you: String,
+     |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1281:5
+     |
+1281 |     pub named: String,
+     |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1283:5
+     |
+1283 |     pub intent: String,
+     |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1290:5
+     |
+1290 |     pub is_power_grab: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1292:5
+     |
+1292 |     pub references_inventory: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1294:5
+     |
+1294 |     pub references_npc: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1296:5
+     |
+1296 |     pub references_ability: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1298:5
+     |
+1298 |     pub references_location: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/preprocessor.rs:76:5
+   |
+76 |     LlmFailed(String),
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/preprocessor.rs:78:5
+   |
+78 |     ParseFailed(String),
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/preprocessor.rs:80:5
+   |
+80 |     OutputTooLong {
+   |     ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:81:9
+   |
+81 |         raw_len: usize,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:82:9
+   |
+82 |         you_len: usize,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:83:9
+   |
+83 |         named_len: usize,
+   |         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:84:9
+   |
+84 |         intent_len: usize,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:12:5
+   |
+12 |     Portrait,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:13:5
+   |
+13 |     Landscape,
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:14:5
+   |
+14 |     SceneIllustration,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/sidequest-agents/src/tools/scene_render.rs:18:5
+   |
+18 |     pub fn as_str(&self) -> &'static str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:40:5
+   |
+40 |     Ominous,
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:41:5
+   |
+41 |     Tense,
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:42:5
+   |
+42 |     Mystical,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:43:5
+   |
+43 |     Dramatic,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:44:5
+   |
+44 |     Melancholic,
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:45:5
+   |
+45 |     Atmospheric,
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/sidequest-agents/src/tools/scene_render.rs:49:5
+   |
+49 |     pub fn as_str(&self) -> &'static str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:77:5
+   |
+77 |     Combat,
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:78:5
+   |
+78 |     Magic,
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:79:5
+   |
+79 |     SpecialEffect,
+   |     ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:80:5
+   |
+80 |     Character,
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:81:5
+   |
+81 |     Location,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:82:5
+   |
+82 |     Atmosphere,
+   |     ^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/sidequest-agents/src/tools/scene_render.rs:86:5
+   |
+86 |     pub fn as_str(&self) -> &'static str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:114:5
+    |
+114 |     InvalidSubject(String),
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:116:5
+    |
+116 |     InvalidTier(String),
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:118:5
+    |
+118 |     InvalidMood(String),
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:120:5
+    |
+120 |     InvalidTag(String),
+    |     ^^^^^^^^^^
+
+   Compiling sidequest-loadoutgen v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-loadoutgen)
+   Compiling sidequest-encountergen v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-encountergen)
+warning: `sidequest-agents` (lib) generated 40 warnings
+   Compiling sidequest-promptpreview v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-promptpreview)
+   Compiling sidequest-validate v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-validate)
+warning: field `prerender_scheduler` is never read
+  --> crates/sidequest-server/src/dispatch/mod.rs:85:9
+   |
+54 | pub(crate) struct DispatchContext<'a> {
+   |                   --------------- field in this struct
+...
+85 |     pub prerender_scheduler:
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-server` (lib) generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.17s

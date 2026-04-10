@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use sidequest_game::accusation::{
-    Accusation, AccusationResult, EvidenceQuality, EvidenceSummary, evaluate_accusation,
+    evaluate_accusation, Accusation, AccusationResult, EvidenceQuality, EvidenceSummary,
 };
 use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
 use sidequest_game::clue_activation::{ClueNode, ClueType, ClueVisibility, DiscoveryMethod};
@@ -62,7 +62,10 @@ fn ac_evidence_gathers_implicating_clues() {
 
     // Only the knife implicates suspect_a
     assert_eq!(result.evidence.implicating_clues.len(), 1);
-    assert!(result.evidence.implicating_clues.contains(&"knife".to_string()));
+    assert!(result
+        .evidence
+        .implicating_clues
+        .contains(&"knife".to_string()));
 }
 
 #[test]
@@ -89,15 +92,18 @@ fn ac_evidence_gathers_corroborating_claims() {
         content: "suspect_a is guilty of the crime".to_string(),
         turn_learned: 1,
         source: BeliefSource::Witnessed,
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("witness_1".to_string(), witness);
 
     let accusation = make_accusation("suspect_a");
     let result = evaluate_accusation(&accusation, &disc, &clues, &beliefs, "suspect_a");
 
-    assert!(!result.evidence.corroborating_claims.is_empty(),
-        "Should collect corroborating claims about guilt");
+    assert!(
+        !result.evidence.corroborating_claims.is_empty(),
+        "Should collect corroborating claims about guilt"
+    );
 }
 
 #[test]
@@ -109,17 +115,18 @@ fn ac_evidence_gathers_contradicting_claims() {
         content: "suspect_a is innocent, I saw their alibi".to_string(),
         turn_learned: 2,
         source: BeliefSource::Witnessed,
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Contradicting,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Contradicting,
     });
     beliefs.insert("defender".to_string(), defender);
 
     let accusation = make_accusation("suspect_a");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect_a",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect_a");
 
-    assert!(!result.evidence.contradicting_claims.is_empty(),
-        "Should collect contradicting claims about innocence/alibi");
+    assert!(
+        !result.evidence.contradicting_claims.is_empty(),
+        "Should collect contradicting claims about innocence/alibi"
+    );
 }
 
 #[test]
@@ -135,12 +142,12 @@ fn ac_evidence_collects_facts_about_accused() {
     beliefs.insert("observer".to_string(), observer);
 
     let accusation = make_accusation("suspect_a");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect_a",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect_a");
 
-    assert!(!result.evidence.facts_about_accused.is_empty(),
-        "Should collect facts about the accused NPC");
+    assert!(
+        !result.evidence.facts_about_accused.is_empty(),
+        "Should collect facts about the accused NPC"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +158,11 @@ fn ac_evidence_collects_facts_about_accused() {
 fn ac_quality_boundary_score_0_is_circumstantial() {
     let accusation = make_accusation("suspect_a");
     let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &empty_beliefs(), "suspect_a",
+        &accusation,
+        &discovered(&[]),
+        &[],
+        &empty_beliefs(),
+        "suspect_a",
     );
 
     assert_eq!(result.quality, EvidenceQuality::Circumstantial);
@@ -165,7 +176,11 @@ fn ac_quality_boundary_score_2_is_circumstantial() {
     let accusation = make_accusation("suspect_a");
 
     let result = evaluate_accusation(
-        &accusation, &discovered(&["knife"]), &clues, &empty_beliefs(), "suspect_a",
+        &accusation,
+        &discovered(&["knife"]),
+        &clues,
+        &empty_beliefs(),
+        "suspect_a",
     );
 
     assert_eq!(result.evidence.evidence_score, 2);
@@ -183,13 +198,18 @@ fn ac_quality_boundary_score_3_is_strong() {
         content: "suspect_a is guilty".to_string(),
         turn_learned: 1,
         source: BeliefSource::Inferred,
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("witness".to_string(), w);
 
     let accusation = make_accusation("suspect_a");
     let result = evaluate_accusation(
-        &accusation, &discovered(&["knife"]), &clues, &beliefs, "suspect_a",
+        &accusation,
+        &discovered(&["knife"]),
+        &clues,
+        &beliefs,
+        "suspect_a",
     );
 
     assert_eq!(result.evidence.evidence_score, 3);
@@ -207,8 +227,11 @@ fn ac_quality_boundary_score_6_is_airtight() {
     let accusation = make_accusation("suspect_a");
 
     let result = evaluate_accusation(
-        &accusation, &discovered(&["knife", "witness_stmt", "motive"]),
-        &clues, &empty_beliefs(), "suspect_a",
+        &accusation,
+        &discovered(&["knife", "witness_stmt", "motive"]),
+        &clues,
+        &empty_beliefs(),
+        "suspect_a",
     );
 
     assert_eq!(result.evidence.evidence_score, 6);
@@ -223,7 +246,11 @@ fn ac_quality_boundary_score_6_is_airtight() {
 fn ac_correct_when_accused_matches_guilty() {
     let accusation = make_accusation("the_villain");
     let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &empty_beliefs(), "the_villain",
+        &accusation,
+        &discovered(&[]),
+        &[],
+        &empty_beliefs(),
+        "the_villain",
     );
 
     assert!(result.is_correct);
@@ -233,7 +260,11 @@ fn ac_correct_when_accused_matches_guilty() {
 fn ac_incorrect_when_accused_differs_from_guilty() {
     let accusation = make_accusation("innocent_bystander");
     let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &empty_beliefs(), "the_villain",
+        &accusation,
+        &discovered(&[]),
+        &[],
+        &empty_beliefs(),
+        "the_villain",
     );
 
     assert!(!result.is_correct);
@@ -252,29 +283,40 @@ fn ac_narrative_correct_airtight_is_triumphant() {
     ];
     let accusation = make_accusation("villain");
     let result = evaluate_accusation(
-        &accusation, &discovered(&["c1", "c2", "c3"]),
-        &clues, &empty_beliefs(), "villain",
+        &accusation,
+        &discovered(&["c1", "c2", "c3"]),
+        &clues,
+        &empty_beliefs(),
+        "villain",
     );
 
     assert!(result.is_correct);
     assert_eq!(result.quality, EvidenceQuality::Airtight);
-    assert!(result.narrative_prompt.contains("CORRECT")
-        || result.narrative_prompt.to_lowercase().contains("correct"),
-        "Narrative should indicate correctness");
+    assert!(
+        result.narrative_prompt.contains("CORRECT")
+            || result.narrative_prompt.to_lowercase().contains("correct"),
+        "Narrative should indicate correctness"
+    );
 }
 
 #[test]
 fn ac_narrative_wrong_circumstantial_is_dismissive() {
     let accusation = make_accusation("wrong_person");
     let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &empty_beliefs(), "villain",
+        &accusation,
+        &discovered(&[]),
+        &[],
+        &empty_beliefs(),
+        "villain",
     );
 
     assert!(!result.is_correct);
     assert_eq!(result.quality, EvidenceQuality::Circumstantial);
-    assert!(result.narrative_prompt.contains("WRONG")
-        || result.narrative_prompt.to_lowercase().contains("wrong"),
-        "Narrative should indicate incorrect accusation");
+    assert!(
+        result.narrative_prompt.contains("WRONG")
+            || result.narrative_prompt.to_lowercase().contains("wrong"),
+        "Narrative should indicate incorrect accusation"
+    );
 }
 
 #[test]
@@ -284,18 +326,16 @@ fn ac_narrative_all_six_combinations_distinct() {
     let mut prompts = HashSet::new();
 
     let qualities = [
-        (0, EvidenceQuality::Circumstantial),  // 0 clues
-        (2, EvidenceQuality::Strong),           // enough for strong
-        (3, EvidenceQuality::Airtight),         // enough for airtight
+        (0, EvidenceQuality::Circumstantial), // 0 clues
+        (2, EvidenceQuality::Strong),         // enough for strong
+        (3, EvidenceQuality::Airtight),       // enough for airtight
     ];
 
     for (clue_count, _expected_quality) in &qualities {
         let clues: Vec<_> = (0..*clue_count)
             .map(|i| make_clue(&format!("clue_{}", i), &["target"]))
-        .collect();
-        let disc: HashSet<String> = (0..*clue_count)
-            .map(|i| format!("clue_{}", i))
             .collect();
+        let disc: HashSet<String> = (0..*clue_count).map(|i| format!("clue_{}", i)).collect();
 
         // Need corroboration to hit Strong with 2 clues (4 pts + need 1 more)
         let mut beliefs = HashMap::new();
@@ -306,22 +346,24 @@ fn ac_narrative_all_six_combinations_distinct() {
                 content: "target is guilty".to_string(),
                 turn_learned: 1,
                 source: BeliefSource::Inferred,
-                believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
+                believed: true,
+                sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
             });
             beliefs.insert("w".to_string(), w);
         }
 
         for guilty in &["target", "someone_else"] {
             let accusation = make_accusation("target");
-            let result = evaluate_accusation(
-                &accusation, &disc, &clues, &beliefs, guilty,
-            );
+            let result = evaluate_accusation(&accusation, &disc, &clues, &beliefs, guilty);
             prompts.insert(result.narrative_prompt.clone());
         }
     }
 
-    assert_eq!(prompts.len(), 6,
-        "All 6 (correct/incorrect × quality) combos should produce distinct prompts");
+    assert_eq!(
+        prompts.len(),
+        6,
+        "All 6 (correct/incorrect × quality) combos should produce distinct prompts"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +374,11 @@ fn ac_narrative_all_six_combinations_distinct() {
 fn ac_weak_accusation_no_evidence() {
     let accusation = make_accusation("suspect_a");
     let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &empty_beliefs(), "suspect_a",
+        &accusation,
+        &discovered(&[]),
+        &[],
+        &empty_beliefs(),
+        "suspect_a",
     );
 
     assert_eq!(result.quality, EvidenceQuality::Circumstantial);
@@ -358,14 +404,18 @@ fn ac_strong_accusation_clues_plus_claims() {
         content: "suspect_a is guilty of murder".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("informant".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("informant".to_string(), w);
 
     let accusation = make_accusation("suspect_a");
     let result = evaluate_accusation(
-        &accusation, &discovered(&["knife", "witness"]),
-        &clues, &beliefs, "suspect_a",
+        &accusation,
+        &discovered(&["knife", "witness"]),
+        &clues,
+        &beliefs,
+        "suspect_a",
     );
 
     // 2 clues (4 pts) + 1 claim (1 pt) = 5 → Strong
@@ -394,15 +444,23 @@ fn ac_airtight_accusation_overwhelming_evidence() {
         content: "suspect_a is guilty beyond doubt".to_string(),
         turn_learned: 5,
         source: BeliefSource::Witnessed,
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Corroborating,
     });
     beliefs.insert("corroborator".to_string(), w);
 
     let accusation = make_accusation("suspect_a");
     let result = evaluate_accusation(
         &accusation,
-        &discovered(&["murder_weapon", "blood_trail", "confession_note", "eyewitness"]),
-        &clues, &beliefs, "suspect_a",
+        &discovered(&[
+            "murder_weapon",
+            "blood_trail",
+            "confession_note",
+            "eyewitness",
+        ]),
+        &clues,
+        &beliefs,
+        "suspect_a",
     );
 
     // 4 clues (8 pts) + 1 claim (1 pt) = 9 → Airtight
@@ -440,13 +498,13 @@ fn edge_contradiction_counted_once_per_pair() {
     beliefs.insert("npc_b".to_string(), npc_b);
 
     let accusation = make_accusation("suspect");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect");
 
     // Two NPCs, one contradicting pair → contradiction_count should be 1, NOT 2
-    assert_eq!(result.evidence.contradiction_count, 1,
-        "Each contradicting pair should be counted once, not double-counted");
+    assert_eq!(
+        result.evidence.contradiction_count, 1,
+        "Each contradicting pair should be counted once, not double-counted"
+    );
 }
 
 #[test]
@@ -467,13 +525,13 @@ fn edge_three_npcs_contradictions_not_inflated() {
     }
 
     let accusation = make_accusation("suspect");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect");
 
     // 3 NPCs, 3 unique pairs → contradiction_count should be 3
-    assert_eq!(result.evidence.contradiction_count, 3,
-        "Three NPCs with conflicting facts should produce 3 contradiction pairs, not 6");
+    assert_eq!(
+        result.evidence.contradiction_count, 3,
+        "Three NPCs with conflicting facts should produce 3 contradiction pairs, not 6"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -488,14 +546,14 @@ fn edge_low_credibility_adds_score_bonus() {
     beliefs.insert("observer".to_string(), npc);
 
     let accusation = make_accusation("suspect");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect");
 
     // Low credibility (< 0.4) should add 1 point
     assert!(result.evidence.accused_credibility < 0.4);
-    assert_eq!(result.evidence.evidence_score, 1,
-        "Low credibility of accused should contribute +1 to evidence score");
+    assert_eq!(
+        result.evidence.evidence_score, 1,
+        "Low credibility of accused should contribute +1 to evidence score"
+    );
 }
 
 #[test]
@@ -506,13 +564,13 @@ fn edge_neutral_credibility_no_bonus() {
     beliefs.insert("observer".to_string(), npc);
 
     let accusation = make_accusation("suspect");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect");
 
     assert!(result.evidence.accused_credibility >= 0.4);
-    assert_eq!(result.evidence.evidence_score, 0,
-        "Neutral/high credibility should not add bonus points");
+    assert_eq!(
+        result.evidence.evidence_score, 0,
+        "Neutral/high credibility should not add bonus points"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -533,12 +591,12 @@ fn edge_high_confidence_suspicion_corroborates() {
     beliefs.insert("suspicious_npc".to_string(), npc);
 
     let accusation = make_accusation("suspect");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect");
 
-    assert!(!result.evidence.corroborating_claims.is_empty(),
-        "High-confidence suspicion about the accused should count as corroboration");
+    assert!(
+        !result.evidence.corroborating_claims.is_empty(),
+        "High-confidence suspicion about the accused should count as corroboration"
+    );
 }
 
 #[test]
@@ -555,12 +613,12 @@ fn edge_low_confidence_suspicion_ignored() {
     beliefs.insert("uncertain_npc".to_string(), npc);
 
     let accusation = make_accusation("suspect");
-    let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &beliefs, "suspect",
-    );
+    let result = evaluate_accusation(&accusation, &discovered(&[]), &[], &beliefs, "suspect");
 
-    assert!(result.evidence.corroborating_claims.is_empty(),
-        "Low-confidence suspicion should not count as corroboration");
+    assert!(
+        result.evidence.corroborating_claims.is_empty(),
+        "Low-confidence suspicion should not count as corroboration"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -571,7 +629,11 @@ fn edge_low_confidence_suspicion_ignored() {
 fn edge_empty_everything_produces_circumstantial() {
     let accusation = make_accusation("nobody");
     let result = evaluate_accusation(
-        &accusation, &discovered(&[]), &[], &empty_beliefs(), "villain",
+        &accusation,
+        &discovered(&[]),
+        &[],
+        &empty_beliefs(),
+        "villain",
     );
 
     assert_eq!(result.quality, EvidenceQuality::Circumstantial);
@@ -593,7 +655,11 @@ fn serde_accusation_round_trips() {
 
 #[test]
 fn serde_evidence_quality_round_trips() {
-    for quality in &[EvidenceQuality::Circumstantial, EvidenceQuality::Strong, EvidenceQuality::Airtight] {
+    for quality in &[
+        EvidenceQuality::Circumstantial,
+        EvidenceQuality::Strong,
+        EvidenceQuality::Airtight,
+    ] {
         let json = serde_json::to_string(quality).expect("serialize");
         let restored: EvidenceQuality = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(&restored, quality);

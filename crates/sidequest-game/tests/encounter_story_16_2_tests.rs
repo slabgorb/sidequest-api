@@ -11,8 +11,8 @@ use std::collections::HashMap;
 // --- Imports for new encounter types ---
 // These will fail to compile until Dev creates encounter.rs and encounter_depth.rs
 use sidequest_game::encounter::{
-    EncounterActor, EncounterPhase, MetricDirection, StructuredEncounter,
-    EncounterMetric, SecondaryStats, StatValue,
+    EncounterActor, EncounterMetric, EncounterPhase, MetricDirection, SecondaryStats, StatValue,
+    StructuredEncounter,
 };
 
 // --- Imports for backward compat and GameSnapshot ---
@@ -73,12 +73,10 @@ fn structured_encounter_serde_roundtrip() {
             },
             damage_tier: None,
         }),
-        actors: vec![
-            EncounterActor {
-                name: "Clint".to_string(),
-                role: "duelist".to_string(),
-            },
-        ],
+        actors: vec![EncounterActor {
+            name: "Clint".to_string(),
+            role: "duelist".to_string(),
+        }],
         outcome: None,
         resolved: false,
         mood_override: Some("standoff".to_string()),
@@ -86,8 +84,7 @@ fn structured_encounter_serde_roundtrip() {
     };
 
     let json = serde_json::to_string(&encounter).expect("serialize");
-    let deserialized: StructuredEncounter =
-        serde_json::from_str(&json).expect("deserialize");
+    let deserialized: StructuredEncounter = serde_json::from_str(&json).expect("deserialize");
 
     assert_eq!(deserialized.encounter_type, "standoff");
     assert_eq!(deserialized.metric.name, "tension");
@@ -96,14 +93,14 @@ fn structured_encounter_serde_roundtrip() {
     assert_eq!(deserialized.actors.len(), 1);
     assert_eq!(deserialized.actors[0].name, "Clint");
     assert_eq!(deserialized.actors[0].role, "duelist");
-    assert_eq!(
-        deserialized.mood_override.as_deref(),
-        Some("standoff")
-    );
+    assert_eq!(deserialized.mood_override.as_deref(), Some("standoff"));
     assert_eq!(deserialized.narrator_hints.len(), 1);
 
     // Verify secondary stats survived roundtrip
-    let stats = deserialized.secondary_stats.as_ref().expect("secondary_stats present");
+    let stats = deserialized
+        .secondary_stats
+        .as_ref()
+        .expect("secondary_stats present");
     let focus = stats.stats.get("focus").expect("focus stat exists");
     assert_eq!(focus.current, 5);
     assert_eq!(focus.max, 8);
@@ -216,7 +213,13 @@ fn metric_direction_serde_roundtrip() {
 #[test]
 fn secondary_stats_basic_construction() {
     let mut stats_map = HashMap::new();
-    stats_map.insert("hp".to_string(), StatValue { current: 15, max: 15 });
+    stats_map.insert(
+        "hp".to_string(),
+        StatValue {
+            current: 15,
+            max: 15,
+        },
+    );
     stats_map.insert("fuel".to_string(), StatValue { current: 8, max: 8 });
     stats_map.insert("speed".to_string(), StatValue { current: 5, max: 5 });
     stats_map.insert("armor".to_string(), StatValue { current: 1, max: 1 });
@@ -237,8 +240,20 @@ fn secondary_stats_basic_construction() {
 #[test]
 fn secondary_stats_serde_roundtrip() {
     let mut stats_map = HashMap::new();
-    stats_map.insert("shields".to_string(), StatValue { current: 100, max: 200 });
-    stats_map.insert("hull".to_string(), StatValue { current: 80, max: 80 });
+    stats_map.insert(
+        "shields".to_string(),
+        StatValue {
+            current: 100,
+            max: 200,
+        },
+    );
+    stats_map.insert(
+        "hull".to_string(),
+        StatValue {
+            current: 80,
+            max: 80,
+        },
+    );
 
     let stats = SecondaryStats {
         stats: stats_map,
@@ -539,9 +554,9 @@ fn structured_encounter_chase_convenience_constructor() {
     use sidequest_game::chase_depth::RigType;
 
     let encounter = StructuredEncounter::chase(
-        0.5,  // escape_threshold maps to metric threshold
+        0.5, // escape_threshold maps to metric threshold
         Some(RigType::Interceptor),
-        10,   // goal
+        10, // goal
     );
 
     assert_eq!(encounter.encounter_type, "chase");
@@ -564,8 +579,7 @@ fn structured_encounter_chase_convenience_constructor() {
 fn structured_encounter_chase_without_rig() {
     // Foot chases have no secondary stats
     let encounter = StructuredEncounter::chase(
-        0.5,
-        None,  // no rig
+        0.5, None, // no rig
         10,
     );
 
@@ -621,9 +635,18 @@ fn standoff_encounter_full_construction() {
             damage_tier: None,
         }),
         actors: vec![
-            EncounterActor { name: "The Good".to_string(), role: "duelist".to_string() },
-            EncounterActor { name: "The Bad".to_string(), role: "duelist".to_string() },
-            EncounterActor { name: "The Ugly".to_string(), role: "duelist".to_string() },
+            EncounterActor {
+                name: "The Good".to_string(),
+                role: "duelist".to_string(),
+            },
+            EncounterActor {
+                name: "The Bad".to_string(),
+                role: "duelist".to_string(),
+            },
+            EncounterActor {
+                name: "The Ugly".to_string(),
+                role: "duelist".to_string(),
+            },
         ],
         outcome: None,
         resolved: false,
@@ -664,8 +687,14 @@ fn negotiation_encounter_bidirectional_metric() {
         structured_phase: Some(EncounterPhase::Setup),
         secondary_stats: None,
         actors: vec![
-            EncounterActor { name: "Detective".to_string(), role: "interrogator".to_string() },
-            EncounterActor { name: "Suspect".to_string(), role: "subject".to_string() },
+            EncounterActor {
+                name: "Detective".to_string(),
+                role: "interrogator".to_string(),
+            },
+            EncounterActor {
+                name: "Suspect".to_string(),
+                role: "subject".to_string(),
+            },
         ],
         outcome: None,
         resolved: false,
@@ -682,9 +711,27 @@ fn negotiation_encounter_bidirectional_metric() {
 fn ship_combat_encounter_with_secondary_stats() {
     // Space opera ship combat: descending HP metric with complex secondary stats
     let mut stats_map = HashMap::new();
-    stats_map.insert("shields".to_string(), StatValue { current: 100, max: 200 });
-    stats_map.insert("hull".to_string(), StatValue { current: 80, max: 80 });
-    stats_map.insert("engines".to_string(), StatValue { current: 50, max: 50 });
+    stats_map.insert(
+        "shields".to_string(),
+        StatValue {
+            current: 100,
+            max: 200,
+        },
+    );
+    stats_map.insert(
+        "hull".to_string(),
+        StatValue {
+            current: 80,
+            max: 80,
+        },
+    );
+    stats_map.insert(
+        "engines".to_string(),
+        StatValue {
+            current: 50,
+            max: 50,
+        },
+    );
 
     let encounter = StructuredEncounter {
         encounter_type: "ship_combat".to_string(),
@@ -703,9 +750,18 @@ fn ship_combat_encounter_with_secondary_stats() {
             damage_tier: Some("PRISTINE".to_string()),
         }),
         actors: vec![
-            EncounterActor { name: "Captain".to_string(), role: "commander".to_string() },
-            EncounterActor { name: "Pilot".to_string(), role: "helmsman".to_string() },
-            EncounterActor { name: "Gunner".to_string(), role: "weapons".to_string() },
+            EncounterActor {
+                name: "Captain".to_string(),
+                role: "commander".to_string(),
+            },
+            EncounterActor {
+                name: "Pilot".to_string(),
+                role: "helmsman".to_string(),
+            },
+            EncounterActor {
+                name: "Gunner".to_string(),
+                role: "weapons".to_string(),
+            },
         ],
         outcome: None,
         resolved: false,

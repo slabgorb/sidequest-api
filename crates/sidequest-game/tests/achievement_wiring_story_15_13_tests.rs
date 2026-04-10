@@ -49,14 +49,12 @@ fn betrayal_trope_def() -> TropeDefinition {
             accelerator_bonus: 0.0,
             decelerator_penalty: 0.0,
         }),
-        escalation: vec![
-            TropeEscalation {
-                at: 0.3,
-                event: "Seeds of doubt".to_string(),
-                npcs_involved: vec![],
-                stakes: String::new(),
-            },
-        ],
+        escalation: vec![TropeEscalation {
+            at: 0.3,
+            event: "Seeds of doubt".to_string(),
+            npcs_involved: vec![],
+            stakes: String::new(),
+        }],
         is_abstract: false,
         extends: None,
     }
@@ -169,10 +167,7 @@ fn tick_and_check_achievements_fires_on_active_to_progressing() {
 /// check achievements.
 #[test]
 fn tick_and_check_achievements_multiple_tropes() {
-    let mut tropes = vec![
-        TropeState::new("betrayal"),
-        TropeState::new("redemption"),
-    ];
+    let mut tropes = vec![TropeState::new("betrayal"), TropeState::new("redemption")];
     let defs = vec![betrayal_trope_def(), redemption_trope_def()];
     let mut tracker = AchievementTracker::new(sample_achievements());
 
@@ -245,13 +240,11 @@ fn tick_and_check_achievements_dedup_across_ticks() {
     let mut tracker = AchievementTracker::new(sample_achievements());
 
     // First tick: Active → Progressing fires ach-progressing
-    let (_, earned1) =
-        TropeEngine::tick_and_check_achievements(&mut tropes, &defs, &mut tracker);
+    let (_, earned1) = TropeEngine::tick_and_check_achievements(&mut tropes, &defs, &mut tracker);
     assert_eq!(earned1.len(), 1);
 
     // Second tick: Progressing → Progressing (no transition) → no achievement
-    let (_, earned2) =
-        TropeEngine::tick_and_check_achievements(&mut tropes, &defs, &mut tracker);
+    let (_, earned2) = TropeEngine::tick_and_check_achievements(&mut tropes, &defs, &mut tracker);
     assert!(
         earned2.is_empty(),
         "Second tick with same status should not re-award"
@@ -293,12 +286,8 @@ fn resolve_and_check_achievements_fires_resolved() {
     tropes[0].set_status(TropeStatus::Progressing);
     let mut tracker = AchievementTracker::new(sample_achievements());
 
-    let earned = TropeEngine::resolve_and_check_achievements(
-        &mut tropes,
-        "betrayal",
-        None,
-        &mut tracker,
-    );
+    let earned =
+        TropeEngine::resolve_and_check_achievements(&mut tropes, "betrayal", None, &mut tracker);
 
     assert_eq!(tropes[0].status(), TropeStatus::Resolved);
     assert_eq!(earned.len(), 1);
@@ -392,13 +381,12 @@ fn advance_between_sessions_and_check_achievements_fires() {
         ..betrayal_trope_def()
     }];
     // 10 days at 0.1/day = 1.0, transitions Active → Progressing
-    let (_fired, earned) =
-        TropeEngine::advance_between_sessions_and_check_achievements(
-            &mut tropes,
-            &defs,
-            10.0,
-            &mut tracker,
-        );
+    let (_fired, earned) = TropeEngine::advance_between_sessions_and_check_achievements(
+        &mut tropes,
+        &defs,
+        10.0,
+        &mut tracker,
+    );
 
     assert_eq!(tropes[0].status(), TropeStatus::Progressing);
     assert!(
@@ -429,13 +417,12 @@ fn advance_between_sessions_and_check_achievements_no_transition() {
     let mut tracker = AchievementTracker::new(sample_achievements());
 
     // Small advancement (0.1 days * 0.01/day = 0.001), stays Progressing
-    let (_fired, earned) =
-        TropeEngine::advance_between_sessions_and_check_achievements(
-            &mut tropes,
-            &defs,
-            0.1,
-            &mut tracker,
-        );
+    let (_fired, earned) = TropeEngine::advance_between_sessions_and_check_achievements(
+        &mut tropes,
+        &defs,
+        0.1,
+        &mut tracker,
+    );
 
     assert_eq!(tropes[0].status(), TropeStatus::Progressing);
     assert!(

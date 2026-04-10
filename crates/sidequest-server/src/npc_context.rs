@@ -19,11 +19,14 @@ pub(crate) fn build_npc_registry_context_budgeted(
 
     if !references_npc {
         // Compact: just names so the narrator doesn't invent duplicates
-        let names: Vec<String> = registry.iter()
-            .map(|e| if e.role.is_empty() {
-                e.name.clone()
-            } else {
-                format!("{} ({})", e.name, e.role)
+        let names: Vec<String> = registry
+            .iter()
+            .map(|e| {
+                if e.role.is_empty() {
+                    e.name.clone()
+                } else {
+                    format!("{} ({})", e.name, e.role)
+                }
             })
             .collect();
         return format!("\nKnown NPCs: {}", names.join(", "));
@@ -87,16 +90,18 @@ pub(crate) fn build_npc_registry_context_budgeted(
 /// Lists available culture names and descriptions so the narrator knows what
 /// `--culture` values to pass to `sidequest-namegen`. No pre-generated names —
 /// the narrator calls the tool at runtime.
-pub(crate) fn build_culture_reference(
-    cultures: &[sidequest_genre::Culture],
-) -> String {
+pub(crate) fn build_culture_reference(cultures: &[sidequest_genre::Culture]) -> String {
     if cultures.is_empty() {
         return String::new();
     }
 
     let mut lines = vec!["\n=== AVAILABLE CULTURES ===".to_string()];
     for culture in cultures {
-        lines.push(format!("- {} — {}", culture.name.as_str(), culture.description));
+        lines.push(format!(
+            "- {} — {}",
+            culture.name.as_str(),
+            culture.description
+        ));
     }
     lines.join("\n")
 }

@@ -12,8 +12,8 @@ use sidequest_protocol::NonBlankString;
 use crate::achievement::AchievementTracker;
 use crate::axis::AxisValue;
 use crate::character::Character;
-use crate::consequence::GenieWish;
 use crate::combatant::Combatant;
+use crate::consequence::GenieWish;
 use crate::creature_core::CreatureCore;
 use crate::delta::StateDelta;
 use crate::disposition::Disposition;
@@ -34,8 +34,8 @@ use crate::turn::TurnManager;
 use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
 use sidequest_protocol::{
-    CharacterState, ChapterMarkerPayload, ExploredLocation,
-    GameMessage, MapUpdatePayload, PartyMember, PartyStatusPayload,
+    ChapterMarkerPayload, CharacterState, ExploredLocation, GameMessage, MapUpdatePayload,
+    PartyMember, PartyStatusPayload,
 };
 
 /// Room IDs the player has visited in room-graph navigation mode.
@@ -311,10 +311,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
                 // Look up metadata from legacy declarations if present;
                 // otherwise synthesize unbounded defaults that init_resource_pools
                 // will overwrite on the next session load.
-                let decl = raw
-                    .resource_declarations
-                    .iter()
-                    .find(|d| d.name == *name);
+                let decl = raw.resource_declarations.iter().find(|d| d.name == *name);
                 let pool = if let Some(d) = decl {
                     ResourcePool {
                         name: d.name.clone(),
@@ -399,7 +396,11 @@ impl GameSnapshot {
             .filter(|c| c.is_friendly)
             .map(|c| {
                 let max = c.max_hp();
-                if max == 0 { 0.0 } else { c.hp() as f64 / max as f64 }
+                if max == 0 {
+                    0.0
+                } else {
+                    c.hp() as f64 / max as f64
+                }
             })
             .fold(1.0_f64, f64::min)
     }
@@ -445,21 +446,18 @@ impl GameSnapshot {
             changed.push("atmosphere");
         }
         if let Some(ref ql) = patch.quest_log {
-            let quest_span = tracing::info_span!(
-                "quest_update",
-                quest_count = ql.len(),
-            );
+            let quest_span = tracing::info_span!("quest_update", quest_count = ql.len(),);
             let _quest_guard = quest_span.enter();
             self.quest_log = ql.clone();
             changed.push("quest_log");
         }
         if let Some(ref updates) = patch.quest_updates {
             let existing_keys: std::collections::HashSet<&String> = self.quest_log.keys().collect();
-            let added = updates.keys().filter(|k| !existing_keys.contains(k)).count();
-            let quest_span = tracing::info_span!(
-                "quest_update",
-                quests_added = added,
-            );
+            let added = updates
+                .keys()
+                .filter(|k| !existing_keys.contains(k))
+                .count();
+            let quest_span = tracing::info_span!("quest_update", quests_added = added,);
             let _quest_guard = quest_span.enter();
             for (k, v) in updates {
                 self.quest_log.insert(k.clone(), v.clone());
@@ -513,7 +511,11 @@ impl GameSnapshot {
         // Discovered facts — route each fact to its character's known_facts (story 9-3)
         if let Some(ref facts) = patch.discovered_facts {
             for df in facts {
-                if let Some(character) = self.characters.iter_mut().find(|c| c.name() == df.character_name) {
+                if let Some(character) = self
+                    .characters
+                    .iter_mut()
+                    .find(|c| c.name() == df.character_name)
+                {
                     tracing::info!(
                         character = %df.character_name,
                         fact = %df.fact.content,
@@ -661,12 +663,9 @@ impl GameSnapshot {
                     &disposition,
                     PLAYER_CARRY_LIMIT,
                 ),
-                TransactionType::Sell => merchant::execute_sell(
-                    player_inv,
-                    merchant_inv,
-                    &request.item_id,
-                    &disposition,
-                ),
+                TransactionType::Sell => {
+                    merchant::execute_sell(player_inv, merchant_inv, &request.item_id, &disposition)
+                }
             };
 
             // Emit OTEL span for successful transactions

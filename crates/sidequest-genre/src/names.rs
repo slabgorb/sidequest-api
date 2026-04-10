@@ -107,7 +107,12 @@ impl NameGenerator {
                         .or_insert_with(|| {
                             self.slots
                                 .get(slot_name)
-                                .unwrap_or_else(|| panic!("Missing name slot '{}' — culture config is incomplete", slot_name))
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "Missing name slot '{}' — culture config is incomplete",
+                                        slot_name
+                                    )
+                                })
                                 .generate(rng)
                         })
                         .clone();
@@ -181,9 +186,17 @@ pub fn build_from_culture<R: Rng>(
 
         // Load names_file if present — check names/ sibling of corpus/, then corpus/ itself
         if let Some(ref names_file) = slot_config.names_file {
-            let names_dir = corpus_dir.parent().unwrap_or(corpus_dir).join("names").join(names_file);
+            let names_dir = corpus_dir
+                .parent()
+                .unwrap_or(corpus_dir)
+                .join("names")
+                .join(names_file);
             let corpus_fallback = corpus_dir.join(names_file);
-            let names_path = if names_dir.exists() { names_dir } else { corpus_fallback };
+            let names_path = if names_dir.exists() {
+                names_dir
+            } else {
+                corpus_fallback
+            };
             if let Ok(text) = std::fs::read_to_string(&names_path) {
                 let file_names: Vec<String> = text
                     .lines()

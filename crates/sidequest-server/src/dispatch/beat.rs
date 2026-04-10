@@ -12,10 +12,7 @@ use super::DispatchContext;
 /// Checks resolution after apply_beat and handles escalation if needed.
 ///
 /// Emits OTEL events: encounter.beat_dispatched, encounter.stat_check_resolved.
-pub(super) fn dispatch_beat_selection(
-    ctx: &mut DispatchContext<'_>,
-    beat_id: &str,
-) {
+pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &str) {
     let encounter_type = match ctx.snapshot.encounter {
         Some(ref enc) => enc.encounter_type.clone(),
         None => {
@@ -148,10 +145,16 @@ pub(super) fn dispatch_beat_selection(
         _ => {}
     }
 
-    let metric_current = ctx.snapshot.encounter.as_ref()
+    let metric_current = ctx
+        .snapshot
+        .encounter
+        .as_ref()
         .map(|e| e.metric.current)
         .unwrap_or(0);
-    let is_resolved = ctx.snapshot.encounter.as_ref()
+    let is_resolved = ctx
+        .snapshot
+        .encounter
+        .as_ref()
         .map(|e| e.resolved)
         .unwrap_or(false);
     WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)

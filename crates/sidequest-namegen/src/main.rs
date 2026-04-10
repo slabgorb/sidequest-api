@@ -20,7 +20,10 @@ use serde::Serialize;
 use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 
 #[derive(Parser)]
-#[command(name = "sidequest-namegen", about = "Generate a complete NPC identity from genre pack data")]
+#[command(
+    name = "sidequest-namegen",
+    about = "Generate a complete NPC identity from genre pack data"
+)]
 struct Cli {
     /// Path to the genre_packs/ directory. Also reads SIDEQUEST_CONTENT_PATH env var.
     #[arg(long, env = "SIDEQUEST_CONTENT_PATH")]
@@ -124,8 +127,8 @@ fn write_sidecar(npc: &NpcBlock) {
         Err(_) => return,
     };
 
-    let sidecar_path = std::path::PathBuf::from(&dir)
-        .join(format!("sidequest-tools-{session_id}.jsonl"));
+    let sidecar_path =
+        std::path::PathBuf::from(&dir).join(format!("sidequest-tools-{session_id}.jsonl"));
 
     // Ensure directory exists
     let _ = std::fs::create_dir_all(&dir);
@@ -150,7 +153,12 @@ fn write_sidecar(npc: &NpcBlock) {
     }
 }
 
-fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &mut impl Rng) -> NpcBlock {
+fn generate_npc(
+    pack: &GenrePack,
+    genre_dir: &std::path::Path,
+    cli: &Cli,
+    rng: &mut impl Rng,
+) -> NpcBlock {
     let corpus_dir = genre_dir.join("corpus");
 
     // Select culture
@@ -159,8 +167,15 @@ fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &
             .iter()
             .find(|c| c.name.as_str().eq_ignore_ascii_case(name))
             .unwrap_or_else(|| {
-                eprintln!("Culture '{}' not found. Available: {}", name,
-                    pack.cultures.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", "));
+                eprintln!(
+                    "Culture '{}' not found. Available: {}",
+                    name,
+                    pack.cultures
+                        .iter()
+                        .map(|c| c.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
                 std::process::exit(1);
             })
     } else {
@@ -173,8 +188,15 @@ fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &
             .iter()
             .find(|a| a.name.as_str().eq_ignore_ascii_case(name))
             .unwrap_or_else(|| {
-                eprintln!("Archetype '{}' not found. Available: {}", name,
-                    pack.archetypes.iter().map(|a| a.name.as_str()).collect::<Vec<_>>().join(", "));
+                eprintln!(
+                    "Archetype '{}' not found. Available: {}",
+                    name,
+                    pack.archetypes
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
                 std::process::exit(1);
             })
     } else {
@@ -199,21 +221,26 @@ fn generate_npc(pack: &GenrePack, genre_dir: &std::path::Path, cli: &Cli, rng: &
     }
 
     // Gender + pronouns
-    let gender = cli.gender.clone().unwrap_or_else(|| {
-        ["male", "female", "nonbinary"][rng.random_range(0..3)].to_string()
-    });
+    let gender = cli
+        .gender
+        .clone()
+        .unwrap_or_else(|| ["male", "female", "nonbinary"][rng.random_range(0..3)].to_string());
     let pronouns = match gender.as_str() {
         "male" => "he/him",
         "female" => "she/her",
         _ => "they/them",
-    }.to_string();
+    }
+    .to_string();
 
     // OCEAN personality (jittered from archetype baseline)
     let ocean = jitter_ocean(archetype, rng);
     let ocean_summary = summarize_ocean(&ocean);
 
     // Role
-    let role = cli.role.clone().unwrap_or_else(|| archetype.name.as_str().to_lowercase());
+    let role = cli
+        .role
+        .clone()
+        .unwrap_or_else(|| archetype.name.as_str().to_lowercase());
 
     // Appearance
     let mut appearance = String::new();
@@ -265,9 +292,19 @@ fn select_quirk_subset(quirks: &[String], count: usize, rng: &mut impl Rng) -> V
 }
 
 fn jitter_ocean(archetype: &NpcArchetype, rng: &mut impl Rng) -> OceanValues {
-    let base = archetype.ocean.as_ref().map(|o| {
-        (o.openness, o.conscientiousness, o.extraversion, o.agreeableness, o.neuroticism)
-    }).unwrap_or((5.0, 5.0, 5.0, 5.0, 5.0));
+    let base = archetype
+        .ocean
+        .as_ref()
+        .map(|o| {
+            (
+                o.openness,
+                o.conscientiousness,
+                o.extraversion,
+                o.agreeableness,
+                o.neuroticism,
+            )
+        })
+        .unwrap_or((5.0, 5.0, 5.0, 5.0, 5.0));
 
     let j = |v: f64, rng: &mut dyn rand::RngCore| -> f64 {
         let jitter: f64 = rng.random_range(-1.5..1.5);
@@ -285,16 +322,48 @@ fn jitter_ocean(archetype: &NpcArchetype, rng: &mut impl Rng) -> OceanValues {
 
 fn summarize_ocean(o: &OceanValues) -> String {
     fn label(v: f64, low: &str, mid: &str, high: &str) -> String {
-        if v < 4.0 { low.to_string() } else if v > 7.0 { high.to_string() } else { mid.to_string() }
+        if v < 4.0 {
+            low.to_string()
+        } else if v > 7.0 {
+            high.to_string()
+        } else {
+            mid.to_string()
+        }
     }
 
     [
-        label(o.openness, "conventional and practical", "balanced between tradition and novelty", "curious and imaginative"),
-        label(o.conscientiousness, "spontaneous and flexible", "moderately organized", "meticulous and disciplined"),
-        label(o.extraversion, "reserved and quiet", "selectively social", "outgoing and talkative"),
-        label(o.agreeableness, "blunt and competitive", "pragmatic", "warm and cooperative"),
-        label(o.neuroticism, "emotionally steady", "occasionally anxious", "easily stressed and reactive"),
-    ].join(", ")
+        label(
+            o.openness,
+            "conventional and practical",
+            "balanced between tradition and novelty",
+            "curious and imaginative",
+        ),
+        label(
+            o.conscientiousness,
+            "spontaneous and flexible",
+            "moderately organized",
+            "meticulous and disciplined",
+        ),
+        label(
+            o.extraversion,
+            "reserved and quiet",
+            "selectively social",
+            "outgoing and talkative",
+        ),
+        label(
+            o.agreeableness,
+            "blunt and competitive",
+            "pragmatic",
+            "warm and cooperative",
+        ),
+        label(
+            o.neuroticism,
+            "emotionally steady",
+            "occasionally anxious",
+            "easily stressed and reactive",
+        ),
+    ]
+    .join(", ")
 }
 
 const HISTORY_TEMPLATES: &[&str] = &[
@@ -307,23 +376,42 @@ const HISTORY_TEMPLATES: &[&str] = &[
 ];
 
 const HISTORY_EVENTS: &[&str] = &[
-    "a bad trade went wrong", "their settlement was raided", "a mutation changed everything",
-    "a drought drove them out", "they found something in the ruins they won't talk about",
-    "a feud with another faction", "the water turned bad", "they lost someone important",
-    "an Ancient device activated nearby", "a pack of beasts destroyed their homestead",
+    "a bad trade went wrong",
+    "their settlement was raided",
+    "a mutation changed everything",
+    "a drought drove them out",
+    "they found something in the ruins they won't talk about",
+    "a feud with another faction",
+    "the water turned bad",
+    "they lost someone important",
+    "an Ancient device activated nearby",
+    "a pack of beasts destroyed their homestead",
 ];
 
 const HISTORY_DEEDS: &[&str] = &[
-    "hard work and silence", "a timely warning about raiders", "fixing something nobody else could",
-    "sharing water during the drought", "standing their ground when it mattered",
-    "knowing where the good salvage was", "patching up the wounded after the last raid",
+    "hard work and silence",
+    "a timely warning about raiders",
+    "fixing something nobody else could",
+    "sharing water during the drought",
+    "standing their ground when it mattered",
+    "knowing where the good salvage was",
+    "patching up the wounded after the last raid",
 ];
 
-fn generate_history(faction: &str, role: &str, archetype: &NpcArchetype, rng: &mut impl Rng) -> String {
+fn generate_history(
+    faction: &str,
+    role: &str,
+    archetype: &NpcArchetype,
+    rng: &mut impl Rng,
+) -> String {
     let template = HISTORY_TEMPLATES[rng.random_range(0..HISTORY_TEMPLATES.len())];
     let event = HISTORY_EVENTS[rng.random_range(0..HISTORY_EVENTS.len())];
     let deed = HISTORY_DEEDS[rng.random_range(0..HISTORY_DEEDS.len())];
-    let alt_role = archetype.typical_classes.first().map(|s| s.to_lowercase()).unwrap_or_else(|| "drifter".to_string());
+    let alt_role = archetype
+        .typical_classes
+        .first()
+        .map(|s| s.to_lowercase())
+        .unwrap_or_else(|| "drifter".to_string());
 
     template
         .replace("{role}", role)

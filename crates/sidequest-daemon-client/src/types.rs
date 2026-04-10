@@ -168,7 +168,12 @@ pub struct RenderResult {
     /// Path to the generated image.
     /// Accepts `image_url`, `image_path`, `output_path`, `path`, or `file` from the daemon.
     /// No default — if the daemon doesn't return a path, we want a loud error.
-    #[serde(alias = "image_path", alias = "output_path", alias = "path", alias = "file")]
+    #[serde(
+        alias = "image_path",
+        alias = "output_path",
+        alias = "path",
+        alias = "file"
+    )]
     pub image_url: String,
     /// Time taken to generate the image in milliseconds.
     /// Accepts both `generation_ms` and `elapsed_ms` from the daemon.

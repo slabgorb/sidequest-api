@@ -21,14 +21,12 @@
 use std::collections::HashMap;
 use std::io::Write;
 
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction, VisualScene};
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use sidequest_agents::tools::scene_render::{
     validate_scene_render, SceneTier, VisualMood, VisualTag,
 };
 use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, NarratorExtraction, VisualScene,
-};
 
 // ============================================================================
 // Helpers
@@ -74,7 +72,9 @@ fn extraction_with_visual_scene() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![], confrontation: None, location: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -95,7 +95,9 @@ fn extraction_without_visual_scene() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
-    beat_selections: vec![], confrontation: None, location: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -131,7 +133,11 @@ fn validate_scene_render_returns_visual_scene_for_valid_input() {
         "tense",
         &["character", "atmosphere"],
     );
-    assert!(result.is_ok(), "valid input should return Ok: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "valid input should return Ok: {:?}",
+        result.err()
+    );
 
     let scene = result.unwrap();
     assert_eq!(scene.subject, "weathered woman crouching by barrel fire");
@@ -155,7 +161,14 @@ fn validate_scene_render_accepts_all_tier_values() {
 
 #[test]
 fn validate_scene_render_accepts_all_mood_values() {
-    for mood in ["ominous", "tense", "mystical", "dramatic", "melancholic", "atmospheric"] {
+    for mood in [
+        "ominous",
+        "tense",
+        "mystical",
+        "dramatic",
+        "melancholic",
+        "atmospheric",
+    ] {
         let result = validate_scene_render("test subject", "portrait", mood, &["character"]);
         assert!(
             result.is_ok(),
@@ -168,7 +181,14 @@ fn validate_scene_render_accepts_all_mood_values() {
 
 #[test]
 fn validate_scene_render_accepts_all_tag_values() {
-    for tag in ["combat", "magic", "special_effect", "character", "location", "atmosphere"] {
+    for tag in [
+        "combat",
+        "magic",
+        "special_effect",
+        "character",
+        "location",
+        "atmosphere",
+    ] {
         let result = validate_scene_render("test subject", "portrait", "tense", &[tag]);
         assert!(
             result.is_ok(),
@@ -205,7 +225,10 @@ fn validate_scene_render_accepts_empty_tags() {
 #[test]
 fn validate_scene_render_rejects_invalid_tier() {
     let result = validate_scene_render("test subject", "vignette", "tense", &["character"]);
-    assert!(result.is_err(), "invalid tier 'vignette' should be rejected");
+    assert!(
+        result.is_err(),
+        "invalid tier 'vignette' should be rejected"
+    );
 }
 
 #[test]
@@ -217,32 +240,42 @@ fn validate_scene_render_rejects_invalid_mood() {
 #[test]
 fn validate_scene_render_rejects_invalid_tag() {
     let result = validate_scene_render("test subject", "portrait", "tense", &["invalid_tag"]);
-    assert!(result.is_err(), "invalid tag 'invalid_tag' should be rejected");
+    assert!(
+        result.is_err(),
+        "invalid tag 'invalid_tag' should be rejected"
+    );
 }
 
 #[test]
 fn validate_scene_render_rejects_mixed_valid_invalid_tags() {
-    let result = validate_scene_render(
-        "test subject",
-        "portrait",
-        "tense",
-        &["character", "bogus"],
+    let result =
+        validate_scene_render("test subject", "portrait", "tense", &["character", "bogus"]);
+    assert!(
+        result.is_err(),
+        "one invalid tag in list should reject the whole call"
     );
-    assert!(result.is_err(), "one invalid tag in list should reject the whole call");
 }
 
 #[test]
 fn validate_scene_render_is_case_insensitive_for_tier() {
     let result = validate_scene_render("test subject", "Portrait", "tense", &["character"]);
     assert!(result.is_ok(), "tier should be case-insensitive");
-    assert_eq!(result.unwrap().tier, "portrait", "tier should be normalized to lowercase");
+    assert_eq!(
+        result.unwrap().tier,
+        "portrait",
+        "tier should be normalized to lowercase"
+    );
 }
 
 #[test]
 fn validate_scene_render_is_case_insensitive_for_mood() {
     let result = validate_scene_render("test subject", "portrait", "TENSE", &["character"]);
     assert!(result.is_ok(), "mood should be case-insensitive");
-    assert_eq!(result.unwrap().mood, "tense", "mood should be normalized to lowercase");
+    assert_eq!(
+        result.unwrap().mood,
+        "tense",
+        "mood should be normalized to lowercase"
+    );
 }
 
 // ============================================================================
@@ -265,7 +298,10 @@ fn validate_scene_render_preserves_subject_text_exactly() {
 fn validate_scene_render_accepts_subject_at_100_chars() {
     let subject = "a".repeat(100);
     let result = validate_scene_render(&subject, "portrait", "tense", &["character"]);
-    assert!(result.is_ok(), "subject at exactly 100 chars should be valid");
+    assert!(
+        result.is_ok(),
+        "subject at exactly 100 chars should be valid"
+    );
 }
 
 #[test]
@@ -315,7 +351,9 @@ fn assemble_turn_falls_back_to_narrator_visual_scene_when_no_tool() {
     let extraction = extraction_with_visual_scene();
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
-    let vs = result.visual_scene.expect("visual_scene should fall back to narrator");
+    let vs = result
+        .visual_scene
+        .expect("visual_scene should fall back to narrator");
     assert_eq!(
         vs.subject, "narrator fallback subject",
         "with no tool result, narrator extraction visual_scene should pass through"
@@ -342,12 +380,17 @@ fn assemble_turn_returns_none_visual_scene_when_neither_source() {
 #[test]
 fn parser_extracts_scene_render_from_sidecar() {
     let sid = test_session_id("parse-scene");
-    write_sidecar(&sid, &[
-        r#"{"tool":"scene_render","result":{"subject":"crumbling tower at sunset","tier":"landscape","mood":"dramatic","tags":["location","atmosphere"]}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"scene_render","result":{"subject":"crumbling tower at sunset","tier":"landscape","mood":"dramatic","tags":["location","atmosphere"]}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let vs = results.visual_scene.expect("scene_render tool result should populate visual_scene");
+    let vs = results
+        .visual_scene
+        .expect("scene_render tool result should populate visual_scene");
     assert_eq!(vs.subject, "crumbling tower at sunset");
     assert_eq!(vs.tier, "landscape");
     assert_eq!(vs.mood, "dramatic");
@@ -360,9 +403,10 @@ fn parser_extracts_scene_render_from_sidecar() {
 fn parser_handles_scene_render_with_missing_fields() {
     let sid = test_session_id("parse-scene-missing");
     // Missing "mood" field — should skip this record, not crash
-    write_sidecar(&sid, &[
-        r#"{"tool":"scene_render","result":{"subject":"test","tier":"portrait"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"scene_render","result":{"subject":"test","tier":"portrait"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
     // Missing required field → record should be skipped
@@ -377,16 +421,21 @@ fn parser_handles_scene_render_with_missing_fields() {
 #[test]
 fn parser_handles_scene_render_alongside_other_tools() {
     let sid = test_session_id("parse-scene-multi");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
-        r#"{"tool":"scene_render","result":{"subject":"dark corridor","tier":"scene_illustration","mood":"ominous","tags":["atmosphere"]}}"#,
-        r#"{"tool":"set_intent","result":{"intent":"exploration"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
+            r#"{"tool":"scene_render","result":{"subject":"dark corridor","tier":"scene_illustration","mood":"ominous","tags":["atmosphere"]}}"#,
+            r#"{"tool":"set_intent","result":{"intent":"exploration"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(results.scene_mood.as_deref(), Some("tension"));
     assert_eq!(results.scene_intent.as_deref(), Some("exploration"));
-    let vs = results.visual_scene.expect("scene_render should be parsed alongside other tools");
+    let vs = results
+        .visual_scene
+        .expect("scene_render should be parsed alongside other tools");
     assert_eq!(vs.subject, "dark corridor");
 
     cleanup_sidecar(&sid);
@@ -399,15 +448,20 @@ fn parser_handles_scene_render_alongside_other_tools() {
 #[test]
 fn scene_render_e2e_sidecar_to_action_result() {
     let sid = test_session_id("e2e-scene");
-    write_sidecar(&sid, &[
-        r#"{"tool":"scene_render","result":{"subject":"ancient ruins under moonlight","tier":"landscape","mood":"mystical","tags":["location","magic"]}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"scene_render","result":{"subject":"ancient ruins under moonlight","tier":"landscape","mood":"mystical","tags":["location","magic"]}}"#,
+        ],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_with_visual_scene(); // has narrator fallback
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
-    let vs = result.visual_scene.expect("e2e: visual_scene should be present");
+    let vs = result
+        .visual_scene
+        .expect("e2e: visual_scene should be present");
     assert_eq!(
         vs.subject, "ancient ruins under moonlight",
         "e2e: tool result must override narrator extraction visual_scene"
@@ -433,9 +487,12 @@ fn tool_call_parser_handles_scene_render_tool_name() {
     // If the parser doesn't have a match arm for "scene_render", this test
     // will pass but visual_scene will be None — caught by the assertion.
     let sid = test_session_id("wiring-parser");
-    write_sidecar(&sid, &[
-        r#"{"tool":"scene_render","result":{"subject":"test","tier":"portrait","mood":"tense","tags":["character"]}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"scene_render","result":{"subject":"test","tier":"portrait","mood":"tense","tags":["character"]}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert!(
@@ -457,9 +514,8 @@ fn narrator_prompt_does_not_contain_visual_scene_json_schema() {
     // After 20-5, the visual_scene JSON schema (~100 tokens) should be removed from
     // the narrator system prompt. The narrator will call scene_render as a tool instead.
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let narrator_src =
-        std::fs::read_to_string(format!("{manifest_dir}/src/agents/narrator.rs"))
-            .expect("should be able to read narrator.rs");
+    let narrator_src = std::fs::read_to_string(format!("{manifest_dir}/src/agents/narrator.rs"))
+        .expect("should be able to read narrator.rs");
 
     // The old JSON block docs for visual_scene should be gone
     assert!(
@@ -482,7 +538,9 @@ fn scene_tier_enum_is_non_exhaustive() {
         .expect("should be able to read scene_render.rs");
 
     // Check that #[non_exhaustive] appears before "pub enum SceneTier"
-    let tier_pos = src.find("pub enum SceneTier").expect("SceneTier enum must exist");
+    let tier_pos = src
+        .find("pub enum SceneTier")
+        .expect("SceneTier enum must exist");
     let before_tier = &src[..tier_pos];
     assert!(
         before_tier.rfind("#[non_exhaustive]").map_or(false, |pos| {
@@ -499,12 +557,14 @@ fn visual_mood_enum_is_non_exhaustive() {
     let src = std::fs::read_to_string(format!("{manifest_dir}/src/tools/scene_render.rs"))
         .expect("should be able to read scene_render.rs");
 
-    let mood_pos = src.find("pub enum VisualMood").expect("VisualMood enum must exist");
+    let mood_pos = src
+        .find("pub enum VisualMood")
+        .expect("VisualMood enum must exist");
     let before_mood = &src[..mood_pos];
     assert!(
-        before_mood.rfind("#[non_exhaustive]").map_or(false, |pos| {
-            mood_pos - pos < 200
-        }),
+        before_mood
+            .rfind("#[non_exhaustive]")
+            .map_or(false, |pos| { mood_pos - pos < 200 }),
         "VisualMood must have #[non_exhaustive] — new moods may be added"
     );
 }
@@ -515,12 +575,14 @@ fn visual_tag_enum_is_non_exhaustive() {
     let src = std::fs::read_to_string(format!("{manifest_dir}/src/tools/scene_render.rs"))
         .expect("should be able to read scene_render.rs");
 
-    let tag_pos = src.find("pub enum VisualTag").expect("VisualTag enum must exist");
+    let tag_pos = src
+        .find("pub enum VisualTag")
+        .expect("VisualTag enum must exist");
     let before_tag = &src[..tag_pos];
     assert!(
-        before_tag.rfind("#[non_exhaustive]").map_or(false, |pos| {
-            tag_pos - pos < 200
-        }),
+        before_tag
+            .rfind("#[non_exhaustive]")
+            .map_or(false, |pos| { tag_pos - pos < 200 }),
         "VisualTag must have #[non_exhaustive] — new tags may be added"
     );
 }

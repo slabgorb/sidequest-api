@@ -99,8 +99,19 @@ fn strip_pronouns(input: &str) -> String {
             let lower = w.to_lowercase();
             !matches!(
                 lower.as_str(),
-                "i" | "my" | "me" | "you" | "your" | "he" | "his" | "him"
-                    | "she" | "her" | "they" | "their" | "them" | "myself"
+                "i" | "my"
+                    | "me"
+                    | "you"
+                    | "your"
+                    | "he"
+                    | "his"
+                    | "him"
+                    | "she"
+                    | "her"
+                    | "they"
+                    | "their"
+                    | "them"
+                    | "myself"
                     | "yourself"
             )
         })
@@ -120,58 +131,145 @@ fn strip_pronouns(input: &str) -> String {
 
 fn has_inventory_reference(lower: &str) -> bool {
     let keywords = [
-        "inventory", "bag", "backpack", "pouch", "pocket", "satchel",
-        "item", "items", "equipment", "equip", "unequip",
-        "sword", "shield", "armor", "weapon", "potion", "potions",
-        "gold", "coin", "coins", "money",
-        "pick up", "take", "grab", "loot", "drop",
-        "carry", "carrying", "check my", "check what",
-        "use my", "use the", "use a",
+        "inventory",
+        "bag",
+        "backpack",
+        "pouch",
+        "pocket",
+        "satchel",
+        "item",
+        "items",
+        "equipment",
+        "equip",
+        "unequip",
+        "sword",
+        "shield",
+        "armor",
+        "weapon",
+        "potion",
+        "potions",
+        "gold",
+        "coin",
+        "coins",
+        "money",
+        "pick up",
+        "take",
+        "grab",
+        "loot",
+        "drop",
+        "carry",
+        "carrying",
+        "check my",
+        "check what",
+        "use my",
+        "use the",
+        "use a",
     ];
     keywords.iter().any(|kw| lower.contains(kw))
 }
 
 fn has_npc_reference(lower: &str) -> bool {
     let keywords = [
-        "talk to", "speak to", "speak with", "ask ",
-        "tell ", "bartender", "merchant", "shopkeeper", "guard",
-        "innkeeper", "blacksmith", "vendor", "trader",
-        "stranger", "traveler", "villager", "elder",
-        "him", "her", "them", "person", "man", "woman",
+        "talk to",
+        "speak to",
+        "speak with",
+        "ask ",
+        "tell ",
+        "bartender",
+        "merchant",
+        "shopkeeper",
+        "guard",
+        "innkeeper",
+        "blacksmith",
+        "vendor",
+        "trader",
+        "stranger",
+        "traveler",
+        "villager",
+        "elder",
+        "him",
+        "her",
+        "them",
+        "person",
+        "man",
+        "woman",
     ];
     keywords.iter().any(|kw| lower.contains(kw))
 }
 
 fn has_ability_reference(lower: &str) -> bool {
     let keywords = [
-        "use my", "cast ", "invoke", "activate",
-        "power", "ability", "spell", "skill",
-        "mutation", "psychic", "telekinesis", "telepathy",
-        "magic", "enchant", "summon", "channel",
-        "echo", "blast", "surge", "aura",
+        "use my",
+        "cast ",
+        "invoke",
+        "activate",
+        "power",
+        "ability",
+        "spell",
+        "skill",
+        "mutation",
+        "psychic",
+        "telekinesis",
+        "telepathy",
+        "magic",
+        "enchant",
+        "summon",
+        "channel",
+        "echo",
+        "blast",
+        "surge",
+        "aura",
     ];
     keywords.iter().any(|kw| lower.contains(kw))
 }
 
 fn has_location_reference(lower: &str) -> bool {
     let keywords = [
-        "go to", "head to", "travel to", "walk to", "run to",
-        "head toward", "move to", "return to",
-        "district", "quarter", "market", "tavern", "inn",
-        "temple", "castle", "tower", "cave", "forest",
-        "north", "south", "east", "west",
-        "upstairs", "downstairs", "outside", "inside",
+        "go to",
+        "head to",
+        "travel to",
+        "walk to",
+        "run to",
+        "head toward",
+        "move to",
+        "return to",
+        "district",
+        "quarter",
+        "market",
+        "tavern",
+        "inn",
+        "temple",
+        "castle",
+        "tower",
+        "cave",
+        "forest",
+        "north",
+        "south",
+        "east",
+        "west",
+        "upstairs",
+        "downstairs",
+        "outside",
+        "inside",
     ];
     keywords.iter().any(|kw| lower.contains(kw))
 }
 
 fn has_power_grab(lower: &str) -> bool {
     let keywords = [
-        "unlimited", "godlike", "infinite", "omnipotent",
-        "all-powerful", "invincible", "immortal",
-        "wish for", "i wish",
-        "control everything", "rule the world",
-        "destroy everything", "kill everyone",
+        "unlimited",
+        "godlike",
+        "infinite",
+        "omnipotent",
+        "all-powerful",
+        "invincible",
+        "immortal",
+        "wish for",
+        "i wish",
+        "control everything",
+        "rule the world",
+        "destroy everything",
+        "kill everyone",
     ];
     keywords.iter().any(|kw| lower.contains(kw))
 }

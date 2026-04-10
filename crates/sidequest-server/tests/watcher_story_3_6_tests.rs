@@ -404,10 +404,16 @@ async fn multiple_watcher_clients_receive_same_event() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Drain handshake messages from both clients
-    let _h1 = timeout(Duration::from_secs(2), ws1.next()).await
-        .expect("Client 1 handshake timeout").expect("Client 1 handshake stream").expect("Client 1 handshake error");
-    let _h2 = timeout(Duration::from_secs(2), ws2.next()).await
-        .expect("Client 2 handshake timeout").expect("Client 2 handshake stream").expect("Client 2 handshake error");
+    let _h1 = timeout(Duration::from_secs(2), ws1.next())
+        .await
+        .expect("Client 1 handshake timeout")
+        .expect("Client 1 handshake stream")
+        .expect("Client 1 handshake error");
+    let _h2 = timeout(Duration::from_secs(2), ws2.next())
+        .await
+        .expect("Client 2 handshake timeout")
+        .expect("Client 2 handshake stream")
+        .expect("Client 2 handshake error");
 
     // Broadcast a watcher event
     let event = sample_watcher_event();

@@ -35,7 +35,10 @@ fn caverns_and_claudes_has_backstory_tables() {
 fn caverns_backstory_tables_has_template() {
     let path = genre_packs_path().join("caverns_and_claudes");
     let pack = sidequest_genre::load_genre_pack(&path).unwrap();
-    let tables = pack.backstory_tables.as_ref().expect("backstory_tables must be Some");
+    let tables = pack
+        .backstory_tables
+        .as_ref()
+        .expect("backstory_tables must be Some");
 
     assert!(
         !tables.template.is_empty(),
@@ -52,7 +55,10 @@ fn caverns_backstory_tables_has_template() {
 fn caverns_backstory_tables_has_expected_table_keys() {
     let path = genre_packs_path().join("caverns_and_claudes");
     let pack = sidequest_genre::load_genre_pack(&path).unwrap();
-    let tables = pack.backstory_tables.as_ref().expect("backstory_tables must be Some");
+    let tables = pack
+        .backstory_tables
+        .as_ref()
+        .expect("backstory_tables must be Some");
 
     // The C&C backstory_tables.yaml has trade, feature, reason tables
     assert!(
@@ -76,7 +82,10 @@ fn caverns_backstory_tables_has_expected_table_keys() {
 fn caverns_backstory_tables_entries_are_nonempty() {
     let path = genre_packs_path().join("caverns_and_claudes");
     let pack = sidequest_genre::load_genre_pack(&path).unwrap();
-    let tables = pack.backstory_tables.as_ref().expect("backstory_tables must be Some");
+    let tables = pack
+        .backstory_tables
+        .as_ref()
+        .expect("backstory_tables must be Some");
 
     for (key, entries) in &tables.tables {
         assert!(
@@ -88,7 +97,8 @@ fn caverns_backstory_tables_entries_are_nonempty() {
             assert!(
                 !entry.trim().is_empty(),
                 "Table '{}' entry {} must not be blank",
-                key, i
+                key,
+                i
             );
         }
     }
@@ -102,8 +112,8 @@ fn caverns_backstory_tables_entries_are_nonempty() {
 fn genre_without_backstory_tables_yaml_loads_as_none() {
     // mutant_wasteland doesn't have backstory_tables.yaml (spoilable test fixture)
     let path = genre_packs_path().join("mutant_wasteland");
-    let pack = sidequest_genre::load_genre_pack(&path)
-        .expect("mutant_wasteland should load successfully");
+    let pack =
+        sidequest_genre::load_genre_pack(&path).expect("mutant_wasteland should load successfully");
 
     assert!(
         pack.backstory_tables.is_none(),
@@ -149,7 +159,10 @@ trade:
 fn caverns_backstory_tables_template_keys_match_table_keys() {
     let path = genre_packs_path().join("caverns_and_claudes");
     let pack = sidequest_genre::load_genre_pack(&path).unwrap();
-    let tables = pack.backstory_tables.as_ref().expect("backstory_tables must be Some");
+    let tables = pack
+        .backstory_tables
+        .as_ref()
+        .expect("backstory_tables must be Some");
 
     // Extract placeholder keys from the template (anything between { and })
     let mut template_keys: Vec<String> = Vec::new();

@@ -31,7 +31,8 @@ fn npc_state_with_claim(subject: &str, content: &str, turn: u64, source_npc: &st
         content: content.to_string(),
         turn_learned: turn,
         source: BeliefSource::ToldBy(source_npc.to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state
 }
@@ -97,7 +98,11 @@ fn propagate_turn_shares_claim_to_neighbor() {
 
     // Bob should now have a claim about "murder" from Alice
     let bob_beliefs = npcs["Bob"].beliefs_about("murder");
-    assert_eq!(bob_beliefs.len(), 1, "Bob should have received Alice's claim");
+    assert_eq!(
+        bob_beliefs.len(),
+        1,
+        "Bob should have received Alice's claim"
+    );
     assert_eq!(bob_beliefs[0].content(), "The butler did it");
     assert!(result.claims_spread > 0);
 }
@@ -165,7 +170,11 @@ fn propagate_turn_uses_current_turn_number() {
     engine.propagate_turn(&mut npcs, 5);
 
     let bob_beliefs = npcs["Bob"].beliefs_about("weapon");
-    assert_eq!(bob_beliefs[0].turn_learned(), 5, "propagated belief should use the propagation turn");
+    assert_eq!(
+        bob_beliefs[0].turn_learned(),
+        5,
+        "propagated belief should use the propagation turn"
+    );
 }
 
 // ============================================================================
@@ -217,7 +226,11 @@ fn multi_hop_propagation_across_turns() {
 
     // Turn 2: Alice → Bob
     engine.propagate_turn(&mut npcs, 2);
-    assert_eq!(npcs["Bob"].beliefs_about("secret").len(), 1, "Bob should know after turn 2");
+    assert_eq!(
+        npcs["Bob"].beliefs_about("secret").len(),
+        1,
+        "Bob should know after turn 2"
+    );
     assert!(
         npcs["Charlie"].beliefs_about("secret").is_empty(),
         "Charlie should not know yet — not adjacent to Alice"
@@ -272,14 +285,16 @@ fn detect_contradictions_finds_conflicting_claims() {
         content: "The butler did it".to_string(),
         turn_learned: 1,
         source: BeliefSource::ToldBy("Alice".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.add_belief(Belief::Claim {
         subject: "murder".to_string(),
         content: "The cook did it".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);
@@ -304,7 +319,8 @@ fn detect_contradictions_returns_empty_for_consistent_beliefs() {
         content: "Dagger in library".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);
@@ -322,14 +338,16 @@ fn detect_contradictions_ignores_different_subjects() {
         content: "The butler did it".to_string(),
         turn_learned: 1,
         source: BeliefSource::ToldBy("Alice".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.add_belief(Belief::Claim {
         subject: "theft".to_string(),
         content: "The cook stole it".to_string(),
         turn_learned: 2,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);
@@ -347,14 +365,16 @@ fn contradiction_carries_both_beliefs() {
         content: "The butler".to_string(),
         turn_learned: 1,
         source: BeliefSource::ToldBy("Alice".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
     state.add_belief(Belief::Claim {
         subject: "killer".to_string(),
         content: "The cook".to_string(),
         turn_learned: 3,
         source: BeliefSource::ToldBy("Bob".to_string()),
-        believed: true, sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
+        believed: true,
+        sentiment: sidequest_game::belief_state::ClaimSentiment::Neutral,
     });
 
     let contradictions = GossipEngine::detect_contradictions(&state);
@@ -514,7 +534,10 @@ fn propagate_with_isolated_npc_spreads_nothing() {
     );
 
     let result = engine.propagate_turn(&mut npcs, 2);
-    assert_eq!(result.claims_spread, 0, "isolated NPC should not spread gossip");
+    assert_eq!(
+        result.claims_spread, 0,
+        "isolated NPC should not spread gossip"
+    );
 }
 
 #[test]

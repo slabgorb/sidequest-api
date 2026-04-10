@@ -65,7 +65,8 @@ impl Npc {
     pub fn combat_minimal(name: &str, hp: i32, max_hp: i32, level: u32) -> Self {
         Self {
             core: CreatureCore {
-                name: NonBlankString::new(name).unwrap_or_else(|_| NonBlankString::new("Unknown").unwrap()),
+                name: NonBlankString::new(name)
+                    .unwrap_or_else(|_| NonBlankString::new("Unknown").unwrap()),
                 description: NonBlankString::new("combatant").unwrap(),
                 personality: NonBlankString::new("hostile").unwrap(),
                 level,
@@ -196,7 +197,10 @@ impl Npc {
 
         span.record("fields_changed", tracing::field::display(changed.join(",")));
         if !locked.is_empty() {
-            span.record("identity_fields_locked", tracing::field::display(locked.join(",")));
+            span.record(
+                "identity_fields_locked",
+                tracing::field::display(locked.join(",")),
+            );
         }
     }
 }
@@ -430,9 +434,9 @@ mod tests {
             role: None,
             pronouns: Some("he/him".to_string()), // should NOT overwrite
             appearance: Some("New appearance".to_string()), // should NOT overwrite
-            age: Some("young".to_string()), // should NOT overwrite
-            build: Some("slender".to_string()), // should NOT overwrite
-            height: Some("tall".to_string()), // should NOT overwrite
+            age: Some("young".to_string()),       // should NOT overwrite
+            build: Some("slender".to_string()),   // should NOT overwrite
+            height: Some("tall".to_string()),     // should NOT overwrite
             distinguishing_features: Some(vec!["tattoo".to_string()]), // should NOT overwrite
             location: None,
         };
@@ -459,7 +463,10 @@ mod tests {
             age: Some("old".to_string()),
             build: Some("muscular".to_string()),
             height: Some("tall".to_string()),
-            distinguishing_features: Some(vec!["missing teeth".to_string(), "neck scar".to_string()]),
+            distinguishing_features: Some(vec![
+                "missing teeth".to_string(),
+                "neck scar".to_string(),
+            ]),
             location: None,
         };
         npc.merge_patch(&patch);
@@ -468,7 +475,10 @@ mod tests {
         assert_eq!(npc.age, Some("old".to_string()));
         assert_eq!(npc.build, Some("muscular".to_string()));
         assert_eq!(npc.height, Some("tall".to_string()));
-        assert_eq!(npc.distinguishing_features, vec!["missing teeth", "neck scar"]);
+        assert_eq!(
+            npc.distinguishing_features,
+            vec!["missing teeth", "neck scar"]
+        );
     }
 
     // === Registry enrichment ===
@@ -506,7 +516,7 @@ mod tests {
             location: "The Rusty Nail Inn".to_string(),
             last_seen_turn: 1,
             age: "elderly".to_string(), // pre-existing
-            appearance: String::new(), // empty — should be backfilled
+            appearance: String::new(),  // empty — should be backfilled
             ocean_summary: String::new(),
             ocean: None,
             hp: 0,

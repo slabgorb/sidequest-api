@@ -132,7 +132,10 @@ resources:
     let rules: RulesConfig = serde_yaml::from_str(yaml).unwrap();
     let luck = &rules.resources[0];
     assert_eq!(luck.label, "Luck");
-    assert!(luck.voluntary, "luck should be voluntary (player-spendable)");
+    assert!(
+        luck.voluntary,
+        "luck should be voluntary (player-spendable)"
+    );
     assert!(
         luck.starting >= luck.min && luck.starting <= luck.max,
         "starting value must be within [min, max]"

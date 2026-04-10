@@ -97,8 +97,8 @@ impl<'a> tracing::field::Visit for FieldCaptureVisitor<'a> {
 /// Read the dispatch module source and verify a span name is defined in it.
 /// This is a structural test — it fails until the span definition exists.
 fn dispatch_source() -> String {
-    let dispatch_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/dispatch/mod.rs");
+    let dispatch_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
     std::fs::read_to_string(&dispatch_path)
         .unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
 }
@@ -109,8 +109,7 @@ fn preprocessor_source() -> String {
         .parent()
         .unwrap()
         .join("sidequest-agents/src/preprocessor.rs");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read preprocessor.rs: {e}"))
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read preprocessor.rs: {e}"))
 }
 
 fn orchestrator_source() -> String {
@@ -118,8 +117,7 @@ fn orchestrator_source() -> String {
         .parent()
         .unwrap()
         .join("sidequest-agents/src/orchestrator.rs");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read orchestrator.rs: {e}"))
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read orchestrator.rs: {e}"))
 }
 
 // ===========================================================================
@@ -401,8 +399,8 @@ fn prompt_build_and_barrier_spans_exist() {
     if !dispatch.contains(".instrument(") || !dispatch.contains("build_prompt_context") {
         // Also acceptable: the existing #[instrument] on the function is correct
         // and just needs the 0ms fix
-        let prompt_src_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("src/dispatch/prompt.rs");
+        let prompt_src_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/prompt.rs");
         let prompt_src = std::fs::read_to_string(&prompt_src_path).unwrap_or_default();
         if !prompt_src.contains("turn.build_prompt_context")
             && !prompt_src.contains("turn.prompt_build")

@@ -119,7 +119,9 @@ pub(crate) async fn process_render(
             // The daemon does NOT auto-prepend trigger words (verified
             // against flux_mlx_worker.py:206 `_compose_prompt()`); the
             // substitution happens here in Rust.
-            let (art_style, model, neg_prompt, lora_path, lora_trigger) = match ctx.visual_style {
+            let (art_style, model, neg_prompt, lora_path, lora_trigger, lora_scale) = match ctx
+                .visual_style
+            {
                 Some(ref vs) => {
                     let location = extract_location_header(narration_text)
                         .unwrap_or_default()
@@ -137,8 +139,32 @@ pub(crate) async fn process_render(
                     // substitute the trigger for positive_suffix per
                     // ADR-032 ("The positive_suffix is dropped from the
                     // CLIP prompt entirely when a LoRA is active").
-                    let base_style: String = match (vs.lora.as_deref(), vs.lora_trigger.as_deref()) {
+                    //
+                    // Rework finding #1: the (Some, None) case — LoRA set
+                    // without a trigger — is a silent no-op. The LoRA
+                    // loads but the trained style never activates. Emit a
+                    // tracing::warn! AND a WatcherEventBuilder
+                    // ValidationWarning so the GM panel surfaces the
+                    // misconfiguration.
+                    let base_style: String = match (vs.lora.as_deref(), vs.lora_trigger.as_deref())
+                    {
                         (Some(_), Some(trigger)) => trigger.to_string(),
+                        (Some(lora), None) => {
+                            tracing::warn!(
+                                lora = %lora,
+                                genre = %ctx.genre_slug,
+                                "lora set without lora_trigger — LoRA will load but trained style will not activate (silent no-op). Add lora_trigger to visual_style.yaml."
+                            );
+                            crate::WatcherEventBuilder::new(
+                                "render",
+                                crate::WatcherEventType::ValidationWarning,
+                            )
+                            .field("action", "lora_trigger_missing")
+                            .field("lora", lora)
+                            .field("genre", ctx.genre_slug)
+                            .send();
+                            vs.positive_suffix.clone()
+                        }
                         _ => vs.positive_suffix.clone(),
                     };
                     let style = match tag_override {
@@ -147,13 +173,29 @@ pub(crate) async fn process_render(
                     };
 
                     // Resolve LoRA path relative to the genre pack dir.
-                    let lora_abs: Option<String> = vs.lora.as_ref().map(|rel| {
-                        ctx.state
-                            .genre_packs_path()
-                            .join(ctx.genre_slug)
-                            .join(rel)
-                            .to_string_lossy()
-                            .into_owned()
+                    // Rework finding #6: validate the resolved path stays
+                    // inside the genre pack directory. PathBuf::join does
+                    // not sanitize, so a YAML `lora: ../../../etc/passwd`
+                    // would escape. Check with starts_with() against the
+                    // expected genre pack base dir. Fail loudly if escape.
+                    let lora_abs: Option<String> = vs.lora.as_ref().and_then(|rel| {
+                        let base = ctx.state.genre_packs_path().join(ctx.genre_slug);
+                        let resolved = base.join(rel);
+                        if !resolved.starts_with(&base) {
+                            tracing::error!(
+                                lora = %rel,
+                                genre = %ctx.genre_slug,
+                                resolved = %resolved.display(),
+                                "lora path escapes genre pack directory — rejecting. Relative paths with `..` segments are not allowed."
+                            );
+                            crate::WatcherEventBuilder::new("render", crate::WatcherEventType::ValidationWarning)
+                                .field("action", "lora_path_traversal_rejected")
+                                .field("lora", rel.as_str())
+                                .field("genre", ctx.genre_slug)
+                                .send();
+                            return None;
+                        }
+                        Some(resolved.to_string_lossy().into_owned())
                     });
 
                     (
@@ -162,19 +204,21 @@ pub(crate) async fn process_render(
                         vs.negative_prompt.clone(),
                         lora_abs,
                         vs.lora_trigger.clone(),
+                        vs.lora_scale,
                     )
                 }
                 None => (
                     "oil_painting".to_string(),
                     // Empty variant → daemon falls back to per-tier default in
-                    // flux_mlx_worker.py TIER_CONFIGS. The pre-existing
-                    // "flux-schnell" literal was never a valid daemon variant
-                    // ("dev"/"schnell" are the only accepted values) — silently
-                    // dead string, now removed. Pre-existing silent fallback
-                    // for missing visual_style is still a Delivery Finding —
-                    // a dedicated story should close the whole None branch.
+                    // flux_mlx_worker.py TIER_CONFIGS. The pre-existing dead
+                    // variant literal was removed because it was never a
+                    // valid daemon variant ("dev"/"schnell" are the only
+                    // accepted values). Pre-existing silent fallback for
+                    // missing visual_style is still a Delivery Finding — a
+                    // dedicated story should close the whole None branch.
                     String::new(),
                     String::new(),
+                    None,
                     None,
                     None,
                 ),
@@ -183,12 +227,15 @@ pub(crate) async fn process_render(
             // Emit watcher event BEFORE enqueue when LoRA is active — the
             // GM panel's lie-detector signal per CLAUDE.md OTEL principle.
             if let Some(ref lora_abs) = lora_path {
-                crate::WatcherEventBuilder::new("render", crate::WatcherEventType::SubsystemExerciseSummary)
-                    .field("action", "lora_activated")
-                    .field("lora_path", lora_abs.as_str())
-                    .field("lora_trigger", lora_trigger.as_deref().unwrap_or(""))
-                    .field("genre", ctx.genre_slug)
-                    .send();
+                crate::WatcherEventBuilder::new(
+                    "render",
+                    crate::WatcherEventType::SubsystemExerciseSummary,
+                )
+                .field("action", "lora_activated")
+                .field("lora_path", lora_abs.as_str())
+                .field("lora_trigger", lora_trigger.as_deref().unwrap_or(""))
+                .field("genre", ctx.genre_slug)
+                .send();
             }
 
             // Send visual_scene subject as prompt — no narration, daemon skips SubjectExtractor.
@@ -203,7 +250,7 @@ pub(crate) async fn process_render(
                     &neg_prompt,
                     "",
                     lora_path.as_deref(),
-                    None, // lora_scale — daemon defaults to 1.0 (no silent Rust default)
+                    lora_scale, // from visual_style.lora_scale; None lets daemon default to 1.0
                 )
                 .await
             {
@@ -211,15 +258,18 @@ pub(crate) async fn process_render(
                     tracing::info!(%job_id, "Render job enqueued");
                     // Notify UI to show placeholder shimmer while Flux generates
                     let dims = sidequest_game::tier_to_dimensions(subject.tier());
-                    let _ = ctx.tx.send(sidequest_protocol::GameMessage::RenderQueued {
-                        payload: sidequest_protocol::RenderQueuedPayload {
-                            render_id: job_id.to_string(),
-                            tier: format!("{:?}", subject.tier()).to_lowercase(),
-                            width: dims.width,
-                            height: dims.height,
-                        },
-                        player_id: ctx.player_id.to_string(),
-                    }).await;
+                    let _ = ctx
+                        .tx
+                        .send(sidequest_protocol::GameMessage::RenderQueued {
+                            payload: sidequest_protocol::RenderQueuedPayload {
+                                render_id: job_id.to_string(),
+                                tier: format!("{:?}", subject.tier()).to_lowercase(),
+                                width: dims.width,
+                                height: dims.height,
+                            },
+                            player_id: ctx.player_id.to_string(),
+                        })
+                        .await;
                 }
                 Ok(r) => tracing::info!(result = ?r, "Render job deduplicated"),
                 Err(e) => tracing::warn!(error = %e, "Render enqueue failed"),

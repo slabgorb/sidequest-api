@@ -298,7 +298,11 @@ pub(crate) async fn apply_state_mutations(
                     let config = sidequest_game::TreasureXpConfig {
                         xp_affinity: pack.rules.xp_affinity.clone(),
                     };
-                    let rooms = if ctx.rooms.is_empty() { None } else { Some(ctx.rooms.as_slice()) };
+                    let rooms = if ctx.rooms.is_empty() {
+                        None
+                    } else {
+                        Some(ctx.rooms.as_slice())
+                    };
                     let txp_result = sidequest_game::apply_treasure_xp(
                         &mut ctx.snapshot,
                         gold_delta as u32,
@@ -309,7 +313,10 @@ pub(crate) async fn apply_state_mutations(
                         WatcherEventBuilder::new("treasure_xp", WatcherEventType::StateTransition)
                             .field("event", "treasure.extracted")
                             .field("gold_amount", txp_result.gold_amount)
-                            .field("affinity_name", txp_result.affinity_name.as_deref().unwrap_or("unknown"))
+                            .field(
+                                "affinity_name",
+                                txp_result.affinity_name.as_deref().unwrap_or("unknown"),
+                            )
                             .field("new_progress", txp_result.new_progress.unwrap_or(0))
                             .field("location", ctx.current_location.as_str())
                             .send();
@@ -329,24 +336,41 @@ pub(crate) async fn apply_state_mutations(
                 sidequest_game::ResourcePatchOp::Subtract
             };
             let value = delta.abs();
-            match ctx.snapshot.process_resource_patch_with_lore(name, op, value, ctx.lore_store, turn) {
+            match ctx.snapshot.process_resource_patch_with_lore(
+                name,
+                op,
+                value,
+                ctx.lore_store,
+                turn,
+            ) {
                 Ok(patch_result) => {
                     // Phase 5: snapshot.resources is already mutated in-place
                     // by process_resource_patch_with_lore — no sync needed.
-                    let mut builder = WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
-                        .field("event", "resource_pool.patched")
-                        .field("resource", name)
-                        .field("delta", delta)
-                        .field("old_value", patch_result.old_value)
-                        .field("new_value", patch_result.new_value)
-                        .field("turn", turn);
+                    let mut builder = WatcherEventBuilder::new(
+                        "resource_pool",
+                        WatcherEventType::StateTransition,
+                    )
+                    .field("event", "resource_pool.patched")
+                    .field("resource", name)
+                    .field("delta", delta)
+                    .field("old_value", patch_result.old_value)
+                    .field("new_value", patch_result.new_value)
+                    .field("turn", turn);
                     // OTEL label/max come from the pool itself now (phase 3).
                     if let Some(pool) = ctx.snapshot.resources.get(name) {
-                        builder = builder.field("max", pool.max).field("label", pool.label.clone());
+                        builder = builder
+                            .field("max", pool.max)
+                            .field("label", pool.label.clone());
                     }
                     if !patch_result.crossed_thresholds.is_empty() {
-                        builder = builder.field("thresholds_crossed",
-                            patch_result.crossed_thresholds.iter().map(|t| t.event_id.clone()).collect::<Vec<_>>());
+                        builder = builder.field(
+                            "thresholds_crossed",
+                            patch_result
+                                .crossed_thresholds
+                                .iter()
+                                .map(|t| t.event_id.clone())
+                                .collect::<Vec<_>>(),
+                        );
                     }
                     builder.send();
                     tracing::info!(

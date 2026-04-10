@@ -59,10 +59,7 @@ fn find_events(events: &[WatcherEvent], component: &str, action: &str) -> Vec<Wa
         .iter()
         .filter(|e| {
             e.component == component
-                && e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    == Some(action)
+                && e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action)
         })
         .cloned()
         .collect()
@@ -95,18 +92,20 @@ fn belief_state_add_belief_emits_watcher_event() {
 
     let evt = &added[0];
     assert_eq!(
-        evt.fields.get("variant").and_then(serde_json::Value::as_str),
+        evt.fields
+            .get("variant")
+            .and_then(serde_json::Value::as_str),
         Some("fact"),
         "belief variant must be recorded"
     );
     assert_eq!(
-        evt.fields.get("subject").and_then(serde_json::Value::as_str),
+        evt.fields
+            .get("subject")
+            .and_then(serde_json::Value::as_str),
         Some("victim")
     );
     assert_eq!(
-        evt.fields
-            .get("source")
-            .and_then(serde_json::Value::as_str),
+        evt.fields.get("source").and_then(serde_json::Value::as_str),
         Some("witnessed")
     );
     assert_eq!(
@@ -226,13 +225,7 @@ fn select_npc_action_emits_watcher_event() {
 
     let beliefs = BeliefState::new();
     let mut rng = rand::rngs::StdRng::from_seed([42u8; 32]);
-    let _action = select_npc_action(
-        "suspect_01",
-        &ScenarioRole::Guilty,
-        &beliefs,
-        0.9,
-        &mut rng,
-    );
+    let _action = select_npc_action("suspect_01", &ScenarioRole::Guilty, &beliefs, 0.9, &mut rng);
 
     let events = drain_events(&mut rx);
     let selected = find_events(&events, "npc_actions", "action_selected");
@@ -404,4 +397,3 @@ fn wiring_scenario_state_reached_by_dispatch_pipeline() {
          scenario subsystem is dark."
     );
 }
-

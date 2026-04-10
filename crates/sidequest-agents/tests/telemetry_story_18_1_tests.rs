@@ -110,7 +110,6 @@ fn span_names(spans: &[CapturedSpan]) -> Vec<&str> {
     spans.iter().map(|s| s.name.as_str()).collect()
 }
 
-
 /// Create a minimal TurnContext for testing.
 fn test_turn_context() -> sidequest_agents::orchestrator::TurnContext {
     use sidequest_agents::orchestrator::TurnContext;
@@ -169,8 +168,7 @@ fn preprocess_emits_parse_sub_span() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        let _result =
-            sidequest_agents::preprocessor::preprocess_action("I look around", "Theron");
+        let _result = sidequest_agents::preprocessor::preprocess_action("I look around", "Theron");
     });
 
     let spans = captured.lock().unwrap();
@@ -362,7 +360,10 @@ fn orchestrator_extraction_span_records_diagnostic_field() {
 
     let spans = captured.lock().unwrap();
     let span = find_span(&spans, "turn.agent_llm.parse_response");
-    assert!(span.is_some(), "turn.agent_llm.parse_response span must exist");
+    assert!(
+        span.is_some(),
+        "turn.agent_llm.parse_response span must exist"
+    );
     let span = span.unwrap();
     assert!(
         has_field(span, "narration_len"),

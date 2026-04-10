@@ -163,32 +163,30 @@ pub fn available_actions(
                     },
                     tension * 0.3,
                 ));
-                actions.push((
-                    NpcAction::Confess { to_npc: None },
-                    0.1,
-                ));
+                actions.push((NpcAction::Confess { to_npc: None }, 0.1));
             }
         }
         ScenarioRole::Witness => {
             // Witnesses can spread rumors if they have suspicions
-            let suspicion = belief.beliefs().iter().find(|b| {
-                matches!(b, Belief::Suspicion { confidence, .. } if *confidence > 0.5)
-            });
+            let suspicion = belief
+                .beliefs()
+                .iter()
+                .find(|b| matches!(b, Belief::Suspicion { confidence, .. } if *confidence > 0.5));
             if let Some(s) = suspicion {
-                    actions.push((
-                        NpcAction::SpreadRumor {
-                            claim: Belief::Claim {
-                                subject: s.subject().to_string(),
-                                content: s.content().to_string(),
-                                turn_learned: 0,
-                                source: BeliefSource::Inferred,
-                                believed: true,
-                                sentiment: crate::belief_state::ClaimSentiment::Corroborating,
-                            },
-                            target_npc: "nearby_npc".to_string(),
+                actions.push((
+                    NpcAction::SpreadRumor {
+                        claim: Belief::Claim {
+                            subject: s.subject().to_string(),
+                            content: s.content().to_string(),
+                            turn_learned: 0,
+                            source: BeliefSource::Inferred,
+                            believed: true,
+                            sentiment: crate::belief_state::ClaimSentiment::Corroborating,
                         },
-                        0.3 + tension * 0.2,
-                    ));
+                        target_npc: "nearby_npc".to_string(),
+                    },
+                    0.3 + tension * 0.2,
+                ));
             }
         }
         ScenarioRole::Innocent => {
@@ -249,5 +247,8 @@ fn weighted_select(options: &[(NpcAction, f32)], rng: &mut impl Rng) -> NpcActio
     }
 
     // Fallback (shouldn't reach here with valid weights)
-    options.last().map(|(a, _)| a.clone()).unwrap_or(NpcAction::ActNormal)
+    options
+        .last()
+        .map(|(a, _)| a.clone())
+        .unwrap_or(NpcAction::ActNormal)
 }

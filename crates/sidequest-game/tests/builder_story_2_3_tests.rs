@@ -192,8 +192,8 @@ fn scene_with_hook_prompt() -> CharCreationScene {
         }],
         allows_freeform: Some(false),
         hook_prompt: Some("Who betrayed you, and why?".to_string()),
-            loading_text: None,
-            mechanical_effects: None,
+        loading_text: None,
+        mechanical_effects: None,
     }
 }
 
@@ -436,8 +436,8 @@ fn answer_followup_advances_past_scene() {
         }],
         allows_freeform: Some(false),
         hook_prompt: None,
-            loading_text: None,
-            mechanical_effects: None,
+        loading_text: None,
+        mechanical_effects: None,
     });
     let rules = test_rules();
     let mut builder = CharacterBuilder::new(scenes, &rules, None);
@@ -738,8 +738,8 @@ fn build_uses_default_race_and_class_when_not_hinted() {
         }],
         allows_freeform: Some(false),
         hook_prompt: None,
-            loading_text: None,
-            mechanical_effects: None,
+        loading_text: None,
+        mechanical_effects: None,
     }];
     let rules = test_rules();
     let mut builder = CharacterBuilder::new(scenes, &rules, None);

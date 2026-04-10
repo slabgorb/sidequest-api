@@ -220,10 +220,7 @@ impl TropeEngine {
 
     /// Activate a trope. Idempotent — returns existing if already active.
     pub fn activate<'a>(tropes: &'a mut Vec<TropeState>, def_id: &str) -> &'a TropeState {
-        let span = tracing::info_span!(
-            "trope_activate",
-            trope_id = def_id,
-        );
+        let span = tracing::info_span!("trope_activate", trope_id = def_id,);
         let _guard = span.enter();
 
         if let Some(idx) = tropes
@@ -322,10 +319,7 @@ impl TropeEngine {
 
     /// Resolve a trope — sets progression to 1.0 and status to Resolved.
     pub fn resolve(tropes: &mut [TropeState], def_id: &str, note: Option<&str>) {
-        let span = tracing::info_span!(
-            "trope_resolve",
-            trope_id = def_id,
-        );
+        let span = tracing::info_span!("trope_resolve", trope_id = def_id,);
         let _guard = span.enter();
 
         if let Some(ts) = tropes
@@ -435,7 +429,10 @@ impl TropeEngine {
         }
 
         // Re-borrow after tracker mutation
-        tropes.iter().find(|ts| ts.trope_definition_id == def_id).unwrap()
+        tropes
+            .iter()
+            .find(|ts| ts.trope_definition_id == def_id)
+            .unwrap()
     }
 
     /// Advance tropes by elapsed days and check for newly earned achievements.

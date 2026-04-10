@@ -61,9 +61,11 @@ fn terrain_deserializes_all_variants() {
         ("underground", Terrain::Underground),
     ];
     for (yaml_str, expected) in variants {
-        let terrain: Terrain =
-            serde_yaml::from_str(&format!("\"{}\"", yaml_str)).unwrap();
-        assert_eq!(terrain, expected, "failed to deserialize terrain variant: {yaml_str}");
+        let terrain: Terrain = serde_yaml::from_str(&format!("\"{}\"", yaml_str)).unwrap();
+        assert_eq!(
+            terrain, expected,
+            "failed to deserialize terrain variant: {yaml_str}"
+        );
     }
 }
 
@@ -133,7 +135,10 @@ danger: 0
 "#;
     let edge: GraphEdge = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(edge.danger, 0, "danger=0 should mean fast travel");
-    assert!(edge.is_fast_travel(), "danger=0 edge should report is_fast_travel()");
+    assert!(
+        edge.is_fast_travel(),
+        "danger=0 edge should report is_fast_travel()"
+    );
 }
 
 #[test]
@@ -145,7 +150,10 @@ danger: 2
 "#;
     let edge: GraphEdge = serde_yaml::from_str(yaml).unwrap();
     assert!(!edge.is_fast_travel(), "danger>0 should NOT be fast travel");
-    assert!(edge.is_story_generating(), "danger>0 should be story-generating");
+    assert!(
+        edge.is_story_generating(),
+        "danger>0 should be story-generating"
+    );
 }
 
 #[test]
@@ -261,14 +269,23 @@ sub_graphs:
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.navigation_mode, NavigationMode::Hierarchical);
 
-    let wg = config.world_graph.as_ref().expect("world_graph should be Some");
+    let wg = config
+        .world_graph
+        .as_ref()
+        .expect("world_graph should be Some");
     assert_eq!(wg.nodes.len(), 2);
     assert_eq!(wg.edges.len(), 1);
     assert_eq!(wg.nodes[0].id, "solenne");
     assert_eq!(wg.edges[0].danger, 3);
 
-    let sgs = config.sub_graphs.as_ref().expect("sub_graphs should be Some");
-    assert!(sgs.contains_key("solenne"), "sub_graphs should contain 'solenne'");
+    let sgs = config
+        .sub_graphs
+        .as_ref()
+        .expect("sub_graphs should be Some");
+    assert!(
+        sgs.contains_key("solenne"),
+        "sub_graphs should contain 'solenne'"
+    );
     let solenne_sg = &sgs["solenne"];
     assert_eq!(solenne_sg.nodes.len(), 2);
     assert_eq!(solenne_sg.edges.len(), 1);
@@ -310,8 +327,14 @@ starting_region: town
 navigation_mode: region
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    assert!(config.world_graph.is_none(), "world_graph should be None in Region mode");
-    assert!(config.sub_graphs.is_none(), "sub_graphs should be None in Region mode");
+    assert!(
+        config.world_graph.is_none(),
+        "world_graph should be None in Region mode"
+    );
+    assert!(
+        config.sub_graphs.is_none(),
+        "sub_graphs should be None in Region mode"
+    );
 }
 
 #[test]
@@ -322,8 +345,14 @@ starting_region: entrance
 navigation_mode: room_graph
 "#;
     let config: CartographyConfig = serde_yaml::from_str(yaml).unwrap();
-    assert!(config.world_graph.is_none(), "world_graph should be None in RoomGraph mode");
-    assert!(config.sub_graphs.is_none(), "sub_graphs should be None in RoomGraph mode");
+    assert!(
+        config.world_graph.is_none(),
+        "world_graph should be None in RoomGraph mode"
+    );
+    assert!(
+        config.sub_graphs.is_none(),
+        "sub_graphs should be None in RoomGraph mode"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -387,7 +416,10 @@ world_graph:
 "#,
     );
     let result = pack.validate();
-    assert!(result.is_err(), "edge to nonexistent node should fail validation");
+    assert!(
+        result.is_err(),
+        "edge to nonexistent node should fail validation"
+    );
     let msg = format!("{}", result.unwrap_err());
     assert!(
         msg.contains("ghost_node"),
@@ -604,7 +636,10 @@ sub_graphs:
     let pack = sidequest_genre::load_genre_pack(dir.path()).unwrap();
     let world = pack.worlds.get("test_coast").expect("world should load");
 
-    assert_eq!(world.cartography.navigation_mode, NavigationMode::Hierarchical);
+    assert_eq!(
+        world.cartography.navigation_mode,
+        NavigationMode::Hierarchical
+    );
 
     let wg = world
         .cartography
@@ -648,7 +683,10 @@ edges: []
     let node = wg.node_by_id("town");
     assert!(node.is_some(), "should find node by id");
     assert_eq!(node.unwrap().name, "Town");
-    assert!(wg.node_by_id("ghost").is_none(), "nonexistent id should return None");
+    assert!(
+        wg.node_by_id("ghost").is_none(),
+        "nonexistent id should return None"
+    );
 }
 
 #[test]

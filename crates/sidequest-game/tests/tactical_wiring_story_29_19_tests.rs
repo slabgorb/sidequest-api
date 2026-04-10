@@ -130,7 +130,10 @@ fn explored_location_has_tactical_grid_field() {
         tactical_grid: Some(payload),
     };
 
-    assert!(loc.tactical_grid.is_some(), "tactical_grid should be Some for gridded room");
+    assert!(
+        loc.tactical_grid.is_some(),
+        "tactical_grid should be Some for gridded room"
+    );
     let grid = loc.tactical_grid.unwrap();
     assert_eq!(grid.width, 8);
     assert_eq!(grid.height, 8);
@@ -152,7 +155,10 @@ fn explored_location_tactical_grid_none_is_valid() {
         tactical_grid: None,
     };
 
-    assert!(loc.tactical_grid.is_none(), "gridless room should have tactical_grid: None");
+    assert!(
+        loc.tactical_grid.is_none(),
+        "gridless room should have tactical_grid: None"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -225,7 +231,10 @@ fn build_room_graph_explored_mixed_grid_and_gridless() {
 
     assert_eq!(explored.len(), 3);
 
-    let vault = explored.iter().find(|e| e.name == "Vault of Teeth").unwrap();
+    let vault = explored
+        .iter()
+        .find(|e| e.name == "Vault of Teeth")
+        .unwrap();
     assert!(vault.tactical_grid.is_some(), "vault has a grid");
 
     let passage = explored.iter().find(|e| e.name == "Stone Passage").unwrap();
@@ -247,8 +256,18 @@ fn explored_location_serde_round_trip_with_tactical_grid() {
         height: 4,
         cells: vec![
             vec!["wall".into(), "floor".into(), "floor".into(), "wall".into()],
-            vec!["floor".into(), "floor".into(), "floor".into(), "floor".into()],
-            vec!["floor".into(), "floor".into(), "floor".into(), "floor".into()],
+            vec![
+                "floor".into(),
+                "floor".into(),
+                "floor".into(),
+                "floor".into(),
+            ],
+            vec![
+                "floor".into(),
+                "floor".into(),
+                "floor".into(),
+                "floor".into(),
+            ],
             vec!["wall".into(), "floor".into(), "floor".into(), "wall".into()],
         ],
         features: vec![],
@@ -317,9 +336,15 @@ fn integration_discovery_with_tactical_grids() {
     let explored_2 = build_room_graph_explored(&rooms, &discovered_2, "passage");
     assert_eq!(explored_2.len(), 2);
 
-    let vault_2 = explored_2.iter().find(|e| e.name == "Vault of Teeth").unwrap();
+    let vault_2 = explored_2
+        .iter()
+        .find(|e| e.name == "Vault of Teeth")
+        .unwrap();
     assert!(vault_2.tactical_grid.is_some(), "vault still has grid");
 
-    let passage_2 = explored_2.iter().find(|e| e.name == "Stone Passage").unwrap();
+    let passage_2 = explored_2
+        .iter()
+        .find(|e| e.name == "Stone Passage")
+        .unwrap();
     assert!(passage_2.tactical_grid.is_none(), "passage has no grid");
 }

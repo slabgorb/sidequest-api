@@ -34,7 +34,9 @@ fn narrator_prompt_contains_genre_identity_when_genre_set() {
         &result.prompt_text[..result.prompt_text.len().min(500)]
     );
     assert!(
-        result.prompt_text.contains("Never ask the player what genre"),
+        result
+            .prompt_text
+            .contains("Never ask the player what genre"),
         "Genre section must include the fourth-wall guardrail instruction"
     );
 }
@@ -51,7 +53,8 @@ fn narrator_prompt_genre_identity_on_delta_tier() {
         ..Default::default()
     };
 
-    let result = orch.build_narrator_prompt_tiered("draw my pistol", &ctx, NarratorPromptTier::Delta);
+    let result =
+        orch.build_narrator_prompt_tiered("draw my pistol", &ctx, NarratorPromptTier::Delta);
 
     assert!(
         result.prompt_text.contains("<genre>"),
@@ -92,7 +95,10 @@ fn narrator_prompt_genre_in_primacy_zone() {
 
     // The genre section should appear before Valley-zone sections like game_state.
     // Since we're in Primacy, it should be near the top of the prompt.
-    let genre_pos = result.prompt_text.find("<genre>").expect("genre section must exist");
+    let genre_pos = result
+        .prompt_text
+        .find("<genre>")
+        .expect("genre section must exist");
     // If there's a game_state section, genre must come before it
     if let Some(state_pos) = result.prompt_text.find("<game_state>") {
         assert!(

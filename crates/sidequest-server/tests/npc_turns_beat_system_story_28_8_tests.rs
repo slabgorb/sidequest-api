@@ -33,8 +33,8 @@ fn dispatch_consumes_beat_selections_from_action_result() {
     );
 
     // Must not just mention it in a comment — needs actual field access
-    let has_field_access = dispatch_src.contains(".beat_selections")
-        || dispatch_src.contains("beat_selections.");
+    let has_field_access =
+        dispatch_src.contains(".beat_selections") || dispatch_src.contains("beat_selections.");
     assert!(
         has_field_access,
         "dispatch/mod.rs must access .beat_selections as a field, \
@@ -49,8 +49,7 @@ fn dispatch_loops_over_npc_beat_selections() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
 
     // There must be a loop over beat_selections (for, iter, etc.)
-    let has_iteration = dispatch_src.contains("for ")
-        && dispatch_src.contains("beat_selection")
+    let has_iteration = dispatch_src.contains("for ") && dispatch_src.contains("beat_selection")
         || dispatch_src.contains("beat_selections.iter()")
         || dispatch_src.contains("beat_selections.into_iter()");
 
@@ -121,8 +120,7 @@ fn otel_npc_beat_event_emitted() {
     let dispatch_src = include_str!("../src/dispatch/mod.rs");
 
     assert!(
-        dispatch_src.contains("encounter.npc_beat")
-            || dispatch_src.contains("npc_beat"),
+        dispatch_src.contains("encounter.npc_beat") || dispatch_src.contains("npc_beat"),
         "dispatch/mod.rs must emit an 'encounter.npc_beat' OTEL event \
          for each NPC beat dispatched. This is how the GM panel verifies \
          NPCs are mechanically acting, not just narratively improvising."
@@ -156,12 +154,20 @@ fn encounter_actor_identifies_npcs_in_encounter() {
 
     // Create a combat encounter with NPCs
     let encounter = StructuredEncounter::combat(
-        vec!["Player".to_string(), "Goblin".to_string(), "Orc".to_string()],
+        vec![
+            "Player".to_string(),
+            "Goblin".to_string(),
+            "Orc".to_string(),
+        ],
         20,
     );
 
     // Must have 3 actors
-    assert_eq!(encounter.actors.len(), 3, "Combat encounter must track all participants");
+    assert_eq!(
+        encounter.actors.len(),
+        3,
+        "Combat encounter must track all participants"
+    );
 
     // Can identify NPC actors (non-player)
     let npc_actors: Vec<&EncounterActor> = encounter
@@ -208,7 +214,10 @@ fn non_combat_npc_can_select_non_attack_beats() {
     };
 
     assert_eq!(npc_beat.beat_id, "bluff");
-    assert!(npc_beat.target.is_none(), "Non-targeted beats should have no target");
+    assert!(
+        npc_beat.target.is_none(),
+        "Non-targeted beats should have no target"
+    );
 }
 
 // =========================================================================

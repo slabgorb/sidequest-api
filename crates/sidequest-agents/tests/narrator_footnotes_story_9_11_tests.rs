@@ -35,7 +35,12 @@ fn sample_footnote_new(marker: u32, summary: &str, category: FactCategory) -> Fo
     }
 }
 
-fn sample_footnote_callback(marker: u32, summary: &str, fact_id: &str, category: FactCategory) -> Footnote {
+fn sample_footnote_callback(
+    marker: u32,
+    summary: &str,
+    fact_id: &str,
+    category: FactCategory,
+) -> Footnote {
     Footnote {
         marker: Some(marker),
         fact_id: Some(fact_id.to_string()),
@@ -52,9 +57,22 @@ fn sample_payload_with_footnotes() -> NarrationPayload {
             .to_string(),
         state_delta: None,
         footnotes: vec![
-            sample_footnote_new(1, "Corruption detected in the grove's oldest tree", FactCategory::Place),
-            sample_footnote_new(2, "The old well — possible entrance to underground tunnels", FactCategory::Place),
-            sample_footnote_callback(3, "The innkeeper mentioned tunnels beneath the well", "fact-innkeeper-tunnels", FactCategory::Person),
+            sample_footnote_new(
+                1,
+                "Corruption detected in the grove's oldest tree",
+                FactCategory::Place,
+            ),
+            sample_footnote_new(
+                2,
+                "The old well — possible entrance to underground tunnels",
+                FactCategory::Place,
+            ),
+            sample_footnote_callback(
+                3,
+                "The innkeeper mentioned tunnels beneath the well",
+                "fact-innkeeper-tunnels",
+                FactCategory::Person,
+            ),
         ],
     }
 }
@@ -158,7 +176,12 @@ fn footnote_markers_are_sequential_from_one() {
 fn new_footnotes_convert_to_discovered_facts() {
     let footnotes = vec![
         sample_footnote_new(1, "Corruption in the grove", FactCategory::Place),
-        sample_footnote_callback(2, "Innkeeper mentioned tunnels", "fact-123", FactCategory::Person),
+        sample_footnote_callback(
+            2,
+            "Innkeeper mentioned tunnels",
+            "fact-123",
+            FactCategory::Person,
+        ),
         sample_footnote_new(3, "Ancient runes on the well", FactCategory::Lore),
     ];
 
@@ -179,9 +202,11 @@ fn new_footnotes_convert_to_discovered_facts() {
 
 #[test]
 fn new_footnote_maps_to_known_fact_fields() {
-    let footnotes = vec![
-        sample_footnote_new(1, "Corruption in the grove", FactCategory::Place),
-    ];
+    let footnotes = vec![sample_footnote_new(
+        1,
+        "Corruption in the grove",
+        FactCategory::Place,
+    )];
 
     let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(
         &footnotes,
@@ -199,9 +224,11 @@ fn new_footnote_maps_to_known_fact_fields() {
 
 #[test]
 fn new_footnote_defaults_to_certain_confidence() {
-    let footnotes = vec![
-        sample_footnote_new(1, "The mayor is a cultist", FactCategory::Person),
-    ];
+    let footnotes = vec![sample_footnote_new(
+        1,
+        "The mayor is a cultist",
+        FactCategory::Person,
+    )];
 
     let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(
         &footnotes,
@@ -212,16 +239,21 @@ fn new_footnote_defaults_to_certain_confidence() {
 
     assert_eq!(discovered.len(), 1);
     assert!(
-        matches!(discovered[0].fact.confidence, sidequest_game::known_fact::Confidence::Certain),
+        matches!(
+            discovered[0].fact.confidence,
+            sidequest_game::known_fact::Confidence::Certain
+        ),
         "New discoveries should default to Certain confidence",
     );
 }
 
 #[test]
 fn new_footnote_source_is_observation() {
-    let footnotes = vec![
-        sample_footnote_new(1, "Ancient runes glow", FactCategory::Lore),
-    ];
+    let footnotes = vec![sample_footnote_new(
+        1,
+        "Ancient runes glow",
+        FactCategory::Lore,
+    )];
 
     let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(
         &footnotes,
@@ -232,7 +264,10 @@ fn new_footnote_source_is_observation() {
 
     assert_eq!(discovered.len(), 1);
     assert!(
-        matches!(discovered[0].fact.source, sidequest_game::known_fact::FactSource::Discovery),
+        matches!(
+            discovered[0].fact.source,
+            sidequest_game::known_fact::FactSource::Discovery
+        ),
         "Footnote-derived facts should use Discovery source",
     );
 }
@@ -244,7 +279,10 @@ fn new_footnote_source_is_observation() {
 #[test]
 fn callback_footnote_has_fact_id() {
     let footnote = sample_footnote_callback(
-        1, "The innkeeper's warning", "fact-innkeeper-tunnels", FactCategory::Person,
+        1,
+        "The innkeeper's warning",
+        "fact-innkeeper-tunnels",
+        FactCategory::Person,
     );
 
     assert!(!footnote.is_new, "Callback footnote should not be new");
@@ -257,9 +295,12 @@ fn callback_footnote_has_fact_id() {
 
 #[test]
 fn callback_footnotes_are_excluded_from_discovered_facts() {
-    let footnotes = vec![
-        sample_footnote_callback(1, "Innkeeper's warning", "fact-123", FactCategory::Person),
-    ];
+    let footnotes = vec![sample_footnote_callback(
+        1,
+        "Innkeeper's warning",
+        "fact-123",
+        FactCategory::Person,
+    )];
 
     let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(
         &footnotes,
@@ -276,9 +317,7 @@ fn callback_footnotes_are_excluded_from_discovered_facts() {
 
 #[test]
 fn callback_footnote_serializes_with_fact_id() {
-    let footnote = sample_footnote_callback(
-        1, "Prior knowledge", "fact-abc", FactCategory::Lore,
-    );
+    let footnote = sample_footnote_callback(1, "Prior knowledge", "fact-abc", FactCategory::Lore);
     let json = serde_json::to_string(&footnote).expect("Should serialize");
 
     assert!(
@@ -611,17 +650,24 @@ fn full_pipeline_narrator_json_to_known_facts() {
 
     // Only is_new: true footnotes become DiscoveredFacts
     assert_eq!(
-        discovered.len(), 2,
+        discovered.len(),
+        2,
         "2 new discoveries, 1 callback — should produce 2 DiscoveredFacts",
     );
 
     // Step 4: Verify the discovered facts have correct fields
     assert_eq!(discovered[0].character_name, "Reva Thornwood");
-    assert_eq!(discovered[0].fact.content, "Corruption detected in the grove's oldest tree");
+    assert_eq!(
+        discovered[0].fact.content,
+        "Corruption detected in the grove's oldest tree"
+    );
     assert_eq!(discovered[0].fact.learned_turn, 15);
 
     assert_eq!(discovered[1].character_name, "Reva Thornwood");
-    assert_eq!(discovered[1].fact.content, "The old well — possible entrance to underground tunnels");
+    assert_eq!(
+        discovered[1].fact.content,
+        "The old well — possible entrance to underground tunnels"
+    );
 
     // Step 5: Verify callback footnote was NOT converted
     let callback = &payload.footnotes[2];
@@ -708,7 +754,10 @@ fn full_pipeline_prompt_to_response_to_facts() {
     );
 
     assert_eq!(discovered.len(), 1);
-    assert_eq!(discovered[0].fact.content, "Ancient protective runes carved into the well's rim");
+    assert_eq!(
+        discovered[0].fact.content,
+        "Ancient protective runes carved into the well's rim"
+    );
     assert_eq!(discovered[0].fact.learned_turn, 16);
     assert_eq!(discovered[0].character_name, "Reva Thornwood");
 }

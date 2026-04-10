@@ -93,9 +93,8 @@ impl MultiplayerSession {
             .into_iter()
             .map(|id| {
                 let char_name = format!("Character {}", id);
-                let name = NonBlankString::new(&char_name).unwrap_or_else(|_| {
-                    NonBlankString::new("unknown").unwrap()
-                });
+                let name = NonBlankString::new(&char_name)
+                    .unwrap_or_else(|_| NonBlankString::new("unknown").unwrap());
                 let character = Character {
                     core: CreatureCore {
                         name: name.clone(),

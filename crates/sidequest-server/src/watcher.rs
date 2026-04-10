@@ -39,7 +39,11 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
             },
         };
         let json = serde_json::to_string(&handshake).unwrap_or_default();
-        if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+        if ws_sink
+            .send(AxumWsMessage::Text(json.into()))
+            .await
+            .is_err()
+        {
             tracing::warn!("Watcher WebSocket closed before handshake sent");
             return;
         }
@@ -52,26 +56,38 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
         let sessions = state.inner.sessions.lock().unwrap().clone();
         for (key, ss_arc) in &sessions {
             let ss = ss_arc.lock().await;
-            let player_data: Vec<serde_json::Value> = ss.players.iter().map(|(pid, ps)| {
-                serde_json::json!({
-                    "player_id": pid,
-                    "character_name": ps.character_name,
+            let player_data: Vec<serde_json::Value> = ss
+                .players
+                .iter()
+                .map(|(pid, ps)| {
+                    serde_json::json!({
+                        "player_id": pid,
+                        "character_name": ps.character_name,
+                    })
                 })
-            }).collect();
-            let npc_data: Vec<serde_json::Value> = ss.npc_registry.iter().map(|e| {
-                serde_json::json!({
-                    "name": e.name,
-                    "role": e.role,
-                    "location": e.location,
+                .collect();
+            let npc_data: Vec<serde_json::Value> = ss
+                .npc_registry
+                .iter()
+                .map(|e| {
+                    serde_json::json!({
+                        "name": e.name,
+                        "role": e.role,
+                        "location": e.location,
+                    })
                 })
-            }).collect();
-            let active_tropes: Vec<serde_json::Value> = ss.trope_states.iter().map(|ts| {
-                serde_json::json!({
-                    "id": ts.trope_definition_id(),
-                    "progression": ts.progression(),
-                    "status": format!("{:?}", ts.status()),
+                .collect();
+            let active_tropes: Vec<serde_json::Value> = ss
+                .trope_states
+                .iter()
+                .map(|ts| {
+                    serde_json::json!({
+                        "id": ts.trope_definition_id(),
+                        "progression": ts.progression(),
+                        "status": format!("{:?}", ts.status()),
+                    })
                 })
-            }).collect();
+                .collect();
             let snapshot = serde_json::json!({
                 "session_key": key,
                 "genre": ss.genre_slug,
@@ -91,13 +107,20 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
                 severity: crate::Severity::Info,
                 fields: {
                     let mut m = std::collections::HashMap::new();
-                    m.insert("event".to_string(), serde_json::json!("initial_state_replay"));
+                    m.insert(
+                        "event".to_string(),
+                        serde_json::json!("initial_state_replay"),
+                    );
                     m.insert("snapshot".to_string(), snapshot);
                     m
                 },
             };
             let json = serde_json::to_string(&event).unwrap_or_default();
-            if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+            if ws_sink
+                .send(AxumWsMessage::Text(json.into()))
+                .await
+                .is_err()
+            {
                 tracing::warn!("Watcher WebSocket closed during initial state replay");
                 return;
             }
@@ -121,7 +144,11 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
             );
             for event in &history {
                 let json = serde_json::to_string(event).unwrap_or_default();
-                if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                if ws_sink
+                    .send(AxumWsMessage::Text(json.into()))
+                    .await
+                    .is_err()
+                {
                     tracing::warn!("Watcher WebSocket closed during history replay");
                     return;
                 }
@@ -158,7 +185,10 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
                 break;
             }
         }
-        tracing::info!(event_count, "watcher.writer_exited — broadcast channel closed or lagged");
+        tracing::info!(
+            event_count,
+            "watcher.writer_exited — broadcast channel closed or lagged"
+        );
     });
 
     // Reader loop: watchers are read-only, but we need to detect disconnect

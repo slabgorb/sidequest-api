@@ -144,7 +144,6 @@ fn turn_result_has_required_fields() {
         is_degraded: false,
         agent_used: AgentKind::CreatureSmith,
         delivery_mode: DeliveryMode::Instant,
-
     };
 
     assert_eq!(result.narration, "The goblin falls.");
@@ -165,7 +164,6 @@ fn degraded_turn_result_marked() {
         is_degraded: true,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
-
     };
 
     assert!(result.is_degraded);
@@ -212,7 +210,6 @@ fn turn_result_carries_state_delta() {
         is_degraded: false,
         agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
-
     };
 
     assert!(result.state_delta.is_some());

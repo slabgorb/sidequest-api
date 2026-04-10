@@ -65,13 +65,19 @@ visual_tag_overrides:
   wasteland: cracked sun-baked earth
 "#;
     let style: VisualStyle = serde_yaml::from_str(yaml).unwrap();
-    assert_eq!(style.positive_suffix, "gritty post-apocalyptic digital painting");
+    assert_eq!(
+        style.positive_suffix,
+        "gritty post-apocalyptic digital painting"
+    );
     assert_eq!(style.negative_prompt, "clean, pristine");
     assert_eq!(style.preferred_model, "flux");
     assert_eq!(style.base_seed, 7);
     assert_eq!(style.visual_tag_overrides.len(), 1);
     assert_eq!(
-        style.visual_tag_overrides.get("wasteland").map(String::as_str),
+        style
+            .visual_tag_overrides
+            .get("wasteland")
+            .map(String::as_str),
         Some("cracked sun-baked earth")
     );
     // The new fields must still default to None even when other optional
@@ -100,8 +106,8 @@ base_seed: 1898
 lora: lora/spaghetti_western_style.safetensors
 lora_trigger: sw_style
 "#;
-    let style: VisualStyle = serde_yaml::from_str(yaml)
-        .expect("visual_style.yaml with lora fields must deserialize");
+    let style: VisualStyle =
+        serde_yaml::from_str(yaml).expect("visual_style.yaml with lora fields must deserialize");
 
     assert_eq!(
         style.lora.as_deref(),
@@ -129,8 +135,8 @@ preferred_model: dev
 base_seed: 100
 lora: lora/cave_paintings.safetensors
 "#;
-    let style: VisualStyle = serde_yaml::from_str(yaml)
-        .expect("lora without lora_trigger must still parse");
+    let style: VisualStyle =
+        serde_yaml::from_str(yaml).expect("lora without lora_trigger must still parse");
 
     assert_eq!(
         style.lora.as_deref(),
@@ -155,8 +161,8 @@ preferred_model: dev
 base_seed: 1
 lora_trigger: orphan_trigger
 "#;
-    let style: VisualStyle = serde_yaml::from_str(yaml)
-        .expect("lora_trigger without lora must still parse");
+    let style: VisualStyle =
+        serde_yaml::from_str(yaml).expect("lora_trigger without lora must still parse");
 
     assert!(style.lora.is_none());
     assert_eq!(style.lora_trigger.as_deref(), Some("orphan_trigger"));

@@ -154,7 +154,6 @@ impl ClueNode {
     pub fn set_requires_npc_knowledge(&mut self, subject: String) {
         self.requires_npc_knowledge = Some(subject);
     }
-
 }
 
 /// A directed graph of clue nodes with dependency edges.
@@ -257,8 +256,7 @@ impl<'a> ClueActivation<'a> {
 
     /// Check base discoverability: not already found + all deps met.
     fn is_node_discoverable(node: &ClueNode, discovered: &HashSet<String>) -> bool {
-        !discovered.contains(&node.id)
-            && node.requires.iter().all(|r| discovered.contains(r))
+        !discovered.contains(&node.id) && node.requires.iter().all(|r| discovered.contains(r))
     }
 
     /// Check NPC knowledge requirement. Returns true if no requirement or if satisfied.

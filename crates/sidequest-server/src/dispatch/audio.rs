@@ -20,7 +20,11 @@ pub(crate) async fn process_audio(
 ) {
     let in_combat = ctx.in_combat();
     let in_chase = ctx.in_chase();
-    let encounter_mood = ctx.snapshot.encounter.as_ref().and_then(|e| e.mood_override.clone());
+    let encounter_mood = ctx
+        .snapshot
+        .encounter
+        .as_ref()
+        .and_then(|e| e.mood_override.clone());
     if let Some(ref mut director) = ctx.music_director {
         tracing::info!("music_director_present — evaluating mood");
         let turn_number = ctx.turn_manager.interaction();
@@ -32,13 +36,20 @@ pub(crate) async fn process_audio(
             } else {
                 1.0
             },
-            quest_completed: result.quest_updates.values().any(|v| v.starts_with("completed")),
+            quest_completed: result
+                .quest_updates
+                .values()
+                .any(|v| v.starts_with("completed")),
             npc_died: ctx.npc_registry.iter().any(|n| n.max_hp > 0 && n.hp <= 0),
             // Encounter mood override — read directly from snapshot encounter (story 28-9)
             encounter_mood_override: encounter_mood,
             // Story 12-1: cinematic variation context
             location_changed,
-            scene_turn_count: if location_changed { 0 } else { turn_number as u32 },
+            scene_turn_count: if location_changed {
+                0
+            } else {
+                turn_number as u32
+            },
             drama_weight: 0.0, // drama_weight removed with CombatState (story 28-9)
             combat_just_ended: encounter_just_resolved,
             session_start: turn_number <= 1,
@@ -86,12 +97,20 @@ pub(crate) async fn process_audio(
             use sidequest_genre::GenreCode;
             GenreCode::new(ctx.genre_slug)
                 .ok()
-                .and_then(|gc| ctx.state.genre_cache().get_or_load(&gc, ctx.state.genre_loader()).ok())
+                .and_then(|gc| {
+                    ctx.state
+                        .genre_cache()
+                        .get_or_load(&gc, ctx.state.genre_loader())
+                        .ok()
+                })
                 .and_then(|pack| pack.worlds.get(ctx.world_slug).cloned())
                 .and_then(|world| {
                     // Match by region name (case-insensitive) against cartography regions
                     let loc_lower = ctx.snapshot.location.to_lowercase();
-                    world.cartography.regions.values()
+                    world
+                        .cartography
+                        .regions
+                        .values()
                         .find(|r| r.name.to_lowercase() == loc_lower)
                         .and_then(|r| r.controlled_by.clone())
                 })
@@ -131,18 +150,28 @@ pub(crate) async fn process_audio(
 
                 // Emit rich music telemetry to watcher
                 {
-                    let mut builder = WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
-                        .field("turn_number", turn_approx)
-                        .field("mood_classified", mood_reasoning.classification.primary.as_str())
-                        .field("mood_reason", &mood_reasoning.reason)
-                        .field("narrator_scene_mood", mood_key)
-                        .field("intensity", mood_reasoning.classification.intensity)
-                        .field("confidence", mood_reasoning.classification.confidence);
+                    let mut builder = WatcherEventBuilder::new(
+                        "music_director",
+                        WatcherEventType::AgentSpanClose,
+                    )
+                    .field("turn_number", turn_approx)
+                    .field(
+                        "mood_classified",
+                        mood_reasoning.classification.primary.as_str(),
+                    )
+                    .field("mood_reason", &mood_reasoning.reason)
+                    .field("narrator_scene_mood", mood_key)
+                    .field("intensity", mood_reasoning.classification.intensity)
+                    .field("confidence", mood_reasoning.classification.confidence);
                     if !mood_reasoning.keyword_matches.is_empty() {
-                        builder = builder.field("keyword_matches",
-                            mood_reasoning.keyword_matches.iter()
+                        builder = builder.field(
+                            "keyword_matches",
+                            mood_reasoning
+                                .keyword_matches
+                                .iter()
                                 .map(|(mood, kw)| format!("{}:{}", mood, kw))
-                                .collect::<Vec<_>>());
+                                .collect::<Vec<_>>(),
+                        );
                     }
                     // Story 12-1: variation telemetry from post-evaluate snapshot
                     let post_telemetry = director.telemetry_snapshot();
@@ -186,7 +215,10 @@ pub(crate) async fn process_audio(
                 );
                 WatcherEventBuilder::new("music_director", WatcherEventType::AgentSpanClose)
                     .field("turn_number", turn_approx)
-                    .field("mood_classified", mood_reasoning.classification.primary.as_str())
+                    .field(
+                        "mood_classified",
+                        mood_reasoning.classification.primary.as_str(),
+                    )
                     .field("mood_reason", &mood_reasoning.reason)
                     .field("narrator_scene_mood", mood_key)
                     .field("suppressed", true)
@@ -206,7 +238,10 @@ pub(crate) async fn process_audio(
                 );
                 WatcherEventBuilder::new("music_director", WatcherEventType::ValidationWarning)
                     .field("turn_number", turn_approx)
-                    .field("mood_classified", mood_reasoning.classification.primary.as_str())
+                    .field(
+                        "mood_classified",
+                        mood_reasoning.classification.primary.as_str(),
+                    )
                     .field("mood_reason", &mood_reasoning.reason)
                     .field("narrator_scene_mood", mood_key)
                     .field("no_track_mood", &mood)
@@ -230,38 +265,85 @@ pub(crate) async fn process_audio(
                     0.5,
                 );
                 if let Some(subject) = mood_subject {
-                    let (art_style, neg_prompt) = match ctx.visual_style {
-                        Some(ref vs) => (vs.positive_suffix.clone(), vs.negative_prompt.clone()),
-                        None => ("oil_painting".to_string(), String::new()),
-                    };
-                    // Variant "dev" for mood images — higher quality is worth the
-                    // extra time since mood shifts are rare. Pre-story-35-15 this
-                    // was "flux-dev", which was a silently-dropped dead string
-                    // (no daemon code path read it); now that the variant field
-                    // is actually wired to the daemon, it must match a valid
-                    // variant ("dev" or "schnell").
+                    // Rework finding #5: read visual_style.preferred_model,
+                    // visual_style.lora, and visual_style.lora_trigger the same
+                    // way dispatch/render.rs does, so mood images and scene
+                    // images stay visually consistent within a session. Prior
+                    // to this fix, audio.rs hardcoded "dev" and None/None for
+                    // LoRA — a LoRA-enabled genre had mood images silently
+                    // rendered without its trained style while scene images
+                    // used it.
+                    let (art_style, model, neg_prompt, lora_path, lora_scale) =
+                        match ctx.visual_style {
+                            Some(ref vs) => {
+                                let base_style =
+                                    match (vs.lora.as_deref(), vs.lora_trigger.as_deref()) {
+                                        (Some(_), Some(trigger)) => trigger.to_string(),
+                                        _ => vs.positive_suffix.clone(),
+                                    };
+                                let lora_abs: Option<String> = vs.lora.as_ref().and_then(|rel| {
+                                    let base = ctx.state.genre_packs_path().join(ctx.genre_slug);
+                                    let resolved = base.join(rel);
+                                    if !resolved.starts_with(&base) {
+                                        return None;
+                                    }
+                                    Some(resolved.to_string_lossy().into_owned())
+                                });
+                                (
+                                    base_style,
+                                    vs.preferred_model.clone(),
+                                    vs.negative_prompt.clone(),
+                                    lora_abs,
+                                    vs.lora_scale,
+                                )
+                            }
+                            None => (
+                                "oil_painting".to_string(),
+                                String::new(),
+                                String::new(),
+                                None,
+                                None,
+                            ),
+                        };
                     match queue
-                        .enqueue(subject.clone(), &art_style, "dev", &neg_prompt, "", None, None)
+                        .enqueue(
+                            subject.clone(),
+                            &art_style,
+                            &model,
+                            &neg_prompt,
+                            "",
+                            lora_path.as_deref(),
+                            lora_scale,
+                        )
                         .await
                     {
                         Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {
                             tracing::info!(%job_id, old_mood = ?pre_telemetry.current_mood, new_mood = %mood_key, "mood_image.queued — mood shift triggered scene render");
                             let dims = sidequest_game::tier_to_dimensions(subject.tier());
-                            let _ = ctx.tx.send(sidequest_protocol::GameMessage::RenderQueued {
-                                payload: sidequest_protocol::RenderQueuedPayload {
-                                    render_id: job_id.to_string(),
-                                    tier: "scene".to_string(),
-                                    width: dims.width,
-                                    height: dims.height,
-                                },
-                                player_id: ctx.player_id.to_string(),
-                            }).await;
-                            WatcherEventBuilder::new("mood_image", WatcherEventType::StateTransition)
-                                .field("action", "mood_image_queued")
-                                .field("old_mood", &pre_telemetry.current_mood.as_deref().unwrap_or("none"))
-                                .field("new_mood", mood_key)
-                                .field("location", &*ctx.current_location)
-                                .send();
+                            let _ = ctx
+                                .tx
+                                .send(sidequest_protocol::GameMessage::RenderQueued {
+                                    payload: sidequest_protocol::RenderQueuedPayload {
+                                        render_id: job_id.to_string(),
+                                        tier: "scene".to_string(),
+                                        width: dims.width,
+                                        height: dims.height,
+                                    },
+                                    player_id: ctx.player_id.to_string(),
+                                })
+                                .await;
+                            WatcherEventBuilder::new(
+                                "mood_image",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("action", "mood_image_queued")
+                            .field(
+                                "old_mood",
+                                &pre_telemetry.current_mood.as_deref().unwrap_or("none"),
+                            )
+                            .field("new_mood", mood_key)
+                            .field("location", &*ctx.current_location)
+                            .send();
                         }
                         Ok(_) => {}
                         Err(e) => tracing::warn!(error = %e, "mood_image.enqueue_failed"),

@@ -45,8 +45,6 @@ pub enum NarratorVerbosity {
     Verbose,
 }
 
-
-
 impl NarratorVerbosity {
     /// Returns the default verbosity for a given player count.
     ///
@@ -81,8 +79,6 @@ pub enum NarratorVocabulary {
     /// Elevated, archaic, or mythic diction. Unrestricted complexity.
     Epic,
 }
-
-
 
 // ---------------------------------------------------------------------------
 // GameMessage — the tagged enum
@@ -203,7 +199,6 @@ pub enum GameMessage {
     },
 
     // CombatEvent variant removed in story 28-9. Confrontation replaces it.
-
     /// Structured encounter state for confrontation overlay (standoffs, chases, negotiations).
     #[serde(rename = "CONFRONTATION")]
     Confrontation {
@@ -760,7 +755,9 @@ pub struct ConfrontationPayload {
     pub active: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// A participant in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -13,10 +13,10 @@
 //!   AC6: Faction music overrides default mood-based selection when conditions match
 //!   AC7: Falls back to mood-based selection when no faction conditions match
 
-use sidequest_genre::AudioConfig;
 use sidequest_game::music_director::{
     FactionContext, FactionThemeDef, MoodContext, MusicDirector, MusicEvalResult,
 };
+use sidequest_genre::AudioConfig;
 use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════
@@ -97,7 +97,10 @@ fn road_warrior_audio_has_faction_themes() {
 fn faction_theme_has_faction_id() {
     let audio = load_audio_yaml("road_warrior");
     for theme in &audio.faction_themes {
-        assert!(!theme.faction_id.is_empty(), "faction theme must have a faction_id");
+        assert!(
+            !theme.faction_id.is_empty(),
+            "faction theme must have a faction_id"
+        );
     }
 }
 
@@ -105,7 +108,10 @@ fn faction_theme_has_faction_id() {
 fn faction_theme_has_track_path() {
     let audio = load_audio_yaml("road_warrior");
     for theme in &audio.faction_themes {
-        assert!(!theme.track.path.is_empty(), "faction theme must have a track path");
+        assert!(
+            !theme.track.path.is_empty(),
+            "faction theme must have a track path"
+        );
     }
 }
 
@@ -134,7 +140,11 @@ fn location_faction_selects_faction_track() {
     let mut director = road_warrior_director();
     let mood_ctx = base_mood_ctx();
     let faction_ctx = location_faction_ctx("bosozoku");
-    let result = director.evaluate_with_faction("The garage district hums with engine noise.", &mood_ctx, &faction_ctx);
+    let result = director.evaluate_with_faction(
+        "The garage district hums with engine noise.",
+        &mood_ctx,
+        &faction_ctx,
+    );
     match &result {
         MusicEvalResult::Cue(cue) => {
             assert!(
@@ -152,7 +162,8 @@ fn different_location_faction_selects_different_track() {
     let mut director = road_warrior_director();
     let mood_ctx = base_mood_ctx();
     let faction_ctx = location_faction_ctx("dekotora");
-    let result = director.evaluate_with_faction("The truck stop glows with neon.", &mood_ctx, &faction_ctx);
+    let result =
+        director.evaluate_with_faction("The truck stop glows with neon.", &mood_ctx, &faction_ctx);
     match &result {
         MusicEvalResult::Cue(cue) => {
             assert!(
@@ -174,11 +185,15 @@ fn actor_faction_selects_faction_track() {
     let mut director = road_warrior_director();
     let mood_ctx = base_mood_ctx();
     let faction_ctx = actor_faction_ctx(&["one_percenters"]);
-    let result = director.evaluate_with_faction("The bikers circle your rig.", &mood_ctx, &faction_ctx);
+    let result =
+        director.evaluate_with_faction("The bikers circle your rig.", &mood_ctx, &faction_ctx);
     match &result {
         MusicEvalResult::Cue(cue) => {
             assert!(
-                cue.track_id.as_deref().unwrap_or("").contains("one_percenters"),
+                cue.track_id
+                    .as_deref()
+                    .unwrap_or("")
+                    .contains("one_percenters"),
                 "should select one_percenters faction track, got: {:?}",
                 cue.track_id
             );
@@ -193,7 +208,11 @@ fn first_actor_faction_wins_when_multiple() {
     let mood_ctx = base_mood_ctx();
     // Multiple actor factions — first match should win
     let faction_ctx = actor_faction_ctx(&["cafe_racers", "rockers"]);
-    let result = director.evaluate_with_faction("Mixed gang encounter on the highway.", &mood_ctx, &faction_ctx);
+    let result = director.evaluate_with_faction(
+        "Mixed gang encounter on the highway.",
+        &mood_ctx,
+        &faction_ctx,
+    );
     match &result {
         MusicEvalResult::Cue(cue) => {
             assert!(
@@ -216,7 +235,11 @@ fn high_reputation_triggers_faction_theme() {
     let mood_ctx = base_mood_ctx();
     // High reputation with lowriders should trigger their theme
     let faction_ctx = reputation_faction_ctx("lowriders", 8);
-    let result = director.evaluate_with_faction("You roll through lowrider territory.", &mood_ctx, &faction_ctx);
+    let result = director.evaluate_with_faction(
+        "You roll through lowrider territory.",
+        &mood_ctx,
+        &faction_ctx,
+    );
     match &result {
         MusicEvalResult::Cue(cue) => {
             assert!(
@@ -235,7 +258,11 @@ fn low_reputation_does_not_trigger_faction_theme() {
     let mood_ctx = base_mood_ctx();
     // Low reputation should NOT trigger faction theme
     let faction_ctx = reputation_faction_ctx("lowriders", 1);
-    let result = director.evaluate_with_faction("You roll through lowrider territory.", &mood_ctx, &faction_ctx);
+    let result = director.evaluate_with_faction(
+        "You roll through lowrider territory.",
+        &mood_ctx,
+        &faction_ctx,
+    );
     match &result {
         MusicEvalResult::Cue(cue) => {
             assert!(
@@ -302,7 +329,9 @@ fn each_faction_theme_has_unique_track() {
         .collect();
     let unique_count = {
         let mut s = std::collections::HashSet::new();
-        paths.iter().for_each(|p| { s.insert(*p); });
+        paths.iter().for_each(|p| {
+            s.insert(*p);
+        });
         s.len()
     };
     assert_eq!(
@@ -322,7 +351,8 @@ fn faction_overrides_mood_based_selection_in_combat() {
     let mut mood_ctx = base_mood_ctx();
     mood_ctx.in_combat = true; // Combat would normally select combat mood
     let faction_ctx = location_faction_ctx("mods");
-    let result = director.evaluate_with_faction("The mods are everywhere.", &mood_ctx, &faction_ctx);
+    let result =
+        director.evaluate_with_faction("The mods are everywhere.", &mood_ctx, &faction_ctx);
     match &result {
         MusicEvalResult::Cue(cue) => {
             // Faction theme should override combat mood
@@ -341,7 +371,8 @@ fn faction_overrides_mood_based_selection_in_exploration() {
     let mut director = road_warrior_director();
     let mood_ctx = base_mood_ctx(); // Default = exploration-ish
     let faction_ctx = location_faction_ctx("raggare");
-    let result = director.evaluate_with_faction("The open road stretches ahead.", &mood_ctx, &faction_ctx);
+    let result =
+        director.evaluate_with_faction("The open road stretches ahead.", &mood_ctx, &faction_ctx);
     match &result {
         MusicEvalResult::Cue(cue) => {
             assert!(
@@ -363,7 +394,8 @@ fn no_faction_context_falls_back_to_mood() {
     let mut director = road_warrior_director();
     let mood_ctx = base_mood_ctx();
     let empty_faction = FactionContext::default();
-    let result = director.evaluate_with_faction("The desert wind howls.", &mood_ctx, &empty_faction);
+    let result =
+        director.evaluate_with_faction("The desert wind howls.", &mood_ctx, &empty_faction);
     match &result {
         MusicEvalResult::Cue(cue) => {
             // Should NOT contain any faction track

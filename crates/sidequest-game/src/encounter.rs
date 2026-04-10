@@ -290,10 +290,7 @@ impl StructuredEncounter {
             let mut stats = HashMap::new();
             for stat_def in &def.secondary_stats {
                 let max = 10; // default max for confrontation secondary stats
-                stats.insert(
-                    stat_def.name.clone(),
-                    StatValue { current: max, max },
-                );
+                stats.insert(stat_def.name.clone(), StatValue { current: max, max });
             }
             Some(SecondaryStats {
                 stats,
@@ -327,11 +324,7 @@ impl StructuredEncounter {
     /// Looks up the beat by ID in the confrontation definition, applies its
     /// metric_delta, increments the beat counter, checks for resolution
     /// (threshold crossing or resolution flag), and updates the phase.
-    pub fn apply_beat(
-        &mut self,
-        beat_id: &str,
-        def: &ConfrontationDef,
-    ) -> Result<(), String> {
+    pub fn apply_beat(&mut self, beat_id: &str, def: &ConfrontationDef) -> Result<(), String> {
         if self.resolved {
             return Err("encounter is already resolved".to_string());
         }
@@ -565,7 +558,13 @@ impl StructuredEncounter {
         // Available beats
         lines.push("Available:".to_string());
         for (i, beat) in def.beats.iter().enumerate() {
-            let mut desc = format!("  {}. {} (id: {}) [{}]", i + 1, beat.label, beat.id, beat.stat_check);
+            let mut desc = format!(
+                "  {}. {} (id: {}) [{}]",
+                i + 1,
+                beat.label,
+                beat.id,
+                beat.stat_check
+            );
             if beat.metric_delta != 0 {
                 let sign = if beat.metric_delta > 0 { "+" } else { "" };
                 desc.push_str(&format!(
@@ -598,7 +597,9 @@ impl StructuredEncounter {
             .map(|p| p.drama_weight())
             .unwrap_or(0.7);
         if drama >= 0.80 {
-            lines.push("Camera: Close-up, slow-motion | Pace: Peak intensity | Sentences: 2-4".to_string());
+            lines.push(
+                "Camera: Close-up, slow-motion | Pace: Peak intensity | Sentences: 2-4".to_string(),
+            );
         } else {
             lines.push("Camera: Close-up | Pace: Building tension | Sentences: 2-4".to_string());
         }

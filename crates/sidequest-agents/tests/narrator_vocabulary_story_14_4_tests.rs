@@ -51,7 +51,9 @@ fn vocabulary_epic_injects_elevated_diction_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("elevated") || composed.contains("archaic") || composed.contains("mythic"),
+        composed.contains("elevated")
+            || composed.contains("archaic")
+            || composed.contains("mythic"),
         "epic mode must instruct elevated diction, got: {composed}"
     );
 }
@@ -133,7 +135,9 @@ fn vocabulary_composes_with_verbosity_section() {
         "verbosity section should be present"
     );
     assert!(
-        composed.contains("elevated") || composed.contains("archaic") || composed.contains("mythic"),
+        composed.contains("elevated")
+            || composed.contains("archaic")
+            || composed.contains("mythic"),
         "vocabulary section should be present alongside verbosity"
     );
 }

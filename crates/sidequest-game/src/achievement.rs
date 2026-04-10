@@ -225,7 +225,10 @@ mod tests {
         );
         let earned = tracker.check_transition(&trope, TropeStatus::Progressing);
         let ids: Vec<&str> = earned.iter().map(|a| a.id.as_str()).collect();
-        assert!(ids.contains(&"ach-4"), "subverted should match case-insensitive");
+        assert!(
+            ids.contains(&"ach-4"),
+            "subverted should match case-insensitive"
+        );
     }
 
     #[test]

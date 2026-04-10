@@ -1,0 +1,1973 @@
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:768:5
+    |
+768 |     pub name: String,
+    |     ^^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> crates/sidequest-protocol/src/lib.rs:6:9
+    |
+  6 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:769:5
+    |
+769 |     pub role: String,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:771:5
+    |
+771 |     pub portrait_url: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:777:5
+    |
+777 |     pub name: String,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:778:5
+    |
+778 |     pub current: i32,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:779:5
+    |
+779 |     pub starting: i32,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:780:5
+    |
+780 |     pub direction: String,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:782:5
+    |
+782 |     pub threshold_high: Option<i32>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:784:5
+    |
+784 |     pub threshold_low: Option<i32>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:790:5
+    |
+790 |     pub id: String,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:791:5
+    |
+791 |     pub label: String,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:793:5
+    |
+793 |     pub metric_delta: i32,
+    |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:795:5
+    |
+795 |     pub stat_check: String,
+    |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:797:5
+    |
+797 |     pub risk: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-protocol/src/message.rs:799:5
+    |
+799 |     pub resolution: bool,
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: `sidequest-protocol` (lib) generated 15 warnings
+warning: unreachable pattern
+   --> crates/sidequest-game/src/tactical/layout.rs:113:13
+    |
+113 |             _ => write!(f, "layout error"),
+    |             ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sidequest-game/src/tactical/layout.rs:113:13
+    |
+ 99 | /             LayoutError::Overlap {
+100 | |                 room_a,
+101 | |                 room_b,
+102 | |                 cells,
+103 | |             } => {
+    | |_____________- matches some of the same values
+...
+112 |               LayoutError::NoEntrance => write!(f, "no entrance room found in room list"),
+    |               ----------------------- matches some of the same values
+113 |               _ => write!(f, "layout error"),
+    |               ^ collectively making this unreachable
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+   --> crates/sidequest-game/src/tactical/layout.rs:163:9
+    |
+163 |         _ => {
+    |         ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sidequest-game/src/tactical/layout.rs:163:9
+    |
+139 |         CardinalDirection::South => {
+    |         ------------------------ matches some of the same values
+...
+145 |         CardinalDirection::North => {
+    |         ------------------------ matches some of the same values
+...
+151 |         CardinalDirection::East => {
+    |         ----------------------- matches some of the same values
+...
+157 |         CardinalDirection::West => {
+    |         ----------------------- matches some of the same values
+...
+163 |         _ => {
+    |         ^ collectively making this unreachable
+
+warning: unreachable pattern
+   --> crates/sidequest-game/src/tactical/layout.rs:513:9
+    |
+513 |         _ => {}
+    |         ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> crates/sidequest-game/src/tactical/layout.rs:513:9
+    |
+474 |         CardinalDirection::South | CardinalDirection::North => {
+    |         --------------------------------------------------- matches some of the same values
+...
+494 |         CardinalDirection::East | CardinalDirection::West => {
+    |         ------------------------------------------------- matches some of the same values
+...
+513 |         _ => {}
+    |         ^ collectively making this unreachable
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:133:9
+    |
+133 |         subject: String,
+    |         ^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> crates/sidequest-game/src/lib.rs:6:9
+    |
+  6 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:134:9
+    |
+134 |         content: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:135:9
+    |
+135 |         turn_learned: u64,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:136:9
+    |
+136 |         source: BeliefSource,
+    |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:140:9
+    |
+140 |         subject: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:141:9
+    |
+141 |         content: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:142:9
+    |
+142 |         turn_learned: u64,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:143:9
+    |
+143 |         source: BeliefSource,
+    |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:144:9
+    |
+144 |         confidence: f32,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:148:9
+    |
+148 |         subject: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:149:9
+    |
+149 |         content: String,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:150:9
+    |
+150 |         turn_learned: u64,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:151:9
+    |
+151 |         source: BeliefSource,
+    |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/belief_state.rs:152:9
+    |
+152 |         believed: bool,
+    |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:71:5
+   |
+71 |     pub genre: String,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:72:5
+   |
+72 |     pub world: String,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:73:5
+   |
+73 |     pub npcs: Vec<ManualNpc>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/monster_manual.rs:74:5
+   |
+74 |     pub encounters: Vec<ManualEncounter>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:196:18
+    |
+196 |     Suppressed { mood: String, intensity: f32 },
+    |                  ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:196:32
+    |
+196 |     Suppressed { mood: String, intensity: f32 },
+    |                                ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:198:20
+    |
+198 |     NoTrackFound { mood: String, variation: String },
+    |                    ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:198:34
+    |
+198 |     NoTrackFound { mood: String, variation: String },
+    |                                  ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:254:5
+    |
+254 |     pub current_mood: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:255:5
+    |
+255 |     pub current_track: Option<String>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/sidequest-game/src/music_director.rs:271:5
+    |
+271 |     pub classification: MoodClassification,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:12:5
+   |
+12 |     pub player_id: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:13:5
+   |
+13 |     pub player_name: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:14:5
+   |
+14 |     pub location: String,
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:20:5
+   |
+20 |     pub player_id: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:21:5
+   |
+21 |     pub player_name: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:22:5
+   |
+22 |     pub old_location: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:23:5
+   |
+23 |     pub new_location: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:35:9
+   |
+35 |         target_location: String,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:36:9
+   |
+36 |         players_moved: Vec<MovedPlayer>,
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-game/src/party_reconciliation.rs:37:9
+   |
+37 |         narration_text: String,
+   |         ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `sidequest-game` (lib) generated 38 warnings
+warning: field `troper` is never read
+   --> crates/sidequest-agents/src/orchestrator.rs:193:5
+    |
+177 | pub struct Orchestrator {
+    |            ------------ field in this struct
+...
+193 |     troper: TroperAgent,
+    |     ^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: missing documentation for a struct
+   --> crates/sidequest-agents/src/agents/narrator.rs:251:1
+    |
+251 | pub struct NarratorAgent {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: the lint level is defined here
+   --> crates/sidequest-agents/src/lib.rs:6:9
+    |
+  6 | #![warn(missing_docs)]
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+   --> crates/sidequest-agents/src/agents/narrator.rs:256:5
+    |
+256 |     pub fn new() -> Self {
+    |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1279:5
+     |
+1279 |     pub you: String,
+     |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1281:5
+     |
+1281 |     pub named: String,
+     |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1283:5
+     |
+1283 |     pub intent: String,
+     |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1290:5
+     |
+1290 |     pub is_power_grab: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1292:5
+     |
+1292 |     pub references_inventory: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1294:5
+     |
+1294 |     pub references_npc: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1296:5
+     |
+1296 |     pub references_ability: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+    --> crates/sidequest-agents/src/orchestrator.rs:1298:5
+     |
+1298 |     pub references_location: bool,
+     |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/preprocessor.rs:76:5
+   |
+76 |     LlmFailed(String),
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/preprocessor.rs:78:5
+   |
+78 |     ParseFailed(String),
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/preprocessor.rs:80:5
+   |
+80 |     OutputTooLong {
+   |     ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:81:9
+   |
+81 |         raw_len: usize,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:82:9
+   |
+82 |         you_len: usize,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:83:9
+   |
+83 |         named_len: usize,
+   |         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/sidequest-agents/src/preprocessor.rs:84:9
+   |
+84 |         intent_len: usize,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:12:5
+   |
+12 |     Portrait,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:13:5
+   |
+13 |     Landscape,
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:14:5
+   |
+14 |     SceneIllustration,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/sidequest-agents/src/tools/scene_render.rs:18:5
+   |
+18 |     pub fn as_str(&self) -> &'static str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:40:5
+   |
+40 |     Ominous,
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:41:5
+   |
+41 |     Tense,
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:42:5
+   |
+42 |     Mystical,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:43:5
+   |
+43 |     Dramatic,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:44:5
+   |
+44 |     Melancholic,
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:45:5
+   |
+45 |     Atmospheric,
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/sidequest-agents/src/tools/scene_render.rs:49:5
+   |
+49 |     pub fn as_str(&self) -> &'static str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:77:5
+   |
+77 |     Combat,
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:78:5
+   |
+78 |     Magic,
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:79:5
+   |
+79 |     SpecialEffect,
+   |     ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:80:5
+   |
+80 |     Character,
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:81:5
+   |
+81 |     Location,
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/sidequest-agents/src/tools/scene_render.rs:82:5
+   |
+82 |     Atmosphere,
+   |     ^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/sidequest-agents/src/tools/scene_render.rs:86:5
+   |
+86 |     pub fn as_str(&self) -> &'static str {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:114:5
+    |
+114 |     InvalidSubject(String),
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:116:5
+    |
+116 |     InvalidTier(String),
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:118:5
+    |
+118 |     InvalidMood(String),
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/sidequest-agents/src/tools/scene_render.rs:120:5
+    |
+120 |     InvalidTag(String),
+    |     ^^^^^^^^^^
+
+warning: `sidequest-agents` (lib) generated 40 warnings
+   Compiling sidequest-agents v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-agents)
+   Compiling sidequest-validate v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-validate)
+warning: field `prerender_scheduler` is never read
+  --> crates/sidequest-server/src/dispatch/mod.rs:85:9
+   |
+54 | pub(crate) struct DispatchContext<'a> {
+   |                   --------------- field in this struct
+...
+85 |     pub prerender_scheduler:
+   |         ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-server` (lib) generated 1 warning
+warning: unused import: `tracing_subscriber::layer::SubscriberExt`
+  --> crates/sidequest-server/tests/telemetry_story_3_1_tests.rs:11:5
+   |
+11 | use tracing_subscriber::layer::SubscriberExt;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `tracing_subscriber::Registry`
+  --> crates/sidequest-server/tests/telemetry_story_3_1_tests.rs:12:5
+   |
+12 | use tracing_subscriber::Registry;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: struct `CapturedSpan` is never constructed
+  --> crates/sidequest-server/tests/telemetry_story_3_1_tests.rs:28:16
+   |
+28 |     pub struct CapturedSpan {
+   |                ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `SpanCaptureLayer` is never constructed
+  --> crates/sidequest-server/tests/telemetry_story_3_1_tests.rs:35:16
+   |
+35 |     pub struct SpanCaptureLayer {
+   |                ^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> crates/sidequest-server/tests/telemetry_story_3_1_tests.rs:40:16
+   |
+39 |     impl SpanCaptureLayer {
+   |     --------------------- associated function in this implementation
+40 |         pub fn new() -> (Self, Arc<Mutex<Vec<CapturedSpan>>>) {
+   |                ^^^
+
+warning: struct `FieldNameVisitor` is never constructed
+  --> crates/sidequest-server/tests/telemetry_story_3_1_tests.rs:66:12
+   |
+66 |     struct FieldNameVisitor<'a>(&'a mut Vec<String>);
+   |            ^^^^^^^^^^^^^^^^
+
+warning: `sidequest-server` (test "telemetry_story_3_1_tests") generated 6 warnings (run `cargo fix --test "telemetry_story_3_1_tests" -p sidequest-server` to apply 2 suggestions)
+warning: unexpected `cfg` condition value: `session_actor`
+ --> crates/sidequest-server/tests/server_story_2_2_tests.rs:6:8
+  |
+6 | #![cfg(feature = "session_actor")]
+  |        ^^^^^^^^^^^^^^^^^^^^^^^^^ help: remove the condition
+  |
+  = note: no expected values for `feature`
+  = help: consider adding `session_actor` as a feature in `Cargo.toml`
+  = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+  = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: `sidequest-server` (test "server_story_2_2_tests") generated 1 warning
+warning: unused import: `sidequest_game::ScenarioEvent`
+  --> crates/sidequest-server/tests/scenario_integration_story_7_9_tests.rs:29:9
+   |
+29 |     use sidequest_game::ScenarioEvent;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sidequest_game::ScenarioEventType`
+  --> crates/sidequest-server/tests/scenario_integration_story_7_9_tests.rs:30:9
+   |
+30 |     use sidequest_game::ScenarioEventType;
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `sidequest_game::AccusationResult`
+   --> crates/sidequest-server/tests/scenario_integration_story_7_9_tests.rs:202:9
+    |
+202 |     use sidequest_game::AccusationResult;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `sidequest-server` (test "scenario_integration_story_7_9_tests") generated 3 warnings (run `cargo fix --test "scenario_integration_story_7_9_tests" -p sidequest-server` to apply 3 suggestions)
+warning: unused variable: `state`
+   --> crates/sidequest-server/tests/watcher_story_3_6_tests.rs:245:9
+    |
+245 |     let state = test_app_state();
+    |         ^^^^^ help: if this is intentional, prefix it with an underscore: `_state`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-server` (test "watcher_story_3_6_tests") generated 1 warning (run `cargo fix --test "watcher_story_3_6_tests" -p sidequest-server` to apply 1 suggestion)
+warning: unused import: `ImagePayload`
+  --> crates/sidequest-server/tests/image_pacing_story_14_6_tests.rs:22:39
+   |
+22 | use sidequest_protocol::{GameMessage, ImagePayload, SessionEventPayload};
+   |                                       ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `spawn_image_broadcaster`
+  --> crates/sidequest-server/tests/image_pacing_story_14_6_tests.rs:24:47
+   |
+24 |     ImagePacingThrottle, RenderResultContext, spawn_image_broadcaster,
+   |                                               ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/sidequest-server/tests/image_pacing_story_14_6_tests.rs:199:9
+    |
+199 |     let mut throttle = ImagePacingThrottle::with_cooldown(60);
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-server` (test "image_pacing_story_14_6_tests") generated 3 warnings (run `cargo fix --test "image_pacing_story_14_6_tests" -p sidequest-server` to apply 3 suggestions)
+warning: unused import: `tracing::subscriber::with_default`
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:13:5
+   |
+13 | use tracing::subscriber::with_default;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `tracing_subscriber::layer::SubscriberExt`
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:15:5
+   |
+15 | use tracing_subscriber::layer::SubscriberExt;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `tracing_subscriber::Registry`
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:16:5
+   |
+16 | use tracing_subscriber::Registry;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `id`
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:48:9
+   |
+48 |         id: &tracing::span::Id,
+   |         ^^ help: if this is intentional, prefix it with an underscore: `_id`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `CapturedSpan` is never constructed
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:23:8
+   |
+23 | struct CapturedSpan {
+   |        ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: struct `SpanCaptureLayer` is never constructed
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:28:8
+   |
+28 | struct SpanCaptureLayer {
+   |        ^^^^^^^^^^^^^^^^
+
+warning: associated function `new` is never used
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:33:8
+   |
+32 | impl SpanCaptureLayer {
+   | --------------------- associated function in this implementation
+33 |     fn new() -> (Self, Arc<Mutex<Vec<CapturedSpan>>>) {
+   |        ^^^
+
+warning: struct `FieldCaptureVisitor` is never constructed
+  --> crates/sidequest-server/tests/telemetry_story_18_1_tests.rs:72:8
+   |
+72 | struct FieldCaptureVisitor<'a>(&'a mut Vec<(String, String)>);
+   |        ^^^^^^^^^^^^^^^^^^^
+
+warning: `sidequest-server` (test "telemetry_story_18_1_tests") generated 8 warnings (run `cargo fix --test "telemetry_story_18_1_tests" -p sidequest-server` to apply 4 suggestions)
+warning: unused import: `sidequest_server::find_confrontation_def`
+  --> crates/sidequest-server/tests/encounter_context_wiring_story_28_4_tests.rs:17:5
+   |
+17 | use sidequest_server::find_confrontation_def;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-server` (test "encounter_context_wiring_story_28_4_tests") generated 1 warning (run `cargo fix --test "encounter_context_wiring_story_28_4_tests" -p sidequest-server` to apply 1 suggestion)
+warning: `sidequest-server` (lib test) generated 1 warning (1 duplicate)
+warning: unused import: `SceneDirective`
+  --> crates/sidequest-agents/tests/wire_directive_story_6_9_tests.rs:12:76
+   |
+12 | use sidequest_game::scene_directive::{format_scene_directive, ActiveStake, SceneDirective};
+   |                                                                            ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `AgentKind` and `TurnContext`
+  --> crates/sidequest-agents/tests/wire_directive_story_6_9_tests.rs:16:38
+   |
+16 | use sidequest_agents::orchestrator::{AgentKind, TurnContext};
+   |                                      ^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `SectionCategory`
+  --> crates/sidequest-agents/tests/wire_directive_story_6_9_tests.rs:18:76
+   |
+18 |     render_scene_directive, AttentionZone, PromptComposer, PromptRegistry, SectionCategory,
+   |                                                                            ^^^^^^^^^^^^^^^
+
+warning: `sidequest-agents` (test "wire_directive_story_6_9_tests") generated 3 warnings (run `cargo fix --test "wire_directive_story_6_9_tests" -p sidequest-agents` to apply 3 suggestions)
+warning: unused import: `Orchestrator`
+  --> crates/sidequest-agents/tests/orchestrator_story_2_5_tests.rs:16:49
+   |
+16 | use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
+   |                                                 ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sidequest_agents::client::ClaudeClient`
+   --> crates/sidequest-agents/tests/telemetry_story_3_1_tests.rs:330:9
+    |
+330 |     use sidequest_agents::client::ClaudeClient;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `target` is never read
+  --> crates/sidequest-agents/tests/telemetry_story_3_1_tests.rs:22:5
+   |
+19 | struct CapturedSpan {
+   |        ------------ field in this struct
+...
+22 |     target: String,
+   |     ^^^^^^
+   |
+   = note: `CapturedSpan` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-agents` (test "telemetry_story_3_1_tests") generated 2 warnings (run `cargo fix --test "telemetry_story_3_1_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: `sidequest-agents` (test "orchestrator_story_2_5_tests") generated 1 warning (run `cargo fix --test "orchestrator_story_2_5_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: unused import: `AgentResponse`
+ --> crates/sidequest-agents/tests/agent_impl_story_1_11_tests.rs:9:38
+  |
+9 | use sidequest_agents::agent::{Agent, AgentResponse};
+  |                                      ^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Orchestrator`
+  --> crates/sidequest-agents/tests/agent_impl_story_1_11_tests.rs:17:65
+   |
+17 | use sidequest_agents::orchestrator::{ActionResult, GameService, Orchestrator};
+   |                                                                 ^^^^^^^^^^^^
+
+warning: unused imports: `AttentionZone` and `PromptSection`
+   --> crates/sidequest-agents/tests/agent_impl_story_1_11_tests.rs:174:46
+    |
+174 |     use sidequest_agents::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
+    |                                              ^^^^^^^^^^^^^  ^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> crates/sidequest-agents/tests/agent_impl_story_1_11_tests.rs:195:17
+    |
+195 |             let mut builder = ContextBuilder::new();
+    |                 ----^^^^^^^
+    |                 |
+    |                 help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `agent`
+   --> crates/sidequest-agents/tests/agent_impl_story_1_11_tests.rs:194:13
+    |
+194 |         for agent in &agents {
+    |             ^^^^^ help: if this is intentional, prefix it with an underscore: `_agent`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `identity_sections`
+   --> crates/sidequest-agents/tests/agent_impl_story_1_11_tests.rs:198:17
+    |
+198 |             let identity_sections = builder.sections_by_category(SectionCategory::Identity);
+    |                 ^^^^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_identity_sections`
+
+warning: unused variable: `meta`
+   --> crates/sidequest-agents/tests/agent_impl_story_1_11_tests.rs:220:13
+    |
+220 |         let meta = Intent::Meta;
+    |             ^^^^
+    |
+help: you might have meant to pattern match on the similarly named variant `Meta`
+    |
+220 -         let meta = Intent::Meta;
+220 +         let sidequest_agents::agents::intent_router::Intent::Meta = Intent::Meta;
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+220 |         let _meta = Intent::Meta;
+    |             +
+
+warning: unused imports: `SceneTier`, `VisualMood`, and `VisualTag`
+  --> crates/sidequest-agents/tests/scene_render_story_20_5_tests.rs:26:28
+   |
+26 |     validate_scene_render, SceneTier, VisualMood, VisualTag,
+   |                            ^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::collections::HashMap`
+  --> crates/sidequest-agents/tests/narrator_session_reset_story_30_2_tests.rs:15:5
+   |
+15 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ctx`
+   --> crates/sidequest-agents/tests/narrator_session_reset_story_30_2_tests.rs:269:9
+    |
+269 |     let ctx = context_with_genre("low_fantasy", "Grim narrator voice");
+    |         ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `DirectivePriority`
+  --> crates/sidequest-agents/tests/scene_directive_weave_story_6_2_tests.rs:12:42
+   |
+12 |     format_scene_directive, ActiveStake, DirectivePriority, DirectiveSource, SceneDirective,
+   |                                          ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TurnContext`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:215:55
+    |
+215 |     use sidequest_agents::orchestrator::{GameService, TurnContext};
+    |                                                       ^^^^^^^^^^^
+    |
+    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `NarratorVerbosity` and `NarratorVocabulary`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:216:30
+    |
+216 |     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    |                              ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `TurnContext`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:241:55
+    |
+241 |     use sidequest_agents::orchestrator::{GameService, TurnContext};
+    |                                                       ^^^^^^^^^^^
+
+warning: unused imports: `NarratorVerbosity` and `NarratorVocabulary`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:242:30
+    |
+242 |     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    |                              ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `TurnContext`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:267:55
+    |
+267 |     use sidequest_agents::orchestrator::{GameService, TurnContext};
+    |                                                       ^^^^^^^^^^^
+
+warning: unused imports: `NarratorVerbosity` and `NarratorVocabulary`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:268:30
+    |
+268 |     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    |                              ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `TurnContext`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:292:55
+    |
+292 |     use sidequest_agents::orchestrator::{GameService, TurnContext};
+    |                                                       ^^^^^^^^^^^
+
+warning: unused imports: `NarratorVerbosity` and `NarratorVocabulary`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:293:30
+    |
+293 |     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    |                              ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `TurnContext`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:320:55
+    |
+320 |     use sidequest_agents::orchestrator::{GameService, TurnContext};
+    |                                                       ^^^^^^^^^^^
+
+warning: unused imports: `NarratorVerbosity` and `NarratorVocabulary`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:321:30
+    |
+321 |     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    |                              ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `TurnContext`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:350:55
+    |
+350 |     use sidequest_agents::orchestrator::{GameService, TurnContext};
+    |                                                       ^^^^^^^^^^^
+
+warning: unused imports: `NarratorVerbosity` and `NarratorVocabulary`
+   --> crates/sidequest-agents/tests/telemetry_story_18_1_tests.rs:351:30
+    |
+351 |     use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    |                              ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `ActionResult`
+  --> crates/sidequest-agents/tests/scene_tools_story_20_2_tests.rs:20:33
+   |
+20 |     ActionFlags, ActionRewrite, ActionResult, NarratorExtraction,
+   |                                 ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-agents` (test "agent_impl_story_1_11_tests") generated 7 warnings (run `cargo fix --test "agent_impl_story_1_11_tests" -p sidequest-agents` to apply 7 suggestions)
+warning: `sidequest-agents` (test "narrator_session_reset_story_30_2_tests") generated 2 warnings (run `cargo fix --test "narrator_session_reset_story_30_2_tests" -p sidequest-agents` to apply 2 suggestions)
+warning: `sidequest-agents` (test "scene_render_story_20_5_tests") generated 1 warning (run `cargo fix --test "scene_render_story_20_5_tests" -p sidequest-agents` to apply 1 suggestion)
+   Compiling sidequest-promptpreview v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-promptpreview)
+warning: `sidequest-agents` (test "scene_directive_weave_story_6_2_tests") generated 1 warning (run `cargo fix --test "scene_directive_weave_story_6_2_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: `sidequest-agents` (test "scene_tools_story_20_2_tests") generated 1 warning (run `cargo fix --test "scene_tools_story_20_2_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: `sidequest-agents` (test "telemetry_story_18_1_tests") generated 12 warnings (run `cargo fix --test "telemetry_story_18_1_tests" -p sidequest-agents` to apply 12 suggestions)
+warning: unused import: `sidequest_game::PreprocessedAction`
+  --> crates/sidequest-agents/tests/parallel_preprocess_story_18_3_tests.rs:15:5
+   |
+15 | use sidequest_game::PreprocessedAction;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sidequest_agents::context_builder::ZoneBreakdown`
+  --> crates/sidequest-agents/tests/prompt_inspector_story_18_6_tests.rs:18:5
+   |
+18 | use sidequest_agents::context_builder::ZoneBreakdown;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `TurnContext`
+  --> crates/sidequest-agents/tests/pacing_orchestrator_story_5_7_tests.rs:13:63
+   |
+13 | use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
+   |                                                               ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `DramaThresholds` and `TensionTracker`
+  --> crates/sidequest-agents/tests/pacing_orchestrator_story_5_7_tests.rs:14:53
+   |
+14 | use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, PacingHint, TensionTracker};
+   |                                                     ^^^^^^^^^^^^^^^              ^^^^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashMap`
+  --> crates/sidequest-game/tests/resource_pool_story_16_10_tests.rs:15:5
+   |
+15 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/sidequest-game/tests/resource_pool_story_16_10_tests.rs:640:9
+    |
+640 |     let mut pool = ResourcePool {
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "resource_pool_story_16_10_tests") generated 2 warnings (run `cargo fix --test "resource_pool_story_16_10_tests" -p sidequest-game` to apply 2 suggestions)
+warning: unused import: `HashSet`
+  --> crates/sidequest-game/tests/scenario_archiver_story_7_7_tests.rs:15:33
+   |
+15 | use std::collections::{HashMap, HashSet};
+   |                                 ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `BeliefSource`, `BeliefState`, `Belief`, and `Credibility`
+  --> crates/sidequest-game/tests/scenario_archiver_story_7_7_tests.rs:18:36
+   |
+18 | use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
+   |                                    ^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: `sidequest-game` (test "scenario_archiver_story_7_7_tests") generated 2 warnings (run `cargo fix --test "scenario_archiver_story_7_7_tests" -p sidequest-game` to apply 2 suggestions)
+warning: unused import: `TurnBarrierResult`
+  --> crates/sidequest-game/tests/timeout_notify_story_13_4_tests.rs:17:63
+   |
+17 | use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
+   |                                                               ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "timeout_notify_story_13_4_tests") generated 1 warning (run `cargo fix --test "timeout_notify_story_13_4_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `std::collections::HashMap`
+ --> crates/sidequest-game/tests/telemetry_story_3_1_tests.rs:7:5
+  |
+7 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: field `target` is never read
+  --> crates/sidequest-game/tests/telemetry_story_3_1_tests.rs:23:5
+   |
+19 | struct CapturedSpan {
+   |        ------------ field in this struct
+...
+23 |     target: String,
+   |     ^^^^^^
+   |
+   = note: `CapturedSpan` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "telemetry_story_3_1_tests") generated 2 warnings (run `cargo fix --test "telemetry_story_3_1_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `EncounterPhase`
+  --> crates/sidequest-game/tests/otel_structured_encounter_story_28_2_tests.rs:19:21
+   |
+19 |     EncounterActor, EncounterPhase, StructuredEncounter,
+   |                     ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "otel_structured_encounter_story_28_2_tests") generated 1 warning (run `cargo fix --test "otel_structured_encounter_story_28_2_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused variable: `subject_c`
+   --> crates/sidequest-game/tests/render_queue_story_4_4_tests.rs:464:9
+    |
+464 |     let subject_c = portrait_subject();
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_subject_c`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `abstract_subject` is never used
+  --> crates/sidequest-game/tests/render_queue_story_4_4_tests.rs:57:4
+   |
+57 | fn abstract_subject() -> RenderSubject {
+   |    ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `small_queue_config` is never used
+  --> crates/sidequest-game/tests/render_queue_story_4_4_tests.rs:65:4
+   |
+65 | fn small_queue_config() -> RenderQueueConfig {
+   |    ^^^^^^^^^^^^^^^^^^
+
+warning: `sidequest-game` (test "render_queue_story_4_4_tests") generated 3 warnings (run `cargo fix --test "render_queue_story_4_4_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused imports: `AccusationResult` and `EvidenceSummary`
+ --> crates/sidequest-game/tests/accusation_story_7_4_tests.rs:9:17
+  |
+9 |     Accusation, AccusationResult, EvidenceQuality, EvidenceSummary, evaluate_accusation,
+  |                 ^^^^^^^^^^^^^^^^                   ^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Credibility`
+  --> crates/sidequest-game/tests/accusation_story_7_4_tests.rs:11:71
+   |
+11 | use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
+   |                                                                       ^^^^^^^^^^^
+
+warning: unused import: `PromptSection`
+  --> crates/sidequest-agents/tests/narrator_verbosity_story_14_3_tests.rs:17:52
+   |
+17 |     AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
+   |                                                    ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "accusation_story_7_4_tests") generated 2 warnings (run `cargo fix --test "accusation_story_7_4_tests" -p sidequest-game` to apply 2 suggestions)
+warning: unused import: `LegendEntry`
+  --> crates/sidequest-game/tests/layout_story_29_6_tests.rs:33:38
+   |
+33 | use sidequest_genre::models::world::{LegendEntry, RoomDef, RoomExit};
+   |                                      ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `hub`
+   --> crates/sidequest-game/tests/layout_story_29_6_tests.rs:488:9
+    |
+488 |     let hub = room_def(
+    |         ^^^ help: if this is intentional, prefix it with an underscore: `_hub`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `hub_grid` is never used
+   --> crates/sidequest-game/tests/layout_story_29_6_tests.rs:104:4
+    |
+104 | fn hub_grid() -> TacticalGrid {
+    |    ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `spoke_south_grid` is never used
+   --> crates/sidequest-game/tests/layout_story_29_6_tests.rs:124:4
+    |
+124 | fn spoke_south_grid() -> TacticalGrid {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: function `spoke_west_grid` is never used
+   --> crates/sidequest-game/tests/layout_story_29_6_tests.rs:136:4
+    |
+136 | fn spoke_west_grid() -> TacticalGrid {
+    |    ^^^^^^^^^^^^^^^
+
+warning: function `spoke_north_grid` is never used
+   --> crates/sidequest-game/tests/layout_story_29_6_tests.rs:148:4
+    |
+148 | fn spoke_north_grid() -> TacticalGrid {
+    |    ^^^^^^^^^^^^^^^^
+
+warning: `sidequest-game` (test "layout_story_29_6_tests") generated 6 warnings (run `cargo fix --test "layout_story_29_6_tests" -p sidequest-game` to apply 2 suggestions)
+warning: unused import: `sidequest_game::turn::TurnManager`
+ --> crates/sidequest-game/tests/world_materialization_story_6_6_tests.rs:7:5
+  |
+7 | use sidequest_game::turn::TurnManager;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "world_materialization_story_6_6_tests") generated 1 warning (run `cargo fix --test "world_materialization_story_6_6_tests" -p sidequest-game` to apply 1 suggestion)
+   Compiling sidequest-namegen v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-namegen)
+warning: `sidequest-agents` (test "parallel_preprocess_story_18_3_tests") generated 1 warning (run `cargo fix --test "parallel_preprocess_story_18_3_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: unused import: `TurnBarrierResult`
+  --> crates/sidequest-game/tests/barrier_timeout_story_13_9_tests.rs:16:63
+   |
+16 | use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
+   |                                                               ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `result`
+   --> crates/sidequest-game/tests/barrier_timeout_story_13_9_tests.rs:157:9
+    |
+157 |     let result = barrier.wait_for_turn().await;
+    |         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_result`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "barrier_timeout_story_13_9_tests") generated 2 warnings (run `cargo fix --test "barrier_timeout_story_13_9_tests" -p sidequest-game` to apply 2 suggestions)
+warning: unused import: `std::collections::HashSet`
+  --> crates/sidequest-game/tests/trope_engine_story_2_8_tests.rs:11:5
+   |
+11 | use std::collections::HashSet;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `FiredBeat`
+  --> crates/sidequest-game/tests/trope_engine_story_2_8_tests.rs:18:29
+   |
+18 | use sidequest_game::trope::{FiredBeat, TropeEngine, TropeState, TropeStatus};
+   |                             ^^^^^^^^^
+
+warning: `sidequest-game` (test "trope_engine_story_2_8_tests") generated 2 warnings (run `cargo fix --test "trope_engine_story_2_8_tests" -p sidequest-game` to apply 2 suggestions)
+warning: `sidequest-agents` (test "prompt_inspector_story_18_6_tests") generated 1 warning (run `cargo fix --test "prompt_inspector_story_18_6_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: unused import: `std::path::Path`
+  --> crates/sidequest-game/tests/persistence_story_2_4_tests.rs:27:5
+   |
+27 | use std::path::Path;
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `SavedSession` and `SessionMeta`
+  --> crates/sidequest-game/tests/persistence_story_2_4_tests.rs:36:19
+   |
+36 |     PersistError, SavedSession, SessionMeta, SessionStore, SqliteStore,
+   |                   ^^^^^^^^^^^^  ^^^^^^^^^^^
+
+warning: unused import: `TurnPhase`
+  --> crates/sidequest-game/tests/persistence_story_2_4_tests.rs:47:45
+   |
+47 |     use sidequest_game::turn::{TurnManager, TurnPhase};
+   |                                             ^^^^^^^^^
+
+warning: `sidequest-game` (test "persistence_story_2_4_tests") generated 3 warnings (run `cargo fix --test "persistence_story_2_4_tests" -p sidequest-game` to apply 3 suggestions)
+warning: unused variable: `gen`
+   --> crates/sidequest-game/tests/catch_up_story_8_8_tests.rs:161:9
+    |
+161 |     let gen = CatchUpGenerator::new(Box::new(strategy));
+    |         ^^^ help: if this is intentional, prefix it with an underscore: `_gen`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "catch_up_story_8_8_tests") generated 1 warning (run `cargo fix --test "catch_up_story_8_8_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `JournalEntry`
+  --> crates/sidequest-game/tests/journal_browse_story_9_13_tests.rs:18:40
+   |
+18 | use sidequest_protocol::{FactCategory, JournalEntry, JournalSortOrder};
+   |                                        ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "journal_browse_story_9_13_tests") generated 1 warning (run `cargo fix --test "journal_browse_story_9_13_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `std::collections::HashMap`
+ --> crates/sidequest-game/tests/npc_actions_story_7_5_tests.rs:6:5
+  |
+6 | use std::collections::HashMap;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/sidequest-game/tests/npc_actions_story_7_5_tests.rs:179:9
+    |
+179 |     let mut belief = BeliefState::new();
+    |         ----^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `belief`
+   --> crates/sidequest-game/tests/npc_actions_story_7_5_tests.rs:179:9
+    |
+179 |     let mut belief = BeliefState::new();
+    |         ^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_belief`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "npc_actions_story_7_5_tests") generated 3 warnings (run `cargo fix --test "npc_actions_story_7_5_tests" -p sidequest-game` to apply 3 suggestions)
+warning: unused import: `FactionAgendaError`
+  --> crates/sidequest-game/tests/faction_agenda_story_6_4_tests.rs:13:68
+   |
+13 | use sidequest_game::faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
+   |                                                                    ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "faction_agenda_story_6_4_tests") generated 1 warning (run `cargo fix --test "faction_agenda_story_6_4_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `sidequest_game::ability::AbilityDefinition`
+  --> crates/sidequest-game/tests/known_fact_story_9_3_tests.rs:16:5
+   |
+16 | use sidequest_game::ability::AbilityDefinition;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "known_fact_story_9_3_tests") generated 1 warning (run `cargo fix --test "known_fact_story_9_3_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused imports: `DirectivePriority` and `SceneDirective`
+ --> crates/sidequest-game/tests/wire_faction_agenda_story_6_5_tests.rs:8:42
+  |
+8 |     format_scene_directive, ActiveStake, DirectivePriority, DirectiveSource, SceneDirective,
+  |                                          ^^^^^^^^^^^^^^^^^                   ^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sidequest_game::state::GameSnapshot`
+  --> crates/sidequest-game/tests/world_builder_story_18_8_tests.rs:12:5
+   |
+12 | use sidequest_game::state::GameSnapshot;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "wire_faction_agenda_story_6_5_tests") generated 1 warning (run `cargo fix --test "wire_faction_agenda_story_6_5_tests" -p sidequest-game` to apply 1 suggestion)
+warning: `sidequest-game` (test "world_builder_story_18_8_tests") generated 1 warning (run `cargo fix --test "world_builder_story_18_8_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `RestoredCharacterState`
+  --> crates/sidequest-game/tests/session_restore_story_18_9_tests.rs:31:64
+   |
+31 | use sidequest_game::session_restore::{extract_character_state, RestoredCharacterState};
+   |                                                                ^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "session_restore_story_18_9_tests") generated 1 warning (run `cargo fix --test "session_restore_story_18_9_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `EncounterMetric`
+  --> crates/sidequest-game/tests/social_confrontation_story_16_7_tests.rs:32:5
+   |
+32 |     EncounterMetric, EncounterPhase, MetricDirection, StructuredEncounter,
+   |     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `BeatDef` and `MetricDef`
+  --> crates/sidequest-game/tests/social_confrontation_story_16_7_tests.rs:34:23
+   |
+34 | use sidequest_genre::{BeatDef, ConfrontationDef, MetricDef};
+   |                       ^^^^^^^                    ^^^^^^^^^
+
+warning: `sidequest-game` (test "social_confrontation_story_16_7_tests") generated 2 warnings (run `cargo fix --test "social_confrontation_story_16_7_tests" -p sidequest-game` to apply 2 suggestions)
+warning: unused import: `AudioAction`
+  --> crates/sidequest-game/tests/cinematic_variation_story_12_1_tests.rs:16:5
+   |
+16 |     AudioAction, AudioChannel, MoodKey, MoodClassification, MoodContext, MusicDirector,
+   |     ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sidequest_game::TrackVariation`
+   --> crates/sidequest-game/tests/cinematic_variation_story_12_1_tests.rs:633:9
+    |
+633 |     use sidequest_game::TrackVariation;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `classification`
+   --> crates/sidequest-game/tests/cinematic_variation_story_12_1_tests.rs:640:9
+    |
+640 |     let classification = MoodClassification {
+    |         ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_classification`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `cue2`
+   --> crates/sidequest-game/tests/cinematic_variation_story_12_1_tests.rs:703:9
+    |
+703 |     let cue2 = director.evaluate("Arriving at the next town", &ctx);
+    |         ^^^^ help: if this is intentional, prefix it with an underscore: `_cue2`
+
+warning: variable does not need to be mutable
+   --> crates/sidequest-game/tests/cinematic_variation_story_12_1_tests.rs:869:9
+    |
+869 |     let mut director = MusicDirector::new(&config);
+    |         ----^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "cinematic_variation_story_12_1_tests") generated 5 warnings (run `cargo fix --test "cinematic_variation_story_12_1_tests" -p sidequest-game` to apply 5 suggestions)
+warning: unused import: `SealedRoundContext`
+  --> crates/sidequest-game/tests/sealed_round_prompt_story_13_14_tests.rs:18:36
+   |
+18 | use sidequest_game::sealed_round::{SealedRoundContext, build_sealed_round_context};
+   |                                    ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `WorldStatePatch`
+  --> crates/sidequest-game/tests/gm_commands_story_9_8_tests.rs:27:43
+   |
+27 | use sidequest_game::state::{GameSnapshot, WorldStatePatch};
+   |                                           ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+   Compiling sidequest-loadoutgen v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-loadoutgen)
+warning: `sidequest-game` (test "sealed_round_prompt_story_13_14_tests") generated 1 warning (run `cargo fix --test "sealed_round_prompt_story_13_14_tests" -p sidequest-game` to apply 1 suggestion)
+warning: `sidequest-game` (test "gm_commands_story_9_8_tests") generated 1 warning (run `cargo fix --test "gm_commands_story_9_8_tests" -p sidequest-game` to apply 1 suggestion)
+warning: function `effects_empty` is never used
+  --> crates/sidequest-game/tests/stat_generation_story_31_1_tests.rs:28:4
+   |
+28 | fn effects_empty() -> MechanicalEffects {
+   |    ^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `sidequest_protocol::NonBlankString`
+  --> crates/sidequest-game/tests/builder_story_2_3_tests.rs:21:5
+   |
+21 | use sidequest_protocol::NonBlankString;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `AccumulatedChoices`, `LoreAnchor`, `NarrativeHook`, and `SceneResult`
+  --> crates/sidequest-game/tests/builder_story_2_3_tests.rs:25:5
+   |
+25 |     AccumulatedChoices, BuilderError, BuilderPhase, CharacterBuilder, HookType, LoreAnchor,
+   |     ^^^^^^^^^^^^^^^^^^                                                          ^^^^^^^^^^
+26 |     NarrativeHook, SceneInputType, SceneResult,
+   |     ^^^^^^^^^^^^^                  ^^^^^^^^^^^
+
+warning: unused import: `sidequest_game::Character`
+  --> crates/sidequest-game/tests/builder_story_2_3_tests.rs:28:5
+   |
+28 | use sidequest_game::Character;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: `sidequest-game` (test "stat_generation_story_31_1_tests") generated 1 warning
+warning: `sidequest-game` (test "builder_story_2_3_tests") generated 3 warnings (run `cargo fix --test "builder_story_2_3_tests" -p sidequest-game` to apply 3 suggestions)
+warning: variable does not need to be mutable
+   --> crates/sidequest-game/tests/encounter_story_16_2_tests.rs:787:9
+    |
+787 |     let mut encounter = StructuredEncounter {
+    |         ----^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "encounter_story_16_2_tests") generated 1 warning (run `cargo fix --test "encounter_story_16_2_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `FactionThemeDef`
+  --> crates/sidequest-game/tests/faction_music_routing_story_16_15_tests.rs:18:21
+   |
+18 |     FactionContext, FactionThemeDef, MoodContext, MusicDirector, MusicEvalResult,
+   |                     ^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "faction_music_routing_story_16_15_tests") generated 1 warning (run `cargo fix --test "faction_music_routing_story_16_15_tests" -p sidequest-game` to apply 1 suggestion)
+   Compiling sidequest-encountergen v0.1.0 (/Users/keithavery/Projects/oq-2/sidequest-api/crates/sidequest-encountergen)
+warning: `sidequest-agents` (test "pacing_orchestrator_story_5_7_tests") generated 2 warnings (run `cargo fix --test "pacing_orchestrator_story_5_7_tests" -p sidequest-agents` to apply 2 suggestions)
+warning: unused import: `sidequest_game::state::GameSnapshot`
+ --> crates/sidequest-game/tests/world_builder_wiring_story_15_23_tests.rs:7:5
+  |
+7 | use sidequest_game::state::GameSnapshot;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused imports: `ChapterCharacter`, `ChapterNpc`, `ChapterTrope`, `HistoryChapter`, and `WorldBuilder`
+ --> crates/sidequest-game/tests/world_builder_wiring_story_15_23_tests.rs:9:23
+  |
+9 |     CampaignMaturity, ChapterCharacter, ChapterNpc, ChapterTrope, HistoryChapter, WorldBuilder,
+  |                       ^^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: `sidequest-game` (test "world_builder_wiring_story_15_23_tests") generated 2 warnings (run `cargo fix --test "world_builder_wiring_story_15_23_tests" -p sidequest-game` to apply 2 suggestions)
+warning: unused imports: `CellProperties`, `ExitGap`, and `FeatureDef`
+  --> crates/sidequest-game/tests/tactical_story_29_1_tests.rs:24:24
+   |
+24 |     CardinalDirection, CellProperties, ExitGap, FeatureDef, FeatureType, GridParseError,
+   |                        ^^^^^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "tactical_story_29_1_tests") generated 1 warning (run `cargo fix --test "tactical_story_29_1_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `TurnBarrierResult`
+  --> crates/sidequest-game/tests/barrier_story_8_2_tests.rs:15:63
+   |
+15 | use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
+   |                                                               ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "barrier_story_8_2_tests") generated 1 warning (run `cargo fix --test "barrier_story_8_2_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `Credibility`
+  --> crates/sidequest-game/tests/gossip_propagation_story_7_2_tests.rs:19:71
+   |
+19 | use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
+   |                                                                       ^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "gossip_propagation_story_7_2_tests") generated 1 warning (run `cargo fix --test "gossip_propagation_story_7_2_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused import: `classify_combat_outcome`
+  --> crates/sidequest-game/tests/drama_weight_story_5_3_tests.rs:15:5
+   |
+15 |     classify_combat_outcome, DetailedCombatEvent, TensionTracker, TurnClassification,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+  --> crates/sidequest-game/tests/drama_weight_story_5_3_tests.rs:98:9
+   |
+98 |     let mut tracker = TensionTracker::with_values(0.9, 0.2);
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/sidequest-game/tests/drama_weight_story_5_3_tests.rs:109:9
+    |
+109 |     let mut tracker = TensionTracker::with_values(0.2, 0.85);
+    |         ----^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `sidequest-game` (test "drama_weight_story_5_3_tests") generated 3 warnings (run `cargo fix --test "drama_weight_story_5_3_tests" -p sidequest-game` to apply 3 suggestions)
+warning: unused import: `ordered_float::OrderedFloat`
+  --> crates/sidequest-game/tests/engagement_multiplier_story_6_3_tests.rs:10:5
+   |
+10 | use ordered_float::OrderedFloat;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `test_trope_def` is never used
+  --> crates/sidequest-game/tests/engagement_multiplier_story_6_3_tests.rs:21:4
+   |
+21 | fn test_trope_def() -> TropeDefinition {
+   |    ^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-game` (test "engagement_multiplier_story_6_3_tests") generated 2 warnings (run `cargo fix --test "engagement_multiplier_story_6_3_tests" -p sidequest-game` to apply 1 suggestion)
+warning: unused imports: `AssignmentMatrix`, `AtmosphereMatrix`, `ClueGraph`, `GenrePack`, `ScenarioNpc`, and `ScenarioPack`
+  --> crates/sidequest-genre/tests/integration_tests.rs:9:5
+   |
+ 9 |     AssignmentMatrix, AtmosphereMatrix, ClueGraph, GenreError, GenrePack, ScenarioNpc,
+   |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^  ^^^^^^^^^              ^^^^^^^^^  ^^^^^^^^^^^
+10 |     ScenarioPack, TropeDefinition,
+   |     ^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-genre` (test "integration_tests") generated 1 warning (run `cargo fix --test "integration_tests" -p sidequest-genre` to apply 1 suggestion)
+warning: variable does not need to be mutable
+   --> crates/sidequest-game/src/tension_tracker.rs:609:13
+    |
+609 |         let mut tracker = TensionTracker::with_values(0.3, 0.7);
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> crates/sidequest-game/src/tension_tracker.rs:619:13
+    |
+619 |         let mut tracker = TensionTracker::with_values(0.9, 0.2);
+    |             ----^^^^^^^
+    |             |
+    |             help: remove this `mut`
+
+warning: `sidequest-game` (lib test) generated 40 warnings (38 duplicates) (run `cargo fix --lib -p sidequest-game --tests` to apply 2 suggestions)
+warning: `sidequest-protocol` (lib test) generated 15 warnings (15 duplicates)
+warning: unused import: `sidequest_agents::context_builder::ContextBuilder`
+  --> crates/sidequest-agents/tests/narrator_ocean_story_10_4_tests.rs:16:5
+   |
+16 | use sidequest_agents::context_builder::ContextBuilder;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `minimal_extraction` is never used
+  --> crates/sidequest-agents/tests/eliminate_json_story_20_8_tests.rs:38:4
+   |
+38 | fn minimal_extraction() -> NarratorExtraction {
+   |    ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-agents` (test "narrator_verbosity_story_14_3_tests") generated 1 warning (run `cargo fix --test "narrator_verbosity_story_14_3_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: `sidequest-agents` (test "narrator_ocean_story_10_4_tests") generated 1 warning (run `cargo fix --test "narrator_ocean_story_10_4_tests" -p sidequest-agents` to apply 1 suggestion)
+warning: `sidequest-agents` (test "eliminate_json_story_20_8_tests") generated 1 warning
+warning: unused import: `super::*`
+    --> crates/sidequest-agents/src/orchestrator.rs:1550:9
+     |
+1550 |     use super::*;
+     |         ^^^^^^^^
+     |
+     = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `sidequest-agents` (lib test) generated 41 warnings (40 duplicates) (run `cargo fix --lib -p sidequest-agents --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 26s
+     Running unittests src/lib.rs (target/debug/deps/sidequest_agents-f68983c261ee479f)
+
+running 139 tests
+test agents::resonator::tests::build_rewrite_prompt_includes_genre_voice ... ok
+test agents::resonator::tests::build_rewrite_prompt_includes_effects ... ok
+test agents::resonator::tests::build_rewrite_prompt_includes_base_narration ... ok
+test agents::resonator::tests::build_rewrite_prompt_includes_character_name ... ok
+test agents::resonator::tests::build_rewrite_prompt_ends_with_instruction ... ok
+test agents::resonator::tests::build_rewrite_prompt_full_context ... ok
+test agents::resonator::tests::build_rewrite_prompt_includes_hooks ... ok
+test agents::resonator::tests::build_rewrite_prompt_includes_ocean_summary ... ok
+test agents::resonator::tests::build_rewrite_prompt_omits_effects_section_when_none ... ok
+test agents::resonator::tests::claude_rewrite_strategy_constructs ... ok
+test agents::resonator::tests::claude_rewrite_strategy_implements_rewrite_strategy_trait ... ok
+test agents::resonator::tests::full_context_rewrite_strategy_constructs ... ok
+test agents::resonator::tests::full_context_strategy_implements_rewrite_strategy_trait ... ok
+test agents::resonator::tests::resonator_default_equivalent_to_new ... ok
+test agents::resonator::tests::resonator_builds_context_with_identity_section ... ok
+test agents::resonator::tests::resonator_name ... ok
+test agents::resonator::tests::resonator_system_prompt_has_system_tags ... ok
+test agents::resonator::tests::resonator_system_prompt_mentions_hooks ... ok
+test agents::resonator::tests::resonator_system_prompt_mentions_ocean_traits ... ok
+test agents::resonator::tests::resonator_system_prompt_mentions_perception ... ok
+test agents::resonator::tests::resonator_system_prompt_not_empty ... ok
+test agents::troper::tests::build_beats_context_formats_single_beat ... ok
+test agents::troper::tests::build_beats_context_enriches_from_trope_defs ... ok
+test agents::troper::tests::build_beats_context_includes_stakes_and_npcs ... ok
+test agents::troper::tests::build_beats_context_multiple_beats_numbered ... ok
+test agents::troper::tests::build_context_adds_identity_and_beats_sections ... ok
+test agents::troper::tests::build_context_omits_beats_section_when_no_beats ... ok
+test agents::troper::tests::default_matches_new ... ok
+test agents::troper::tests::new_troper_has_no_pending_beats ... ok
+test agents::troper::tests::parse_trigger_response_handles_garbage ... ok
+test agents::troper::tests::parse_trigger_response_handles_markdown_fenced_json ... ok
+test agents::troper::tests::parse_trigger_response_empty_activations ... ok
+test agents::troper::tests::parse_trigger_response_rejects_already_active ... ok
+test agents::troper::tests::parse_trigger_response_rejects_unknown_ids ... ok
+test agents::troper::tests::parse_trigger_response_valid_json ... ok
+test agents::troper::tests::progression_summary_excludes_resolved_tropes ... ok
+test agents::troper::tests::set_fired_beats_marks_pending ... ok
+test agents::troper::tests::progression_summary_included_when_active_tropes_exist ... ok
+test agents::troper::tests::troper_implements_agent_trait ... ok
+test agents::world_builder::tests::default_builds_same_as_new ... ok
+test agents::world_builder::tests::build_context_adds_identity_and_state_sections ... ok
+test agents::world_builder::tests::inject_world_context_excludes_identity ... ok
+test agents::world_builder::tests::maturity_context_includes_known_locations ... ok
+test agents::world_builder::tests::maturity_context_includes_known_npcs ... ok
+test agents::world_builder::tests::maturity_context_includes_lore ... ok
+test agents::world_builder::tests::maturity_context_includes_tier ... ok
+test agents::world_builder::tests::maturity_label_maps_correctly ... ok
+test agents::world_builder::tests::new_world_builder_has_fresh_maturity ... ok
+test agents::world_builder::tests::with_factions_filters_dormant ... ok
+test agents::world_builder::tests::with_maturity_sets_level ... ok
+test agents::world_builder::tests::world_builder_name_is_correct ... ok
+test agents::world_builder::tests::world_builder_system_prompt_describes_maturity_tiers ... ok
+test agents::world_builder::tests::world_builder_system_prompt_is_non_empty ... ok
+test continuity_validator::tests::parse_empty_array_returns_none ... ok
+test continuity_validator::tests::parse_fenced_json ... ok
+test continuity_validator::tests::parse_garbage_returns_none ... ok
+test continuity_validator::tests::parse_single_contradiction ... ok
+test inventory_extractor::tests::empty_inventory_acquires_nothing_from_bland_narration ... ignored
+test continuity_validator::tests::prompt_includes_state_facts ... ok
+test continuity_validator::tests::prompt_skips_empty_facts ... ok
+test inventory_extractor::tests::empty_narration_short_circuits ... ok
+test inventory_extractor::tests::parse_acquired_item ... ok
+test inventory_extractor::tests::parse_empty_array_returns_none ... ok
+test inventory_extractor::tests::parse_fenced_json ... ok
+test inventory_extractor::tests::parse_garbage_returns_none ... ok
+test inventory_extractor::tests::parse_gold_acquisition ... ok
+test inventory_extractor::tests::parse_gold_given ... ok
+test inventory_extractor::tests::parse_gold_loss ... ok
+test inventory_extractor::tests::parse_mixed_mutations ... ok
+test inventory_extractor::tests::parse_multiple_mutations ... ok
+test inventory_extractor::tests::parse_single_mutation ... ok
+test inventory_extractor::tests::prompt_includes_inventory_and_narration ... ok
+test preprocessor::tests::test_build_prompt_contains_key_elements ... ok
+test preprocessor::tests::test_parse_response_direct_json ... ok
+test preprocessor::tests::test_parse_response_garbage ... ok
+test preprocessor::tests::test_parse_response_with_markdown ... ok
+test prompt_framework::tests::attention_zone_all_ordered_is_sorted ... ok
+test prompt_framework::tests::attention_zone_all_ordered_returns_five_zones ... ok
+test prompt_framework::tests::attention_zone_deserializes_from_snake_case ... ok
+test prompt_framework::tests::attention_zone_early_less_than_valley ... ok
+test prompt_framework::tests::attention_zone_is_copy ... ok
+test prompt_framework::tests::attention_zone_late_less_than_recency ... ok
+test prompt_framework::tests::attention_zone_order_early_is_second ... ok
+test prompt_framework::tests::attention_zone_order_late_is_fourth ... ok
+test prompt_framework::tests::attention_zone_order_primacy_is_first ... ok
+test prompt_framework::tests::attention_zone_order_recency_is_last ... ok
+test prompt_framework::tests::attention_zone_order_valley_is_third ... ok
+test prompt_framework::tests::attention_zone_primacy_less_than_early ... ok
+test prompt_framework::tests::attention_zone_primacy_not_greater_than_recency ... ok
+test prompt_framework::tests::attention_zone_same_zone_is_equal ... ok
+test prompt_framework::tests::attention_zone_rejects_unknown_value ... ok
+test prompt_framework::tests::attention_zone_serializes_to_snake_case ... ok
+test prompt_framework::tests::attention_zone_sorting_vec_produces_correct_order ... ok
+test prompt_framework::tests::attention_zone_valley_less_than_late ... ok
+test prompt_framework::tests::composer_clear_removes_all_sections ... ok
+test prompt_framework::tests::composer_empty_agent_returns_empty_string ... ok
+test prompt_framework::tests::composer_compose_produces_xml_sections ... ok
+test prompt_framework::tests::composer_get_sections_filters_by_both ... ok
+test prompt_framework::tests::composer_get_sections_filters_by_category ... ok
+test prompt_framework::tests::composer_get_sections_filters_by_zone ... ok
+test prompt_framework::tests::composer_multiple_agents_are_independent ... ok
+test prompt_framework::tests::composer_preserves_insertion_order_within_zone ... ok
+test prompt_framework::tests::composer_sections_are_ordered_by_zone ... ok
+test prompt_framework::tests::parse_soul_md_full_soul_file ... ok
+test prompt_framework::tests::parse_soul_md_nonexistent_file_returns_empty ... ok
+test prompt_framework::tests::prompt_section_is_empty_false_for_nonempty_content ... ok
+test prompt_framework::tests::prompt_section_is_empty_true_for_empty_content ... ok
+test prompt_framework::tests::prompt_section_json_roundtrip ... ok
+test prompt_framework::tests::prompt_section_json_roundtrip_with_source ... ok
+test prompt_framework::tests::prompt_section_multiline_content_token_estimate ... ok
+test prompt_framework::tests::prompt_section_new_sets_fields ... ok
+test prompt_framework::tests::prompt_section_rejects_unknown_fields ... ok
+test prompt_framework::tests::prompt_section_token_estimate_counts_words ... ok
+test prompt_framework::tests::prompt_section_token_estimate_empty_content_is_zero ... ok
+test prompt_framework::tests::prompt_section_whitespace_only_content_is_empty ... ok
+test prompt_framework::tests::prompt_section_with_source_sets_source ... ok
+test prompt_framework::tests::rule_tier_has_three_variants ... ok
+test prompt_framework::tests::rule_tier_is_copy ... ok
+test prompt_framework::tests::parse_soul_md_empty_file_returns_empty ... ok
+test prompt_framework::tests::rule_tier_serializes_to_snake_case ... ok
+test prompt_framework::tests::rule_tier_roundtrips_through_json ... ok
+test prompt_framework::tests::section_category_has_nine_variants ... ok
+test prompt_framework::tests::section_category_is_copy ... ok
+test prompt_framework::tests::section_category_roundtrips_through_json ... ok
+test prompt_framework::tests::section_category_serializes_to_snake_case ... ok
+test prompt_framework::tests::soul_data_as_prompt_text_empty_for_no_principles ... ok
+test prompt_framework::tests::parse_soul_md_file_without_bold_headers_returns_empty ... ok
+test prompt_framework::tests::parse_soul_md_extracts_body_text ... ok
+test prompt_framework::tests::parse_soul_md_preserves_document_order ... ok
+test prompt_framework::tests::soul_data_get_finds_by_name_case_insensitive ... ok
+test prompt_framework::tests::parse_soul_md_extracts_title ... ok
+test prompt_framework::tests::parse_soul_md_handles_multiline_body ... ok
+test prompt_framework::tests::soul_data_as_prompt_text_formats_as_important_blocks ... ok
+test prompt_framework::tests::parse_soul_md_extracts_principles_from_real_format ... ok
+test prompt_framework::tests::parse_soul_md_extracts_description ... ok
+test prompt_framework::tests::soul_data_is_empty_false_when_principles_exist ... ok
+test prompt_framework::tests::soul_data_len_returns_principle_count ... ok
+test prompt_framework::tests::soul_data_is_empty_true_for_no_principles ... ok
+test prompt_framework::tests::soul_data_get_returns_none_for_missing ... ok
+
+test result: ok. 138 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/abilities_wiring_story_15_15_tests.rs (target/debug/deps/abilities_wiring_story_15_15_tests-f318c35146116280)
+
+running 2 tests
+test format_abilities_context_accessible_from_agents ... ok
+test resolve_abilities_callable_from_agents_crate ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ability_perception_story_9_2_tests.rs (target/debug/deps/ability_perception_story_9_2_tests-68a84fc869e20777)
+
+running 15 tests
+test ability_section_placed_in_valley_zone ... ok
+test involuntary_ability_shows_genre_description_in_prompt ... ok
+test character_with_multiple_involuntary_abilities ... ok
+test involuntary_ability_appears_in_narrator_prompt ... ok
+test meta_test_file_has_substantive_tests ... ok
+test mechanical_effect_not_in_narrator_prompt ... ok
+test multi_character_abilities_all_included ... ok
+test multi_character_mixed_abilities ... ok
+test natural_triggering_instruction_present ... ok
+test no_section_when_all_abilities_voluntary ... ok
+test no_section_when_no_characters ... ok
+test no_section_when_no_abilities_at_all ... ok
+test only_voluntary_abilities_produces_no_section ... ok
+test section_header_is_character_abilities ... ok
+test voluntary_ability_excluded_from_narrator_prompt ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/agent_impl_story_1_11_tests.rs (target/debug/deps/agent_impl_story_1_11_tests-d1cc2a68d8f567c3)
+
+running 24 tests
+test agent_trait_tests::narrator_system_prompt_has_agency_rules ... ok
+test agent_trait_tests::narrator_implements_agent_trait ... ok
+test agent_trait_tests::resonator_implements_agent_trait ... ok
+test agent_trait_tests::troper_implements_agent_trait ... ok
+test agent_types_tests::action_result_contains_narration_and_delta ... ok
+test agent_types_tests::world_state_patch_all_fields_optional ... ok
+test agent_trait_tests::world_builder_implements_agent_trait ... ok
+test context_building_tests::all_agents_add_identity_section ... ok
+test agent_types_tests::world_state_patch_deserializes_from_json ... ok
+test agent_trait_tests::all_agent_names_are_unique ... ok
+test context_building_tests::narrator_has_system_prompt ... ok
+test deferred_debt_tests::intent_enum_is_non_exhaustive ... ok
+test deferred_debt_tests::world_state_patch_deny_unknown_fields ... ok
+test error_handling_tests::action_result_can_be_degraded ... ok
+test game_service_tests::action_result_has_required_fields ... ok
+test game_service_tests::game_service_trait_is_object_safe ... ok
+test game_service_tests::orchestrator_implements_game_service ... ok
+test intent_routing_tests::intent_enum_has_expected_variants ... ok
+test intent_routing_tests::intent_route_defaults_to_narrator_on_unknown ... ok
+test deferred_debt_tests::world_state_patch_serde_round_trip ... ok
+test intent_routing_tests::intent_route_maps_combat_to_narrator ... ok
+test intent_routing_tests::intent_route_maps_dialogue_to_narrator ... ok
+test intent_routing_tests::intent_route_maps_exploration_to_narrator ... ok
+test intent_routing_tests::intent_router_has_classify_method ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/agent_infrastructure_tests.rs (target/debug/deps/agent_infrastructure_tests-3535a1390f4f55d7)
+
+running 20 tests
+test agent_trait::agent_has_name ... ok
+test agent_trait::agent_has_system_prompt ... ok
+test agent_trait::agent_response_has_text_field ... ok
+test agent_trait::agent_response_has_raw_output ... ok
+test claude_client::client_custom_command_path ... ok
+test claude_client::client_custom_timeout ... ok
+test claude_client::client_builder_sets_timeout_and_path ... ok
+test claude_client::client_default_command_is_claude ... ok
+test claude_client::client_default_timeout_is_120s ... ok
+test claude_client::error_empty_response_is_distinct ... ok
+test claude_client::error_implements_std_error ... ok
+test claude_client::error_subprocess_failure_carries_exit_code ... ok
+test claude_client::error_timeout_is_distinct_variant ... ok
+test context_builder::builder_adds_section ... ok
+test context_builder::builder_filters_by_category ... ok
+test context_builder::builder_composes_to_string ... ok
+test context_builder::builder_filters_by_zone ... ok
+test context_builder::builder_orders_sections_by_attention_zone ... ok
+test context_builder::builder_token_estimate_sums_sections ... ok
+test context_builder::empty_builder_produces_empty_context ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/assemble_turn_story_20_1_tests.rs (target/debug/deps/assemble_turn_story_20_1_tests-54c497594443b5e0)
+
+running 22 tests
+test assemble_turn_passes_through_narrator_fields ... ok
+test assemble_turn_uses_preprocessor_flags_over_narrator ... ok
+test assemble_turn_works_when_narrator_omits_rewrite_and_flags ... ok
+test assemble_turn_produces_valid_action_result ... ok
+test assemble_turn_uses_preprocessor_rewrite_over_narrator ... ok
+test classify_action_detects_inventory_reference ... ok
+test classify_action_detects_location_reference ... ok
+test classify_action_default_no_references ... ok
+test classify_action_detects_ability_reference ... ok
+test classify_action_detects_npc_reference ... ok
+test classify_action_detects_power_grab ... ok
+test classify_action_multiple_flags ... ok
+test narrator_prompt_omits_action_rewrite_schema ... ok
+test narrator_prompt_omits_action_flags_schema ... ok
+test preprocessor_functions_are_public ... ok
+test classify_action_emits_otel_span ... ok
+test rewrite_action_emits_otel_span ... ok
+test rewrite_action_intent_is_neutral ... ok
+test rewrite_action_produces_three_forms ... ok
+test rewrite_action_named_form_uses_character_name ... ok
+test tools_module_is_public ... ok
+test rewrite_action_you_form_is_second_person ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/assemble_turn_wiring_story_20_9_tests.rs (target/debug/deps/assemble_turn_wiring_story_20_9_tests-6726b60e57709fc1)
+
+running 3 tests
+test orchestrator_uses_tool_call_results ... ok
+test orchestrator_imports_from_tools_module ... ok
+test orchestrator_calls_assemble_turn ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/creature_smith_beat_selection_story_28_6_tests.rs (target/debug/deps/creature_smith_beat_selection_story_28_6_tests-b8f6228f6c5537e4)
+
+running 14 tests
+test intent_router_no_separate_combat_chase_branches ... ok
+test action_result_has_beat_selections_field ... ok
+test narrator_has_build_encounter_context ... ok
+test game_patch_with_beat_selections_deserializes ... ok
+test narrator_no_build_chase_context ... ok
+test narrator_output_format_includes_beat_selections ... ok
+test narrator_no_build_combat_context ... ok
+test narrator_output_format_shows_beat_selection_structure ... ok
+test narrator_output_format_no_combat_initiation_instructions ... ok
+test no_extract_combat_from_game_patch ... ok
+test orchestrator_emits_agent_beat_selection_otel_event ... ok
+test orchestrator_extracts_beat_selections_from_game_patch ... ok
+test orchestrator_populates_action_result_beat_selections ... ok
+test orchestrator_no_chase_patch_extraction ... FAILED
+
+failures:
+
+---- orchestrator_no_chase_patch_extraction stdout ----
+
+thread 'orchestrator_no_chase_patch_extraction' (6791226) panicked at crates/sidequest-agents/tests/creature_smith_beat_selection_story_28_6_tests.rs:117:5:
+orchestrator.rs must not reference ChasePatch — beat_selections replaces both CombatPatch and ChasePatch extraction
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    orchestrator_no_chase_patch_extraction
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p sidequest-agents --test creature_smith_beat_selection_story_28_6_tests`

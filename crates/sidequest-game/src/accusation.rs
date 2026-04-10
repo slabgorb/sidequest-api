@@ -35,11 +35,7 @@ pub struct Accusation {
 
 impl Accusation {
     /// Create a new accusation.
-    pub fn new(
-        accuser_name: String,
-        accused_npc_name: String,
-        stated_reason: String,
-    ) -> Self {
+    pub fn new(accuser_name: String, accused_npc_name: String, stated_reason: String) -> Self {
         Self {
             accuser_name,
             accused_npc_name,
@@ -107,12 +103,7 @@ pub fn evaluate_accusation(
     npc_beliefs: &HashMap<String, BeliefState>,
     guilty_npc: &str,
 ) -> AccusationResult {
-    let evidence = gather_evidence(
-        accusation,
-        discovered_clues,
-        clue_nodes,
-        npc_beliefs,
-    );
+    let evidence = gather_evidence(accusation, discovered_clues, clue_nodes, npc_beliefs);
 
     let quality = evidence.quality();
     let is_correct = guilty_npc == accusation.accused_npc_name;
@@ -145,7 +136,9 @@ fn gather_evidence(
 
     // Gather clues implicating the accused
     for node in clue_nodes {
-        if discovered_clues.contains(node.id()) && node.implicates().contains(&accusation.accused_npc_name) {
+        if discovered_clues.contains(node.id())
+            && node.implicates().contains(&accusation.accused_npc_name)
+        {
             implicating_clues.push(node.id().to_string());
         }
     }
@@ -159,7 +152,9 @@ fn gather_evidence(
                 Belief::Fact { content, .. } => {
                     facts_about_accused.push(format!("{}: {}", npc_name, content));
                 }
-                Belief::Claim { content, sentiment, .. } => {
+                Belief::Claim {
+                    content, sentiment, ..
+                } => {
                     use crate::belief_state::ClaimSentiment;
                     match sentiment {
                         ClaimSentiment::Corroborating => {
@@ -171,7 +166,12 @@ fn gather_evidence(
                         ClaimSentiment::Neutral => {}
                     }
                 }
-                Belief::Suspicion { content, confidence, subject, .. } => {
+                Belief::Suspicion {
+                    content,
+                    confidence,
+                    subject,
+                    ..
+                } => {
                     if subject == &accusation.accused_npc_name && *confidence > 0.6 {
                         corroborating_claims.push(format!("{}: {}", npc_name, content));
                     }
@@ -200,7 +200,7 @@ fn gather_evidence(
 
     // Get credibility score of the accused
     let mut accused_credibility = 0.5; // Default if no beliefs recorded
-    // Average credibility across all NPCs' trust in the accused
+                                       // Average credibility across all NPCs' trust in the accused
     let mut total_credibility = 0.0;
     let mut count = 0;
     for (_, beliefs) in npc_beliefs {
@@ -285,7 +285,7 @@ fn build_narrative_prompt(is_correct: bool, quality: EvidenceQuality) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clue_activation::{ClueType, DiscoveryMethod, ClueVisibility};
+    use crate::clue_activation::{ClueType, ClueVisibility, DiscoveryMethod};
 
     fn make_test_clue(id: &str, description: &str, implicates: Vec<String>) -> ClueNode {
         let mut node = ClueNode::new(
@@ -349,7 +349,11 @@ mod tests {
     #[test]
     fn test_circumstantial_accusation() {
         // One clue only = 2 points → Circumstantial
-        let clues = vec![make_test_clue("clue1", "bloody_knife", vec!["suspect".to_string()])];
+        let clues = vec![make_test_clue(
+            "clue1",
+            "bloody_knife",
+            vec!["suspect".to_string()],
+        )];
         let discovered = {
             let mut set = HashSet::new();
             set.insert("clue1".to_string());
@@ -427,7 +431,11 @@ mod tests {
 
     #[test]
     fn test_incorrect_accusation() {
-        let clues = vec![make_test_clue("clue1", "bloody_knife", vec!["suspect".to_string()])];
+        let clues = vec![make_test_clue(
+            "clue1",
+            "bloody_knife",
+            vec!["suspect".to_string()],
+        )];
         let discovered = {
             let mut set = HashSet::new();
             set.insert("clue1".to_string());
@@ -537,7 +545,11 @@ mod tests {
         };
 
         let summary_airtight = EvidenceSummary {
-            implicating_clues: vec!["clue1".to_string(), "clue2".to_string(), "clue3".to_string()],
+            implicating_clues: vec![
+                "clue1".to_string(),
+                "clue2".to_string(),
+                "clue3".to_string(),
+            ],
             facts_about_accused: vec![],
             corroborating_claims: vec!["claim1".to_string(), "claim2".to_string()],
             contradicting_claims: vec![],
@@ -546,7 +558,10 @@ mod tests {
             evidence_score: 10,
         };
 
-        assert_eq!(summary_circumstantial.quality(), EvidenceQuality::Circumstantial);
+        assert_eq!(
+            summary_circumstantial.quality(),
+            EvidenceQuality::Circumstantial
+        );
         assert_eq!(summary_strong.quality(), EvidenceQuality::Strong);
         assert_eq!(summary_airtight.quality(), EvidenceQuality::Airtight);
     }

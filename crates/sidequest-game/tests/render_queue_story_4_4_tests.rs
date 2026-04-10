@@ -332,12 +332,17 @@ fn all_tiers_have_positive_dimensions() {
 
 #[tokio::test]
 async fn enqueue_returns_queued_with_job_id() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let subject = combat_subject();
 
-    let result = queue.enqueue(subject, "oil_painting", "", "", "", None, None).await;
+    let result = queue
+        .enqueue(subject, "oil_painting", "", "", "", None, None)
+        .await;
     assert!(result.is_ok(), "Enqueue should succeed on non-full queue");
 
     match result.unwrap() {
@@ -356,14 +361,19 @@ async fn enqueue_returns_queued_with_job_id() {
 
 #[tokio::test]
 async fn enqueue_is_non_blocking() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let subject = combat_subject();
 
     // Enqueue should return near-instantly (not wait for rendering)
     let start = std::time::Instant::now();
-    let _result = queue.enqueue(subject, "oil_painting", "", "", "", None, None).await;
+    let _result = queue
+        .enqueue(subject, "oil_painting", "", "", "", None, None)
+        .await;
     let elapsed = start.elapsed();
 
     assert!(
@@ -381,9 +391,12 @@ async fn enqueue_is_non_blocking() {
 
 #[tokio::test]
 async fn duplicate_subject_returns_deduplicated() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let subject = combat_subject();
 
     // First enqueue — should be Queued
@@ -419,9 +432,12 @@ async fn duplicate_subject_returns_deduplicated() {
 
 #[tokio::test]
 async fn different_subjects_not_deduplicated() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let subject_a = combat_subject();
     let subject_b = landscape_subject();
 
@@ -454,9 +470,12 @@ async fn different_subjects_not_deduplicated() {
 async fn queue_rejects_when_full() {
     // Small queue that fills quickly
     let config = RenderQueueConfig::new(1, 4, Duration::from_secs(60)).unwrap();
-    let queue = RenderQueue::spawn(config, |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        config,
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
 
     // Fill the queue with distinct subjects
     let subject_a = combat_subject();
@@ -482,7 +501,10 @@ async fn queue_rejects_when_full() {
             0.8,
         )
         .unwrap();
-        match queue.enqueue(subject, "oil_painting", "", "", "", None, None).await {
+        match queue
+            .enqueue(subject, "oil_painting", "", "", "", None, None)
+            .await
+        {
             Err(QueueError::Full) => {
                 got_full = true;
                 break;
@@ -505,9 +527,12 @@ async fn queue_rejects_when_full() {
 
 #[tokio::test]
 async fn job_status_returns_queued_after_enqueue() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let subject = combat_subject();
 
     let result = queue
@@ -535,9 +560,12 @@ async fn job_status_returns_queued_after_enqueue() {
 
 #[tokio::test]
 async fn job_status_returns_none_for_unknown_id() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let unknown_id = uuid::Uuid::new_v4();
 
     let status = queue.job_status(unknown_id).await;
@@ -617,13 +645,18 @@ fn render_job_result_success_carries_all_fields() {
 
 #[tokio::test]
 async fn cache_len_increases_after_enqueue() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let initial_len = queue.cache_len().await;
 
     let subject = combat_subject();
-    let _ = queue.enqueue(subject, "oil_painting", "", "", "", None, None).await;
+    let _ = queue
+        .enqueue(subject, "oil_painting", "", "", "", None, None)
+        .await;
 
     let new_len = queue.cache_len().await;
     assert!(
@@ -638,9 +671,12 @@ async fn cache_len_increases_after_enqueue() {
 
 #[tokio::test]
 async fn duplicate_enqueue_does_not_increase_cache_len() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let subject = combat_subject();
 
     let _ = queue
@@ -648,7 +684,9 @@ async fn duplicate_enqueue_does_not_increase_cache_len() {
         .await;
     let len_after_first = queue.cache_len().await;
 
-    let _ = queue.enqueue(subject, "oil_painting", "", "", "", None, None).await;
+    let _ = queue
+        .enqueue(subject, "oil_painting", "", "", "", None, None)
+        .await;
     let len_after_second = queue.cache_len().await;
 
     assert_eq!(
@@ -665,9 +703,12 @@ async fn duplicate_enqueue_does_not_increase_cache_len() {
 
 #[tokio::test]
 async fn multiple_enqueues_complete_without_blocking() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     let start = std::time::Instant::now();
 
     // Enqueue 10 different subjects rapidly
@@ -680,7 +721,9 @@ async fn multiple_enqueues_complete_without_blocking() {
             0.8,
         )
         .unwrap();
-        let _ = queue.enqueue(subject, "oil_painting", "", "", "", None, None).await;
+        let _ = queue
+            .enqueue(subject, "oil_painting", "", "", "", None, None)
+            .await;
     }
 
     let elapsed = start.elapsed();
@@ -1015,9 +1058,12 @@ fn content_hash_is_order_independent_on_entities() {
 
 #[tokio::test]
 async fn shutdown_completes_without_panic() {
-    let queue = RenderQueue::spawn(default_config(), |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
-        Ok(("test.png".to_string(), 100))
-    });
+    let queue = RenderQueue::spawn(
+        default_config(),
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
+    );
     // Enqueue some work then shut down
     let _ = queue
         .enqueue(combat_subject(), "oil_painting", "", "", "", None, None)
@@ -1030,7 +1076,9 @@ async fn shutdown_completes_without_panic() {
 async fn spawn_with_default_config_succeeds() {
     let queue = RenderQueue::spawn(
         RenderQueueConfig::default(),
-        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async { Ok(("test.png".to_string(), 100)) },
+        |_prompt, _style, _tier, _neg, _narration, _w, _h, _variant, _lora_path, _lora_scale| async {
+            Ok(("test.png".to_string(), 100))
+        },
     );
     // Queue should be usable immediately after spawn
     let len = queue.cache_len().await;

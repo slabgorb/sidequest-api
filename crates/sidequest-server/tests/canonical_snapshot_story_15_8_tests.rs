@@ -74,8 +74,10 @@ fn dispatch_snapshot() -> GameSnapshot {
                 xp: 450,
                 inventory: {
                     let mut inv = Inventory::default();
-                    inv.add(test_item("rusty_blade", "Rusty Blade"), 20).unwrap();
-                    inv.add(test_item("healing_salve", "Healing Salve"), 20).unwrap();
+                    inv.add(test_item("rusty_blade", "Rusty Blade"), 20)
+                        .unwrap();
+                    inv.add(test_item("healing_salve", "Healing Salve"), 20)
+                        .unwrap();
                     inv
                 },
                 statuses: vec![],
@@ -102,22 +104,21 @@ fn dispatch_snapshot() -> GameSnapshot {
         npcs: vec![],
         location: "Rusted Bazaar".to_string(),
         time_of_day: "dusk".to_string(),
-        quest_log: HashMap::from([
-            ("Find the Caravan".to_string(), "Track the lost supply caravan through the wastes".to_string()),
-        ]),
+        quest_log: HashMap::from([(
+            "Find the Caravan".to_string(),
+            "Track the lost supply caravan through the wastes".to_string(),
+        )]),
         notes: vec![],
-        narrative_log: vec![
-            NarrativeEntry {
-                timestamp: 1000,
-                round: 1,
-                author: "narrator".to_string(),
-                content: "The wastes stretch endlessly before you.".to_string(),
-                tags: vec![],
-                encounter_tags: vec![],
-                speaker: None,
-                entry_type: None,
-            },
-        ],
+        narrative_log: vec![NarrativeEntry {
+            timestamp: 1000,
+            round: 1,
+            author: "narrator".to_string(),
+            content: "The wastes stretch endlessly before you.".to_string(),
+            tags: vec![],
+            encounter_tags: vec![],
+            speaker: None,
+            entry_type: None,
+        }],
         active_tropes: vec![],
         atmosphere: "desolate and windswept".to_string(),
         current_region: "flickering_reach".to_string(),
@@ -160,8 +161,8 @@ fn dispatch_snapshot() -> GameSnapshot {
 // ============================================================================
 
 fn dispatch_source() -> String {
-    let dispatch_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/dispatch/mod.rs");
+    let dispatch_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
     std::fs::read_to_string(&dispatch_path)
         .unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
 }
@@ -170,10 +171,12 @@ fn dispatch_source() -> String {
 /// Returns the text from `fn {name}(` to the next top-level function definition.
 fn extract_fn_body<'a>(src: &'a str, fn_name: &str) -> &'a str {
     let needle = format!("fn {}(", fn_name);
-    let fn_start = src.find(&needle)
+    let fn_start = src
+        .find(&needle)
         .unwrap_or_else(|| panic!("{} function must exist in dispatch/mod.rs", fn_name));
     let fn_body = &src[fn_start..];
-    let fn_end = fn_body[1..].find("\nfn ")
+    let fn_end = fn_body[1..]
+        .find("\nfn ")
         .or_else(|| fn_body[1..].find("\nasync fn "))
         .or_else(|| fn_body[1..].find("\npub fn "))
         .or_else(|| fn_body[1..].find("\npub(crate) fn "))
@@ -251,7 +254,8 @@ fn dispatch_context_has_snapshot_field() {
     let src = dispatch_source();
 
     // Find the DispatchContext struct definition
-    let ctx_start = src.find("struct DispatchContext")
+    let ctx_start = src
+        .find("struct DispatchContext")
         .expect("DispatchContext struct must exist in dispatch/mod.rs");
 
     // Find the closing brace of the struct
@@ -363,9 +367,14 @@ fn snapshot_patch_in_place_preserves_fields_across_turns() {
     // Turn 2: HP changes, inventory updated, NPC registered
     if let Some(ch) = snapshot.characters.first_mut() {
         ch.core.hp = 12;
-        ch.core.inventory.add(test_item("arena_token", "Arena Token"), 20).unwrap();
+        ch.core
+            .inventory
+            .add(test_item("arena_token", "Arena Token"), 20)
+            .unwrap();
     }
-    snapshot.discovered_regions.push("arena_district".to_string());
+    snapshot
+        .discovered_regions
+        .push("arena_district".to_string());
     snapshot.turn_manager.advance();
 
     // Turn 3: quest log updated
@@ -378,7 +387,17 @@ fn snapshot_patch_in_place_preserves_fields_across_turns() {
     // Verify ALL mutations survived patch-in-place
     assert_eq!(snapshot.location, "Arena of the Damned");
     assert!(snapshot.characters.first().unwrap().core.hp == 12);
-    assert_eq!(snapshot.characters.first().unwrap().core.inventory.items.len(), 3);
+    assert_eq!(
+        snapshot
+            .characters
+            .first()
+            .unwrap()
+            .core
+            .inventory
+            .items
+            .len(),
+        3
+    );
     assert_eq!(snapshot.narrative_log.len(), 2);
     assert_eq!(snapshot.discovered_regions.len(), 3);
     assert!(snapshot.quest_log.contains_key("Arena Champion"));
@@ -427,7 +446,10 @@ fn save_without_prior_load_then_load_recovers_all_fields() {
     assert_eq!(loaded_snap.current_region, "flickering_reach");
 
     // Character state
-    let ch = loaded_snap.characters.first().expect("character must survive save/load");
+    let ch = loaded_snap
+        .characters
+        .first()
+        .expect("character must survive save/load");
     assert_eq!(ch.core.hp, 18);
     assert_eq!(ch.core.max_hp, 25);
     assert_eq!(ch.core.level, 3);
@@ -441,11 +463,20 @@ fn save_without_prior_load_then_load_recovers_all_fields() {
     assert_eq!(loaded_snap.lore_established.len(), 1);
 
     // Turn manager — round survives save/load
-    assert_eq!(loaded_snap.turn_manager.round(), snapshot.turn_manager.round());
+    assert_eq!(
+        loaded_snap.turn_manager.round(),
+        snapshot.turn_manager.round()
+    );
 
     // Resource state — now carried via ResourcePool
     assert!(
-        (loaded_snap.resources.get("Luck").map(|p| p.current).unwrap_or(0.0) - 0.75).abs()
+        (loaded_snap
+            .resources
+            .get("Luck")
+            .map(|p| p.current)
+            .unwrap_or(0.0)
+            - 0.75)
+            .abs()
             < f64::EPSILON,
         "Luck ResourcePool current must survive save/load"
     );
@@ -515,7 +546,10 @@ fn session_restore_loads_from_sqlite() {
     let restored = restored.unwrap();
     assert_eq!(restored.snapshot.genre_slug, snapshot.genre_slug);
     assert_eq!(restored.snapshot.world_slug, snapshot.world_slug);
-    assert_eq!(restored.snapshot.characters.len(), snapshot.characters.len());
+    assert_eq!(
+        restored.snapshot.characters.len(),
+        snapshot.characters.len()
+    );
 }
 
 #[test]
@@ -588,19 +622,20 @@ fn persist_game_state_has_error_handling_on_save() {
 
 #[test]
 fn lib_dispatch_context_construction_includes_snapshot() {
-    let lib_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/lib.rs");
-    let src = std::fs::read_to_string(&lib_path)
-        .unwrap_or_else(|e| panic!("Failed to read lib.rs: {e}"));
+    let lib_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+    let src =
+        std::fs::read_to_string(&lib_path).unwrap_or_else(|e| panic!("Failed to read lib.rs: {e}"));
 
     // Find the DispatchContext construction in the PlayerAction handler
     // It should include a `snapshot:` field
-    let ctx_construction = src.find("DispatchContext {")
+    let ctx_construction = src
+        .find("DispatchContext {")
         .expect("DispatchContext construction must exist in lib.rs");
 
     // Get a reasonable chunk after the construction start
     let construction_body = &src[ctx_construction..];
-    let end = construction_body.find("}.await")
+    let end = construction_body
+        .find("}.await")
         .or_else(|| construction_body.find("}\n").map(|i| i + 1))
         .unwrap_or(construction_body.len().min(2000));
     let construction = &construction_body[..end];
@@ -629,10 +664,10 @@ fn persist_game_state_traces_empty_slugs_early_return() {
     if persist_fn.contains("is_empty()") {
         // If there's an early-return guard on empty slugs, it should at least trace
         assert!(
-            persist_fn.contains("tracing::debug!") ||
-            persist_fn.contains("tracing::warn!") ||
-            persist_fn.contains("tracing::info!") ||
-            persist_fn.contains("tracing::error!"),
+            persist_fn.contains("tracing::debug!")
+                || persist_fn.contains("tracing::warn!")
+                || persist_fn.contains("tracing::info!")
+                || persist_fn.contains("tracing::error!"),
             "persist_game_state() early return for empty slugs should have a tracing call. \
              Rule #4: error/guard paths must have tracing coverage."
         );

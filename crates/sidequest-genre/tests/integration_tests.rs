@@ -692,7 +692,10 @@ fn road_warrior_world_config_has_extras() {
 
     assert_eq!(circuit.config.name, "The Circuit");
     assert_eq!(circuit.config.slug, "the_circuit");
-    assert_eq!(circuit.config.era.as_deref(), Some("Late 1970s \u{2014} early 1980s"));
+    assert_eq!(
+        circuit.config.era.as_deref(),
+        Some("Late 1970s \u{2014} early 1980s")
+    );
     assert!(circuit.config.extras.contains_key("factions"));
 }
 
@@ -707,7 +710,10 @@ fn road_warrior_world_lore_has_extras() {
     let circuit = &pack.worlds["the_circuit"];
 
     // Road warrior lore uses setting/faction_relations format
-    assert!(circuit.lore.extras.contains_key("setting") || circuit.lore.extras.contains_key("faction_relations"));
+    assert!(
+        circuit.lore.extras.contains_key("setting")
+            || circuit.lore.extras.contains_key("faction_relations")
+    );
 }
 
 #[test]
@@ -717,12 +723,14 @@ fn load_caverns_and_claudes_genre_pack() {
         return;
     }
 
-    let pack = sidequest_genre::load_genre_pack(&path)
-        .expect("should load caverns_and_claudes");
+    let pack = sidequest_genre::load_genre_pack(&path).expect("should load caverns_and_claudes");
     assert_eq!(pack.meta.name.as_str(), "Caverns & Claudes");
     assert!(!pack.cultures.is_empty(), "should have cultures");
     assert!(!pack.tropes.is_empty(), "should have tropes");
-    assert!(pack.worlds.contains_key("mawdeep"), "should have mawdeep world");
+    assert!(
+        pack.worlds.contains_key("mawdeep"),
+        "should have mawdeep world"
+    );
 
     let mawdeep = &pack.worlds["mawdeep"];
     assert!(mawdeep.cartography.rooms.is_some(), "should have rooms");

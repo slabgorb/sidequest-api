@@ -219,10 +219,7 @@ fn negotiation_resolves_at_high_threshold() {
         encounter.resolved,
         "negotiation should resolve when leverage reaches threshold_high"
     );
-    assert_eq!(
-        encounter.structured_phase,
-        Some(EncounterPhase::Resolution)
-    );
+    assert_eq!(encounter.structured_phase, Some(EncounterPhase::Resolution));
 }
 
 /// Leverage reaching threshold_low (0) resolves as defeat.
@@ -264,7 +261,10 @@ fn interrogation_pressure_reduces_resistance() {
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
     encounter.apply_beat("pressure", &def).unwrap();
-    assert_eq!(encounter.metric.current, 8, "pressure subtracts 2 resistance");
+    assert_eq!(
+        encounter.metric.current, 8,
+        "pressure subtracts 2 resistance"
+    );
 }
 
 /// Rapport reduces resistance slowly (by 1).
@@ -274,7 +274,10 @@ fn interrogation_rapport_slow_but_safe() {
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
 
     encounter.apply_beat("rapport", &def).unwrap();
-    assert_eq!(encounter.metric.current, 9, "rapport subtracts 1 resistance");
+    assert_eq!(
+        encounter.metric.current, 9,
+        "rapport subtracts 1 resistance"
+    );
 }
 
 /// Evidence is the strongest beat (-3 resistance).
@@ -307,10 +310,7 @@ fn interrogation_resolves_at_zero_resistance() {
         encounter.resolved,
         "interrogation should resolve at zero resistance"
     );
-    assert_eq!(
-        encounter.structured_phase,
-        Some(EncounterPhase::Resolution)
-    );
+    assert_eq!(encounter.structured_phase, Some(EncounterPhase::Resolution));
 }
 
 // =========================================================================
@@ -525,10 +525,7 @@ fn walk_away_resolves_immediately() {
     // Walk away on first beat — should resolve
     encounter.apply_beat("walk_away", &def).unwrap();
     assert!(encounter.resolved, "walk_away must resolve the encounter");
-    assert_eq!(
-        encounter.structured_phase,
-        Some(EncounterPhase::Resolution)
-    );
+    assert_eq!(encounter.structured_phase, Some(EncounterPhase::Resolution));
 }
 
 /// Walk_away after multiple beats still resolves.
@@ -715,10 +712,7 @@ fn full_negotiation_sequence_to_victory() {
     encounter.apply_beat("persuade", &def).unwrap();
     assert_eq!(encounter.metric.current, 11);
     assert!(encounter.resolved, "should resolve at leverage >= 10");
-    assert_eq!(
-        encounter.structured_phase,
-        Some(EncounterPhase::Resolution)
-    );
+    assert_eq!(encounter.structured_phase, Some(EncounterPhase::Resolution));
 }
 
 /// Full negotiation to defeat: concede repeatedly until leverage hits 0.
@@ -732,7 +726,8 @@ fn full_negotiation_sequence_to_defeat() {
         encounter.apply_beat("concede_point", &def).unwrap();
         let expected = 5 - (i + 1) as i32;
         assert_eq!(
-            encounter.metric.current, expected,
+            encounter.metric.current,
+            expected,
             "after {} concessions, leverage should be {}",
             i + 1,
             expected
@@ -791,8 +786,14 @@ fn negotiation_context_shows_bidirectional_thresholds() {
     let encounter = StructuredEncounter::from_confrontation_def(&def);
     let context = encounter.format_encounter_context(&def);
 
-    assert!(context.contains("[NEGOTIATION]"), "header should be NEGOTIATION");
-    assert!(context.contains("Leverage: 5"), "should show leverage value");
+    assert!(
+        context.contains("[NEGOTIATION]"),
+        "header should be NEGOTIATION"
+    );
+    assert!(
+        context.contains("Leverage: 5"),
+        "should show leverage value"
+    );
     assert!(
         context.contains("low:0") && context.contains("high:10"),
         "should show both thresholds for bidirectional: got {}",
@@ -897,11 +898,7 @@ fn social_beat_fields_survive_serde_roundtrip() {
         "effect must survive round-trip"
     );
 
-    let threaten = restored
-        .beats
-        .iter()
-        .find(|b| b.id == "threaten")
-        .unwrap();
+    let threaten = restored.beats.iter().find(|b| b.id == "threaten").unwrap();
 
     assert_eq!(
         threaten.consequence.as_deref(),

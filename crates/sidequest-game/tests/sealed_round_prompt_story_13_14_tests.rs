@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
 use sidequest_game::multiplayer::MultiplayerSession;
-use sidequest_game::sealed_round::{SealedRoundContext, build_sealed_round_context};
+use sidequest_game::sealed_round::{build_sealed_round_context, SealedRoundContext};
 use sidequest_genre::InitiativeRule;
 
 // ===========================================================================
@@ -87,7 +87,10 @@ fn sealed_round_context_contains_all_actions() {
     let prompt = ctx.to_prompt_section();
     assert!(prompt.contains("Kael"), "prompt must include Kael's action");
     assert!(prompt.contains("Lyra"), "prompt must include Lyra's action");
-    assert!(prompt.contains("Thane"), "prompt must include Thane's action");
+    assert!(
+        prompt.contains("Thane"),
+        "prompt must include Thane's action"
+    );
     assert!(
         prompt.contains("I attack the goblin"),
         "prompt must include Kael's action text"
@@ -223,8 +226,7 @@ fn sealed_round_context_includes_initiative_instruction() {
     let prompt = ctx.to_prompt_section();
     // Must instruct narrator to determine initiative order
     assert!(
-        prompt.to_lowercase().contains("initiative")
-            && prompt.to_lowercase().contains("order"),
+        prompt.to_lowercase().contains("initiative") && prompt.to_lowercase().contains("order"),
         "prompt must instruct narrator to determine initiative order"
     );
 }
@@ -255,13 +257,16 @@ fn sealed_round_context_with_unknown_encounter_omits_initiative() {
     // actions but skip initiative stat context (graceful degradation).
     let ctx = build_sealed_round_context(
         &sample_actions(),
-        "puzzle",  // not in our rules
+        "puzzle", // not in our rules
         &sample_initiative_rules(),
         &sample_player_stats(),
     );
     let prompt = ctx.to_prompt_section();
     // Actions should still be present
-    assert!(prompt.contains("Kael"), "actions still present for unknown encounter");
+    assert!(
+        prompt.contains("Kael"),
+        "actions still present for unknown encounter"
+    );
     // But no specific stat values should be forced
     assert!(
         !prompt.contains("DEX") || !prompt.contains("16"),
@@ -315,9 +320,11 @@ fn sealed_round_context_roundtrip_action_count() {
 async fn barrier_claim_election_yields_one_winner() {
     // When 3 players submit, wait_for_turn resolves for all 3 tasks.
     // Exactly ONE should have claimed_resolution = true.
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string(), "p3".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec![
+        "p1".to_string(),
+        "p2".to_string(),
+        "p3".to_string(),
+    ]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "attack");
@@ -329,16 +336,16 @@ async fn barrier_claim_election_yields_one_winner() {
     let b2 = barrier.clone();
     let b3 = barrier.clone();
 
-    let (r1, r2, r3) = tokio::join!(
-        b1.wait_for_turn(),
-        b2.wait_for_turn(),
-        b3.wait_for_turn(),
-    );
+    let (r1, r2, r3) = tokio::join!(b1.wait_for_turn(), b2.wait_for_turn(), b3.wait_for_turn(),);
 
-    let claimed_count = [r1.claimed_resolution, r2.claimed_resolution, r3.claimed_resolution]
-        .iter()
-        .filter(|&&c| c)
-        .count();
+    let claimed_count = [
+        r1.claimed_resolution,
+        r2.claimed_resolution,
+        r3.claimed_resolution,
+    ]
+    .iter()
+    .filter(|&&c| c)
+    .count();
 
     assert_eq!(
         claimed_count, 1,
@@ -348,9 +355,7 @@ async fn barrier_claim_election_yields_one_winner() {
 
 #[tokio::test]
 async fn claimed_handler_can_store_and_others_retrieve_narration() {
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string(), "p2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "attack");
@@ -417,9 +422,11 @@ fn sealed_round_context_has_synthesize_instruction() {
 
 #[test]
 fn barrier_named_actions_returns_all_submitted() {
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string(), "p3".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec![
+        "p1".to_string(),
+        "p2".to_string(),
+        "p3".to_string(),
+    ]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "I attack");
@@ -433,9 +440,7 @@ fn barrier_named_actions_returns_all_submitted() {
 #[test]
 fn barrier_named_actions_uses_character_name_not_player_id() {
     // named_actions keys should be character names, not player IDs
-    let session = MultiplayerSession::with_player_ids(
-        vec!["p1".to_string(), "p2".to_string()],
-    );
+    let session = MultiplayerSession::with_player_ids(vec!["p1".to_string(), "p2".to_string()]);
     let barrier = TurnBarrier::new(session, TurnBarrierConfig::disabled());
 
     barrier.submit_action("p1", "I attack");
@@ -486,7 +491,10 @@ fn sealed_round_context_with_empty_initiative_rules() {
     );
     let prompt = ctx.to_prompt_section();
     // Actions should still be present
-    assert!(prompt.contains("Kael"), "actions present even without initiative rules");
+    assert!(
+        prompt.contains("Kael"),
+        "actions present even without initiative rules"
+    );
     assert!(prompt.contains("I attack the goblin"));
 }
 
@@ -500,5 +508,8 @@ fn sealed_round_context_with_missing_player_stats() {
         &HashMap::new(), // no stats
     );
     let prompt = ctx.to_prompt_section();
-    assert!(prompt.contains("Kael"), "actions present even without stat data");
+    assert!(
+        prompt.contains("Kael"),
+        "actions present even without stat data"
+    );
 }

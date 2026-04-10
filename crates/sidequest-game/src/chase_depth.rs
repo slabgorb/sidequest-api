@@ -344,11 +344,7 @@ pub fn danger_for_beat(beat: u32, phase: ChasePhase) -> u32 {
 /// Compute terrain modifiers from a danger level.
 pub fn terrain_modifiers(danger: u32) -> TerrainModifiers {
     let speed_modifier = -(danger as i32 / 2);
-    let maneuver_modifier = if danger >= 2 {
-        -(danger as i32 / 3)
-    } else {
-        0
-    };
+    let maneuver_modifier = if danger >= 2 { -(danger as i32 / 3) } else { 0 };
     let rig_damage_per_beat = (danger as i32 - 2).max(0);
     let terrain_decision = danger >= 3;
 

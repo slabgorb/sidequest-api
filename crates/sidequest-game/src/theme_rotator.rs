@@ -5,9 +5,9 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use rand::rngs::StdRng;
 use rand::seq::IndexedRandom;
 use rand::SeedableRng;
-use rand::rngs::StdRng;
 use sidequest_genre::MoodTrack;
 
 /// Configuration for theme rotation behaviour.
@@ -127,7 +127,8 @@ impl ThemeRotator {
 
     /// Return a snapshot of per-mood play history for telemetry.
     pub fn history_snapshot(&self) -> HashMap<String, Vec<String>> {
-        self.history.iter()
+        self.history
+            .iter()
             .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
             .collect()
     }
@@ -293,11 +294,7 @@ mod tests {
             randomize: true,
         };
         let mut rotator = ThemeRotator::new_seeded(config, 42);
-        let tracks = vec![
-            track("a", 0.5),
-            track("b", 0.5),
-            track("c", 0.5),
-        ];
+        let tracks = vec![track("a", 0.5), track("b", 0.5), track("c", 0.5)];
 
         // With randomize=true and multiple equal-energy tracks, we should get variety
         let mut seen = std::collections::HashSet::new();
@@ -319,11 +316,7 @@ mod tests {
             randomize: false,
         };
         let mut rotator = ThemeRotator::new_seeded(config, 42);
-        let tracks = vec![
-            track("best", 0.5),
-            track("ok", 0.3),
-            track("meh", 0.1),
-        ];
+        let tracks = vec![track("best", 0.5), track("ok", 0.3), track("meh", 0.1)];
 
         // With randomize=false, always picks best energy match
         let first = rotator.select("mood", &tracks, 0.5).unwrap().title.clone();

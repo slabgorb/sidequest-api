@@ -109,10 +109,7 @@ fn single_player_produces_no_reconciliation() {
 
     match result {
         ReconciliationResult::NoActionNeeded => {}
-        other => panic!(
-            "Expected NoActionNeeded for single player, got {:?}",
-            other
-        ),
+        other => panic!("Expected NoActionNeeded for single player, got {:?}", other),
     }
 }
 
@@ -242,10 +239,7 @@ fn reconciliation_result_contains_telemetry_data() {
         } => {
             // Each moved player entry must have before/after for OTEL emission
             for moved in players_moved {
-                assert!(
-                    !moved.player_id.is_empty(),
-                    "Telemetry needs player_id"
-                );
+                assert!(!moved.player_id.is_empty(), "Telemetry needs player_id");
                 assert!(
                     !moved.old_location.is_empty(),
                     "Telemetry needs old_location"
@@ -357,7 +351,10 @@ fn player_with_empty_location_is_always_moved() {
             assert_eq!(players_moved.len(), 1);
             assert_eq!(players_moved[0].player_name, "Mira");
         }
-        other => panic!("Expected Reconciled for empty-location player, got {:?}", other),
+        other => panic!(
+            "Expected Reconciled for empty-location player, got {:?}",
+            other
+        ),
     }
 }
 

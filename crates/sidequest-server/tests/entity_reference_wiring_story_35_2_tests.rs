@@ -15,9 +15,7 @@
 use std::collections::HashMap;
 
 use sidequest_agents::entity_reference::{extract_potential_references, EntityRegistry};
-use sidequest_game::{
-    Character, CreatureCore, Disposition, GameSnapshot, Inventory, Item, Npc,
-};
+use sidequest_game::{Character, CreatureCore, Disposition, GameSnapshot, Inventory, Item, Npc};
 use sidequest_protocol::NonBlankString;
 
 // ===========================================================================
@@ -222,7 +220,8 @@ fn entity_reference_check_runs_after_update_npc_registry() {
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     let npc_registry_pos = production_code.find("update_npc_registry(");
-    let entity_ref_pos = production_code.find("EntityRegistry::from_snapshot")
+    let entity_ref_pos = production_code
+        .find("EntityRegistry::from_snapshot")
         .or_else(|| production_code.find("extract_potential_references"))
         .or_else(|| production_code.find("entity_reference"));
 
@@ -270,10 +269,7 @@ fn narration_with_unknown_npc_produces_unresolved_references() {
     let references = extract_potential_references(narration);
 
     // Filter to only unresolved references
-    let unresolved: Vec<&String> = references
-        .iter()
-        .filter(|r| !registry.matches(r))
-        .collect();
+    let unresolved: Vec<&String> = references.iter().filter(|r| !registry.matches(r)).collect();
 
     assert!(
         !unresolved.is_empty(),
@@ -302,10 +298,7 @@ fn narration_with_only_known_npcs_produces_no_unresolved_references() {
                      Kael reaches for his weapon.";
     let references = extract_potential_references(narration);
 
-    let unresolved: Vec<&String> = references
-        .iter()
-        .filter(|r| !registry.matches(r))
-        .collect();
+    let unresolved: Vec<&String> = references.iter().filter(|r| !registry.matches(r)).collect();
 
     assert!(
         unresolved.is_empty(),
@@ -327,10 +320,7 @@ fn multiple_unknown_npcs_each_produce_unresolved_references() {
                      Kael watches from the shadows.";
     let references = extract_potential_references(narration);
 
-    let unresolved: Vec<&String> = references
-        .iter()
-        .filter(|r| !registry.matches(r))
-        .collect();
+    let unresolved: Vec<&String> = references.iter().filter(|r| !registry.matches(r)).collect();
 
     assert!(
         unresolved.len() >= 2,

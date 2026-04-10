@@ -45,12 +45,17 @@ pub(super) async fn accumulate_and_persist_lore(
                 Some(turn),
                 metadata,
             );
-            match ctx.state.persistence().append_lore_fragment(
-                ctx.genre_slug,
-                ctx.world_slug,
-                ctx.player_name_for_save,
-                &persist_fragment,
-            ).await {
+            match ctx
+                .state
+                .persistence()
+                .append_lore_fragment(
+                    ctx.genre_slug,
+                    ctx.world_slug,
+                    ctx.player_name_for_save,
+                    &persist_fragment,
+                )
+                .await
+            {
                 Ok(()) => {
                     WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
                         .field("event", "lore.fragment_persisted")
@@ -71,7 +76,10 @@ pub(super) async fn accumulate_and_persist_lore(
                 };
                 match client.embed(embed_params).await {
                     Ok(embed_result) => {
-                        if let Err(e) = ctx.lore_store.set_embedding(&fragment_id, embed_result.embedding) {
+                        if let Err(e) = ctx
+                            .lore_store
+                            .set_embedding(&fragment_id, embed_result.embedding)
+                        {
                             tracing::warn!(error = %e, fragment_id = %fragment_id, "lore.embedding_attach_failed");
                         } else {
                             WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
@@ -132,16 +140,15 @@ pub(super) async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_nar
         .unwrap_or("")
         .to_string();
 
-    let validation_result =
-        sidequest_agents::continuity_validator::validate_continuity_llm_async(
-            clean_narration,
-            &ctx.current_location,
-            &dead_npcs,
-            &inventory_items,
-            "", // time_of_day not tracked in dispatch context yet
-            &character_description,
-        )
-        .await;
+    let validation_result = sidequest_agents::continuity_validator::validate_continuity_llm_async(
+        clean_narration,
+        &ctx.current_location,
+        &dead_npcs,
+        &inventory_items,
+        "", // time_of_day not tracked in dispatch context yet
+        &character_description,
+    )
+    .await;
 
     if !validation_result.is_clean() {
         let corrections = validation_result.format_corrections();

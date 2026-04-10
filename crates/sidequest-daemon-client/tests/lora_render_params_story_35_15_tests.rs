@@ -312,7 +312,5 @@ fn lora_path_survives_full_request_envelope() {
         json["params"]["lora_path"].as_str(),
         Some("/abs/test.safetensors")
     );
-    assert!(
-        (json["params"]["lora_scale"].as_f64().unwrap() - 0.9_f64).abs() < 1e-6
-    );
+    assert!((json["params"]["lora_scale"].as_f64().unwrap() - 0.9_f64).abs() < 1e-6);
 }

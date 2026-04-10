@@ -7,29 +7,50 @@ pub(super) fn derive_patches_from_delta(
     use sidequest_agents::turn_record::PatchSummary;
     let mut patches = Vec::new();
     if delta.characters_changed() {
-        patches.push(PatchSummary { patch_type: "characters".into(), fields_changed: vec!["characters".into()] });
+        patches.push(PatchSummary {
+            patch_type: "characters".into(),
+            fields_changed: vec!["characters".into()],
+        });
     }
     if delta.npcs_changed() {
-        patches.push(PatchSummary { patch_type: "npcs".into(), fields_changed: vec!["npcs".into()] });
+        patches.push(PatchSummary {
+            patch_type: "npcs".into(),
+            fields_changed: vec!["npcs".into()],
+        });
     }
     if delta.location_changed() {
         let mut fields = vec!["location".into()];
         if let Some(loc) = delta.new_location() {
             fields.push(format!("new_location:{loc}"));
         }
-        patches.push(PatchSummary { patch_type: "location".into(), fields_changed: fields });
+        patches.push(PatchSummary {
+            patch_type: "location".into(),
+            fields_changed: fields,
+        });
     }
     if delta.quest_log_changed() {
-        patches.push(PatchSummary { patch_type: "quest_log".into(), fields_changed: vec!["quest_log".into()] });
+        patches.push(PatchSummary {
+            patch_type: "quest_log".into(),
+            fields_changed: vec!["quest_log".into()],
+        });
     }
     if delta.atmosphere_changed() {
-        patches.push(PatchSummary { patch_type: "atmosphere".into(), fields_changed: vec!["atmosphere".into()] });
+        patches.push(PatchSummary {
+            patch_type: "atmosphere".into(),
+            fields_changed: vec!["atmosphere".into()],
+        });
     }
     if delta.regions_changed() {
-        patches.push(PatchSummary { patch_type: "regions".into(), fields_changed: vec!["regions".into()] });
+        patches.push(PatchSummary {
+            patch_type: "regions".into(),
+            fields_changed: vec!["regions".into()],
+        });
     }
     if delta.tropes_changed() {
-        patches.push(PatchSummary { patch_type: "tropes".into(), fields_changed: vec!["tropes".into()] });
+        patches.push(PatchSummary {
+            patch_type: "tropes".into(),
+            fields_changed: vec!["tropes".into()],
+        });
     }
     patches
 }

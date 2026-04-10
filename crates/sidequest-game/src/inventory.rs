@@ -225,7 +225,11 @@ impl Inventory {
 
     /// Transition an item to a new state. Returns the item's previous state,
     /// or `NotFound` if no carried item matches the ID.
-    pub fn transition(&mut self, id: &str, new_state: ItemState) -> Result<ItemState, InventoryError> {
+    pub fn transition(
+        &mut self,
+        id: &str,
+        new_state: ItemState,
+    ) -> Result<ItemState, InventoryError> {
         let item = self
             .items
             .iter_mut()
@@ -262,7 +266,10 @@ impl Inventory {
 
     /// All non-carried items — the history ledger.
     pub fn history(&self) -> Vec<&Item> {
-        self.items.iter().filter(|i| !i.state.is_carried()).collect()
+        self.items
+            .iter()
+            .filter(|i| !i.state.is_carried())
+            .collect()
     }
 
     /// Items lost/stolen/given away — potential quest hooks.
@@ -605,7 +612,11 @@ mod tests {
             weight: 0.5,
             rarity: NonBlankString::new("common").unwrap(),
             narrative_weight: 0.1,
-            tags: vec!["light".to_string(), "consumable".to_string(), "fuel".to_string()],
+            tags: vec![
+                "light".to_string(),
+                "consumable".to_string(),
+                "fuel".to_string(),
+            ],
             equipped: false,
             state: ItemState::Carried,
             quantity: 1,
@@ -629,9 +640,16 @@ mod tests {
         let mut inv = Inventory::default();
         inv.add(torch(), 10).unwrap(); // uses_remaining: Some(6)
         let result = inv.consume_use("torch_1");
-        assert!(result.is_none(), "torch should not be removed after one use");
+        assert!(
+            result.is_none(),
+            "torch should not be removed after one use"
+        );
         let item = inv.find("torch_1").expect("torch should still exist");
-        assert_eq!(item.uses_remaining, Some(5), "uses_remaining should decrement from 6 to 5");
+        assert_eq!(
+            item.uses_remaining,
+            Some(5),
+            "uses_remaining should decrement from 6 to 5"
+        );
     }
 
     #[test]
@@ -644,8 +662,16 @@ mod tests {
         assert!(result.is_some(), "last use should return the removed item");
         let removed = result.unwrap();
         assert_eq!(removed.id.as_str(), "torch_1");
-        assert_eq!(removed.uses_remaining, Some(0), "removed item should have 0 uses");
-        assert_eq!(inv.item_count(), 0, "inventory should be empty after removal");
+        assert_eq!(
+            removed.uses_remaining,
+            Some(0),
+            "removed item should have 0 uses"
+        );
+        assert_eq!(
+            inv.item_count(),
+            0,
+            "inventory should be empty after removal"
+        );
     }
 
     #[test]
@@ -675,7 +701,10 @@ mod tests {
         let mut inv = Inventory::default();
         inv.add(torch(), 10).unwrap();
         let result = inv.deplete_light_on_transition();
-        assert!(result.is_none(), "torch with 6 uses should not be removed after 1 transition");
+        assert!(
+            result.is_none(),
+            "torch with 6 uses should not be removed after 1 transition"
+        );
         let item = inv.find("torch_1").expect("torch should still exist");
         assert_eq!(item.uses_remaining, Some(5));
     }
@@ -704,7 +733,11 @@ mod tests {
         let t = inv.find("torch_1").expect("torch should exist");
         assert_eq!(t.uses_remaining, Some(5), "torch should be decremented");
         let l = inv.find("lantern_oil_1").expect("lantern oil should exist");
-        assert_eq!(l.uses_remaining, Some(12), "lantern oil should be untouched");
+        assert_eq!(
+            l.uses_remaining,
+            Some(12),
+            "lantern oil should be untouched"
+        );
     }
 
     #[test]
@@ -715,7 +748,10 @@ mod tests {
         magic_lamp.uses_remaining = None; // infinite
         inv.add(magic_lamp, 10).unwrap();
         let result = inv.deplete_light_on_transition();
-        assert!(result.is_none(), "infinite light source should not be consumed");
+        assert!(
+            result.is_none(),
+            "infinite light source should not be consumed"
+        );
         assert_eq!(inv.item_count(), 1);
     }
 
@@ -730,7 +766,9 @@ mod tests {
         for i in 1..=5 {
             let result = inv.deplete_light_on_transition();
             assert!(result.is_none(), "torch should survive transition {i}");
-            let t = inv.find("torch_1").expect("torch should exist after transition {i}");
+            let t = inv
+                .find("torch_1")
+                .expect("torch should exist after transition {i}");
             assert_eq!(
                 t.uses_remaining,
                 Some(6 - i),
@@ -741,7 +779,10 @@ mod tests {
 
         // Transition 6: torch should be removed
         let result = inv.deplete_light_on_transition();
-        assert!(result.is_some(), "torch should be removed on 6th transition");
+        assert!(
+            result.is_some(),
+            "torch should be removed on 6th transition"
+        );
         let removed = result.unwrap();
         assert_eq!(removed.id.as_str(), "torch_1");
         assert_eq!(removed.uses_remaining, Some(0));
@@ -778,14 +819,20 @@ mod tests {
     fn uses_remaining_serializes_when_some() {
         let t = torch();
         let json = serde_json::to_string(&t).unwrap();
-        assert!(json.contains("\"uses_remaining\":6"), "uses_remaining should serialize as 6, got: {json}");
+        assert!(
+            json.contains("\"uses_remaining\":6"),
+            "uses_remaining should serialize as 6, got: {json}"
+        );
     }
 
     #[test]
     fn uses_remaining_serializes_when_none() {
         let s = sword();
         let json = serde_json::to_string(&s).unwrap();
-        assert!(json.contains("\"uses_remaining\":null"), "uses_remaining=None should serialize as null, got: {json}");
+        assert!(
+            json.contains("\"uses_remaining\":null"),
+            "uses_remaining=None should serialize as null, got: {json}"
+        );
     }
 
     #[test]
@@ -793,7 +840,11 @@ mod tests {
         let t = torch();
         let json = serde_json::to_string(&t).unwrap();
         let back: Item = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.uses_remaining, Some(6), "uses_remaining should round-trip as Some(6)");
+        assert_eq!(
+            back.uses_remaining,
+            Some(6),
+            "uses_remaining should round-trip as Some(6)"
+        );
     }
 
     #[test]
@@ -801,7 +852,10 @@ mod tests {
         let s = sword();
         let json = serde_json::to_string(&s).unwrap();
         let back: Item = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.uses_remaining, None, "uses_remaining should round-trip as None");
+        assert_eq!(
+            back.uses_remaining, None,
+            "uses_remaining should round-trip as None"
+        );
     }
 
     #[test]
@@ -809,7 +863,10 @@ mod tests {
         // Legacy items without uses_remaining field should deserialize with None
         let json = r#"{"id":"old_sword","name":"Old Sword","description":"A rusty blade","category":"weapon","value":5,"weight":3.0,"rarity":"common","narrative_weight":0.3,"tags":["melee"],"equipped":false,"quantity":1}"#;
         let item: Item = serde_json::from_str(json).unwrap();
-        assert_eq!(item.uses_remaining, None, "missing uses_remaining should default to None (infinite)");
+        assert_eq!(
+            item.uses_remaining, None,
+            "missing uses_remaining should default to None (infinite)"
+        );
     }
 
     #[test]
@@ -834,18 +891,36 @@ mod tests {
     fn transition_to_sold_stays_in_ledger() {
         let mut inv = Inventory::default();
         inv.add(sword(), 10).unwrap();
-        inv.transition("sword_iron", ItemState::Sold { to: "Patchwork".into() }).unwrap();
+        inv.transition(
+            "sword_iron",
+            ItemState::Sold {
+                to: "Patchwork".into(),
+            },
+        )
+        .unwrap();
         assert_eq!(inv.item_count(), 0, "carried count should be 0");
         assert_eq!(inv.ledger_size(), 1, "item remains in ledger");
-        assert!(inv.find("sword_iron").is_none(), "find only returns carried");
-        assert!(inv.find_any("sword_iron").is_some(), "find_any returns any state");
+        assert!(
+            inv.find("sword_iron").is_none(),
+            "find only returns carried"
+        );
+        assert!(
+            inv.find_any("sword_iron").is_some(),
+            "find_any returns any state"
+        );
     }
 
     #[test]
     fn transition_to_lost_is_recoverable() {
         let mut inv = Inventory::default();
         inv.add(sword(), 10).unwrap();
-        inv.transition("sword_iron", ItemState::Lost { reason: "stolen by Gutter Rats".into() }).unwrap();
+        inv.transition(
+            "sword_iron",
+            ItemState::Lost {
+                reason: "stolen by Gutter Rats".into(),
+            },
+        )
+        .unwrap();
         let recoverable = inv.recoverable();
         assert_eq!(recoverable.len(), 1);
         assert_eq!(recoverable[0].id.as_str(), "sword_iron");
@@ -855,7 +930,13 @@ mod tests {
     fn transition_to_given_is_recoverable() {
         let mut inv = Inventory::default();
         inv.add(sword(), 10).unwrap();
-        inv.transition("sword_iron", ItemState::Given { to: "Shirley".into() }).unwrap();
+        inv.transition(
+            "sword_iron",
+            ItemState::Given {
+                to: "Shirley".into(),
+            },
+        )
+        .unwrap();
         let recoverable = inv.recoverable();
         assert_eq!(recoverable.len(), 1);
     }
@@ -864,7 +945,8 @@ mod tests {
     fn transition_consumed_not_recoverable() {
         let mut inv = Inventory::default();
         inv.add(potion(), 10).unwrap();
-        inv.transition("healing_potion", ItemState::Consumed).unwrap();
+        inv.transition("healing_potion", ItemState::Consumed)
+            .unwrap();
         assert!(inv.recoverable().is_empty());
     }
 
@@ -872,7 +954,13 @@ mod tests {
     fn transition_unequips_item() {
         let mut inv = Inventory::default();
         inv.add(sword(), 10).unwrap(); // equipped = true
-        inv.transition("sword_iron", ItemState::Sold { to: "merchant".into() }).unwrap();
+        inv.transition(
+            "sword_iron",
+            ItemState::Sold {
+                to: "merchant".into(),
+            },
+        )
+        .unwrap();
         let item = inv.find_any("sword_iron").unwrap();
         assert!(!item.equipped, "sold items should not remain equipped");
     }
@@ -881,7 +969,13 @@ mod tests {
     fn carry_limit_ignores_non_carried() {
         let mut inv = Inventory::default();
         inv.add(sword(), 1).unwrap();
-        inv.transition("sword_iron", ItemState::Sold { to: "merchant".into() }).unwrap();
+        inv.transition(
+            "sword_iron",
+            ItemState::Sold {
+                to: "merchant".into(),
+            },
+        )
+        .unwrap();
         // Carry limit is 1, but the sword is sold — slot is free
         assert!(inv.add(potion(), 1).is_ok());
     }
@@ -891,7 +985,13 @@ mod tests {
         let mut inv = Inventory::default();
         inv.add(sword(), 10).unwrap();
         inv.add(potion(), 10).unwrap();
-        inv.transition("sword_iron", ItemState::Destroyed { reason: "dragon fire".into() }).unwrap();
+        inv.transition(
+            "sword_iron",
+            ItemState::Destroyed {
+                reason: "dragon fire".into(),
+            },
+        )
+        .unwrap();
         let history = inv.history();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].id.as_str(), "sword_iron");
@@ -915,11 +1015,22 @@ mod tests {
     fn item_state_serde_roundtrip() {
         let mut inv = Inventory::default();
         inv.add(sword(), 10).unwrap();
-        inv.transition("sword_iron", ItemState::Lost { reason: "fell into the void".into() }).unwrap();
+        inv.transition(
+            "sword_iron",
+            ItemState::Lost {
+                reason: "fell into the void".into(),
+            },
+        )
+        .unwrap();
         let json = serde_json::to_string(&inv).unwrap();
         let back: Inventory = serde_json::from_str(&json).unwrap();
         let item = back.find_any("sword_iron").unwrap();
-        assert_eq!(item.state, ItemState::Lost { reason: "fell into the void".into() });
+        assert_eq!(
+            item.state,
+            ItemState::Lost {
+                reason: "fell into the void".into()
+            }
+        );
     }
 
     #[test]
@@ -931,15 +1042,34 @@ mod tests {
     #[test]
     fn item_state_display() {
         assert_eq!(format!("{}", ItemState::Carried), "carried");
-        assert_eq!(format!("{}", ItemState::Sold { to: "Patchwork".into() }), "sold to Patchwork");
-        assert_eq!(format!("{}", ItemState::Lost { reason: "stolen".into() }), "lost: stolen");
+        assert_eq!(
+            format!(
+                "{}",
+                ItemState::Sold {
+                    to: "Patchwork".into()
+                }
+            ),
+            "sold to Patchwork"
+        );
+        assert_eq!(
+            format!(
+                "{}",
+                ItemState::Lost {
+                    reason: "stolen".into()
+                }
+            ),
+            "lost: stolen"
+        );
     }
 
     // ── Gold spending tests ──────────────────────────────────────────────
 
     #[test]
     fn spend_gold_deducts_exact_amount() {
-        let mut inv = Inventory { items: vec![], gold: 50 };
+        let mut inv = Inventory {
+            items: vec![],
+            gold: 50,
+        };
         let spent = inv.spend_gold(13);
         assert_eq!(spent, 13);
         assert_eq!(inv.gold, 37);
@@ -947,7 +1077,10 @@ mod tests {
 
     #[test]
     fn spend_gold_clamps_at_zero() {
-        let mut inv = Inventory { items: vec![], gold: 10 };
+        let mut inv = Inventory {
+            items: vec![],
+            gold: 10,
+        };
         let spent = inv.spend_gold(13);
         assert_eq!(spent, 10, "should only spend what's available");
         assert_eq!(inv.gold, 0, "gold should be 0, not negative");
@@ -955,7 +1088,10 @@ mod tests {
 
     #[test]
     fn spend_gold_from_zero_spends_nothing() {
-        let mut inv = Inventory { items: vec![], gold: 0 };
+        let mut inv = Inventory {
+            items: vec![],
+            gold: 0,
+        };
         let spent = inv.spend_gold(5);
         assert_eq!(spent, 0);
         assert_eq!(inv.gold, 0);
@@ -963,7 +1099,10 @@ mod tests {
 
     #[test]
     fn spend_gold_exact_balance() {
-        let mut inv = Inventory { items: vec![], gold: 10 };
+        let mut inv = Inventory {
+            items: vec![],
+            gold: 10,
+        };
         let spent = inv.spend_gold(10);
         assert_eq!(spent, 10);
         assert_eq!(inv.gold, 0);

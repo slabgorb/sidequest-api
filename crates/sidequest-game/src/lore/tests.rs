@@ -226,7 +226,10 @@ fn serde_round_trip_custom_category() {
     );
     let json = serde_json::to_string(&frag).expect("serialize");
     let restored: LoreFragment = serde_json::from_str(&json).expect("deserialize");
-    assert_eq!(restored.category(), &LoreCategory::Custom("Prophecy".to_string()));
+    assert_eq!(
+        restored.category(),
+        &LoreCategory::Custom("Prophecy".to_string())
+    );
 }
 
 #[test]
@@ -381,14 +384,16 @@ fn lore_store_query_by_category_no_matches() {
 fn lore_store_query_by_category_multiple_matches() {
     let mut store = LoreStore::new();
     store.add(history_fragment()).unwrap();
-    store.add(LoreFragment::new(
-        "lore-hist-002".to_string(),
-        LoreCategory::History,
-        "The great war ended five centuries ago.".to_string(),
-        LoreSource::GenrePack,
-        Some(4),
-        HashMap::new(),
-    )).unwrap();
+    store
+        .add(LoreFragment::new(
+            "lore-hist-002".to_string(),
+            LoreCategory::History,
+            "The great war ended five centuries ago.".to_string(),
+            LoreSource::GenrePack,
+            Some(4),
+            HashMap::new(),
+        ))
+        .unwrap();
 
     let results = store.query_by_category(&LoreCategory::History);
     assert_eq!(results.len(), 2);
@@ -526,10 +531,10 @@ fn lore_store_duplicate_rejected_len_unchanged() {
 // Lore seeding tests (story 11-3)
 // ===================================================================
 
+use super::{seed_lore_from_char_creation, seed_lore_from_genre_pack};
 use sidequest_genre::{
     CharCreationChoice, CharCreationScene, Faction, GenrePack, Lore, MechanicalEffects,
 };
-use super::{seed_lore_from_char_creation, seed_lore_from_genre_pack};
 
 /// Build a minimal GenrePack with only the fields relevant to lore seeding.
 /// Non-lore fields are filled with harmless defaults via serde deserialization.
@@ -558,7 +563,8 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
             "allowed_classes": ["fighter"],
             "allowed_races": ["human"],
             "class_hp_bases": {"fighter": 10}
-        })).unwrap(),
+        }))
+        .unwrap(),
         lore,
         theme: serde_json::from_value(serde_json::json!({
             "primary": "#000",
@@ -576,7 +582,8 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
                 "glyph": {}
             },
             "session_opener": { "enabled": false }
-        })).unwrap(),
+        }))
+        .unwrap(),
         archetypes: vec![],
         char_creation,
         visual_style: serde_json::from_value(serde_json::json!({
@@ -584,11 +591,13 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
             "negative_prompt": "",
             "preferred_model": "test",
             "base_seed": 42
-        })).unwrap(),
+        }))
+        .unwrap(),
         progression: serde_json::from_value(serde_json::json!({})).unwrap(),
         axes: serde_json::from_value(serde_json::json!({
             "definitions": []
-        })).unwrap(),
+        }))
+        .unwrap(),
         audio: serde_json::from_value(serde_json::json!({
             "mood_tracks": {},
             "sfx_library": {},
@@ -601,14 +610,16 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
                 "duck_amount_db": -6.0,
                 "crossfade_default_ms": 2000
             }
-        })).unwrap(),
+        }))
+        .unwrap(),
         cultures: vec![],
         prompts: serde_json::from_value(serde_json::json!({
             "narrator": "test",
             "combat": "test",
             "npc": "test",
             "world_state": "test"
-        })).unwrap(),
+        }))
+        .unwrap(),
         tropes: vec![],
         beat_vocabulary: None,
         achievements: vec![],
@@ -739,7 +750,9 @@ fn seed_genre_pack_cosmology_is_history_category() {
     seed_lore_from_genre_pack(&mut store, &pack);
 
     let all_history = store.query_by_category(&LoreCategory::History);
-    let cosmo = all_history.iter().find(|f| f.id() == "lore_genre_cosmology");
+    let cosmo = all_history
+        .iter()
+        .find(|f| f.id() == "lore_genre_cosmology");
     assert!(cosmo.is_some(), "cosmology should be filed under History");
     assert!(cosmo.unwrap().content().contains("no unified theology"));
 }
@@ -843,7 +856,10 @@ fn seed_genre_pack_empty_geography_skipped() {
     seed_lore_from_genre_pack(&mut store, &pack);
 
     let geo = store.query_by_category(&LoreCategory::Geography);
-    assert!(geo.is_empty(), "empty geography should not produce a fragment");
+    assert!(
+        geo.is_empty(),
+        "empty geography should not produce a fragment"
+    );
 }
 
 #[test]
@@ -1355,14 +1371,7 @@ fn accumulate_lore_sets_turn_created() {
 fn accumulate_lore_content_matches_description() {
     let mut store = LoreStore::new();
     let desc = "The ancient temple crumbled to dust";
-    accumulate_lore(
-        &mut store,
-        desc,
-        LoreCategory::History,
-        10,
-        HashMap::new(),
-    )
-    .unwrap();
+    accumulate_lore(&mut store, desc, LoreCategory::History, 10, HashMap::new()).unwrap();
 
     let results = store.query_by_keyword("ancient temple");
     assert_eq!(results.len(), 1);
@@ -1451,10 +1460,7 @@ fn accumulate_lore_preserves_metadata() {
 
     let results = store.query_by_keyword("battle erupted");
     assert_eq!(results.len(), 1);
-    assert_eq!(
-        results[0].metadata().get("event_type").unwrap(),
-        "combat"
-    );
+    assert_eq!(results[0].metadata().get("event_type").unwrap(), "combat");
     assert_eq!(
         results[0].metadata().get("location").unwrap(),
         "dark_forest"
@@ -1465,14 +1471,7 @@ fn accumulate_lore_preserves_metadata() {
 fn accumulate_lore_computes_token_estimate() {
     let mut store = LoreStore::new();
     let desc = "a]".repeat(20); // 40 chars → 10 tokens
-    accumulate_lore(
-        &mut store,
-        &desc,
-        LoreCategory::Event,
-        1,
-        HashMap::new(),
-    )
-    .unwrap();
+    accumulate_lore(&mut store, &desc, LoreCategory::Event, 1, HashMap::new()).unwrap();
 
     let results = store.query_by_keyword(&desc);
     assert_eq!(results.len(), 1);
@@ -1552,13 +1551,7 @@ fn accumulate_lore_unique_ids_same_turn_different_content() {
 #[test]
 fn accumulate_lore_rejects_empty_description() {
     let mut store = LoreStore::new();
-    let result = accumulate_lore(
-        &mut store,
-        "",
-        LoreCategory::Event,
-        1,
-        HashMap::new(),
-    );
+    let result = accumulate_lore(&mut store, "", LoreCategory::Event, 1, HashMap::new());
 
     assert!(result.is_err());
     assert_eq!(store.len(), 0);
@@ -1640,12 +1633,7 @@ fn accumulate_lore_batch_returns_errors_for_empty_descriptions() {
             1,
             HashMap::new(),
         ),
-        (
-            "".to_string(),
-            LoreCategory::Event,
-            2,
-            HashMap::new(),
-        ),
+        ("".to_string(), LoreCategory::Event, 2, HashMap::new()),
         (
             "Another valid event".to_string(),
             LoreCategory::Event,
@@ -1693,7 +1681,10 @@ fn with_embedding_preserves_other_fields() {
     let frag = sample_fragment().with_embedding(vec![0.5]);
     assert_eq!(frag.id(), "lore-001");
     assert_eq!(frag.category(), &LoreCategory::History);
-    assert_eq!(frag.content(), "The Flickering Reach was once a thriving trade hub.");
+    assert_eq!(
+        frag.content(),
+        "The Flickering Reach was once a thriving trade hub."
+    );
 }
 
 #[test]
@@ -1726,7 +1717,10 @@ fn serde_round_trip_with_embedding() {
 fn cosine_similarity_identical_vectors() {
     let v = vec![1.0, 2.0, 3.0];
     let sim = cosine_similarity(&v, &v);
-    assert!((sim - 1.0).abs() < 1e-6, "identical vectors should be 1.0, got {sim}");
+    assert!(
+        (sim - 1.0).abs() < 1e-6,
+        "identical vectors should be 1.0, got {sim}"
+    );
 }
 
 #[test]
@@ -1734,7 +1728,10 @@ fn cosine_similarity_orthogonal_vectors() {
     let a = vec![1.0, 0.0];
     let b = vec![0.0, 1.0];
     let sim = cosine_similarity(&a, &b);
-    assert!(sim.abs() < 1e-6, "orthogonal vectors should be 0.0, got {sim}");
+    assert!(
+        sim.abs() < 1e-6,
+        "orthogonal vectors should be 0.0, got {sim}"
+    );
 }
 
 #[test]
@@ -1742,7 +1739,10 @@ fn cosine_similarity_opposite_vectors() {
     let a = vec![1.0, 0.0];
     let b = vec![-1.0, 0.0];
     let sim = cosine_similarity(&a, &b);
-    assert!((sim - (-1.0)).abs() < 1e-6, "opposite vectors should be -1.0, got {sim}");
+    assert!(
+        (sim - (-1.0)).abs() < 1e-6,
+        "opposite vectors should be -1.0, got {sim}"
+    );
 }
 
 #[test]
@@ -1750,7 +1750,10 @@ fn cosine_similarity_different_lengths_returns_zero() {
     let a = vec![1.0, 2.0];
     let b = vec![1.0, 2.0, 3.0];
     let sim = cosine_similarity(&a, &b);
-    assert!((sim - 0.0).abs() < 1e-6, "mismatched lengths should be 0.0, got {sim}");
+    assert!(
+        (sim - 0.0).abs() < 1e-6,
+        "mismatched lengths should be 0.0, got {sim}"
+    );
 }
 
 #[test]
@@ -1758,13 +1761,19 @@ fn cosine_similarity_zero_vector_returns_zero() {
     let a = vec![0.0, 0.0, 0.0];
     let b = vec![1.0, 2.0, 3.0];
     let sim = cosine_similarity(&a, &b);
-    assert!((sim - 0.0).abs() < 1e-6, "zero vector should give 0.0, got {sim}");
+    assert!(
+        (sim - 0.0).abs() < 1e-6,
+        "zero vector should give 0.0, got {sim}"
+    );
 }
 
 #[test]
 fn cosine_similarity_empty_vectors_returns_zero() {
     let sim = cosine_similarity(&[], &[]);
-    assert!((sim - 0.0).abs() < 1e-6, "empty vectors should give 0.0, got {sim}");
+    assert!(
+        (sim - 0.0).abs() < 1e-6,
+        "empty vectors should give 0.0, got {sim}"
+    );
 }
 
 #[test]
@@ -1772,7 +1781,10 @@ fn cosine_similarity_scaled_vectors_are_identical() {
     let a = vec![1.0, 2.0, 3.0];
     let b = vec![2.0, 4.0, 6.0];
     let sim = cosine_similarity(&a, &b);
-    assert!((sim - 1.0).abs() < 1e-6, "scaled vectors should be 1.0, got {sim}");
+    assert!(
+        (sim - 1.0).abs() < 1e-6,
+        "scaled vectors should be 1.0, got {sim}"
+    );
 }
 
 // ===================================================================
@@ -1811,9 +1823,15 @@ fn query_by_similarity_no_embeddings_returns_empty() {
 fn query_by_similarity_returns_sorted_by_score() {
     let mut store = LoreStore::new();
     // query is [1,0] — frag_a=[1,0] is perfect match, frag_b=[0,1] is orthogonal
-    store.add(make_fragment_with_embedding("sim-a", vec![1.0, 0.0])).unwrap();
-    store.add(make_fragment_with_embedding("sim-b", vec![0.0, 1.0])).unwrap();
-    store.add(make_fragment_with_embedding("sim-c", vec![0.7, 0.7])).unwrap();
+    store
+        .add(make_fragment_with_embedding("sim-a", vec![1.0, 0.0]))
+        .unwrap();
+    store
+        .add(make_fragment_with_embedding("sim-b", vec![0.0, 1.0]))
+        .unwrap();
+    store
+        .add(make_fragment_with_embedding("sim-c", vec![0.7, 0.7]))
+        .unwrap();
 
     let results = store.query_by_similarity(&[1.0, 0.0], 10);
     assert_eq!(results.len(), 3);
@@ -1827,9 +1845,15 @@ fn query_by_similarity_returns_sorted_by_score() {
 #[test]
 fn query_by_similarity_respects_top_k() {
     let mut store = LoreStore::new();
-    store.add(make_fragment_with_embedding("tk-a", vec![1.0, 0.0])).unwrap();
-    store.add(make_fragment_with_embedding("tk-b", vec![0.5, 0.5])).unwrap();
-    store.add(make_fragment_with_embedding("tk-c", vec![0.0, 1.0])).unwrap();
+    store
+        .add(make_fragment_with_embedding("tk-a", vec![1.0, 0.0]))
+        .unwrap();
+    store
+        .add(make_fragment_with_embedding("tk-b", vec![0.5, 0.5]))
+        .unwrap();
+    store
+        .add(make_fragment_with_embedding("tk-c", vec![0.0, 1.0]))
+        .unwrap();
 
     let results = store.query_by_similarity(&[1.0, 0.0], 2);
     assert_eq!(results.len(), 2);
@@ -1839,7 +1863,9 @@ fn query_by_similarity_respects_top_k() {
 fn query_by_similarity_skips_fragments_without_embeddings() {
     let mut store = LoreStore::new();
     // One with embedding, one without
-    store.add(make_fragment_with_embedding("with-emb", vec![1.0, 0.0])).unwrap();
+    store
+        .add(make_fragment_with_embedding("with-emb", vec![1.0, 0.0]))
+        .unwrap();
     store.add(history_fragment()).unwrap(); // no embedding
 
     let results = store.query_by_similarity(&[1.0, 0.0], 10);
@@ -1850,9 +1876,13 @@ fn query_by_similarity_skips_fragments_without_embeddings() {
 #[test]
 fn query_by_similarity_mixed_embeddings_only_returns_embedded() {
     let mut store = LoreStore::new();
-    store.add(make_fragment_with_embedding("e1", vec![1.0, 0.0])).unwrap();
+    store
+        .add(make_fragment_with_embedding("e1", vec![1.0, 0.0]))
+        .unwrap();
     store.add(geography_fragment()).unwrap(); // no embedding
-    store.add(make_fragment_with_embedding("e2", vec![0.0, 1.0])).unwrap();
+    store
+        .add(make_fragment_with_embedding("e2", vec![0.0, 1.0]))
+        .unwrap();
     store.add(faction_fragment()).unwrap(); // no embedding
 
     let results = store.query_by_similarity(&[0.5, 0.5], 10);
@@ -1942,7 +1972,10 @@ fn record_language_knowledge_content_includes_morpheme_and_meaning() {
     record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
     let frags = store.query_by_category(&LoreCategory::Language);
     let content = frags[0].content();
-    assert!(content.contains("zar"), "Content should include morpheme string");
+    assert!(
+        content.contains("zar"),
+        "Content should include morpheme string"
+    );
     assert!(content.contains("fire"), "Content should include meaning");
 }
 
@@ -2019,8 +2052,14 @@ fn record_name_knowledge_content_includes_name_and_gloss() {
     record_name_knowledge(&mut store, &name, "char-1", 10).unwrap();
     let frags = store.query_by_category(&LoreCategory::Language);
     let content = frags[0].content();
-    assert!(content.contains("zar'thi"), "Content should include the name");
-    assert!(content.contains("fire-one who"), "Content should include the gloss");
+    assert!(
+        content.contains("zar'thi"),
+        "Content should include the name"
+    );
+    assert!(
+        content.contains("fire-one who"),
+        "Content should include the gloss"
+    );
 }
 
 #[test]
@@ -2112,7 +2151,13 @@ fn query_language_knowledge_excludes_other_characters() {
     let mut store = LoreStore::new();
     let m = sample_morpheme("zar", "fire", "draconic");
     record_language_knowledge(&mut store, &m, "char-1", 5).unwrap();
-    record_language_knowledge(&mut store, &sample_morpheme("dra", "dragon", "draconic"), "char-2", 6).unwrap();
+    record_language_knowledge(
+        &mut store,
+        &sample_morpheme("dra", "dragon", "draconic"),
+        "char-2",
+        6,
+    )
+    .unwrap();
     let results = query_language_knowledge(&store, "char-1", "draconic");
     assert_eq!(results.len(), 1);
 }

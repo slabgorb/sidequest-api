@@ -20,9 +20,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use sidequest_game::render_queue::{
-    EnqueueResult, RenderQueue, RenderQueueConfig,
-};
+use sidequest_game::render_queue::{EnqueueResult, RenderQueue, RenderQueueConfig};
 use sidequest_game::subject::{RenderSubject, SceneType, SubjectTier};
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -41,8 +39,7 @@ fn make_subject(tag: &str) -> RenderSubject {
 }
 
 fn test_config() -> RenderQueueConfig {
-    RenderQueueConfig::new(8, 4, Duration::from_secs(60))
-        .expect("valid config")
+    RenderQueueConfig::new(8, 4, Duration::from_secs(60)).expect("valid config")
 }
 
 /// Spawns a `RenderQueue` whose worker captures every call into the
@@ -171,8 +168,8 @@ async fn enqueue_with_lora_path_forwards_to_worker() {
             subject,
             "sw_style",
             "dev", // variant — story 35-15 closed the dead wire; "dev" is a
-                   // canonical Flux variant, matching the daemon's TIER_CONFIGS
-                   // vocabulary. Previously passed as "flux-dev" (dead string).
+            // canonical Flux variant, matching the daemon's TIER_CONFIGS
+            // vocabulary. Previously passed as "flux-dev" (dead string).
             "",
             "",
             Some(lora_abs),
@@ -237,10 +234,7 @@ async fn enqueue_with_lora_path_and_no_scale_forwards_none_scale() {
 
     let calls = captures.lock().unwrap().clone();
     assert_eq!(calls.len(), 1);
-    assert_eq!(
-        calls[0].lora_path.as_deref(),
-        Some("/tmp/cave.safetensors")
-    );
+    assert_eq!(calls[0].lora_path.as_deref(), Some("/tmp/cave.safetensors"));
     assert!(
         calls[0].lora_scale.is_none(),
         "Rust side must not silently default lora_scale to 1.0 — that's \
