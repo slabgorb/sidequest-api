@@ -963,7 +963,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             continue;
                         }
                     };
-                    if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                    if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                         break;
                     }
                 }
@@ -975,7 +975,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             continue;
                         }
                     };
-                    if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                    if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                         break;
                     }
                 }
@@ -1021,7 +1021,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                                 continue;
                             }
                         };
-                        if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                        if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                             break;
                         }
                     }
@@ -1432,7 +1432,7 @@ async fn dispatch_message(
                 continuity_corrections,
                 inventory,
                 snapshot,
-                &tx,
+                tx,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1666,7 +1666,7 @@ async fn dispatch_message(
                 narrator_verbosity,
                 narrator_vocabulary,
                 pending_trope_context,
-                &tx,
+                tx,
             )
             .await
         }
@@ -1861,7 +1861,7 @@ async fn dispatch_message(
                     pending_trope_context,
                     achievement_tracker,
                     snapshot,
-                    tx: &tx,
+                    tx,
                     monster_manual: &mut monster_manual,
                     morpheme_glossaries: Vec::new(),
                     name_banks: Vec::new(),
