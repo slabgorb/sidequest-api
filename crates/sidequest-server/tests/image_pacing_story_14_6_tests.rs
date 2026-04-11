@@ -21,7 +21,7 @@ use sidequest_game::render_queue::RenderJobResult;
 use sidequest_game::subject::{RenderSubject, SceneType, SubjectTier};
 use sidequest_protocol::{GameMessage, ImagePayload, SessionEventPayload};
 use sidequest_server::render_integration::{
-    ImagePacingThrottle, RenderResultContext, spawn_image_broadcaster,
+    spawn_image_broadcaster, ImagePacingThrottle, RenderResultContext,
 };
 
 // =========================================================================
@@ -350,9 +350,7 @@ fn spawn_image_broadcaster_with_throttle(
     // The real spawn_image_broadcaster should accept an optional throttle,
     // or there should be a variant that accepts one.
     sidequest_server::render_integration::spawn_image_broadcaster_with_throttle(
-        render_rx,
-        ws_tx,
-        throttle,
+        render_rx, ws_tx, throttle,
     )
 }
 

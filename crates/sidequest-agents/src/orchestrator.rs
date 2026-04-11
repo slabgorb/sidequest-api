@@ -30,10 +30,10 @@ use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, TensionTrac
 pub struct ActionResult {
     /// The narrative text produced by the agent.
     pub narration: String,
-    /// Typed combat patch extracted from creature_smith response.
-    pub combat_patch: Option<crate::patches::CombatPatch>,
-    /// Typed chase patch extracted from dialectician response.
-    pub chase_patch: Option<crate::patches::ChasePatch>,
+    /// Beat selections extracted from narrator output (story 28-6).
+    /// Each entry maps an actor to a beat_id from the active ConfrontationDef.
+    /// Dispatched via apply_beat() in the server dispatch pipeline (story 28-5).
+    pub beat_selections: Vec<BeatSelection>,
     /// Whether this is a degraded response (e.g., from agent timeout).
     pub is_degraded: bool,
     /// Which intent was classified (for OTEL telemetry).
@@ -84,6 +84,29 @@ pub struct ActionResult {
     pub action_flags: Option<ActionFlags>,
     /// Narrator prompt tier used for this turn (ADR-066): "full" or "delta".
     pub prompt_tier: String,
+    /// Confrontation type to initiate this turn (story 28-8).
+    /// When the narrator emits `"confrontation": "combat"`, the server creates
+    /// a StructuredEncounter via from_confrontation_def(). None = no new encounter.
+    pub confrontation: Option<String>,
+    /// Location name from game_patch JSON (fallback when header extraction returns None).
+    pub location: Option<String>,
+    /// Full assembled prompt text for training data capture (ADR-073).
+    pub prompt_text: Option<String>,
+    /// Raw LLM response text before extraction (ADR-073).
+    pub raw_response_text: Option<String>,
+}
+
+/// A single beat selection from the narrator's output (story 28-6).
+/// The narrator picks beats from the ConfrontationDef's available beat list.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct BeatSelection {
+    /// Who performs the action (e.g., "Player", "Goblin").
+    pub actor: String,
+    /// Which beat from the ConfrontationDef (e.g., "attack", "bluff", "escape").
+    pub beat_id: String,
+    /// Optional target of the action (e.g., "Goblin", "Door").
+    #[serde(default)]
+    pub target: Option<String>,
 }
 
 /// Narrator prompt tier (ADR-066). Controls how much context is included.
@@ -142,6 +165,10 @@ pub trait GameService: Send + Sync {
 
     /// Process a player action and return narration + state changes.
     fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult;
+
+    /// Reset the narrator session, forcing the next prompt to use Full tier.
+    /// Call when a player connects to a different game (story 30-2).
+    fn reset_narrator_session_for_connect(&self);
 }
 
 /// The orchestrator state machine. Implements GameService.
@@ -172,6 +199,10 @@ pub struct Orchestrator {
     /// reused via `--resume` on subsequent turns. Mutex because `process_action`
     /// takes `&self` (GameService trait constraint).
     narrator_session_id: std::sync::Mutex<Option<String>>,
+    /// Genre slug that established the current narrator session (story 30-2).
+    /// Used to detect genre switches — if the incoming TurnContext has a different
+    /// genre, the session is stale and must be reset to Full tier.
+    session_genre: std::sync::Mutex<Option<String>>,
 }
 
 impl Orchestrator {
@@ -184,7 +215,10 @@ impl Orchestrator {
     }
 
     /// Create a new orchestrator with optional OTEL endpoint for Claude subprocess telemetry.
-    pub fn new_with_otel(watcher_tx: mpsc::Sender<TurnRecord>, otel_endpoint: Option<String>) -> Self {
+    pub fn new_with_otel(
+        watcher_tx: mpsc::Sender<TurnRecord>,
+        otel_endpoint: Option<String>,
+    ) -> Self {
         let client = if let Some(endpoint) = otel_endpoint {
             ClaudeClient::builder().otel_endpoint(endpoint).build()
         } else {
@@ -215,6 +249,7 @@ impl Orchestrator {
             soul_data,
             script_tools: HashMap::new(),
             narrator_session_id: std::sync::Mutex::new(None),
+            session_genre: std::sync::Mutex::new(None),
         }
     }
 
@@ -223,6 +258,72 @@ impl Orchestrator {
     pub fn new_for_test() -> Self {
         let (tx, _rx) = mpsc::channel(1);
         Self::new(tx)
+    }
+
+    // === Narrator Session Lifecycle (story 30-2) ===
+
+    /// Reset the narrator session, forcing the next prompt to use Full tier.
+    /// Call this when switching games, loading a different save, or when the
+    /// narrator has lost context and needs a full grounding prompt.
+    pub fn reset_narrator_session(&self) {
+        let _span = tracing::info_span!(
+            "orchestrator.narrator_session_reset",
+            reason = "session_lifecycle",
+        )
+        .entered();
+        *self.narrator_session_id.lock().unwrap() = None;
+        *self.session_genre.lock().unwrap() = None;
+    }
+
+    /// Set the narrator session ID (for testing and server dispatch).
+    pub fn set_narrator_session_id(&self, id: String) {
+        *self.narrator_session_id.lock().unwrap() = Some(id);
+    }
+
+    /// Check whether a narrator session is currently active.
+    pub fn has_active_narrator_session(&self) -> bool {
+        self.narrator_session_id.lock().unwrap().is_some()
+    }
+
+    /// Record which genre established the current narrator session.
+    pub fn set_session_genre(&self, genre: String) {
+        *self.session_genre.lock().unwrap() = Some(genre);
+    }
+
+    /// Select the prompt tier based on session state and genre match.
+    /// Returns Full if no session exists or if the genre has changed
+    /// since the session was established (stale session detection).
+    pub fn select_prompt_tier(&self, context: &TurnContext) -> NarratorPromptTier {
+        let current_session = self.narrator_session_id.lock().unwrap().is_some();
+        if !current_session {
+            return NarratorPromptTier::Full;
+        }
+
+        // Genre switch detection: if the incoming genre differs from the
+        // genre that established the session, the cached session is stale.
+        // Must drop the lock before calling reset_narrator_session() to avoid deadlock.
+        let genre_mismatch = if let Some(ref incoming_genre) = context.genre {
+            let session_genre = self.session_genre.lock().unwrap();
+            if let Some(ref stored_genre) = *session_genre {
+                stored_genre != incoming_genre
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if genre_mismatch {
+            let incoming = context.genre.as_deref().unwrap_or("unknown");
+            tracing::warn!(
+                incoming_genre = %incoming,
+                "Genre switch detected — clearing stale session and forcing Full tier"
+            );
+            self.reset_narrator_session();
+            return NarratorPromptTier::Full;
+        }
+
+        NarratorPromptTier::Delta
     }
 
     /// Replace the SOUL data for testing (story 23-10).
@@ -260,16 +361,6 @@ impl Orchestrator {
         &self.drama_thresholds
     }
 
-    /// Mutable access to the Troper agent for loading fired beats.
-    pub fn troper_mut(&mut self) -> &mut TroperAgent {
-        &mut self.troper
-    }
-
-    /// Read access to the Troper agent.
-    pub fn troper(&self) -> &TroperAgent {
-        &self.troper
-    }
-
     /// Build the narrator prompt and tool configuration without invoking the LLM.
     ///
     /// Extracted from `process_action()` (story 15-27) so prompt content — including
@@ -278,7 +369,11 @@ impl Orchestrator {
     ///
     /// Returns the composed prompt text, zone breakdown, injected script tool names,
     /// and the `--allowedTools` specs for the Claude CLI.
-    pub fn build_narrator_prompt(&self, action: &str, context: &TurnContext) -> NarratorPromptResult {
+    pub fn build_narrator_prompt(
+        &self,
+        action: &str,
+        context: &TurnContext,
+    ) -> NarratorPromptResult {
         self.build_narrator_prompt_tiered(action, context, NarratorPromptTier::Full)
     }
 
@@ -286,7 +381,12 @@ impl Orchestrator {
     ///
     /// `Full` includes everything (first turn). `Delta` skips static sections
     /// that are already in the persistent session's conversation history.
-    pub fn build_narrator_prompt_tiered(&self, action: &str, context: &TurnContext, tier: NarratorPromptTier) -> NarratorPromptResult {
+    pub fn build_narrator_prompt_tiered(
+        &self,
+        action: &str,
+        context: &TurnContext,
+        tier: NarratorPromptTier,
+    ) -> NarratorPromptResult {
         let route = self.intent_router.classify(action, context);
 
         let mut builder = ContextBuilder::new();
@@ -316,6 +416,12 @@ impl Orchestrator {
             }
         }
 
+        // === OUTPUT FORMAT (every tier — narrator must always know game_patch schema) ===
+        // The confrontation field and other structured output formats must be present
+        // on Delta tier too, not just Full. Without this, the narrator on resumed
+        // sessions doesn't know how to emit confrontation to start encounters.
+        self.narrator.build_output_format(&mut builder);
+
         // === GENRE IDENTITY (every tier — narrator MUST always know the genre) ===
         // Without this, the LLM has no genre context and may break character by asking
         // the player what genre they're in. Injected in Primacy zone for maximum attention.
@@ -344,8 +450,8 @@ impl Orchestrator {
 
         // === GENRE PROMPT TEMPLATES (from prompts.yaml) ===
         if let Some(ref gp) = context.genre_prompts {
-            // Narrator voice — Full tier only (establishes voice for persistent session)
-            if is_full && !gp.narrator.is_empty() {
+            // Narrator voice — every tier (story 30-2: narrator loses genre voice on Delta)
+            if !gp.narrator.is_empty() {
                 builder.add_section(PromptSection::new(
                     "genre_narrator_voice",
                     format!("<genre-voice>\n{}\n</genre-voice>", gp.narrator),
@@ -354,8 +460,8 @@ impl Orchestrator {
                 ));
             }
 
-            // NPC behavior — Full tier only (stable across session)
-            if is_full && !gp.npc.is_empty() {
+            // NPC behavior — every tier (story 30-2: NPCs lose genre personality on Delta)
+            if !gp.npc.is_empty() {
                 builder.add_section(PromptSection::new(
                     "genre_npc_voice",
                     format!("<genre-npc>\n{}\n</genre-npc>", gp.npc),
@@ -364,11 +470,14 @@ impl Orchestrator {
                 ));
             }
 
-            // World state tracking — Full tier only
-            if is_full && !gp.world_state.is_empty() {
+            // World state tracking — every tier (story 30-2: narrator stops tracking state on Delta)
+            if !gp.world_state.is_empty() {
                 builder.add_section(PromptSection::new(
                     "genre_world_state",
-                    format!("<genre-world-state>\n{}\n</genre-world-state>", gp.world_state),
+                    format!(
+                        "<genre-world-state>\n{}\n</genre-world-state>",
+                        gp.world_state
+                    ),
                     AttentionZone::Early,
                     SectionCategory::Genre,
                 ));
@@ -454,7 +563,9 @@ impl Orchestrator {
 
             // Transition hints — Full tier only (stable vocabulary)
             if is_full && !gp.transition_hints.is_empty() {
-                let hints: Vec<String> = gp.transition_hints.iter()
+                let hints: Vec<String> = gp
+                    .transition_hints
+                    .iter()
                     .map(|(k, v)| format!("  {}: \"{}\"", k, v))
                     .collect();
                 builder.add_section(PromptSection::new(
@@ -466,23 +577,18 @@ impl Orchestrator {
             }
         }
 
-        // === STATE-DEPENDENT SECTIONS (every tier — combat/chase can start mid-session) ===
-        // These are NOT static: combat may begin on turn 5 of a Delta-tier session.
-        // If gated behind is_full, the narrator never gets combat rules after turn 1.
-        if context.in_combat {
-            self.narrator.build_combat_context(&mut builder);
-        }
-        if context.in_chase {
-            self.narrator.build_chase_context(&mut builder);
+        // === STATE-DEPENDENT SECTIONS (every tier — encounters can start mid-session) ===
+        // Story 28-8: inject encounter rules for ANY active encounter, not just combat/chase.
+        // Standoffs, negotiations, and other ConfrontationDef types also need encounter context.
+        if context.in_combat || context.in_chase || context.in_encounter {
+            self.narrator.build_encounter_context(&mut builder);
         }
 
         // Trope beat directives (Early zone)
         if let Some(ref beats) = context.pending_trope_context {
-            let _trope_span = tracing::info_span!(
-                "orchestrator.trope_beat_injection",
-                beats_injected = 1u64,
-            )
-            .entered();
+            let _trope_span =
+                tracing::info_span!("orchestrator.trope_beat_injection", beats_injected = 1u64,)
+                    .entered();
             builder.add_section(PromptSection::new(
                 "trope_beat_directives",
                 beats.clone(),
@@ -618,23 +724,25 @@ impl Orchestrator {
             let content = match context.narrator_verbosity {
                 NarratorVerbosity::Concise => {
                     "<length-limit>\n\
-                     HARD LIMIT: 2-3 sentences, under 200 characters of prose. \
-                     Action and consequence only. No scene-setting. No paragraphs. \
-                     If your prose exceeds 200 characters, DELETE and rewrite shorter.\n\
+                     Target: 2-4 sentences, around 400 characters of prose. \
+                     Action and consequence first. Brief scene-setting only on arrivals. \
+                     Keep it punchy — this mode prioritizes pace over atmosphere.\n\
                      </length-limit>"
                 }
                 NarratorVerbosity::Standard => {
                     "<length-limit>\n\
-                     HARD LIMIT: 2-3 short paragraphs, under 400 characters of prose. \
-                     One action, one scene beat. If your prose exceeds 400 characters, \
-                     DELETE and rewrite shorter. Most turns should be 2-3 sentences.\n\
+                     Target: 2-3 short paragraphs, around 800 characters of prose. \
+                     Describe the scene, the action, and what the player sees next. \
+                     Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
+                     Dialogue gets voice and personality. Vary length by moment.\n\
                      </length-limit>"
                 }
                 NarratorVerbosity::Verbose => {
                     "<length-limit>\n\
-                     HARD LIMIT: 2-3 paragraphs, under 600 characters of prose. \
-                     Richer atmosphere and sensory detail, but still concise. \
-                     If your prose exceeds 600 characters, DELETE and rewrite shorter.\n\
+                     Target: 2-4 paragraphs, around 1200 characters of prose. \
+                     Rich atmosphere, sensory detail, NPC personality. Let scenes breathe. \
+                     Big moments (arrivals, reveals, combat starts) get the full treatment. \
+                     Quieter turns can be shorter — vary the rhythm.\n\
                      </length-limit>"
                 }
             };
@@ -716,7 +824,8 @@ impl Orchestrator {
         let _pb_guard = tracing::info_span!(
             "turn.agent_llm.prompt_build",
             section_count = section_count as u64,
-        ).entered();
+        )
+        .entered();
         let zone_breakdown = builder.zone_breakdown();
         let prompt_text = builder.compose();
         let allowed_tools = self.narrator_allowed_tools();
@@ -730,12 +839,15 @@ impl Orchestrator {
             env_vars,
         }
     }
-
 }
 
 impl GameService for Orchestrator {
     fn get_snapshot(&self) -> serde_json::Value {
         serde_json::Value::Object(serde_json::Map::new())
+    }
+
+    fn reset_narrator_session_for_connect(&self) {
+        self.reset_narrator_session();
     }
 
     fn process_action(&self, action: &str, context: &TurnContext) -> ActionResult {
@@ -751,12 +863,8 @@ impl GameService for Orchestrator {
 
         // Build prompt via extracted method (story 15-27: testable prompt assembly).
         // ADR-066: Use Delta tier on resumed sessions — static context already in history.
-        let current_session_exists = self.narrator_session_id.lock().unwrap().is_some();
-        let prompt_tier = if current_session_exists {
-            NarratorPromptTier::Delta
-        } else {
-            NarratorPromptTier::Full
-        };
+        // Story 30-2: Use select_prompt_tier() for genre switch detection.
+        let prompt_tier = self.select_prompt_tier(context);
         let prompt_tier_str = match prompt_tier {
             NarratorPromptTier::Full => "full",
             NarratorPromptTier::Delta => "delta",
@@ -843,11 +951,16 @@ impl GameService for Orchestrator {
         };
 
         // Store session ID from response (first turn establishes, subsequent echo it back)
+        // Story 30-2: Also record the genre that established this session for switch detection.
         if let Ok(ref response) = send_result {
             if let Some(ref sid) = response.session_id {
                 let mut lock = self.narrator_session_id.lock().unwrap();
                 if lock.is_none() {
                     tracing::info!(session_id = %sid, "narrator.session_established — persistent Opus session created");
+                    // Record the genre for this session so we can detect genre switches
+                    if let Some(ref genre) = context.genre {
+                        *self.session_genre.lock().unwrap() = Some(genre.clone());
+                    }
                 }
                 *lock = Some(sid.clone());
             }
@@ -875,20 +988,23 @@ impl GameService for Orchestrator {
                         "rag.items_gained_extracted"
                     );
                 }
-                // ADR-067: Always try combat patch extraction from game_patch.
-                // Primary path: extract from the parsed game_patch block (narrator emits
-                // ```game_patch```, not ```json```, so extract_fenced_json misses it).
-                // Fallback: try extract_fenced_json for backwards compat with ```json``` blocks.
-                let combat_patch = extract_combat_from_game_patch(raw_response)
-                    .or_else(|| extract_fenced_json::<crate::patches::CombatPatch>(raw_response).ok());
-                if let Some(ref p) = combat_patch {
-                    info!(in_combat = ?p.in_combat, hp_changes = ?p.hp_changes, "combat.patch_extracted");
+                // Story 28-8: Log confrontation initiation if present.
+                if let Some(ref ctype) = extraction.confrontation {
+                    info!(confrontation_type = %ctype, "encounter.confrontation_initiated");
                 }
 
-                // ADR-067: Always try chase patch extraction from game_patch
-                let chase_patch = extract_fenced_json::<crate::patches::ChasePatch>(raw_response).ok();
-                if let Some(ref p) = chase_patch {
-                    info!(in_chase = ?p.in_chase, separation_delta = ?p.separation_delta, "chase.patch_extracted");
+                // Story 28-6: Extract beat_selections from game_patch block.
+                // CombatPatch/ChasePatch extraction removed in story 28-9.
+                let beat_selections = extraction.beat_selections.clone();
+                if !beat_selections.is_empty() {
+                    for bs in &beat_selections {
+                        info!(
+                            actor = %bs.actor,
+                            beat_id = %bs.beat_id,
+                            target = ?bs.target,
+                            "encounter.agent_beat_selection"
+                        );
+                    }
                 }
 
                 let agent_duration_ms = call_start.elapsed().as_millis() as u64;
@@ -921,8 +1037,7 @@ impl GameService for Orchestrator {
 
                 // Orchestrator overrides fields assemble_turn doesn't know about
                 ActionResult {
-                    combat_patch,
-                    chase_patch,
+                    beat_selections,
                     is_degraded: false,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
@@ -931,6 +1046,8 @@ impl GameService for Orchestrator {
                     token_count_out: response.output_tokens.map(|v| v as usize),
                     zone_breakdown: Some(prompt_zone_breakdown),
                     prompt_tier: prompt_tier_str.to_string(),
+                    prompt_text: Some(prompt.clone()),
+                    raw_response_text: Some(response.text.clone()),
                     ..base
                 }
             }
@@ -952,8 +1069,7 @@ impl GameService for Orchestrator {
                 );
                 ActionResult {
                     narration: degraded_narration,
-                    combat_patch: None,
-                    chase_patch: None,
+                    beat_selections: vec![],
                     is_degraded: true,
                     classified_intent: Some(intent_str),
                     agent_name: Some(agent_str),
@@ -976,6 +1092,10 @@ impl GameService for Orchestrator {
                     sfx_triggers: vec![],
                     action_rewrite: None,
                     action_flags: None,
+                    confrontation: None,
+                    location: None,
+                    prompt_text: Some(prompt.clone()),
+                    raw_response_text: None,
                 }
             }
         }
@@ -988,9 +1108,10 @@ impl GameService for Orchestrator {
 
 /// Extract and deserialize JSON from a markdown fenced code block.
 ///
-/// Used for creature_smith (CombatPatch) and dialectician (ChasePatch) responses
-/// which may wrap their JSON output in ```json ... ``` fences.
-fn extract_fenced_json<T: serde::de::DeserializeOwned>(input: &str) -> Result<T, serde_json::Error> {
+/// Used for responses that may wrap their JSON output in ```json ... ``` or ```game_patch ... ``` fences.
+fn extract_fenced_json<T: serde::de::DeserializeOwned>(
+    input: &str,
+) -> Result<T, serde_json::Error> {
     // Try ```json ... ``` first
     if let Some(start) = input.find("```json") {
         if let Some(end) = input[start + 7..].find("```") {
@@ -1061,22 +1182,18 @@ struct GamePatchExtraction {
     action_rewrite: Option<ActionRewrite>,
     #[serde(default)]
     action_flags: Option<ActionFlags>,
-    // Combat fields — narrator emits these in game_patch when combat starts/continues.
-    // Without these, the narrator's in_combat:true was silently dropped and combat
-    // never initiated (chicken-and-egg: IntentRouter needs in_combat to inject combat
-    // rules, but narrator needs to SET in_combat first via these fields).
+    // Story 28-6: beat_selections replaces in_combat/hp_changes/turn_order/drama_weight.
+    // The narrator selects beats from the active ConfrontationDef.
     #[serde(default)]
-    in_combat: Option<bool>,
+    beat_selections: Vec<BeatSelection>,
+    /// Story 28-8: Narrator signals encounter start by naming a confrontation type
+    /// from the genre pack's ConfrontationDefs (e.g., "combat", "standoff", "chase").
+    /// The server creates a StructuredEncounter via from_confrontation_def().
     #[serde(default)]
-    hp_changes: Option<HashMap<String, i32>>,
+    confrontation: Option<String>,
+    /// Location name from the narrator's game_patch JSON (fallback for header extraction).
     #[serde(default)]
-    turn_order: Option<Vec<String>>,
-    #[serde(default)]
-    current_turn: Option<String>,
-    #[serde(default)]
-    drama_weight: Option<f64>,
-    #[serde(default)]
-    advance_round: Option<bool>,
+    location: Option<String>,
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -1102,34 +1219,6 @@ fn extract_game_patch(raw: &str) -> GamePatchExtraction {
     }
     // No structured data — return empty defaults
     GamePatchExtraction::default()
-}
-
-/// Extract a CombatPatch from the ```game_patch``` block if combat fields are present.
-///
-/// The narrator emits combat fields (in_combat, hp_changes, turn_order, etc.) inside
-/// the same ```game_patch``` block as other structured data. GamePatchExtraction now
-/// captures these fields; this function maps them to a CombatPatch if any are set.
-/// Returns None if no combat-relevant fields were emitted.
-fn extract_combat_from_game_patch(raw: &str) -> Option<crate::patches::CombatPatch> {
-    let patch = extract_game_patch(raw);
-    // Only produce a CombatPatch if at least one combat field is present.
-    if patch.in_combat.is_none()
-        && patch.hp_changes.is_none()
-        && patch.turn_order.is_none()
-        && patch.current_turn.is_none()
-        && patch.drama_weight.is_none()
-    {
-        return None;
-    }
-    Some(crate::patches::CombatPatch {
-        in_combat: patch.in_combat,
-        hp_changes: patch.hp_changes,
-        turn_order: patch.turn_order,
-        current_turn: patch.current_turn,
-        drama_weight: patch.drama_weight,
-        advance_round: patch.advance_round.unwrap_or(false),
-        available_actions: None,
-    })
 }
 
 // ============================================================================
@@ -1186,7 +1275,6 @@ pub struct PersonalityEvent {
     #[serde(default)]
     pub description: String,
 }
-
 
 /// A merchant transaction extracted from the narrator's JSON block.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
@@ -1258,6 +1346,13 @@ pub struct NarratorExtraction {
     pub action_rewrite: Option<ActionRewrite>,
     /// Inline preprocessor: relevance flags.
     pub action_flags: Option<ActionFlags>,
+    /// Beat selections from narrator output (story 28-6).
+    pub beat_selections: Vec<BeatSelection>,
+    /// Confrontation type to initiate (story 28-8). When the narrator emits
+    /// `"confrontation": "combat"`, the server creates a StructuredEncounter.
+    pub confrontation: Option<String>,
+    /// Location name from game_patch JSON (fallback for header extraction).
+    pub location: Option<String>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1287,6 +1382,9 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         has_lore = patch.lore_established.is_some(),
         has_action_rewrite = patch.action_rewrite.is_some(),
         has_action_flags = patch.action_flags.is_some(),
+        beat_selections = patch.beat_selections.len(),
+        confrontation = ?patch.confrontation,
+        has_location = patch.location.is_some(),
         "game_patch.extracted"
     );
 
@@ -1308,6 +1406,9 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         sfx_triggers: patch.sfx_triggers,
         action_rewrite: patch.action_rewrite,
         action_flags: patch.action_flags,
+        beat_selections: patch.beat_selections,
+        confrontation: patch.confrontation,
+        location: patch.location,
     }
 }
 
@@ -1322,6 +1423,9 @@ pub struct TurnContext {
     pub in_combat: bool,
     /// Whether the game is currently in an active chase.
     pub in_chase: bool,
+    /// Whether ANY encounter is active (combat, chase, standoff, negotiation, etc.).
+    /// Broader than in_combat/in_chase — covers all ConfrontationDef types.
+    pub in_encounter: bool,
     /// Serialized game state summary for grounding narration.
     pub state_summary: Option<String>,
     /// Per-session narrator verbosity setting (concise/standard/verbose).
@@ -1425,9 +1529,7 @@ pub fn inject_merchant_context(
     // Find merchants at the player's current location
     let merchant_entries: Vec<&NpcRegistryEntry> = registry
         .iter()
-        .filter(|entry| {
-            entry.role.contains("merchant") && entry.location == current_location
-        })
+        .filter(|entry| entry.role.contains("merchant") && entry.location == current_location)
         .collect();
 
     for entry in merchant_entries {
@@ -1460,71 +1562,4 @@ pub fn inject_merchant_context(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extract_combat_from_game_patch_block() {
-        // Narrator emits combat fields inside ```game_patch``` — this was the bug.
-        // extract_fenced_json only found ```json``` blocks, so combat initiation
-        // from the narrator was silently dropped.
-        let raw = r#"**The Collapsed Overpass**
-
-You grab the sharpened rebar and charge at the synth.
-
-```game_patch
-{
-  "in_combat": true,
-  "turn_order": ["Kael", "Synth Sentry"],
-  "current_turn": "Kael",
-  "hp_changes": {"Synth Sentry": -4},
-  "drama_weight": 0.6,
-  "npcs_present": [{"name": "Synth Sentry", "role": "enemy", "is_new": true}]
-}
-```"#;
-        let patch = extract_combat_from_game_patch(raw);
-        assert!(patch.is_some(), "should extract CombatPatch from game_patch block");
-        let p = patch.unwrap();
-        assert_eq!(p.in_combat, Some(true));
-        assert_eq!(p.turn_order.as_ref().unwrap().len(), 2);
-        assert_eq!(p.current_turn.as_deref(), Some("Kael"));
-        assert_eq!(*p.hp_changes.as_ref().unwrap().get("Synth Sentry").unwrap(), -4);
-        assert!((p.drama_weight.unwrap() - 0.6).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn extract_combat_returns_none_when_no_combat_fields() {
-        // Normal exploration turn — no combat fields in game_patch.
-        let raw = r#"**The Market Square**
-
-The vendors call out their wares as you pass.
-
-```game_patch
-{
-  "mood": "lively",
-  "npcs_present": [{"name": "Old Jens", "role": "vendor", "is_new": false}]
-}
-```"#;
-        let patch = extract_combat_from_game_patch(raw);
-        assert!(patch.is_none(), "should return None when no combat fields present");
-    }
-
-    #[test]
-    fn extract_combat_from_json_fence_fallback() {
-        // Legacy path: creature_smith emits ```json``` blocks.
-        // extract_game_patch falls back to ```json``` too, so
-        // extract_combat_from_game_patch covers both fence types.
-        let raw = r#"Combat narration here.
-
-```json
-{
-  "in_combat": true,
-  "turn_order": ["Player", "Goblin"],
-  "current_turn": "Player",
-  "hp_changes": {"Goblin": -8},
-  "drama_weight": 0.4
-}
-```"#;
-        let patch = extract_combat_from_game_patch(raw);
-        assert!(patch.is_some(), "should extract from ```json``` fallback too");
-        assert_eq!(patch.unwrap().in_combat, Some(true));
-    }
 }

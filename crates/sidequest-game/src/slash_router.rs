@@ -114,7 +114,9 @@ impl SlashRouter {
     /// Build /help output listing all registered commands.
     fn help_output(&self) -> CommandResult {
         if self.commands.is_empty() {
-            return CommandResult::Display("No commands registered. Use /help after commands are added.".to_string());
+            return CommandResult::Display(
+                "No commands registered. Use /help after commands are added.".to_string(),
+            );
         }
 
         let mut lines: Vec<String> = self

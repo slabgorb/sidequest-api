@@ -7,7 +7,11 @@
 use std::collections::HashSet;
 
 use sidequest_genre::{RoomDef, RoomExit};
-use sidequest_protocol::{ExploredLocation, RoomExitInfo};
+use sidequest_protocol::{
+    ExploredLocation, RoomExitInfo, TacticalFeaturePayload, TacticalGridPayload,
+};
+
+use crate::tactical::{TacticalCell, TacticalGrid};
 
 use crate::state::GameSnapshot;
 
@@ -189,7 +193,10 @@ pub fn build_room_graph_explored(
 
             let connections: Vec<String> = visible_exits.iter().map(|e| e.target.clone()).collect();
 
+            let tactical_grid = parse_room_grid(room);
+
             ExploredLocation {
+                id: room.id.clone(),
                 name: room.name.clone(),
                 x: 0,
                 y: 0,
@@ -199,9 +206,82 @@ pub fn build_room_graph_explored(
                 room_type: room.room_type.clone(),
                 size: Some(room.size),
                 is_current_room: room.id == current_room_id,
+                tactical_grid,
             }
         })
         .collect()
+}
+
+/// Parse a room's ASCII grid into a TacticalGridPayload, if the room has one.
+/// Returns None for rooms without grid data (AC-3: not an error).
+fn parse_room_grid(room: &RoomDef) -> Option<TacticalGridPayload> {
+    let grid_str = room.grid.as_ref()?;
+    let legend = room.legend.as_ref().cloned().unwrap_or_default();
+
+    let grid = match TacticalGrid::parse(grid_str, &legend) {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::warn!(
+                room_id = %room.id,
+                error = %e,
+                "failed to parse tactical grid for room — skipping"
+            );
+            return None;
+        }
+    };
+
+    Some(tactical_grid_to_payload(&grid))
+}
+
+/// Convert a parsed TacticalGrid into a wire-format TacticalGridPayload.
+fn tactical_grid_to_payload(grid: &TacticalGrid) -> TacticalGridPayload {
+    let cells: Vec<Vec<String>> = grid
+        .cells()
+        .iter()
+        .map(|row| row.iter().map(cell_to_string).collect())
+        .collect();
+
+    // Collect features from the legend — find all positions of each glyph.
+    let mut features: Vec<TacticalFeaturePayload> = Vec::new();
+    for (&glyph, def) in grid.legend() {
+        let mut positions = Vec::new();
+        for (y, row) in grid.cells().iter().enumerate() {
+            for (x, cell) in row.iter().enumerate() {
+                if matches!(cell, TacticalCell::Feature(g) if *g == glyph) {
+                    positions.push([x as u32, y as u32]);
+                }
+            }
+        }
+        if !positions.is_empty() {
+            features.push(TacticalFeaturePayload {
+                glyph,
+                feature_type: def.feature_type.to_string(),
+                label: def.label.clone(),
+                positions,
+            });
+        }
+    }
+
+    TacticalGridPayload {
+        width: grid.width(),
+        height: grid.height(),
+        cells,
+        features,
+    }
+}
+
+/// Map a TacticalCell to its wire-format string name.
+fn cell_to_string(cell: &TacticalCell) -> String {
+    match cell {
+        TacticalCell::Floor => "floor".into(),
+        TacticalCell::Wall => "wall".into(),
+        TacticalCell::Void => "void".into(),
+        TacticalCell::DoorClosed => "door_closed".into(),
+        TacticalCell::DoorOpen => "door_open".into(),
+        TacticalCell::Water => "water".into(),
+        TacticalCell::DifficultTerrain => "difficult_terrain".into(),
+        TacticalCell::Feature(_) => "feature".into(),
+    }
 }
 
 /// Whether an exit is visible to the player (for MAP_UPDATE).

@@ -14,8 +14,7 @@
 //!   AC-5: End-to-end: typed event → proposal → application → summary update
 
 use sidequest_game::{
-    apply_ocean_shifts, NpcRegistryEntry, OceanDimension, OceanProfile,
-    PersonalityEvent,
+    apply_ocean_shifts, NpcRegistryEntry, OceanDimension, OceanProfile, PersonalityEvent,
 };
 
 // ─── Helpers ───────────────────────────────────────────────
@@ -119,7 +118,10 @@ fn apply_shifts_modifies_npc_ocean_profile() {
 
     assert!(!applied.is_empty(), "should return applied proposals");
 
-    let profile = registry[0].ocean.as_ref().expect("should still have OCEAN profile");
+    let profile = registry[0]
+        .ocean
+        .as_ref()
+        .expect("should still have OCEAN profile");
     assert!(
         profile.agreeableness < 5.0,
         "Betrayal should lower Agreeableness from 5.0, got {}",
@@ -134,7 +136,10 @@ fn apply_shifts_skips_npc_without_ocean_profile() {
     let events = vec![("NoOcean".to_string(), PersonalityEvent::Victory)];
     let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
 
-    assert!(applied.is_empty(), "should not apply shifts to NPC without OCEAN profile");
+    assert!(
+        applied.is_empty(),
+        "should not apply shifts to NPC without OCEAN profile"
+    );
 }
 
 #[test]
@@ -144,7 +149,10 @@ fn apply_shifts_skips_unknown_npc() {
     let events = vec![("UnknownNpc".to_string(), PersonalityEvent::Victory)];
     let (applied, _log) = apply_ocean_shifts(&mut registry, &events, 1);
 
-    assert!(applied.is_empty(), "should not apply shifts when NPC is not in registry");
+    assert!(
+        applied.is_empty(),
+        "should not apply shifts when NPC is not in registry"
+    );
 }
 
 // ─── AC-3: Shift log returned ──────────────────────────────
@@ -181,7 +189,10 @@ fn shifts_accumulate_across_multiple_applications() {
     apply_ocean_shifts(&mut registry, &events_1, 1);
 
     let after_victory = registry[0].ocean.as_ref().unwrap().conscientiousness;
-    assert!(after_victory > 5.0, "Victory should raise Conscientiousness");
+    assert!(
+        after_victory > 5.0,
+        "Victory should raise Conscientiousness"
+    );
 
     // Turn 2: Another Victory — should stack
     let events_2 = vec![("Mira".to_string(), PersonalityEvent::Victory)];
@@ -279,7 +290,11 @@ fn end_to_end_with_multiple_npcs() {
         }
     });
 
-    assert!(any_changed, "at least one NPC profile should change. Applied: {}", applied.len());
+    assert!(
+        any_changed,
+        "at least one NPC profile should change. Applied: {}",
+        applied.len()
+    );
 }
 
 #[test]

@@ -10,16 +10,15 @@ use sidequest_game::builder::CharacterBuilder;
 use sidequest_game::session_restore;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
-    AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
-    CharacterState, GameMessage, InitialState, InventoryPayload, MapUpdatePayload,
-    NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload,
-    SessionEventPayload,
+    AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterState, GameMessage,
+    InitialState, MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember,
+    PartyStatusPayload, SessionEventPayload,
 };
 
 use crate::npc_context;
 use crate::session::Session;
-use crate::{error_response, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 use crate::shared_session;
+use crate::{error_response, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 
 pub(crate) async fn dispatch_connect(
     payload: &SessionEventPayload,
@@ -57,6 +56,11 @@ pub(crate) async fn dispatch_connect(
     let genre = payload.genre.as_deref().unwrap_or("");
     let world = payload.world.as_deref().unwrap_or("");
     let pname = payload.player_name.as_deref().unwrap_or("Player");
+
+    // Story 30-2: Reset narrator session on every connect. This forces the next
+    // narrator prompt to use Full tier, ensuring genre/world context is always
+    // grounded even when switching between games on a running server.
+    state.game_service().reset_narrator_session_for_connect();
 
     // Check for returning player — load from SQLite (now keyed by player name)
     let returning = state.persistence().exists(genre, world, pname).await;
@@ -106,25 +110,29 @@ pub(crate) async fn dispatch_connect(
 
                                 // Move values into mutable references
                                 *character_json_store = Some(restored.character_json);
-                                *character_name_store = Some(restored.character_name.as_str().to_string());
+                                *character_name_store =
+                                    Some(restored.character_name.as_str().to_string());
                                 *character_hp = hp;
                                 *character_max_hp = max_hp;
                                 *inventory = restored.inventory;
 
                                 // Emit OTEL span for session restore (story 26-3)
-                                WatcherEventBuilder::new("session_restore", WatcherEventType::StateTransition)
-                                    .field("event", "character_restored")
-                                    .field("character_name", char_name.as_str())
-                                    .field("level", level)
-                                    .field("hp", hp)
-                                    .field("max_hp", max_hp)
-                                    .field("ac", ac)
-                                    .field("inventory_count", inv_count)
-                                    .field("facts_count", facts_count)
-                                    .field("player", pname)
-                                    .field("genre", genre)
-                                    .field("world", world)
-                                    .send();
+                                WatcherEventBuilder::new(
+                                    "session_restore",
+                                    WatcherEventType::StateTransition,
+                                )
+                                .field("event", "character_restored")
+                                .field("character_name", char_name.as_str())
+                                .field("level", level)
+                                .field("hp", hp)
+                                .field("max_hp", max_hp)
+                                .field("ac", ac)
+                                .field("inventory_count", inv_count)
+                                .field("facts_count", facts_count)
+                                .field("player", pname)
+                                .field("genre", genre)
+                                .field("world", world)
+                                .send();
 
                                 tracing::info!(
                                     character = %char_name,
@@ -142,7 +150,10 @@ pub(crate) async fn dispatch_connect(
                                     world = %world,
                                     "session_restore.character_missing — no characters in saved snapshot"
                                 );
-                                return vec![error_response(player_id, "Saved game corrupted: no character data found")];
+                                return vec![error_response(
+                                    player_id,
+                                    "Saved game corrupted: no character data found",
+                                )];
                             }
                         }
                         // Restore location, regions, turn state, and NPC registry from snapshot
@@ -158,26 +169,41 @@ pub(crate) async fn dispatch_connect(
                         // If navigation_mode is RoomGraph but discovered_rooms is empty, seed
                         // the entrance room so the Automapper has something to render.
                         if snapshot.discovered_rooms.is_empty() {
-                            let rooms_for_backfill: Vec<sidequest_genre::RoomDef> = GenreCode::new(genre)
-                                .ok()
-                                .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
-                                .and_then(|pack| pack.worlds.get(world).cloned())
-                                .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
-                                .and_then(|w| w.cartography.rooms.clone())
-                                .unwrap_or_default();
+                            let rooms_for_backfill: Vec<sidequest_genre::RoomDef> =
+                                GenreCode::new(genre)
+                                    .ok()
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
+                                    .and_then(|pack| pack.worlds.get(world).cloned())
+                                    .filter(|w| {
+                                        w.cartography.navigation_mode
+                                            == sidequest_genre::NavigationMode::RoomGraph
+                                    })
+                                    .and_then(|w| w.cartography.rooms.clone())
+                                    .unwrap_or_default();
                             if !rooms_for_backfill.is_empty() {
-                                sidequest_game::room_movement::init_room_graph_location(snapshot, &rooms_for_backfill);
+                                sidequest_game::room_movement::init_room_graph_location(
+                                    snapshot,
+                                    &rooms_for_backfill,
+                                );
                                 *current_location = snapshot.location.clone();
                                 tracing::info!(
                                     location = %snapshot.location,
                                     discovered_rooms = snapshot.discovered_rooms.len(),
                                     "room_graph.backfill — seeded entrance for stale save"
                                 );
-                                WatcherEventBuilder::new("room_graph", WatcherEventType::StateTransition)
-                                    .field("event", "room_graph.backfill")
-                                    .field("location", snapshot.location.as_str())
-                                    .field("source", "stale_save")
-                                    .send();
+                                WatcherEventBuilder::new(
+                                    "room_graph",
+                                    WatcherEventType::StateTransition,
+                                )
+                                .field("event", "room_graph.backfill")
+                                .field("location", snapshot.location.as_str())
+                                .field("source", "stale_save")
+                                .send();
                             }
                         }
 
@@ -185,14 +211,20 @@ pub(crate) async fn dispatch_connect(
                         WatcherEventBuilder::new("location", WatcherEventType::StateTransition)
                             .field("event", "location.restored")
                             .field("location", saved.snapshot.location.as_str())
-                            .field("discovered_regions", saved.snapshot.discovered_regions.len())
+                            .field(
+                                "discovered_regions",
+                                saved.snapshot.discovered_regions.len(),
+                            )
                             .field("source", "save_file")
                             .send();
 
                         // Transition session to Playing
                         if let Err(e) = session.complete_character_creation() {
                             tracing::error!(error = %e, state = %session.state_name(), "Failed to transition session to Playing on reconnect");
-                            return vec![error_response(player_id, &format!("Session transition failed: {e}"))];
+                            return vec![error_response(
+                                player_id,
+                                &format!("Session transition failed: {e}"),
+                            )];
                         }
 
                         let ready = GameMessage::SessionEvent {
@@ -236,40 +268,72 @@ pub(crate) async fn dispatch_connect(
                         };
                         responses.push(ready);
 
-                        // Replay essential state for reconnecting client
-                        // CHARACTER_SHEET
-                        if let Some(character) = saved.snapshot.characters.first() {
-                            responses.push(GameMessage::CharacterSheet {
-                                payload: CharacterSheetPayload {
-                                    name: character.core.name.as_str().to_string(),
-                                    class: character.char_class.as_str().to_string(),
-                                    race: character.race.as_str().to_string(),
-                                    level: character.core.level as u32,
-                                    stats: character
+                        // PARTY_STATUS — single-player reconnect. PARTY_STATUS
+                        // is now the single source of truth for the character
+                        // sheet and inventory (CHARACTER_SHEET / INVENTORY
+                        // messages were deleted), so the reconnecting client
+                        // receives all per-member state in this one message.
+                        {
+                            let member = saved.snapshot.characters.first().map(|c| {
+                                // Build the sheet facet from the saved character.
+                                let sheet = sidequest_protocol::CharacterSheetDetails {
+                                    race: c.race.as_str().to_string(),
+                                    stats: c
                                         .stats
                                         .iter()
                                         .map(|(k, v)| (k.clone(), *v))
                                         .collect(),
-                                    abilities: character.hooks.iter()
+                                    abilities: c
+                                        .hooks
+                                        .iter()
                                         .filter(|s| !s.contains("auto-filled"))
                                         .cloned()
                                         .collect(),
-                                    backstory: character.backstory.as_str().to_string(),
-                                    personality: character.core.personality.as_str().to_string(),
-                                    pronouns: character.pronouns.clone(),
-                                    equipment: character.core.inventory.items.iter().map(|i| {
-                                        if i.equipped {
-                                            format!("{} [equipped]", i.name)
-                                        } else {
-                                            i.name.as_str().to_string()
-                                        }
-                                    }).collect(),
+                                    backstory: c.backstory.as_str().to_string(),
+                                    personality: c.core.personality.as_str().to_string(),
+                                    pronouns: c.pronouns.clone(),
+                                    equipment: c
+                                        .core
+                                        .inventory
+                                        .items
+                                        .iter()
+                                        .map(|i| {
+                                            if i.equipped {
+                                                format!("{} [equipped]", i.name)
+                                            } else {
+                                                i.name.as_str().to_string()
+                                            }
+                                        })
+                                        .collect(),
+                                };
+                                // Inventory facet from the live dispatch-scope `inventory`.
+                                let inventory_payload =
+                                    crate::shared_session::inventory_payload_from(inventory);
+                                PartyMember {
+                                    player_id: player_id.to_string(),
+                                    name: player_name_store
+                                        .as_deref()
+                                        .unwrap_or("Player")
+                                        .to_string(),
+                                    character_name: c.core.name.as_str().to_string(),
+                                    current_hp: c.core.hp,
+                                    max_hp: c.core.max_hp,
+                                    statuses: c.core.statuses.clone(),
+                                    class: c.char_class.as_str().to_string(),
+                                    level: c.core.level as u32,
                                     portrait_url: None,
                                     current_location: current_location.clone(),
-                                },
+                                    sheet: Some(sheet),
+                                    inventory: Some(inventory_payload),
+                                }
+                            });
+                            let members = member.into_iter().collect();
+                            responses.push(GameMessage::PartyStatus {
+                                payload: PartyStatusPayload { members },
                                 player_id: player_id.to_string(),
                             });
                         }
+
 
                         // CHAPTER_MARKER for current location
                         if !saved.snapshot.location.is_empty() {
@@ -282,14 +346,91 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
-                        // Last NARRATION — recap or last narrative log entry
-                        let recap_text = saved.recap.clone().or_else(|| {
-                            saved
-                                .snapshot
-                                .narrative_log
-                                .last()
-                                .map(|e| e.content.clone())
-                        });
+                        // Last NARRATION — recap, last narrative log entry, or
+                        // a location-based fallback built from the current
+                        // RoomDef description. The fallback case was added
+                        // after sq-playtest 2026-04-09 found that a player
+                        // could reconnect into a valid session (correct
+                        // stats, correct location) with a BLANK narrative
+                        // panel whenever `narrative_log` had no rows — e.g.
+                        // if the player closed the tab right after chargen
+                        // without completing a turn. A silent blank panel
+                        // is the worst possible state: the player has no
+                        // "what was I doing?" context and nothing to react
+                        // to.
+                        //
+                        // Source priority:
+                        //   1. `saved.recap` — rich "Previously On..." format
+                        //      generated from the last 3 narrative_log rows
+                        //      (built by PersistenceWorker::load).
+                        //   2. `saved.snapshot.narrative_log.last()` — raw
+                        //      last entry if recap was skipped for any reason.
+                        //   3. Location fallback: look up the current room in
+                        //      the genre pack's cartography.rooms list and
+                        //      synthesize a "You find yourself at NAME. DESC"
+                        //      string. Guaranteed to produce narration as long
+                        //      as the room is in the genre pack.
+                        //   4. Terminal fallback: "You find yourself at
+                        //      {location}." — plain text from snapshot.location.
+                        let (recap_text, recap_source) = {
+                            if let Some(text) = saved.recap.clone() {
+                                (Some(text), "recap")
+                            } else if let Some(entry) =
+                                saved.snapshot.narrative_log.last()
+                            {
+                                (Some(entry.content.clone()), "narrative_log_last")
+                            } else {
+                                // Location fallback: pull the current RoomDef
+                                // from the genre pack. Same loader pattern as
+                                // the room_graph backfill above — keep it
+                                // inline rather than factored so future edits
+                                // can see both branches together.
+                                let current_room_desc: Option<String> =
+                                    GenreCode::new(genre)
+                                        .ok()
+                                        .and_then(|gc| {
+                                            state
+                                                .genre_cache()
+                                                .get_or_load(&gc, state.genre_loader())
+                                                .ok()
+                                        })
+                                        .and_then(|pack| pack.worlds.get(world).cloned())
+                                        .and_then(|w| w.cartography.rooms.clone())
+                                        .and_then(|rooms| {
+                                            rooms
+                                                .into_iter()
+                                                .find(|r| r.id == saved.snapshot.location)
+                                                .map(|r| match r.description.as_deref() {
+                                                    Some(desc) if !desc.is_empty() => format!(
+                                                        "You find yourself at {}.\n\n{}",
+                                                        r.name, desc
+                                                    ),
+                                                    _ => format!("You find yourself at {}.", r.name),
+                                                })
+                                        });
+                                if let Some(text) = current_room_desc {
+                                    (Some(text), "room_description_fallback")
+                                } else if !saved.snapshot.location.is_empty() {
+                                    (
+                                        Some(format!(
+                                            "You find yourself at {}.",
+                                            saved.snapshot.location
+                                        )),
+                                        "location_only_fallback",
+                                    )
+                                } else {
+                                    (None, "none")
+                                }
+                            }
+                        };
+                        WatcherEventBuilder::new("narration", WatcherEventType::StateTransition)
+                            .field("event", "reconnect.narration_source")
+                            .field("source", recap_source)
+                            .field("has_text", recap_text.is_some())
+                            .field("location", saved.snapshot.location.as_str())
+                            .field("narrative_log_rows", saved.snapshot.narrative_log.len())
+                            .field("player_id", player_id)
+                            .send();
                         if let Some(text) = recap_text {
                             responses.push(GameMessage::Narration {
                                 payload: NarrationPayload {
@@ -305,21 +446,64 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
-                        // PARTY_STATUS — single player reconnect sends only
-                        // the first character (the player's) to avoid duplication
-                        // from stale snapshot.characters entries.
+                        // PARTY_STATUS — single-player reconnect. PARTY_STATUS
+                        // is now the single source of truth for the character
+                        // sheet and inventory (CHARACTER_SHEET / INVENTORY
+                        // messages were deleted), so the reconnecting client
+                        // receives all per-member state in this one message.
                         {
-                            let member = saved.snapshot.characters.first().map(|c| PartyMember {
-                                player_id: player_id.to_string(),
-                                name: player_name_store.as_deref().unwrap_or("Player").to_string(),
-                                character_name: c.core.name.as_str().to_string(),
-                                current_hp: c.core.hp,
-                                max_hp: c.core.max_hp,
-                                statuses: c.core.statuses.clone(),
-                                class: c.char_class.as_str().to_string(),
-                                level: c.core.level as u32,
-                                portrait_url: None,
-                                current_location: current_location.clone(),
+                            let member = saved.snapshot.characters.first().map(|c| {
+                                // Build the sheet facet from the saved character.
+                                let sheet = sidequest_protocol::CharacterSheetDetails {
+                                    race: c.race.as_str().to_string(),
+                                    stats: c
+                                        .stats
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), *v))
+                                        .collect(),
+                                    abilities: c
+                                        .hooks
+                                        .iter()
+                                        .filter(|s| !s.contains("auto-filled"))
+                                        .cloned()
+                                        .collect(),
+                                    backstory: c.backstory.as_str().to_string(),
+                                    personality: c.core.personality.as_str().to_string(),
+                                    pronouns: c.pronouns.clone(),
+                                    equipment: c
+                                        .core
+                                        .inventory
+                                        .items
+                                        .iter()
+                                        .map(|i| {
+                                            if i.equipped {
+                                                format!("{} [equipped]", i.name)
+                                            } else {
+                                                i.name.as_str().to_string()
+                                            }
+                                        })
+                                        .collect(),
+                                };
+                                // Inventory facet from the live dispatch-scope `inventory`.
+                                let inventory_payload =
+                                    crate::shared_session::inventory_payload_from(inventory);
+                                PartyMember {
+                                    player_id: player_id.to_string(),
+                                    name: player_name_store
+                                        .as_deref()
+                                        .unwrap_or("Player")
+                                        .to_string(),
+                                    character_name: c.core.name.as_str().to_string(),
+                                    current_hp: c.core.hp,
+                                    max_hp: c.core.max_hp,
+                                    statuses: c.core.statuses.clone(),
+                                    class: c.char_class.as_str().to_string(),
+                                    level: c.core.level as u32,
+                                    portrait_url: None,
+                                    current_location: current_location.clone(),
+                                    sheet: Some(sheet),
+                                    inventory: Some(inventory_payload),
+                                }
                             });
                             let members = member.into_iter().collect();
                             responses.push(GameMessage::PartyStatus {
@@ -336,9 +520,17 @@ pub(crate) async fn dispatch_connect(
                                 // Try room graph mode first
                                 let rooms: Vec<sidequest_genre::RoomDef> = GenreCode::new(genre)
                                     .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
                                     .and_then(|pack| pack.worlds.get(world).cloned())
-                                    .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                    .filter(|w| {
+                                        w.cartography.navigation_mode
+                                            == sidequest_genre::NavigationMode::RoomGraph
+                                    })
                                     .and_then(|w| w.cartography.rooms.clone())
                                     .unwrap_or_default();
                                 if !rooms.is_empty() {
@@ -348,9 +540,12 @@ pub(crate) async fn dispatch_connect(
                                         &saved.snapshot.location,
                                     )
                                 } else {
-                                    saved.snapshot.discovered_regions
+                                    saved
+                                        .snapshot
+                                        .discovered_regions
                                         .iter()
                                         .map(|name| sidequest_protocol::ExploredLocation {
+                                            id: String::new(),
                                             name: name.clone(),
                                             x: 0,
                                             y: 0,
@@ -360,17 +555,77 @@ pub(crate) async fn dispatch_connect(
                                             room_type: String::new(),
                                             size: None,
                                             is_current_room: name == &saved.snapshot.location,
+                                            tactical_grid: None,
                                         })
                                         .collect()
                                 }
                             };
                             let explored_count = explored_locs.len();
+                            let cartography_meta: Option<sidequest_protocol::CartographyMetadata> =
+                                GenreCode::new(genre)
+                                    .ok()
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
+                                    .and_then(|pack| pack.worlds.get(world).cloned())
+                                    .map(|w| {
+                                        let nav_mode = match w.cartography.navigation_mode {
+                                            sidequest_genre::NavigationMode::Region => "region",
+                                            sidequest_genre::NavigationMode::RoomGraph => {
+                                                "room_graph"
+                                            }
+                                            sidequest_genre::NavigationMode::Hierarchical => {
+                                                "hierarchical"
+                                            }
+                                        };
+                                        sidequest_protocol::CartographyMetadata {
+                                            navigation_mode: nav_mode.to_string(),
+                                            starting_region: w.cartography.starting_region.clone(),
+                                            regions: w
+                                                .cartography
+                                                .regions
+                                                .iter()
+                                                .map(|(slug, r)| {
+                                                    (
+                                                        slug.clone(),
+                                                        sidequest_protocol::CartographyRegion {
+                                                            name: r.name.clone(),
+                                                            description: r.description.clone(),
+                                                            adjacent: r.adjacent.clone(),
+                                                        },
+                                                    )
+                                                })
+                                                .collect(),
+                                            routes: w
+                                                .cartography
+                                                .routes
+                                                .iter()
+                                                .map(|r| sidequest_protocol::CartographyRoute {
+                                                    name: r.name.clone(),
+                                                    description: r.description.clone(),
+                                                    from_id: r.from_id.clone(),
+                                                    to_id: r.to_id.clone(),
+                                                })
+                                                .collect(),
+                                        }
+                                    });
+                            super::emit_map_update_telemetry(
+                                "reconnect",
+                                player_id,
+                                &saved.snapshot.location,
+                                &explored_locs,
+                                cartography_meta.as_ref(),
+                            );
                             responses.push(GameMessage::MapUpdate {
                                 payload: MapUpdatePayload {
                                     current_location: saved.snapshot.location.clone(),
                                     region: saved.snapshot.current_region.clone(),
                                     explored: explored_locs,
                                     fog_bounds: None,
+                                    cartography: cartography_meta,
                                 },
                                 player_id: player_id.to_string(),
                             });
@@ -379,30 +634,11 @@ pub(crate) async fn dispatch_connect(
                                 location = %saved.snapshot.location,
                                 "map_update.reconnect — replayed explored state for automapper"
                             );
-                            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
-                                .field("event", "map_update.reconnect")
-                                .field("explored_count", explored_count)
-                                .field("location", saved.snapshot.location.as_str())
-                                .send();
                         }
 
-                        // INVENTORY — replay carried items so the client panel populates
-                        responses.push(GameMessage::Inventory {
-                            payload: InventoryPayload {
-                                items: inventory
-                                    .carried()
-                                    .map(|item| sidequest_protocol::InventoryItem {
-                                        name: item.name.as_str().to_string(),
-                                        item_type: item.category.as_str().to_string(),
-                                        equipped: item.equipped,
-                                        quantity: item.quantity,
-                                        description: item.description.as_str().to_string(),
-                                    })
-                                    .collect(),
-                                gold: inventory.gold,
-                            },
-                            player_id: player_id.to_string(),
-                        });
+                        // INVENTORY reconnect-replay was deleted: inventory is
+                        // now nested inside the PARTY_STATUS above. OTEL still
+                        // fires so the GM panel keeps its reconnect marker.
                         WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
                             .field("event", "inventory.reconnect")
                             .field("item_count", inventory.carried().count())
@@ -411,14 +647,15 @@ pub(crate) async fn dispatch_connect(
 
                         // Initialize audio subsystems for returning player
                         if let Ok(genre_code) = GenreCode::new(genre) {
-                            if let Ok(pack) = state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
+                            if let Ok(pack) = state
+                                .genre_cache()
+                                .get_or_load(&genre_code, state.genre_loader())
+                            {
                                 *visual_style = Some(pack.visual_style.clone());
                                 *axes_config = Some(pack.axes.clone());
                                 *music_director =
                                     Some(sidequest_game::MusicDirector::new(&pack.audio));
-                                *audio_mixer.lock().await = Some(sidequest_game::AudioMixer::new(
-                                    sidequest_game::DuckConfig::default(),
-                                ));
+                                *audio_mixer.lock().await = Some(sidequest_game::AudioMixer::new());
                                 *prerender_scheduler.lock().await =
                                     Some(sidequest_game::PrerenderScheduler::new(
                                         sidequest_game::PrerenderConfig::default(),
@@ -430,8 +667,15 @@ pub(crate) async fn dispatch_connect(
                                 }
                                 for trope in &mut all_tropes {
                                     if trope.id.is_none() {
-                                        let slug = trope.name.as_str().to_lowercase().replace(' ', "-")
-                                            .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+                                        let slug = trope
+                                            .name
+                                            .as_str()
+                                            .to_lowercase()
+                                            .replace(' ', "-")
+                                            .replace(
+                                                |c: char| !c.is_alphanumeric() && c != '-',
+                                                "",
+                                            );
                                         trope.id = Some(slug);
                                     }
                                 }
@@ -455,7 +699,11 @@ pub(crate) async fn dispatch_connect(
                                 );
 
                                 // Story 15-24: Restore persisted lore fragments from SQLite.
-                                match state.persistence().load_lore_fragments(genre, world, pname).await {
+                                match state
+                                    .persistence()
+                                    .load_lore_fragments(genre, world, pname)
+                                    .await
+                                {
                                     Ok(fragments) => {
                                         let restored_count = fragments.len();
                                         for fragment in fragments {
@@ -488,16 +736,22 @@ pub(crate) async fn dispatch_connect(
                                         Ok(chapters) => {
                                             let prev_maturity = snapshot.campaign_maturity.clone();
                                             sidequest_game::materialize_world(snapshot, &chapters);
-                                            WatcherEventBuilder::new("world_materialization", WatcherEventType::StateTransition)
-                                                .field("event", "world_materialized")
-                                                .field("genre", genre)
-                                                .field("world", world)
-                                                .field("chapters_available", chapters.len())
-                                                .field("chapters_applied", snapshot.world_history.len())
-                                                .field("prev_maturity", format!("{:?}", prev_maturity))
-                                                .field("new_maturity", format!("{:?}", snapshot.campaign_maturity))
-                                                .field("trigger", "returning_player_reconnect")
-                                                .send();
+                                            WatcherEventBuilder::new(
+                                                "world_materialization",
+                                                WatcherEventType::StateTransition,
+                                            )
+                                            .field("event", "world_materialized")
+                                            .field("genre", genre)
+                                            .field("world", world)
+                                            .field("chapters_available", chapters.len())
+                                            .field("chapters_applied", snapshot.world_history.len())
+                                            .field("prev_maturity", format!("{:?}", prev_maturity))
+                                            .field(
+                                                "new_maturity",
+                                                format!("{:?}", snapshot.campaign_maturity),
+                                            )
+                                            .field("trigger", "returning_player_reconnect")
+                                            .send();
                                             tracing::info!(
                                                 genre = %genre,
                                                 world = %world,
@@ -543,69 +797,75 @@ pub(crate) async fn dispatch_connect(
                         // Save file exists but no game state — treat as new player
                         tracing::warn!(genre = %genre, world = %world, "Save file exists but empty");
                         responses.push(connected_msg);
-                        responses.extend(start_character_creation(
-                            builder,
-                            trope_defs,
-                            world_context,
-                            visual_style,
-                            axes_config,
-                            music_director,
-                            audio_mixer,
-                            prerender_scheduler,
-                            lore_store,
-                            opening_seed,
-                            opening_directive,
-                            genre,
-                            world,
-                            state,
-                            player_id,
-                        )
-                        .await);
+                        responses.extend(
+                            start_character_creation(
+                                builder,
+                                trope_defs,
+                                world_context,
+                                visual_style,
+                                axes_config,
+                                music_director,
+                                audio_mixer,
+                                prerender_scheduler,
+                                lore_store,
+                                opening_seed,
+                                opening_directive,
+                                genre,
+                                world,
+                                state,
+                                player_id,
+                            )
+                            .await,
+                        );
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Failed to load saved session, starting fresh");
                         responses.push(connected_msg);
-                        responses.extend(start_character_creation(
-                            builder,
-                            trope_defs,
-                            world_context,
-                            visual_style,
-                            axes_config,
-                            music_director,
-                            audio_mixer,
-                            prerender_scheduler,
-                            lore_store,
-                            opening_seed,
-                            opening_directive,
-                            genre,
-                            world,
-                            state,
-                            player_id,
-                        )
-                        .await);
+                        responses.extend(
+                            start_character_creation(
+                                builder,
+                                trope_defs,
+                                world_context,
+                                visual_style,
+                                axes_config,
+                                music_director,
+                                audio_mixer,
+                                prerender_scheduler,
+                                lore_store,
+                                opening_seed,
+                                opening_directive,
+                                genre,
+                                world,
+                                state,
+                                player_id,
+                            )
+                            .await,
+                        );
                     }
                 }
             } else {
                 // New player — send connected, then start character creation
                 responses.push(connected_msg);
-                responses.extend(start_character_creation(
-                    builder,
-                    trope_defs,
-                    world_context,
-                    visual_style,
-                    axes_config,
-                    music_director,
-                    audio_mixer,
-                    prerender_scheduler,
-                    lore_store,
-                    opening_seed,
-                    opening_directive,
-                    genre,
-                    world,
-                    state,
-                    player_id,
-                )
-                .await);
+                responses.extend(
+                    start_character_creation(
+                        builder,
+                        trope_defs,
+                        world_context,
+                        visual_style,
+                        axes_config,
+                        music_director,
+                        audio_mixer,
+                        prerender_scheduler,
+                        lore_store,
+                        opening_seed,
+                        opening_directive,
+                        genre,
+                        world,
+                        state,
+                        player_id,
+                    )
+                    .await,
+                );
             }
 
             // Send theme_css SESSION_EVENT if the genre pack has a client_theme.css
@@ -665,7 +925,10 @@ pub(crate) async fn start_character_creation(
         }
     };
 
-    let pack = match state.genre_cache().get_or_load(&genre_code, state.genre_loader()) {
+    let pack = match state
+        .genre_cache()
+        .get_or_load(&genre_code, state.genre_loader())
+    {
         Ok(p) => p,
         Err(e) => {
             tracing::warn!(genre = %genre, error = %e, "Failed to load genre pack");
@@ -678,9 +941,7 @@ pub(crate) async fn start_character_creation(
 
     // Initialize audio subsystems from genre pack
     *music_director_out = Some(sidequest_game::MusicDirector::new(&pack.audio));
-    *audio_mixer_lock.lock().await = Some(sidequest_game::AudioMixer::new(
-        sidequest_game::DuckConfig::default(),
-    ));
+    *audio_mixer_lock.lock().await = Some(sidequest_game::AudioMixer::new());
     *prerender_lock.lock().await = Some(sidequest_game::PrerenderScheduler::new(
         sidequest_game::PrerenderConfig::default(),
     ));
@@ -720,16 +981,10 @@ pub(crate) async fn start_character_creation(
         let mut ctx = format!("World: {}", world.config.name);
         ctx.push_str(&format!("\n{}", world.config.description));
         if let Some(ref history) = world.lore.history {
-            ctx.push_str(&format!(
-                "\nHistory: {}",
-                history.chars().take(200).collect::<String>()
-            ));
+            ctx.push_str(&format!("\nHistory: {}", history));
         }
         if let Some(ref geography) = world.lore.geography {
-            ctx.push_str(&format!(
-                "\nGeography: {}",
-                geography.chars().take(200).collect::<String>()
-            ));
+            ctx.push_str(&format!("\nGeography: {}", geography));
         }
         *world_context_out = ctx;
         tracing::info!(world = %world_slug, context_len = world_context_out.len(), "Loaded world context");
@@ -774,27 +1029,32 @@ pub(crate) async fn start_character_creation(
         );
     }
 
-    // Filter scenes to those with non-empty choices
-    let scenes: Vec<_> = pack
-        .char_creation
-        .iter()
-        .filter(|s| !s.choices.is_empty())
-        .cloned()
-        .collect();
+    let scenes = pack.char_creation.clone();
 
     if scenes.is_empty() {
-        tracing::warn!(genre = %genre, "No character creation scenes with choices");
+        tracing::warn!(genre = %genre, "No character creation scenes");
         return vec![];
     }
 
-    let b = match CharacterBuilder::try_new(scenes, &pack.rules) {
+    let b = match CharacterBuilder::try_new(scenes, &pack.rules, pack.backstory_tables.clone()) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = ?e, "Failed to create CharacterBuilder");
             return vec![];
         }
     };
+    // Story 31-3: wire optional equipment_tables into the builder so scenes
+    // with `equipment_generation: random_table` can roll starting inventory.
+    let b = if let Some(ref equipment_tables) = pack.equipment_tables {
+        b.with_equipment_tables(equipment_tables.clone())
+    } else {
+        b
+    };
 
+    // Display-only scenes (no choices, no freeform) are now first-class:
+    // they emit CHARACTER_CREATION messages with input_type="continue" and
+    // wait for the player to acknowledge via a "continue" phase message.
+    // No silent skipping — every scene's narration is shown to the player.
     let scene_msg = b.to_scene_message(player_id);
     *builder = Some(b);
 
@@ -819,8 +1079,6 @@ pub(crate) async fn dispatch_character_creation(
     character_xp: &mut u32,
     current_location: &mut String,
     inventory: &mut sidequest_game::Inventory,
-    combat_state: &mut sidequest_game::combat::CombatState,
-    chase_state: &mut Option<sidequest_game::ChaseState>,
     trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     trope_defs: &mut Vec<sidequest_genre::TropeDefinition>,
     world_context: &str,
@@ -847,8 +1105,6 @@ pub(crate) async fn dispatch_character_creation(
     continuity_corrections: &mut String,
     quest_log: &mut HashMap<String, String>,
     genie_wishes: &mut Vec<sidequest_game::GenieWish>,
-    resource_state: &mut HashMap<String, f64>,
-    resource_declarations: &[sidequest_genre::ResourceDeclaration],
     achievement_tracker: &mut sidequest_game::achievement::AchievementTracker,
     snapshot: &mut sidequest_game::state::GameSnapshot,
     narrator_verbosity: sidequest_protocol::NarratorVerbosity,
@@ -860,6 +1116,15 @@ pub(crate) async fn dispatch_character_creation(
         Some(b) => b,
         None => return vec![error_response(player_id, "No character builder active")],
     };
+
+    // Pack lookup for Confirmation-phase summary rendering. Loaded once here
+    // because `scene` / `continue` can both transition into Confirmation after
+    // apply_choice / apply_auto_advance, and the confirmation summary renderer
+    // needs the pack to resolve `starting_equipment` (60798b6).
+    let confirmation_pack = session
+        .genre_slug()
+        .and_then(|g| GenreCode::new(g).ok())
+        .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok());
 
     let phase = payload.phase.as_str();
     tracing::info!(phase = %phase, player_id = %player_id, "Character creation phase");
@@ -874,9 +1139,10 @@ pub(crate) async fn dispatch_character_creation(
             } else {
                 // Not a number — try matching against choice labels (case-insensitive)
                 let scene = b.current_scene();
-                scene.choices.iter().position(|c| {
-                    c.label.eq_ignore_ascii_case(choice_str)
-                })
+                scene
+                    .choices
+                    .iter()
+                    .position(|c| c.label.eq_ignore_ascii_case(choice_str))
             };
 
             WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
@@ -903,21 +1169,79 @@ pub(crate) async fn dispatch_character_creation(
                 }
             }
 
-            // Send the next scene or confirmation
-            vec![b.to_scene_message(player_id)]
+            // After applying the choice the builder advances to the next scene
+            // (or to Confirmation). Display-only scenes are now first-class —
+            // they get their own message with input_type="continue" and wait
+            // for the player to acknowledge.
+            if b.is_confirmation() {
+                match confirmation_pack.as_ref() {
+                    Some(pack) => vec![super::chargen_summary::render_confirmation_summary(
+                        b,
+                        pack,
+                        player_name_store.as_deref(),
+                        player_id,
+                    )],
+                    None => vec![error_response(
+                        player_id,
+                        "Failed to load genre pack for confirmation summary",
+                    )],
+                }
+            } else {
+                vec![b.to_scene_message(player_id)]
+            }
+        }
+        "continue" => {
+            // Player acknowledged a display-only scene. Advance and emit
+            // whatever comes next (another scene, or confirmation).
+            tracing::info!(player_id = %player_id, "chargen.continue acknowledged");
+            WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+                .field("phase", phase)
+                .field("player_id", player_id)
+                .send();
+            if let Err(e) = b.apply_auto_advance() {
+                return vec![error_response(
+                    player_id,
+                    &format!("Cannot continue from current scene: {:?}", e),
+                )];
+            }
+            if b.is_confirmation() {
+                match confirmation_pack.as_ref() {
+                    Some(pack) => vec![super::chargen_summary::render_confirmation_summary(
+                        b,
+                        pack,
+                        player_name_store.as_deref(),
+                        player_id,
+                    )],
+                    None => vec![error_response(
+                        player_id,
+                        "Failed to load genre pack for confirmation summary",
+                    )],
+                }
+            } else {
+                vec![b.to_scene_message(player_id)]
+            }
         }
         "confirmation" => {
-            // Build the character — use the name from the name-entry scene if available,
-            // otherwise fall back to player connection name, then "Player".
+            // Story 30-1: Build the character — use the name from the name-entry scene
+            // if available, otherwise fall back to the player connection name, then "Player".
+            // Do NOT fall back to payload.choice — that's the UI button index (e.g. "1"),
+            // not a real character name.
             let name_from_scene = b.character_name().map(|s| s.to_string());
-            let char_name = name_from_scene.clone()
-                .or_else(|| payload.choice.clone())
+            let char_name = name_from_scene
+                .clone()
                 .unwrap_or_else(|| player_name_store.as_deref().unwrap_or("Player").to_string());
 
             WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
                 .field("event", "name_resolved")
                 .field("char_name", char_name.as_str())
-                .field("source", if name_from_scene.is_some() { "name_scene" } else if payload.choice.is_some() { "payload" } else { "player_name_fallback" })
+                .field(
+                    "source",
+                    if name_from_scene.is_some() {
+                        "name_scene"
+                    } else {
+                        "player_name_fallback"
+                    },
+                )
                 .field("player_id", player_id)
                 .send();
 
@@ -925,13 +1249,16 @@ pub(crate) async fn dispatch_character_creation(
                 Ok(character) => {
                     let char_json = serde_json::to_value(&character).unwrap_or_default();
 
-                    WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
-                        .field("event", "character_built")
-                        .field("name", character.core.name.as_str())
-                        .field("class", character.char_class.as_str())
-                        .field("race", character.race.as_str())
-                        .field("hp", character.core.hp)
-                        .send();
+                    WatcherEventBuilder::new(
+                        "character_creation",
+                        WatcherEventType::StateTransition,
+                    )
+                    .field("event", "character_built")
+                    .field("name", character.core.name.as_str())
+                    .field("class", character.char_class.as_str())
+                    .field("race", character.race.as_str())
+                    .field("hp", character.core.hp)
+                    .send();
 
                     // Store character data — sync ALL mutable fields from the built character
                     *character_name_store = Some(character.core.name.as_str().to_string());
@@ -946,31 +1273,54 @@ pub(crate) async fn dispatch_character_creation(
                         let char_class = character.char_class.as_str().to_string();
                         let genre_slug = session.genre_slug().unwrap_or("").to_string();
                         if let Ok(gc) = GenreCode::new(&genre_slug) {
-                            if let Ok(pack) = state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                            if let Ok(pack) =
+                                state.genre_cache().get_or_load(&gc, state.genre_loader())
+                            {
                                 if let Some(ref inv_config) = pack.inventory {
                                     // Match class name case-insensitively
                                     let class_lower = char_class.to_lowercase();
-                                    let equipment_ids: Vec<String> = inv_config.starting_equipment.iter()
+                                    let equipment_ids: Vec<String> = inv_config
+                                        .starting_equipment
+                                        .iter()
                                         .find(|(k, _)| k.to_lowercase() == class_lower)
                                         .map(|(_, v)| v.clone())
                                         .unwrap_or_default();
-                                    let gold = inv_config.starting_gold.iter()
+                                    let gold = inv_config
+                                        .starting_gold
+                                        .iter()
                                         .find(|(k, _)| k.to_lowercase() == class_lower)
                                         .map(|(_, v)| *v)
                                         .unwrap_or(0);
 
                                     // Resolve item IDs from catalog
                                     for item_id in &equipment_ids {
-                                        if let Some(catalog_item) = inv_config.item_catalog.iter().find(|ci| ci.id == *item_id) {
-                                            let rarity_str = if catalog_item.rarity.is_empty() { "common" } else { &catalog_item.rarity };
+                                        if let Some(catalog_item) = inv_config
+                                            .item_catalog
+                                            .iter()
+                                            .find(|ci| ci.id == *item_id)
+                                        {
+                                            let rarity_str = if catalog_item.rarity.is_empty() {
+                                                "common"
+                                            } else {
+                                                &catalog_item.rarity
+                                            };
                                             if let (Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
-                                                sidequest_protocol::NonBlankString::new(&catalog_item.name),
-                                                sidequest_protocol::NonBlankString::new(&catalog_item.description),
-                                                sidequest_protocol::NonBlankString::new(&catalog_item.category),
+                                                sidequest_protocol::NonBlankString::new(
+                                                    &catalog_item.name,
+                                                ),
+                                                sidequest_protocol::NonBlankString::new(
+                                                    &catalog_item.description,
+                                                ),
+                                                sidequest_protocol::NonBlankString::new(
+                                                    &catalog_item.category,
+                                                ),
                                                 sidequest_protocol::NonBlankString::new(rarity_str),
                                             ) {
                                                 inventory.items.push(sidequest_game::Item {
-                                                    id: sidequest_protocol::NonBlankString::new(&catalog_item.id).unwrap_or(name.clone()),
+                                                    id: sidequest_protocol::NonBlankString::new(
+                                                        &catalog_item.id,
+                                                    )
+                                                    .unwrap_or(name.clone()),
                                                     name,
                                                     description: desc,
                                                     category: cat,
@@ -988,11 +1338,21 @@ pub(crate) async fn dispatch_character_creation(
                                         } else {
                                             // Item not in catalog — create a minimal entry
                                             let display = item_id.replace('_', " ");
-                                            if let (Ok(id_nb), Ok(name_nb), Ok(desc_nb), Ok(cat_nb), Ok(rar_nb)) = (
+                                            if let (
+                                                Ok(id_nb),
+                                                Ok(name_nb),
+                                                Ok(desc_nb),
+                                                Ok(cat_nb),
+                                                Ok(rar_nb),
+                                            ) = (
                                                 sidequest_protocol::NonBlankString::new(item_id),
                                                 sidequest_protocol::NonBlankString::new(&display),
-                                                sidequest_protocol::NonBlankString::new("Starting equipment"),
-                                                sidequest_protocol::NonBlankString::new("equipment"),
+                                                sidequest_protocol::NonBlankString::new(
+                                                    "Starting equipment",
+                                                ),
+                                                sidequest_protocol::NonBlankString::new(
+                                                    "equipment",
+                                                ),
                                                 sidequest_protocol::NonBlankString::new("common"),
                                             ) {
                                                 inventory.items.push(sidequest_game::Item {
@@ -1035,7 +1395,8 @@ pub(crate) async fn dispatch_character_creation(
                     {
                         let mut updated_char = character.clone();
                         updated_char.core.inventory = inventory.clone();
-                        *character_json_store = Some(serde_json::to_value(&updated_char).unwrap_or_default());
+                        *character_json_store =
+                            Some(serde_json::to_value(&updated_char).unwrap_or_default());
                     }
                     tracing::info!(
                         char_name = %character.core.name,
@@ -1062,7 +1423,12 @@ pub(crate) async fn dispatch_character_creation(
                     *snapshot = {
                         let history_value = GenreCode::new(&genre)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .and_then(|pack| pack.worlds.get(&world).map(|w| w.history.clone()))
                             .flatten()
                             .unwrap_or(serde_json::Value::Null);
@@ -1082,14 +1448,17 @@ pub(crate) async fn dispatch_character_creation(
                         });
 
                         // OTEL event for new-player world materialization (Story 15-18)
-                        WatcherEventBuilder::new("world_materialization", WatcherEventType::StateTransition)
-                            .field("event", "world_materialized")
-                            .field("genre", genre.as_str())
-                            .field("world", world.as_str())
-                            .field("chapters_applied", snap.world_history.len())
-                            .field("maturity", format!("{:?}", snap.campaign_maturity))
-                            .field("trigger", "new_player_chargen")
-                            .send();
+                        WatcherEventBuilder::new(
+                            "world_materialization",
+                            WatcherEventType::StateTransition,
+                        )
+                        .field("event", "world_materialized")
+                        .field("genre", genre.as_str())
+                        .field("world", world.as_str())
+                        .field("chapters_applied", snap.world_history.len())
+                        .field("maturity", format!("{:?}", snap.campaign_maturity))
+                        .field("trigger", "new_player_chargen")
+                        .send();
 
                         // Inject the chargen-produced character into the materialized snapshot
                         snap.characters = vec![character.clone()];
@@ -1102,10 +1471,14 @@ pub(crate) async fn dispatch_character_creation(
 
                         // Scenario initialization: bind ScenarioPack → ScenarioState if available
                         if let Ok(gc) = GenreCode::new(&genre) {
-                            if let Ok(pack) = state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                            if let Ok(pack) =
+                                state.genre_cache().get_or_load(&gc, state.genre_loader())
+                            {
                                 if !pack.scenarios.is_empty() {
                                     // Pick the first scenario (future: player/DM selection)
-                                    if let Some((_scenario_id, scenario_pack)) = pack.scenarios.iter().next() {
+                                    if let Some((_scenario_id, scenario_pack)) =
+                                        pack.scenarios.iter().next()
+                                    {
                                         let scenario_state = sidequest_game::scenario_state::ScenarioState::from_genre_pack(scenario_pack);
                                         tracing::info!(
                                             genre = %genre,
@@ -1118,7 +1491,11 @@ pub(crate) async fn dispatch_character_creation(
 
                                         // Initialize scenario NPC belief states from pack data
                                         for snpc in &scenario_pack.npcs {
-                                            if let Some(npc) = snap.npcs.iter_mut().find(|n| n.core.name.as_str() == snpc.name) {
+                                            if let Some(npc) = snap
+                                                .npcs
+                                                .iter_mut()
+                                                .find(|n| n.core.name.as_str() == snpc.name)
+                                            {
                                                 for fact in &snpc.initial_beliefs.facts {
                                                     npc.belief_state.add_belief(
                                                         sidequest_game::belief_state::Belief::Fact {
@@ -1149,41 +1526,58 @@ pub(crate) async fn dispatch_character_creation(
                                         if let Ok(holder) = shared_session_holder.try_lock() {
                                             if let Some(ref ss_arc) = *holder {
                                                 if let Ok(mut ss) = ss_arc.try_lock() {
-                                                    ss.active_scenario = Some(scenario_pack.clone());
+                                                    ss.active_scenario =
+                                                        Some(scenario_pack.clone());
                                                 }
                                             }
                                         }
 
-                                        crate::WatcherEventBuilder::new("scenario", crate::WatcherEventType::StateTransition)
-                                            .field("event", "scenario_initialized")
-                                            .field("genre", genre.as_str())
-                                            .field("world", world.as_str())
-                                            .field("scenario_id", _scenario_id.as_str())
-                                            .send();
+                                        crate::WatcherEventBuilder::new(
+                                            "scenario",
+                                            crate::WatcherEventType::StateTransition,
+                                        )
+                                        .field("event", "scenario_initialized")
+                                        .field("genre", genre.as_str())
+                                        .field("world", world.as_str())
+                                        .field("scenario_id", _scenario_id.as_str())
+                                        .send();
                                     }
                                 }
                             }
                         }
 
                         // Room-graph mode: set starting location to entrance room (story 19-2)
-                        let rooms_for_init: Vec<sidequest_genre::RoomDef> = match GenreCode::new(&genre) {
-                            Ok(gc) => match state.genre_cache().get_or_load(&gc, state.genre_loader()) {
-                                Ok(pack) => pack.worlds.get(&world).cloned()
-                                    .filter(|w| w.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
-                                    .and_then(|w| w.cartography.rooms.clone())
-                                    .unwrap_or_default(),
-                                Err(e) => {
-                                    tracing::warn!(error = %e, genre = %genre, world = %world, "Failed to load genre pack for room-graph init");
-                                    vec![]
+                        let rooms_for_init: Vec<sidequest_genre::RoomDef> = match GenreCode::new(
+                            &genre,
+                        ) {
+                            Ok(gc) => {
+                                match state.genre_cache().get_or_load(&gc, state.genre_loader()) {
+                                    Ok(pack) => pack
+                                        .worlds
+                                        .get(&world)
+                                        .cloned()
+                                        .filter(|w| {
+                                            w.cartography.navigation_mode
+                                                == sidequest_genre::NavigationMode::RoomGraph
+                                        })
+                                        .and_then(|w| w.cartography.rooms.clone())
+                                        .unwrap_or_default(),
+                                    Err(e) => {
+                                        tracing::warn!(error = %e, genre = %genre, world = %world, "Failed to load genre pack for room-graph init");
+                                        vec![]
+                                    }
                                 }
-                            },
+                            }
                             Err(e) => {
                                 tracing::warn!(error = %e, genre = %genre, "Invalid genre code for room-graph init");
                                 vec![]
                             }
                         };
                         if !rooms_for_init.is_empty() {
-                            sidequest_game::room_movement::init_room_graph_location(&mut snap, &rooms_for_init);
+                            sidequest_game::room_movement::init_room_graph_location(
+                                &mut snap,
+                                &rooms_for_init,
+                            );
                             tracing::info!(
                                 location = %snap.location,
                                 discovered_rooms = snap.discovered_rooms.len(),
@@ -1208,7 +1602,12 @@ pub(crate) async fn dispatch_character_creation(
                         // Fallback: use default_location from rules.yaml
                         let default_loc = GenreCode::new(&genre)
                             .ok()
-                            .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                            .and_then(|gc| {
+                                state
+                                    .genre_cache()
+                                    .get_or_load(&gc, state.genre_loader())
+                                    .ok()
+                            })
                             .and_then(|pack| pack.rules.default_location.clone())
                             .unwrap_or_default();
                         if !default_loc.is_empty() {
@@ -1230,8 +1629,27 @@ pub(crate) async fn dispatch_character_creation(
                         }
                     }
                     // Seed discovered_regions from snapshot location
-                    if !current_location.is_empty() && !discovered_regions.iter().any(|r| r == current_location.as_str()) {
+                    if !current_location.is_empty()
+                        && !discovered_regions
+                            .iter()
+                            .any(|r| r == current_location.as_str())
+                    {
                         discovered_regions.push(current_location.clone());
+                    }
+
+                    // Sync initial location to SharedGameSession so sync_to_locals
+                    // doesn't overwrite it with "" at the start of the opening turn.
+                    {
+                        let holder = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let mut ss = ss_arc.lock().await;
+                            ss.current_location = current_location.clone();
+                            ss.discovered_regions = discovered_regions.clone();
+                            tracing::info!(
+                                location = %current_location,
+                                "connect.shared_session_sync — seeded location before opening narration"
+                            );
+                        }
                     }
 
                     if let Err(e) = state
@@ -1245,7 +1663,10 @@ pub(crate) async fn dispatch_character_creation(
                     // Transition session to Playing
                     if let Err(e) = session.complete_character_creation() {
                         tracing::error!(error = %e, state = %session.state_name(), "Failed to transition session to Playing after chargen");
-                        return vec![error_response(player_id, &format!("Session transition failed: {e}"))];
+                        return vec![error_response(
+                            player_id,
+                            &format!("Session transition failed: {e}"),
+                        )];
                     }
                     *builder = None;
 
@@ -1262,6 +1683,7 @@ pub(crate) async fn dispatch_character_creation(
                             input_type: None,
                             loading_text: None,
                             character_preview: None,
+                            rolled_stats: None,
                             choice: None,
                             character: Some(char_json),
                         },
@@ -1283,7 +1705,8 @@ pub(crate) async fn dispatch_character_creation(
                                     level: *character_level as u32,
                                     class: character.char_class.as_str().to_string(),
                                     statuses: vec![],
-                                    inventory: inventory.carried()
+                                    inventory: inventory
+                                        .carried()
                                         .map(|i| i.name.as_str().to_string())
                                         .collect(),
                                 }],
@@ -1303,7 +1726,8 @@ pub(crate) async fn dispatch_character_creation(
                         // Monster Manual: load/seed for opening turn (ADR-059)
                         let gs_mm = session.genre_slug().unwrap_or("");
                         let ws_mm = session.world_slug().unwrap_or("");
-                        let mut monster_manual = sidequest_game::monster_manual::MonsterManual::load(gs_mm, ws_mm);
+                        let mut monster_manual =
+                            sidequest_game::monster_manual::MonsterManual::load(gs_mm, ws_mm);
                         if monster_manual.needs_seeding() && !gs_mm.is_empty() {
                             super::pregen::seed_manual(state, gs_mm, ws_mm, &mut monster_manual);
                         }
@@ -1324,8 +1748,6 @@ pub(crate) async fn dispatch_character_creation(
                             current_location,
                             inventory,
                             character_json: character_json_store,
-                            combat_state,
-                            chase_state,
                             trope_states,
                             trope_defs,
                             world_context,
@@ -1345,13 +1767,16 @@ pub(crate) async fn dispatch_character_creation(
                             state,
                             continuity_corrections,
                             genie_wishes,
-                            resource_state,
-                            resource_declarations,
                             sfx_library: {
                                 let genre_slug = session.genre_slug().unwrap_or("");
                                 sidequest_genre::GenreCode::new(genre_slug)
                                     .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
                                     .map(|pack| pack.audio.sfx_library.clone())
                                     .unwrap_or_default()
                             },
@@ -1359,9 +1784,18 @@ pub(crate) async fn dispatch_character_creation(
                                 let gs = session.genre_slug().unwrap_or("");
                                 let ws = session.world_slug().unwrap_or("");
                                 match sidequest_genre::GenreCode::new(gs) {
-                                    Ok(gc) => match state.genre_cache().get_or_load(&gc, state.genre_loader()) {
-                                        Ok(pack) => pack.worlds.get(ws).cloned()
-                                            .filter(|world| world.cartography.navigation_mode == sidequest_genre::NavigationMode::RoomGraph)
+                                    Ok(gc) => match state
+                                        .genre_cache()
+                                        .get_or_load(&gc, state.genre_loader())
+                                    {
+                                        Ok(pack) => pack
+                                            .worlds
+                                            .get(ws)
+                                            .cloned()
+                                            .filter(|world| {
+                                                world.cartography.navigation_mode
+                                                    == sidequest_genre::NavigationMode::RoomGraph
+                                            })
                                             .and_then(|world| world.cartography.rooms.clone())
                                             .unwrap_or_default(),
                                         Err(e) => {
@@ -1379,7 +1813,12 @@ pub(crate) async fn dispatch_character_creation(
                                 let gs = session.genre_slug().unwrap_or("");
                                 sidequest_genre::GenreCode::new(gs)
                                     .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
                                     .map(|pack| pack.progression.affinities.clone())
                                     .unwrap_or_default()
                             },
@@ -1388,15 +1827,82 @@ pub(crate) async fn dispatch_character_creation(
                                 let ws = session.world_slug().unwrap_or("");
                                 sidequest_genre::GenreCode::new(gs)
                                     .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
                                     .and_then(|pack| pack.worlds.get(ws).cloned())
                                     .and_then(|world| world.cartography.world_graph)
+                            },
+                            cartography_metadata: {
+                                let gs = session.genre_slug().unwrap_or("");
+                                let ws = session.world_slug().unwrap_or("");
+                                sidequest_genre::GenreCode::new(gs)
+                                    .ok()
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
+                                    .and_then(|pack| pack.worlds.get(ws).cloned())
+                                    .map(|world| {
+                                        let nav_mode = match world.cartography.navigation_mode {
+                                            sidequest_genre::NavigationMode::Region => "region",
+                                            sidequest_genre::NavigationMode::RoomGraph => {
+                                                "room_graph"
+                                            }
+                                            sidequest_genre::NavigationMode::Hierarchical => {
+                                                "hierarchical"
+                                            }
+                                        };
+                                        sidequest_protocol::CartographyMetadata {
+                                            navigation_mode: nav_mode.to_string(),
+                                            starting_region: world
+                                                .cartography
+                                                .starting_region
+                                                .clone(),
+                                            regions: world
+                                                .cartography
+                                                .regions
+                                                .iter()
+                                                .map(|(slug, r)| {
+                                                    (
+                                                        slug.clone(),
+                                                        sidequest_protocol::CartographyRegion {
+                                                            name: r.name.clone(),
+                                                            description: r.description.clone(),
+                                                            adjacent: r.adjacent.clone(),
+                                                        },
+                                                    )
+                                                })
+                                                .collect(),
+                                            routes: world
+                                                .cartography
+                                                .routes
+                                                .iter()
+                                                .map(|r| sidequest_protocol::CartographyRoute {
+                                                    name: r.name.clone(),
+                                                    description: r.description.clone(),
+                                                    from_id: r.from_id.clone(),
+                                                    to_id: r.to_id.clone(),
+                                                })
+                                                .collect(),
+                                        }
+                                    })
                             },
                             confrontation_defs: {
                                 let gs = session.genre_slug().unwrap_or("");
                                 sidequest_genre::GenreCode::new(gs)
                                     .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
                                     .map(|pack| pack.rules.confrontations.clone())
                                     .unwrap_or_default()
                             },
@@ -1415,9 +1921,15 @@ pub(crate) async fn dispatch_character_creation(
                                 let gs = session.genre_slug().unwrap_or("");
                                 sidequest_genre::GenreCode::new(gs)
                                     .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
                                     .map(|pack| {
-                                        pack.inventory.as_ref()
+                                        pack.inventory
+                                            .as_ref()
                                             .and_then(|inv| inv.philosophy.as_ref())
                                             .map(|phil| phil.carry_mode)
                                             .unwrap_or_default()
@@ -1428,9 +1940,15 @@ pub(crate) async fn dispatch_character_creation(
                                 let gs = session.genre_slug().unwrap_or("");
                                 sidequest_genre::GenreCode::new(gs)
                                     .ok()
-                                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
                                     .and_then(|pack| {
-                                        pack.inventory.as_ref()
+                                        pack.inventory
+                                            .as_ref()
                                             .and_then(|inv| inv.philosophy.as_ref())
                                             .and_then(|phil| phil.weight_limit)
                                     })
@@ -1438,48 +1956,56 @@ pub(crate) async fn dispatch_character_creation(
                         };
                         // OTEL: log loaded confrontation defs (story 28-1)
                         if !ctx.confrontation_defs.is_empty() {
-                            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-                                .field("action", "defs_loaded")
-                                .field("genre", ctx.genre_slug)
-                                .field("count", ctx.confrontation_defs.len())
-                                .field("types", ctx.confrontation_defs.iter().map(|d| d.confrontation_type.clone()).collect::<Vec<_>>())
-                                .send();
+                            WatcherEventBuilder::new(
+                                "encounter",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("action", "defs_loaded")
+                            .field("genre", ctx.genre_slug)
+                            .field("count", ctx.confrontation_defs.len())
+                            .field(
+                                "types",
+                                ctx.confrontation_defs
+                                    .iter()
+                                    .map(|d| d.confrontation_type.clone())
+                                    .collect::<Vec<_>>(),
+                            )
+                            .send();
                         }
                         let result = super::dispatch_player_action(&mut ctx).await;
                         ctx.monster_manual.save();
                         result
                     };
 
-                    // Emit CHARACTER_SHEET for the UI overlay
-                    let char_sheet = GameMessage::CharacterSheet {
-                        payload: CharacterSheetPayload {
-                            name: character.core.name.as_str().to_string(),
-                            class: character.char_class.as_str().to_string(),
-                            race: character.race.as_str().to_string(),
-                            level: character.core.level as u32,
-                            stats: character
-                                .stats
-                                .iter()
-                                .map(|(k, v)| (k.clone(), *v))
-                                .collect(),
-                            abilities: character.hooks.iter()
-                                .filter(|s| !s.contains("auto-filled"))
-                                .cloned()
-                                .collect(),
-                            backstory: character.backstory.as_str().to_string(),
-                            personality: character.core.personality.as_str().to_string(),
-                            pronouns: character.pronouns.clone(),
-                            equipment: inventory.carried().map(|i| {
+                    // Build the character sheet facet for the PlayerState cache.
+                    // This used to be emitted as a standalone CHARACTER_SHEET message;
+                    // now it's stashed on PlayerState and surfaces via PARTY_STATUS.
+                    let built_sheet = sidequest_protocol::CharacterSheetDetails {
+                        race: character.race.as_str().to_string(),
+                        stats: character
+                            .stats
+                            .iter()
+                            .map(|(k, v)| (k.clone(), *v))
+                            .collect(),
+                        abilities: character
+                            .hooks
+                            .iter()
+                            .filter(|s| !s.contains("auto-filled"))
+                            .cloned()
+                            .collect(),
+                        backstory: character.backstory.as_str().to_string(),
+                        personality: character.core.personality.as_str().to_string(),
+                        pronouns: character.pronouns.clone(),
+                        equipment: inventory
+                            .carried()
+                            .map(|i| {
                                 if i.equipped {
                                     format!("{} [equipped]", i.name)
                                 } else {
                                     i.name.as_str().to_string()
                                 }
-                            }).collect(),
-                            portrait_url: None,
-                            current_location: current_location.clone(),
-                        },
-                        player_id: player_id.to_string(),
+                            })
+                            .collect(),
                     };
 
                     // Emit the character's backstory as a prose narration so
@@ -1539,13 +2065,16 @@ pub(crate) async fn dispatch_character_creation(
                                 // so accumulated state (HP, inventory, location) is preserved.
                                 if let Some(mut transferred) = ss.players.remove(old) {
                                     // Update character data from the (possibly restored) save
-                                    transferred.character_name = Some(character.core.name.as_str().to_string());
+                                    transferred.character_name =
+                                        Some(character.core.name.as_str().to_string());
                                     transferred.character_hp = character.core.hp;
                                     transferred.character_max_hp = character.core.max_hp;
                                     transferred.character_level = character.core.level as u32;
-                                    transferred.character_class = character.char_class.as_str().to_string();
+                                    transferred.character_class =
+                                        character.char_class.as_str().to_string();
                                     transferred.inventory = inventory.clone();
                                     transferred.character_xp = character.core.xp;
+                                    transferred.sheet = Some(built_sheet.clone());
                                     if let Some(ref cj) = *character_json_store {
                                         transferred.character_json = Some(cj.clone());
                                     }
@@ -1554,6 +2083,53 @@ pub(crate) async fn dispatch_character_creation(
                                 // Update barrier roster: swap old player_id for new one
                                 if let Some(ref barrier) = ss.turn_barrier {
                                     let _ = barrier.remove_player(old);
+                                    // Re-add under new player_id so barrier recognizes submissions
+                                    let placeholder_char = sidequest_game::Character {
+                                        core: sidequest_game::CreatureCore {
+                                            name: sidequest_protocol::NonBlankString::new(
+                                                &connecting_name,
+                                            )
+                                            .unwrap(),
+                                            description: sidequest_protocol::NonBlankString::new(
+                                                "reconnect",
+                                            )
+                                            .unwrap(),
+                                            personality: sidequest_protocol::NonBlankString::new(
+                                                "n/a",
+                                            )
+                                            .unwrap(),
+                                            level: 1,
+                                            hp: 1,
+                                            max_hp: 1,
+                                            ac: 10,
+                                            xp: 0,
+                                            statuses: vec![],
+                                            inventory: sidequest_game::Inventory::default(),
+                                        },
+                                        backstory: sidequest_protocol::NonBlankString::new("n/a")
+                                            .unwrap(),
+                                        narrative_state: String::new(),
+                                        hooks: vec![],
+                                        char_class: sidequest_protocol::NonBlankString::new(
+                                            "barrier",
+                                        )
+                                        .unwrap(),
+                                        race: sidequest_protocol::NonBlankString::new("barrier")
+                                            .unwrap(),
+                                        pronouns: String::new(),
+                                        stats: std::collections::HashMap::new(),
+                                        abilities: vec![],
+                                        known_facts: vec![],
+                                        affinities: vec![],
+                                        is_friendly: true,
+                                    };
+                                    let _ =
+                                        barrier.add_player(player_id.to_string(), placeholder_char);
+                                    tracing::info!(
+                                        old_pid = %old,
+                                        new_pid = %player_id,
+                                        "barrier.reconnect — swapped player_id in barrier roster"
+                                    );
                                 }
                                 tracing::info!(
                                     old_player_id = %old,
@@ -1561,28 +2137,31 @@ pub(crate) async fn dispatch_character_creation(
                                     player_name = %connecting_name,
                                     "Reconnect detected — transferred PlayerState to new connection"
                                 );
-                                WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
-                                    .field("event", "player_reconnect")
-                                    .field("old_player_id", old.as_str())
-                                    .field("new_player_id", player_id)
-                                    .field("player_name", connecting_name.as_str())
-                                    .send();
+                                WatcherEventBuilder::new(
+                                    "multiplayer",
+                                    WatcherEventType::StateTransition,
+                                )
+                                .field("event", "player_reconnect")
+                                .field("old_player_id", old.as_str())
+                                .field("new_player_id", player_id)
+                                .field("player_name", connecting_name.as_str())
+                                .send();
                             }
 
                             if !is_reconnect {
-                                let ps = shared_session::PlayerState::new(
-                                    connecting_name.clone(),
-                                );
+                                let ps = shared_session::PlayerState::new(connecting_name.clone());
                                 ss.players.insert(player_id.to_string(), ps);
                                 // Populate character data on the PlayerState
                                 if let Some(p) = ss.players.get_mut(player_id) {
-                                    p.character_name = Some(character.core.name.as_str().to_string());
+                                    p.character_name =
+                                        Some(character.core.name.as_str().to_string());
                                     p.character_hp = character.core.hp;
                                     p.character_max_hp = character.core.max_hp;
                                     p.character_level = character.core.level as u32;
                                     p.character_class = character.char_class.as_str().to_string();
                                     p.inventory = inventory.clone();
                                     p.character_xp = character.core.xp;
+                                    p.sheet = Some(built_sheet.clone());
                                     if let Some(ref cj) = *character_json_store {
                                         p.character_json = Some(cj.clone());
                                     }
@@ -1619,6 +2198,94 @@ pub(crate) async fn dispatch_character_creation(
                                     );
                                 }
                             }
+                            // Story 26-11: Party reconciliation on session resume.
+                            // If multiple players are in the session with divergent locations
+                            // and split-party is not explicitly allowed, snap everyone to the
+                            // majority location and emit a reconciliation narration.
+                            if ss.players.len() > 1 {
+                                let player_locations: Vec<
+                                    sidequest_game::party_reconciliation::PlayerLocation,
+                                > = ss
+                                    .players
+                                    .iter()
+                                    .map(|(pid, ps)| {
+                                        let loc = if pid == player_id {
+                                            current_location.clone()
+                                        } else {
+                                            ps.display_location.clone()
+                                        };
+                                        sidequest_game::party_reconciliation::PlayerLocation {
+                                            player_id: pid.clone(),
+                                            player_name: ps.player_name.clone(),
+                                            location: loc,
+                                        }
+                                    })
+                                    .collect();
+
+                                // Check scenario for split-party flag
+                                let split_party_allowed = ss
+                                    .active_scenario
+                                    .as_ref()
+                                    .map(|s| s.allows_split_party)
+                                    .unwrap_or(false);
+
+                                let result = sidequest_game::party_reconciliation::PartyReconciliation::reconcile(
+                                    &player_locations,
+                                    split_party_allowed,
+                                );
+
+                                if let sidequest_game::party_reconciliation::ReconciliationResult::Reconciled {
+                                    ref target_location,
+                                    ref players_moved,
+                                    ref narration_text,
+                                } = result
+                                {
+                                    // Update shared session location
+                                    ss.current_location = target_location.clone();
+                                    // Update current player's local location
+                                    *current_location = target_location.clone();
+                                    snapshot.location = target_location.clone();
+
+                                    // Update all PlayerStates to the reconciled location
+                                    for ps in ss.players.values_mut() {
+                                        ps.display_location = target_location.clone();
+                                    }
+
+                                    // Broadcast reconciliation narration to all session members
+                                    ss.broadcast(GameMessage::Narration {
+                                        payload: NarrationPayload {
+                                            text: narration_text.clone(),
+                                            state_delta: None,
+                                            footnotes: vec![],
+                                        },
+                                        player_id: player_id.to_string(),
+                                    });
+                                    ss.broadcast(GameMessage::NarrationEnd {
+                                        payload: NarrationEndPayload { state_delta: None },
+                                        player_id: player_id.to_string(),
+                                    });
+
+                                    // OTEL: session.resume.party_reconciliation
+                                    let players_moved_str: Vec<String> = players_moved
+                                        .iter()
+                                        .map(|m| format!("{}:{}->{}",
+                                            m.player_name, m.old_location, m.new_location))
+                                        .collect();
+                                    WatcherEventBuilder::new("session", WatcherEventType::StateTransition)
+                                        .field("event", "session.resume.party_reconciliation")
+                                        .field("target_location", target_location.as_str())
+                                        .field("players_moved", players_moved_str.join(", "))
+                                        .field("player_count", ss.player_count())
+                                        .send();
+
+                                    tracing::info!(
+                                        target_location = %target_location,
+                                        players_moved = players_moved.len(),
+                                        "session.resume.party_reconciliation — divergent locations reconciled"
+                                    );
+                                }
+                            }
+
                             // Build and send targeted PARTY_STATUS to OTHER session members.
                             // The current player gets their PartyStatus from the opening
                             // narration dispatch — sending here too causes duplicates.
@@ -1626,51 +2293,38 @@ pub(crate) async fn dispatch_character_creation(
                             if ss.players.len() <= 1 {
                                 tracing::debug!("Skipping connect PartyStatus — single player, dispatch will send");
                             } else {
-                            let members: Vec<PartyMember> = ss
-                                .players
-                                .iter()
-                                .map(|(pid, ps)| {
-                                    if pid == player_id {
-                                        // Current player — use local character data
-                                        PartyMember {
-                                            player_id: pid.clone(),
-                                            name: ps.player_name.clone(),
-                                            character_name: character.core.name.as_str().to_string(),
-                                            current_hp: character.core.hp,
-                                            max_hp: character.core.max_hp,
-                                            statuses: character.core.statuses.clone(),
-                                            class: character.char_class.as_str().to_string(),
-                                            level: character.core.level as u32,
-                                            portrait_url: None,
-                                            current_location: current_location.clone(),
+                                // The acting player's PlayerState was just populated
+                                // above with live turn data (character/inventory/sheet),
+                                // so every member can be built via the shared helper.
+                                // `current_location` on the acting player's PlayerState
+                                // may lag — override just that field.
+                                let members: Vec<PartyMember> = ss
+                                    .players
+                                    .iter()
+                                    .map(|(pid, ps)| {
+                                        let mut m =
+                                            crate::shared_session::party_member_from(pid, ps);
+                                        if pid == player_id {
+                                            // Force live statuses + location for the acting player.
+                                            m.statuses = character.core.statuses.clone();
+                                            m.current_location = current_location.clone();
                                         }
-                                    } else {
-                                        // Other player — use PlayerState fields
-                                        PartyMember {
-                                            player_id: pid.clone(),
-                                            name: ps.player_name.clone(),
-                                            character_name: ps.character_name.clone().unwrap_or_else(|| ps.player_name.clone()),
-                                            current_hp: ps.character_hp,
-                                            max_hp: ps.character_max_hp,
-                                            statuses: vec![],
-                                            class: ps.character_class.clone(),
-                                            level: ps.character_level,
-                                            portrait_url: None,
-                                            current_location: ps.display_location.clone(),
-                                        }
+                                        m
+                                    })
+                                    .collect();
+                                if !members.is_empty() {
+                                    let player_ids: Vec<String> =
+                                        ss.players.keys().cloned().collect();
+                                    for target_pid in &player_ids {
+                                        let party_msg = GameMessage::PartyStatus {
+                                            payload: PartyStatusPayload {
+                                                members: members.clone(),
+                                            },
+                                            player_id: target_pid.clone(),
+                                        };
+                                        ss.send_to_player(party_msg, target_pid.clone());
                                     }
-                                })
-                                .collect();
-                            if !members.is_empty() {
-                                let player_ids: Vec<String> = ss.players.keys().cloned().collect();
-                                for target_pid in &player_ids {
-                                    let party_msg = GameMessage::PartyStatus {
-                                        payload: PartyStatusPayload { members: members.clone() },
-                                        player_id: target_pid.clone(),
-                                    };
-                                    ss.send_to_player(party_msg, target_pid.clone());
                                 }
-                            }
                             } // end multiplayer PartyStatus
                             let pc = ss.player_count();
                             tracing::info!(
@@ -1678,11 +2332,14 @@ pub(crate) async fn dispatch_character_creation(
                                 player_count = pc,
                                 "Player joined shared session"
                             );
-                            WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
-                                .field("event", "session_joined")
-                                .field("session_key", format!("{}:{}", genre, world))
-                                .field("player_count", pc)
-                                .send();
+                            WatcherEventBuilder::new(
+                                "multiplayer",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("event", "session_joined")
+                            .field("session_key", format!("{}:{}", genre, world))
+                            .field("player_count", pc)
+                            .send();
 
                             // Transition turn mode when a player joins
                             let old_mode = std::mem::take(&mut ss.turn_mode);
@@ -1708,9 +2365,16 @@ pub(crate) async fn dispatch_character_creation(
                                         Character {
                                             core: CreatureCore {
                                                 name: NonBlankString::new(player_id).unwrap(),
-                                                description: NonBlankString::new("barrier placeholder").unwrap(),
+                                                description: NonBlankString::new(
+                                                    "barrier placeholder",
+                                                )
+                                                .unwrap(),
                                                 personality: NonBlankString::new("n/a").unwrap(),
-                                                level: 1, hp: 1, max_hp: 1, ac: 10, xp: 0,
+                                                level: 1,
+                                                hp: 1,
+                                                max_hp: 1,
+                                                ac: 10,
+                                                xp: 0,
                                                 statuses: vec![],
                                                 inventory: Inventory::default(),
                                             },
@@ -1727,17 +2391,56 @@ pub(crate) async fn dispatch_character_creation(
                                             is_friendly: true,
                                         }
                                     };
-                                    let _ = barrier.add_player(player_id.to_string(), placeholder_char);
+                                    let _ =
+                                        barrier.add_player(player_id.to_string(), placeholder_char);
                                     tracing::info!(player_id = %player_id, "Added player to existing barrier");
                                 } else {
                                     let mp_session = sidequest_game::multiplayer::MultiplayerSession::with_player_ids(
                                         ss.players.keys().cloned(),
                                     );
-                                    let adaptive = sidequest_game::barrier::AdaptiveTimeout::default();
-                                    ss.turn_barrier = Some(sidequest_game::barrier::TurnBarrier::with_adaptive(
-                                        mp_session, adaptive,
-                                    ));
-                                    tracing::info!(player_count = pc, "Initialized turn barrier for multiplayer");
+                                    let config =
+                                        sidequest_game::barrier::TurnBarrierConfig::disabled();
+                                    ss.turn_barrier =
+                                        Some(sidequest_game::barrier::TurnBarrier::new(
+                                            mp_session, config,
+                                        ));
+                                    {
+                                        let _span = tracing::info_span!(
+                                            "barrier.activated",
+                                            player_count = pc,
+                                        )
+                                        .entered();
+                                    }
+                                    tracing::info!(
+                                        player_count = pc,
+                                        "Initialized turn barrier for multiplayer"
+                                    );
+
+                                    // Story 35-5: Spawn turn reminder task
+                                    let reminder_config =
+                                        sidequest_game::turn_reminder::ReminderConfig::default();
+                                    let reminder_barrier =
+                                        ss.turn_barrier.as_ref().unwrap().clone();
+                                    tokio::spawn(async move {
+                                        {
+                                            let _span =
+                                                tracing::info_span!("reminder_spawned").entered();
+                                            tracing::info!("Turn reminder task spawned");
+                                        }
+                                        let result =
+                                            reminder_barrier.run_reminder(&reminder_config).await;
+                                        if result.should_send() {
+                                            let _span = tracing::info_span!(
+                                                "reminder_fired",
+                                                idle_player_count = result.idle_players().len(),
+                                            )
+                                            .entered();
+                                            tracing::info!(
+                                                idle_player_count = result.idle_players().len(),
+                                                "Turn reminder fired for idle players"
+                                            );
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -1745,18 +2448,20 @@ pub(crate) async fn dispatch_character_creation(
 
                     // Story 8-8: Generate catch-up narration for mid-session joins.
                     // Done AFTER releasing shared session lock (Claude CLI call is slow).
-                    let catch_up_messages = if let Some((history, location, genre_voice)) = catch_up_context {
-                        super::catch_up::generate_catch_up_messages(
-                            state,
-                            &character,
-                            &history,
-                            &location,
-                            &genre_voice,
-                            player_id,
-                        ).unwrap_or_default()
-                    } else {
-                        vec![]
-                    };
+                    let catch_up_messages =
+                        if let Some((history, location, genre_voice)) = catch_up_context {
+                            super::catch_up::generate_catch_up_messages(
+                                state,
+                                &character,
+                                &history,
+                                &location,
+                                &genre_voice,
+                                player_id,
+                            )
+                            .unwrap_or_default()
+                        } else {
+                            vec![]
+                        };
 
                     // "ready" must come AFTER intro_messages.  The auto-turn
                     // ("I look around") sends its NARRATION inline via ctx.tx
@@ -1766,12 +2471,7 @@ pub(crate) async fn dispatch_character_creation(
                     // if "ready" arrives before the narration flushes the
                     // opening text is wiped.  Placing "ready" last ensures all
                     // turn-1 messages are delivered first.
-                    let mut msgs = vec![
-                        complete,
-                        char_sheet,
-                        backstory_narration,
-                        backstory_end,
-                    ];
+                    let mut msgs = vec![complete, backstory_narration, backstory_end];
                     // Catch-up narration slots in after backstory, before intro/ready.
                     // The joining player sees: backstory → "here's what's been happening" → opening scene.
                     msgs.extend(catch_up_messages);

@@ -6,8 +6,7 @@ use tokio::net::UnixStream;
 
 use crate::error::DaemonError;
 use crate::types::{
-    build_request_json, DaemonResponse, RenderParams, RenderResult, StatusResult, TtsParams,
-    TtsResult, WarmUpParams,
+    build_request_json, DaemonResponse, RenderParams, RenderResult, StatusResult, WarmUpParams,
 };
 
 /// Configuration for connecting to the daemon.
@@ -118,8 +117,8 @@ impl DaemonClient {
 
         // Deserialize — NO silent defaults. If image_url/image_path is missing,
         // serde will fail here and we catch it loudly.
-        let render_result: RenderResult = serde_json::from_value(raw_result.clone())
-            .map_err(|e| {
+        let render_result: RenderResult =
+            serde_json::from_value(raw_result.clone()).map_err(|e| {
                 // This is the "scream in the watch log" Keith asked for.
                 // If we hit this, the daemon returned JSON that doesn't have any
                 // recognized image path field (image_url, image_path, output_path, etc.)
@@ -166,28 +165,6 @@ impl DaemonClient {
         serde_json::from_value(result).map_err(|e| DaemonError::InvalidResponse(e.to_string()))
     }
 
-    /// Synthesize text to speech audio bytes.
-    pub async fn synthesize(&mut self, params: TtsParams) -> Result<TtsResult, DaemonError> {
-        let span = tracing::info_span!(
-            "daemon.synthesize",
-            text_len = params.text.len(),
-            voice_id = %params.voice_id,
-            duration_ms = tracing::field::Empty,
-        );
-        let _guard = span.enter();
-
-        let resp = self
-            .request("render", &params, self.config.render_timeout)
-            .await?;
-        let result = resp
-            .result
-            .ok_or_else(|| DaemonError::InvalidResponse("missing result".into()))?;
-        let tts_result: TtsResult = serde_json::from_value(result)
-            .map_err(|e| DaemonError::InvalidResponse(e.to_string()))?;
-        span.record("duration_ms", tts_result.elapsed_ms);
-        Ok(tts_result)
-    }
-
     /// Generate a sentence embedding for the given text (story 15-7).
     ///
     /// Calls the daemon's `embed` method, which runs a sentence-transformer
@@ -223,29 +200,6 @@ impl DaemonClient {
         );
 
         Ok(embed_result)
-    }
-
-    /// List available Kokoro TTS voices from the daemon.
-    pub async fn list_voices(&mut self) -> Result<Vec<String>, DaemonError> {
-        let resp = self
-            .request(
-                "list_voices",
-                &serde_json::json!({}),
-                self.config.default_timeout,
-            )
-            .await?;
-        let voices = resp
-            .result
-            .as_ref()
-            .and_then(|r| r.get("voices"))
-            .and_then(|v| v.as_array())
-            .map(|arr: &Vec<serde_json::Value>| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect::<Vec<String>>()
-            })
-            .unwrap_or_default();
-        Ok(voices)
     }
 
     /// Request a graceful daemon shutdown.

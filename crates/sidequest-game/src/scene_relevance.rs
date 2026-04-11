@@ -6,6 +6,7 @@
 //!
 //! Story 14-7: Image scene relevance filter.
 
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use tracing::instrument;
 
 use crate::subject::{ExtractionContext, RenderSubject, SceneType};
@@ -95,6 +96,35 @@ impl SceneRelevanceValidator {
         dm_override,
     ))]
     pub fn evaluate_with_override(
+        &self,
+        subject: &RenderSubject,
+        context: &ExtractionContext,
+        dm_override: bool,
+    ) -> ImagePromptVerdict {
+        let verdict = self.compute_verdict(subject, context, dm_override);
+
+        // OTEL: scene_relevance.evaluated — GM panel verification that the
+        // validator is engaged on every prompt. Includes override state so the
+        // lie detector can distinguish bypassed validation from passing checks.
+        let (verdict_str, reason) = match &verdict {
+            ImagePromptVerdict::Approved => ("approved", ""),
+            ImagePromptVerdict::Rejected { reason } => ("rejected", reason.as_str()),
+        };
+        WatcherEventBuilder::new("scene_relevance", WatcherEventType::StateTransition)
+            .field("action", "scene_relevance_evaluated")
+            .field("verdict", verdict_str)
+            .field("reason", reason)
+            .field("entity_count", subject.entities().len())
+            .field("scene_type", format!("{:?}", subject.scene_type()))
+            .field("in_combat", context.in_combat)
+            .field("dm_override", dm_override)
+            .send();
+
+        verdict
+    }
+
+    /// Pure decision logic — no telemetry, just the validation passes.
+    fn compute_verdict(
         &self,
         subject: &RenderSubject,
         context: &ExtractionContext,

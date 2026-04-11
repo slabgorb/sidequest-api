@@ -17,12 +17,12 @@ use std::collections::HashMap;
 use sidequest_agents::agent::Agent;
 use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, ActionResult, NarratorExtraction,
+    ActionFlags, ActionResult, ActionRewrite, NarratorExtraction,
 };
 use sidequest_agents::tools::assemble_turn::assemble_turn;
-use sidequest_agents::tools::set_mood::{validate_mood, SceneMood};
-use sidequest_agents::tools::set_intent::{validate_intent, SceneIntent};
 use sidequest_agents::tools::assemble_turn::ToolCallResults;
+use sidequest_agents::tools::set_intent::{validate_intent, SceneIntent};
+use sidequest_agents::tools::set_mood::{validate_mood, SceneMood};
 
 // ============================================================================
 // Helpers
@@ -63,6 +63,9 @@ fn extraction_with_mood_and_intent() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -232,7 +235,11 @@ fn scene_mood_as_str_roundtrips() {
     let mood = SceneMood::Tension;
     let s = mood.as_str();
     assert_eq!(s, "tension");
-    assert_eq!(validate_mood(s).unwrap(), mood, "as_str must roundtrip through validate");
+    assert_eq!(
+        validate_mood(s).unwrap(),
+        mood,
+        "as_str must roundtrip through validate"
+    );
 }
 
 #[test]
@@ -240,7 +247,11 @@ fn scene_intent_as_str_roundtrips() {
     let intent = SceneIntent::CombatPrep;
     let s = intent.as_str();
     assert_eq!(s, "combat_prep");
-    assert_eq!(validate_intent(s).unwrap(), intent, "as_str must roundtrip through validate");
+    assert_eq!(
+        validate_intent(s).unwrap(),
+        intent,
+        "as_str must roundtrip through validate"
+    );
 }
 
 // ============================================================================
@@ -301,7 +312,10 @@ fn assemble_turn_both_tools_override_narrator() {
     assert_eq!(result.scene_intent.as_deref(), Some("stealth"));
     // Verify narrator values were NOT used
     assert_ne!(result.scene_mood.as_deref(), Some("narrator_mood_value"));
-    assert_ne!(result.scene_intent.as_deref(), Some("narrator_intent_value"));
+    assert_ne!(
+        result.scene_intent.as_deref(),
+        Some("narrator_intent_value")
+    );
 }
 
 // ============================================================================
@@ -377,7 +391,11 @@ fn assemble_turn_mixed_tool_and_fallback() {
 
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
-    assert_eq!(result.scene_mood.as_deref(), Some("exhilaration"), "tool mood wins");
+    assert_eq!(
+        result.scene_mood.as_deref(),
+        Some("exhilaration"),
+        "tool mood wins"
+    );
     assert_eq!(
         result.scene_intent.as_deref(),
         Some("narrator_intent_value"),
@@ -402,7 +420,10 @@ fn assemble_turn_preserves_other_fields_with_tool_results() {
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
     // Non-migrated fields pass through unchanged
-    assert_eq!(result.narration, "The shadows lengthen across the marketplace.");
+    assert_eq!(
+        result.narration,
+        "The shadows lengthen across the marketplace."
+    );
     assert!(result.action_rewrite.is_some());
     assert!(result.action_flags.is_some());
     assert!(result.footnotes.is_empty());
@@ -458,7 +479,6 @@ fn narrator_prompt_omits_scene_intent_schema() {
     );
 }
 
-
 // ============================================================================
 // AC-6: OTEL spans emitted for tool calls
 // ============================================================================
@@ -503,7 +523,10 @@ fn validate_mood_otel_on_invalid_input() {
     );
 
     let result = validate_mood("garbage");
-    assert!(result.is_err(), "invalid mood should be rejected even under tracing");
+    assert!(
+        result.is_err(),
+        "invalid mood should be rejected even under tracing"
+    );
 }
 
 // ============================================================================

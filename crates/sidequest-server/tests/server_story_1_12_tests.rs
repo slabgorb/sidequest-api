@@ -256,9 +256,12 @@ async fn server_accepts_mock_game_service() {
             _context: &sidequest_agents::orchestrator::TurnContext,
         ) -> sidequest_agents::orchestrator::ActionResult {
             sidequest_agents::orchestrator::ActionResult {
+                confrontation: None,
+                location: None,
+                prompt_text: None,
+                raw_response_text: None,
                 narration: format!("Mock response to: {}", action),
-                combat_patch: None,
-                chase_patch: None,
+                beat_selections: vec![],
                 is_degraded: false,
                 classified_intent: None,
                 agent_name: None,
@@ -282,6 +285,10 @@ async fn server_accepts_mock_game_service() {
                 merchant_transactions: vec![],
                 prompt_tier: String::new(),
             }
+        }
+
+        fn reset_narrator_session_for_connect(&self) {
+            // No-op for mock — no persistent session to reset
         }
     }
 

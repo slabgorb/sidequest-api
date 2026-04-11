@@ -4,10 +4,12 @@
 //! endpoints for the React frontend to interact with the game engine.
 
 use clap::Parser;
-use sidequest_agents::orchestrator::Orchestrator;
 use sidequest_agents::exercise_tracker::SubsystemTracker;
+use sidequest_agents::orchestrator::Orchestrator;
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
-use sidequest_server::{create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType};
+use sidequest_server::{
+    create_server, AppState, Args, Severity, WatcherEventBuilder, WatcherEventType,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -16,7 +18,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing::info!(
         port = args.port(),
         genre_packs = %args.genre_packs_path().display(),
-        no_tts = args.no_tts(),
         headless = args.headless(),
         "SideQuest Server starting"
     );
@@ -24,30 +25,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (watcher_tx, watcher_rx) =
         tokio::sync::mpsc::channel::<TurnRecord>(WATCHER_CHANNEL_CAPACITY);
 
-    let orchestrator = Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
+    // Clone watcher_tx for AppState before moving original into Orchestrator (ADR-073).
+    // Both dispatch (TurnRecord construction) and bridge (OTEL + JSONL) share the channel.
+    let watcher_tx_for_state = watcher_tx.clone();
+
+    let orchestrator =
+        Orchestrator::new_with_otel(watcher_tx, args.otel_endpoint().map(|s| s.to_string()));
 
     // ADR-059: Tool binaries are now called server-side by dispatch/pregen.rs,
     // not registered on the orchestrator for narrator tool calls.
     // Binary paths are discovered and stored on AppState (below).
 
-    let save_dir = args
-        .save_dir()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(".sidequest")
-                .join("saves")
-        });
+    let save_dir = args.save_dir().map(|p| p.to_path_buf()).unwrap_or_else(|| {
+        dirs::home_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join(".sidequest")
+            .join("saves")
+    });
 
     // Store discovered binary paths for server-side pre-generation (ADR-059)
     let (namegen_for_state, encountergen_for_state, loadoutgen_for_state) =
         if let Ok(exe) = std::env::current_exe() {
             let dir = exe.parent();
             (
-                dir.map(|d| d.join("sidequest-namegen")).filter(|p| p.exists()),
-                dir.map(|d| d.join("sidequest-encountergen")).filter(|p| p.exists()),
-                dir.map(|d| d.join("sidequest-loadoutgen")).filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-namegen"))
+                    .filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-encountergen"))
+                    .filter(|p| p.exists()),
+                dir.map(|d| d.join("sidequest-loadoutgen"))
+                    .filter(|p| p.exists()),
             )
         } else {
             (None, None, None)
@@ -57,12 +63,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Box::new(orchestrator),
         args.genre_packs_path().to_path_buf(),
         save_dir,
-    )
-    .with_tts_disabled(args.no_tts() || args.headless());
+    );
 
     if args.headless() {
         state = state.with_render_disabled();
     }
+
+    state = state.with_watcher_tx(watcher_tx_for_state);
 
     if let Some(endpoint) = args.otel_endpoint() {
         state = state.with_otel_endpoint(endpoint.to_string());
@@ -111,14 +118,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 /// Bridge TurnRecords from the orchestrator's mpsc channel into WatcherEvents
 /// on the broadcast channel. This is the single point where per-turn telemetry
 /// becomes visible to the GM dashboard.
-async fn turn_record_bridge(
-    mut rx: tokio::sync::mpsc::Receiver<TurnRecord>,
-) {
+async fn turn_record_bridge(mut rx: tokio::sync::mpsc::Receiver<TurnRecord>) {
     tracing::info!("turn record bridge started, awaiting TurnRecords");
 
     // Story 26-2: SubsystemTracker accumulates agent invocation counts.
     // Summary every 10 turns, coverage gap warning after 20 turns.
     let mut tracker = SubsystemTracker::new(10, 20);
+
+    // ADR-073: JSONL training data persistence.
+    // Lazily opened on first record; one file per calendar day.
+    let training_dir = dirs::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".sidequest")
+        .join("training");
+    let mut jsonl_writer: Option<(String, std::io::BufWriter<std::fs::File>)> = None;
 
     while let Some(record) = rx.recv().await {
         tracker.record(&record.agent_name);
@@ -135,21 +148,31 @@ async fn turn_record_bridge(
             "TurnRecord → WatcherEvent bridge"
         );
 
-        let patches: Vec<serde_json::Value> = record.patches_applied.iter()
-            .map(|p| serde_json::json!({
-                "patch_type": p.patch_type,
-                "fields_changed": p.fields_changed,
-            }))
+        let patches: Vec<serde_json::Value> = record
+            .patches_applied
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "patch_type": p.patch_type,
+                    "fields_changed": p.fields_changed,
+                })
+            })
             .collect();
-        let beats_fired: Vec<serde_json::Value> = record.beats_fired.iter()
+        let beats_fired: Vec<serde_json::Value> = record
+            .beats_fired
+            .iter()
             .map(|(name, thresh)| serde_json::json!({"trope": name, "threshold": thresh}))
             .collect();
-        let spans: Vec<serde_json::Value> = record.spans.iter()
-            .map(|(name, start_ms, dur_ms)| serde_json::json!({
-                "name": name,
-                "start_ms": start_ms,
-                "duration_ms": dur_ms,
-            }))
+        let spans: Vec<serde_json::Value> = record
+            .spans
+            .iter()
+            .map(|(name, start_ms, dur_ms)| {
+                serde_json::json!({
+                    "name": name,
+                    "start_ms": start_ms,
+                    "duration_ms": dur_ms,
+                })
+            })
             .collect();
 
         let mut builder = WatcherEventBuilder::new("orchestrator", WatcherEventType::TurnComplete)
@@ -174,7 +197,9 @@ async fn turn_record_bridge(
 
         // Story 26-2: Emit SubsystemExerciseSummary at tracker's summary interval.
         if tracker.turn_count % tracker.summary_interval == 0 {
-            let histogram: Vec<serde_json::Value> = tracker.histogram().iter()
+            let histogram: Vec<serde_json::Value> = tracker
+                .histogram()
+                .iter()
                 .map(|(name, count)| serde_json::json!({"agent": name, "count": count}))
                 .collect();
             WatcherEventBuilder::new("watcher", WatcherEventType::SubsystemExerciseSummary)
@@ -192,6 +217,49 @@ async fn turn_record_bridge(
                     .field("turns", tracker.turn_count)
                     .severity(Severity::Warn)
                     .send();
+            }
+        }
+
+        // ADR-073: Persist TurnRecord as JSONL for training data capture.
+        // One line per turn, flushed immediately (training data is precious).
+        {
+            use std::io::Write;
+            let today = record.timestamp.format("%Y-%m-%d").to_string();
+            let writer = match &mut jsonl_writer {
+                Some((date, w)) if *date == today => w,
+                _ => {
+                    if let Err(e) = std::fs::create_dir_all(&training_dir) {
+                        tracing::error!(error = %e, "failed to create training directory — training data will NOT be persisted");
+                    }
+                    let path = training_dir.join(format!("turns_{today}.jsonl"));
+                    match std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
+                        Ok(file) => {
+                            tracing::info!(path = %path.display(), "training data JSONL opened");
+                            jsonl_writer = Some((today, std::io::BufWriter::new(file)));
+                            &mut jsonl_writer.as_mut().unwrap().1
+                        }
+                        Err(e) => {
+                            tracing::error!(error = %e, path = %path.display(), "failed to open training JSONL — skipping this record");
+                            continue;
+                        }
+                    }
+                }
+            };
+            match serde_json::to_string(&record) {
+                Ok(json) => {
+                    if let Err(e) = writeln!(writer, "{json}") {
+                        tracing::error!(error = %e, turn_id = record.turn_id, "failed to write training JSONL line");
+                    } else if let Err(e) = writer.flush() {
+                        tracing::error!(error = %e, turn_id = record.turn_id, "failed to flush training JSONL");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, turn_id = record.turn_id, "failed to serialize TurnRecord to JSON");
+                }
             }
         }
     }

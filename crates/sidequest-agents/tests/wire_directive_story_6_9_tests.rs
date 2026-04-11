@@ -102,7 +102,10 @@ fn combat_intent_is_meaningful() {
 
 #[test]
 fn dialogue_intent_is_meaningful() {
-    assert!(is_meaningful(Intent::Dialogue), "Dialogue should be meaningful");
+    assert!(
+        is_meaningful(Intent::Dialogue),
+        "Dialogue should be meaningful"
+    );
 }
 
 #[test]
@@ -112,26 +115,41 @@ fn chase_intent_is_meaningful() {
 
 #[test]
 fn exploration_intent_is_not_meaningful() {
-    assert!(!is_meaningful(Intent::Exploration), "Exploration should not be meaningful");
+    assert!(
+        !is_meaningful(Intent::Exploration),
+        "Exploration should not be meaningful"
+    );
 }
 
 #[test]
 fn examine_intent_is_not_meaningful() {
-    assert!(!is_meaningful(Intent::Examine), "Examine should not be meaningful");
+    assert!(
+        !is_meaningful(Intent::Examine),
+        "Examine should not be meaningful"
+    );
 }
 
 #[test]
 fn meta_intent_is_not_meaningful() {
-    assert!(!is_meaningful(Intent::Meta), "Meta should not be meaningful");
+    assert!(
+        !is_meaningful(Intent::Meta),
+        "Meta should not be meaningful"
+    );
 }
 
 #[test]
 fn intent_route_exposes_meaningful_via_intent() {
     let route = IntentRoute::for_intent(Intent::Combat);
-    assert!(is_meaningful(route.intent()), "Combat route should be meaningful");
+    assert!(
+        is_meaningful(route.intent()),
+        "Combat route should be meaningful"
+    );
 
     let route = IntentRoute::for_intent(Intent::Exploration);
-    assert!(!is_meaningful(route.intent()), "Exploration route should not be meaningful");
+    assert!(
+        !is_meaningful(route.intent()),
+        "Exploration route should not be meaningful"
+    );
 }
 
 // ============================================================================
@@ -214,9 +232,7 @@ fn engagement_multiplier_feeds_into_tick_with_multiplier() {
 
 #[test]
 fn fired_beats_produce_scene_directive() {
-    let beats = vec![
-        fired_beat("Strange noises in the camp", 0.1, "Camp safety"),
-    ];
+    let beats = vec![fired_beat("Strange noises in the camp", 0.1, "Camp safety")];
     let stakes = vec![active_stake("The village alliance is crumbling")];
     let hints = vec!["Smoke rises from the east".to_string()];
 
@@ -239,9 +255,7 @@ fn fired_beats_produce_scene_directive() {
 
 #[test]
 fn directive_registered_in_prompt_produces_mandatory_block() {
-    let beats = vec![
-        fired_beat("a distant explosion", 0.8, "safety"),
-    ];
+    let beats = vec![fired_beat("a distant explosion", 0.8, "safety")];
     let stakes = vec![active_stake("the trade routes are severed")];
     let hints = vec!["Smoke rises".to_string()];
 
@@ -275,9 +289,7 @@ fn directive_placed_in_early_zone() {
         !sections.is_empty(),
         "Scene directive should be in Early attention zone"
     );
-    let directive_section = sections
-        .iter()
-        .find(|s| s.name == "scene_directive");
+    let directive_section = sections.iter().find(|s| s.name == "scene_directive");
     assert!(
         directive_section.is_some(),
         "Should find a section named 'scene_directive' in Early zone"

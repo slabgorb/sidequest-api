@@ -13,9 +13,7 @@
 //!   AC6: Unknown moods fall back through alias chain or to default
 //!   AC7: Backward-compatible enum→string mapping
 
-use sidequest_game::music_director::{
-    MoodClassification, MoodContext, MoodKey, MusicDirector,
-};
+use sidequest_game::music_director::{MoodClassification, MoodContext, MoodKey, MusicDirector};
 use sidequest_genre::AudioConfig;
 use std::collections::HashMap;
 
@@ -43,7 +41,15 @@ fn audio_config_with_aliases(aliases: HashMap<String, String>) -> AudioConfig {
     let mut config = AudioConfig::empty();
     config.mood_aliases = aliases;
     // Add at least one track per core mood so select_track has something
-    for mood in &["combat", "exploration", "tension", "triumph", "sorrow", "mystery", "calm"] {
+    for mood in &[
+        "combat",
+        "exploration",
+        "tension",
+        "triumph",
+        "sorrow",
+        "mystery",
+        "calm",
+    ] {
         config.mood_tracks.insert(
             mood.to_string(),
             vec![sidequest_genre::MoodTrack {
@@ -85,7 +91,11 @@ fn mood_key_inequality() {
 fn mood_key_case_normalized() {
     // Mood keys should be lowercase
     let mood = MoodKey::from("Combat");
-    assert_eq!(mood.as_str(), "combat", "MoodKey should normalize to lowercase");
+    assert_eq!(
+        mood.as_str(),
+        "combat",
+        "MoodKey should normalize to lowercase"
+    );
 }
 
 #[test]
@@ -214,9 +224,15 @@ mood_aliases:
 
     let config: AudioConfig = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(config.mood_aliases.len(), 3);
-    assert_eq!(config.mood_aliases.get("standoff"), Some(&"tension".to_string()));
+    assert_eq!(
+        config.mood_aliases.get("standoff"),
+        Some(&"tension".to_string())
+    );
     assert_eq!(config.mood_aliases.get("saloon"), Some(&"calm".to_string()));
-    assert_eq!(config.mood_aliases.get("riding"), Some(&"exploration".to_string()));
+    assert_eq!(
+        config.mood_aliases.get("riding"),
+        Some(&"exploration".to_string())
+    );
 }
 
 #[test]
@@ -251,14 +267,16 @@ fn resolve_mood_direct_core_mood() {
     let director = MusicDirector::new(&config);
 
     let resolved = director.resolve_mood("combat");
-    assert_eq!(resolved, MoodKey::COMBAT, "core mood should resolve directly");
+    assert_eq!(
+        resolved,
+        MoodKey::COMBAT,
+        "core mood should resolve directly"
+    );
 }
 
 #[test]
 fn resolve_mood_through_alias() {
-    let aliases = HashMap::from([
-        ("standoff".to_string(), "tension".to_string()),
-    ]);
+    let aliases = HashMap::from([("standoff".to_string(), "tension".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let director = MusicDirector::new(&config);
 
@@ -272,9 +290,7 @@ fn resolve_mood_through_alias() {
 
 #[test]
 fn resolve_mood_saloon_to_calm() {
-    let aliases = HashMap::from([
-        ("saloon".to_string(), "calm".to_string()),
-    ]);
+    let aliases = HashMap::from([("saloon".to_string(), "calm".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let director = MusicDirector::new(&config);
 
@@ -284,9 +300,7 @@ fn resolve_mood_saloon_to_calm() {
 
 #[test]
 fn resolve_mood_riding_to_exploration() {
-    let aliases = HashMap::from([
-        ("riding".to_string(), "exploration".to_string()),
-    ]);
+    let aliases = HashMap::from([("riding".to_string(), "exploration".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let director = MusicDirector::new(&config);
 
@@ -296,9 +310,7 @@ fn resolve_mood_riding_to_exploration() {
 
 #[test]
 fn resolve_mood_convoy_to_exploration() {
-    let aliases = HashMap::from([
-        ("convoy".to_string(), "exploration".to_string()),
-    ]);
+    let aliases = HashMap::from([("convoy".to_string(), "exploration".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let director = MusicDirector::new(&config);
 
@@ -308,9 +320,7 @@ fn resolve_mood_convoy_to_exploration() {
 
 #[test]
 fn resolve_mood_cyberspace_to_mystery() {
-    let aliases = HashMap::from([
-        ("cyberspace".to_string(), "mystery".to_string()),
-    ]);
+    let aliases = HashMap::from([("cyberspace".to_string(), "mystery".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let director = MusicDirector::new(&config);
 
@@ -338,14 +348,16 @@ fn resolve_mood_chained_alias() {
 
 #[test]
 fn resolve_mood_case_insensitive() {
-    let aliases = HashMap::from([
-        ("standoff".to_string(), "tension".to_string()),
-    ]);
+    let aliases = HashMap::from([("standoff".to_string(), "tension".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let director = MusicDirector::new(&config);
 
     let resolved = director.resolve_mood("Standoff");
-    assert_eq!(resolved, MoodKey::TENSION, "resolution should be case-insensitive");
+    assert_eq!(
+        resolved,
+        MoodKey::TENSION,
+        "resolution should be case-insensitive"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -354,9 +366,7 @@ fn resolve_mood_case_insensitive() {
 
 #[test]
 fn encounter_mood_override_resolves_through_aliases() {
-    let aliases = HashMap::from([
-        ("standoff".to_string(), "tension".to_string()),
-    ]);
+    let aliases = HashMap::from([("standoff".to_string(), "tension".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let director = MusicDirector::new(&config);
 
@@ -540,16 +550,17 @@ fn music_director_select_track_for_custom_mood() {
     let result = director.evaluate_narration_with_classification(&classification, &ctx);
     // Should produce a cue because standoff tracks exist
     assert!(
-        matches!(result, sidequest_game::music_director::MusicEvalResult::Cue(_)),
+        matches!(
+            result,
+            sidequest_game::music_director::MusicEvalResult::Cue(_)
+        ),
         "custom mood with tracks should produce a music cue, got: {result:?}"
     );
 }
 
 #[test]
 fn music_director_falls_back_to_alias_tracks() {
-    let aliases = HashMap::from([
-        ("standoff".to_string(), "tension".to_string()),
-    ]);
+    let aliases = HashMap::from([("standoff".to_string(), "tension".to_string())]);
     let config = audio_config_with_aliases(aliases);
     let mut director = MusicDirector::new(&config);
 
@@ -563,7 +574,10 @@ fn music_director_falls_back_to_alias_tracks() {
     // standoff has no direct tracks, but resolves to tension which does
     let result = director.evaluate_narration_with_classification(&classification, &ctx);
     assert!(
-        matches!(result, sidequest_game::music_director::MusicEvalResult::Cue(_)),
+        matches!(
+            result,
+            sidequest_game::music_director::MusicEvalResult::Cue(_)
+        ),
         "aliased mood should fall back to alias target's tracks, got: {result:?}"
     );
 }

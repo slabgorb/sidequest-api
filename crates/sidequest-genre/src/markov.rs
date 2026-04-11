@@ -229,7 +229,10 @@ pub fn generate_dictionary<R: Rng>(
 }
 
 /// Translate a word list using a dictionary, passing through unknown words.
-pub fn translate_word_list(word_list: &[String], dictionary: &HashMap<String, String>) -> Vec<String> {
+pub fn translate_word_list(
+    word_list: &[String],
+    dictionary: &HashMap<String, String>,
+) -> Vec<String> {
     word_list
         .iter()
         .map(|w| dictionary.get(w).cloned().unwrap_or_else(|| w.clone()))

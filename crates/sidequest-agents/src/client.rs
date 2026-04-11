@@ -123,22 +123,6 @@ impl ClaudeClient {
         self.send_impl(prompt, Some(model), &[], &std::collections::HashMap::new())
     }
 
-    /// Execute a subprocess call with tool access and environment variables.
-    ///
-    /// Passes `--allowedTools <tools>` so the Claude CLI can execute tools
-    /// autonomously during the session. Sets extra env vars on the subprocess
-    /// (e.g., `SIDEQUEST_GENRE`, `SIDEQUEST_CONTENT_PATH`) so tool wrappers
-    /// can resolve paths from environment instead of CLI flags in the prompt.
-    pub fn send_with_tools(
-        &self,
-        prompt: &str,
-        model: &str,
-        allowed_tools: &[String],
-        env_vars: &std::collections::HashMap<String, String>,
-    ) -> Result<ClaudeResponse, ClaudeClientError> {
-        self.send_impl(prompt, Some(model), allowed_tools, env_vars)
-    }
-
     /// Execute a persistent session call (ADR-066).
     ///
     /// If `session_id` is `Some`, resumes that session via `--resume`.
@@ -272,7 +256,9 @@ impl ClaudeClient {
                     let mut input_tokens: Option<u64> = None;
                     let mut output_tokens: Option<u64> = None;
                     let mut resp_session_id: Option<String> = None;
-                    let text = if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&trimmed) {
+                    let text = if let Ok(envelope) =
+                        serde_json::from_str::<serde_json::Value>(&trimmed)
+                    {
                         if let Some(usage) = envelope.get("usage") {
                             if let Some(inp) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
                                 span.record("input_tokens", inp);
@@ -283,13 +269,15 @@ impl ClaudeClient {
                                 output_tokens = Some(out);
                             }
                         }
-                        if let Some(cost) = envelope.get("total_cost_usd").and_then(|v| v.as_f64()) {
+                        if let Some(cost) = envelope.get("total_cost_usd").and_then(|v| v.as_f64())
+                        {
                             span.record("cost_usd", cost);
                         }
                         if let Some(sid) = envelope.get("session_id").and_then(|v| v.as_str()) {
                             resp_session_id = Some(sid.to_string());
                         }
-                        envelope.get("result")
+                        envelope
+                            .get("result")
                             .and_then(|v| v.as_str())
                             .unwrap_or(&trimmed)
                             .to_string()
@@ -314,7 +302,9 @@ impl ClaudeClient {
                         let _ = child.kill();
                         let _ = child.wait();
                         span.record("duration_ms", start.elapsed().as_millis() as u64);
-                        return Err(ClaudeClientError::Timeout { elapsed: start.elapsed() });
+                        return Err(ClaudeClientError::Timeout {
+                            elapsed: start.elapsed(),
+                        });
                     }
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
@@ -451,7 +441,9 @@ impl ClaudeClient {
                     let mut input_tokens: Option<u64> = None;
                     let mut output_tokens: Option<u64> = None;
                     let mut session_id: Option<String> = None;
-                    let text = if let Ok(envelope) = serde_json::from_str::<serde_json::Value>(&trimmed) {
+                    let text = if let Ok(envelope) =
+                        serde_json::from_str::<serde_json::Value>(&trimmed)
+                    {
                         // Extract token counts from usage block
                         if let Some(usage) = envelope.get("usage") {
                             if let Some(inp) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
@@ -463,7 +455,8 @@ impl ClaudeClient {
                                 output_tokens = Some(out);
                             }
                         }
-                        if let Some(cost) = envelope.get("total_cost_usd").and_then(|v| v.as_f64()) {
+                        if let Some(cost) = envelope.get("total_cost_usd").and_then(|v| v.as_f64())
+                        {
                             span.record("cost_usd", cost);
                         }
                         // Extract session ID for persistent sessions (ADR-066)
@@ -471,7 +464,8 @@ impl ClaudeClient {
                             session_id = Some(sid.to_string());
                         }
                         // Extract the actual text result
-                        envelope.get("result")
+                        envelope
+                            .get("result")
                             .and_then(|v| v.as_str())
                             .unwrap_or(&trimmed)
                             .to_string()
@@ -485,7 +479,12 @@ impl ClaudeClient {
                     }
                     span.record("response_len", text.len());
                     span.record("duration_ms", start.elapsed().as_millis() as u64);
-                    return Ok(ClaudeResponse { text, input_tokens, output_tokens, session_id });
+                    return Ok(ClaudeResponse {
+                        text,
+                        input_tokens,
+                        output_tokens,
+                        session_id,
+                    });
                 }
                 Ok(None) => {
                     if start.elapsed() > self.timeout {
@@ -555,7 +554,11 @@ impl ClaudeClientBuilder {
     /// Set the OTEL endpoint for Claude subprocess telemetry export.
     /// Empty strings are normalized to None.
     pub fn otel_endpoint(mut self, endpoint: String) -> Self {
-        self.otel_endpoint = if endpoint.trim().is_empty() { None } else { Some(endpoint) };
+        self.otel_endpoint = if endpoint.trim().is_empty() {
+            None
+        } else {
+            Some(endpoint)
+        };
         self
     }
 

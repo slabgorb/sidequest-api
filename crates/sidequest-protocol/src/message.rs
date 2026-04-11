@@ -45,8 +45,6 @@ pub enum NarratorVerbosity {
     Verbose,
 }
 
-
-
 impl NarratorVerbosity {
     /// Returns the default verbosity for a given player count.
     ///
@@ -82,8 +80,6 @@ pub enum NarratorVocabulary {
     Epic,
 }
 
-
-
 // ---------------------------------------------------------------------------
 // GameMessage — the tagged enum
 // ---------------------------------------------------------------------------
@@ -114,16 +110,14 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Partial narration text (streaming).
-    #[serde(rename = "NARRATION_CHUNK")]
-    NarrationChunk {
-        /// The typed payload for this message.
-        payload: NarrationChunkPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// End of narration stream.
+    /// Turn-completion marker. Carries the final `StateDelta` when one exists.
+    ///
+    /// Emitted by the dispatch layer at the end of every narration turn.
+    /// The UI processes this message through its normal state-mirror
+    /// pipeline — React's automatic batching applies any final state delta
+    /// in the same render commit as the preceding `Narration`, with no
+    /// explicit buffering required on the client side (ADR-076 — post-TTS
+    /// protocol collapse).
     #[serde(rename = "NARRATION_END")]
     NarrationEnd {
         /// The typed payload for this message.
@@ -177,23 +171,11 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Full character details for sheet overlay.
-    #[serde(rename = "CHARACTER_SHEET")]
-    CharacterSheet {
-        /// The typed payload for this message.
-        payload: CharacterSheetPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// Full inventory snapshot.
-    #[serde(rename = "INVENTORY")]
-    Inventory {
-        /// The typed payload for this message.
-        payload: InventoryPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
+    // NOTE: CHARACTER_SHEET and INVENTORY variants were removed in 2026-04.
+    // Per-character sheet and inventory state now live on `PartyMember`
+    // (`sheet` and `inventory` fields) and are broadcast via PARTY_STATUS.
+    // This collapses three message types into one, eliminates the
+    // observer-null race condition, and makes teammate gear visible.
 
     /// World map state for map overlay.
     #[serde(rename = "MAP_UPDATE")]
@@ -204,15 +186,7 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Combat state for combat overlay.
-    #[serde(rename = "COMBAT_EVENT")]
-    CombatEvent {
-        /// The typed payload for this message.
-        payload: CombatEventPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
+    // CombatEvent variant removed in story 28-9. Confrontation replaces it.
     /// Structured encounter state for confrontation overlay (standoffs, chases, negotiations).
     #[serde(rename = "CONFRONTATION")]
     Confrontation {
@@ -263,31 +237,6 @@ pub enum GameMessage {
     VoiceText {
         /// The typed payload for this message.
         payload: VoiceTextPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// TTS stream start — sent before first audio chunk.
-    #[serde(rename = "TTS_START")]
-    TtsStart {
-        /// The typed payload for this message.
-        payload: TtsStartPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// TTS audio chunk — base64-encoded audio for one narration segment.
-    #[serde(rename = "TTS_CHUNK")]
-    TtsChunk {
-        /// The typed payload for this message.
-        payload: TtsChunkPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// TTS stream end — sent after last audio chunk.
-    #[serde(rename = "TTS_END")]
-    TtsEnd {
         /// The player who sent this message.
         player_id: String,
     },
@@ -381,6 +330,25 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// Tactical grid state for the current room (story 29-5).
+    /// Sent on room entry when the room has ASCII grid data.
+    #[serde(rename = "TACTICAL_STATE")]
+    TacticalState {
+        /// The typed payload for this message.
+        payload: TacticalStatePayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
+    /// Player tactical action (move, target, inspect) on the grid (story 29-5).
+    #[serde(rename = "TACTICAL_ACTION")]
+    TacticalAction {
+        /// The typed payload for this message.
+        payload: TacticalActionPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -469,15 +437,13 @@ pub enum FactCategory {
     Ability,
 }
 
-/// Partial narration text (streaming chunk).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct NarrationChunkPayload {
-    /// The partial text being streamed.
-    pub text: String,
-}
-
-/// End of narration stream, optionally with final state delta.
+/// Turn-completion payload, optionally carrying the final state delta.
+///
+/// Sent at the end of every narration turn. The UI applies the optional
+/// `state_delta` through its normal state-mirror pipeline — no explicit
+/// buffering is required on the client side because React's automatic
+/// batching already coalesces consecutive `setState` calls into a single
+/// commit (ADR-076).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NarrationEndPayload {
@@ -571,12 +537,27 @@ pub struct CharacterCreationPayload {
     /// Preview of the character being created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_preview: Option<serde_json::Value>,
+    /// Rolled ability scores in genre-defined order. When present, the UI
+    /// should render them as a structured stat block alongside the narration
+    /// instead of asking the player to parse them out of inline prose.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rolled_stats: Option<Vec<RolledStat>>,
     /// Player's choice (client → server).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub choice: Option<String>,
     /// Completed character data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character: Option<serde_json::Value>,
+}
+
+/// One rolled ability score: ability name + value.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RolledStat {
+    /// Ability name as defined by the genre's `ability_score_names`
+    /// (e.g. "STR", "Cunning", "Grit").
+    pub name: String,
+    /// Rolled value (typically 3-18 for 3d6 strict).
+    pub value: i32,
 }
 
 /// Turn/round tracking.
@@ -600,41 +581,8 @@ pub struct PartyStatusPayload {
     pub members: Vec<PartyMember>,
 }
 
-/// Character sheet details.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CharacterSheetPayload {
-    /// Character name.
-    pub name: String,
-    /// Character class.
-    pub class: String,
-    /// Character race/origin.
-    #[serde(default)]
-    pub race: String,
-    /// Character level.
-    pub level: u32,
-    /// Ability scores / stats.
-    pub stats: HashMap<String, i32>,
-    /// Known abilities.
-    pub abilities: Vec<String>,
-    /// Character backstory.
-    pub backstory: String,
-    /// Personality trait.
-    #[serde(default)]
-    pub personality: String,
-    /// Pronouns.
-    #[serde(default)]
-    pub pronouns: String,
-    /// Equipped/carried items.
-    #[serde(default)]
-    pub equipment: Vec<String>,
-    /// Portrait image URL.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub portrait_url: Option<String>,
-    /// Current location name (for character sheet display).
-    #[serde(default)]
-    pub current_location: String,
-}
+// CharacterSheetPayload removed 2026-04. See `CharacterSheetDetails` (nested
+// inside `PartyMember.sheet`) for the replacement.
 
 /// Full inventory snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -659,21 +607,60 @@ pub struct MapUpdatePayload {
     /// Fog of war bounds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fog_bounds: Option<FogBounds>,
+    /// Cartography metadata from genre pack — navigation structure, regions, routes.
+    /// Sent on session connect and location changes so the UI can render the world map.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cartography: Option<CartographyMetadata>,
 }
 
-/// Combat state for the combat overlay.
+/// Cartography metadata for the map overlay (story 26-10).
+/// Wire-format subset of the genre pack's CartographyConfig — carries only
+/// the fields the UI needs to render the world map.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CombatEventPayload {
-    /// Whether combat is active.
-    pub in_combat: bool,
-    /// Active enemies.
-    pub enemies: Vec<CombatEnemy>,
-    /// Initiative order.
-    pub turn_order: Vec<String>,
-    /// Who's acting now.
-    pub current_turn: String,
+pub struct CartographyMetadata {
+    /// Navigation mode — "region", "room_graph", or "hierarchical".
+    pub navigation_mode: String,
+    /// Starting region slug.
+    #[serde(default)]
+    pub starting_region: String,
+    /// Regions keyed by slug.
+    #[serde(default)]
+    pub regions: HashMap<String, CartographyRegion>,
+    /// Routes between regions.
+    #[serde(default)]
+    pub routes: Vec<CartographyRoute>,
 }
+
+/// A region in the cartography metadata (wire format for UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRegion {
+    /// Display name.
+    pub name: String,
+    /// Description.
+    #[serde(default)]
+    pub description: String,
+    /// Adjacent region slugs.
+    #[serde(default)]
+    pub adjacent: Vec<String>,
+}
+
+/// A route between regions in the cartography metadata (wire format for UI).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CartographyRoute {
+    /// Route name.
+    pub name: String,
+    /// Description.
+    #[serde(default)]
+    pub description: String,
+    /// Source region slug.
+    #[serde(default)]
+    pub from_id: Option<String>,
+    /// Destination region slug.
+    #[serde(default)]
+    pub to_id: Option<String>,
+}
+
+// CombatEventPayload deleted in story 28-9 — ConfrontationPayload replaces it.
 
 /// Render job queued — sent when a render is submitted to the daemon.
 /// The UI can show a shimmer placeholder while waiting for the actual IMAGE.
@@ -723,7 +710,9 @@ pub struct ConfrontationPayload {
     pub active: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// A participant in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -843,28 +832,6 @@ pub struct VoiceTextPayload {
     /// The spoken text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
-}
-
-/// TTS stream start payload.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TtsStartPayload {
-    /// Total number of audio segments to expect.
-    pub total_segments: usize,
-}
-
-/// TTS audio chunk payload.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TtsChunkPayload {
-    /// Base64-encoded audio bytes.
-    pub audio_base64: String,
-    /// Segment index in the narration.
-    pub segment_index: usize,
-    /// Whether this is the last chunk.
-    pub is_last_chunk: bool,
-    /// Speaker identity (character name or "narrator").
-    pub speaker: String,
-    /// Audio format ("wav" or "opus").
-    pub format: String,
 }
 
 /// Action queue payload.
@@ -1022,6 +989,13 @@ pub struct CreationChoice {
 }
 
 /// A party member in PARTY_STATUS.
+///
+/// PARTY_STATUS is the single source of truth for all per-character state,
+/// including the character sheet (`sheet`) and inventory (`inventory`) facets.
+/// Observers receive the full sheet and inventory for every member, which is
+/// what enables "look at your teammate's gear" affordances and removes the
+/// old reactive-null race condition where client-side state was gated on
+/// separate CHARACTER_SHEET / INVENTORY messages that never reached observers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartyMember {
@@ -1048,6 +1022,41 @@ pub struct PartyMember {
     /// Current location name (for party panel display).
     #[serde(default)]
     pub current_location: String,
+    /// Full character sheet — `None` until the member completes chargen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<CharacterSheetDetails>,
+    /// Full inventory snapshot — `None` until the member has a loadout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inventory: Option<InventoryPayload>,
+}
+
+/// Character sheet details nested inside `PartyMember`.
+///
+/// Fields that already exist on `PartyMember` (`name`, `class`, `level`,
+/// `portrait_url`, `current_location`) are intentionally NOT duplicated here —
+/// the party member fields remain the single place those values live.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterSheetDetails {
+    /// Character race/origin.
+    #[serde(default)]
+    pub race: String,
+    /// Ability scores / stats.
+    pub stats: HashMap<String, i32>,
+    /// Known abilities.
+    pub abilities: Vec<String>,
+    /// Character backstory.
+    #[serde(default)]
+    pub backstory: String,
+    /// Personality trait.
+    #[serde(default)]
+    pub personality: String,
+    /// Pronouns.
+    #[serde(default)]
+    pub pronouns: String,
+    /// Equipped/carried items as display strings.
+    #[serde(default)]
+    pub equipment: Vec<String>,
 }
 
 /// An inventory item.
@@ -1071,7 +1080,14 @@ pub struct InventoryItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExploredLocation {
-    /// Location name.
+    /// Stable room/location identifier (slug). In room graph mode this is
+    /// the RoomDef id that `RoomExitInfo.target` references; the UI uses
+    /// this to join exits to rooms. Empty string when not in room graph
+    /// mode (`#[serde(default)]` makes it backward-compatible for the
+    /// cartography region flow that only cares about `name`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// Location name (display).
     pub name: String,
     /// X coordinate on map (0 when no coordinate data available).
     #[serde(default)]
@@ -1097,6 +1113,9 @@ pub struct ExploredLocation {
     /// Whether this is the player's current room (room graph mode only).
     #[serde(default)]
     pub is_current_room: bool,
+    /// Tactical grid data for rooms with ASCII grids (room graph mode only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tactical_grid: Option<TacticalGridPayload>,
 }
 
 /// Exit descriptor for room graph mode — target room and exit type.
@@ -1270,4 +1289,99 @@ pub struct ResourceMinReachedPayload {
     pub resource_name: String,
     /// The minimum value the resource reached.
     pub min_value: f64,
+}
+
+// ---------------------------------------------------------------------------
+// Tactical grid payload structs (story 29-5)
+// ---------------------------------------------------------------------------
+
+/// Full tactical state for a room — grid, entities, and effect zones.
+/// Sent as TACTICAL_STATE on room entry when the room has ASCII grid data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TacticalStatePayload {
+    /// Room ID this tactical state belongs to.
+    pub room_id: String,
+    /// The parsed grid layout.
+    pub grid: TacticalGridPayload,
+    /// Entities positioned on the grid (players, NPCs, creatures).
+    pub entities: Vec<TacticalEntityPayload>,
+    /// Active effect zones (spell areas, hazards, barriers).
+    pub zones: Vec<EffectZonePayload>,
+}
+
+/// Grid layout — cell types as strings for JSON simplicity.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TacticalGridPayload {
+    /// Grid width in cells.
+    pub width: u32,
+    /// Grid height in cells.
+    pub height: u32,
+    /// 2D grid of cell type strings (e.g., "floor", "wall", "water").
+    pub cells: Vec<Vec<String>>,
+    /// Named features placed on the grid via legend.
+    pub features: Vec<TacticalFeaturePayload>,
+}
+
+/// A named feature placed on the grid via legend glyph.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TacticalFeaturePayload {
+    /// The uppercase letter glyph (A-Z) from the ASCII grid.
+    pub glyph: char,
+    /// Feature type (cover, hazard, difficult_terrain, atmosphere, interactable, door).
+    pub feature_type: String,
+    /// Human-readable label for UI tooltip.
+    pub label: String,
+    /// Grid positions where this feature appears ([x, y] pairs).
+    pub positions: Vec<[u32; 2]>,
+}
+
+/// An entity positioned on the tactical grid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TacticalEntityPayload {
+    /// Unique entity identifier.
+    pub id: String,
+    /// Display name.
+    pub name: String,
+    /// Grid x position (column).
+    pub x: u32,
+    /// Grid y position (row).
+    pub y: u32,
+    /// Size in cells (1 = medium, 2 = large, etc.).
+    pub size: u32,
+    /// Faction: "player", "hostile", "neutral", "ally".
+    pub faction: String,
+}
+
+/// An effect zone overlay on the tactical grid.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectZonePayload {
+    /// Unique zone identifier.
+    pub id: String,
+    /// Zone shape type: "circle", "cone", "line", "rect".
+    pub zone_type: String,
+    /// Shape-specific parameters (center, radius, etc.).
+    pub params: serde_json::Value,
+    /// Human-readable label.
+    pub label: String,
+    /// Optional display color override.
+    pub color: Option<String>,
+}
+
+/// Player tactical action on the grid (move, target, inspect).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TacticalActionPayload {
+    /// Action type: "move", "target", "inspect".
+    pub action_type: String,
+    /// Entity performing the action (for move/target).
+    pub entity_id: Option<String>,
+    /// Target grid position [x, y].
+    pub target: Option<[u32; 2]>,
+    /// Ability being used (for target actions).
+    pub ability: Option<String>,
 }

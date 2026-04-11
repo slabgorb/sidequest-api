@@ -14,7 +14,6 @@ use std::time::Duration;
 
 use sidequest_agents::client::{ClaudeClient, ClaudeClientError};
 use sidequest_agents::context_builder::ContextBuilder;
-use sidequest_agents::patches::CombatPatch;
 use sidequest_agents::prompt_framework::{
     AttentionZone, PromptComposer, PromptSection, SectionCategory,
 };
@@ -277,18 +276,6 @@ fn prompt_registry_caches_sections_across_composes() {
         second.contains("New state"),
         "New state section should be included"
     );
-}
-
-// ============================================================================
-// AC-12: CombatPatch deserializes from typed JSON
-// ============================================================================
-
-#[test]
-fn extract_combat_patch_from_json() {
-    let json = r#"{"in_combat": true, "drama_weight": 0.8}"#;
-    let patch: CombatPatch = serde_json::from_str(json).unwrap();
-    assert_eq!(patch.in_combat, Some(true));
-    assert_eq!(patch.drama_weight, Some(0.8));
 }
 
 // ============================================================================

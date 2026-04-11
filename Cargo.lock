@@ -1416,6 +1416,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "serde_yaml",
  "sidequest-agents",
  "sidequest-daemon-client",
  "sidequest-game",
@@ -1451,6 +1452,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sidequest-game",
  "sidequest-genre",
 ]
 

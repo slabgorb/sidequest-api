@@ -16,12 +16,10 @@
 use std::collections::HashMap;
 use std::io::Write;
 
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use sidequest_agents::tools::tool_call_parser::{
     parse_tool_results, sidecar_path, ToolCallRecord, SIDECAR_DIR,
-};
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, NarratorExtraction,
 };
 
 // ============================================================================
@@ -63,6 +61,9 @@ fn extraction_with_known_values() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -96,9 +97,10 @@ fn cleanup_sidecar(session_id: &str) {
 #[test]
 fn parse_tool_results_extracts_scene_mood() {
     let sid = test_session_id("mood");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"set_mood","result":{"mood":"tension"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(
@@ -113,9 +115,10 @@ fn parse_tool_results_extracts_scene_mood() {
 #[test]
 fn parse_tool_results_extracts_scene_intent() {
     let sid = test_session_id("intent");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_intent","result":{"intent":"exploration"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"set_intent","result":{"intent":"exploration"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(
@@ -130,10 +133,13 @@ fn parse_tool_results_extracts_scene_intent() {
 #[test]
 fn parse_tool_results_extracts_both_mood_and_intent() {
     let sid = test_session_id("both");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"wonder"}}"#,
-        r#"{"tool":"set_intent","result":{"intent":"dialogue"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"set_mood","result":{"mood":"wonder"}}"#,
+            r#"{"tool":"set_intent","result":{"intent":"dialogue"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(results.scene_mood.as_deref(), Some("wonder"));
@@ -148,8 +154,14 @@ fn parse_tool_results_returns_default_when_no_sidecar_file() {
     let sid = test_session_id("missing-file-xyzzy");
     let results = parse_tool_results(&sid);
 
-    assert_eq!(results.scene_mood, None, "no sidecar → scene_mood should be None");
-    assert_eq!(results.scene_intent, None, "no sidecar → scene_intent should be None");
+    assert_eq!(
+        results.scene_mood, None,
+        "no sidecar → scene_mood should be None"
+    );
+    assert_eq!(
+        results.scene_intent, None,
+        "no sidecar → scene_intent should be None"
+    );
 }
 
 #[test]
@@ -171,11 +183,14 @@ fn parse_tool_results_returns_default_for_empty_sidecar() {
 #[test]
 fn parse_tool_results_skips_malformed_json_lines() {
     let sid = test_session_id("malformed");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
-        r#"this is not json"#,
-        r#"{"tool":"set_intent","result":{"intent":"stealth"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
+            r#"this is not json"#,
+            r#"{"tool":"set_intent","result":{"intent":"stealth"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(
@@ -195,10 +210,13 @@ fn parse_tool_results_skips_malformed_json_lines() {
 #[test]
 fn parse_tool_results_skips_unknown_tool_names() {
     let sid = test_session_id("unknown-tool");
-    write_sidecar(&sid, &[
-        r#"{"tool":"unknown_future_tool","result":{"foo":"bar"}}"#,
-        r#"{"tool":"set_mood","result":{"mood":"calm"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"unknown_future_tool","result":{"foo":"bar"}}"#,
+            r#"{"tool":"set_mood","result":{"mood":"calm"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(
@@ -213,9 +231,7 @@ fn parse_tool_results_skips_unknown_tool_names() {
 #[test]
 fn parse_tool_results_handles_missing_result_field() {
     let sid = test_session_id("no-result");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood"}"#,
-    ]);
+    write_sidecar(&sid, &[r#"{"tool":"set_mood"}"#]);
 
     // Should not panic — missing "result" key is treated as malformed
     let results = parse_tool_results(&sid);
@@ -227,10 +243,13 @@ fn parse_tool_results_handles_missing_result_field() {
 #[test]
 fn parse_tool_results_last_call_wins_on_duplicate_tool() {
     let sid = test_session_id("duplicate");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
-        r#"{"tool":"set_mood","result":{"mood":"triumph"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
+            r#"{"tool":"set_mood","result":{"mood":"triumph"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(
@@ -249,15 +268,16 @@ fn parse_tool_results_last_call_wins_on_duplicate_tool() {
 #[test]
 fn parse_tool_results_cleans_up_sidecar_file() {
     let sid = test_session_id("cleanup");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"calm"}}"#,
-    ]);
+    write_sidecar(&sid, &[r#"{"tool":"set_mood","result":{"mood":"calm"}}"#]);
 
     let path = sidecar_path(&sid);
     assert!(path.exists(), "sidecar file should exist before parsing");
 
     let _results = parse_tool_results(&sid);
-    assert!(!path.exists(), "sidecar file should be deleted after parsing");
+    assert!(
+        !path.exists(),
+        "sidecar file should be deleted after parsing"
+    );
 }
 
 // ============================================================================
@@ -272,8 +292,14 @@ fn tool_call_record_serializes_to_expected_jsonl() {
     };
 
     let json = serde_json::to_string(&record).expect("should serialize");
-    assert!(json.contains(r#""tool":"set_mood""#), "should contain tool name");
-    assert!(json.contains(r#""mood":"tension""#), "should contain result");
+    assert!(
+        json.contains(r#""tool":"set_mood""#),
+        "should contain tool name"
+    );
+    assert!(
+        json.contains(r#""mood":"tension""#),
+        "should contain result"
+    );
 }
 
 #[test]
@@ -319,10 +345,13 @@ fn sidecar_dir_constant_is_defined() {
 fn parsed_tool_results_override_narrator_extraction_in_assemble_turn() {
     // Simulate the full flow: sidecar → parse → assemble_turn
     let sid = test_session_id("wiring-e2e");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"foreboding"}}"#,
-        r#"{"tool":"set_intent","result":{"intent":"investigation"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"set_mood","result":{"mood":"foreboding"}}"#,
+            r#"{"tool":"set_intent","result":{"intent":"investigation"}}"#,
+        ],
+    );
 
     // Step 1: Parse sidecar (what orchestrator will do)
     let tool_results = parse_tool_results(&sid);
@@ -382,9 +411,8 @@ fn orchestrator_imports_parse_tool_results() {
     // Verify that orchestrator.rs imports and uses parse_tool_results
     // (not ToolCallResults::default)
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let orchestrator_src =
-        std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
-            .expect("should be able to read orchestrator.rs");
+    let orchestrator_src = std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
+        .expect("should be able to read orchestrator.rs");
 
     assert!(
         orchestrator_src.contains("parse_tool_results"),
@@ -398,9 +426,8 @@ fn orchestrator_does_not_use_default_tool_call_results() {
     // After 20-10, the orchestrator should NOT be calling ToolCallResults::default()
     // in process_action(). It should call parse_tool_results() instead.
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let orchestrator_src =
-        std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
-            .expect("should be able to read orchestrator.rs");
+    let orchestrator_src = std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
+        .expect("should be able to read orchestrator.rs");
 
     // The default() call from story 20-9 should be replaced
     assert!(

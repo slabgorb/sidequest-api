@@ -29,8 +29,8 @@ fn verbosity_concise_injects_short_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("under 200 characters"),
-        "concise mode must enforce 200 char limit, got: {composed}"
+        composed.contains("400 characters"),
+        "concise mode must reference 400 char target, got: {composed}"
     );
 }
 
@@ -41,8 +41,8 @@ fn verbosity_standard_injects_standard_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("2-3 short paragraphs") || composed.contains("400 characters"),
-        "standard mode must reference standard prose length limits, got: {composed}"
+        composed.contains("2-3 short paragraphs") || composed.contains("800 characters"),
+        "standard mode must reference standard prose length targets, got: {composed}"
     );
 }
 
@@ -53,8 +53,8 @@ fn verbosity_verbose_injects_elaborate_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("sensory detail") || composed.contains("600 characters"),
-        "verbose mode must instruct elaborate narration with 600 char limit, got: {composed}"
+        composed.contains("sensory detail") || composed.contains("1200 characters"),
+        "verbose mode must instruct elaborate narration with 1200 char target, got: {composed}"
     );
 }
 
@@ -97,7 +97,7 @@ fn verbosity_applies_to_creature_smith() {
 
     let composed = registry.compose("creature_smith");
     assert!(
-        composed.contains("under 200 characters"),
+        composed.contains("400 characters"),
         "creature_smith should also receive verbosity instruction"
     );
 }
@@ -178,7 +178,7 @@ fn verbosity_composes_with_pacing_section() {
         "pacing section should be present"
     );
     assert!(
-        composed.contains("under 200 characters"),
+        composed.contains("400 characters"),
         "verbosity section should be present alongside pacing"
     );
 }

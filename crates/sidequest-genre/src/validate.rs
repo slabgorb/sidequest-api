@@ -30,6 +30,7 @@ impl GenrePack {
         self.validate_world_graph(&mut errors);
         self.validate_scenarios(&mut errors);
         self.validate_confrontations(&mut errors);
+        self.validate_initiative_rules(&mut errors);
         errors.into_result()
     }
 
@@ -203,6 +204,31 @@ impl GenrePack {
         }
     }
 
+    fn validate_initiative_rules(&self, errors: &mut ValidationErrors) {
+        if self.rules.initiative_rules.is_empty() {
+            return;
+        }
+
+        let ability_scores: HashSet<String> = self
+            .rules
+            .ability_score_names
+            .iter()
+            .map(|s| s.to_uppercase())
+            .collect();
+
+        for (encounter_type, rule) in &self.rules.initiative_rules {
+            if !ability_scores.contains(&rule.primary_stat.to_uppercase()) {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "initiative rule '{}' has primary_stat '{}' \
+                         which is not a declared ability score (valid: {:?})",
+                        encounter_type, rule.primary_stat, self.rules.ability_score_names
+                    ),
+                });
+            }
+        }
+    }
+
     fn validate_room_graph(&self, errors: &mut ValidationErrors) {
         use crate::models::NavigationMode;
         use std::collections::VecDeque;
@@ -272,12 +298,7 @@ impl GenrePack {
                     let has_return = rooms
                         .iter()
                         .find(|r| r.id == exit.target())
-                        .map(|target_room| {
-                            target_room
-                                .exits
-                                .iter()
-                                .any(|e| e.target() == room.id)
-                        })
+                        .map(|target_room| target_room.exits.iter().any(|e| e.target() == room.id))
                         .unwrap_or(false);
 
                     if !has_return {
@@ -303,9 +324,7 @@ impl GenrePack {
                 .collect();
             if entrance_rooms.is_empty() {
                 errors.push(GenreError::ValidationError {
-                    message: format!(
-                        "world '{world_slug}' has no room with room_type 'entrance'"
-                    ),
+                    message: format!("world '{world_slug}' has no room with room_type 'entrance'"),
                 });
             } else if entrance_rooms.len() > 1 {
                 errors.push(GenreError::ValidationError {

@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 use crate::character::Character;
 use crate::multiplayer::{MultiplayerError, MultiplayerSession};
 use crate::turn_mode::TurnMode;
+use crate::turn_reminder::{ReminderConfig, ReminderResult};
 
 /// Configuration for the turn barrier timeout.
 #[derive(Debug, Clone)]
@@ -170,9 +171,6 @@ struct Inner {
     adaptive: Mutex<Option<AdaptiveTimeout>>,
     /// Current turn mode — determines auto-fill default action on timeout.
     turn_mode: Mutex<TurnMode>,
-    /// Flag for handler election — protected by resolution_lock.
-    /// First task to enter resolve() sets this to true; others see it already true.
-    resolution_claimed: Mutex<bool>,
     /// Narration text stored by the claiming handler for non-claimers to retrieve.
     resolution_narration: Mutex<Option<String>>,
     /// Turn number tracker — used to detect when we've moved to the next turn
@@ -187,6 +185,14 @@ struct Inner {
     /// Mutex protecting the resolution process — ensures only one task
     /// actually resolves a turn at a time.
     resolution_lock: Mutex<()>,
+    /// Epoch counter — incremented each time a turn resolves.
+    /// Late-arriving `wait_for_turn()` calls detect resolution via epoch
+    /// change, independent of the session turn number.
+    resolution_epoch: Mutex<u64>,
+    /// Set after resolution, cleared on next `submit_action()`.
+    /// Late-arriving `wait_for_turn()` calls see this and return as
+    /// non-claimers without deadlocking.
+    just_resolved: Mutex<bool>,
 }
 
 /// Concurrent turn barrier wrapping a `MultiplayerSession`.
@@ -209,12 +215,13 @@ impl TurnBarrier {
                 notify: Notify::new(),
                 adaptive: Mutex::new(None),
                 turn_mode: Mutex::new(TurnMode::default()),
-                resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 last_resolved_turn: Mutex::new(0),
                 last_claim_turn: Mutex::new(0),
                 current_resolution_turn: Mutex::new(0),
                 resolution_lock: Mutex::new(()),
+                resolution_epoch: Mutex::new(0),
+                just_resolved: Mutex::new(false),
             }),
         }
     }
@@ -231,12 +238,13 @@ impl TurnBarrier {
                 notify: Notify::new(),
                 adaptive: Mutex::new(Some(adaptive)),
                 turn_mode: Mutex::new(TurnMode::default()),
-                resolution_claimed: Mutex::new(false),
                 resolution_narration: Mutex::new(None),
                 last_resolved_turn: Mutex::new(0),
                 last_claim_turn: Mutex::new(0),
                 current_resolution_turn: Mutex::new(0),
                 resolution_lock: Mutex::new(()),
+                resolution_epoch: Mutex::new(0),
+                just_resolved: Mutex::new(false),
             }),
         }
     }
@@ -270,11 +278,42 @@ impl TurnBarrier {
         *self.inner.turn_mode.lock().unwrap() = mode;
     }
 
+    /// Current turn mode.
+    pub fn turn_mode(&self) -> TurnMode {
+        self.inner.turn_mode.lock().unwrap().clone()
+    }
+
+    /// Check which players are idle, respecting turn mode.
+    pub fn check_reminder(&self, config: &ReminderConfig) -> ReminderResult {
+        let session = self.inner.session.lock().unwrap();
+        let mode = self.inner.turn_mode.lock().unwrap().clone();
+        ReminderResult::check_with_mode(&session, config, &mode)
+    }
+
+    /// Async reminder: sleep for the configured delay, then check idle players.
+    ///
+    /// Story 35-5: Called from `tokio::spawn` in the server after barrier creation.
+    /// The barrier owns the live session, so this reads real submission state.
+    pub async fn run_reminder(&self, config: &ReminderConfig) -> ReminderResult {
+        if !self.config().is_enabled() {
+            return ReminderResult::check_with_mode(
+                &self.inner.session.lock().unwrap(),
+                config,
+                &TurnMode::FreePlay, // disabled barrier → suppress reminder
+            );
+        }
+        let delay = config.reminder_delay(self.config().timeout());
+        tokio::time::sleep(delay).await;
+        self.check_reminder(config)
+    }
+
     /// Submit an action for a player. Wakes `wait_for_turn()` if the
     /// barrier is met (all players have submitted).
     pub fn submit_action(&self, player_id: &str, action: &str) {
         let mut session = self.inner.session.lock().unwrap();
         session.record_action(player_id, action);
+        // Clear the just_resolved flag — new turn is starting
+        *self.inner.just_resolved.lock().unwrap() = false;
         if session.is_barrier_met() {
             self.inner.notify.notify_one();
         }
@@ -320,6 +359,10 @@ impl TurnBarrier {
     /// `tokio::time::sleep_until()`. When the barrier is met (all
     /// submitted), the turn resolves immediately. On timeout, missing
     /// players get a "hesitates" action.
+    ///
+    /// Multiple concurrent callers are supported: exactly one claims
+    /// resolution (runs the narrator), others return with
+    /// `claimed_resolution: false` and retrieve the shared narration.
     pub async fn wait_for_turn(&self) -> TurnBarrierResult {
         let initial_turn = self.inner.session.lock().unwrap().turn_number();
         // Store this as the current resolution turn (if this is the first task for this turn)
@@ -329,7 +372,7 @@ impl TurnBarrier {
                 *current = initial_turn;
             }
         }
-        
+
         let (deadline, enabled) = {
             let config = self.inner.config.lock().unwrap();
             if config.enabled {
@@ -340,6 +383,19 @@ impl TurnBarrier {
         };
 
         loop {
+            // Check if a resolution just happened (set by resolve(), cleared
+            // on next submit_action()). Handles the "late arrival" case where
+            // multiple concurrent wait_for_turn() calls exist and one resolves
+            // before others are polled.
+            if *self.inner.just_resolved.lock().unwrap() {
+                return TurnBarrierResult {
+                    claimed_resolution: false,
+                    timed_out: false,
+                    missing_players: vec![],
+                    narration: self.inner.session.lock().unwrap().named_actions(),
+                };
+            }
+
             // Check if barrier is already met
             {
                 let session = self.inner.session.lock().unwrap();
@@ -347,7 +403,10 @@ impl TurnBarrier {
                     drop(session);
                     // Acquire the resolution lock to ensure only one task actually resolves
                     let _res_lock = self.inner.resolution_lock.lock().unwrap();
-                    return self.resolve(false);
+                    let result = self.resolve(false);
+                    // Wake any other tasks waiting on this turn
+                    self.inner.notify.notify_waiters();
+                    return result;
                 }
             }
 
@@ -356,11 +415,13 @@ impl TurnBarrier {
                 let dl = deadline.unwrap();
                 tokio::select! {
                     _ = self.inner.notify.notified() => {
-                        // Woken by submit/remove — re-check at top of loop
+                        // Woken by submit/remove or resolution — re-check at top of loop
                     }
                     _ = tokio::time::sleep_until(dl) => {
                         let _res_lock = self.inner.resolution_lock.lock().unwrap();
-                        return self.resolve(true);
+                        let result = self.resolve(true);
+                        self.inner.notify.notify_waiters();
+                        return result;
                     }
                 }
             } else {
@@ -377,16 +438,6 @@ impl TurnBarrier {
     /// own `MultiplayerSession`, NOT from any external shared session.
     pub fn named_actions(&self) -> HashMap<String, String> {
         self.inner.session.lock().unwrap().named_actions()
-    }
-
-    /// Attempt to claim resolution for this turn. Returns `true` exactly once
-    /// per barrier resolution — the first caller wins and should run the narrator.
-    /// All subsequent callers get `false` and should retrieve the stored result.
-    pub fn try_claim_resolution(&self) -> bool {
-        let mut claimed_flag = self.inner.resolution_claimed.lock().unwrap();
-        let result = !*claimed_flag;
-        *claimed_flag = true;
-        result
     }
 
     /// Store the narration result after the claiming handler runs the narrator.
@@ -414,12 +465,11 @@ impl TurnBarrier {
     }
 
     /// Resolve the current turn and return the result.
+    ///
     /// Attempts to claim resolution atomically during resolution (not after).
     /// This ensures only one task wins the claim election when multiple tasks
-    /// wake up from wait_for_turn() concurrently.
-    /// Resolve the current turn and return the result.
-    /// Only the first task from a batch (all tasks that entered wait_for_turn() with the same
-    /// initial turn number) actually performs the resolution. Subsequent tasks return the
+    /// wake up from wait_for_turn() concurrently. Only the first task from a
+    /// batch actually performs the resolution. Subsequent tasks return the
     /// already-computed result.
     fn resolve(&self, timed_out: bool) -> TurnBarrierResult {
         // Get the initial turn at the start of wait_for_turn() for all tasks in this batch
@@ -427,10 +477,10 @@ impl TurnBarrier {
             let turn = self.inner.current_resolution_turn.lock().unwrap();
             *turn
         };
-        
+
         let mut session = self.inner.session.lock().unwrap();
         let current_turn = session.turn_number();
-        
+
         // Only the FIRST task from a given initial turn should perform the actual resolution.
         // All tasks for the same initial turn coordinate: only one calls force_resolve_turn(),
         // the others just return the narration.
@@ -452,14 +502,30 @@ impl TurnBarrier {
                 // This initial turn has already been resolved by a previous task.
                 // Return the same result without modifying state.
                 let missing: Vec<String> = vec![];
-                let narration = session.named_actions();  // Return current state snapshot
+                let narration = session.named_actions(); // Return current state snapshot
                 (false, missing, narration)
             }
         };
-        
-        // Track this turn as resolved
+
+        // Track this turn as resolved and bump the epoch.
+        // Set just_resolved so late-arriving wait_for_turn() calls return immediately.
         *self.inner.last_resolved_turn.lock().unwrap() = current_turn;
-        
+        *self.inner.resolution_epoch.lock().unwrap() += 1;
+        *self.inner.just_resolved.lock().unwrap() = true;
+
+        // OTEL: barrier resolution telemetry
+        let player_count = session.player_count();
+        let submitted = player_count - missing.len();
+        {
+            let span = tracing::info_span!(
+                "barrier.resolved",
+                player_count = player_count,
+                submitted = submitted,
+                timed_out = timed_out,
+            );
+            let _guard = span.enter();
+        }
+
         TurnBarrierResult {
             claimed_resolution,
             timed_out,

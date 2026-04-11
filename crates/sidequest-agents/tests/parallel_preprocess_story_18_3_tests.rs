@@ -12,9 +12,9 @@
 //!   4. Sub-spans from 18-1 remain valid in parallel context
 //!   5. Turn time reduced (preprocess + context build overlap in flame chart)
 
-use sidequest_game::PreprocessedAction;
-use sidequest_agents::preprocessor::preprocess_action_async;
 use sidequest_agents::preprocessor::preprocess_action;
+use sidequest_agents::preprocessor::preprocess_action_async;
+use sidequest_game::PreprocessedAction;
 
 // ============================================================================
 // AC-2: Async preprocessor produces identical output to sync fallback
@@ -29,22 +29,43 @@ async fn async_preprocess_matches_sync_structure() {
     let char_name = "Kael";
 
     // Both return Result — if Haiku is down, they fail. No silent fallback.
-    let sync_result = preprocess_action(raw, char_name).expect("Sync preprocess failed — Haiku unavailable");
-    let async_result = preprocess_action_async(raw, char_name).await.expect("Async preprocess failed — Haiku unavailable");
+    let sync_result =
+        preprocess_action(raw, char_name).expect("Sync preprocess failed — Haiku unavailable");
+    let async_result = preprocess_action_async(raw, char_name)
+        .await
+        .expect("Async preprocess failed — Haiku unavailable");
 
     // Both must produce populated fields
     assert!(!async_result.you.is_empty(), "Async you must be populated");
     assert!(!sync_result.you.is_empty(), "Sync you must be populated");
 
     // Both must have second-person and named forms
-    assert!(async_result.you.starts_with("You "), "Async you must start with 'You '");
-    assert!(sync_result.you.starts_with("You "), "Sync you must start with 'You '");
-    assert!(async_result.named.starts_with(char_name), "Async named must start with char name");
-    assert!(sync_result.named.starts_with(char_name), "Sync named must start with char name");
+    assert!(
+        async_result.you.starts_with("You "),
+        "Async you must start with 'You '"
+    );
+    assert!(
+        sync_result.you.starts_with("You "),
+        "Sync you must start with 'You '"
+    );
+    assert!(
+        async_result.named.starts_with(char_name),
+        "Async named must start with char name"
+    );
+    assert!(
+        sync_result.named.starts_with(char_name),
+        "Sync named must start with char name"
+    );
 
     // Both must have non-empty intent
-    assert!(!async_result.intent.is_empty(), "Async intent must not be empty");
-    assert!(!sync_result.intent.is_empty(), "Sync intent must not be empty");
+    assert!(
+        !async_result.intent.is_empty(),
+        "Async intent must not be empty"
+    );
+    assert!(
+        !sync_result.intent.is_empty(),
+        "Sync intent must not be empty"
+    );
 }
 
 // ============================================================================
@@ -53,7 +74,8 @@ async fn async_preprocess_matches_sync_structure() {
 
 #[tokio::test]
 async fn async_preprocess_returns_preprocessed_action() {
-    let result = preprocess_action_async("I look around the room", "Thorn").await
+    let result = preprocess_action_async("I look around the room", "Thorn")
+        .await
         .expect("Preprocess failed — Haiku unavailable");
 
     assert!(!result.you.is_empty(), "you field must not be empty");
@@ -90,12 +112,12 @@ async fn async_preprocess_handles_empty_input() {
 
 #[tokio::test]
 async fn async_preprocess_strips_first_person_prefix() {
-    let result = preprocess_action_async("I search the chest for traps", "Kael").await
+    let result = preprocess_action_async("I search the chest for traps", "Kael")
+        .await
         .expect("Preprocess failed — Haiku unavailable");
 
     assert!(
-        result.intent.contains("search the chest for traps")
-            || result.intent.contains("search"),
+        result.intent.contains("search the chest for traps") || result.intent.contains("search"),
         "Intent should contain the action, got: '{}'",
         result.intent
     );
@@ -122,7 +144,9 @@ async fn async_preprocess_power_grab_matches_sync() {
     let char_name = "Kael";
 
     let sync_result = preprocess_action(raw, char_name).expect("Sync preprocess failed");
-    let async_result = preprocess_action_async(raw, char_name).await.expect("Async preprocess failed");
+    let async_result = preprocess_action_async(raw, char_name)
+        .await
+        .expect("Async preprocess failed");
 
     assert_eq!(
         async_result.is_power_grab, sync_result.is_power_grab,
@@ -181,11 +205,20 @@ async fn async_preprocess_produces_structurally_valid_output() {
     let input = "I pick up the ancient tome";
     let char_name = "Kael";
 
-    let result = preprocess_action_async(input, char_name).await
+    let result = preprocess_action_async(input, char_name)
+        .await
         .expect("Preprocess failed — Haiku unavailable");
 
-    assert!(result.you.starts_with("You "), "you must start with 'You ', got: '{}'", result.you);
-    assert!(result.named.starts_with("Kael "), "named must start with char name, got: '{}'", result.named);
+    assert!(
+        result.you.starts_with("You "),
+        "you must start with 'You ', got: '{}'",
+        result.you
+    );
+    assert!(
+        result.named.starts_with("Kael "),
+        "named must start with char name, got: '{}'",
+        result.named
+    );
     assert!(!result.intent.is_empty(), "intent must not be empty");
     assert!(
         result.intent.contains("pick") || result.intent.contains("tome"),
@@ -201,7 +234,8 @@ async fn async_preprocess_produces_structurally_valid_output() {
 #[tokio::test]
 async fn async_preprocess_completes_within_timeout() {
     let start = std::time::Instant::now();
-    let _result = preprocess_action_async("I draw my sword", "Kael").await
+    let _result = preprocess_action_async("I draw my sword", "Kael")
+        .await
         .expect("Preprocess failed — Haiku unavailable");
     let elapsed = start.elapsed();
 

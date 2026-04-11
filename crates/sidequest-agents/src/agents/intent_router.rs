@@ -5,11 +5,8 @@
 //! else goes to the narrator. The Intent enum and IntentRoute struct are
 //! retained for OTEL telemetry and conditional prompt section injection.
 
-use crate::context_builder::ContextBuilder;
-use crate::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
-
 /// Player intent categories.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum Intent {
     /// Combat actions (attack, defend, use ability).
@@ -37,7 +34,41 @@ impl Intent {
     /// (the player is actively driving the story). Exploration, Examine, and
     /// Meta are not (idle browsing or system commands).
     pub fn is_meaningful(&self) -> bool {
-        matches!(self, Intent::Combat | Intent::Dialogue | Intent::Chase | Intent::Backstory | Intent::Accusation)
+        matches!(
+            self,
+            Intent::Combat
+                | Intent::Dialogue
+                | Intent::Chase
+                | Intent::Backstory
+                | Intent::Accusation
+        )
+    }
+
+    /// Reconstruct an Intent from its Display string representation.
+    /// Used by dispatch to convert ActionResult's classified_intent (String)
+    /// back to the typed enum.
+    ///
+    /// Returns `None` for unrecognized strings — callers MUST decide whether
+    /// to default loudly (panic), default quietly (e.g., to `Exploration`),
+    /// or hard-reject. The previous version of this function silently
+    /// defaulted to `Intent::Exploration`, which created a hidden silent
+    /// fallback that defeated the guest NPC permission gate added in
+    /// story 35-6 (an unknown intent string would slip through as
+    /// `Exploration → Movement` and bypass restrictions). Returning Option
+    /// pushes the fallback decision to the call site where the policy is
+    /// known.
+    pub fn from_display_str(s: &str) -> Option<Self> {
+        match s {
+            "Combat" => Some(Intent::Combat),
+            "Dialogue" => Some(Intent::Dialogue),
+            "Exploration" => Some(Intent::Exploration),
+            "Examine" => Some(Intent::Examine),
+            "Meta" => Some(Intent::Meta),
+            "Chase" => Some(Intent::Chase),
+            "Backstory" => Some(Intent::Backstory),
+            "Accusation" => Some(Intent::Accusation),
+            _ => None,
+        }
     }
 }
 
@@ -127,9 +158,7 @@ impl IntentRoute {
         source: ClassificationSource,
     ) -> Result<Self, String> {
         if !(0.0..=1.0).contains(&confidence) {
-            return Err(format!(
-                "confidence must be 0.0..=1.0, got {confidence}"
-            ));
+            return Err(format!("confidence must be 0.0..=1.0, got {confidence}"));
         }
         Ok(Self {
             agent_name: Self::agent_for(intent).to_string(),
@@ -218,38 +247,19 @@ impl IntentRouter {
         Self::classify_with_classifier(input, ctx, &NoOpClassifier)
     }
 
-    /// Classification pipeline (ADR-067).
+    /// Classification pipeline (ADR-067, story 28-6).
     ///
-    /// 1. State override (in_chase/in_combat) -> immediate dispatch
-    /// 2. Default to Exploration (narrator handles everything)
+    /// All actions go through the narrator — encounters are handled via beat_selections
+    /// in the narrator's game_patch output. No separate combat/chase routing.
     pub fn classify_with_classifier(
         input: &str,
         ctx: &crate::orchestrator::TurnContext,
         _classifier: &dyn IntentClassifier,
     ) -> IntentRoute {
-        // Fast path: state overrides
-        if ctx.in_chase {
-            let route = IntentRoute::with_classification(
-                Intent::Chase,
-                1.0,
-                vec![],
-                ClassificationSource::StateOverride,
-            );
-            Self::emit_span(input, &route);
-            return route;
-        }
-        if ctx.in_combat {
-            let route = IntentRoute::with_classification(
-                Intent::Combat,
-                1.0,
-                vec![],
-                ClassificationSource::StateOverride,
-            );
-            Self::emit_span(input, &route);
-            return route;
-        }
-
-        // Default: Exploration — narrator handles everything (ADR-067)
+        // Story 28-6: Unified encounter engine — the narrator handles all intents.
+        // Encounter context is injected into the prompt when an encounter is active.
+        // The narrator outputs beat_selections which the server dispatches via apply_beat.
+        let _ = ctx; // TurnContext still passed for future use (e.g., in_encounter flag in 28-7)
         let route = IntentRoute::with_classification(
             Intent::Exploration,
             1.0,
@@ -273,35 +283,6 @@ impl IntentRouter {
             is_ambiguous = route.is_ambiguous(),
         )
         .entered();
-    }
-
-    /// Add ambiguity context to the narrator prompt when classification is ambiguous.
-    /// ADR-067: With state-based inference, ambiguity no longer occurs, but this
-    /// method is retained for API compatibility.
-    pub fn add_ambiguity_context(builder: &mut ContextBuilder, route: &IntentRoute) {
-        if !route.is_ambiguous() || route.candidates().is_empty() {
-            return;
-        }
-
-        let candidates_str: Vec<String> = route
-            .candidates()
-            .iter()
-            .map(|c| format!("{c}"))
-            .collect();
-        let candidates_list = candidates_str.join(", ");
-
-        let content = format!(
-            "Intent classification was ambiguous between {candidates_list}. \
-             Based on the current scene context, use your judgment to determine \
-             which specialist behavior to adopt for this narration."
-        );
-
-        builder.add_section(PromptSection::new(
-            "intent_ambiguity",
-            content,
-            AttentionZone::Late,
-            SectionCategory::Context,
-        ));
     }
 }
 

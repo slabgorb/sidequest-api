@@ -60,8 +60,7 @@ PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot, in_combat, hp_changes, turn_order, current_turn, \
-drama_weight, visual_scene, footnotes.\n\
+mood, state_snapshot, beat_selections, visual_scene, footnotes.\n\
 \n\
 visual_scene: Include this on EVERY turn where the setting changes, a new \
 location is entered, or a visually significant event occurs (combat start, \
@@ -84,10 +83,19 @@ Quest (objectives/tasks), Ability (skills/powers).\n\
 is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
 Include footnotes generously — they feed the player's knowledge journal.\n\
 \n\
-Combat initiation: When the player attacks or a hostile encounter begins, \
-set in_combat: true and include turn_order (list of combatant names, \
-player first) and current_turn (whose turn it is). Include hp_changes \
-for any damage dealt (negative values = damage). Set drama_weight 0.0-1.0.\n\
+confrontation: When ANY structured encounter BEGINS this turn — combat, chase, \
+card game, standoff, negotiation, or any other type — include confrontation to \
+signal the server to create the encounter. The available encounter types vary \
+by genre — check the AVAILABLE CONFRONTATIONS section in game_state. Only \
+include on the turn the encounter STARTS, not on subsequent rounds. Once the \
+encounter is active, use beat_selections instead.\n\
+\n\
+beat_selections: When an encounter is active (the encounter context section will \
+list available beats and actors), include beat_selections — an array of beat \
+choices for EVERY actor listed in the encounter context. Each entry has: actor \
+(who acts — must match an actor name from the encounter), beat_id (which beat \
+from the available list), and optional target (who the action targets). Include \
+beat_selections for ALL actors (player AND NPCs) every encounter turn.\n\
 \n\
 Example A — exploration (new area + NPC):\n\
 ```game_patch\n\
@@ -108,22 +116,21 @@ Example A — exploration (new area + NPC):\n\
 }\n\
 ```\n\
 \n\
-Example B — combat round:\n\
+Example B — encounter round (combat, chase, standoff, etc.):\n\
 ```game_patch\n\
 {\n\
-  \"in_combat\": true,\n\
-  \"hp_changes\": {\"{{player_name}}\": {{negative_damage}}, \"{{enemy_name}}\": {{negative_damage}}},\n\
-  \"turn_order\": [\"{{player_name}}\", \"{{enemy_name}}\"],\n\
-  \"current_turn\": \"{{enemy_name}}\",\n\
-  \"drama_weight\": {{0.0_to_1.0}},\n\
+  \"beat_selections\": [\n\
+    {\"actor\": \"{{player_name}}\", \"beat_id\": \"{{beat_from_available_list}}\", \"target\": \"{{target_name}}\"},\n\
+    {\"actor\": \"{{npc_name}}\", \"beat_id\": \"{{beat_from_available_list}}\"}\n\
+  ],\n\
   \"visual_scene\": {\n\
-    \"subject\": \"{{combat action image prompt, max 100 chars}}\",\n\
+    \"subject\": \"{{encounter action image prompt, max 100 chars}}\",\n\
     \"tier\": \"scene_illustration\",\n\
     \"mood\": \"dramatic\",\n\
     \"tags\": [\"combat\"]\n\
   },\n\
   \"footnotes\": [\n\
-    {\"summary\": \"{{fact revealed during combat, e.g. enemy weakness}}\", \"category\": \"Lore\", \"is_new\": true}\n\
+    {\"summary\": \"{{fact revealed during encounter}}\", \"category\": \"Lore\", \"is_new\": true}\n\
   ]\n\
 }\n\
 ```\n\
@@ -149,16 +156,14 @@ ALWAYS emit the game_patch block. It is mandatory.";
 /// guardrail (injected by the orchestrator per-session verbosity setting).
 /// Do NOT duplicate numeric limits here — the LLM averages conflicting numbers.
 const NARRATOR_OUTPUT_STYLE: &str = "\
-Respect the <length-limit> guardrail — it is the single source of truth for prose length. \
-Shorter responses keep TTS pacing tight and turns snappy.\n\
-- Most turns: short. Movement, dialogue, simple actions = SHORT.
-- Big moments only (arrivals, reveals, combat start): slightly longer, but still within the limit.
-- VARY your length. Not every turn is the same size.
-- Fast action = short sentences. Quiet moments can breathe.
-- Dialogue is snappy, not embedded in description paragraphs.
+Respect the <length-limit> guardrail — it is the single source of truth for prose length.\n\
+- VARY your length by moment. Not every turn is the same size.
+- Arrivals and reveals: full scene — atmosphere, exits, points of interest.
+- Combat: kinetic and visceral. Short punchy sentences.
+- Dialogue: snappy, with voice and personality. Not embedded in description.
+- Simple movement or re-examination: shorter, focused.
 - End on a hook the player can react to. Not a prose flourish.
-- Think tweet-length beats, not novel paragraphs.
-- One action, one scene beat. If the player enters a room, describe what they see and exits — don't narrate their inventory management.
+- One action, one scene beat per turn. Don't narrate the player's inventory management.
 - First line: location header like **The Collapsed Overpass**
 - Blank line, then prose.";
 
@@ -170,11 +175,12 @@ Check active quests — if a quest says \"(from: X)\" and the player is now \
 talking to Y, do NOT have Y send the player back to X for the same objective. \
 Advance the quest instead.";
 
-/// Combat narration rules — absorbed from creature_smith.rs (ADR-067).
-/// Injected conditionally when game state indicates active combat.
+/// Combat narration rules — updated for beat_selections system (story 28-8).
+/// Old in_combat/hp_changes/turn_order fields deleted in 28-9.
+/// All encounter types now use beat_selections from ConfrontationDef.
 const NARRATOR_COMBAT_RULES: &str = "\
-COMBAT NARRATION RULES (active combat):\n\
-- 2-4 sentences per combat beat. Fast, kinetic, visceral.\n\
+COMBAT NARRATION RULES (active encounter):\n\
+- 2-4 sentences per beat. Fast, kinetic, visceral.\n\
 - Describe the action, the impact, the consequence. No preamble.\n\
 - Vary intensity: a punch is one sentence, a critical hit is three.\n\
 - Sound, motion, pain. Not poetry.\n\
@@ -196,19 +202,19 @@ abilities a character does not possess.\n\
 - Never invent, improvise, or grant abilities mid-combat. The character sheet is\n\
   the single source of truth.\n\
 \n\
-[Combat State Patch — MANDATORY]\n\
-Your game_patch JSON block MUST include these combat fields:\n\
-- in_combat: boolean — true during combat, false when combat ends\n\
-- hp_changes: character/enemy name to HP CHANGE (negative = damage, positive = healing)\n\
-- turn_order: combatant names in initiative order (include on first round or when order changes)\n\
-- current_turn: who is acting now\n\
-- drama_weight: 0.0 (trivial) to 1.0 (climactic) — current tension level\n\
-- advance_round: true to end the current combat round, false otherwise";
+[Beat Selections — MANDATORY during encounters]\n\
+When an encounter is active, your game_patch MUST include beat_selections — an array\n\
+of beat choices for EVERY actor listed in the encounter context. Each actor gets one\n\
+beat per round. For combat NPCs, default to \"attack\" targeting a player. For other\n\
+encounter types, select beats based on the NPC's disposition and role.\n\
+Do NOT use the old fields (in_combat, hp_changes, turn_order, drama_weight, advance_round).\n\
+Those fields are removed. Use beat_selections only.";
 
-/// Chase narration rules — absorbed from dialectician.rs (ADR-067).
-/// Injected conditionally when game state indicates active chase.
+/// Chase narration rules — updated for beat_selections system (story 28-8).
+/// Old in_chase/chase_type/separation_delta fields deleted in 28-9.
+/// Chases are now ConfrontationDef encounter types using beat_selections.
 const NARRATOR_CHASE_RULES: &str = "\
-CHASE NARRATION RULES (active chase):\n\
+CHASE NARRATION RULES (active chase encounter):\n\
 - 2-3 sentences. FAST. Breathless. Urgent.\n\
 - Short sentences for sprinting. Fragments are fine.\n\
 - \"Left. The alley narrows. Something crashes behind you.\"\n\
@@ -221,14 +227,10 @@ CHASE NARRATION RULES (active chase):\n\
 - NEVER decide the player's escape route or action.\n\
 - Describe the situation and threat. Let the player choose.\n\
 \n\
-[Chase State Patch — MANDATORY]\n\
-Your game_patch JSON block MUST include these chase fields:\n\
-- in_chase: boolean — true during chase, false when chase ends (escape or capture)\n\
-- chase_type: one of \"footrace\", \"stealth\", \"negotiation\" (include on first round)\n\
-- separation_delta: integer — positive means gap widens (good for runner), negative means closer\n\
-- phase: brief description of the current chase phase\n\
-- event: what happened this beat (obstacle, shortcut, near-miss)\n\
-- roll: 0.0 to 1.0 — how well the escape attempt went this round";
+[Beat Selections — MANDATORY during chase encounters]\n\
+Use beat_selections from the encounter context. Select beats for all actors each round.\n\
+Do NOT use the old fields (in_chase, chase_type, separation_delta, phase, event, roll).\n\
+Those fields are removed. Use beat_selections only.";
 
 /// Dialogue narration rules — absorbed from ensemble.rs (ADR-067).
 /// Injected conditionally when NPCs are likely present in the scene.
@@ -257,24 +259,32 @@ impl NarratorAgent {
         }
     }
 
-    /// Inject combat-specific narration rules into the prompt (ADR-067).
-    /// Called by the orchestrator when `TurnContext.in_combat` is true.
-    pub fn build_combat_context(&self, builder: &mut ContextBuilder) {
+    /// Inject encounter-specific narration rules into the prompt (story 28-6).
+    /// Called by the orchestrator when any StructuredEncounter is active.
+    /// Replaces the separate build_combat_context/build_chase_context methods.
+    /// The encounter context section (from format_encounter_context, wired in 28-4)
+    /// tells the narrator which beats are available; this method adds the
+    /// overarching encounter narration rules.
+    pub fn build_encounter_context(&self, builder: &mut ContextBuilder) {
         builder.add_section(PromptSection::new(
-            "narrator_combat_rules",
-            format!("<combat-rules>\n{}\n</combat-rules>", NARRATOR_COMBAT_RULES),
+            "narrator_encounter_rules",
+            format!(
+                "<encounter-rules>\n{}\n{}\n</encounter-rules>",
+                NARRATOR_COMBAT_RULES, NARRATOR_CHASE_RULES
+            ),
             AttentionZone::Early,
             SectionCategory::Guardrail,
         ));
     }
 
-    /// Inject chase-specific narration rules into the prompt (ADR-067).
-    /// Called by the orchestrator when `TurnContext.in_chase` is true.
-    pub fn build_chase_context(&self, builder: &mut ContextBuilder) {
+    /// Inject the game_patch output format spec on every tier.
+    /// Without this, Delta-tier sessions never see the confrontation field
+    /// schema, so the narrator can't emit it to start encounters.
+    pub fn build_output_format(&self, builder: &mut ContextBuilder) {
         builder.add_section(PromptSection::new(
-            "narrator_chase_rules",
-            format!("<chase-rules>\n{}\n</chase-rules>", NARRATOR_CHASE_RULES),
-            AttentionZone::Early,
+            "narrator_output_only",
+            format!("<critical>\n{}\n</critical>", NARRATOR_OUTPUT_ONLY),
+            AttentionZone::Primacy,
             SectionCategory::Guardrail,
         ));
     }
@@ -284,7 +294,10 @@ impl NarratorAgent {
     pub fn build_dialogue_context(&self, builder: &mut ContextBuilder) {
         builder.add_section(PromptSection::new(
             "narrator_dialogue_rules",
-            format!("<dialogue-rules>\n{}\n</dialogue-rules>", NARRATOR_DIALOGUE_RULES),
+            format!(
+                "<dialogue-rules>\n{}\n</dialogue-rules>",
+                NARRATOR_DIALOGUE_RULES
+            ),
             AttentionZone::Early,
             SectionCategory::Guardrail,
         ));
@@ -339,13 +352,8 @@ impl Agent for NarratorAgent {
             SectionCategory::Guardrail,
         ));
 
-        // Primacy/Guardrail — output only prose
-        builder.add_section(PromptSection::new(
-            "narrator_output_only",
-            format!("<critical>\n{}\n</critical>", NARRATOR_OUTPUT_ONLY),
-            AttentionZone::Primacy,
-            SectionCategory::Guardrail,
-        ));
+        // narrator_output_only is now injected via build_output_format() on every
+        // tier from the orchestrator — see build_narrator_prompt_tiered.
 
         // Early/Format — output-style rules
         builder.add_section(PromptSection::new(

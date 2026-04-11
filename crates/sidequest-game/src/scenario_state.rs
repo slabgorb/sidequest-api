@@ -75,6 +75,9 @@ pub struct ScenarioState {
     resolved: bool,
     /// NPC adjacency graph for gossip propagation.
     adjacency: HashMap<String, Vec<String>>,
+    /// Names of NPCs the player has questioned during this scenario.
+    #[serde(default)]
+    questioned_npcs: HashSet<String>,
 }
 
 impl ScenarioState {
@@ -205,6 +208,7 @@ impl ScenarioState {
             tension: 0.0,
             resolved: false,
             adjacency,
+            questioned_npcs: HashSet::new(),
         }
     }
 
@@ -243,6 +247,16 @@ impl ScenarioState {
         &self.clue_graph
     }
 
+    /// The set of NPCs the player has questioned.
+    pub fn questioned_npcs(&self) -> &HashSet<String> {
+        &self.questioned_npcs
+    }
+
+    /// Record that the player questioned a scenario NPC.
+    pub fn record_questioned_npc(&mut self, npc_name: String) {
+        self.questioned_npcs.insert(npc_name);
+    }
+
     /// Mark a clue as discovered.
     pub fn discover_clue(&mut self, clue_id: String) {
         self.discovered_clues.insert(clue_id);
@@ -252,11 +266,7 @@ impl ScenarioState {
     ///
     /// Runs gossip propagation, NPC autonomous actions, and clue availability
     /// checks. Returns a list of scenario events for narrator context injection.
-    pub fn process_between_turns(
-        &mut self,
-        npcs: &mut Vec<Npc>,
-        turn: u64,
-    ) -> Vec<ScenarioEvent> {
+    pub fn process_between_turns(&mut self, npcs: &mut Vec<Npc>, turn: u64) -> Vec<ScenarioEvent> {
         if self.resolved {
             return vec![];
         }
@@ -351,11 +361,7 @@ impl ScenarioState {
     /// Handle a player accusation.
     ///
     /// Evaluates evidence quality and resolves the scenario.
-    pub fn handle_accusation(
-        &mut self,
-        accusation: &Accusation,
-        npcs: &[Npc],
-    ) -> AccusationResult {
+    pub fn handle_accusation(&mut self, accusation: &Accusation, npcs: &[Npc]) -> AccusationResult {
         let npc_beliefs: HashMap<String, BeliefState> = npcs
             .iter()
             .map(|npc| (npc.core.name.to_string(), npc.belief_state.clone()))

@@ -1,7 +1,8 @@
 //! Text extraction utilities and format conversion for narration processing.
 //!
 //! Pure functions that parse narrator output for location headers,
-//! TTS-clean text, and audio cue conversion.
+//! narration display cleanup (stage direction stripping, punctuation
+//! normalization), and audio cue conversion.
 
 use regex::Regex;
 use std::sync::LazyLock;
@@ -77,71 +78,6 @@ pub(crate) fn strip_location_header(text: &str) -> String {
     text.to_string()
 }
 
-/// Strip markdown syntax from text for TTS voice synthesis.
-/// Removes bold (**), italic (*/_), headers (#), links, images, code blocks,
-/// and footnote markers ([1], [2], etc.) that cause phonemizer word-count mismatches.
-pub(crate) fn strip_markdown_for_tts(text: &str) -> String {
-    let mut result = text.to_string();
-    // Bold and italic: **text**, *text*, __text__, _text_
-    // Process ** before * to avoid partial matches
-    result = result.replace("**", "");
-    result = result.replace("__", "");
-    // Single * and _ as italic markers (only between word boundaries)
-    // Simple approach: remove standalone * and _ that look like formatting
-    let mut cleaned = String::with_capacity(result.len());
-    let chars: Vec<char> = result.chars().collect();
-    let mut i = 0;
-    while i < chars.len() {
-        if (chars[i] == '*' || chars[i] == '_')
-            && i + 1 < chars.len()
-            && chars[i + 1].is_alphanumeric()
-        {
-            // Skip opening italic marker
-            i += 1;
-            continue;
-        }
-        if (chars[i] == '*' || chars[i] == '_') && i > 0 && chars[i - 1].is_alphanumeric() {
-            // Skip closing italic marker
-            i += 1;
-            continue;
-        }
-        cleaned.push(chars[i]);
-        i += 1;
-    }
-    // Remove markdown headers (# at start of line)
-    cleaned = cleaned
-        .lines()
-        .map(|line| line.trim_start_matches('#').trim_start())
-        .collect::<Vec<_>>()
-        .join("\n");
-    // Remove footnote markers [1], [2], etc. — these cause phonemizer
-    // word-count mismatches because they aren't natural language tokens.
-    // Also remove any bracketed numbers like [12] from narrator output.
-    let mut tts_clean = String::with_capacity(cleaned.len());
-    let clean_chars: Vec<char> = cleaned.chars().collect();
-    let mut j = 0;
-    while j < clean_chars.len() {
-        if clean_chars[j] == '[' {
-            // Look ahead for a closing bracket with only digits inside
-            if let Some(close) = clean_chars[j + 1..].iter().position(|&c| c == ']') {
-                let inside = &clean_chars[j + 1..j + 1 + close];
-                if !inside.is_empty() && inside.iter().all(|c| c.is_ascii_digit()) {
-                    // Skip the entire [N] marker
-                    j += close + 2; // skip past ']'
-                    continue;
-                }
-            }
-        }
-        tts_clean.push(clean_chars[j]);
-        j += 1;
-    }
-    // Collapse any double-spaces left by removed markers
-    while tts_clean.contains("  ") {
-        tts_clean = tts_clean.replace("  ", " ");
-    }
-    tts_clean.trim().to_string()
-}
-
 // ---------------------------------------------------------------------------
 // Combat bracket patterns — compiled once, reused forever
 // ---------------------------------------------------------------------------
@@ -187,10 +123,7 @@ pub(crate) fn strip_combat_brackets(text: &str) -> String {
     }
 
     if stripped_count > 0 {
-        tracing::debug!(
-            stripped_count,
-            "combat_brackets.stripped from narration"
-        );
+        tracing::debug!(stripped_count, "combat_brackets.stripped from narration");
     }
 
     // Collapse multiple blank lines left by removed brackets
@@ -215,7 +148,7 @@ pub(crate) fn strip_combat_brackets(text: &str) -> String {
 /// Strip fenced code blocks from narration text (e.g. ```game_patch ... ```).
 ///
 /// The narrator emits structured JSON blocks (game_patch, etc.) inline with prose.
-/// These must be removed before the narration reaches the client or TTS pipeline.
+/// These must be removed before the narration reaches the client for display.
 /// Returns the text with all fenced blocks removed and whitespace normalized.
 pub(crate) fn strip_fenced_blocks(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
@@ -366,7 +299,10 @@ mod tests {
                       [COMBAT: Riissor the Rotting — Synth (HP 12) | Kael HP 8/8]\n\
                       You barely dodge the blow.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "The creature lunges forward.\nYou barely dodge the blow.");
+        assert_eq!(
+            result,
+            "The creature lunges forward.\nYou barely dodge the blow."
+        );
     }
 
     #[test]
@@ -375,7 +311,10 @@ mod tests {
                       [Kael's charge — first strike lands. Riissor takes 2 damage. HP: 10/12]\n\
                       The creature staggers backward.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "Your blade connects with a sickening crack.\nThe creature staggers backward.");
+        assert_eq!(
+            result,
+            "Your blade connects with a sickening crack.\nThe creature staggers backward."
+        );
     }
 
     #[test]
@@ -391,7 +330,10 @@ mod tests {
         let input = "He said [something odd] and walked away.\n\
                       The [ancient rune] glowed faintly.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "He said [something odd] and walked away.\nThe [ancient rune] glowed faintly.");
+        assert_eq!(
+            result,
+            "He said [something odd] and walked away.\nThe [ancient rune] glowed faintly."
+        );
     }
 
     #[test]
@@ -427,7 +369,10 @@ mod tests {
         // A line that IS a bracket but has no combat keywords is preserved
         let input = "[The ancient prophecy speaks of a chosen one]\nYou continue reading.";
         let result = strip_combat_brackets(input);
-        assert_eq!(result, "[The ancient prophecy speaks of a chosen one]\nYou continue reading.");
+        assert_eq!(
+            result,
+            "[The ancient prophecy speaks of a chosen one]\nYou continue reading."
+        );
     }
 
     // === strip_fourth_wall tests ===
@@ -456,9 +401,13 @@ mod tests {
 
     #[test]
     fn strip_fourth_wall_case_insensitive() {
-        let input = "The road stretches ahead.\nWhat Genre are we playing?\nDust swirls at your feet.";
+        let input =
+            "The road stretches ahead.\nWhat Genre are we playing?\nDust swirls at your feet.";
         let result = strip_fourth_wall(input);
-        assert_eq!(result, "The road stretches ahead.\nDust swirls at your feet.");
+        assert_eq!(
+            result,
+            "The road stretches ahead.\nDust swirls at your feet."
+        );
     }
 
     #[test]

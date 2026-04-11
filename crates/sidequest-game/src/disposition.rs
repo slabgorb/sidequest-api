@@ -4,6 +4,7 @@
 //! One type, one set of thresholds, one `attitude()` derivation.
 
 use serde::{Deserialize, Serialize};
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use std::fmt;
 
 /// Attitude derived from a numeric disposition value.
@@ -60,9 +61,34 @@ impl Disposition {
 
     /// Apply a delta to the disposition value.
     pub fn apply_delta(&mut self, delta: i32) {
+        let old_value = self.0;
+        let old_att = self.attitude();
         self.0 = self.0.saturating_add(delta);
-    }
+        let new_att = self.attitude();
+        let span = tracing::info_span!(
+            "disposition.shift",
+            old_value = old_value,
+            new_value = self.0,
+            old_attitude = %old_att,
+            new_attitude = %new_att,
+            delta = delta,
+        );
+        let _guard = span.enter();
 
+        // OTEL: disposition.shifted — GM panel verification that disposition
+        // deltas from LLM patches are actually reaching the NPC model. Flags
+        // attitude threshold crossings so the GM can see when an NPC flipped
+        // friendly/neutral/hostile (ADR-020).
+        WatcherEventBuilder::new("disposition", WatcherEventType::StateTransition)
+            .field("action", "disposition_shifted")
+            .field("delta", delta)
+            .field("old_value", old_value)
+            .field("new_value", self.0)
+            .field("old_attitude", old_att.to_string())
+            .field("new_attitude", new_att.to_string())
+            .field("attitude_changed", old_att != new_att)
+            .send();
+    }
 }
 
 impl fmt::Display for Disposition {

@@ -11,9 +11,9 @@
 //! ACs: event types with spike data, classification function, observe integration,
 //! boring_streak tracking, spike injection per event type
 
-use sidequest_game::combat::{DamageEvent, RoundResult};
 use sidequest_game::tension_tracker::{
-    classify_combat_outcome, DetailedCombatEvent, TensionTracker, TurnClassification,
+    classify_combat_outcome, DamageEvent, DetailedCombatEvent, RoundResult, TensionTracker,
+    TurnClassification,
 };
 
 // ============================================================================
@@ -141,7 +141,10 @@ fn damage(attacker: &str, target: &str, amount: i32) -> DamageEvent {
 fn classify_kill_as_killing_blow() {
     let round = make_round(vec![damage("hero", "goblin", 20)], vec![]);
     let result = classify_combat_outcome(&round, Some("goblin"), None);
-    assert_eq!(result, TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow));
+    assert_eq!(
+        result,
+        TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow)
+    );
 }
 
 #[test]
@@ -163,7 +166,10 @@ fn classify_high_damage_as_critical_hit() {
     // High damage without a kill — critical hit
     let round = make_round(vec![damage("hero", "dragon", 25)], vec![]);
     let result = classify_combat_outcome(&round, None, None);
-    assert_eq!(result, TurnClassification::Dramatic(DetailedCombatEvent::CriticalHit));
+    assert_eq!(
+        result,
+        TurnClassification::Dramatic(DetailedCombatEvent::CriticalHit)
+    );
 }
 
 #[test]
@@ -174,8 +180,10 @@ fn classify_new_effects_as_dramatic() {
         vec!["stunned".to_string()],
     );
     let result = classify_combat_outcome(&round, None, None);
-    assert!(matches!(result, TurnClassification::Dramatic(_)),
-        "New status effects should be dramatic");
+    assert!(
+        matches!(result, TurnClassification::Dramatic(_)),
+        "New status effects should be dramatic"
+    );
 }
 
 #[test]
@@ -184,7 +192,10 @@ fn classify_low_hp_target_as_near_miss() {
     // The last parameter is the target's HP ratio (current/max)
     let round = make_round(vec![damage("goblin", "hero", 8)], vec![]);
     let result = classify_combat_outcome(&round, None, Some(0.1)); // hero at 10% HP
-    assert_eq!(result, TurnClassification::Dramatic(DetailedCombatEvent::NearMiss));
+    assert_eq!(
+        result,
+        TurnClassification::Dramatic(DetailedCombatEvent::NearMiss)
+    );
 }
 
 #[test]
@@ -256,8 +267,10 @@ fn observe_dramatic_injects_spike() {
     let kill_round = make_round(vec![damage("hero", "goblin", 20)], vec![]);
     tracker.observe(&kill_round, Some("goblin"), None);
     // KillingBlow spike = 1.0
-    assert!(tracker.active_spike() > 0.0,
-        "Dramatic event should inject a spike");
+    assert!(
+        tracker.active_spike() > 0.0,
+        "Dramatic event should inject a spike"
+    );
 }
 
 #[test]
@@ -265,9 +278,11 @@ fn observe_killing_blow_injects_full_spike() {
     let mut tracker = TensionTracker::new();
     let kill_round = make_round(vec![damage("hero", "goblin", 20)], vec![]);
     tracker.observe(&kill_round, Some("goblin"), None);
-    assert!((tracker.active_spike() - 1.0).abs() < f64::EPSILON,
+    assert!(
+        (tracker.active_spike() - 1.0).abs() < f64::EPSILON,
         "KillingBlow should inject spike of 1.0, got {}",
-        tracker.active_spike());
+        tracker.active_spike()
+    );
 }
 
 #[test]
@@ -275,9 +290,11 @@ fn observe_critical_hit_injects_proportional_spike() {
     let mut tracker = TensionTracker::new();
     let crit_round = make_round(vec![damage("hero", "dragon", 25)], vec![]);
     tracker.observe(&crit_round, None, None);
-    assert!((tracker.active_spike() - 0.8).abs() < f64::EPSILON,
+    assert!(
+        (tracker.active_spike() - 0.8).abs() < f64::EPSILON,
         "CriticalHit should inject spike of 0.8, got {}",
-        tracker.active_spike());
+        tracker.active_spike()
+    );
 }
 
 #[test]
@@ -285,8 +302,10 @@ fn observe_boring_does_not_inject_spike() {
     let mut tracker = TensionTracker::new();
     let boring_round = make_round(vec![], vec![]);
     tracker.observe(&boring_round, None, None);
-    assert!((tracker.active_spike()).abs() < f64::EPSILON,
-        "Boring turn should not inject spike");
+    assert!(
+        (tracker.active_spike()).abs() < f64::EPSILON,
+        "Boring turn should not inject spike"
+    );
 }
 
 #[test]
@@ -294,7 +313,10 @@ fn observe_returns_classification() {
     let mut tracker = TensionTracker::new();
     let kill_round = make_round(vec![damage("hero", "goblin", 20)], vec![]);
     let classification = tracker.observe(&kill_round, Some("goblin"), None);
-    assert_eq!(classification, TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow));
+    assert_eq!(
+        classification,
+        TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow)
+    );
 }
 
 #[test]
@@ -314,7 +336,10 @@ fn kill_takes_priority_over_high_damage() {
     // Even with critical-level damage, if someone died it's a KillingBlow
     let round = make_round(vec![damage("hero", "goblin", 30)], vec![]);
     let result = classify_combat_outcome(&round, Some("goblin"), None);
-    assert_eq!(result, TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow));
+    assert_eq!(
+        result,
+        TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow)
+    );
 }
 
 #[test]
@@ -324,7 +349,10 @@ fn kill_takes_priority_over_effects() {
         vec!["poisoned".to_string()],
     );
     let result = classify_combat_outcome(&round, Some("goblin"), None);
-    assert_eq!(result, TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow));
+    assert_eq!(
+        result,
+        TurnClassification::Dramatic(DetailedCombatEvent::KillingBlow)
+    );
 }
 
 // ============================================================================
@@ -336,21 +364,24 @@ fn negative_damage_treated_as_zero() {
     // Healing or damage reduction — not dramatic
     let round = make_round(vec![damage("healer", "hero", -10)], vec![]);
     let result = classify_combat_outcome(&round, None, None);
-    assert_eq!(result, TurnClassification::Boring,
-        "Negative damage (healing) should be boring");
+    assert_eq!(
+        result,
+        TurnClassification::Boring,
+        "Negative damage (healing) should be boring"
+    );
 }
 
 #[test]
 fn multiple_small_damage_events_sum_for_classification() {
     // Multiple small hits that sum to dramatic threshold
     let round = make_round(
-        vec![
-            damage("hero", "goblin", 8),
-            damage("hero", "goblin", 8),
-        ],
+        vec![damage("hero", "goblin", 8), damage("hero", "goblin", 8)],
         vec![],
     );
     let result = classify_combat_outcome(&round, None, None);
     // 16 total damage >= 15 threshold = CriticalHit
-    assert_eq!(result, TurnClassification::Dramatic(DetailedCombatEvent::CriticalHit));
+    assert_eq!(
+        result,
+        TurnClassification::Dramatic(DetailedCombatEvent::CriticalHit)
+    );
 }

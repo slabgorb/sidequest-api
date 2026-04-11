@@ -51,7 +51,9 @@ fn vocabulary_epic_injects_elevated_diction_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("elevated") || composed.contains("archaic") || composed.contains("mythic"),
+        composed.contains("elevated")
+            || composed.contains("archaic")
+            || composed.contains("mythic"),
         "epic mode must instruct elevated diction, got: {composed}"
     );
 }
@@ -129,11 +131,13 @@ fn vocabulary_composes_with_verbosity_section() {
     let composed = registry.compose("narrator");
     // Both sections should be present — verbosity controls length, vocabulary controls diction
     assert!(
-        composed.contains("under 200 characters"),
+        composed.contains("400 characters"),
         "verbosity section should be present"
     );
     assert!(
-        composed.contains("elevated") || composed.contains("archaic") || composed.contains("mythic"),
+        composed.contains("elevated")
+            || composed.contains("archaic")
+            || composed.contains("mythic"),
         "vocabulary section should be present alongside verbosity"
     );
 }

@@ -7,6 +7,7 @@
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::belief_state::{Belief, BeliefSource, BeliefState};
 
@@ -62,14 +63,53 @@ pub enum ScenarioRole {
 /// The action set depends on the NPC's role and tension level.
 /// Higher tension increases the likelihood of desperate actions.
 pub fn select_npc_action(
-    _npc_id: &str,
+    npc_id: &str,
     role: &ScenarioRole,
     belief: &BeliefState,
     tension: f32,
     rng: &mut impl Rng,
 ) -> NpcAction {
     let options = available_actions(role, belief, tension);
-    weighted_select(&options, rng)
+    let available_count = options.len();
+    let action = weighted_select(&options, rng);
+
+    // OTEL: npc_actions.action_selected — GM panel verification that NPCs
+    // are actually choosing autonomous actions. The variant label lets the
+    // GM distinguish desperate-tension behavior (Flee/Confess/DestroyEvidence)
+    // from routine ActNormal cover.
+    WatcherEventBuilder::new("npc_actions", WatcherEventType::StateTransition)
+        .field("action", "action_selected")
+        .field("npc_id", npc_id)
+        .field("role", role_label(role))
+        .field("tension", tension)
+        .field("available_count", available_count)
+        .field("selected_variant", action_variant(&action))
+        .field("beliefs_count", belief.beliefs().len())
+        .send();
+
+    action
+}
+
+/// Label for a `ScenarioRole` suitable for telemetry fields.
+fn role_label(role: &ScenarioRole) -> &'static str {
+    match role {
+        ScenarioRole::Guilty => "guilty",
+        ScenarioRole::Witness => "witness",
+        ScenarioRole::Innocent => "innocent",
+        ScenarioRole::Accomplice => "accomplice",
+    }
+}
+
+/// Label for an `NpcAction` variant suitable for telemetry fields.
+fn action_variant(action: &NpcAction) -> &'static str {
+    match action {
+        NpcAction::CreateAlibi { .. } => "create_alibi",
+        NpcAction::DestroyEvidence { .. } => "destroy_evidence",
+        NpcAction::Flee { .. } => "flee",
+        NpcAction::Confess { .. } => "confess",
+        NpcAction::ActNormal => "act_normal",
+        NpcAction::SpreadRumor { .. } => "spread_rumor",
+    }
 }
 
 /// Determine which actions are available and their weights.
@@ -123,32 +163,30 @@ pub fn available_actions(
                     },
                     tension * 0.3,
                 ));
-                actions.push((
-                    NpcAction::Confess { to_npc: None },
-                    0.1,
-                ));
+                actions.push((NpcAction::Confess { to_npc: None }, 0.1));
             }
         }
         ScenarioRole::Witness => {
             // Witnesses can spread rumors if they have suspicions
-            let suspicion = belief.beliefs().iter().find(|b| {
-                matches!(b, Belief::Suspicion { confidence, .. } if *confidence > 0.5)
-            });
+            let suspicion = belief
+                .beliefs()
+                .iter()
+                .find(|b| matches!(b, Belief::Suspicion { confidence, .. } if *confidence > 0.5));
             if let Some(s) = suspicion {
-                    actions.push((
-                        NpcAction::SpreadRumor {
-                            claim: Belief::Claim {
-                                subject: s.subject().to_string(),
-                                content: s.content().to_string(),
-                                turn_learned: 0,
-                                source: BeliefSource::Inferred,
-                                believed: true,
-                                sentiment: crate::belief_state::ClaimSentiment::Corroborating,
-                            },
-                            target_npc: "nearby_npc".to_string(),
+                actions.push((
+                    NpcAction::SpreadRumor {
+                        claim: Belief::Claim {
+                            subject: s.subject().to_string(),
+                            content: s.content().to_string(),
+                            turn_learned: 0,
+                            source: BeliefSource::Inferred,
+                            believed: true,
+                            sentiment: crate::belief_state::ClaimSentiment::Corroborating,
                         },
-                        0.3 + tension * 0.2,
-                    ));
+                        target_npc: "nearby_npc".to_string(),
+                    },
+                    0.3 + tension * 0.2,
+                ));
             }
         }
         ScenarioRole::Innocent => {
@@ -209,5 +247,8 @@ fn weighted_select(options: &[(NpcAction, f32)], rng: &mut impl Rng) -> NpcActio
     }
 
     // Fallback (shouldn't reach here with valid weights)
-    options.last().map(|(a, _)| a.clone()).unwrap_or(NpcAction::ActNormal)
+    options
+        .last()
+        .map(|(a, _)| a.clone())
+        .unwrap_or(NpcAction::ActNormal)
 }

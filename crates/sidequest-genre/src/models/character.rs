@@ -1,9 +1,52 @@
 //! Character-related types: archetypes, creation scenes, visual style.
 
 use super::ocean::OceanProfile;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
+
+/// Custom deserializer for `VisualStyle.lora_scale`.
+///
+/// LoRA scale is a strength multiplier applied to a trained LoRA during image
+/// generation. The daemon passes this directly to `Flux1(lora_scales=[...])`;
+/// non-finite or out-of-range values produce unspecified behavior in MLX.
+///
+/// Accepted range: `[0.0, 2.0]`. This matches the canonical Flux LoRA
+/// documentation and the ComfyUI/A1111 ecosystem convention. Values above 2.0
+/// are almost always a typo (e.g., `20` meant as `2.0`). If a future genre
+/// legitimately needs a higher scale, this validator can be relaxed with
+/// explicit justification — always better to start strict.
+///
+/// Rejects: `NaN`, `±∞`, `< 0.0`, `> 2.0`.
+///
+/// Per Rework Pass 2 Finding F: `serde_yaml` happily deserializes `.nan`,
+/// `.inf`, and `-.inf` into `f32`; without this guard the value propagates
+/// silently through the entire pipeline to the daemon.
+fn validate_lora_scale<'de, D>(deserializer: D) -> Result<Option<f32>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    use serde::de::Error;
+    let opt = Option::<f32>::deserialize(deserializer)?;
+    if let Some(v) = opt {
+        if !v.is_finite() {
+            return Err(D::Error::custom(format!(
+                "lora_scale must be a finite number in [0.0, 2.0], got {v} (NaN or infinity)"
+            )));
+        }
+        if v < 0.0 {
+            return Err(D::Error::custom(format!(
+                "lora_scale must be a finite number in [0.0, 2.0], got {v} (negative)"
+            )));
+        }
+        if v > 2.0 {
+            return Err(D::Error::custom(format!(
+                "lora_scale must be a finite number in [0.0, 2.0], got {v} (exceeds upper bound)"
+            )));
+        }
+    }
+    Ok(opt)
+}
 
 // ═══════════════════════════════════════════════════════════
 // archetypes.yaml
@@ -64,6 +107,10 @@ pub struct CharCreationScene {
     /// after a choice is made, waiting for the player's freeform elaboration.
     #[serde(default)]
     pub hook_prompt: Option<String>,
+    /// Scene-level mechanical effects (e.g., stat_generation, equipment_generation).
+    /// These are directives to the engine, not player-choice effects.
+    #[serde(default)]
+    pub mechanical_effects: Option<MechanicalEffects>,
 }
 
 /// A choice within a character creation scene.
@@ -77,8 +124,8 @@ pub struct CharCreationChoice {
     pub mechanical_effects: MechanicalEffects,
 }
 
-/// Mechanical effects of a character creation choice.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// Mechanical effects of a character creation choice or scene-level directive.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct MechanicalEffects {
     /// Suggested class.
     #[serde(default)]
@@ -131,6 +178,95 @@ pub struct MechanicalEffects {
     /// Pronoun hint from character creation (e.g. "she/her", "he/him", "they/them").
     #[serde(default)]
     pub pronoun_hint: Option<String>,
+    /// Stat generation method override (scene-level directive, e.g. "roll_3d6_strict").
+    #[serde(default)]
+    pub stat_generation: Option<String>,
+    /// Equipment generation method (scene-level directive, e.g. "random_table").
+    #[serde(default)]
+    pub equipment_generation: Option<String>,
+}
+
+// ═══════════════════════════════════════════════════════════
+// backstory_tables.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// Random backstory composition tables loaded from `backstory_tables.yaml`.
+/// Each genre pack can optionally provide these for genres where character
+/// creation doesn't produce backstory fragments (e.g., Caverns & Claudes).
+///
+/// YAML structure: `template` is a string, all other top-level keys are
+/// tables (Vec<String>). We deserialize from a raw Value to handle the
+/// mixed-type sibling keys.
+#[derive(Debug, Clone, Serialize)]
+pub struct BackstoryTables {
+    /// Template string with `{key}` placeholders (e.g., "Former {trade}. {feature}. {reason}.").
+    pub template: String,
+    /// Named tables of random entries. Keys match placeholders in the template.
+    pub tables: HashMap<String, Vec<String>>,
+}
+
+impl<'de> serde::Deserialize<'de> for BackstoryTables {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+        let raw: HashMap<String, serde_yaml::Value> = HashMap::deserialize(deserializer)?;
+
+        let template = raw
+            .get("template")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| D::Error::missing_field("template"))?
+            .to_string();
+
+        let mut tables = HashMap::new();
+        for (key, value) in &raw {
+            if key == "template" {
+                continue;
+            }
+            // Skip comment-only keys
+            if let serde_yaml::Value::Sequence(seq) = value {
+                let entries: Vec<String> = seq
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                if !entries.is_empty() {
+                    tables.insert(key.clone(), entries);
+                }
+            }
+        }
+
+        Ok(BackstoryTables { template, tables })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// equipment_tables.yaml
+// ═══════════════════════════════════════════════════════════
+
+/// Random equipment generation tables loaded from `equipment_tables.yaml`.
+///
+/// Consumed by `CharacterBuilder` when a character creation scene declares
+/// `equipment_generation: random_table` in its `mechanical_effects`. Each
+/// slot holds candidate item_ids; the builder rolls one (or `rolls_per_slot`)
+/// item per slot and appends them to the starting inventory.
+///
+/// All referenced item_ids must resolve against the genre pack's
+/// `inventory.item_catalog` — enforced by the wiring test, not by the
+/// deserializer.
+///
+/// Story 31-3: Equipment generation wiring (final piece of Epic 31).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EquipmentTables {
+    /// Slot name → candidate item_ids. Slot names are genre-defined
+    /// (e.g., "weapon", "armor", "utility", "consumable") — not an enum.
+    pub tables: HashMap<String, Vec<String>>,
+    /// Optional per-slot roll count override. Slots not listed default to
+    /// one roll. Example: `{ "light": 3, "consumable": 2 }` yields three
+    /// torches and two rations.
+    #[serde(default)]
+    pub rolls_per_slot: HashMap<String, u32>,
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -138,6 +274,14 @@ pub struct MechanicalEffects {
 // ═══════════════════════════════════════════════════════════
 
 /// Image generation style configuration.
+///
+/// Note: VisualStyle intentionally does NOT use `#[serde(deny_unknown_fields)]`
+/// despite the sidequest-genre convention. This is documented by the
+/// `visual_style_accepts_extra_fields` test in `tests/model_tests.rs` and
+/// exists to support genre extensibility — individual genre packs may add
+/// flavor fields that aren't in the struct without failing to load.
+/// Per reviewer Rework Pass 2 Finding A (self-correction), adding
+/// `deny_unknown_fields` contradicts this documented exemption.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct VisualStyle {
     /// Positive prompt suffix for image generation.
@@ -151,4 +295,26 @@ pub struct VisualStyle {
     /// Location-tag → style override mappings.
     #[serde(default)]
     pub visual_tag_overrides: HashMap<String, String>,
+    /// Optional genre-specific LoRA, as a path relative to the genre pack
+    /// directory (e.g. `lora/sw_style.safetensors`). Resolved to an
+    /// absolute path by the dispatch layer and passed to the daemon as
+    /// `RenderParams.lora_path`. Per ADR-032. Story 35-15.
+    #[serde(default)]
+    pub lora: Option<String>,
+    /// Optional LoRA trigger word (e.g. `sw_style`). When set, the
+    /// dispatch layer substitutes this for `positive_suffix` in the
+    /// composed CLIP prompt so the trained LoRA style activates. Per
+    /// ADR-032. Story 35-15.
+    #[serde(default)]
+    pub lora_trigger: Option<String>,
+    /// Optional LoRA strength in `[0.0, 2.0]`. When `None`, the
+    /// daemon falls back to its 1.0 default. Story 35-15 rework
+    /// finding #3 wired this through to close the dead-wire pattern.
+    ///
+    /// Validated on deserialization — see `validate_lora_scale`.
+    /// Rework Pass 2 Finding F: reject non-finite, negative, and
+    /// values above 2.0 at YAML-parse time so malformed configs
+    /// never reach the daemon.
+    #[serde(default, deserialize_with = "validate_lora_scale")]
+    pub lora_scale: Option<f32>,
 }

@@ -15,9 +15,7 @@ use serde::{Deserialize, Serialize};
 use sidequest_genre::ConfrontationDef;
 use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
-use crate::chase::ChaseState;
 use crate::chase_depth::{RigStats, RigType};
-use crate::combat::CombatState;
 
 /// Direction a metric moves toward resolution.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -268,123 +266,8 @@ impl StructuredEncounter {
         }
     }
 
-    /// Convert an existing CombatState into a StructuredEncounter.
-    ///
-    /// Maps combat fields onto the generic encounter model:
-    /// - round → beat
-    /// - turn_order → actors with role "combatant"
-    /// - in_combat → !resolved
-    /// - damage_log → narrator_hints (human-readable summaries)
-    /// - status effects → narrator_hints
-    pub fn from_combat_state(combat: &CombatState) -> Self {
-        let actors = combat
-            .turn_order()
-            .iter()
-            .map(|name| EncounterActor {
-                name: name.clone(),
-                role: "combatant".to_string(),
-            })
-            .collect();
-
-        let mut narrator_hints: Vec<String> = Vec::new();
-
-        // Preserve damage log as narrator hints
-        for event in combat.damage_log() {
-            narrator_hints.push(format!(
-                "{} dealt {} damage to {} (round {})",
-                event.attacker, event.damage, event.target, event.round
-            ));
-        }
-
-        // Preserve status effects as narrator hints
-        for name in combat.turn_order() {
-            let effects = combat.effects_on(name);
-            for effect in &effects {
-                narrator_hints.push(format!(
-                    "{}: {:?} ({} rounds)",
-                    name,
-                    effect.kind(),
-                    effect.remaining_rounds()
-                ));
-            }
-        }
-
-        // Map combat phase based on round progression
-        let structured_phase = if combat.in_combat() {
-            Some(match combat.round() {
-                1 => EncounterPhase::Opening,
-                2..=3 => EncounterPhase::Escalation,
-                4..=5 => EncounterPhase::Climax,
-                _ => EncounterPhase::Resolution,
-            })
-        } else {
-            None
-        };
-
-        Self {
-            encounter_type: "combat".to_string(),
-            metric: EncounterMetric {
-                name: "hp".to_string(),
-                current: 0,
-                starting: 0,
-                direction: MetricDirection::Descending,
-                threshold_high: None,
-                threshold_low: Some(0),
-            },
-            beat: combat.round(),
-            structured_phase,
-            secondary_stats: None,
-            actors,
-            outcome: None,
-            resolved: !combat.in_combat(),
-            mood_override: Some("combat".to_string()),
-            narrator_hints,
-        }
-    }
-
-    /// Convert an old ChaseState into a StructuredEncounter.
-    ///
-    /// Used for backward-compatible deserialization of old save files.
-    pub fn from_chase_state(chase: &ChaseState) -> Self {
-        let secondary_stats = chase.rig().map(SecondaryStats::from_rig_stats);
-
-        let structured_phase = chase.structured_phase().map(|p| match p {
-            crate::chase_depth::ChasePhase::Setup => EncounterPhase::Setup,
-            crate::chase_depth::ChasePhase::Opening => EncounterPhase::Opening,
-            crate::chase_depth::ChasePhase::Escalation => EncounterPhase::Escalation,
-            crate::chase_depth::ChasePhase::Climax => EncounterPhase::Climax,
-            crate::chase_depth::ChasePhase::Resolution => EncounterPhase::Resolution,
-        });
-
-        let actors = chase
-            .actors()
-            .iter()
-            .map(|a| EncounterActor {
-                name: a.name.clone(),
-                role: format!("{}", a.role),
-            })
-            .collect();
-
-        Self {
-            encounter_type: "chase".to_string(),
-            metric: EncounterMetric {
-                name: "separation".to_string(),
-                current: chase.separation(),
-                starting: 0,
-                direction: MetricDirection::Ascending,
-                threshold_high: Some(chase.goal()),
-                threshold_low: None,
-            },
-            beat: chase.beat(),
-            structured_phase,
-            secondary_stats,
-            actors,
-            outcome: chase.outcome().map(|o| format!("{:?}", o)),
-            resolved: chase.is_resolved(),
-            mood_override: None,
-            narrator_hints: vec![],
-        }
-    }
+    // from_combat_state() and from_chase_state() deleted in story 28-9.
+    // StructuredEncounter is now created directly from ConfrontationDef or apply_beat().
 
     /// Create a StructuredEncounter from a genre-pack ConfrontationDef.
     ///
@@ -407,10 +290,7 @@ impl StructuredEncounter {
             let mut stats = HashMap::new();
             for stat_def in &def.secondary_stats {
                 let max = 10; // default max for confrontation secondary stats
-                stats.insert(
-                    stat_def.name.clone(),
-                    StatValue { current: max, max },
-                );
+                stats.insert(stat_def.name.clone(), StatValue { current: max, max });
             }
             Some(SecondaryStats {
                 stats,
@@ -444,11 +324,7 @@ impl StructuredEncounter {
     /// Looks up the beat by ID in the confrontation definition, applies its
     /// metric_delta, increments the beat counter, checks for resolution
     /// (threshold crossing or resolution flag), and updates the phase.
-    pub fn apply_beat(
-        &mut self,
-        beat_id: &str,
-        def: &ConfrontationDef,
-    ) -> Result<(), String> {
+    pub fn apply_beat(&mut self, beat_id: &str, def: &ConfrontationDef) -> Result<(), String> {
         if self.resolved {
             return Err("encounter is already resolved".to_string());
         }
@@ -582,9 +458,9 @@ impl StructuredEncounter {
         Some(StructuredEncounter {
             encounter_type: "combat".to_string(),
             metric: EncounterMetric {
-                name: "hp".to_string(),
-                current: 0,
-                starting: 0,
+                name: "morale".to_string(),
+                current: 100,
+                starting: 100,
                 direction: MetricDirection::Descending,
                 threshold_high: None,
                 threshold_low: Some(0),
@@ -663,10 +539,32 @@ impl StructuredEncounter {
             }
         }
 
+        // Actors — tell the narrator who is in this encounter so it can
+        // emit beat_selections for each NPC, not just the player.
+        // Without this, the narrator guesses NPCs from narrative context (pattern 5: LLM compensation).
+        if !self.actors.is_empty() {
+            let actor_list: Vec<String> = self
+                .actors
+                .iter()
+                .map(|a| format!("{} ({})", a.name, a.role))
+                .collect();
+            lines.push(format!("Actors: {}", actor_list.join(", ")));
+            lines.push(
+                "Include a beat_selection for EVERY actor each round — player AND NPCs."
+                    .to_string(),
+            );
+        }
+
         // Available beats
         lines.push("Available:".to_string());
         for (i, beat) in def.beats.iter().enumerate() {
-            let mut desc = format!("  {}. {} [{}]", i + 1, beat.label, beat.stat_check);
+            let mut desc = format!(
+                "  {}. {} (id: {}) [{}]",
+                i + 1,
+                beat.label,
+                beat.id,
+                beat.stat_check
+            );
             if beat.metric_delta != 0 {
                 let sign = if beat.metric_delta > 0 { "+" } else { "" };
                 desc.push_str(&format!(
@@ -683,6 +581,10 @@ impl StructuredEncounter {
             if beat.resolution.unwrap_or(false) {
                 desc.push_str(", resolves encounter");
             }
+            if let Some(gd) = beat.gold_delta {
+                let sign = if gd > 0 { "+" } else { "" };
+                desc.push_str(&format!(", gold: {}{}", sign, gd));
+            }
             if let Some(ref hint) = beat.narrator_hint {
                 desc.push_str(&format!(", narrator_hint: {}", hint));
             }
@@ -695,7 +597,9 @@ impl StructuredEncounter {
             .map(|p| p.drama_weight())
             .unwrap_or(0.7);
         if drama >= 0.80 {
-            lines.push("Camera: Close-up, slow-motion | Pace: Peak intensity | Sentences: 2-4".to_string());
+            lines.push(
+                "Camera: Close-up, slow-motion | Pace: Peak intensity | Sentences: 2-4".to_string(),
+            );
         } else {
             lines.push("Camera: Close-up | Pace: Building tension | Sentences: 2-4".to_string());
         }

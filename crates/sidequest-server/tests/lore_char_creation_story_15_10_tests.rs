@@ -40,6 +40,8 @@ fn test_mechanical_effects() -> MechanicalEffects {
         catch_phrase: None,
         stat_bonuses: HashMap::new(),
         pronoun_hint: None,
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -52,18 +54,22 @@ fn test_char_creation_scenes() -> Vec<CharCreationScene> {
             choices: vec![
                 CharCreationChoice {
                     label: "Vault Dweller".to_string(),
-                    description: "Raised in an underground vault, you know little of the surface world".to_string(),
+                    description:
+                        "Raised in an underground vault, you know little of the surface world"
+                            .to_string(),
                     mechanical_effects: test_mechanical_effects(),
                 },
                 CharCreationChoice {
                     label: "Wastelander".to_string(),
-                    description: "Born under open skies, you've survived by wit and grit".to_string(),
+                    description: "Born under open skies, you've survived by wit and grit"
+                        .to_string(),
                     mechanical_effects: test_mechanical_effects(),
                 },
             ],
             allows_freeform: None,
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
         CharCreationScene {
             id: "motivation".to_string(),
@@ -72,7 +78,8 @@ fn test_char_creation_scenes() -> Vec<CharCreationScene> {
             choices: vec![
                 CharCreationChoice {
                     label: "Revenge".to_string(),
-                    description: "Someone took everything from you. You'll take it back.".to_string(),
+                    description: "Someone took everything from you. You'll take it back."
+                        .to_string(),
                     mechanical_effects: test_mechanical_effects(),
                 },
                 CharCreationChoice {
@@ -84,6 +91,7 @@ fn test_char_creation_scenes() -> Vec<CharCreationScene> {
             allows_freeform: None,
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
     ]
 }

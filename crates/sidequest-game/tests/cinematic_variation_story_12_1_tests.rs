@@ -13,7 +13,8 @@
 use std::collections::HashMap;
 
 use sidequest_game::{
-    AudioAction, AudioChannel, MoodKey, MoodClassification, MoodContext, MusicDirector,
+    AudioAction, AudioChannel, MoodClassification, MoodContext, MoodKey, MusicDirector,
+    MusicEvalResult,
 };
 use sidequest_genre::{AudioConfig, AudioTheme, AudioVariation, MixerConfig, MoodTrack};
 
@@ -276,11 +277,23 @@ fn track_variation_is_non_exhaustive() {
 fn mood_context_new_fields_exist_with_defaults() {
     let ctx = MoodContext::default();
 
-    assert_eq!(ctx.location_changed, false, "location_changed should default to false");
-    assert_eq!(ctx.scene_turn_count, 0, "scene_turn_count should default to 0");
+    assert_eq!(
+        ctx.location_changed, false,
+        "location_changed should default to false"
+    );
+    assert_eq!(
+        ctx.scene_turn_count, 0,
+        "scene_turn_count should default to 0"
+    );
     assert_eq!(ctx.drama_weight, 0.0, "drama_weight should default to 0.0");
-    assert_eq!(ctx.combat_just_ended, false, "combat_just_ended should default to false");
-    assert_eq!(ctx.session_start, false, "session_start should default to false");
+    assert_eq!(
+        ctx.combat_just_ended, false,
+        "combat_just_ended should default to false"
+    );
+    assert_eq!(
+        ctx.session_start, false,
+        "session_start should default to false"
+    );
 }
 
 /// AC2: MoodContext new fields can be set explicitly.
@@ -643,9 +656,11 @@ fn music_director_indexes_themes_by_variation() {
     };
     let ctx = mood_ctx_with_new_fields(false, 0, 0.0, false, true); // session_start → Overture
 
-    let cue = director.evaluate("Arriving at a new location", &ctx);
-    assert!(cue.is_some(), "should produce a cue for session start");
-    let track_id = cue.unwrap().track_id.unwrap();
+    let MusicEvalResult::Cue(audio_cue) = director.evaluate("Arriving at a new location", &ctx)
+    else {
+        panic!("should produce a cue for session start");
+    };
+    let track_id = audio_cue.track_id.unwrap();
     assert!(
         track_id.contains("overture"),
         "session_start should select an overture track, got: {track_id}"
@@ -665,9 +680,10 @@ fn music_director_uses_themed_tracks() {
         ..Default::default()
     };
 
-    let cue = director.evaluate("The shadows grow deeper", &ctx);
-    assert!(cue.is_some(), "should produce a cue");
-    let track_id = cue.unwrap().track_id.unwrap();
+    let MusicEvalResult::Cue(audio_cue) = director.evaluate("The shadows grow deeper", &ctx) else {
+        panic!("should produce a cue");
+    };
+    let track_id = audio_cue.track_id.unwrap();
     assert!(
         track_id.contains("tension_build"),
         "high drama should select a tension_build track, got: {track_id}"
@@ -685,7 +701,7 @@ fn theme_rotator_uses_variation_keying() {
     let ctx = mood_ctx_with_new_fields(false, 0, 0.0, false, true);
 
     let cue1 = director.evaluate("First arrival", &ctx);
-    assert!(cue1.is_some());
+    assert!(matches!(cue1, MusicEvalResult::Cue(_)));
 
     // Force mood change so evaluate triggers again
     director.evaluate(
@@ -702,10 +718,7 @@ fn theme_rotator_uses_variation_keying() {
     // Telemetry should show per-variation history keying
     let telemetry = director.telemetry_snapshot();
     // The history keys should include variation suffix (e.g. "exploration:overture")
-    let has_variation_key = telemetry
-        .rotation_history
-        .keys()
-        .any(|k| k.contains(':'));
+    let has_variation_key = telemetry.rotation_history.keys().any(|k| k.contains(':'));
     assert!(
         has_variation_key,
         "rotation history should use '{{mood}}:{{variation}}' keying, got keys: {:?}",
@@ -795,9 +808,10 @@ fn full_pipeline_classify_to_audio_cue() {
     );
 
     // evaluate should produce a cue with the overture track
-    let cue = director.evaluate("Welcome to the enchanted forest", &ctx);
-    assert!(cue.is_some(), "should produce an AudioCue");
-    let cue = cue.unwrap();
+    let MusicEvalResult::Cue(cue) = director.evaluate("Welcome to the enchanted forest", &ctx)
+    else {
+        panic!("should produce an AudioCue");
+    };
     assert_eq!(cue.channel, AudioChannel::Music);
     assert!(cue.track_id.is_some());
     assert!(
@@ -825,9 +839,11 @@ fn full_pipeline_combat_end_resolution() {
         scene_turn_count: 1,
         ..Default::default()
     };
-    let cue = director.evaluate("The battle is over, silence falls.", &post_combat_ctx);
-    assert!(cue.is_some(), "mood change post-combat should produce a cue");
-    let cue = cue.unwrap();
+    let MusicEvalResult::Cue(cue) =
+        director.evaluate("The battle is over, silence falls.", &post_combat_ctx)
+    else {
+        panic!("mood change post-combat should produce a cue");
+    };
     assert!(
         cue.track_id
             .as_ref()
@@ -852,9 +868,9 @@ fn backward_compat_no_themes_still_works() {
         ..Default::default()
     };
 
-    let cue = director.evaluate("Battle begins!", &ctx);
-    assert!(cue.is_some(), "combat cue should still work without themes");
-    let cue = cue.unwrap();
+    let MusicEvalResult::Cue(cue) = director.evaluate("Battle begins!", &ctx) else {
+        panic!("combat cue should still work without themes");
+    };
     assert_eq!(cue.channel, AudioChannel::Music);
     assert!(cue.track_id.unwrap().contains("combat"));
 }

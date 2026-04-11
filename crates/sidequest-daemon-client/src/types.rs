@@ -45,88 +45,30 @@ pub struct RenderParams {
     /// Target image height in pixels (from tier_to_dimensions).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
-}
-
-/// Parameters for a `tts` (text-to-speech) request.
-///
-/// Sent via the `render` method — the daemon dispatches by `tier` field.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TtsParams {
-    /// The text to synthesize.
-    pub text: String,
-    /// TTS model name (e.g. "kokoro", "piper").
-    pub model: String,
-    /// Voice ID within the model.
-    pub voice_id: String,
-    /// Speech speed multiplier (1.0 = normal).
-    pub speed: f32,
-    /// Pitch multiplier (1.0 = normal). From creature_voice_presets in audio.yaml.
-    #[serde(default = "default_pitch")]
-    pub pitch: f64,
-    /// Audio effects chain from creature_voice_presets (reverb, filters, etc.).
-    /// Each entry has `type` and `params` matching pedalboard effect types.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub effects: Vec<TtsEffect>,
-    /// Render tier — tells the daemon to route to the TTS worker.
-    #[serde(default = "default_tts_tier")]
-    pub tier: String,
-}
-
-/// A single audio effect for TTS post-processing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TtsEffect {
-    /// Effect type (reverb, lowpass_filter, highpass_filter, compressor, distortion).
-    #[serde(rename = "type")]
-    pub effect_type: String,
-    /// Effect parameters (e.g., room_size, cutoff_frequency_hz).
-    #[serde(default)]
-    pub params: std::collections::HashMap<String, f64>,
-}
-
-fn default_pitch() -> f64 {
-    1.0
-}
-
-fn default_tts_tier() -> String {
-    "tts".to_string()
-}
-
-impl Default for TtsParams {
-    fn default() -> Self {
-        Self {
-            text: String::new(),
-            model: String::new(),
-            voice_id: String::new(),
-            speed: 1.0,
-            pitch: 1.0,
-            effects: vec![],
-            tier: default_tts_tier(),
-        }
-    }
-}
-
-/// Result from a `tts` request.
-///
-/// The daemon returns `audio_bytes` (raw PCM s16le as a JSON array of ints)
-/// and optionally `audio_path` (file on disk). All fields use `serde(default)`
-/// so deserialization succeeds even if the daemon omits a field.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TtsResult {
-    /// Raw audio bytes (PCM s16le at 24 kHz).
-    #[serde(default)]
-    pub audio_bytes: Vec<u8>,
-    /// Duration of the audio in milliseconds.
-    #[serde(default)]
-    pub duration_ms: u64,
-    /// Wall-clock synthesis time in milliseconds.
-    #[serde(default, alias = "generation_ms")]
-    pub elapsed_ms: u64,
-    /// Voice preset name used for synthesis.
-    #[serde(default)]
-    pub voice: String,
-    /// Path to the WAV file on the daemon host (fallback if audio_bytes empty).
-    #[serde(default)]
-    pub audio_path: String,
+    /// Flux variant override: `"dev"` or `"schnell"`. Empty string means
+    /// "use the daemon's tier default" (see flux_mlx_worker.py
+    /// `TIER_CONFIGS[tier]["model"]`). Sourced from the genre pack's
+    /// `visual_style.yaml::preferred_model`. Previously the YAML field
+    /// was read by Rust and silently dropped at the enqueue boundary;
+    /// story 35-15 closes that wire. The daemon validates: non-empty
+    /// values must be in `{"dev", "schnell"}` — unknown variants raise
+    /// loudly (no silent fallback).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub variant: String,
+    /// Optional absolute path to a `.safetensors` LoRA file. When set,
+    /// the daemon's FluxMLXWorker constructs Flux1 with `lora_paths=[path]`
+    /// instead of using the base model. Read at
+    /// `sidequest_daemon/media/workers/flux_mlx_worker.py:155`. Per
+    /// ADR-032. Story 35-15.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_path: Option<String>,
+    /// Optional LoRA scale (typically 0.0–1.0). When absent, the daemon
+    /// defaults to 1.0 (full weight) at
+    /// `sidequest_daemon/media/workers/flux_mlx_worker.py:156`. The Rust
+    /// side sends `None` rather than silently defaulting to 1.0 — the
+    /// daemon owns the default (no silent fallback). Story 35-15.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lora_scale: Option<f32>,
 }
 
 /// Parameters for a `warm_up` request.
@@ -226,7 +168,12 @@ pub struct RenderResult {
     /// Path to the generated image.
     /// Accepts `image_url`, `image_path`, `output_path`, `path`, or `file` from the daemon.
     /// No default — if the daemon doesn't return a path, we want a loud error.
-    #[serde(alias = "image_path", alias = "output_path", alias = "path", alias = "file")]
+    #[serde(
+        alias = "image_path",
+        alias = "output_path",
+        alias = "path",
+        alias = "file"
+    )]
     pub image_url: String,
     /// Time taken to generate the image in milliseconds.
     /// Accepts both `generation_ms` and `elapsed_ms` from the daemon.

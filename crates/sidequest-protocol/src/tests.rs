@@ -148,19 +148,13 @@ mod message_type_tests {
         assert_eq!(msg, decoded);
     }
 
-    #[test]
-    fn narration_chunk_round_trip() {
-        let msg = GameMessage::NarrationChunk {
-            payload: NarrationChunkPayload {
-                text: "partial text...".into(),
-            },
-            player_id: String::new(),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"NARRATION_CHUNK""#));
-        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg, decoded);
-    }
+    // NOTE: `narration_chunk_round_trip` was removed for story 27-9 (ADR-076
+    // narration protocol collapse). Keeping it here would cause a compile-time
+    // failure when Dev deletes the `NarrationChunk` variant in the GREEN phase,
+    // which is not a clean RED→GREEN transition. The replacement assertion —
+    // `narration_chunk_json_does_not_deserialize_as_game_message` — lives in
+    // `narration_collapse_story_27_9_tests.rs` and verifies the same contract
+    // from the opposite side: that the JSON shape no longer deserializes.
 
     #[test]
     fn narration_end_round_trip() {
@@ -262,6 +256,7 @@ mod message_type_tests {
                 input_type: Some("text".into()),
                 loading_text: None,
                 character_preview: None,
+                rolled_stats: None,
                 choice: None,
                 character: None,
             },
@@ -291,6 +286,9 @@ mod message_type_tests {
 
     #[test]
     fn party_status_round_trip() {
+        // Verifies the collapsed PARTY_STATUS model: sheet + inventory are
+        // now nested inside each PartyMember. No separate CHARACTER_SHEET or
+        // INVENTORY messages.
         let msg = GameMessage::PartyStatus {
             payload: PartyStatusPayload {
                 members: vec![PartyMember {
@@ -304,6 +302,28 @@ mod message_type_tests {
                     level: 3,
                     portrait_url: None,
                     current_location: String::new(),
+                    sheet: Some(CharacterSheetDetails {
+                        race: "Orc".into(),
+                        stats: std::collections::HashMap::from([
+                            ("strength".into(), 16),
+                            ("dexterity".into(), 12),
+                        ]),
+                        abilities: vec!["Power Strike".into()],
+                        backstory: "A wandering fighter.".into(),
+                        personality: "Gruff".into(),
+                        pronouns: "he/him".into(),
+                        equipment: vec!["Iron Sword [equipped]".into()],
+                    }),
+                    inventory: Some(InventoryPayload {
+                        items: vec![InventoryItem {
+                            name: "Iron Sword".into(),
+                            item_type: "weapon".into(),
+                            equipped: true,
+                            quantity: 1,
+                            description: "A sturdy blade".into(),
+                        }],
+                        gold: 150,
+                    }),
                 }],
             },
             player_id: String::new(),
@@ -312,55 +332,28 @@ mod message_type_tests {
         assert!(json.contains(r#""type":"PARTY_STATUS""#));
         let decoded: GameMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(msg, decoded);
-    }
 
-    #[test]
-    fn character_sheet_round_trip() {
-        let msg = GameMessage::CharacterSheet {
-            payload: CharacterSheetPayload {
-                name: "Grok".into(),
-                class: "Warrior".into(),
-                race: "Orc".into(),
-                level: 3,
-                stats: std::collections::HashMap::from([
-                    ("strength".into(), 16),
-                    ("dexterity".into(), 12),
-                ]),
-                abilities: vec!["Power Strike".into()],
-                backstory: "A wandering fighter.".into(),
-                personality: "Gruff".into(),
-                pronouns: "he/him".into(),
-                equipment: vec!["Iron Sword [equipped]".into()],
-                portrait_url: None,
-                current_location: String::new(),
-            },
-            player_id: String::new(),
+        // Sheet/inventory optionality: a pre-chargen member has None on both.
+        let pre_chargen = PartyMember {
+            player_id: "p2".into(),
+            name: "Player2".into(),
+            character_name: String::new(),
+            current_hp: 0,
+            max_hp: 0,
+            statuses: vec![],
+            class: String::new(),
+            level: 0,
+            portrait_url: None,
+            current_location: String::new(),
+            sheet: None,
+            inventory: None,
         };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"CHARACTER_SHEET""#));
-        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg, decoded);
-    }
-
-    #[test]
-    fn inventory_round_trip() {
-        let msg = GameMessage::Inventory {
-            payload: InventoryPayload {
-                items: vec![InventoryItem {
-                    name: "Iron Sword".into(),
-                    item_type: "weapon".into(),
-                    equipped: true,
-                    quantity: 1,
-                    description: "A sturdy blade".into(),
-                }],
-                gold: 150,
-            },
-            player_id: String::new(),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"INVENTORY""#));
-        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg, decoded);
+        let json = serde_json::to_string(&pre_chargen).unwrap();
+        // None fields are skipped from serialization.
+        assert!(!json.contains("\"sheet\""));
+        assert!(!json.contains("\"inventory\""));
+        let decoded: PartyMember = serde_json::from_str(&json).unwrap();
+        assert_eq!(pre_chargen, decoded);
     }
 
     #[test]
@@ -370,6 +363,7 @@ mod message_type_tests {
                 current_location: "Dark Cave".into(),
                 region: "Shadowlands".into(),
                 explored: vec![ExploredLocation {
+                    id: String::new(),
                     name: "Dark Cave".into(),
                     x: 100,
                     y: 200,
@@ -379,11 +373,13 @@ mod message_type_tests {
                     room_type: String::new(),
                     size: None,
                     is_current_room: false,
+                    tactical_grid: None,
                 }],
                 fog_bounds: Some(FogBounds {
                     width: 500,
                     height: 400,
                 }),
+                cartography: None,
             },
             player_id: String::new(),
         };
@@ -393,28 +389,8 @@ mod message_type_tests {
         assert_eq!(msg, decoded);
     }
 
-    #[test]
-    fn combat_event_round_trip() {
-        let msg = GameMessage::CombatEvent {
-            payload: CombatEventPayload {
-                in_combat: true,
-                enemies: vec![CombatEnemy {
-                    name: "Goblin".into(),
-                    hp: 8,
-                    max_hp: 12,
-                    ac: Some(13),
-                    status_effects: vec![],
-                }],
-                turn_order: vec!["Player".into(), "Goblin".into()],
-                current_turn: "Player".into(),
-            },
-            player_id: String::new(),
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-        assert!(json.contains(r#""type":"COMBAT_EVENT""#));
-        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg, decoded);
-    }
+    // combat_event_round_trip removed — CombatEvent variant deleted in story 28-9
+    // (replaced by Confrontation)
 
     #[test]
     fn image_round_trip() {
@@ -610,29 +586,7 @@ mod wire_compatibility_tests {
         }
     }
 
-    #[test]
-    fn combat_event_wire_format() {
-        let json = r#"{
-            "type": "COMBAT_EVENT",
-            "payload": {
-                "in_combat": true,
-                "enemies": [{ "name": "Goblin", "hp": 8, "max_hp": 12, "ac": 13 }],
-                "turn_order": ["Player", "Goblin", "Orc"],
-                "current_turn": "Player"
-            },
-            "player_id": ""
-        }"#;
-        let msg: GameMessage = serde_json::from_str(json).unwrap();
-        match &msg {
-            GameMessage::CombatEvent { payload, .. } => {
-                assert!(payload.in_combat);
-                assert_eq!(payload.enemies[0].name, "Goblin");
-                assert_eq!(payload.enemies[0].hp, 8);
-                assert_eq!(payload.enemies[0].ac, Some(13));
-            }
-            other => panic!("expected CombatEvent, got {:?}", other),
-        }
-    }
+    // combat_event_wire_format removed — CombatEvent variant deleted in story 28-9
 
     #[test]
     fn error_wire_format() {
@@ -807,11 +761,11 @@ mod sanitization_tests {
 mod player_location_tests {
     use super::*;
 
-    #[test]
-    fn party_member_includes_current_location() {
-        // PartyMember must carry current_location so the UI can display
-        // where each player is without needing a separate MAP_UPDATE.
-        let member = PartyMember {
+    /// Shared helper: a minimal PartyMember with all required fields filled
+    /// and the optional sheet/inventory facets cleared. Keeps the per-test
+    /// bodies focused on what they're actually asserting.
+    fn member_at(location: &str) -> PartyMember {
+        PartyMember {
             player_id: "p1".into(),
             name: "Alice".into(),
             character_name: "Kael".into(),
@@ -821,25 +775,23 @@ mod player_location_tests {
             class: "Ranger".into(),
             level: 3,
             portrait_url: None,
-            current_location: "The Rusty Cantina".into(),
-        };
+            current_location: location.into(),
+            sheet: None,
+            inventory: None,
+        }
+    }
+
+    #[test]
+    fn party_member_includes_current_location() {
+        // PartyMember must carry current_location so the UI can display
+        // where each player is without needing a separate MAP_UPDATE.
+        let member = member_at("The Rusty Cantina");
         assert_eq!(member.current_location, "The Rusty Cantina");
     }
 
     #[test]
     fn party_member_location_serializes_to_json() {
-        let member = PartyMember {
-            player_id: "p1".into(),
-            name: "Alice".into(),
-            character_name: "Kael".into(),
-            current_hp: 20,
-            max_hp: 20,
-            statuses: vec![],
-            class: "Ranger".into(),
-            level: 3,
-            portrait_url: None,
-            current_location: "Market Square".into(),
-        };
+        let member = member_at("Market Square");
         let json = serde_json::to_string(&member).unwrap();
         assert!(
             json.contains(r#""current_location":"Market Square""#),
@@ -849,18 +801,7 @@ mod player_location_tests {
 
     #[test]
     fn party_member_location_round_trips_through_json() {
-        let member = PartyMember {
-            player_id: "p1".into(),
-            name: "Alice".into(),
-            character_name: "Kael".into(),
-            current_hp: 20,
-            max_hp: 20,
-            statuses: vec![],
-            class: "Ranger".into(),
-            level: 3,
-            portrait_url: None,
-            current_location: "The Wastes".into(),
-        };
+        let member = member_at("The Wastes");
         let json = serde_json::to_string(&member).unwrap();
         let decoded: PartyMember = serde_json::from_str(&json).unwrap();
         assert_eq!(decoded.current_location, "The Wastes");
@@ -883,6 +824,8 @@ mod player_location_tests {
                         level: 3,
                         portrait_url: None,
                         current_location: "The Rusty Cantina".into(),
+                        sheet: None,
+                        inventory: None,
                     },
                     PartyMember {
                         player_id: "p2".into(),
@@ -895,6 +838,8 @@ mod player_location_tests {
                         level: 5,
                         portrait_url: None,
                         current_location: "Scrapyard Gate".into(),
+                        sheet: None,
+                        inventory: None,
                     },
                 ],
             },
@@ -915,30 +860,37 @@ mod player_location_tests {
     }
 
     #[test]
-    fn character_sheet_includes_current_location() {
-        // CHARACTER_SHEET must carry current_location for the sheet overlay.
-        let msg = GameMessage::CharacterSheet {
-            payload: CharacterSheetPayload {
-                name: "Kael".into(),
-                class: "Ranger".into(),
+    fn party_member_sheet_round_trips_through_json() {
+        // Replaces the old `character_sheet_includes_current_location` test.
+        // The current_location field still lives on PartyMember itself; the
+        // nested sheet carries the per-character detail facets.
+        let member = PartyMember {
+            player_id: "p1".into(),
+            name: "Alice".into(),
+            character_name: "Kael".into(),
+            current_hp: 20,
+            max_hp: 20,
+            statuses: vec![],
+            class: "Ranger".into(),
+            level: 3,
+            portrait_url: None,
+            current_location: "The Rusty Cantina".into(),
+            sheet: Some(CharacterSheetDetails {
                 race: "Human".into(),
-                level: 3,
                 stats: std::collections::HashMap::from([("strength".into(), 14)]),
                 abilities: vec!["Tracker".into()],
                 backstory: "Born in the Ashwood.".into(),
                 personality: "Stoic".into(),
                 pronouns: "he/him".into(),
                 equipment: vec!["Longbow".into()],
-                portrait_url: None,
-                current_location: "The Rusty Cantina".into(),
-            },
-            player_id: "p1".into(),
+            }),
+            inventory: None,
         };
-        let json = serde_json::to_string(&msg).unwrap();
+        let json = serde_json::to_string(&member).unwrap();
         assert!(json.contains(r#""current_location":"The Rusty Cantina""#));
-
-        let decoded: GameMessage = serde_json::from_str(&json).unwrap();
-        assert_eq!(msg, decoded);
+        assert!(json.contains(r#""race":"Human""#));
+        let decoded: PartyMember = serde_json::from_str(&json).unwrap();
+        assert_eq!(member, decoded);
     }
 
     #[test]

@@ -6,10 +6,13 @@
 //! ADR-031: Game Watcher — hot-path/cold-path contract via TurnRecord.
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sidequest_game::{GameSnapshot, StateDelta};
 use tokio::sync::mpsc;
 
 use crate::agents::intent_router::Intent;
+use crate::patch_legality::{run_legality_checks, ValidationResult};
+use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 
 /// Buffer size for the watcher mpsc channel.
 ///
@@ -21,7 +24,7 @@ pub const WATCHER_CHANNEL_CAPACITY: usize = 32;
 /// Summary of patches applied during a turn.
 ///
 /// Lightweight representation of what changed, without the full patch payloads.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PatchSummary {
     /// Type of patch (e.g., "world", "combat", "chase").
     pub patch_type: String,
@@ -36,7 +39,7 @@ pub struct PatchSummary {
 /// to validate the turn asynchronously on the cold path.
 ///
 /// All 15 fields per ADR-031.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnRecord {
     /// Monotonically increasing turn identifier.
     pub turn_id: u64,
@@ -71,6 +74,10 @@ pub struct TurnRecord {
     /// Per-phase timing spans for flame chart visualization.
     /// Each entry: (name, start_ms relative to turn start, duration_ms).
     pub spans: Vec<(String, u64, u64)>,
+    /// Full assembled prompt text sent to the LLM (ADR-073 training data).
+    pub prompt_text: Option<String>,
+    /// Raw LLM response text before extraction (ADR-073 training data).
+    pub raw_response_text: Option<String>,
 }
 
 /// Counter for assigning monotonically increasing turn IDs.
@@ -141,6 +148,44 @@ pub async fn run_validator(mut rx: mpsc::Receiver<TurnRecord>) -> Vec<u64> {
             is_degraded = record.is_degraded,
             "received TurnRecord"
         );
+
+        // Run patch legality checks (story 35-1)
+        let results = run_legality_checks(&record);
+
+        let mut violations = 0u64;
+        let mut warnings = 0u64;
+        for result in &results {
+            match result {
+                ValidationResult::Violation(msg) => {
+                    violations += 1;
+                    WatcherEventBuilder::new("patch_legality", WatcherEventType::ValidationWarning)
+                        .field("check", "patch_legality")
+                        .field("violation", msg.as_str())
+                        .field("turn_id", record.turn_id)
+                        .severity(Severity::Warn)
+                        .send();
+                }
+                ValidationResult::Warning(msg) => {
+                    warnings += 1;
+                    WatcherEventBuilder::new("patch_legality", WatcherEventType::ValidationWarning)
+                        .field("check", "patch_legality")
+                        .field("warning", msg.as_str())
+                        .field("turn_id", record.turn_id)
+                        .severity(Severity::Warn)
+                        .send();
+                }
+                ValidationResult::Ok => {}
+            }
+        }
+
+        // Emit per-turn summary
+        WatcherEventBuilder::new("patch_legality", WatcherEventType::SubsystemExerciseSummary)
+            .field("turn_id", record.turn_id)
+            .field("total_checks", results.len() as u64)
+            .field("violations", violations)
+            .field("warnings", warnings)
+            .send();
+
         processed_turn_ids.push(record.turn_id);
     }
 

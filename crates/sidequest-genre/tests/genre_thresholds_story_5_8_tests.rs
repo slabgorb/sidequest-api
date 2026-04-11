@@ -41,7 +41,10 @@ fn genre_pack_has_drama_thresholds_field() {
     // GenrePack should have an optional drama_thresholds field.
     let path = genre_packs_path().join("mutant_wasteland");
     if !path.exists() {
-        panic!("mutant_wasteland genre pack not found at {}", path.display());
+        panic!(
+            "mutant_wasteland genre pack not found at {}",
+            path.display()
+        );
     }
 
     let pack = load_genre_pack(&path).expect("should load mutant_wasteland");
@@ -144,8 +147,8 @@ fn mutant_wasteland_has_pacing_thresholds_in_yaml() {
     // Also check if pack.yaml has a drama_thresholds key
     let pack_yaml_content =
         std::fs::read_to_string(path.join("pack.yaml")).expect("pack.yaml should exist");
-    let has_inline_thresholds = pack_yaml_content.contains("drama_thresholds")
-        || pack_yaml_content.contains("pacing");
+    let has_inline_thresholds =
+        pack_yaml_content.contains("drama_thresholds") || pack_yaml_content.contains("pacing");
 
     assert!(
         has_pacing_file || has_inline_thresholds,

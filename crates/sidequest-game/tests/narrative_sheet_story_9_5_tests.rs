@@ -16,7 +16,7 @@ use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::known_fact::{Confidence, FactSource, KnownFact};
-use sidequest_game::narrative_sheet::{AbilityEntry, KnowledgeEntry, NarrativeSheet};
+use sidequest_game::narrative_sheet::NarrativeSheet;
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
 
@@ -63,8 +63,8 @@ fn make_character(
 fn involuntary_ability() -> AbilityDefinition {
     AbilityDefinition {
         name: "Root-Bonding".to_string(),
-        genre_description: "Your bond with ancient roots lets you sense corruption in living things"
-            .to_string(),
+        genre_description:
+            "Your bond with ancient roots lets you sense corruption in living things".to_string(),
         mechanical_effect: "+2 Nature, detect corruption 30ft".to_string(),
         involuntary: true,
         source: AbilitySource::Race,
@@ -152,10 +152,7 @@ fn narrative_sheet_has_status_field() {
 
     // Status should reflect HP state — character has 18/30 HP
     let status_str = format!("{:?}", sheet.status);
-    assert!(
-        !status_str.is_empty(),
-        "status section should not be empty",
-    );
+    assert!(!status_str.is_empty(), "status section should not be empty",);
 }
 
 // ============================================================================
@@ -207,7 +204,10 @@ fn ability_entry_preserves_involuntary_flag() {
     let sheet = character.to_narrative_sheet("dark fantasy");
 
     let root_bonding = sheet.abilities.iter().find(|a| a.name == "Root-Bonding");
-    assert!(root_bonding.is_some(), "Root-Bonding should be in abilities");
+    assert!(
+        root_bonding.is_some(),
+        "Root-Bonding should be in abilities"
+    );
     assert!(
         root_bonding.unwrap().involuntary,
         "Root-Bonding should be marked involuntary",
@@ -261,10 +261,7 @@ fn knowledge_entry_contains_confidence() {
 
     let sheet = character.to_narrative_sheet("dark fantasy");
 
-    let certain = sheet
-        .knowledge
-        .iter()
-        .find(|k| k.content.contains("mayor"));
+    let certain = sheet.knowledge.iter().find(|k| k.content.contains("mayor"));
     assert!(certain.is_some());
     assert!(
         matches!(certain.unwrap().confidence, Confidence::Certain),
@@ -351,11 +348,7 @@ fn status_no_conditions_when_healthy() {
 
 #[test]
 fn narrative_sheet_serializes_to_json() {
-    let character = make_character(
-        "Reva",
-        vec![involuntary_ability()],
-        vec![certain_fact()],
-    );
+    let character = make_character("Reva", vec![involuntary_ability()], vec![certain_fact()]);
 
     let sheet = character.to_narrative_sheet("dark fantasy");
 

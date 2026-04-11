@@ -42,7 +42,6 @@ use sidequest_game::persistence::{
 
 fn test_snapshot() -> GameSnapshot {
     use sidequest_game::character::Character;
-    use sidequest_game::combat::CombatState;
     use sidequest_game::creature_core::CreatureCore;
     use sidequest_game::inventory::Inventory;
     use sidequest_game::turn::{TurnManager, TurnPhase};
@@ -70,7 +69,7 @@ fn test_snapshot() -> GameSnapshot {
             hooks: vec![],
             char_class: NonBlankString::new("Fighter").unwrap(),
             race: NonBlankString::new("Human").unwrap(),
-        pronouns: String::new(),
+            pronouns: String::new(),
             stats: HashMap::from([
                 ("STR".to_string(), 14),
                 ("DEX".to_string(), 12),
@@ -90,8 +89,6 @@ fn test_snapshot() -> GameSnapshot {
         quest_log: HashMap::new(),
         notes: vec![],
         narrative_log: vec![],
-        combat: CombatState::new(),
-        chase: None,
         active_tropes: vec![],
         atmosphere: "tense".to_string(),
         current_region: "flickering_reach".to_string(),

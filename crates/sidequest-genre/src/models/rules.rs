@@ -4,6 +4,23 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════
+// Initiative rules (story 13-12)
+// ═══════════════════════════════════════════════════════════
+
+/// Maps an encounter type to its primary stat for turn ordering.
+///
+/// Each genre pack can define per-encounter-type initiative rules so that
+/// different situations weight different ability scores (e.g., combat → DEX,
+/// social → CHA).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct InitiativeRule {
+    /// The ability score name that drives initiative for this encounter type.
+    pub primary_stat: String,
+    /// Narrator-facing description of why this stat matters.
+    pub description: String,
+}
+
+// ═══════════════════════════════════════════════════════════
 // Resource declarations (story 16-1)
 // ═══════════════════════════════════════════════════════════
 
@@ -127,6 +144,8 @@ struct RawBeatDef {
     requires: Option<String>,
     #[serde(default)]
     narrator_hint: Option<String>,
+    #[serde(default)]
+    gold_delta: Option<i32>,
 }
 
 /// A single action available during a confrontation.
@@ -164,6 +183,10 @@ pub struct BeatDef {
     /// Guidance for the narrator LLM when this beat is executed.
     #[serde(default)]
     pub narrator_hint: Option<String>,
+    /// Gold change applied to the player's inventory when this beat resolves.
+    /// Positive = player gains gold, negative = player loses gold (ante, bet, etc.).
+    #[serde(default)]
+    pub gold_delta: Option<i32>,
 }
 
 impl TryFrom<RawBeatDef> for BeatDef {
@@ -185,6 +208,7 @@ impl TryFrom<RawBeatDef> for BeatDef {
             consequence: raw.consequence,
             requires: raw.requires,
             narrator_hint: raw.narrator_hint,
+            gold_delta: raw.gold_delta,
         })
     }
 }
@@ -409,4 +433,12 @@ pub struct RulesConfig {
     /// Confrontation type declarations (story 16-3). Empty for genres without confrontations.
     #[serde(default)]
     pub confrontations: Vec<ConfrontationDef>,
+    /// Affinity name that receives progress when gold is extracted to surface (story 19-9).
+    /// None for genres without treasure-as-XP. E.g., "Plunderer" for caverns_and_claudes.
+    #[serde(default)]
+    pub xp_affinity: Option<String>,
+    /// Initiative rules mapping encounter types to primary stats (story 13-12).
+    /// Empty for genres that haven't authored initiative rules yet.
+    #[serde(default)]
+    pub initiative_rules: HashMap<String, InitiativeRule>,
 }

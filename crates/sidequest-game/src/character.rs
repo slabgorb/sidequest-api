@@ -86,10 +86,7 @@ impl Character {
             AbilityEntry, CharacterStatus, KnowledgeEntry, NarrativeSheet,
         };
 
-        let identity = format!(
-            "{}, {} {}",
-            self.core.name, self.race, self.char_class
-        );
+        let identity = format!("{}, {} {}", self.core.name, self.race, self.char_class);
 
         let abilities = self
             .abilities

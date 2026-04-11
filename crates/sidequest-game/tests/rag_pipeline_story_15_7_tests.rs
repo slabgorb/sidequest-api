@@ -5,11 +5,11 @@
 //! 2. `accumulate_lore()` wiring prerequisites are correct
 //! 3. OTEL-relevant metadata is present on fragments created by `accumulate_lore()`
 
-use std::collections::HashMap;
 use sidequest_game::lore::{
     accumulate_lore, cosine_similarity, select_lore_for_prompt, LoreCategory, LoreFragment,
     LoreSource, LoreStore,
 };
+use std::collections::HashMap;
 
 // ============================================================
 // Helpers
@@ -83,19 +83,13 @@ fn select_lore_prefers_semantic_when_embeddings_available() {
     let selected = select_lore_for_prompt(&store, 500, None, Some(&query_embedding));
 
     // The semantically-close fragment should appear before the keyword-only match
-    assert!(
-        !selected.is_empty(),
-        "Should select at least one fragment"
-    );
+    assert!(!selected.is_empty(), "Should select at least one fragment");
 
     // Find positions of both fragments
     let semantic_pos = selected.iter().position(|f| f.id() == "geo-semantic");
     let keyword_pos = selected.iter().position(|f| f.id() == "geo-keyword");
 
-    assert!(
-        semantic_pos.is_some(),
-        "Semantic match should be selected"
-    );
+    assert!(semantic_pos.is_some(), "Semantic match should be selected");
     // When embeddings are available, semantic match should be ranked first
     if let (Some(sem), Some(kw)) = (semantic_pos, keyword_pos) {
         assert!(
@@ -210,7 +204,11 @@ fn query_by_similarity_returns_ranked_results() {
     let results = store.query_by_similarity(&query, 10);
 
     // Should skip fragment without embedding
-    assert_eq!(results.len(), 2, "Should return only fragments with embeddings");
+    assert_eq!(
+        results.len(),
+        2,
+        "Should return only fragments with embeddings"
+    );
 
     // "close" should rank higher than "far"
     assert_eq!(results[0].0.id(), "close");

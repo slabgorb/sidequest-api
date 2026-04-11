@@ -22,10 +22,9 @@
 //!   AC-Integration: Complete standoff sequence from start to combat escalation
 
 use sidequest_game::encounter::{
-    EncounterActor, EncounterMetric, EncounterPhase, MetricDirection, SecondaryStats,
-    StructuredEncounter, StatValue,
+    EncounterActor, EncounterPhase, MetricDirection, StructuredEncounter,
 };
-use sidequest_genre::{BeatDef, ConfrontationDef, SecondaryStatDef};
+use sidequest_genre::{BeatDef, ConfrontationDef};
 
 // =========================================================================
 // AC-Loads: Standoff declaration parses from spaghetti_western rules.yaml
@@ -121,15 +120,17 @@ fn standoff_beat_deltas_correct() {
         .find(|c| c.confrontation_type == "standoff")
         .expect("standoff must exist");
 
-    let find_beat = |id: &str| -> &BeatDef {
-        standoff.beats.iter().find(|b| b.id == id).unwrap()
-    };
+    let find_beat = |id: &str| -> &BeatDef { standoff.beats.iter().find(|b| b.id == id).unwrap() };
 
     assert_eq!(find_beat("size_up").metric_delta, 2, "size_up: tension +2");
     assert_eq!(find_beat("bluff").metric_delta, 3, "bluff: tension +3");
     assert_eq!(find_beat("flinch").metric_delta, -1, "flinch: tension -1");
     // draw's delta is 0 — it resolves via stat check, not metric push
-    assert_eq!(find_beat("draw").metric_delta, 0, "draw: delta 0 (resolves)");
+    assert_eq!(
+        find_beat("draw").metric_delta,
+        0,
+        "draw: delta 0 (resolves)"
+    );
 }
 
 /// Size Up beat reveals opponent detail.
@@ -152,10 +153,7 @@ fn standoff_size_up_reveals_opponent_detail() {
         Some("opponent_detail"),
         "size_up must reveal opponent_detail"
     );
-    assert_eq!(
-        size_up.stat_check, "CUNNING",
-        "size_up checks CUNNING"
-    );
+    assert_eq!(size_up.stat_check, "CUNNING", "size_up checks CUNNING");
 }
 
 /// Draw beat is the resolution beat.
@@ -195,10 +193,7 @@ fn standoff_bluff_has_risk() {
         .expect("standoff must exist");
 
     let bluff = standoff.beats.iter().find(|b| b.id == "bluff").unwrap();
-    assert!(
-        bluff.risk.is_some(),
-        "bluff must have a risk description"
-    );
+    assert!(bluff.risk.is_some(), "bluff must have a risk description");
     assert_eq!(bluff.stat_check, "NERVE", "bluff checks NERVE");
 }
 
@@ -216,7 +211,11 @@ fn standoff_has_focus_secondary_stat() {
         .find(|c| c.confrontation_type == "standoff")
         .expect("standoff must exist");
 
-    assert_eq!(standoff.secondary_stats.len(), 1, "one secondary stat: focus");
+    assert_eq!(
+        standoff.secondary_stats.len(),
+        1,
+        "one secondary stat: focus"
+    );
     assert_eq!(standoff.secondary_stats[0].name, "focus");
     assert_eq!(
         standoff.secondary_stats[0].source_stat, "NERVE",
@@ -414,7 +413,7 @@ fn apply_beat_flinch_decreases_tension() {
 
     // First build some tension
     let _ = encounter.apply_beat("size_up", &def); // tension = 2
-    let _ = encounter.apply_beat("flinch", &def);  // tension = 1
+    let _ = encounter.apply_beat("flinch", &def); // tension = 1
 
     assert_eq!(
         encounter.metric.current, 1,
@@ -458,9 +457,12 @@ fn multiple_beats_accumulate_tension() {
 
     let _ = encounter.apply_beat("size_up", &def); // 2
     let _ = encounter.apply_beat("size_up", &def); // 4
-    let _ = encounter.apply_beat("bluff", &def);   // 7
+    let _ = encounter.apply_beat("bluff", &def); // 7
 
-    assert_eq!(encounter.metric.current, 7, "tension should accumulate: 2+2+3=7");
+    assert_eq!(
+        encounter.metric.current, 7,
+        "tension should accumulate: 2+2+3=7"
+    );
     assert_eq!(encounter.beat, 3, "beat counter should be 3");
 }
 
@@ -477,8 +479,8 @@ fn tension_threshold_resolves_encounter() {
     // Build tension to exactly 10: size_up(2) + size_up(2) + bluff(3) + bluff(3) = 10
     let _ = encounter.apply_beat("size_up", &def); // 2
     let _ = encounter.apply_beat("size_up", &def); // 4
-    let _ = encounter.apply_beat("bluff", &def);   // 7
-    let _ = encounter.apply_beat("bluff", &def);   // 10
+    let _ = encounter.apply_beat("bluff", &def); // 7
+    let _ = encounter.apply_beat("bluff", &def); // 10
 
     assert_eq!(encounter.metric.current, 10);
     assert!(
@@ -557,8 +559,8 @@ fn resolved_standoff_produces_combat_escalation() {
 
     // Build tension and resolve via draw
     let _ = encounter.apply_beat("size_up", &def); // 2
-    let _ = encounter.apply_beat("bluff", &def);   // 5
-    let _ = encounter.apply_beat("draw", &def);    // resolve
+    let _ = encounter.apply_beat("bluff", &def); // 5
+    let _ = encounter.apply_beat("draw", &def); // resolve
 
     assert!(encounter.resolved);
 
@@ -610,13 +612,19 @@ fn format_standoff_context_includes_all_sections() {
 
     // Simulate a mid-standoff state: 3 beats in, tension at 7
     let _ = encounter.apply_beat("size_up", &def); // 2
-    let _ = encounter.apply_beat("bluff", &def);   // 5
+    let _ = encounter.apply_beat("bluff", &def); // 5
     let _ = encounter.apply_beat("size_up", &def); // 7
 
     let ctx = encounter.format_encounter_context(&def);
 
-    assert!(ctx.contains("[STANDOFF]"), "context must have [STANDOFF] header");
-    assert!(ctx.contains("tension") || ctx.contains("Tension"), "must show tension metric");
+    assert!(
+        ctx.contains("[STANDOFF]"),
+        "context must have [STANDOFF] header"
+    );
+    assert!(
+        ctx.contains("tension") || ctx.contains("Tension"),
+        "must show tension metric"
+    );
     assert!(ctx.contains("7"), "must show current tension value (7)");
     assert!(ctx.contains("10"), "must show threshold (10)");
     assert!(ctx.contains("Size Up"), "must list available beats");
@@ -769,12 +777,10 @@ fn game_snapshot_standoff_serde_roundtrip() {
     let def = standoff_def();
     let mut snapshot = GameSnapshot::default();
     let mut encounter = StructuredEncounter::from_confrontation_def(&def);
-    encounter.actors = vec![
-        EncounterActor {
-            name: "Clint".to_string(),
-            role: "duelist".to_string(),
-        },
-    ];
+    encounter.actors = vec![EncounterActor {
+        name: "Clint".to_string(),
+        role: "duelist".to_string(),
+    }];
     snapshot.encounter = Some(encounter);
 
     let json = serde_json::to_string(&snapshot).expect("serialize");

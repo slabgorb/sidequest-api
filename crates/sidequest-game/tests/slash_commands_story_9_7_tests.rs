@@ -20,7 +20,6 @@
 use std::collections::HashMap;
 
 use sidequest_game::character::Character;
-use sidequest_game::combat::CombatState;
 use sidequest_game::commands::{InventoryCommand, MapCommand, SaveCommand, StatusCommand};
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::{Inventory, Item};
@@ -56,8 +55,6 @@ fn test_snapshot() -> GameSnapshot {
         notes: vec![],
         narrative_log: vec![],
         active_tropes: vec![],
-        combat: CombatState::default(),
-        chase: None,
         turn_manager: TurnManager::new(),
         active_stakes: String::new(),
         lore_established: vec![],
@@ -87,7 +84,7 @@ fn test_character() -> Character {
         tags: vec!["melee".to_string(), "blade".to_string()],
         equipped: true,
         quantity: 1,
-                uses_remaining: None,
+        uses_remaining: None,
         state: sidequest_game::ItemState::Carried,
     });
 
@@ -103,7 +100,7 @@ fn test_character() -> Character {
         tags: vec!["protection".to_string()],
         equipped: true,
         quantity: 1,
-                uses_remaining: None,
+        uses_remaining: None,
         state: sidequest_game::ItemState::Carried,
     });
 
@@ -119,7 +116,7 @@ fn test_character() -> Character {
         tags: vec!["camping".to_string()],
         equipped: false,
         quantity: 1,
-                uses_remaining: None,
+        uses_remaining: None,
         state: sidequest_game::ItemState::Carried,
     });
 
@@ -135,7 +132,7 @@ fn test_character() -> Character {
         tags: vec!["food".to_string()],
         equipped: false,
         quantity: 3,
-                uses_remaining: None,
+        uses_remaining: None,
         state: sidequest_game::ItemState::Carried,
     });
 
@@ -148,7 +145,8 @@ fn test_character() -> Character {
             hp: 18,
             max_hp: 20,
             ac: 13,
-            xp: 0,            inventory,
+            xp: 0,
+            inventory,
             statuses: vec![],
         },
         backstory: NonBlankString::new("Born in the ash storms").unwrap(),

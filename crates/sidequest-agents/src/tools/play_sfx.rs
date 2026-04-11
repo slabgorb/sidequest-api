@@ -29,10 +29,7 @@ pub struct InvalidSfxId(String);
 /// - `sfx_id`: the SFX identifier to validate
 /// - `library`: available SFX IDs from the genre's audio config
 #[tracing::instrument(name = "tool.play_sfx", skip_all, fields(sfx_id = %sfx_id))]
-pub fn validate_play_sfx(
-    sfx_id: &str,
-    library: &[String],
-) -> Result<PlaySfxResult, InvalidSfxId> {
+pub fn validate_play_sfx(sfx_id: &str, library: &[String]) -> Result<PlaySfxResult, InvalidSfxId> {
     let trimmed = sfx_id.trim();
     if trimmed.is_empty() {
         tracing::warn!(valid = false, "play_sfx validation failed — empty SFX ID");
@@ -40,15 +37,11 @@ pub fn validate_play_sfx(
     }
 
     let lowered = trimmed.to_lowercase();
-    let matched = library
-        .iter()
-        .find(|id| id.to_lowercase() == lowered);
+    let matched = library.iter().find(|id| id.to_lowercase() == lowered);
 
     match matched {
         Some(_) => {
-            let result = PlaySfxResult {
-                sfx_id: lowered,
-            };
+            let result = PlaySfxResult { sfx_id: lowered };
 
             tracing::info!(
                 valid = true,

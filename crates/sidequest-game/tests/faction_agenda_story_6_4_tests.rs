@@ -271,7 +271,11 @@ urgency: pressing
 event_text: "The Iron Brotherhood tightens its grip."
 "#;
     let agenda: Result<FactionAgenda, _> = serde_yaml::from_str(yaml);
-    assert!(agenda.is_ok(), "valid YAML should deserialize: {:?}", agenda.err());
+    assert!(
+        agenda.is_ok(),
+        "valid YAML should deserialize: {:?}",
+        agenda.err()
+    );
     let agenda = agenda.unwrap();
     assert_eq!(agenda.faction_name(), "Iron Brotherhood");
     assert_eq!(agenda.urgency(), AgendaUrgency::Pressing);
@@ -323,7 +327,12 @@ event_text: "test"
         );
         let agenda: FactionAgenda = serde_yaml::from_str(&yaml)
             .unwrap_or_else(|e| panic!("failed to deserialize urgency '{}': {}", level_str, e));
-        assert_eq!(agenda.urgency(), expected, "urgency '{}' mismatch", level_str);
+        assert_eq!(
+            agenda.urgency(),
+            expected,
+            "urgency '{}' mismatch",
+            level_str
+        );
     }
 }
 

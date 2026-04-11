@@ -12,11 +12,8 @@ use sidequest_protocol::NonBlankString;
 use crate::achievement::AchievementTracker;
 use crate::axis::AxisValue;
 use crate::character::Character;
-use crate::chase::{ChaseState, ChaseType};
-use crate::chase_depth::{ChaseActor, RigStats, RigType};
-use crate::combat::CombatState;
-use crate::consequence::GenieWish;
 use crate::combatant::Combatant;
+use crate::consequence::GenieWish;
 use crate::creature_core::CreatureCore;
 use crate::delta::StateDelta;
 use crate::disposition::Disposition;
@@ -37,8 +34,8 @@ use crate::turn::TurnManager;
 use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
 use sidequest_protocol::{
-    CharacterState, ChapterMarkerPayload, CombatEnemy, CombatEventPayload, ExploredLocation,
-    GameMessage, MapUpdatePayload, PartyMember, PartyStatusPayload,
+    ChapterMarkerPayload, CharacterState, ExploredLocation, GameMessage, MapUpdatePayload,
+    PartyMember, PartyStatusPayload,
 };
 
 /// Room IDs the player has visited in room-graph navigation mode.
@@ -126,12 +123,6 @@ pub struct GameSnapshot {
     pub notes: Vec<String>,
     /// Narrative history.
     pub narrative_log: Vec<NarrativeEntry>,
-    /// Active combat state.
-    pub combat: CombatState,
-    /// Active chase sequence (None if no chase in progress).
-    /// Kept for backward compatibility with ChasePatch system.
-    #[serde(default)]
-    pub chase: Option<ChaseState>,
     /// Active structured encounter (story 16-2).
     /// Generalizes ChaseState — supports standoffs, negotiations, ship combat, etc.
     /// Old saves with a `chase` field are migrated to this field during deserialization.
@@ -193,14 +184,6 @@ pub struct GameSnapshot {
     /// None when no scenario is active.
     #[serde(default)]
     pub scenario_state: Option<ScenarioState>,
-    /// Current resource values keyed by resource name (story 16-1).
-    /// Lightweight tracking — formal ResourcePool comes in story 16-10.
-    #[serde(default)]
-    pub resource_state: HashMap<String, f64>,
-    /// Resource declarations loaded from genre pack (story 16-1).
-    /// Used for bounds clamping during delta application.
-    #[serde(default)]
-    pub resource_declarations: Vec<sidequest_genre::ResourceDeclaration>,
     /// Room IDs the player has visited in room-graph mode (story 19-2).
     /// Empty in region mode. Serializes as sorted Vec for deterministic JSON.
     #[serde(default)]
@@ -257,10 +240,6 @@ struct GameSnapshotRaw {
     #[serde(default)]
     narrative_log: Vec<NarrativeEntry>,
     #[serde(default)]
-    combat: CombatState,
-    #[serde(default)]
-    chase: Option<ChaseState>,
-    #[serde(default)]
     encounter: Option<StructuredEncounter>,
     #[serde(default, deserialize_with = "deserialize_trope_states")]
     active_tropes: Vec<TropeState>,
@@ -312,12 +291,64 @@ struct GameSnapshotRaw {
 
 impl From<GameSnapshotRaw> for GameSnapshot {
     fn from(raw: GameSnapshotRaw) -> Self {
-        // Migrate: if encounter is absent but chase is present, convert chase → encounter
-        let encounter = raw.encounter.or_else(|| {
-            raw.chase
-                .as_ref()
-                .map(StructuredEncounter::from_chase_state)
-        });
+        // Resource system migration (phase 4 of resource consolidation).
+        //
+        // Old saves store resources in `resource_state: HashMap<String, f64>` with
+        // metadata in a parallel `resource_declarations` vec. New saves store them
+        // as `resources: HashMap<String, ResourcePool>`.
+        //
+        // If `resources` is populated, use it directly (new save). Otherwise,
+        // synthesize minimal ResourcePool entries from the legacy fields so the
+        // player's saved values survive deserialization. The next
+        // `init_resource_pools()` call on session load will upsert the
+        // genre-pack metadata (label, min, max, decay, thresholds) without
+        // clobbering `current` — that's what phase 1a's upsert semantics enable.
+        let resources = if !raw.resources.is_empty() {
+            raw.resources
+        } else if !raw.resource_state.is_empty() {
+            let mut pools: HashMap<String, ResourcePool> = HashMap::new();
+            for (name, current) in &raw.resource_state {
+                // Look up metadata from legacy declarations if present;
+                // otherwise synthesize unbounded defaults that init_resource_pools
+                // will overwrite on the next session load.
+                let decl = raw.resource_declarations.iter().find(|d| d.name == *name);
+                let pool = if let Some(d) = decl {
+                    ResourcePool {
+                        name: d.name.clone(),
+                        label: d.label.clone(),
+                        current: *current,
+                        min: d.min,
+                        max: d.max,
+                        voluntary: d.voluntary,
+                        decay_per_turn: d.decay_per_turn,
+                        thresholds: d
+                            .thresholds
+                            .iter()
+                            .map(|t| crate::resource_pool::ResourceThreshold {
+                                at: t.at,
+                                event_id: t.event_id.clone(),
+                                narrator_hint: t.narrator_hint.clone(),
+                            })
+                            .collect(),
+                    }
+                } else {
+                    ResourcePool {
+                        name: name.clone(),
+                        label: String::new(), // upsert fills this on session load
+                        current: *current,
+                        min: f64::MIN,
+                        max: f64::MAX,
+                        voluntary: false,
+                        decay_per_turn: 0.0,
+                        thresholds: Vec::new(),
+                    }
+                };
+                pools.insert(name.clone(), pool);
+            }
+            pools
+        } else {
+            HashMap::new()
+        };
 
         Self {
             genre_slug: raw.genre_slug,
@@ -329,9 +360,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             quest_log: raw.quest_log,
             notes: raw.notes,
             narrative_log: raw.narrative_log,
-            combat: raw.combat,
-            chase: raw.chase,
-            encounter,
+            encounter: raw.encounter,
             active_tropes: raw.active_tropes,
             atmosphere: raw.atmosphere,
             current_region: raw.current_region,
@@ -350,83 +379,14 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             axis_values: raw.axis_values,
             achievement_tracker: raw.achievement_tracker,
             scenario_state: raw.scenario_state,
-            resource_state: raw.resource_state,
-            resource_declarations: raw.resource_declarations,
             discovered_rooms: raw.discovered_rooms,
             player_dead: raw.player_dead,
-            resources: raw.resources,
+            resources,
         }
     }
 }
 
 impl GameSnapshot {
-    /// Apply resource deltas to tracked state (story 16-1).
-    ///
-    /// Only modifies resources that already exist in `resource_state`.
-    /// Unknown resources in the delta map are silently ignored (not created).
-    /// Values are clamped to [min, max] if a matching `ResourceDeclaration` exists.
-    pub fn apply_resource_deltas(&mut self, deltas: &HashMap<String, f64>) {
-        for (name, delta) in deltas {
-            if let Some(current) = self.resource_state.get_mut(name) {
-                *current += delta;
-                // Clamp to bounds if declaration exists
-                if let Some(decl) = self.resource_declarations.iter().find(|d| d.name == *name) {
-                    *current = current.clamp(decl.min, decl.max);
-                }
-            }
-        }
-    }
-
-    /// Apply decay_per_turn from all resource declarations (story 19-6).
-    ///
-    /// Builds a delta map from `resource_declarations` and applies via `apply_resource_deltas`.
-    /// Returns resources that *reached* min this tick (were above min before, at min after).
-    /// Resources already at min are not re-reported.
-    pub fn apply_decay_per_turn(&mut self) -> Vec<(String, f64)> {
-        // Snapshot pre-decay values and identify which are already at min
-        let pre_values: HashMap<String, f64> = self.resource_state.clone();
-        let at_min_before: std::collections::HashSet<String> = self
-            .resource_declarations
-            .iter()
-            .filter(|d| {
-                pre_values
-                    .get(&d.name)
-                    .map(|v| (*v - d.min).abs() < 1e-12)
-                    .unwrap_or(false)
-            })
-            .map(|d| d.name.clone())
-            .collect();
-
-        // Build deltas from declarations
-        let deltas: HashMap<String, f64> = self
-            .resource_declarations
-            .iter()
-            .filter(|d| d.decay_per_turn.abs() > 1e-12)
-            .map(|d| (d.name.clone(), d.decay_per_turn))
-            .collect();
-
-        if deltas.is_empty() {
-            return vec![];
-        }
-
-        self.apply_resource_deltas(&deltas);
-
-        // Find resources that just reached min (weren't at min before, are now)
-        self.resource_declarations
-            .iter()
-            .filter(|d| {
-                if at_min_before.contains(&d.name) {
-                    return false; // already at min, don't re-report
-                }
-                self.resource_state
-                    .get(&d.name)
-                    .map(|v| (*v - d.min).abs() < 1e-12)
-                    .unwrap_or(false)
-            })
-            .map(|d| (d.name.clone(), d.min))
-            .collect()
-    }
-
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {
@@ -436,7 +396,11 @@ impl GameSnapshot {
             .filter(|c| c.is_friendly)
             .map(|c| {
                 let max = c.max_hp();
-                if max == 0 { 0.0 } else { c.hp() as f64 / max as f64 }
+                if max == 0 {
+                    0.0
+                } else {
+                    c.hp() as f64 / max as f64
+                }
             })
             .fold(1.0_f64, f64::min)
     }
@@ -482,21 +446,18 @@ impl GameSnapshot {
             changed.push("atmosphere");
         }
         if let Some(ref ql) = patch.quest_log {
-            let quest_span = tracing::info_span!(
-                "quest_update",
-                quest_count = ql.len(),
-            );
+            let quest_span = tracing::info_span!("quest_update", quest_count = ql.len(),);
             let _quest_guard = quest_span.enter();
             self.quest_log = ql.clone();
             changed.push("quest_log");
         }
         if let Some(ref updates) = patch.quest_updates {
             let existing_keys: std::collections::HashSet<&String> = self.quest_log.keys().collect();
-            let added = updates.keys().filter(|k| !existing_keys.contains(k)).count();
-            let quest_span = tracing::info_span!(
-                "quest_update",
-                quests_added = added,
-            );
+            let added = updates
+                .keys()
+                .filter(|k| !existing_keys.contains(k))
+                .count();
+            let quest_span = tracing::info_span!("quest_update", quests_added = added,);
             let _quest_guard = quest_span.enter();
             for (k, v) in updates {
                 self.quest_log.insert(k.clone(), v.clone());
@@ -550,7 +511,11 @@ impl GameSnapshot {
         // Discovered facts — route each fact to its character's known_facts (story 9-3)
         if let Some(ref facts) = patch.discovered_facts {
             for df in facts {
-                if let Some(character) = self.characters.iter_mut().find(|c| c.name() == df.character_name) {
+                if let Some(character) = self
+                    .characters
+                    .iter_mut()
+                    .find(|c| c.name() == df.character_name)
+                {
                     tracing::info!(
                         character = %df.character_name,
                         fact = %df.fact.content,
@@ -650,129 +615,7 @@ impl GameSnapshot {
         );
     }
 
-    /// Apply a combat patch.
-    /// Emits a tracing span with patch_type and fields_changed (story 3-1).
-    pub fn apply_combat_patch(&mut self, patch: &CombatPatch) {
-        let span = tracing::info_span!(
-            "apply_combat_patch",
-            patch_type = "combat",
-            fields_changed = tracing::field::Empty,
-        );
-        let _guard = span.enter();
-
-        let mut changed = Vec::new();
-        if patch.advance_round {
-            self.combat.advance_round();
-            changed.push("round");
-        }
-        if let Some(active) = patch.in_combat {
-            self.combat.set_in_combat(active);
-            changed.push("in_combat");
-        }
-        if let Some(ref order) = patch.turn_order {
-            self.combat.set_turn_order(order.clone());
-            changed.push("turn_order");
-        }
-        if let Some(ref turn) = patch.current_turn {
-            self.combat.set_current_turn(turn.clone());
-            changed.push("current_turn");
-        }
-        if let Some(ref actions) = patch.available_actions {
-            self.combat.set_available_actions(actions.clone());
-            changed.push("available_actions");
-        }
-        if let Some(weight) = patch.drama_weight {
-            self.combat.set_drama_weight(weight);
-            changed.push("drama_weight");
-        }
-        if let Some(ref hp) = patch.hp_changes {
-            for (name, delta) in hp {
-                self.apply_hp_change(name, *delta);
-            }
-            changed.push("hp_changes");
-        }
-
-        span.record(
-            "fields_changed",
-            &tracing::field::display(&changed.join(",")),
-        );
-    }
-
-    /// Apply a chase patch (start a chase or record a roll).
-    /// Emits a tracing span with patch_type and fields_changed (story 3-1).
-    pub fn apply_chase_patch(&mut self, patch: &ChasePatch) {
-        let span = tracing::info_span!(
-            "apply_chase_patch",
-            patch_type = "chase",
-            fields_changed = tracing::field::Empty,
-        );
-        let _guard = span.enter();
-
-        let mut changed = Vec::new();
-        if let Some((chase_type, threshold)) = patch.start {
-            self.chase = Some(ChaseState::new(chase_type, threshold));
-            changed.push("chase_started");
-        }
-        if let Some((chase_type, threshold, rig_type, goal)) = patch.start_vehicle {
-            self.chase =
-                Some(ChaseState::new_vehicle_chase(chase_type, threshold, rig_type, goal));
-            changed.push("vehicle_chase_started");
-        }
-        if let Some(roll) = patch.roll {
-            if let Some(ref mut chase) = self.chase {
-                chase.record_roll(roll);
-                changed.push("escape_roll");
-            }
-        }
-        if let Some(sep) = patch.separation {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_separation(sep);
-                changed.push("separation");
-            }
-        }
-        if let Some(ref phase) = patch.phase {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_phase(phase.clone());
-                changed.push("phase");
-            }
-        }
-        if let Some(ref event) = patch.event {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_event(event.clone());
-                changed.push("event");
-            }
-        }
-        if let Some(ref rig) = patch.rig {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_rig(rig.clone());
-                changed.push("rig");
-            }
-        }
-        if let Some(ref actors) = patch.actors {
-            if let Some(ref mut chase) = self.chase {
-                chase.set_actors(actors.clone());
-                changed.push("actors");
-            }
-        }
-        if patch.advance_beat {
-            if let Some(ref mut chase) = self.chase {
-                chase.advance_beat();
-                changed.push("beat_advanced");
-            }
-        }
-        if patch.abandon {
-            if let Some(ref mut chase) = self.chase {
-                chase.abandon();
-                changed.push("abandoned");
-            }
-        }
-
-        span.record(
-            "fields_changed",
-            &tracing::field::display(&changed.join(",")),
-        );
-    }
-
+    /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     ///
     /// Each request is resolved using the named NPC's disposition for pricing.
@@ -820,12 +663,9 @@ impl GameSnapshot {
                     &disposition,
                     PLAYER_CARRY_LIMIT,
                 ),
-                TransactionType::Sell => merchant::execute_sell(
-                    player_inv,
-                    merchant_inv,
-                    &request.item_id,
-                    &disposition,
-                ),
+                TransactionType::Sell => {
+                    merchant::execute_sell(player_inv, merchant_inv, &request.item_id, &disposition)
+                }
             };
 
             // Emit OTEL span for successful transactions
@@ -935,56 +775,8 @@ where
     }
 }
 
-/// Patch for combat state.
-/// Story 2-7: Extended with in_combat, hp_changes, turn_order, etc.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CombatPatch {
-    /// Whether to advance the combat round.
-    #[serde(default)]
-    pub advance_round: bool,
-    /// Whether combat is active.
-    pub in_combat: Option<bool>,
-    /// Per-combatant HP deltas.
-    pub hp_changes: Option<HashMap<String, i32>>,
-    /// Turn order.
-    pub turn_order: Option<Vec<String>>,
-    /// Current turn holder.
-    pub current_turn: Option<String>,
-    /// Available player actions.
-    pub available_actions: Option<Vec<String>>,
-    /// Drama weight for pacing.
-    pub drama_weight: Option<f64>,
-}
-
-/// Patch for chase state.
-/// Story 2-7: Extended with separation, phase, event.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChasePatch {
-    /// Start a new chase with (type, escape_threshold).
-    pub start: Option<(ChaseType, f64)>,
-    /// Start a vehicle chase with (type, threshold, rig_type, goal).
-    pub start_vehicle: Option<(ChaseType, f64, RigType, i32)>,
-    /// Record an escape roll.
-    pub roll: Option<f64>,
-    /// Distance between pursuer and quarry.
-    pub separation: Option<i32>,
-    /// Current chase phase.
-    pub phase: Option<String>,
-    /// Chase event description.
-    pub event: Option<String>,
-    /// Set rig stats (C1).
-    pub rig: Option<RigStats>,
-    /// Set crew assignments (C2).
-    pub actors: Option<Vec<ChaseActor>>,
-    /// Advance to next beat (C3). If true, calls advance_beat().
-    #[serde(default)]
-    pub advance_beat: bool,
-    /// Abandon the chase (C3).
-    #[serde(default)]
-    pub abandon: bool,
-}
+// CombatPatch and ChasePatch deleted in story 28-9.
+// StructuredEncounter is the sole encounter mutation model.
 
 /// Generate reactive GameMessages from a state delta (ADR-027).
 ///
@@ -993,21 +785,74 @@ pub struct ChasePatch {
 pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<GameMessage> {
     let mut messages = Vec::new();
 
-    // Always send PARTY_STATUS after a turn
+    // Always send PARTY_STATUS after a turn. PARTY_STATUS is now the single
+    // source of truth for per-character state — sheet + inventory facets are
+    // nested on each PartyMember, collapsing the old CHARACTER_SHEET and
+    // INVENTORY messages.
     let members: Vec<PartyMember> = state
         .characters
         .iter()
-        .map(|c| PartyMember {
-            player_id: String::new(),
-            name: String::new(),
-            character_name: c.name().to_string(),
-            current_hp: Combatant::hp(c),
-            max_hp: Combatant::max_hp(c),
-            statuses: c.core.statuses.clone(),
-            class: c.char_class.as_str().to_string(),
-            level: Combatant::level(c),
-            portrait_url: None,
-            current_location: state.location.clone(),
+        .map(|c| {
+            let sheet = sidequest_protocol::CharacterSheetDetails {
+                race: c.race.as_str().to_string(),
+                stats: c
+                    .stats
+                    .iter()
+                    .map(|(k, v)| (k.clone(), *v))
+                    .collect(),
+                abilities: c
+                    .hooks
+                    .iter()
+                    .filter(|s| !s.contains("auto-filled"))
+                    .cloned()
+                    .collect(),
+                backstory: c.backstory.as_str().to_string(),
+                personality: c.core.personality.as_str().to_string(),
+                pronouns: c.pronouns.clone(),
+                equipment: c
+                    .core
+                    .inventory
+                    .items
+                    .iter()
+                    .map(|i| {
+                        if i.equipped {
+                            format!("{} [equipped]", i.name)
+                        } else {
+                            i.name.as_str().to_string()
+                        }
+                    })
+                    .collect(),
+            };
+            let inventory = sidequest_protocol::InventoryPayload {
+                items: c
+                    .core
+                    .inventory
+                    .items
+                    .iter()
+                    .map(|item| sidequest_protocol::InventoryItem {
+                        name: item.name.as_str().to_string(),
+                        item_type: item.category.as_str().to_string(),
+                        equipped: item.equipped,
+                        quantity: item.quantity,
+                        description: item.description.as_str().to_string(),
+                    })
+                    .collect(),
+                gold: c.core.inventory.gold,
+            };
+            PartyMember {
+                player_id: String::new(),
+                name: String::new(),
+                character_name: c.name().to_string(),
+                current_hp: Combatant::hp(c),
+                max_hp: Combatant::max_hp(c),
+                statuses: c.core.statuses.clone(),
+                class: c.char_class.as_str().to_string(),
+                level: Combatant::level(c),
+                portrait_url: None,
+                current_location: state.location.clone(),
+                sheet: Some(sheet),
+                inventory: Some(inventory),
+            }
         })
         .collect();
     messages.push(GameMessage::PartyStatus {
@@ -1033,6 +878,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
             .iter()
             .enumerate()
             .map(|(i, name)| ExploredLocation {
+                id: String::new(),
                 name: name.clone(),
                 x: i as i32,
                 y: 0,
@@ -1042,6 +888,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 room_type: String::new(),
                 size: None,
                 is_current_room: false,
+                tactical_grid: None,
             })
             .collect();
         messages.push(GameMessage::MapUpdate {
@@ -1050,40 +897,13 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
                 region: state.current_region.clone(),
                 explored,
                 fog_bounds: None,
+                cartography: None,
             },
             player_id: String::new(),
         });
     }
 
-    // COMBAT_EVENT if combat state changed
-    if delta.combat_changed() {
-        messages.push(GameMessage::CombatEvent {
-            payload: CombatEventPayload {
-                in_combat: state.combat.in_combat(),
-                enemies: state
-                    .npcs
-                    .iter()
-                    .filter(|n| n.disposition.attitude() == crate::disposition::Attitude::Hostile)
-                    .map(|n| CombatEnemy {
-                        name: n.name().to_string(),
-                        hp: Combatant::hp(n),
-                        max_hp: Combatant::max_hp(n),
-                        ac: Some(Combatant::ac(n)),
-                        status_effects: state.combat.effects_on(n.name())
-                            .iter()
-                            .map(|e| sidequest_protocol::StatusEffectInfo {
-                                kind: format!("{:?}", e.kind()),
-                                remaining_rounds: e.remaining_rounds(),
-                            })
-                            .collect(),
-                    })
-                    .collect(),
-                turn_order: state.combat.turn_order().to_vec(),
-                current_turn: state.combat.current_turn().unwrap_or("").to_string(),
-            },
-            player_id: String::new(),
-        });
-    }
+    // COMBAT_EVENT removed in story 28-9 — ConfrontationPayload replaces it.
 
     messages
 }

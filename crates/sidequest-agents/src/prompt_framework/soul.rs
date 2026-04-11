@@ -72,7 +72,9 @@ impl SoulData {
                 let agent_match = p.agents.iter().any(|a| a == "all" || a == agent);
                 // Narrator already has these as richer Primacy guardrails (story 23-10)
                 let narrator_excluded = agent == "narrator"
-                    && NARRATOR_COVERED_PRINCIPLES.iter().any(|&name| p.name == name);
+                    && NARRATOR_COVERED_PRINCIPLES
+                        .iter()
+                        .any(|&name| p.name == name);
                 agent_match && !narrator_excluded
             })
             .map(|p| format!("<important>\n{}: {}\n</important>", p.name, p.text))
@@ -132,7 +134,11 @@ pub fn parse_soul_md(path: &Path) -> SoulData {
                 })
                 .unwrap_or_else(|| vec!["all".to_string()]);
             let text = agents_re.replace(&raw_text, "").trim().to_string();
-            SoulPrinciple { name: cap[1].to_string(), text, agents }
+            SoulPrinciple {
+                name: cap[1].to_string(),
+                text,
+                agents,
+            }
         })
         .collect();
 

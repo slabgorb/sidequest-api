@@ -121,8 +121,7 @@ impl WatcherEventBuilder {
     /// Add a field only if the Option is Some.
     pub fn field_opt(mut self, key: &str, value: &Option<impl Serialize>) -> Self {
         if let Some(v) = value {
-            self.fields
-                .insert(key.to_string(), serde_json::json!(v));
+            self.fields.insert(key.to_string(), serde_json::json!(v));
         }
         self
     }
@@ -253,7 +252,9 @@ mod tests {
     fn macro_compiles_multi_field() {
         let target = "goblin";
         let delta = -4i32;
-        watcher!("combat", StateTransition,
+        watcher!(
+            "combat",
+            StateTransition,
             action = "hp_change",
             target = target,
             delta = delta,

@@ -83,10 +83,7 @@ fn narrator_prompt_has_agency_exactly_once() {
     // The narrator_agency guardrail starts with "Agency: The player controls..."
     // The SOUL Agency principle would add "- Agency: The player controls..."
     // After dedup, only the narrator version should remain.
-    let agency_count = result
-        .prompt_text
-        .matches("Agency:")
-        .count();
+    let agency_count = result.prompt_text.matches("Agency:").count();
 
     assert_eq!(
         agency_count, 1,

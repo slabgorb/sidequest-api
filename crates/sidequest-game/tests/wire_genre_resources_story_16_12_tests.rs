@@ -12,11 +12,9 @@
 //!   AC6: Bounds validation per genre
 //!   AC7: Integration: load → init → patch → threshold → KnownFact
 
-use sidequest_genre::{load_genre_pack, ResourceDeclaration, RulesConfig};
 use sidequest_game::lore::LoreStore;
-use sidequest_game::state::{
-    GameSnapshot, ResourcePatchOp, ResourcePool, ResourceThreshold,
-};
+use sidequest_game::state::{GameSnapshot, ResourcePatchOp, ResourcePool};
+use sidequest_genre::{load_genre_pack, ResourceDeclaration, RulesConfig};
 use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════
@@ -65,9 +63,18 @@ fn spaghetti_western_has_luck_resource() {
     let luck = find_resource(&rules, "luck");
 
     assert_eq!(luck.label, "Luck");
-    assert!((luck.min - 0.0).abs() < f64::EPSILON, "luck min should be 0");
-    assert!((luck.max - 6.0).abs() < f64::EPSILON, "luck max should be 6");
-    assert!(luck.voluntary, "luck should be voluntary (player-spendable)");
+    assert!(
+        (luck.min - 0.0).abs() < f64::EPSILON,
+        "luck min should be 0"
+    );
+    assert!(
+        (luck.max - 6.0).abs() < f64::EPSILON,
+        "luck max should be 6"
+    );
+    assert!(
+        luck.voluntary,
+        "luck should be voluntary (player-spendable)"
+    );
     assert!(
         (luck.decay_per_turn - 0.0).abs() < f64::EPSILON,
         "luck should not decay"
@@ -94,7 +101,9 @@ fn spaghetti_western_luck_has_threshold_at_1() {
     let luck = find_resource(&rules, "luck");
 
     assert!(
-        luck.thresholds.iter().any(|t| (t.at - 1.0).abs() < f64::EPSILON),
+        luck.thresholds
+            .iter()
+            .any(|t| (t.at - 1.0).abs() < f64::EPSILON),
         "luck should have a threshold at 1.0"
     );
 }
@@ -105,7 +114,9 @@ fn spaghetti_western_luck_has_threshold_at_0() {
     let luck = find_resource(&rules, "luck");
 
     assert!(
-        luck.thresholds.iter().any(|t| (t.at - 0.0).abs() < f64::EPSILON),
+        luck.thresholds
+            .iter()
+            .any(|t| (t.at - 0.0).abs() < f64::EPSILON),
         "luck should have a threshold at 0.0"
     );
 }
@@ -148,7 +159,10 @@ fn neon_dystopia_humanity_has_threshold_at_50() {
     let humanity = find_resource(&rules, "humanity");
 
     assert!(
-        humanity.thresholds.iter().any(|t| (t.at - 50.0).abs() < f64::EPSILON),
+        humanity
+            .thresholds
+            .iter()
+            .any(|t| (t.at - 50.0).abs() < f64::EPSILON),
         "humanity should have a threshold at 50"
     );
 }
@@ -159,7 +173,10 @@ fn neon_dystopia_humanity_has_threshold_at_25() {
     let humanity = find_resource(&rules, "humanity");
 
     assert!(
-        humanity.thresholds.iter().any(|t| (t.at - 25.0).abs() < f64::EPSILON),
+        humanity
+            .thresholds
+            .iter()
+            .any(|t| (t.at - 25.0).abs() < f64::EPSILON),
         "humanity should have a threshold at 25"
     );
 }
@@ -170,7 +187,10 @@ fn neon_dystopia_humanity_has_threshold_at_0() {
     let humanity = find_resource(&rules, "humanity");
 
     assert!(
-        humanity.thresholds.iter().any(|t| (t.at - 0.0).abs() < f64::EPSILON),
+        humanity
+            .thresholds
+            .iter()
+            .any(|t| (t.at - 0.0).abs() < f64::EPSILON),
         "humanity should have a threshold at 0"
     );
 }
@@ -243,7 +263,10 @@ fn road_warrior_has_fuel_resource() {
     assert_eq!(fuel.label, "Fuel");
     assert!((fuel.min - 0.0).abs() < f64::EPSILON);
     assert!((fuel.max - 100.0).abs() < f64::EPSILON);
-    assert!(!fuel.voluntary, "fuel should be involuntary (consumed by driving)");
+    assert!(
+        !fuel.voluntary,
+        "fuel should be involuntary (consumed by driving)"
+    );
 }
 
 #[test]
@@ -269,16 +292,18 @@ fn road_warrior_fuel_starting_value() {
 fn genre_loader_parses_spaghetti_western_resources() {
     let path = genre_pack_path("spaghetti_western");
     if !path.exists() {
-        panic!("spaghetti_western genre pack not found at {}", path.display());
+        panic!(
+            "spaghetti_western genre pack not found at {}",
+            path.display()
+        );
     }
     let pack = load_genre_pack(&path).expect("should load spaghetti_western");
 
-    let luck = pack
-        .rules
-        .resources
-        .iter()
-        .find(|r| r.name == "luck");
-    assert!(luck.is_some(), "loader should parse luck resource from spaghetti_western");
+    let luck = pack.rules.resources.iter().find(|r| r.name == "luck");
+    assert!(
+        luck.is_some(),
+        "loader should parse luck resource from spaghetti_western"
+    );
 }
 
 #[test]
@@ -286,12 +311,11 @@ fn genre_loader_parses_neon_dystopia_resources() {
     let path = genre_pack_path("neon_dystopia");
     let pack = load_genre_pack(&path).expect("should load neon_dystopia");
 
-    let humanity = pack
-        .rules
-        .resources
-        .iter()
-        .find(|r| r.name == "humanity");
-    assert!(humanity.is_some(), "loader should parse humanity resource from neon_dystopia");
+    let humanity = pack.rules.resources.iter().find(|r| r.name == "humanity");
+    assert!(
+        humanity.is_some(),
+        "loader should parse humanity resource from neon_dystopia"
+    );
 }
 
 #[test]
@@ -362,11 +386,7 @@ fn spaghetti_western_luck_validates_bounds() {
     snap.init_resource_pools(&rules.resources);
 
     // Try to exceed luck max (6.0)
-    let result = snap.apply_resource_patch_by_name(
-        "luck",
-        ResourcePatchOp::Add,
-        100.0,
-    );
+    let result = snap.apply_resource_patch_by_name("luck", ResourcePatchOp::Add, 100.0);
     assert!(result.is_ok());
     assert!(
         snap.resources["luck"].current <= 6.0,
@@ -381,11 +401,7 @@ fn neon_dystopia_humanity_validates_bounds() {
     snap.init_resource_pools(&rules.resources);
 
     // Try to go below humanity min (0.0)
-    let result = snap.apply_resource_patch_by_name(
-        "humanity",
-        ResourcePatchOp::Subtract,
-        999.0,
-    );
+    let result = snap.apply_resource_patch_by_name("humanity", ResourcePatchOp::Subtract, 999.0);
     assert!(result.is_ok());
     assert!(
         snap.resources["humanity"].current >= 0.0,
@@ -400,11 +416,7 @@ fn pulp_noir_heat_validates_bounds() {
     snap.init_resource_pools(&rules.resources);
 
     // Try to exceed heat max (5.0)
-    let result = snap.apply_resource_patch_by_name(
-        "heat",
-        ResourcePatchOp::Add,
-        100.0,
-    );
+    let result = snap.apply_resource_patch_by_name("heat", ResourcePatchOp::Add, 100.0);
     assert!(result.is_ok());
     assert!(
         snap.resources["heat"].current <= 5.0,
@@ -419,11 +431,7 @@ fn road_warrior_fuel_validates_bounds() {
     snap.init_resource_pools(&rules.resources);
 
     // Try to go below fuel min (0.0)
-    let result = snap.apply_resource_patch_by_name(
-        "fuel",
-        ResourcePatchOp::Subtract,
-        999.0,
-    );
+    let result = snap.apply_resource_patch_by_name("fuel", ResourcePatchOp::Subtract, 999.0);
     assert!(result.is_ok());
     assert!(
         snap.resources["fuel"].current >= 0.0,
@@ -446,14 +454,8 @@ fn spaghetti_western_luck_threshold_fires_known_fact() {
     // Drain luck from starting to below threshold at 1.0
     let starting = snap.resources["luck"].current;
     let drain = starting; // drain all luck to 0
-    snap.process_resource_patch_with_lore(
-        "luck",
-        ResourcePatchOp::Subtract,
-        drain,
-        &mut store,
-        10,
-    )
-    .unwrap();
+    snap.process_resource_patch_with_lore("luck", ResourcePatchOp::Subtract, drain, &mut store, 10)
+        .unwrap();
 
     assert!(
         !store.is_empty(),
@@ -492,7 +494,8 @@ fn pulp_noir_heat_decay_integration() {
     snap.init_resource_pools(&rules.resources);
 
     // Add some heat first
-    snap.apply_resource_patch_by_name("heat", ResourcePatchOp::Add, 3.0).unwrap();
+    snap.apply_resource_patch_by_name("heat", ResourcePatchOp::Add, 3.0)
+        .unwrap();
     assert!((snap.resources["heat"].current - 3.0).abs() < f64::EPSILON);
 
     // Apply decay — should reduce by 0.1
@@ -609,4 +612,257 @@ fn init_pools_from_empty_declarations_no_crash() {
     let mut snap = GameSnapshot::default();
     snap.init_resource_pools(&rules.resources);
     assert!(snap.resources.is_empty());
+}
+
+// ═══════════════════════════════════════════════════════════
+// Upsert semantics — story consolidation phase 1a (2026-04)
+//
+// init_resource_pools must be idempotent and must preserve `current`
+// when called a second time with the same declarations. This is what
+// makes old-save migration work: the deserializer creates minimal
+// pools with the saved `current`, then init_resource_pools populates
+// genre-pack metadata without clobbering the player's progress.
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn init_resource_pools_preserves_current_on_second_call() {
+    let decl = ResourceDeclaration {
+        name: "luck".to_string(),
+        label: "Luck".to_string(),
+        min: 0.0,
+        max: 10.0,
+        starting: 5.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    let mut snap = GameSnapshot::default();
+
+    // First call — creates pool at starting value.
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+    assert!((snap.resources["luck"].current - 5.0).abs() < f64::EPSILON);
+
+    // Simulate gameplay: player's current drops to 2.
+    snap.resources.get_mut("luck").unwrap().current = 2.0;
+
+    // Second call (e.g., after save/load re-runs session init).
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+
+    // Current MUST be preserved — not reset to starting.
+    assert!(
+        (snap.resources["luck"].current - 2.0).abs() < f64::EPSILON,
+        "init_resource_pools must preserve existing current on upsert; \
+         got {} (expected 2.0 — was reset to starting 5.0?)",
+        snap.resources["luck"].current
+    );
+}
+
+#[test]
+fn init_resource_pools_populates_label_from_declaration() {
+    let decl = ResourceDeclaration {
+        name: "heat".to_string(),
+        label: "Heat".to_string(),
+        min: 0.0,
+        max: 5.0,
+        starting: 0.0,
+        voluntary: false,
+        decay_per_turn: -0.1,
+        thresholds: vec![],
+    };
+    let mut snap = GameSnapshot::default();
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+
+    assert_eq!(
+        snap.resources["heat"].label, "Heat",
+        "label must be populated from genre pack declaration"
+    );
+}
+
+#[test]
+fn init_resource_pools_updates_bounds_but_reclamps_current() {
+    let decl_wide = ResourceDeclaration {
+        name: "fuel".to_string(),
+        label: "Fuel".to_string(),
+        min: 0.0,
+        max: 100.0,
+        starting: 50.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    let mut snap = GameSnapshot::default();
+    snap.init_resource_pools(std::slice::from_ref(&decl_wide));
+
+    // Player has 80 fuel.
+    snap.resources.get_mut("fuel").unwrap().current = 80.0;
+
+    // Genre pack is re-loaded with narrower bounds (e.g., mod balance patch).
+    let decl_narrow = ResourceDeclaration {
+        name: "fuel".to_string(),
+        label: "Fuel".to_string(),
+        min: 0.0,
+        max: 50.0,
+        starting: 25.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    snap.init_resource_pools(std::slice::from_ref(&decl_narrow));
+
+    // Current re-clamps to the new max (80 > 50 → 50).
+    assert!(
+        (snap.resources["fuel"].current - 50.0).abs() < f64::EPSILON,
+        "current must re-clamp when bounds narrow; got {}",
+        snap.resources["fuel"].current
+    );
+    assert!((snap.resources["fuel"].max - 50.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn resource_pool_label_serde_defaults_empty() {
+    // Old saves predating the label field should deserialize with label = "".
+    let json = r#"{
+        "name": "luck",
+        "current": 3.0,
+        "min": 0.0,
+        "max": 10.0,
+        "voluntary": true,
+        "decay_per_turn": 0.0
+    }"#;
+    let pool: ResourcePool = serde_json::from_str(json).unwrap();
+    assert_eq!(
+        pool.label, "",
+        "old saves without label should deserialize with empty label"
+    );
+    assert!((pool.current - 3.0).abs() < f64::EPSILON);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Phase 4 — GameSnapshot migration from legacy resource_state
+// ═══════════════════════════════════════════════════════════
+
+#[test]
+fn old_save_with_resource_state_migrates_to_resources_map() {
+    // Minimal save JSON shaped like a pre-phase-4 persistence file:
+    // resource_state is populated, resources is absent.
+    let json = r#"{
+        "genre_slug": "spaghetti_western",
+        "world_slug": "border_town",
+        "resource_state": { "luck": 2.5, "heat": 3.0 },
+        "resource_declarations": [
+            { "name": "luck", "label": "Luck", "min": 0.0, "max": 6.0,
+              "starting": 3.0, "voluntary": true, "decay_per_turn": 0.0 },
+            { "name": "heat", "label": "Heat", "min": 0.0, "max": 5.0,
+              "starting": 0.0, "voluntary": false, "decay_per_turn": -0.1 }
+        ]
+    }"#;
+
+    let snap: GameSnapshot =
+        serde_json::from_str(json).expect("old-format save with resource_state should deserialize");
+
+    // Migration populated the resources map.
+    assert_eq!(snap.resources.len(), 2);
+    assert!(
+        (snap.resources["luck"].current - 2.5).abs() < f64::EPSILON,
+        "luck.current must be preserved from resource_state, got {}",
+        snap.resources["luck"].current
+    );
+    assert!(
+        (snap.resources["heat"].current - 3.0).abs() < f64::EPSILON,
+        "heat.current must be preserved"
+    );
+    // Labels and bounds came from resource_declarations.
+    assert_eq!(snap.resources["luck"].label, "Luck");
+    assert_eq!(snap.resources["heat"].label, "Heat");
+    assert!((snap.resources["luck"].max - 6.0).abs() < f64::EPSILON);
+    assert!((snap.resources["heat"].decay_per_turn - (-0.1)).abs() < f64::EPSILON);
+}
+
+#[test]
+fn new_save_with_resources_takes_precedence_over_legacy_fields() {
+    // Both resources and resource_state are present. The new field wins.
+    let json = r#"{
+        "genre_slug": "test",
+        "world_slug": "test",
+        "resource_state": { "luck": 9.9 },
+        "resources": {
+            "luck": {
+                "name": "luck",
+                "label": "Luck",
+                "current": 4.0,
+                "min": 0.0,
+                "max": 6.0,
+                "voluntary": true,
+                "decay_per_turn": 0.0
+            }
+        }
+    }"#;
+
+    let snap: GameSnapshot = serde_json::from_str(json).unwrap();
+    assert!(
+        (snap.resources["luck"].current - 4.0).abs() < f64::EPSILON,
+        "resources field (4.0) must take precedence over legacy resource_state (9.9)"
+    );
+}
+
+#[test]
+fn migration_without_declarations_produces_minimal_pool() {
+    // Very old save with resource_state but no resource_declarations
+    // (e.g., a save from before story 16-1 completed). Migration should
+    // still produce a usable pool with unbounded defaults; the next
+    // init_resource_pools() call will populate metadata.
+    let json = r#"{
+        "genre_slug": "test",
+        "world_slug": "test",
+        "resource_state": { "mana": 7.0 }
+    }"#;
+
+    let snap: GameSnapshot = serde_json::from_str(json).unwrap();
+    assert_eq!(snap.resources.len(), 1);
+    let mana = &snap.resources["mana"];
+    assert!((mana.current - 7.0).abs() < f64::EPSILON);
+    assert_eq!(
+        mana.label, "",
+        "no declaration → empty label for upsert to fill"
+    );
+    assert_eq!(mana.name, "mana");
+}
+
+#[test]
+fn migration_then_init_populates_metadata_without_resetting_current() {
+    // End-to-end migration + upsert test: load an old save with
+    // minimal pool data, then run init_resource_pools with the genre
+    // pack declarations. Current should be preserved; metadata should
+    // be populated from the pack.
+    let json = r#"{
+        "genre_slug": "test",
+        "world_slug": "test",
+        "resource_state": { "luck": 1.5 }
+    }"#;
+    let mut snap: GameSnapshot = serde_json::from_str(json).unwrap();
+
+    // Simulate session load calling init_resource_pools with genre pack decls.
+    let decl = ResourceDeclaration {
+        name: "luck".to_string(),
+        label: "Luck".to_string(),
+        min: 0.0,
+        max: 6.0,
+        starting: 3.0,
+        voluntary: true,
+        decay_per_turn: 0.0,
+        thresholds: vec![],
+    };
+    snap.init_resource_pools(std::slice::from_ref(&decl));
+
+    let luck = &snap.resources["luck"];
+    assert!(
+        (luck.current - 1.5).abs() < f64::EPSILON,
+        "saved current (1.5) must survive the init_resource_pools upsert"
+    );
+    assert_eq!(luck.label, "Luck", "label populated by upsert");
+    assert!(
+        (luck.max - 6.0).abs() < f64::EPSILON,
+        "max populated by upsert"
+    );
+    assert!(luck.voluntary, "voluntary populated by upsert");
 }

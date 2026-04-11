@@ -99,7 +99,10 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     results.scene_mood = Some(mood.to_string());
                     parsed_count += 1;
                 } else {
-                    warn!(tool = "set_mood", "missing 'mood' field in result — skipping");
+                    warn!(
+                        tool = "set_mood",
+                        "missing 'mood' field in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
@@ -109,7 +112,10 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     results.scene_intent = Some(intent.to_string());
                     parsed_count += 1;
                 } else {
-                    warn!(tool = "set_intent", "missing 'intent' field in result — skipping");
+                    warn!(
+                        tool = "set_intent",
+                        "missing 'intent' field in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
@@ -138,7 +144,10 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                         }
                     }
                 } else {
-                    warn!(tool = "item_acquire", "missing required fields (item_ref/name/category) in result — skipping");
+                    warn!(
+                        tool = "item_acquire",
+                        "missing required fields (item_ref/name/category) in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
@@ -155,7 +164,12 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
 
                     match validate_scene_render(subject, tier, mood, &tag_refs) {
                         Ok(scene) => {
-                            info!(tool = "scene_render", subject = subject, tier = tier, "tool result parsed");
+                            info!(
+                                tool = "scene_render",
+                                subject = subject,
+                                tier = tier,
+                                "tool result parsed"
+                            );
                             results.visual_scene = Some(scene);
                             parsed_count += 1;
                         }
@@ -165,7 +179,10 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                         }
                     }
                 } else {
-                    warn!(tool = "scene_render", "missing required fields (subject/tier/mood) in result — skipping");
+                    warn!(
+                        tool = "scene_render",
+                        "missing required fields (subject/tier/mood) in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
@@ -176,9 +193,17 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                 if let (Some(quest_name), Some(status)) = (quest_name, status) {
                     match crate::tools::quest_update::validate_quest_update(quest_name, status) {
                         Ok(update) => {
-                            info!(tool = "quest_update", quest_name = update.quest_name(), status = update.status(), "tool result parsed");
+                            info!(
+                                tool = "quest_update",
+                                quest_name = update.quest_name(),
+                                status = update.status(),
+                                "tool result parsed"
+                            );
                             let map = results.quest_updates.get_or_insert_with(HashMap::new);
-                            map.insert(update.quest_name().to_string(), update.status().to_string());
+                            map.insert(
+                                update.quest_name().to_string(),
+                                update.status().to_string(),
+                            );
                             parsed_count += 1;
                         }
                         Err(e) => {
@@ -187,28 +212,42 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                         }
                     }
                 } else {
-                    warn!(tool = "quest_update", "missing 'quest_name' or 'status' field in result — skipping");
+                    warn!(
+                        tool = "quest_update",
+                        "missing 'quest_name' or 'status' field in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
             "personality_event" => {
                 let npc = record.result.get("npc").and_then(|v| v.as_str());
                 let event_type = record.result.get("event_type").and_then(|v| v.as_str());
-                let description = record.result.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let description = record
+                    .result
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
 
                 if let (Some(npc), Some(event_type)) = (npc, event_type) {
                     match validate_personality_event(npc, event_type, description) {
                         Ok(validated) => {
                             // Convert to orchestrator PersonalityEvent
-                            let game_event: sidequest_game::PersonalityEvent = serde_json::from_value(
-                                serde_json::Value::String(validated.event_type_str().to_string())
-                            ).unwrap(); // Safe: validate already ensured this is a valid variant
+                            let game_event: sidequest_game::PersonalityEvent =
+                                serde_json::from_value(serde_json::Value::String(
+                                    validated.event_type_str().to_string(),
+                                ))
+                                .unwrap(); // Safe: validate already ensured this is a valid variant
                             let pe = crate::orchestrator::PersonalityEvent {
                                 npc: validated.npc().to_string(),
                                 event_type: game_event,
                                 description: validated.description().to_string(),
                             };
-                            info!(tool = "personality_event", npc = validated.npc(), event_type = validated.event_type_str(), "tool result parsed");
+                            info!(
+                                tool = "personality_event",
+                                npc = validated.npc(),
+                                event_type = validated.event_type_str(),
+                                "tool result parsed"
+                            );
                             let events = results.personality_events.get_or_insert_with(Vec::new);
                             events.push(pe);
                             parsed_count += 1;
@@ -219,7 +258,10 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                         }
                     }
                 } else {
-                    warn!(tool = "personality_event", "missing 'npc' or 'event_type' field in result — skipping");
+                    warn!(
+                        tool = "personality_event",
+                        "missing 'npc' or 'event_type' field in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
@@ -228,12 +270,20 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                 let delta = record.result.get("delta").and_then(|v| v.as_f64());
 
                 if let (Some(resource), Some(delta)) = (resource, delta) {
-                    info!(tool = "resource_change", resource = resource, delta = delta, "tool result parsed");
+                    info!(
+                        tool = "resource_change",
+                        resource = resource,
+                        delta = delta,
+                        "tool result parsed"
+                    );
                     let deltas = results.resource_deltas.get_or_insert_with(HashMap::new);
                     deltas.insert(resource.to_string(), delta);
                     parsed_count += 1;
                 } else {
-                    warn!(tool = "resource_change", "missing 'resource' or 'delta' field in result — skipping");
+                    warn!(
+                        tool = "resource_change",
+                        "missing 'resource' or 'delta' field in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
@@ -244,7 +294,10 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     triggers.push(sfx_id.to_string());
                     parsed_count += 1;
                 } else {
-                    warn!(tool = "play_sfx", "missing 'sfx_id' field in result — skipping");
+                    warn!(
+                        tool = "play_sfx",
+                        "missing 'sfx_id' field in result — skipping"
+                    );
                     skipped_count += 1;
                 }
             }
@@ -255,7 +308,11 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
         }
     }
 
-    info!(parsed = parsed_count, skipped = skipped_count, "sidecar parsing complete");
+    info!(
+        parsed = parsed_count,
+        skipped = skipped_count,
+        "sidecar parsing complete"
+    );
 
     // Cleanup: delete sidecar file after parsing
     if let Err(e) = std::fs::remove_file(&path) {

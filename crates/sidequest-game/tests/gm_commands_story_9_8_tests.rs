@@ -18,7 +18,6 @@
 use std::collections::HashMap;
 
 use sidequest_game::character::Character;
-use sidequest_game::combat::CombatState;
 use sidequest_game::commands::GmCommand;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::disposition::Disposition;
@@ -49,8 +48,6 @@ fn test_snapshot() -> GameSnapshot {
         notes: vec![],
         narrative_log: vec![],
         active_tropes: vec![],
-        combat: CombatState::default(),
-        chase: None,
         turn_manager: TurnManager::new(),
         active_stakes: String::new(),
         lore_established: vec![],
@@ -74,7 +71,8 @@ fn test_character() -> Character {
             hp: 18,
             max_hp: 20,
             ac: 13,
-            xp: 0,            inventory: Inventory::default(),
+            xp: 0,
+            inventory: Inventory::default(),
             statuses: vec![],
         },
         backstory: NonBlankString::new("Born in the ash storms").unwrap(),
@@ -101,7 +99,8 @@ fn test_npc() -> Npc {
             hp: 12,
             max_hp: 12,
             ac: 10,
-            xp: 0,            statuses: vec![],
+            xp: 0,
+            statuses: vec![],
             inventory: Inventory::default(),
         },
         voice_id: None,

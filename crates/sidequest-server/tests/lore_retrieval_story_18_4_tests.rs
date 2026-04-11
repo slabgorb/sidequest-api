@@ -61,10 +61,7 @@ fn lore_retrieval_event_roundtrips_through_json() {
     };
     let json = serde_json::to_string(&event).unwrap();
     let parsed: WatcherEvent = serde_json::from_str(&json).unwrap();
-    assert!(matches!(
-        parsed.event_type,
-        WatcherEventType::LoreRetrieval
-    ));
+    assert!(matches!(parsed.event_type, WatcherEventType::LoreRetrieval));
     assert_eq!(parsed.component, "lore");
     assert_eq!(parsed.fields["budget"], serde_json::json!(500));
     assert_eq!(parsed.fields["selected_count"], serde_json::json!(3));

@@ -93,10 +93,7 @@ pub fn extract_inventory_mutations(
     match result {
         Ok(resp) => match parse_extraction_response(&resp.text) {
             Some(mutations) => {
-                info!(
-                    mutations = mutations.len(),
-                    "inventory.extraction_complete"
-                );
+                info!(mutations = mutations.len(), "inventory.extraction_complete");
                 mutations
             }
             None => {
@@ -134,11 +131,7 @@ pub async fn extract_inventory_mutations_async(
     }
 }
 
-fn build_extraction_prompt(
-    action: &str,
-    narration: &str,
-    carried_items: &[String],
-) -> String {
+fn build_extraction_prompt(action: &str, narration: &str, carried_items: &[String]) -> String {
     let inventory_section = if carried_items.is_empty() {
         "(empty)".to_string()
     } else {
@@ -274,21 +267,13 @@ mod tests {
     #[test]
     #[ignore] // calls real Claude CLI — run with cargo test -- --ignored
     fn empty_inventory_acquires_nothing_from_bland_narration() {
-        let result = extract_inventory_mutations(
-            "I look around",
-            "You see a dusty room.",
-            &[],
-        );
+        let result = extract_inventory_mutations("I look around", "You see a dusty room.", &[]);
         assert!(result.is_empty());
     }
 
     #[test]
     fn empty_narration_short_circuits() {
-        let result = extract_inventory_mutations(
-            "I look around",
-            "",
-            &["Sword".to_string()],
-        );
+        let result = extract_inventory_mutations("I look around", "", &["Sword".to_string()]);
         assert!(result.is_empty());
     }
 

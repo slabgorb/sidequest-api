@@ -6,8 +6,15 @@
 
 use std::collections::HashMap;
 
-use sidequest_genre::{CharCreationScene, MechanicalEffects, RulesConfig};
-use sidequest_protocol::{CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString};
+use rand::Rng;
+use sidequest_genre::{
+    BackstoryTables, CharCreationScene, EquipmentTables, MechanicalEffects, RulesConfig,
+};
+use sidequest_protocol::{
+    CharacterCreationPayload, CreationChoice, GameMessage, NonBlankString, RolledStat,
+};
+use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
+use tracing::info_span;
 
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
@@ -179,6 +186,15 @@ pub enum BuilderError {
     /// Cannot revert — already at the first scene.
     #[error("cannot revert: already at first scene")]
     CannotRevert,
+    /// Unrecognized stat generation method.
+    #[error("unknown stat generation method: {0}")]
+    UnknownStatGeneration(String),
+    /// HP formula evaluation failed.
+    #[error("hp_formula error: {0}")]
+    InvalidHpFormula(String),
+    /// Name is purely numeric — likely a UI index, not a real character name.
+    #[error("invalid character name: '{0}' is purely numeric (likely a UI index, not a name)")]
+    NumericName(String),
 }
 
 // ============================================================================
@@ -203,30 +219,72 @@ pub struct CharacterBuilder {
     class_hp_bases: HashMap<String, u32>,
     race_label: String,
     class_label: String,
+    /// HP formula string from genre pack (e.g., "8 + CON_modifier").
+    /// When present, overrides class_hp_bases lookup during build().
+    hp_formula: Option<String>,
+    /// Point budget for point-buy stat generation (D&D 5e standard: 27).
+    point_buy_budget: u32,
+    /// Pre-rolled stats for roll_3d6_strict (rolled eagerly at construction).
+    /// Stored in ability_score_names order for narration injection.
+    rolled_stats: Option<Vec<(String, i32)>>,
+    /// Optional backstory random tables from the genre pack.
+    backstory_tables: Option<BackstoryTables>,
+    /// Optional equipment random tables from the genre pack. Story 31-3.
+    /// When set AND a scene declares `equipment_generation: random_table`,
+    /// the builder rolls one item per slot (or `rolls_per_slot` override).
+    equipment_tables: Option<EquipmentTables>,
 }
 
 impl CharacterBuilder {
     /// Create a new builder. Panics if `scenes` is empty.
-    pub fn new(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Self {
+    pub fn new(
+        scenes: Vec<CharCreationScene>,
+        rules: &RulesConfig,
+        backstory_tables: Option<BackstoryTables>,
+    ) -> Self {
         assert!(
             !scenes.is_empty(),
             "CharacterBuilder requires at least one scene"
         );
-        Self::build_inner(scenes, rules)
+        Self::build_inner(scenes, rules, backstory_tables)
     }
 
     /// Create a new builder, returning an error if `scenes` is empty.
     pub fn try_new(
         scenes: Vec<CharCreationScene>,
         rules: &RulesConfig,
+        backstory_tables: Option<BackstoryTables>,
     ) -> Result<Self, BuilderError> {
         if scenes.is_empty() {
             return Err(BuilderError::NoScenes);
         }
-        Ok(Self::build_inner(scenes, rules))
+        Ok(Self::build_inner(scenes, rules, backstory_tables))
     }
 
-    fn build_inner(scenes: Vec<CharCreationScene>, rules: &RulesConfig) -> Self {
+    fn build_inner(
+        scenes: Vec<CharCreationScene>,
+        rules: &RulesConfig,
+        backstory_tables: Option<BackstoryTables>,
+    ) -> Self {
+        // Scan scenes for stat_generation directives — roll eagerly so stats
+        // are available for narration injection when the scene is first shown.
+        // The scene content is authoritative: if a scene declares
+        // stat_generation: roll_3d6_strict, that scene's narration gets stat values.
+        let rolled_stats = scenes
+            .iter()
+            .find_map(|s| {
+                s.mechanical_effects
+                    .as_ref()
+                    .and_then(|e| e.stat_generation.as_deref())
+            })
+            .and_then(|method| match method {
+                "roll_3d6_strict" => {
+                    let mut rng = rand::rng();
+                    Some(Self::roll_3d6_stats(&rules.ability_score_names, &mut rng))
+                }
+                _ => None,
+            });
+
         Self {
             scenes,
             results: Vec::new(),
@@ -238,6 +296,8 @@ impl CharacterBuilder {
             default_hp: rules.default_hp,
             default_ac: rules.default_ac,
             class_hp_bases: rules.class_hp_bases.clone(),
+            hp_formula: rules.hp_formula.clone(),
+            point_buy_budget: rules.point_buy_budget,
             race_label: rules
                 .race_label
                 .clone()
@@ -246,7 +306,103 @@ impl CharacterBuilder {
                 .class_label
                 .clone()
                 .unwrap_or_else(|| "Class".to_string()),
+            rolled_stats,
+            backstory_tables,
+            equipment_tables: None,
         }
+    }
+
+    /// Attach an `EquipmentTables` to this builder. Fluent setter — chain
+    /// after `new()` or `try_new()`. When set, scenes with
+    /// `mechanical_effects.equipment_generation == Some("random_table")`
+    /// will roll starting inventory from these tables during `build()`.
+    ///
+    /// Story 31-3: chose a setter over a 4th positional parameter to keep
+    /// the blast radius small across the 52 existing `CharacterBuilder::new`
+    /// call sites.
+    pub fn with_equipment_tables(mut self, tables: EquipmentTables) -> Self {
+        self.equipment_tables = Some(tables);
+        self
+    }
+
+    /// Roll 3d6 for each ability score in order. Returns (name, total) pairs.
+    fn roll_3d6_stats(ability_score_names: &[String], rng: &mut impl Rng) -> Vec<(String, i32)> {
+        let results: Vec<(String, i32)> = ability_score_names
+            .iter()
+            .map(|name| {
+                let dice: [i32; 3] = [
+                    rng.random_range(1..=6),
+                    rng.random_range(1..=6),
+                    rng.random_range(1..=6),
+                ];
+                let total = dice.iter().sum();
+
+                let span = info_span!(
+                    "chargen.stat_roll",
+                    method = "roll_3d6_strict",
+                    stat_name = %name,
+                    d1 = dice[0],
+                    d2 = dice[1],
+                    d3 = dice[2],
+                    total = total,
+                );
+                let _guard = span.enter();
+
+                (name.clone(), total)
+            })
+            .collect();
+
+        let span = info_span!("chargen.stats_generated", method = "roll_3d6_strict",);
+        let _guard = span.enter();
+        for (name, val) in &results {
+            tracing::info!(stat = %name, value = val, "stat generated");
+        }
+
+        results
+    }
+
+    /// Allocate a point-buy budget across `n` stats using the D&D 5e cost table.
+    ///
+    /// All stats start at 8. Points are distributed round-robin, raising each
+    /// stat by 1 point at a time (cheapest-first) until the budget is spent.
+    /// This produces a balanced spread — no dump stats, no extreme min-maxing.
+    ///
+    /// Cost table (cumulative from base 8):
+    ///   8→9: 1, 9→10: 1, 10→11: 1, 11→12: 1, 12→13: 1, 13→14: 2, 14→15: 2
+    fn allocate_point_buy(n: usize, budget: u32) -> Vec<i32> {
+        // Cost to go from (value - 1) to value
+        fn marginal_cost(value: i32) -> u32 {
+            match value {
+                9..=13 => 1,
+                14 | 15 => 2,
+                _ => u32::MAX, // Can't go below 8 or above 15
+            }
+        }
+
+        let mut stats = vec![8i32; n];
+        let mut remaining = budget;
+
+        // Round-robin: raise each stat by 1, cycling until budget exhausted
+        'outer: loop {
+            let mut any_raised = false;
+            for stat in stats.iter_mut() {
+                let next_val = *stat + 1;
+                if next_val > 15 {
+                    continue;
+                }
+                let cost = marginal_cost(next_val);
+                if cost <= remaining {
+                    *stat = next_val;
+                    remaining -= cost;
+                    any_raised = true;
+                }
+            }
+            if !any_raised || remaining == 0 {
+                break 'outer;
+            }
+        }
+
+        stats
     }
 
     // --- Phase queries ---
@@ -296,6 +452,32 @@ impl CharacterBuilder {
         &self.results
     }
 
+    /// Pre-rolled stats from `roll_3d6_strict` generation, if any.
+    ///
+    /// Exposed so external renderers (e.g. the server-side confirmation
+    /// summary composer) can read stats without reaching into private fields.
+    pub fn rolled_stats(&self) -> Option<&[(String, i32)]> {
+        self.rolled_stats.as_deref()
+    }
+
+    /// Genre-specific label for the "race" field (e.g., "Species", "Origin").
+    pub fn race_label(&self) -> &str {
+        &self.race_label
+    }
+
+    /// Genre-specific label for the "class" field (e.g., "Archetype", "Path").
+    pub fn class_label(&self) -> &str {
+        &self.class_label
+    }
+
+    /// Default class from the genre pack's rules, if defined.
+    ///
+    /// Used by external renderers to resolve starting equipment when the
+    /// chargen flow doesn't set an explicit `class_hint`.
+    pub fn default_class(&self) -> Option<&str> {
+        self.default_class.as_deref()
+    }
+
     /// Extract the character name from the name-entry scene (last scene with
     /// no choices where the player typed freeform text).
     pub fn character_name(&self) -> Option<&str> {
@@ -314,6 +496,67 @@ impl CharacterBuilder {
             }
         }
         None
+    }
+
+    /// Auto-advance through the current scene without client input.
+    /// For display-only scenes (no choices, no freeform): applies scene-level
+    /// mechanical effects and advances to the next scene.
+    /// Returns Ok(()) if advanced, Err if the scene requires input.
+    pub fn apply_auto_advance(&mut self) -> Result<(), BuilderError> {
+        let scene_index = match &self.phase {
+            BuilderPhase::InProgress { scene_index } => *scene_index,
+            _ => {
+                return Err(BuilderError::WrongPhase {
+                    expected: "InProgress".to_string(),
+                    actual: self.phase_name().to_string(),
+                });
+            }
+        };
+
+        let scene = &self.scenes[scene_index];
+        if !scene.choices.is_empty() || scene.allows_freeform.unwrap_or(false) {
+            return Err(BuilderError::InvalidChoice {
+                index: 0,
+                max: scene.choices.len(),
+            });
+        }
+
+        // Apply scene-level mechanical effects (stat rolling, equipment gen, etc.)
+        let effects = scene.mechanical_effects.clone().unwrap_or_default();
+
+        // Record as an auto-advanced scene result
+        self.results.push(SceneResult {
+            input_type: SceneInputType::Choice(0),
+            hooks_added: vec![],
+            anchors_added: vec![],
+            effects_applied: effects.clone(),
+            choice_description: None,
+        });
+
+        // Apply stat generation if specified
+        if let Some(ref method) = effects.stat_generation {
+            match method.as_str() {
+                "roll_3d6_strict" => {
+                    if self.rolled_stats.is_none() {
+                        let mut rng = rand::rng();
+                        self.rolled_stats =
+                            Some(Self::roll_3d6_stats(&self.ability_score_names, &mut rng));
+                    }
+                }
+                other => {
+                    self.stat_generation = other.to_string();
+                }
+            }
+        }
+
+        tracing::info!(
+            scene_id = %scene.id,
+            scene_index = scene_index,
+            "chargen.auto_advance — choiceless scene"
+        );
+
+        self.advance_scene(scene_index);
+        Ok(())
     }
 
     /// Get the current hook prompt text, if awaiting followup.
@@ -376,9 +619,20 @@ impl CharacterBuilder {
             if let Some(ref v) = eff.pronoun_hint {
                 acc.pronoun_hint = Some(v.clone());
             }
-            // Collect the rich description text from each choice for backstory
+            // Collect the rich description text from each choice for backstory.
+            // Skip pronoun-only choices — their description (e.g., "He.") is not
+            // a backstory fragment.
             if let Some(ref desc) = result.choice_description {
-                acc.backstory_fragments.push(desc.clone());
+                let is_pronoun_only = eff.pronoun_hint.is_some()
+                    && eff.class_hint.is_none()
+                    && eff.race_hint.is_none()
+                    && eff.background.is_none()
+                    && eff.personality_trait.is_none()
+                    && eff.relationship.is_none()
+                    && eff.goals.is_none();
+                if !is_pronoun_only {
+                    acc.backstory_fragments.push(desc.clone());
+                }
             }
             // Accumulate stat bonuses (additive across all scenes)
             for (stat, bonus) in &eff.stat_bonuses {
@@ -462,30 +716,32 @@ impl CharacterBuilder {
             return Err(BuilderError::FreeformNotAllowed);
         }
 
-        let effects = MechanicalEffects {
-            class_hint: None,
-            race_hint: None,
-            mutation_hint: None,
-            item_hint: None,
-            affinity_hint: None,
-            training_hint: None,
-            background: None,
-            personality_trait: None,
-            emotional_state: None,
-            relationship: None,
-            goals: None,
-            allows_freeform: None,
-            rig_type_hint: None,
-            rig_trait: None,
-            catch_phrase: None,
-            stat_bonuses: HashMap::new(),
-            pronoun_hint: None,
-        };
+        // Use scene-level mechanical_effects if present (e.g., the_roll has
+        // stat_generation, the_kit has equipment_generation). Otherwise empty.
+        let effects = scene.mechanical_effects.clone().unwrap_or_default();
+
+        // Process scene-level stat_generation directive
+        if let Some(ref method) = effects.stat_generation {
+            match method.as_str() {
+                "roll_3d6_strict" => {
+                    let mut rng = rand::rng();
+                    self.rolled_stats =
+                        Some(Self::roll_3d6_stats(&self.ability_score_names, &mut rng));
+                }
+                other => {
+                    // Override the builder's stat_generation from scene directive
+                    self.stat_generation = other.to_string();
+                }
+            }
+        }
+
+        let hooks = extract_hooks(&scene.id, &effects);
+        let anchors = extract_anchors(&scene.id, &effects);
 
         self.results.push(SceneResult {
             input_type: SceneInputType::Freeform(text.to_string()),
-            hooks_added: vec![],
-            anchors_added: vec![],
+            hooks_added: hooks,
+            anchors_added: anchors,
             effects_applied: effects,
             choice_description: None,
         });
@@ -558,6 +814,13 @@ impl CharacterBuilder {
             });
         }
 
+        // Story 30-1: Reject purely numeric names — they indicate a UI choice
+        // index was used as the name fallback instead of a real character name.
+        let trimmed = name.trim();
+        if !trimmed.is_empty() && trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return Err(BuilderError::NumericName(trimmed.to_string()));
+        }
+
         let acc = self.accumulated();
 
         let race_str = acc
@@ -572,15 +835,57 @@ impl CharacterBuilder {
             .unwrap_or("Fighter");
 
         // Stats
-        let stats = self.generate_stats(&acc);
+        let stats = self.generate_stats(&acc)?;
 
-        // HP from class base
-        let base_hp = self
-            .class_hp_bases
-            .get(class_str)
-            .copied()
-            .or(self.default_hp)
-            .unwrap_or(10) as i32;
+        // HP from hp_formula or class_hp_bases fallback
+        let base_hp = if let Some(ref formula) = self.hp_formula {
+            let hp_result =
+                Self::evaluate_hp_formula(formula, &stats, &self.class_hp_bases, class_str)?;
+            let con_mod = stats.get("CON").map(|&v| (v - 10) / 2);
+            let _span = info_span!(
+                "chargen.hp_formula",
+                formula = formula.as_str(),
+                class = class_str,
+                hp_result = hp_result,
+                con_modifier = ?con_mod,
+            )
+            .entered();
+            // OTEL: chargen.hp_formula_evaluated — GM panel verification
+            // that the hp_formula evaluator engaged for this class.
+            // Story 35-13. `field_opt` omits con_modifier entirely when
+            // the rules don't include a CON stat (e.g., genre packs with
+            // non-D&D ability names); the existing test fixture uses CON
+            // so the field is always present under current tests.
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "hp_formula_evaluated")
+                .field("formula", formula.as_str())
+                .field("class", class_str)
+                .field("hp_result", hp_result as i64)
+                .field_opt("con_modifier", &con_mod.map(i64::from))
+                .send();
+            hp_result
+        } else {
+            // No hp_formula set — fall back to class_hp_bases lookup. This
+            // is a deliberate configuration choice for genres like low_fantasy
+            // that use fixed per-class HP, not a silent failure. Emit a
+            // watcher event so the GM panel can see which fallback chain
+            // resolved the HP (CLAUDE.md: no silent fallbacks).
+            // Story 35-13.
+            let (hp_value, source) = if let Some(&class_hp) = self.class_hp_bases.get(class_str) {
+                (class_hp as i32, "class_hp_bases")
+            } else if let Some(default) = self.default_hp {
+                (default as i32, "default_hp")
+            } else {
+                (10, "hardcoded_10")
+            };
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .field("action", "hp_fallback")
+                .field("class", class_str)
+                .field("hp_result", hp_value as i64)
+                .field("source", source)
+                .send();
+            hp_value
+        };
 
         let ac = self.default_ac.unwrap_or(10) as i32;
 
@@ -612,8 +917,9 @@ impl CharacterBuilder {
             }
         }
 
-        // Inventory from item hints
-        let items: Vec<Item> = acc
+        // Inventory composition: item hints first, then random equipment tables
+        // when a scene directive opts in. Story 31-3.
+        let mut items: Vec<Item> = acc
             .item_hints
             .iter()
             .enumerate()
@@ -625,8 +931,11 @@ impl CharacterBuilder {
                         .unwrap_or_else(|_| NonBlankString::new(&format!("item_{}", i)).unwrap()),
                     name: NonBlankString::new(&display_name)
                         .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
-                    description: NonBlankString::new(&format!("Starting equipment: {}", display_name))
-                        .unwrap(),
+                    description: NonBlankString::new(&format!(
+                        "Starting equipment: {}",
+                        display_name
+                    ))
+                    .unwrap(),
                     category: NonBlankString::new("weapon").unwrap(),
                     value: 10,
                     weight: 3.0,
@@ -641,12 +950,118 @@ impl CharacterBuilder {
             })
             .collect();
 
-        // Compose backstory from the rich description text collected during
-        // character creation. Each fragment is the flavor text the player saw
-        // when they picked a choice (e.g. "A city built from stacked ruins…").
-        // We weave them into prose rather than just listing mechanical labels.
-        let backstory_text = if acc.backstory_fragments.is_empty() {
-            // Fallback: use mechanical labels if somehow no descriptions were captured
+        // Equipment random tables: apply when any scene declared
+        // `equipment_generation: random_table` AND tables are wired in.
+        // Story 31-3: wire genre-pack equipment_tables into CharacterBuilder.
+        let random_table_requested = self
+            .results
+            .iter()
+            .any(|r| r.effects_applied.equipment_generation.as_deref() == Some("random_table"));
+        let (equipment_method, equipment_added, equipment_skipped) = if random_table_requested
+            && self.equipment_tables.is_some()
+        {
+            let tables = self.equipment_tables.as_ref().unwrap();
+            let mut rng = rand::rng();
+            let mut added = 0usize;
+            let mut skipped = 0usize;
+            for (slot, candidates) in &tables.tables {
+                if candidates.is_empty() {
+                    continue;
+                }
+                let rolls = tables.rolls_per_slot.get(slot).copied().unwrap_or(1);
+                for _ in 0..rolls {
+                    let pick = &candidates[rng.random_range(0..candidates.len())];
+                    let display_name = humanize_snake_case(pick);
+                    let id = match NonBlankString::new(pick) {
+                        Ok(id) => id,
+                        Err(_) => {
+                            // Blank id — emit a watcher event so the GM
+                            // panel surfaces the malformed content entry
+                            // instead of silently producing a short
+                            // inventory. Reaches the broadcast channel
+                            // via sidequest_telemetry::emit().
+                            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                                .severity(Severity::Warn)
+                                .field("action", "blank_item_id_skipped")
+                                .field("slot", slot.as_str())
+                                .field("pick", pick.as_str())
+                                .send();
+                            skipped += 1;
+                            continue;
+                        }
+                    };
+                    items.push(Item {
+                        id,
+                        name: NonBlankString::new(&display_name)
+                            .unwrap_or_else(|_| NonBlankString::new("Unknown Item").unwrap()),
+                        description: NonBlankString::new(&format!(
+                            "Starting equipment ({}): {}",
+                            slot, display_name
+                        ))
+                        .unwrap(),
+                        category: NonBlankString::new(slot)
+                            .unwrap_or_else(|_| NonBlankString::new("misc").unwrap()),
+                        value: 0,
+                        weight: 1.0,
+                        rarity: NonBlankString::new("common").unwrap(),
+                        narrative_weight: 0.3,
+                        tags: vec![],
+                        equipped: false,
+                        quantity: 1,
+                        uses_remaining: None,
+                        state: ItemState::Carried,
+                    });
+                    added += 1;
+                }
+            }
+            ("tables", added, skipped)
+        } else if random_table_requested {
+            // Directive present but no equipment_tables wired — this is a
+            // misconfiguration, not graceful degradation. Emit a Warn so
+            // the GM panel surfaces it. CLAUDE.md: no silent fallbacks.
+            WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+                .severity(Severity::Warn)
+                .field("action", "equipment_tables_missing")
+                .field(
+                    "reason",
+                    "scene declared `equipment_generation: random_table` but \
+                         CharacterBuilder has no equipment_tables wired",
+                )
+                .send();
+            ("none", 0, 0)
+        } else {
+            ("hints", 0, 0)
+        };
+
+        // OTEL: chargen.equipment_composed — GM panel verification that the
+        // equipment subsystem engaged. Emitted through the sidequest-telemetry
+        // broadcast channel (NOT a tracing span, which would only reach
+        // stdout). The `watcher` component = "chargen" lets the GM panel
+        // filter for chargen-related events.
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "equipment_composed")
+            .field("method", equipment_method)
+            .field("items_added", equipment_added as i64)
+            .field("items_skipped", equipment_skipped as i64)
+            .send();
+
+        // Compose backstory: fragments → tables → mechanical labels → fallback
+        let (backstory_text, backstory_method) = if !acc.backstory_fragments.is_empty() {
+            let _span = info_span!("chargen.backstory_composed", method = "fragments").entered();
+            (acc.backstory_fragments.join(" "), "fragments")
+        } else if let Some(ref tables) = self.backstory_tables {
+            let _span = info_span!("chargen.backstory_composed", method = "tables").entered();
+            let mut rng = rand::rng();
+            let mut result = tables.template.clone();
+            for (key, entries) in &tables.tables {
+                if !entries.is_empty() {
+                    let pick = &entries[rng.random_range(0..entries.len())];
+                    result = result.replace(&format!("{{{}}}", key), pick);
+                }
+            }
+            (result, "tables")
+        } else {
+            let _span = info_span!("chargen.backstory_composed", method = "fallback").entered();
             let mut parts = Vec::new();
             if let Some(ref bg) = acc.background {
                 parts.push(format!("Background: {}", bg));
@@ -654,14 +1069,25 @@ impl CharacterBuilder {
             if let Some(ref pt) = acc.personality_trait {
                 parts.push(format!("Personality: {}", pt));
             }
-            if parts.is_empty() {
+            let text = if parts.is_empty() {
                 "A wanderer with a mysterious past".to_string()
             } else {
                 parts.join(". ")
-            }
-        } else {
-            acc.backstory_fragments.join(" ")
+            };
+            (text, "fallback")
         };
+
+        // OTEL: chargen.backstory_composed — GM panel verification that
+        // the backstory subsystem engaged, and which composition method
+        // was used (fragments / tables / fallback). Critical for catching
+        // genre-pack misconfiguration where a genre silently falls through
+        // to the hardcoded "wanderer with a mysterious past" default.
+        // Story 35-13.
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "backstory_composed")
+            .field("method", backstory_method)
+            .field("length", backstory_text.len() as i64)
+            .send();
 
         let character = Character {
             core: CreatureCore {
@@ -712,18 +1138,48 @@ impl CharacterBuilder {
                     })
                     .collect();
 
-                // If this is the last scene and has no choices, it's a name-entry scene
-                let is_name_scene = choices.is_empty()
-                    && *scene_index == self.scenes.len() - 1;
-                let input_type = if is_name_scene {
-                    "name".to_string()
+                // Disambiguate scenes with no choices:
+                //   empty choices + allows_freeform=true  → name/text entry
+                //   empty choices + allows_freeform=false → display-only "continue" scene
+                //                                          (player acknowledges, no input)
+                //   non-empty choices                     → choice (with optional freeform alt)
+                let scene_allows_freeform = scene.allows_freeform.unwrap_or(false);
+                let (input_type, allows_freeform) = if choices.is_empty() {
+                    if scene_allows_freeform {
+                        // Freeform input scene (typically the name-entry scene)
+                        ("name".to_string(), Some(true))
+                    } else {
+                        // Display-only scene — narrate, wait for Continue ack
+                        ("continue".to_string(), Some(false))
+                    }
                 } else {
-                    "choice".to_string()
+                    ("choice".to_string(), scene.allows_freeform)
                 };
-                let allows_freeform = if is_name_scene {
-                    Some(true)
+
+                // Inject rolled stat values into narration for the scene that
+                // declares stat_generation in its mechanical_effects.
+                let scene_has_stat_gen = scene
+                    .mechanical_effects
+                    .as_ref()
+                    .and_then(|e| e.stat_generation.as_ref())
+                    .is_some();
+
+                // Send rolled stats as STRUCTURED data (not inline markdown).
+                // The UI renders them as a stat block alongside the narration.
+                // The narration text stays clean — the player isn't asked to
+                // parse "**STR 10** · **DEX 13** · ..." out of prose.
+                let rolled_stats_payload = if scene_has_stat_gen {
+                    self.rolled_stats.as_ref().map(|rolled| {
+                        rolled
+                            .iter()
+                            .map(|(name, val)| RolledStat {
+                                name: name.clone(),
+                                value: *val,
+                            })
+                            .collect::<Vec<_>>()
+                    })
                 } else {
-                    scene.allows_freeform
+                    None
                 };
 
                 GameMessage::CharacterCreation {
@@ -739,6 +1195,7 @@ impl CharacterBuilder {
                         input_type: Some(input_type),
                         loading_text: scene.loading_text.clone(),
                         character_preview: None,
+                        rolled_stats: rolled_stats_payload,
                         choice: None,
                         character: None,
                     },
@@ -758,72 +1215,30 @@ impl CharacterBuilder {
                     input_type: Some("text".to_string()),
                     loading_text: None,
                     character_preview: None,
+                    rolled_stats: None,
                     choice: None,
                     character: None,
                 },
                 player_id: player_id.to_string(),
             },
             BuilderPhase::Confirmation => {
-                let acc = self.accumulated();
-                let mut parts = Vec::new();
-                if let Some(name) = self.character_name() {
-                    parts.push(format!("Name: {}", name));
-                }
-                parts.push(format!(
-                    "{}: {}",
-                    self.race_label,
-                    acc.race_hint.as_deref().unwrap_or("Unknown")
-                ));
-                parts.push(format!(
-                    "{}: {}",
-                    self.class_label,
-                    acc.class_hint.as_deref().unwrap_or("Unknown")
-                ));
-                parts.push(format!(
-                    "Personality: {}",
-                    acc.personality_trait.as_deref().unwrap_or("Unknown")
-                ));
-                if let Some(ref m) = acc.mutation_hint {
-                    parts.push(format!("Mutation: {}", humanize_snake_case(m)));
-                }
-                if let Some(ref a) = acc.affinity_hint {
-                    parts.push(format!("Affinity: {}", a));
-                }
-                if let Some(ref r) = acc.rig_type_hint {
-                    parts.push(format!("Rig: {}", r));
-                }
-                if let Some(ref rt) = acc.rig_trait {
-                    parts.push(format!("Rig Trait: {}", rt));
-                }
-                if !acc.item_hints.is_empty() {
-                    let display_items: Vec<String> = acc.item_hints.iter()
-                        .map(|h| humanize_snake_case(h))
-                        .collect();
-                    parts.push(format!("Equipment: {}", display_items.join(", ")));
-                }
-                if let Some(bg) = &acc.background {
-                    parts.push(format!("\nBackstory: {}", bg));
-                }
-                let summary = parts.join("\n");
-
-                GameMessage::CharacterCreation {
-                    payload: CharacterCreationPayload {
-                        phase: "confirmation".to_string(),
-                        scene_index: None,
-                        total_scenes: Some(self.scenes.len() as u32),
-                        prompt: None,
-                        summary: Some(summary),
-                        message: None,
-                        choices: None,
-                        allows_freeform: None,
-                        input_type: None,
-                        loading_text: None,
-                        character_preview: None,
-                        choice: None,
-                        character: None,
-                    },
-                    player_id: player_id.to_string(),
-                }
+                // Confirmation summaries depend on inputs the builder does not
+                // own (the lobby-provided player name and the genre pack's
+                // `starting_equipment` table). Rendering them here produced
+                // half-empty summaries — see the 2026-04-09 playtest bug where
+                // Thessa's confirmation dropped Name and Equipment.
+                //
+                // Rendering has moved to `sidequest-server`'s
+                // `dispatch::chargen_summary::render_confirmation_summary`,
+                // which has access to the genre pack and lobby name. Calling
+                // this method in Confirmation phase is a programmer error.
+                panic!(
+                    "CharacterBuilder::to_scene_message called in Confirmation phase. \
+                     Callers must branch on `is_confirmation()` and invoke \
+                     `dispatch::chargen_summary::render_confirmation_summary` instead. \
+                     The builder cannot render a complete summary without pack \
+                     inventory and the lobby-provided name."
+                );
             }
         }
     }
@@ -847,18 +1262,50 @@ impl CharacterBuilder {
         }
     }
 
-    fn generate_stats(&self, acc: &AccumulatedChoices) -> HashMap<String, i32> {
-        let base_values = match self.stat_generation.as_str() {
-            "standard_array" => vec![15, 14, 13, 12, 10, 8],
-            _ => vec![10; self.ability_score_names.len()],
+    fn generate_stats(
+        &self,
+        acc: &AccumulatedChoices,
+    ) -> Result<HashMap<String, i32>, BuilderError> {
+        let mut stats: HashMap<String, i32> = match self.stat_generation.as_str() {
+            "roll_3d6_strict" => {
+                // Use pre-rolled stats from construction
+                if let Some(ref rolled) = self.rolled_stats {
+                    rolled.iter().cloned().collect()
+                } else {
+                    // Fallback: roll now (shouldn't happen — rolled eagerly)
+                    let mut rng = rand::rng();
+                    Self::roll_3d6_stats(&self.ability_score_names, &mut rng)
+                        .into_iter()
+                        .collect()
+                }
+            }
+            "standard_array" => {
+                let base_values = vec![15, 14, 13, 12, 10, 8];
+                self.ability_score_names
+                    .iter()
+                    .zip(base_values.into_iter())
+                    .map(|(name, val)| (name.clone(), val))
+                    .collect()
+            }
+            "point_buy" => {
+                let values =
+                    Self::allocate_point_buy(self.ability_score_names.len(), self.point_buy_budget);
+                tracing::info!(
+                    method = "point_buy",
+                    budget = self.point_buy_budget,
+                    stats = ?values,
+                    "chargen.stats_generated"
+                );
+                self.ability_score_names
+                    .iter()
+                    .zip(values.into_iter())
+                    .map(|(name, val)| (name.clone(), val))
+                    .collect()
+            }
+            other => {
+                return Err(BuilderError::UnknownStatGeneration(other.to_string()));
+            }
         };
-
-        let mut stats: HashMap<String, i32> = self
-            .ability_score_names
-            .iter()
-            .zip(base_values.into_iter())
-            .map(|(name, val)| (name.clone(), val))
-            .collect();
 
         // Apply explicit stat bonuses from genre pack choices (origin, mutation, artifact)
         for (stat, bonus) in &acc.stat_bonuses {
@@ -867,11 +1314,10 @@ impl CharacterBuilder {
             }
         }
 
-        // If no explicit bonuses were set and we're using the flat default,
-        // derive differentiation from the player's accumulated choices so
-        // stats aren't all 10.
+        // If no explicit bonuses were set and we're using standard_array,
+        // derive differentiation from the player's accumulated choices.
         if acc.stat_bonuses.is_empty()
-            && self.stat_generation != "standard_array"
+            && self.stat_generation == "standard_array"
             && self.ability_score_names.len() >= 3
         {
             let names = &self.ability_score_names;
@@ -899,7 +1345,128 @@ impl CharacterBuilder {
             }
         }
 
-        stats
+        // OTEL: chargen.stats_generated — GM panel verification that the
+        // stats subsystem engaged. Emitted through the sidequest-telemetry
+        // broadcast channel (NOT just tracing::info!, which only reaches
+        // stdout). Story 35-13.
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "stats_generated")
+            .field("method", self.stat_generation.as_str())
+            .field("stat_count", stats.len() as i64)
+            .field("stats", &stats)
+            .send();
+
+        Ok(stats)
+    }
+
+    /// Evaluate an hp_formula string using rolled stats and class config.
+    ///
+    /// Supported variables:
+    /// - `XXX_modifier` — D&D-style ability modifier: floor((stat - 10) / 2)
+    ///   where XXX matches any key in the stats HashMap (e.g., CON, STR, body)
+    /// - `class_base` — class_hp_bases lookup for the current class
+    /// - `level` — character level (always 1 at creation)
+    /// - Integer literals
+    ///
+    /// Supported operators: `+`, `-`, `*` (left-to-right, no precedence beyond parens)
+    /// Parentheses are stripped before evaluation.
+    ///
+    /// Returns `Err` on unrecognized tokens, missing variables, or empty formulas.
+    fn evaluate_hp_formula(
+        formula: &str,
+        stats: &HashMap<String, i32>,
+        class_hp_bases: &HashMap<String, u32>,
+        class_str: &str,
+    ) -> Result<i32, BuilderError> {
+        if formula.trim().is_empty() {
+            return Err(BuilderError::InvalidHpFormula(
+                "hp_formula is empty".to_string(),
+            ));
+        }
+
+        // Build variable substitution table
+        let class_base = class_hp_bases.get(class_str).copied().unwrap_or(8) as i32;
+        let level: i32 = 1; // Always 1 at character creation
+
+        // Substitute variables in the formula string
+        let mut expr = formula.to_string();
+
+        // Replace XXX_modifier patterns (e.g., CON_modifier, body_mod, nerve_mod)
+        // Check for full _modifier suffix first, then _mod suffix
+        for (stat_name, &stat_value) in stats {
+            let modifier = (stat_value - 10) / 2;
+            let modifier_var = format!("{}_modifier", stat_name);
+            let mod_var = format!("{}_mod", stat_name.to_lowercase());
+            expr = expr.replace(&modifier_var, &modifier.to_string());
+            expr = expr.replace(&mod_var, &modifier.to_string());
+        }
+
+        // Replace class_base and level
+        expr = expr.replace("class_base", &class_base.to_string());
+        expr = expr.replace("level", &level.to_string());
+
+        // Strip parentheses (simple formulas only)
+        expr = expr.replace('(', "").replace(')', "");
+
+        // Evaluate the arithmetic expression (supports +, -, *)
+        let result = Self::eval_simple_arithmetic(&expr).map_err(|token| {
+            BuilderError::InvalidHpFormula(format!(
+                "unparseable token '{}' in formula '{}' (after substitution: '{}')",
+                token, formula, expr
+            ))
+        })?;
+
+        // Floor at 1 — no zero or negative HP
+        Ok(result.max(1))
+    }
+
+    /// Evaluate a simple arithmetic expression with +, -, * operators.
+    /// No operator precedence — evaluates left to right.
+    /// Handles negative numbers from variable substitution.
+    ///
+    /// Returns `Err(token)` if any token fails to parse as i32.
+    fn eval_simple_arithmetic(expr: &str) -> Result<i32, String> {
+        let expr = expr.trim();
+
+        // Tokenize: split on operators while preserving them.
+        // A '-' at the start of the expression (or after an operator) is part
+        // of a negative literal, not a binary operator.
+        let mut tokens: Vec<String> = Vec::new();
+        let mut current = String::new();
+
+        for ch in expr.chars() {
+            if (ch == '+' || ch == '-' || ch == '*') && !current.trim().is_empty() {
+                tokens.push(current.trim().to_string());
+                tokens.push(ch.to_string());
+                current = String::new();
+            } else {
+                current.push(ch);
+            }
+        }
+        if !current.trim().is_empty() {
+            tokens.push(current.trim().to_string());
+        }
+
+        if tokens.is_empty() {
+            return Err("empty expression".to_string());
+        }
+
+        // Evaluate left to right
+        let mut result: i32 = tokens[0].parse().map_err(|_| tokens[0].clone())?;
+        let mut i = 1;
+        while i + 1 < tokens.len() {
+            let op = &tokens[i];
+            let operand: i32 = tokens[i + 1].parse().map_err(|_| tokens[i + 1].clone())?;
+            match op.as_str() {
+                "+" => result += operand,
+                "-" => result -= operand,
+                "*" => result *= operand,
+                other => return Err(format!("unknown operator '{}'", other)),
+            }
+            i += 2;
+        }
+
+        Ok(result)
     }
 }
 
@@ -969,7 +1536,7 @@ fn extract_hooks(scene_id: &str, effects: &MechanicalEffects) -> Vec<NarrativeHo
 
 /// Convert a snake_case identifier to Title Case display name.
 /// E.g. "natural_armor" → "Natural Armor", "mystery_compass" → "Mystery Compass".
-fn humanize_snake_case(s: &str) -> String {
+pub fn humanize_snake_case(s: &str) -> String {
     s.split('_')
         .map(|word| {
             let mut chars = word.chars();

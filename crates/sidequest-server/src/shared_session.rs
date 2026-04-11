@@ -10,6 +10,7 @@ use tokio::sync::broadcast;
 
 use sidequest_game::barrier::TurnBarrier;
 use sidequest_game::builder::CharacterBuilder;
+use sidequest_game::guest_npc::PlayerRole;
 use sidequest_game::multiplayer::MultiplayerSession;
 
 /// Server-internal wrapper for targeted broadcast messages.
@@ -21,7 +22,7 @@ pub struct TargetedMessage {
     /// If set, only deliver to this player. None = broadcast to all.
     pub target_player_id: Option<String>,
 }
-use sidequest_game::perception::{PerceptionFilter, PerceptionRewriter};
+use sidequest_game::perception::PerceptionFilter;
 use sidequest_game::turn_mode::TurnMode;
 use sidequest_protocol::GameMessage;
 
@@ -51,6 +52,23 @@ pub fn game_session_key(genre: &str, world: &str) -> String {
 /// inventory, and combat stance.
 pub struct PlayerState {
     pub player_name: String,
+    /// Player role for multiplayer permission gating (story 35-6).
+    ///
+    /// Defaults to `PlayerRole::Full` — full agency, no action restrictions.
+    /// Guest NPC players (ADR-029) get `PlayerRole::GuestNpc { .. }` with a
+    /// restricted `allowed_actions` set. The dispatch pipeline reads this
+    /// field via `role()` after intent classification and calls
+    /// `can_perform()` to enforce the restriction, emitting OTEL watcher
+    /// events on every decision.
+    ///
+    /// **Private with crate-only setter** to satisfy rust.md rule #9
+    /// (security-critical fields must be private with getters). The
+    /// `pub(crate) set_role` method is the only sanctioned write site —
+    /// it should be called from the connect handshake when assigning a
+    /// guest NPC role. Direct field mutation is impossible from outside
+    /// the crate, preventing accidental privilege escalation by future
+    /// code that holds `&mut PlayerState`.
+    role: PlayerRole,
     pub session: Session,
     pub builder: Option<CharacterBuilder>,
     pub character_json: Option<serde_json::Value>,
@@ -65,15 +83,23 @@ pub struct PlayerState {
     /// Raw narrator location string (display text for UI).
     pub display_location: String,
     pub inventory: sidequest_game::Inventory,
-    pub combat_state: sidequest_game::combat::CombatState,
-    pub chase_state: Option<sidequest_game::ChaseState>,
+    /// Cached character sheet details (race/stats/abilities/backstory/etc.)
+    /// populated at the end of chargen. `None` before chargen completes.
+    /// This is the single source of truth the PARTY_STATUS builder reads from;
+    /// there is no longer a separate CHARACTER_SHEET message to fall back on.
+    pub sheet: Option<sidequest_protocol::CharacterSheetDetails>,
 }
 
 impl PlayerState {
     /// Create a new player state with defaults.
+    ///
+    /// `role` defaults to `PlayerRole::Full` — guest NPC roles must be set
+    /// explicitly by the connect handshake (future story — 35-6 wires the
+    /// enforcement path but leaves role selection at connect time out of scope).
     pub fn new(player_name: String) -> Self {
         Self {
             player_name,
+            role: PlayerRole::Full,
             session: Session::new(),
             builder: None,
             character_json: None,
@@ -86,9 +112,88 @@ impl PlayerState {
             region_id: String::new(),
             display_location: String::new(),
             inventory: sidequest_game::Inventory::default(),
-            combat_state: sidequest_game::combat::CombatState::default(),
-            chase_state: None,
+            sheet: None,
         }
+    }
+
+    /// Read the player's role for permission gating.
+    ///
+    /// Used by `dispatch_player_action` to look up whether the player is
+    /// a guest NPC and what action categories they may perform. Story 35-6.
+    pub fn role(&self) -> &PlayerRole {
+        &self.role
+    }
+
+    /// Assign the player's role. **Crate-only** — the only sanctioned write
+    /// site is the connect handshake when binding a guest NPC to a player.
+    ///
+    /// Marked `pub(crate)` to satisfy rust.md rule #9 (security-critical
+    /// fields must not be mutable from outside the crate). Direct field
+    /// assignment is impossible because the field itself is private.
+    /// Story 35-6.
+    ///
+    /// Currently has no callers — the connect handshake protocol extension
+    /// for guest NPCs is a future story (35-6 wires the enforcement gate
+    /// but leaves role assignment at connect time out of scope). The
+    /// `#[allow(dead_code)]` documents that the setter is intentionally
+    /// part of the API surface awaiting the connect handshake story.
+    #[allow(dead_code)]
+    pub(crate) fn set_role(&mut self, role: PlayerRole) {
+        self.role = role;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PartyMember construction helpers
+// ---------------------------------------------------------------------------
+//
+// PARTY_STATUS is now the single source of truth for per-character state, so
+// every PartyMember construction site should go through these helpers. Doing
+// it in one place means adding a field to PartyMember can't silently skip a
+// construction site.
+
+/// Convert an `Inventory` into the wire-format `InventoryPayload`.
+pub fn inventory_payload_from(inv: &sidequest_game::Inventory) -> sidequest_protocol::InventoryPayload {
+    sidequest_protocol::InventoryPayload {
+        items: inv
+            .carried()
+            .map(|item| sidequest_protocol::InventoryItem {
+                name: item.name.as_str().to_string(),
+                item_type: item.category.as_str().to_string(),
+                equipped: item.equipped,
+                quantity: item.quantity,
+                description: item.description.as_str().to_string(),
+            })
+            .collect(),
+        gold: inv.gold,
+    }
+}
+
+/// Build a `PartyMember` for an observer from their `PlayerState`.
+///
+/// Used by the PARTY_STATUS broadcast path in session_sync and everywhere
+/// else that iterates `SharedGameSession::players`. The acting player in
+/// dispatch/mod.rs builds its own PartyMember inline because the live turn
+/// data on `DispatchContext` is fresher than `PlayerState` until
+/// `sync_from_locals` runs — but it uses this same helper to populate the
+/// `sheet` facet from the cached per-player detail.
+pub fn party_member_from(pid: &str, ps: &PlayerState) -> sidequest_protocol::PartyMember {
+    sidequest_protocol::PartyMember {
+        player_id: pid.to_string(),
+        name: ps.player_name.clone(),
+        character_name: ps
+            .character_name
+            .clone()
+            .unwrap_or_else(|| ps.player_name.clone()),
+        current_hp: ps.character_hp,
+        max_hp: ps.character_max_hp,
+        statuses: vec![],
+        class: ps.character_class.clone(),
+        level: ps.character_level,
+        portrait_url: None,
+        current_location: ps.display_location.clone(),
+        sheet: ps.sheet.clone(),
+        inventory: Some(inventory_payload_from(&ps.inventory)),
     }
 }
 
@@ -256,27 +361,12 @@ impl SharedGameSession {
         );
     }
 
-    /// Check if any players have active perceptual effects that would
-    /// require narration rewriting.
-    ///
-    /// Returns true if at least one player has effects. The actual
-    /// rewriting requires a `PerceptionRewriter` with a configured
-    /// strategy (currently RED phase / stub — no production strategy yet).
-    pub fn has_perception_effects(&self) -> bool {
-        self.perception_filters.values().any(|f| f.has_effects())
-    }
-
-    /// Describe active perceptual effects for a player (for prompt composition).
-    /// Returns None if the player has no effects.
-    pub fn describe_player_effects(&self, player_id: &str) -> Option<String> {
-        self.perception_filters
-            .get(player_id)
-            .filter(|f| f.has_effects())
-            .map(|f| PerceptionRewriter::describe_effects(f.effects()))
-    }
-
     /// Copy world-level state FROM the shared session INTO local variables.
     /// Used at the start of dispatch_player_action so existing code works unchanged.
+    ///
+    /// Note: only overwrites `current_location` when the shared session has a
+    /// non-empty value. This prevents the initial location set during chargen
+    /// (before sync_from_locals has run) from being blanked by the default empty.
     pub fn sync_to_locals(
         &self,
         current_location: &mut String,
@@ -285,10 +375,14 @@ impl SharedGameSession {
         discovered_regions: &mut Vec<String>,
         trope_states: &mut Vec<sidequest_game::trope::TropeState>,
     ) {
-        *current_location = self.current_location.clone();
+        if !self.current_location.is_empty() {
+            *current_location = self.current_location.clone();
+        }
         *npc_registry = self.npc_registry.clone();
         *narration_history = self.narration_history.clone();
-        *discovered_regions = self.discovered_regions.clone();
+        if !self.discovered_regions.is_empty() {
+            *discovered_regions = self.discovered_regions.clone();
+        }
         *trope_states = self.trope_states.clone();
     }
 
@@ -303,8 +397,6 @@ impl SharedGameSession {
         level: &mut u32,
         xp: &mut u32,
         inventory: &mut sidequest_game::Inventory,
-        combat_state: &mut sidequest_game::combat::CombatState,
-        chase_state: &mut Option<sidequest_game::ChaseState>,
         character_json: &mut Option<serde_json::Value>,
     ) {
         if let Some(ps) = self.players.get(player_id) {
@@ -313,8 +405,6 @@ impl SharedGameSession {
             *level = ps.character_level;
             *xp = ps.character_xp;
             *inventory = ps.inventory.clone();
-            *combat_state = ps.combat_state.clone();
-            *chase_state = ps.chase_state.clone();
             if let Some(ref cj) = ps.character_json {
                 *character_json = Some(cj.clone());
             }
@@ -345,4 +435,3 @@ impl SharedGameSession {
         }
     }
 }
-

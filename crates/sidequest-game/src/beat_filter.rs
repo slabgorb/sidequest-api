@@ -11,6 +11,8 @@ use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
+
 use crate::subject::RenderSubject;
 
 /// Filter decision with auditable reasoning.
@@ -108,12 +110,6 @@ impl BeatFilterConfig {
         })
     }
 
-    /// Create a config with a custom dedup window.
-    pub fn with_dedup_window(mut self, dedup_window: Duration) -> Self {
-        self.dedup_window = dedup_window;
-        self
-    }
-
     /// Minimum narrative weight to trigger a render (normal mode).
     pub fn weight_threshold(&self) -> f32 {
         self.weight_threshold
@@ -142,11 +138,6 @@ impl BeatFilterConfig {
     /// Time window for burst rate limiting.
     pub fn burst_window(&self) -> Duration {
         self.burst_window
-    }
-
-    /// Time window for duplicate subject suppression.
-    pub fn dedup_window(&self) -> Duration {
-        self.dedup_window
     }
 }
 
@@ -234,6 +225,35 @@ impl BeatFilter {
         history_len = self.render_history.len(),
     ))]
     pub fn evaluate(&mut self, subject: &RenderSubject, context: &FilterContext) -> FilterDecision {
+        let decision = self.evaluate_inner(subject, context);
+
+        // OTEL: beat_filter.evaluated — GM panel verification that the filter
+        // is engaged on every render decision. Emits post-decision so
+        // `history_len` reflects whether this decision was recorded.
+        let (decision_str, reason) = match &decision {
+            FilterDecision::Render { reason } => ("render", reason.as_str()),
+            FilterDecision::Suppress { reason } => ("suppress", reason.as_str()),
+        };
+        WatcherEventBuilder::new("beat_filter", WatcherEventType::StateTransition)
+            .field("action", "beat_filter_evaluated")
+            .field("decision", decision_str)
+            .field("reason", reason)
+            .field("subject_weight", subject.narrative_weight())
+            .field("in_combat", context.in_combat)
+            .field("scene_transition", context.scene_transition)
+            .field("player_requested", context.player_requested)
+            .field("history_len", self.render_history.len())
+            .send();
+
+        decision
+    }
+
+    /// Pure decision logic — no telemetry, just the filter rules.
+    fn evaluate_inner(
+        &mut self,
+        subject: &RenderSubject,
+        context: &FilterContext,
+    ) -> FilterDecision {
         let now = Instant::now();
 
         // 1. Force-render bypass (scene transition, player request)

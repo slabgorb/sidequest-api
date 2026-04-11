@@ -51,6 +51,8 @@ fn effects_warrior() -> MechanicalEffects {
         catch_phrase: None,
         pronoun_hint: None,
         stat_bonuses: std::collections::HashMap::new(),
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -73,6 +75,8 @@ fn effects_scholar() -> MechanicalEffects {
         catch_phrase: None,
         pronoun_hint: None,
         stat_bonuses: std::collections::HashMap::new(),
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -95,6 +99,8 @@ fn effects_empty() -> MechanicalEffects {
         catch_phrase: None,
         pronoun_hint: None,
         stat_bonuses: std::collections::HashMap::new(),
+        equipment_generation: None,
+        stat_generation: None,
     }
 }
 
@@ -126,6 +132,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(false),
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
         CharCreationScene {
             id: "calling".to_string(),
@@ -146,6 +153,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(true),
             hook_prompt: None,
             loading_text: None,
+            mechanical_effects: None,
         },
         CharCreationScene {
             id: "backstory".to_string(),
@@ -163,6 +171,7 @@ fn test_scenes() -> Vec<CharCreationScene> {
             allows_freeform: Some(true),
             hook_prompt: Some("Tell me more about this person...".to_string()),
             loading_text: None,
+            mechanical_effects: None,
         },
     ]
 }
@@ -183,7 +192,8 @@ fn scene_with_hook_prompt() -> CharCreationScene {
         }],
         allows_freeform: Some(false),
         hook_prompt: Some("Who betrayed you, and why?".to_string()),
-            loading_text: None,
+        loading_text: None,
+        mechanical_effects: None,
     }
 }
 
@@ -221,6 +231,8 @@ fn test_rules() -> RulesConfig {
         class_label: None,
         confrontations: vec![],
         resources: vec![],
+        xp_affinity: None,
+        initiative_rules: std::collections::HashMap::new(),
     }
 }
 
@@ -232,7 +244,7 @@ fn test_rules() -> RulesConfig {
 fn builder_starts_in_progress_at_scene_zero() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     assert!(
         builder.is_in_progress(),
@@ -245,7 +257,7 @@ fn builder_starts_in_progress_at_scene_zero() {
 fn builder_current_scene_returns_first_genre_scene() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     let scene = builder.current_scene();
     assert_eq!(scene.id, "origin", "First scene should be 'origin'");
@@ -256,7 +268,7 @@ fn builder_current_scene_returns_first_genre_scene() {
 fn builder_reports_total_scene_count() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     assert_eq!(builder.total_scenes(), 3, "Should have 3 scenes");
 }
@@ -269,7 +281,7 @@ fn builder_reports_total_scene_count() {
 fn apply_choice_advances_to_next_scene() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     let result = builder.apply_choice(0);
     assert!(result.is_ok(), "Valid choice should succeed");
@@ -284,7 +296,7 @@ fn apply_choice_advances_to_next_scene() {
 fn apply_choice_records_scene_result() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
 
@@ -307,7 +319,7 @@ fn apply_choice_records_scene_result() {
 fn apply_second_choice_option() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(1).unwrap(); // Elven Forest
     let results = builder.scene_results();
@@ -326,7 +338,7 @@ fn apply_second_choice_option() {
 fn apply_freeform_advances_scene() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     // Scene 0 does not allow freeform, advance past it
     builder.apply_choice(0).unwrap();
@@ -348,7 +360,7 @@ fn apply_freeform_advances_scene() {
 fn apply_freeform_records_text_in_result() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
     builder.apply_choice(0).unwrap();
 
     builder
@@ -366,7 +378,7 @@ fn apply_freeform_records_text_in_result() {
 fn apply_freeform_on_non_freeform_scene_fails() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     // Scene 0 has allows_freeform = false
     let result = builder.apply_freeform("some text");
@@ -384,7 +396,7 @@ fn apply_freeform_on_non_freeform_scene_fails() {
 fn scene_with_hook_prompt_enters_awaiting_followup_after_choice() {
     let scenes = vec![scene_with_hook_prompt()];
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes, &rules);
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
 
     builder.apply_choice(0).unwrap();
 
@@ -398,7 +410,7 @@ fn scene_with_hook_prompt_enters_awaiting_followup_after_choice() {
 fn awaiting_followup_exposes_hook_prompt_text() {
     let scenes = vec![scene_with_hook_prompt()];
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes, &rules);
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
     builder.apply_choice(0).unwrap();
 
     let prompt = builder.current_hook_prompt();
@@ -424,10 +436,11 @@ fn answer_followup_advances_past_scene() {
         }],
         allows_freeform: Some(false),
         hook_prompt: None,
-            loading_text: None,
+        loading_text: None,
+        mechanical_effects: None,
     });
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes, &rules);
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
 
     builder.apply_choice(0).unwrap(); // enters AwaitingFollowup
     assert!(builder.is_awaiting_followup());
@@ -449,7 +462,7 @@ fn answer_followup_advances_past_scene() {
 fn answer_followup_creates_narrative_hook() {
     let scenes = vec![scene_with_hook_prompt()];
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes, &rules);
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
 
     builder.apply_choice(0).unwrap();
     builder
@@ -472,7 +485,7 @@ fn answer_followup_creates_narrative_hook() {
 fn apply_choice_while_awaiting_followup_fails() {
     let scenes = vec![scene_with_hook_prompt()];
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes, &rules);
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
 
     builder.apply_choice(0).unwrap(); // enters AwaitingFollowup
     let result = builder.apply_choice(0);
@@ -490,7 +503,7 @@ fn apply_choice_while_awaiting_followup_fails() {
 fn revert_restores_previous_scene() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // scene 0 → scene 1
     assert_eq!(builder.current_scene_index(), 1);
@@ -508,7 +521,7 @@ fn revert_restores_previous_scene() {
 fn revert_removes_scene_result_from_stack() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
     assert_eq!(builder.scene_results().len(), 1);
@@ -525,7 +538,7 @@ fn revert_removes_scene_result_from_stack() {
 fn revert_undoes_mechanical_effects() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // Dwarf race hint applied
     builder.apply_choice(0).unwrap(); // Fighter class hint applied
@@ -554,7 +567,7 @@ fn revert_undoes_mechanical_effects() {
 fn revert_at_first_scene_returns_error() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     let result = builder.revert();
     assert!(
@@ -567,7 +580,7 @@ fn revert_at_first_scene_returns_error() {
 fn multiple_reverts_unwind_correctly() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // scene 0 → 1
     builder.apply_choice(1).unwrap(); // scene 1 → 2 (Scholar)
@@ -587,7 +600,7 @@ fn multiple_reverts_unwind_correctly() {
 fn completing_all_scenes_enters_confirmation() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     // Complete all 3 scenes
     builder.apply_choice(0).unwrap(); // origin: Mountain Fortress (Dwarf)
@@ -609,7 +622,7 @@ fn completing_all_scenes_enters_confirmation() {
 fn confirmation_has_accumulated_choices_summary() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // Dwarf
     builder.apply_choice(0).unwrap(); // Fighter
@@ -633,7 +646,7 @@ fn confirmation_has_accumulated_choices_summary() {
 fn build_produces_character() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // Dwarf
     builder.apply_choice(0).unwrap(); // Fighter
@@ -655,7 +668,7 @@ fn build_produces_character() {
 fn build_includes_narrative_hooks() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
     builder.apply_choice(0).unwrap();
@@ -675,7 +688,7 @@ fn build_includes_narrative_hooks() {
 fn build_includes_stats() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
     builder.apply_choice(0).unwrap();
@@ -699,7 +712,7 @@ fn build_includes_stats() {
 fn build_sets_race_and_class_from_accumulated_effects() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // Dwarf
     builder.apply_choice(0).unwrap(); // Fighter
@@ -725,10 +738,11 @@ fn build_uses_default_race_and_class_when_not_hinted() {
         }],
         allows_freeform: Some(false),
         hook_prompt: None,
-            loading_text: None,
+        loading_text: None,
+        mechanical_effects: None,
     }];
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes, &rules);
+    let mut builder = CharacterBuilder::new(scenes, &rules, None);
 
     builder.apply_choice(0).unwrap();
     let character = builder.build("Nobody").unwrap();
@@ -749,7 +763,7 @@ fn build_uses_default_race_and_class_when_not_hinted() {
 fn build_before_confirmation_fails() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // Only 1 of 3 scenes done
     let result = builder.build("Thorn");
@@ -776,7 +790,7 @@ fn build_before_confirmation_fails() {
 fn invalid_choice_index_returns_error() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     // Scene 0 has 2 choices (indices 0 and 1)
     let result = builder.apply_choice(5);
@@ -790,7 +804,7 @@ fn invalid_choice_index_returns_error() {
 fn invalid_choice_preserves_state() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     let _ = builder.apply_choice(99);
     assert_eq!(
@@ -813,7 +827,7 @@ fn invalid_choice_preserves_state() {
 fn build_includes_starting_inventory_from_item_hints() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // item_hint: None
     builder.apply_choice(0).unwrap(); // item_hint: "Iron Sword" (Fighter)
@@ -843,7 +857,7 @@ fn build_includes_starting_inventory_from_item_hints() {
 fn build_auto_fills_missing_lore_anchors() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
     builder.apply_choice(0).unwrap();
@@ -875,7 +889,7 @@ fn builder_produces_character_creation_scene_message() {
 
     let scenes = test_scenes();
     let rules = test_rules();
-    let builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     let msg = builder.to_scene_message("player-1");
 
@@ -902,7 +916,7 @@ fn builder_produces_confirmation_message() {
 
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
     builder.apply_choice(0).unwrap();
@@ -934,7 +948,7 @@ fn builder_produces_confirmation_message() {
 fn choice_with_class_hint_generates_trait_hook() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // origin (Dwarf)
     builder.apply_choice(0).unwrap(); // calling: Fighter with personality_trait "Brave"
@@ -953,7 +967,7 @@ fn choice_with_class_hint_generates_trait_hook() {
 fn choice_with_race_hint_generates_origin_hook() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // Dwarf race hint
 
@@ -973,7 +987,7 @@ fn choice_with_race_hint_generates_origin_hook() {
 fn choice_with_relationship_generates_relationship_hook() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // origin
     builder.apply_choice(0).unwrap(); // calling
@@ -996,7 +1010,7 @@ fn choice_with_relationship_generates_relationship_hook() {
 fn choice_with_goals_generates_goal_hook() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
     builder.apply_choice(1).unwrap(); // Scholar with goals
@@ -1019,7 +1033,7 @@ fn choice_with_goals_generates_goal_hook() {
 fn narrative_hook_records_source_scene() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // origin scene
 
@@ -1036,7 +1050,7 @@ fn narrative_hook_records_source_scene() {
 fn narrative_hook_has_non_empty_text() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
 
@@ -1054,7 +1068,7 @@ fn narrative_hook_has_non_empty_text() {
 fn scene_results_form_ordered_stack() {
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap(); // origin
     builder.apply_choice(1).unwrap(); // calling: Scholar
@@ -1076,7 +1090,7 @@ fn scene_results_form_ordered_stack() {
 fn standard_array_produces_valid_stats() {
     let scenes = test_scenes();
     let rules = test_rules(); // stat_generation: "standard_array"
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
 
     builder.apply_choice(0).unwrap();
     builder.apply_choice(0).unwrap();
@@ -1148,7 +1162,7 @@ fn scene_input_type_is_non_exhaustive() {
 fn builder_new_requires_at_least_one_scene() {
     let rules = test_rules();
     // Empty scenes should fail — can't create a character with no creation flow
-    let result = CharacterBuilder::try_new(vec![], &rules);
+    let result = CharacterBuilder::try_new(vec![], &rules, None);
     assert!(
         result.is_err(),
         "CharacterBuilder must reject empty scene list"
@@ -1163,7 +1177,7 @@ fn narrative_hook_fields_accessible_via_getters() {
     // since hook_type and source_scene are invariants set at construction.
     let scenes = test_scenes();
     let rules = test_rules();
-    let mut builder = CharacterBuilder::new(scenes.clone(), &rules);
+    let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
     builder.apply_choice(0).unwrap();
 
     let results = builder.scene_results();

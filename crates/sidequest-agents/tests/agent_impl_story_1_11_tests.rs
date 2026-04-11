@@ -15,7 +15,7 @@ use sidequest_agents::agents::resonator::ResonatorAgent;
 use sidequest_agents::agents::troper::TroperAgent;
 use sidequest_agents::agents::world_builder::WorldBuilderAgent;
 use sidequest_agents::orchestrator::{ActionResult, GameService, Orchestrator};
-use sidequest_agents::patches::{ChasePatch, CombatPatch, WorldStatePatch};
+use sidequest_agents::patches::WorldStatePatch;
 
 // ============================================================
 // AC 1: All 8 agents implement Agent trait fully
@@ -80,14 +80,14 @@ mod agent_trait_tests {
         let agent = NarratorAgent::new();
         let mut builder = ContextBuilder::new();
         agent.build_context(&mut builder);
-        
+
         // The agency rule is added via build_context in the structured template system (story 23-1).
         // Verify it exists by checking the sections.
         let sections = builder.build();
         let has_agency_guardrail = sections
             .iter()
             .any(|s| s.content.contains("NEVER") || s.content.contains("Agency"));
-        
+
         assert!(
             has_agency_guardrail,
             "Narrator must have agency guardrail section in build_context"
@@ -123,33 +123,19 @@ mod agent_types_tests {
         assert!(patch.hp_changes.is_none());
     }
 
-    #[test]
-    fn combat_patch_deserializes_from_json() {
-        let json = r#"{
-            "in_combat": true,
-            "hp_changes": {"Goblin": -12}
-        }"#;
-        let patch: CombatPatch = serde_json::from_str(json).unwrap();
-        assert_eq!(patch.in_combat, Some(true));
-        assert_eq!(patch.hp_changes.as_ref().unwrap().get("Goblin"), Some(&-12));
-    }
-
-    #[test]
-    fn chase_patch_deserializes_from_json() {
-        let json = r#"{
-            "separation_delta": 15,
-            "phase": "pursuit"
-        }"#;
-        let patch: ChasePatch = serde_json::from_str(json).unwrap();
-        assert_eq!(patch.separation_delta, Some(15));
-    }
+    // combat_patch_deserializes_from_json / chase_patch_deserializes_from_json
+    // removed — CombatPatch/ChasePatch were deleted in story 16-2.
 
     #[test]
     fn action_result_contains_narration_and_delta() {
         // ActionResult must carry narration text and optional state changes
         let result = ActionResult {
             narration: "You enter the dimly lit tavern.".to_string(),
-            combat_patch: None, chase_patch: None,
+            beat_selections: vec![],
+            confrontation: None,
+            location: None,
+            prompt_text: None,
+            raw_response_text: None,
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -298,7 +284,11 @@ mod game_service_tests {
     fn action_result_has_required_fields() {
         let result = ActionResult {
             narration: "test".to_string(),
-            combat_patch: None, chase_patch: None,
+            beat_selections: vec![],
+            confrontation: None,
+            location: None,
+            prompt_text: None,
+            raw_response_text: None,
             is_degraded: false,
             classified_intent: None,
             agent_name: None,
@@ -349,7 +339,11 @@ mod error_handling_tests {
         // ADR-005: Timeout → degraded response, not error
         let result = ActionResult {
             narration: "The narrator pauses, gathering their thoughts...".to_string(),
-            combat_patch: None, chase_patch: None,
+            beat_selections: vec![],
+            confrontation: None,
+            location: None,
+            prompt_text: None,
+            raw_response_text: None,
             is_degraded: true,
             classified_intent: None,
             agent_name: None,
@@ -394,23 +388,8 @@ mod deferred_debt_tests {
         assert!(result.is_err(), "WorldStatePatch must deny unknown fields");
     }
 
-    #[test]
-    fn combat_patch_allows_unknown_fields() {
-        // CombatPatch intentionally omits deny_unknown_fields because creature_smith
-        // may include inline preprocessor fields (action_rewrite, action_flags) in
-        // the same JSON block.
-        let json = r#"{"in_combat": true, "bogus_field": 42}"#;
-        let result = serde_json::from_str::<CombatPatch>(json);
-        assert!(result.is_ok(), "CombatPatch must accept unknown fields (inline preprocessor)");
-    }
-
-    #[test]
-    fn chase_patch_allows_unknown_fields() {
-        // ChasePatch intentionally omits deny_unknown_fields — same reason as CombatPatch.
-        let json = r#"{"separation_delta": 10, "bogus_field": "x"}"#;
-        let result = serde_json::from_str::<ChasePatch>(json);
-        assert!(result.is_ok(), "ChasePatch must accept unknown fields (inline preprocessor)");
-    }
+    // combat_patch_allows_unknown_fields / chase_patch_allows_unknown_fields removed —
+    // CombatPatch/ChasePatch were deleted in story 16-2.
 
     #[test]
     fn world_state_patch_serde_round_trip() {

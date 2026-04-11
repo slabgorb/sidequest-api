@@ -59,6 +59,9 @@ fn minimal_extraction() -> NarratorExtraction {
             references_ability: true,
             references_location: true,
         }),
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -88,7 +91,10 @@ fn assemble_turn_produces_valid_action_result() {
         result.narration,
         "**The Collapsed Overpass**\n\nYou step into the ruins."
     );
-    assert!(!result.is_degraded, "assemble_turn should not produce degraded results");
+    assert!(
+        !result.is_degraded,
+        "assemble_turn should not produce degraded results"
+    );
     assert!(
         result.action_rewrite.is_some(),
         "ActionResult must have action_rewrite populated"
@@ -123,8 +129,6 @@ fn assemble_turn_passes_through_narrator_fields() {
 
     assert_eq!(result.scene_mood.as_deref(), Some("combat"));
     assert_eq!(result.scene_intent.as_deref(), Some("Combat"));
-    assert!(result.combat_patch.is_none());
-    assert!(result.chase_patch.is_none());
     assert!(result.footnotes.is_empty());
     assert!(result.items_gained.is_empty());
     assert!(result.npcs_present.is_empty());
@@ -158,9 +162,16 @@ fn assemble_turn_uses_preprocessor_rewrite_over_narrator() {
         references_location: false,
     };
 
-    let result = assemble_turn(extraction, preprocessor_rewrite, flags, ToolCallResults::default());
+    let result = assemble_turn(
+        extraction,
+        preprocessor_rewrite,
+        flags,
+        ToolCallResults::default(),
+    );
 
-    let rewrite = result.action_rewrite.expect("action_rewrite must be present");
+    let rewrite = result
+        .action_rewrite
+        .expect("action_rewrite must be present");
     assert_eq!(rewrite.you, "You draw your sword");
     assert_eq!(rewrite.named, "Kael draws their sword");
     assert_eq!(rewrite.intent, "draw sword");
@@ -191,10 +202,18 @@ fn assemble_turn_uses_preprocessor_flags_over_narrator() {
         references_location: false,
     };
 
-    let result = assemble_turn(extraction, rewrite, preprocessor_flags, ToolCallResults::default());
+    let result = assemble_turn(
+        extraction,
+        rewrite,
+        preprocessor_flags,
+        ToolCallResults::default(),
+    );
 
     let flags = result.action_flags.expect("action_flags must be present");
-    assert!(!flags.is_power_grab, "preprocessor said false, narrator said true — preprocessor wins");
+    assert!(
+        !flags.is_power_grab,
+        "preprocessor said false, narrator said true — preprocessor wins"
+    );
     assert!(!flags.references_inventory);
     assert!(!flags.references_npc);
     assert!(!flags.references_ability);
@@ -208,7 +227,10 @@ fn assemble_turn_uses_preprocessor_flags_over_narrator() {
 #[test]
 fn classify_action_detects_inventory_reference() {
     let flags = classify_action("I check my bag for healing potions");
-    assert!(flags.references_inventory, "must detect inventory reference");
+    assert!(
+        flags.references_inventory,
+        "must detect inventory reference"
+    );
     assert!(!flags.is_power_grab);
 }
 
@@ -272,10 +294,7 @@ fn rewrite_action_produces_three_forms() {
         "named form must contain character name: got '{}'",
         rewrite.named
     );
-    assert!(
-        !rewrite.intent.is_empty(),
-        "intent form must not be empty"
-    );
+    assert!(!rewrite.intent.is_empty(), "intent form must not be empty");
 }
 
 #[test]
@@ -346,7 +365,6 @@ fn narrator_prompt_omits_action_flags_schema() {
     );
 }
 
-
 // ============================================================================
 // AC-5: OTEL events for preprocessor execution
 // ============================================================================
@@ -391,7 +409,8 @@ fn rewrite_action_emits_otel_span() {
 #[test]
 fn tools_module_is_public() {
     // If this compiles, the module path is wired
-    let _: fn(NarratorExtraction, ActionRewrite, ActionFlags, ToolCallResults) -> ActionResult = assemble_turn;
+    let _: fn(NarratorExtraction, ActionRewrite, ActionFlags, ToolCallResults) -> ActionResult =
+        assemble_turn;
 }
 
 /// The preprocessor functions must be accessible from the tools module.
@@ -426,6 +445,9 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
         sfx_triggers: vec![],
         action_rewrite: None, // narrator didn't emit
         action_flags: None,   // narrator didn't emit
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     };
 
     let rewrite = ActionRewrite {
@@ -443,11 +465,14 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
 
     let result = assemble_turn(extraction, rewrite, flags, ToolCallResults::default());
 
-    let result_rewrite = result.action_rewrite.expect("preprocessor rewrite must be present");
+    let result_rewrite = result
+        .action_rewrite
+        .expect("preprocessor rewrite must be present");
     assert_eq!(result_rewrite.you, "You open the door");
 
-    let result_flags = result.action_flags.expect("preprocessor flags must be present");
+    let result_flags = result
+        .action_flags
+        .expect("preprocessor flags must be present");
     assert!(result_flags.references_location);
     assert!(!result_flags.is_power_grab);
 }
-

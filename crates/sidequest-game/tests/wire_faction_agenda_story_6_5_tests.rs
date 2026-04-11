@@ -84,10 +84,7 @@ fn dormant_agendas_excluded_from_faction_events() {
 
 #[test]
 fn all_dormant_agendas_produce_empty_events() {
-    let agendas = vec![
-        dormant_agenda("Council A"),
-        dormant_agenda("Council B"),
-    ];
+    let agendas = vec![dormant_agenda("Council A"), dormant_agenda("Council B")];
 
     let directive = format_scene_directive(&[], &[], &[], &agendas);
     assert!(directive.faction_events.is_empty());
@@ -120,9 +117,15 @@ fn multiple_active_agendas_all_appear() {
     let directive = format_scene_directive(&[], &[], &[], &agendas);
 
     assert_eq!(directive.faction_events.len(), 3);
-    assert!(directive.faction_events.contains(&"Brotherhood event.".to_string()));
-    assert!(directive.faction_events.contains(&"Guild event.".to_string()));
-    assert!(directive.faction_events.contains(&"League event.".to_string()));
+    assert!(directive
+        .faction_events
+        .contains(&"Brotherhood event.".to_string()));
+    assert!(directive
+        .faction_events
+        .contains(&"Guild event.".to_string()));
+    assert!(directive
+        .faction_events
+        .contains(&"League event.".to_string()));
 }
 
 #[test]

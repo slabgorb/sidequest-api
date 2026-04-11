@@ -100,7 +100,12 @@ impl PromptRegistry {
 
         self.register_section(
             agent_name,
-            PromptSection::new("pacing", content, AttentionZone::Late, SectionCategory::Context),
+            PromptSection::new(
+                "pacing",
+                content,
+                AttentionZone::Late,
+                SectionCategory::Context,
+            ),
         );
     }
 
@@ -111,11 +116,7 @@ impl PromptRegistry {
     /// position as footnote protocol, so the LLM sees it with high recency attention.
     ///
     /// Story 14-3: Per-session verbosity control.
-    pub fn register_verbosity_section(
-        &mut self,
-        agent_name: &str,
-        verbosity: NarratorVerbosity,
-    ) {
+    pub fn register_verbosity_section(&mut self, agent_name: &str, verbosity: NarratorVerbosity) {
         if !NARRATING_AGENTS.contains(&agent_name) {
             return;
         }
@@ -123,23 +124,25 @@ impl PromptRegistry {
         let content = match verbosity {
             NarratorVerbosity::Concise => {
                 "<length-limit>\n\
-                 HARD LIMIT: 2-3 sentences, under 200 characters of prose. \
-                 Action and consequence only. No scene-setting. No paragraphs. \
-                 If your prose exceeds 200 characters, DELETE and rewrite shorter.\n\
+                 Target: 2-4 sentences, around 400 characters of prose. \
+                 Action and consequence first. Brief scene-setting only on arrivals. \
+                 Keep it punchy — this mode prioritizes pace over atmosphere.\n\
                  </length-limit>"
             }
             NarratorVerbosity::Standard => {
                 "<length-limit>\n\
-                 HARD LIMIT: 2-3 short paragraphs, under 400 characters of prose. \
-                 One action, one scene beat. If your prose exceeds 400 characters, \
-                 DELETE and rewrite shorter. Most turns should be 2-3 sentences.\n\
+                 Target: 2-3 short paragraphs, around 800 characters of prose. \
+                 Describe the scene, the action, and what the player sees next. \
+                 Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
+                 Dialogue gets voice and personality. Vary length by moment.\n\
                  </length-limit>"
             }
             NarratorVerbosity::Verbose => {
                 "<length-limit>\n\
-                 HARD LIMIT: 2-3 paragraphs, under 600 characters of prose. \
-                 Richer atmosphere and sensory detail, but still concise. \
-                 If your prose exceeds 600 characters, DELETE and rewrite shorter.\n\
+                 Target: 2-4 paragraphs, around 1200 characters of prose. \
+                 Rich atmosphere, sensory detail, NPC personality. Let scenes breathe. \
+                 Big moments (arrivals, reveals, combat starts) get the full treatment. \
+                 Quieter turns can be shorter — vary the rhythm.\n\
                  </length-limit>"
             }
         };
@@ -217,9 +220,9 @@ impl PromptRegistry {
         let entries: Vec<String> = npcs
             .iter()
             .filter_map(|npc| {
-                npc.ocean.as_ref().map(|ocean| {
-                    format!("- {}: {}", npc.core.name, ocean.behavioral_summary())
-                })
+                npc.ocean
+                    .as_ref()
+                    .map(|ocean| format!("- {}: {}", npc.core.name, ocean.behavioral_summary()))
             })
             .collect();
 
@@ -268,7 +271,10 @@ impl PromptRegistry {
 
             let mut char_block = format!("{}:", character.core.name);
             for ability in &involuntary {
-                char_block.push_str(&format!("\n  - {}: {}", ability.name, ability.genre_description));
+                char_block.push_str(&format!(
+                    "\n  - {}: {}",
+                    ability.name, ability.genre_description
+                ));
             }
             entries.push(char_block);
         }
@@ -302,11 +308,7 @@ impl PromptRegistry {
     /// Empty directives are suppressed (no section registered).
     ///
     /// Story 6-2: Parallel to `register_pacing_section()`.
-    pub fn register_scene_directive(
-        &mut self,
-        agent_name: &str,
-        directive: &SceneDirective,
-    ) {
+    pub fn register_scene_directive(&mut self, agent_name: &str, directive: &SceneDirective) {
         if let Some(content) = render_scene_directive(directive) {
             self.register_section(
                 agent_name,
@@ -327,11 +329,7 @@ impl PromptRegistry {
     /// Does nothing if the character has no known facts.
     ///
     /// Story 9-4: Parallel to `register_ocean_personalities_section()`.
-    pub fn register_knowledge_section(
-        &mut self,
-        agent_name: &str,
-        character: &Character,
-    ) {
+    pub fn register_knowledge_section(&mut self, agent_name: &str, character: &Character) {
         if character.known_facts.is_empty() {
             return;
         }
@@ -422,10 +420,7 @@ If nothing new is revealed and nothing prior is referenced, omit the footnotes a
             } else {
                 "involuntary"
             };
-            let mut line = format!(
-                "{}: {}/{} ({})",
-                decl.label, current, decl.max, vol_label
-            );
+            let mut line = format!("{}: {}/{} ({})", decl.label, current, decl.max, vol_label);
             if decl.decay_per_turn.abs() > f64::EPSILON {
                 line.push_str(&format!(", decay {}/turn", decl.decay_per_turn.abs()));
             }

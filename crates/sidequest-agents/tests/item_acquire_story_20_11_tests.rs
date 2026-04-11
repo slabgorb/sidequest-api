@@ -15,9 +15,7 @@
 
 use std::collections::HashMap;
 
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, NarratorExtraction,
-};
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
 use std::io::Write;
 
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
@@ -67,6 +65,9 @@ fn extraction_with_items() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -87,6 +88,9 @@ fn extraction_no_items() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -164,57 +168,45 @@ fn validate_item_acquire_narrator_described() {
 #[test]
 fn validate_item_acquire_rejects_empty_item_ref() {
     let result = validate_item_acquire("", "Some Name", "weapon");
-    assert!(
-        result.is_err(),
-        "empty item_ref must be rejected"
-    );
+    assert!(result.is_err(), "empty item_ref must be rejected");
 }
 
 /// validate_item_acquire rejects whitespace-only item_ref.
 #[test]
 fn validate_item_acquire_rejects_whitespace_item_ref() {
     let result = validate_item_acquire("   ", "Some Name", "weapon");
-    assert!(
-        result.is_err(),
-        "whitespace-only item_ref must be rejected"
-    );
+    assert!(result.is_err(), "whitespace-only item_ref must be rejected");
 }
 
 /// validate_item_acquire rejects empty name.
 #[test]
 fn validate_item_acquire_rejects_empty_name() {
     let result = validate_item_acquire("iron_sword", "", "weapon");
-    assert!(
-        result.is_err(),
-        "empty name must be rejected"
-    );
+    assert!(result.is_err(), "empty name must be rejected");
 }
 
 /// validate_item_acquire rejects whitespace-only name.
 #[test]
 fn validate_item_acquire_rejects_whitespace_name() {
     let result = validate_item_acquire("iron_sword", "   ", "weapon");
-    assert!(
-        result.is_err(),
-        "whitespace-only name must be rejected"
-    );
+    assert!(result.is_err(), "whitespace-only name must be rejected");
 }
 
 /// validate_item_acquire rejects empty category.
 #[test]
 fn validate_item_acquire_rejects_empty_category() {
     let result = validate_item_acquire("iron_sword", "Iron Sword", "");
-    assert!(
-        result.is_err(),
-        "empty category must be rejected"
-    );
+    assert!(result.is_err(), "empty category must be rejected");
 }
 
 /// validate_item_acquire trims whitespace from all fields.
 #[test]
 fn validate_item_acquire_trims_fields() {
     let result = validate_item_acquire("  iron_sword  ", "  Iron Sword  ", "  weapon  ");
-    assert!(result.is_ok(), "padded fields should be accepted after trimming");
+    assert!(
+        result.is_ok(),
+        "padded fields should be accepted after trimming"
+    );
     let item = result.unwrap();
     assert_eq!(item.item_ref(), "iron_sword", "item_ref must be trimmed");
     assert_eq!(item.name(), "Iron Sword", "name must be trimmed");
@@ -275,7 +267,10 @@ fn validate_item_acquire_produces_item_gained() {
     assert_eq!(item_gained.name, "Iron Sword");
     assert_eq!(item_gained.category, "weapon");
     // description should be non-empty (either from catalog or generated)
-    assert!(!item_gained.description.is_empty(), "description must not be empty");
+    assert!(
+        !item_gained.description.is_empty(),
+        "description must not be empty"
+    );
 }
 
 /// Narrator-described items should produce valid ItemGained with the description
@@ -344,12 +339,17 @@ fn validate_item_acquire_long_description() {
 #[test]
 fn parser_extracts_item_acquire_from_sidecar() {
     let sid = test_session_id("parse-item");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let items = results.items_acquired.expect("item_acquire tool result should populate items_acquired");
+    let items = results
+        .items_acquired
+        .expect("item_acquire tool result should populate items_acquired");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].name, "Iron Sword");
     assert_eq!(items[0].category, "weapon");
@@ -361,13 +361,18 @@ fn parser_extracts_item_acquire_from_sidecar() {
 #[test]
 fn parser_accumulates_multiple_item_acquires() {
     let sid = test_session_id("parse-item-multi");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
-        r#"{"tool":"item_acquire","result":{"item_ref":"health_potion","name":"Health Potion","category":"consumable"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
+            r#"{"tool":"item_acquire","result":{"item_ref":"health_potion","name":"Health Potion","category":"consumable"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let items = results.items_acquired.expect("multiple item_acquires should accumulate");
+    let items = results
+        .items_acquired
+        .expect("multiple item_acquires should accumulate");
     assert_eq!(items.len(), 2);
 
     // Verify both items present (order preserved from sidecar)
@@ -382,9 +387,12 @@ fn parser_accumulates_multiple_item_acquires() {
 #[test]
 fn parser_rejects_empty_item_ref_from_sidecar() {
     let sid = test_session_id("parse-item-empty-ref");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"","name":"Some Item","category":"weapon"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"item_acquire","result":{"item_ref":"","name":"Some Item","category":"weapon"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     // Empty item_ref must be rejected — items_acquired should be None (no valid records)
@@ -401,9 +409,12 @@ fn parser_rejects_empty_item_ref_from_sidecar() {
 #[test]
 fn parser_rejects_empty_name_from_sidecar() {
     let sid = test_session_id("parse-item-empty-name");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"","category":"weapon"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"","category":"weapon"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert!(
@@ -418,9 +429,10 @@ fn parser_rejects_empty_name_from_sidecar() {
 #[test]
 fn parser_rejects_missing_category_from_sidecar() {
     let sid = test_session_id("parse-item-no-category");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
     // Missing required field must be rejected
@@ -436,12 +448,17 @@ fn parser_rejects_missing_category_from_sidecar() {
 #[test]
 fn parser_trims_item_acquire_fields() {
     let sid = test_session_id("parse-item-trim");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"  iron_sword  ","name":"  Iron Sword  ","category":"  weapon  "}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"item_acquire","result":{"item_ref":"  iron_sword  ","name":"  Iron Sword  ","category":"  weapon  "}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let items = results.items_acquired.expect("trimmed item_acquire should be accepted");
+    let items = results
+        .items_acquired
+        .expect("trimmed item_acquire should be accepted");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].name, "Iron Sword", "name must be trimmed");
     assert_eq!(items[0].category, "weapon", "category must be trimmed");
@@ -453,16 +470,21 @@ fn parser_trims_item_acquire_fields() {
 #[test]
 fn parser_item_acquire_coexists_with_other_tools() {
     let sid = test_session_id("parse-item-coexist");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"triumph"}}"#,
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
-        r#"{"tool":"quest_update","result":{"quest_name":"The Heist","status":"completed: success"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"set_mood","result":{"mood":"triumph"}}"#,
+            r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
+            r#"{"tool":"quest_update","result":{"quest_name":"The Heist","status":"completed: success"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
 
     // item_acquire populated
-    let items = results.items_acquired.expect("item_acquire should be parsed");
+    let items = results
+        .items_acquired
+        .expect("item_acquire should be parsed");
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].name, "Iron Sword");
 
@@ -495,7 +517,11 @@ fn assemble_turn_tool_items_override_narrator() {
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
     // Tool result must replace narrator extraction
-    assert_eq!(result.items_gained.len(), 1, "tool items must replace narrator items");
+    assert_eq!(
+        result.items_gained.len(),
+        1,
+        "tool items must replace narrator items"
+    );
     assert_eq!(result.items_gained[0].name, "Tool Iron Sword");
 }
 
@@ -603,7 +629,10 @@ fn assemble_turn_item_tools_preserve_other_fields() {
     assert_eq!(result.items_gained[0].name, "Tool Sword");
 
     // Other fields still pass through
-    assert_eq!(result.narration, "You pick up the rusty sword from the ground.");
+    assert_eq!(
+        result.narration,
+        "You pick up the rusty sword from the ground."
+    );
     assert_eq!(result.scene_mood.as_deref(), Some("triumph"));
     assert!(result.action_rewrite.is_some());
 }
@@ -637,7 +666,10 @@ fn validate_item_acquire_otel_on_invalid_input() {
     );
 
     let result = validate_item_acquire("", "Some Name", "weapon");
-    assert!(result.is_err(), "empty item_ref should be rejected even under tracing");
+    assert!(
+        result.is_err(),
+        "empty item_ref should be rejected even under tracing"
+    );
 }
 
 // ============================================================================
@@ -648,19 +680,25 @@ fn validate_item_acquire_otel_on_invalid_input() {
 #[test]
 fn item_acquire_e2e_sidecar_to_action_result() {
     let sid = test_session_id("e2e-item");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
+        ],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_with_items(); // has narrator fallback
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
     // Tool result must override narrator extraction
-    assert_eq!(result.items_gained.len(), 1, "e2e: tool items must replace narrator items");
     assert_eq!(
-        result.items_gained[0].name,
-        "Iron Sword",
+        result.items_gained.len(),
+        1,
+        "e2e: tool items must replace narrator items"
+    );
+    assert_eq!(
+        result.items_gained[0].name, "Iron Sword",
         "e2e: tool result must override narrator extraction"
     );
     assert_eq!(result.items_gained[0].category, "weapon");
@@ -672,16 +710,23 @@ fn item_acquire_e2e_sidecar_to_action_result() {
 #[test]
 fn item_acquire_e2e_multiple_items() {
     let sid = test_session_id("e2e-item-multi");
-    write_sidecar(&sid, &[
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
-        r#"{"tool":"item_acquire","result":{"item_ref":"health_potion","name":"Health Potion","category":"consumable"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
+            r#"{"tool":"item_acquire","result":{"item_ref":"health_potion","name":"Health Potion","category":"consumable"}}"#,
+        ],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_no_items();
     let result = assemble_turn(extraction, default_rewrite(), default_flags(), tool_results);
 
-    assert_eq!(result.items_gained.len(), 2, "e2e: both items must flow through");
+    assert_eq!(
+        result.items_gained.len(),
+        2,
+        "e2e: both items must flow through"
+    );
     assert_eq!(result.items_gained[0].name, "Iron Sword");
     assert_eq!(result.items_gained[1].name, "Health Potion");
 
@@ -692,11 +737,14 @@ fn item_acquire_e2e_multiple_items() {
 #[test]
 fn item_acquire_e2e_mixed_tools() {
     let sid = test_session_id("e2e-item-mixed");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"triumph"}}"#,
-        r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
-        r#"{"tool":"quest_update","result":{"quest_name":"The Heist","status":"completed: success"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"set_mood","result":{"mood":"triumph"}}"#,
+            r#"{"tool":"item_acquire","result":{"item_ref":"iron_sword","name":"Iron Sword","category":"weapon"}}"#,
+            r#"{"tool":"quest_update","result":{"quest_name":"The Heist","status":"completed: success"}}"#,
+        ],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_no_items();
@@ -735,13 +783,17 @@ fn tool_call_results_default_still_works() {
 #[test]
 fn regression_set_mood_still_works() {
     let sid = test_session_id("regress-mood");
-    write_sidecar(&sid, &[
-        r#"{"tool":"set_mood","result":{"mood":"tension"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"set_mood","result":{"mood":"tension"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
     assert_eq!(results.scene_mood.as_deref(), Some("tension"));
-    assert!(results.items_acquired.is_none(), "no item_acquire → should be None");
+    assert!(
+        results.items_acquired.is_none(),
+        "no item_acquire → should be None"
+    );
 
     cleanup_sidecar(&sid);
 }
@@ -750,9 +802,12 @@ fn regression_set_mood_still_works() {
 #[test]
 fn regression_quest_update_still_works() {
     let sid = test_session_id("regress-quest");
-    write_sidecar(&sid, &[
-        r#"{"tool":"quest_update","result":{"quest_name":"The Heist","status":"completed: success"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"quest_update","result":{"quest_name":"The Heist","status":"completed: success"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
     assert!(results.quest_updates.is_some());

@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 sidequest-genre = { path = "../sidequest-genre" }
+sidequest-game = { path = "../sidequest-game" }
 clap.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true

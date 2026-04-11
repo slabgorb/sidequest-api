@@ -10,9 +10,7 @@
 //!   AC-StatCheck: stat_check validated against genre ability_score_names
 //!   AC-Roundtrip: Parsed ConfrontationDef serializes back to valid YAML
 
-use sidequest_genre::{
-    BeatDef, ConfrontationDef, MetricDef, RulesConfig, SecondaryStatDef,
-};
+use sidequest_genre::{BeatDef, ConfrontationDef, MetricDef, RulesConfig, SecondaryStatDef};
 
 // =========================================================================
 // AC-Parse: ConfrontationDef deserializes from YAML
@@ -175,7 +173,10 @@ reveals: opponent_weakness
 resolution: true
 "#;
     let beat: BeatDef = serde_yaml::from_str(yaml).unwrap();
-    assert!(beat.resolution.unwrap_or(false), "draw should be a resolution beat");
+    assert!(
+        beat.resolution.unwrap_or(false),
+        "draw should be a resolution beat"
+    );
     assert_eq!(beat.risk.as_deref(), Some("lethal if you lose"));
     assert_eq!(beat.reveals.as_deref(), Some("opponent_weakness"));
 }
@@ -326,7 +327,10 @@ mood: standoff
     assert_eq!(original.metric.starting, restored.metric.starting);
     assert_eq!(original.beats.len(), restored.beats.len());
     assert_eq!(original.beats[0].id, restored.beats[0].id);
-    assert_eq!(original.secondary_stats.len(), restored.secondary_stats.len());
+    assert_eq!(
+        original.secondary_stats.len(),
+        restored.secondary_stats.len()
+    );
     assert_eq!(original.escalates_to, restored.escalates_to);
     assert_eq!(original.mood, restored.mood);
 }
@@ -454,7 +458,10 @@ beats:
     stat_check: MIGHT
 "#;
     let result: Result<ConfrontationDef, _> = serde_yaml::from_str(yaml);
-    assert!(result.is_err(), "confrontation without 'type' field should be rejected");
+    assert!(
+        result.is_err(),
+        "confrontation without 'type' field should be rejected"
+    );
 }
 
 #[test]
@@ -550,8 +557,8 @@ beats:
     metric_delta: -5
     stat_check: MIGHT
 "#;
-    let err = serde_yaml::from_str::<ConfrontationDef>(yaml)
-        .expect_err("should reject invalid category");
+    let err =
+        serde_yaml::from_str::<ConfrontationDef>(yaml).expect_err("should reject invalid category");
     let msg = err.to_string();
     assert!(
         msg.contains("underwater") || msg.contains("category"),
@@ -600,7 +607,10 @@ confrontations:
 
     // Validation must catch the invalid stat_check reference
     assert_eq!(rules.confrontations.len(), 1);
-    assert_eq!(rules.confrontations[0].beats[0].stat_check, "NONEXISTENT_STAT");
+    assert_eq!(
+        rules.confrontations[0].beats[0].stat_check,
+        "NONEXISTENT_STAT"
+    );
 
     // Now load a real pack and inject the bad confrontation to test validate()
     let packs_dir = genre_packs_path();
@@ -743,14 +753,14 @@ fn all_genre_packs_load_with_confrontations_field() {
 fn packs_without_confrontations_yaml_have_empty_vec() {
     let packs_dir = genre_packs_path();
 
-    // low_fantasy is unlikely to have confrontations in v1
+    // After story 28-10, all genre packs have confrontations declared.
+    // Verify low_fantasy loads its confrontations successfully.
     let lf_path = packs_dir.join("low_fantasy");
     if lf_path.exists() {
-        let pack = sidequest_genre::load_genre_pack(&lf_path)
-            .expect("low_fantasy should load");
+        let pack = sidequest_genre::load_genre_pack(&lf_path).expect("low_fantasy should load");
         assert!(
-            pack.rules.confrontations.is_empty(),
-            "low_fantasy should have empty confrontations (no YAML declarations yet)"
+            !pack.rules.confrontations.is_empty(),
+            "low_fantasy should have confrontations declared (combat + chase from story 28-10)"
         );
     }
 }
@@ -805,10 +815,7 @@ metric_delta: -5
 stat_check: MIGHT
 "#;
     let result: Result<BeatDef, _> = serde_yaml::from_str(yaml);
-    assert!(
-        result.is_err(),
-        "BeatDef with empty id should be rejected"
-    );
+    assert!(result.is_err(), "BeatDef with empty id should be rejected");
 }
 
 // =========================================================================

@@ -15,7 +15,7 @@
 //!   9. generate_recap() handles empty location gracefully
 //!  10. Recap integrates with SqliteStore load (rich recap)
 
-use sidequest_game::narrative::{EncounterTag, NarrativeEntry, generate_recap};
+use sidequest_game::narrative::{generate_recap, EncounterTag, NarrativeEntry};
 use sidequest_game::persistence::{SessionStore, SqliteStore};
 
 // ============================================================================
@@ -35,7 +35,11 @@ fn test_entry(round: u32, content: &str) -> NarrativeEntry {
     }
 }
 
-fn test_entry_with_tags(round: u32, content: &str, encounter_tags: Vec<EncounterTag>) -> NarrativeEntry {
+fn test_entry_with_tags(
+    round: u32,
+    content: &str,
+    encounter_tags: Vec<EncounterTag>,
+) -> NarrativeEntry {
     NarrativeEntry {
         timestamp: round as u64 * 1000,
         round,
@@ -134,7 +138,11 @@ fn generate_recap_includes_header() {
 #[test]
 fn generate_recap_includes_party_intro() {
     let entries = vec![test_entry(1, "The adventure begins.")];
-    let names = vec!["Thorn".to_string(), "Luna".to_string(), "Grimjaw".to_string()];
+    let names = vec![
+        "Thorn".to_string(),
+        "Luna".to_string(),
+        "Grimjaw".to_string(),
+    ];
     let recap = generate_recap(&entries, &names, "Town Square").unwrap();
     assert!(
         recap.contains("The party"),
@@ -175,9 +183,21 @@ fn generate_recap_includes_entry_bullets() {
         test_entry(3, "They set out for the dungeon."),
     ];
     let recap = generate_recap(&entries, &["Thorn".to_string()], "Dungeon Entrance").unwrap();
-    assert!(recap.contains("- The party entered the tavern."), "Got: {}", recap);
-    assert!(recap.contains("- A stranger approached with a map."), "Got: {}", recap);
-    assert!(recap.contains("- They set out for the dungeon."), "Got: {}", recap);
+    assert!(
+        recap.contains("- The party entered the tavern."),
+        "Got: {}",
+        recap
+    );
+    assert!(
+        recap.contains("- A stranger approached with a map."),
+        "Got: {}",
+        recap
+    );
+    assert!(
+        recap.contains("- They set out for the dungeon."),
+        "Got: {}",
+        recap
+    );
 }
 
 // ============================================================================
@@ -246,7 +266,9 @@ fn generate_recap_full_format() {
     let party_pos = recap.find("The party").unwrap();
     let entry1_pos = recap.find("- The party entered the tavern.").unwrap();
     let entry2_pos = recap.find("- A brawl erupted.").unwrap();
-    let footer_pos = recap.find("The party now finds themselves at Town Square.").unwrap();
+    let footer_pos = recap
+        .find("The party now finds themselves at Town Square.")
+        .unwrap();
 
     assert!(header_pos < party_pos, "Header before party intro");
     assert!(party_pos < entry1_pos, "Party intro before entries");
@@ -300,15 +322,17 @@ fn narrative_entry_backward_compat_deserialization() {
 
 #[test]
 fn sqlite_load_produces_rich_recap() {
-    use sidequest_game::state::GameSnapshot;
     use sidequest_game::character::Character;
     use sidequest_game::creature_core::CreatureCore;
     use sidequest_game::inventory::Inventory;
+    use sidequest_game::state::GameSnapshot;
     use sidequest_protocol::NonBlankString;
     use std::collections::HashMap;
 
     let store = SqliteStore::open_in_memory().unwrap();
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
 
     let snapshot = GameSnapshot {
         genre_slug: "mutant_wasteland".to_string(),
@@ -331,11 +355,8 @@ fn sqlite_load_produces_rich_recap() {
             hooks: vec![],
             char_class: NonBlankString::new("Fighter").unwrap(),
             race: NonBlankString::new("Human").unwrap(),
-        pronouns: String::new(),
-            stats: HashMap::from([
-                ("STR".to_string(), 14),
-                ("DEX".to_string(), 12),
-            ]),
+            pronouns: String::new(),
+            stats: HashMap::from([("STR".to_string(), 14), ("DEX".to_string(), 12)]),
             abilities: vec![],
             known_facts: vec![],
             affinities: vec![],
@@ -348,25 +369,55 @@ fn sqlite_load_produces_rich_recap() {
     store.save(&snapshot).unwrap();
 
     // Append narrative entries
-    store.append_narrative(&test_entry(1, "The party entered the tavern.")).unwrap();
-    store.append_narrative(&test_entry(2, "A stranger approached.")).unwrap();
+    store
+        .append_narrative(&test_entry(1, "The party entered the tavern."))
+        .unwrap();
+    store
+        .append_narrative(&test_entry(2, "A stranger approached."))
+        .unwrap();
 
     // Load — should get rich recap
     let session = store.load().unwrap().unwrap();
     let recap = session.recap.unwrap();
 
-    assert!(recap.contains("Previously On..."), "Has header. Got: {}", recap);
-    assert!(recap.contains("Thorn"), "Has character name. Got: {}", recap);
-    assert!(recap.contains("had been adventuring"), "Has party intro. Got: {}", recap);
-    assert!(recap.contains("- The party entered the tavern."), "Has entry 1. Got: {}", recap);
-    assert!(recap.contains("- A stranger approached."), "Has entry 2. Got: {}", recap);
-    assert!(recap.contains("Town Square"), "Has location. Got: {}", recap);
+    assert!(
+        recap.contains("Previously On..."),
+        "Has header. Got: {}",
+        recap
+    );
+    assert!(
+        recap.contains("Thorn"),
+        "Has character name. Got: {}",
+        recap
+    );
+    assert!(
+        recap.contains("had been adventuring"),
+        "Has party intro. Got: {}",
+        recap
+    );
+    assert!(
+        recap.contains("- The party entered the tavern."),
+        "Has entry 1. Got: {}",
+        recap
+    );
+    assert!(
+        recap.contains("- A stranger approached."),
+        "Has entry 2. Got: {}",
+        recap
+    );
+    assert!(
+        recap.contains("Town Square"),
+        "Has location. Got: {}",
+        recap
+    );
 }
 
 #[test]
 fn sqlite_load_no_entries_no_recap() {
     let store = SqliteStore::open_in_memory().unwrap();
-    store.init_session("mutant_wasteland", "flickering_reach").unwrap();
+    store
+        .init_session("mutant_wasteland", "flickering_reach")
+        .unwrap();
 
     let snapshot = GameSnapshot {
         genre_slug: "mutant_wasteland".to_string(),

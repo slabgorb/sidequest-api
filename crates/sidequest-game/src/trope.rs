@@ -145,22 +145,38 @@ impl TropeEngine {
                 continue;
             };
 
+            let progression_before = ts.progression;
+
             // Passive progression scaled by engagement multiplier
             if let Some(pp) = &td.passive_progression {
                 ts.progression = (ts.progression + pp.rate_per_turn * multiplier).min(1.0);
             }
 
             // Check escalation beats
+            let mut threshold_crossed = false;
             for beat in &td.escalation {
                 let threshold = OrderedFloat(beat.at);
                 if beat.at <= ts.progression && !ts.fired_beats.contains(&threshold) {
                     ts.fired_beats.insert(threshold);
+                    threshold_crossed = true;
                     fired.push(FiredBeat {
                         trope_id: ts.trope_definition_id.clone(),
                         trope_name: td.name.as_str().to_string(),
                         beat: beat.clone(),
                     });
                 }
+            }
+
+            // Per-trope progression OTEL span
+            {
+                let tick_span = tracing::info_span!(
+                    "trope.tick",
+                    trope_id = %ts.trope_definition_id,
+                    progression_before = progression_before,
+                    progression_after = ts.progression,
+                    threshold_crossed = threshold_crossed,
+                );
+                let _guard = tick_span.enter();
             }
 
             // Status transition: Active → Progressing
@@ -204,10 +220,7 @@ impl TropeEngine {
 
     /// Activate a trope. Idempotent — returns existing if already active.
     pub fn activate<'a>(tropes: &'a mut Vec<TropeState>, def_id: &str) -> &'a TropeState {
-        let span = tracing::info_span!(
-            "trope_activate",
-            trope_id = def_id,
-        );
+        let span = tracing::info_span!("trope_activate", trope_id = def_id,);
         let _guard = span.enter();
 
         if let Some(idx) = tropes
@@ -306,10 +319,7 @@ impl TropeEngine {
 
     /// Resolve a trope — sets progression to 1.0 and status to Resolved.
     pub fn resolve(tropes: &mut [TropeState], def_id: &str, note: Option<&str>) {
-        let span = tracing::info_span!(
-            "trope_resolve",
-            trope_id = def_id,
-        );
+        let span = tracing::info_span!("trope_resolve", trope_id = def_id,);
         let _guard = span.enter();
 
         if let Some(ts) = tropes
@@ -419,7 +429,10 @@ impl TropeEngine {
         }
 
         // Re-borrow after tracker mutation
-        tropes.iter().find(|ts| ts.trope_definition_id == def_id).unwrap()
+        tropes
+            .iter()
+            .find(|ts| ts.trope_definition_id == def_id)
+            .unwrap()
     }
 
     /// Advance tropes by elapsed days and check for newly earned achievements.

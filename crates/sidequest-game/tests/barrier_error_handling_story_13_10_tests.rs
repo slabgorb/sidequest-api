@@ -38,10 +38,7 @@ fn two_player_barrier() -> TurnBarrier {
 fn full_session_barrier() -> TurnBarrier {
     let mut players = HashMap::new();
     for i in 1..=6 {
-        players.insert(
-            format!("player-{i}"),
-            make_character(&format!("Char{i}")),
-        );
+        players.insert(format!("player-{i}"), make_character(&format!("Char{i}")));
     }
     let session = MultiplayerSession::new(players);
     TurnBarrier::new(session, TurnBarrierConfig::new(Duration::from_secs(5)))
@@ -74,7 +71,10 @@ fn add_player_session_full_returns_error() {
     let barrier = full_session_barrier();
     assert_eq!(barrier.player_count(), 6);
     let result = barrier.add_player("player-7".to_string(), make_character("Overflow"));
-    assert!(result.is_err(), "add_player to full session must return Err");
+    assert!(
+        result.is_err(),
+        "add_player to full session must return Err"
+    );
     match result.unwrap_err() {
         MultiplayerError::SessionFull(max) => {
             assert_eq!(max, 6);
@@ -149,7 +149,10 @@ fn submit_action_for_unknown_player_is_noop() {
 fn remove_player_always_succeeds() {
     let barrier = two_player_barrier();
     let result = barrier.remove_player("player-2");
-    assert!(result.is_ok(), "remove_player must not fail for existing player");
+    assert!(
+        result.is_ok(),
+        "remove_player must not fail for existing player"
+    );
     assert_eq!(result.unwrap(), 1);
     assert_eq!(barrier.player_count(), 1);
 }
@@ -183,7 +186,10 @@ fn remove_player_triggers_barrier_when_remaining_submitted() {
 fn remove_player_nonexistent_returns_error() {
     let barrier = two_player_barrier();
     let result = barrier.remove_player("player-999");
-    assert!(result.is_err(), "removing nonexistent player must return Err");
+    assert!(
+        result.is_err(),
+        "removing nonexistent player must return Err"
+    );
     match result.unwrap_err() {
         MultiplayerError::PlayerNotFound(id) => {
             assert_eq!(id, "player-999");
@@ -276,7 +282,10 @@ fn character_serializes_to_non_null_json() {
 
     // CreatureCore is #[serde(flatten)]'d — fields appear at top level
     let obj = json.as_object().unwrap();
-    assert!(obj.contains_key("name"), "must have 'name' field (from flattened core)");
+    assert!(
+        obj.contains_key("name"),
+        "must have 'name' field (from flattened core)"
+    );
     assert!(obj.contains_key("backstory"), "must have 'backstory' field");
 }
 

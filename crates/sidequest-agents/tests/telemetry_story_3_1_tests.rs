@@ -102,7 +102,9 @@ fn has_field(span: &CapturedSpan, field_name: &str) -> bool {
 /// classified_intent, agent_routed_to, confidence.
 #[test]
 fn intent_router_classify_emits_span_with_semantic_fields() {
-    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
+    use sidequest_agents::agents::intent_router::{
+        Intent, IntentClassifier, IntentRoute, IntentRouter,
+    };
     use sidequest_agents::orchestrator::TurnContext;
 
     struct MockClassifier;
@@ -118,7 +120,8 @@ fn intent_router_classify_emits_span_with_semantic_fields() {
     with_default(subscriber, || {
         let ctx = TurnContext::default();
         let classifier = MockClassifier;
-        let _route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
+        let _route =
+            IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
     });
 
     let spans = captured.lock().unwrap();
@@ -147,7 +150,9 @@ fn intent_router_classify_emits_span_with_semantic_fields() {
 /// State override classification must emit a span with classified_intent.
 #[test]
 fn intent_router_state_override_emits_span() {
-    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
+    use sidequest_agents::agents::intent_router::{
+        Intent, IntentClassifier, IntentRoute, IntentRouter,
+    };
     use sidequest_agents::orchestrator::TurnContext;
 
     struct MockClassifier;
@@ -244,7 +249,9 @@ fn context_builder_compose_emits_span_with_metrics() {
 /// the fields ARE populated (not left as Empty) after the function returns.
 #[test]
 fn intent_router_deferred_fields_are_populated_after_classify() {
-    use sidequest_agents::agents::intent_router::{Intent, IntentClassifier, IntentRoute, IntentRouter};
+    use sidequest_agents::agents::intent_router::{
+        Intent, IntentClassifier, IntentRoute, IntentRouter,
+    };
     use sidequest_agents::orchestrator::TurnContext;
 
     struct MockClassifier;
@@ -271,7 +278,8 @@ fn intent_router_deferred_fields_are_populated_after_classify() {
     with_default(subscriber, || {
         let ctx = TurnContext::default();
         let classifier = MockClassifier;
-        let _route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
+        let _route =
+            IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
     });
 
     let _recorded = recorded_fields.lock().unwrap();
@@ -362,10 +370,7 @@ fn agent_invocation_span_has_required_fields() {
                  model, prompt_len, response_len, duration_ms fields",
     );
 
-    assert!(
-        has_field(span, "model"),
-        "Agent span missing 'model' field"
-    );
+    assert!(has_field(span, "model"), "Agent span missing 'model' field");
     assert!(
         has_field(span, "prompt_len"),
         "Agent span missing 'prompt_len' field"

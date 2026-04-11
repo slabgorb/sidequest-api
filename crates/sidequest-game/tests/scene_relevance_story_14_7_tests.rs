@@ -4,8 +4,8 @@
 //! before image generation. Entities not in the scene are rejected.
 //! DM override bypasses validation. OTEL instrumentation on all paths.
 
+use sidequest_game::scene_relevance::SceneRelevanceValidator;
 use sidequest_game::subject::{ExtractionContext, RenderSubject, SceneType, SubjectTier};
-use sidequest_game::scene_relevance::{SceneRelevanceValidator};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -102,7 +102,11 @@ fn approved_when_all_entities_in_scene() {
         SceneType::Dialogue,
         "Grok haggles with Merchant Talia",
     );
-    let context = make_context(vec!["Grok", "Merchant Talia", "Guard"], "Marketplace", false);
+    let context = make_context(
+        vec!["Grok", "Merchant Talia", "Guard"],
+        "Marketplace",
+        false,
+    );
 
     let verdict = validator.evaluate(&subject, &context);
     assert!(
@@ -209,11 +213,7 @@ fn location_coherence_deferred_to_llm() {
 fn combat_scene_type_during_exploration_is_suspect() {
     let validator = SceneRelevanceValidator::new();
     // Combat scene type but context says no combat
-    let subject = make_subject(
-        vec!["Grok"],
-        SceneType::Combat,
-        "Grok charges into battle",
-    );
+    let subject = make_subject(vec!["Grok"], SceneType::Combat, "Grok charges into battle");
     let context = make_context(vec!["Grok"], "Peaceful Meadow", false);
 
     let verdict = validator.evaluate(&subject, &context);
@@ -226,11 +226,7 @@ fn combat_scene_type_during_exploration_is_suspect() {
 #[test]
 fn combat_scene_type_approved_during_combat() {
     let validator = SceneRelevanceValidator::new();
-    let subject = make_subject(
-        vec!["Grok"],
-        SceneType::Combat,
-        "Grok charges into battle",
-    );
+    let subject = make_subject(vec!["Grok"], SceneType::Combat, "Grok charges into battle");
     let context = make_context(vec!["Grok"], "Arena", true);
 
     let verdict = validator.evaluate(&subject, &context);
@@ -247,11 +243,7 @@ fn combat_scene_type_approved_during_combat() {
 #[test]
 fn case_insensitive_entity_matching() {
     let validator = SceneRelevanceValidator::new();
-    let subject = make_subject(
-        vec!["grok"],
-        SceneType::Dialogue,
-        "grok speaks softly",
-    );
+    let subject = make_subject(vec!["grok"], SceneType::Dialogue, "grok speaks softly");
     let context = make_context(vec!["Grok"], "Tavern", false);
 
     let verdict = validator.evaluate(&subject, &context);
@@ -265,11 +257,7 @@ fn case_insensitive_entity_matching() {
 fn partial_name_matches_known_npc() {
     let validator = SceneRelevanceValidator::new();
     // "Grok" extracted from narration should match "Grok the Destroyer" in known_npcs
-    let subject = make_subject(
-        vec!["Grok"],
-        SceneType::Dialogue,
-        "Grok examines the rune",
-    );
+    let subject = make_subject(vec!["Grok"], SceneType::Dialogue, "Grok examines the rune");
     let context = make_context(vec!["Grok the Destroyer"], "Ruins", false);
 
     let verdict = validator.evaluate(&subject, &context);
@@ -325,11 +313,7 @@ fn dm_override_false_runs_normal_validation() {
 #[test]
 fn verdict_approved_has_no_reason() {
     let validator = SceneRelevanceValidator::new();
-    let subject = make_subject(
-        vec!["Grok"],
-        SceneType::Dialogue,
-        "Grok speaks",
-    );
+    let subject = make_subject(vec!["Grok"], SceneType::Dialogue, "Grok speaks");
     let context = make_context(vec!["Grok"], "Tavern", false);
 
     let verdict = validator.evaluate(&subject, &context);
@@ -386,20 +370,12 @@ fn validator_is_stateless_between_calls() {
     let context = make_context(vec!["Grok"], "Tavern", false);
 
     // First call: rejected
-    let bad_subject = make_subject(
-        vec!["Dragon"],
-        SceneType::Combat,
-        "Dragon attacks",
-    );
+    let bad_subject = make_subject(vec!["Dragon"], SceneType::Combat, "Dragon attacks");
     let verdict1 = validator.evaluate(&bad_subject, &context);
     assert!(verdict1.is_rejected());
 
     // Second call with matching entities: should be approved regardless of first call
-    let good_subject = make_subject(
-        vec!["Grok"],
-        SceneType::Dialogue,
-        "Grok orders a drink",
-    );
+    let good_subject = make_subject(vec!["Grok"], SceneType::Dialogue, "Grok orders a drink");
     let verdict2 = validator.evaluate(&good_subject, &context);
     assert!(
         verdict2.is_approved(),

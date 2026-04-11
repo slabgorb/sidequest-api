@@ -81,8 +81,14 @@ fn clue_node_construction() {
     assert_eq!(n.clue_type(), &ClueType::Physical);
     assert_eq!(n.discovery_method(), &DiscoveryMethod::Search);
     assert_eq!(n.visibility(), &ClueVisibility::Obvious);
-    assert!(n.requires().is_empty(), "new node should have no requirements");
-    assert!(n.implicates().is_empty(), "new node should have no implications");
+    assert!(
+        n.requires().is_empty(),
+        "new node should have no requirements"
+    );
+    assert!(
+        n.implicates().is_empty(),
+        "new node should have no implications"
+    );
     assert!(!n.is_red_herring(), "default should not be red herring");
 }
 
@@ -520,15 +526,16 @@ fn both_dependency_and_npc_knowledge_required() {
     );
 
     // Has dependency but no NPC knowledge
-    let no_knowledge =
-        activation.discoverable_clues_with_npc(&discovered(&["evidence_shown"]), &BeliefState::new());
+    let no_knowledge = activation
+        .discoverable_clues_with_npc(&discovered(&["evidence_shown"]), &BeliefState::new());
     assert!(
         !no_knowledge.contains(&"deep_confession".to_string()),
         "should be blocked when NPC lacks knowledge, even with dependency met"
     );
 
     // Both conditions met
-    let both = activation.discoverable_clues_with_npc(&discovered(&["evidence_shown"]), &npc_beliefs);
+    let both =
+        activation.discoverable_clues_with_npc(&discovered(&["evidence_shown"]), &npc_beliefs);
     assert!(
         both.contains(&"deep_confession".to_string()),
         "should unlock when both dependency and NPC knowledge are present"
@@ -592,7 +599,8 @@ fn discovery_method_serde_roundtrip() {
         DiscoveryMethod::Observe,
     ] {
         let json = serde_json::to_string(&dm).expect("serialize DiscoveryMethod");
-        let back: DiscoveryMethod = serde_json::from_str(&json).expect("deserialize DiscoveryMethod");
+        let back: DiscoveryMethod =
+            serde_json::from_str(&json).expect("deserialize DiscoveryMethod");
         assert_eq!(back, dm);
     }
 }

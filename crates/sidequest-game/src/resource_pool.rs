@@ -24,8 +24,13 @@ pub struct ResourceThreshold {
 /// A named resource pool with bounded numeric value and optional thresholds.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourcePool {
-    /// Pool name (e.g., "luck", "heat").
+    /// Pool name / internal ID (e.g., "luck", "heat").
     pub name: String,
+    /// Display label shown to players and narrator (e.g., "Luck", "Heat").
+    /// Defaults to empty for backward compat with old saves;
+    /// `init_resource_pools()` upsert populates it from genre pack.
+    #[serde(default)]
+    pub label: String,
     /// Current value.
     pub current: f64,
     /// Minimum allowed value.
@@ -96,11 +101,7 @@ pub enum ResourcePatchError {
 /// - turn_created: the current turn number
 ///
 /// Duplicates are silently skipped (LoreStore rejects duplicate IDs).
-pub fn mint_threshold_lore(
-    thresholds: &[ResourceThreshold],
-    store: &mut LoreStore,
-    turn: u64,
-) {
+pub fn mint_threshold_lore(thresholds: &[ResourceThreshold], store: &mut LoreStore, turn: u64) {
     for threshold in thresholds {
         let fragment = LoreFragment::new(
             threshold.event_id.clone(),
@@ -131,11 +132,7 @@ fn detect_crossings(
 
 impl ResourcePool {
     /// Apply a raw value change (unclamped delta or set), clamp, and detect threshold crossings.
-    fn apply_and_clamp(
-        &mut self,
-        op: &ResourcePatchOp,
-        value: f64,
-    ) -> ResourcePatchResult {
+    fn apply_and_clamp(&mut self, op: &ResourcePatchOp, value: f64) -> ResourcePatchResult {
         let old_value = self.current;
         let raw = match op {
             ResourcePatchOp::Add => self.current + value,
@@ -210,12 +207,21 @@ impl GameSnapshot {
         all_crossings
     }
 
-    /// Initialize resource pools from genre pack declarations.
+    /// Initialize or upsert resource pools from genre pack declarations.
     ///
-    /// Converts genre-pack threshold declarations into game-engine ResourceThresholds.
+    /// **Upsert semantics (critical for save migration):**
+    /// - If a pool with this name already exists (e.g., from a loaded save),
+    ///   update its declaration-derived fields (label, min, max, voluntary,
+    ///   decay_per_turn, thresholds) but **preserve the existing `current` value**.
+    /// - If no pool exists, create a new one with `current = decl.starting`.
+    ///
+    /// This is what makes old saves migrate correctly: the legacy `resource_state`
+    /// deserializer creates minimal ResourcePool entries with the saved `current`,
+    /// then `init_resource_pools()` is called on session load to populate the
+    /// genre-pack metadata without clobbering the player's progress.
     pub fn init_resource_pools(&mut self, declarations: &[sidequest_genre::ResourceDeclaration]) {
         for decl in declarations {
-            let thresholds = decl
+            let thresholds: Vec<ResourceThreshold> = decl
                 .thresholds
                 .iter()
                 .map(|t| ResourceThreshold {
@@ -224,16 +230,32 @@ impl GameSnapshot {
                     narrator_hint: t.narrator_hint.clone(),
                 })
                 .collect();
-            let pool = ResourcePool {
-                name: decl.name.clone(),
-                current: decl.starting,
-                min: decl.min,
-                max: decl.max,
-                voluntary: decl.voluntary,
-                decay_per_turn: decl.decay_per_turn,
-                thresholds,
-            };
-            self.resources.insert(decl.name.clone(), pool);
+
+            if let Some(existing) = self.resources.get_mut(&decl.name) {
+                // Preserve `current` — update everything else from genre pack.
+                existing.label = decl.label.clone();
+                existing.min = decl.min;
+                existing.max = decl.max;
+                existing.voluntary = decl.voluntary;
+                existing.decay_per_turn = decl.decay_per_turn;
+                existing.thresholds = thresholds;
+                // Re-clamp in case the new bounds invalidate the saved value.
+                existing.current = existing.current.clamp(existing.min, existing.max);
+            } else {
+                self.resources.insert(
+                    decl.name.clone(),
+                    ResourcePool {
+                        name: decl.name.clone(),
+                        label: decl.label.clone(),
+                        current: decl.starting,
+                        min: decl.min,
+                        max: decl.max,
+                        voluntary: decl.voluntary,
+                        decay_per_turn: decl.decay_per_turn,
+                        thresholds,
+                    },
+                );
+            }
         }
     }
 
@@ -265,5 +287,4 @@ impl GameSnapshot {
         mint_threshold_lore(&result.crossed_thresholds, store, turn);
         Ok(result)
     }
-
 }

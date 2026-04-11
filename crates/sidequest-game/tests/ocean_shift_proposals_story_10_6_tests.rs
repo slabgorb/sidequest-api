@@ -12,8 +12,8 @@
 //!   AC-5: Proposals are applicable via apply_shift() on OceanProfile
 
 use sidequest_game::{
-    OceanDimension, OceanProfile, OceanShiftLog,
-    PersonalityEvent, OceanShiftProposal, propose_ocean_shifts,
+    propose_ocean_shifts, OceanDimension, OceanProfile, OceanShiftLog, OceanShiftProposal,
+    PersonalityEvent,
 };
 
 // ─── AC-1: OceanShiftProposal struct fields ─────────────────
@@ -145,20 +145,29 @@ fn social_bonding_raises_agreeableness_and_extraversion() {
         .iter()
         .find(|p| p.dimension == OceanDimension::Agreeableness)
         .expect("social bonding should propose an Agreeableness shift");
-    assert!(agree.delta > 0.0, "social bonding should raise Agreeableness");
+    assert!(
+        agree.delta > 0.0,
+        "social bonding should raise Agreeableness"
+    );
 
     let extra = proposals
         .iter()
         .find(|p| p.dimension == OceanDimension::Extraversion)
         .expect("social bonding should propose an Extraversion shift");
-    assert!(extra.delta > 0.0, "social bonding should raise Extraversion");
+    assert!(
+        extra.delta > 0.0,
+        "social bonding should raise Extraversion"
+    );
 }
 
 #[test]
 fn proposals_carry_npc_name() {
     let proposals = propose_ocean_shifts(PersonalityEvent::Victory, "Fennec");
     for p in &proposals {
-        assert_eq!(p.npc_name, "Fennec", "all proposals should carry the NPC name");
+        assert_eq!(
+            p.npc_name, "Fennec",
+            "all proposals should carry the NPC name"
+        );
     }
 }
 
@@ -265,7 +274,10 @@ fn proposals_can_be_applied_to_ocean_profile() {
     .iter()
     .any(|&dim| (profile.get(dim) - 5.0).abs() > f64::EPSILON);
 
-    assert!(changed, "applying proposals should change at least one dimension");
+    assert!(
+        changed,
+        "applying proposals should change at least one dimension"
+    );
     assert!(
         !log.shifts().is_empty(),
         "applying proposals should add entries to the shift log"

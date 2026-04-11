@@ -25,9 +25,7 @@ use std::collections::HashMap;
 
 use sidequest_agents::agent::Agent;
 use sidequest_agents::agents::narrator::NarratorAgent;
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, NarratorExtraction,
-};
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use sidequest_protocol::FactCategory;
 
@@ -52,6 +50,9 @@ fn minimal_extraction() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -175,9 +176,8 @@ fn extractor_source_file_does_not_exist() {
     // Verify at compile time that the extractor.rs file no longer exists.
     // include_str! would be a compile error if the file is gone, so we
     // check for the file's sentinel content instead.
-    let extractor_exists = std::path::Path::new(
-        concat!(env!("CARGO_MANIFEST_DIR"), "/src/extractor.rs")
-    ).exists();
+    let extractor_exists =
+        std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src/extractor.rs")).exists();
 
     assert!(
         !extractor_exists,
@@ -219,12 +219,10 @@ fn orchestrator_has_no_extractor_import() {
 fn action_result_has_no_extraction_tier_field_in_source() {
     // After 20-8, ActionResult should not have an extraction_tier field at all.
     let orchestrator_source = include_str!("../src/orchestrator.rs");
-    let has_extraction_tier = orchestrator_source
-        .lines()
-        .any(|line| {
-            let trimmed = line.trim();
-            trimmed.starts_with("pub extraction_tier:") || trimmed.starts_with("extraction_tier:")
-        });
+    let has_extraction_tier = orchestrator_source.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with("pub extraction_tier:") || trimmed.starts_with("extraction_tier:")
+    });
     assert!(
         !has_extraction_tier,
         "ActionResult still has an `extraction_tier` field — \
@@ -240,12 +238,10 @@ fn narrator_extraction_has_no_tier_field_in_source() {
 
     // Check that NarratorExtraction struct doesn't have a `tier: u8` field.
     // VisualScene has a `tier: String` which is unrelated — match the u8 type specifically.
-    let has_tier_field = orchestrator_source
-        .lines()
-        .any(|line| {
-            let trimmed = line.trim();
-            trimmed.starts_with("pub tier: u8") || trimmed.starts_with("tier: u8")
-        });
+    let has_tier_field = orchestrator_source.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed.starts_with("pub tier: u8") || trimmed.starts_with("tier: u8")
+    });
 
     assert!(
         !has_tier_field,
@@ -290,6 +286,9 @@ fn assemble_turn_produces_complete_action_result() {
         sfx_triggers: vec!["coins_clink".to_string()],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     };
 
     let rewrite = ActionRewrite {
@@ -306,15 +305,24 @@ fn assemble_turn_produces_complete_action_result() {
     let result = assemble_turn(extraction, rewrite, flags, tool_mood);
 
     // Core fields from extraction
-    assert_eq!(result.narration, "**The Market Square**\n\nVendors call out their wares.");
+    assert_eq!(
+        result.narration,
+        "**The Market Square**\n\nVendors call out their wares."
+    );
     assert_eq!(result.footnotes.len(), 1);
     assert_eq!(result.items_gained.len(), 1);
     assert_eq!(result.sfx_triggers, vec!["coins_clink"]);
-    assert_eq!(result.lore_established, Some(vec!["Market square is busy at noon".to_string()]));
+    assert_eq!(
+        result.lore_established,
+        Some(vec!["Market square is busy at noon".to_string()])
+    );
 
     // Tool call overrides narrator extraction
-    assert_eq!(result.scene_mood, Some("bustling".to_string()),
-        "Tool call scene_mood should override narrator extraction");
+    assert_eq!(
+        result.scene_mood,
+        Some("bustling".to_string()),
+        "Tool call scene_mood should override narrator extraction"
+    );
 
     // Preprocessor values present
     assert!(result.action_rewrite.is_some());

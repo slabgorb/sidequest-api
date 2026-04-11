@@ -16,9 +16,7 @@ use std::collections::HashMap;
 
 use sidequest_agents::agent::Agent;
 use sidequest_agents::agents::narrator::NarratorAgent;
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionRewrite, NarratorExtraction,
-};
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
 use std::io::Write;
 
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
@@ -69,6 +67,9 @@ fn extraction_with_quests() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -89,6 +90,9 @@ fn extraction_no_quests() -> NarratorExtraction {
         sfx_triggers: vec![],
         action_rewrite: None,
         action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
     }
 }
 
@@ -115,10 +119,7 @@ fn validate_quest_update_active_quest() {
 /// Quest completion status.
 #[test]
 fn validate_quest_update_completed_quest() {
-    let result = validate_quest_update(
-        "The Corrupted Grove",
-        "completed: the source was purified",
-    );
+    let result = validate_quest_update("The Corrupted Grove", "completed: the source was purified");
     assert!(result.is_ok());
     let update = result.unwrap();
     assert_eq!(update.quest_name(), "The Corrupted Grove");
@@ -128,10 +129,7 @@ fn validate_quest_update_completed_quest() {
 /// Quest failure status.
 #[test]
 fn validate_quest_update_failed_quest() {
-    let result = validate_quest_update(
-        "The Heist",
-        "failed: the guards were alerted",
-    );
+    let result = validate_quest_update("The Heist", "failed: the guards were alerted");
     assert!(result.is_ok());
     let update = result.unwrap();
     assert_eq!(update.quest_name(), "The Heist");
@@ -157,20 +155,14 @@ fn validate_quest_update_updated_objective() {
 #[test]
 fn validate_quest_update_rejects_empty_name() {
     let result = validate_quest_update("", "active: some objective");
-    assert!(
-        result.is_err(),
-        "empty quest name must be rejected"
-    );
+    assert!(result.is_err(), "empty quest name must be rejected");
 }
 
 /// Empty status must be rejected.
 #[test]
 fn validate_quest_update_rejects_empty_status() {
     let result = validate_quest_update("The Corrupted Grove", "");
-    assert!(
-        result.is_err(),
-        "empty status must be rejected"
-    );
+    assert!(result.is_err(), "empty status must be rejected");
 }
 
 /// Whitespace-only quest name must be rejected.
@@ -187,10 +179,7 @@ fn validate_quest_update_rejects_whitespace_name() {
 #[test]
 fn validate_quest_update_rejects_whitespace_status() {
     let result = validate_quest_update("The Corrupted Grove", "   ");
-    assert!(
-        result.is_err(),
-        "whitespace-only status must be rejected"
-    );
+    assert!(result.is_err(), "whitespace-only status must be rejected");
 }
 
 // ============================================================================
@@ -200,7 +189,8 @@ fn validate_quest_update_rejects_whitespace_status() {
 /// QuestUpdate must serialize to the expected JSON shape.
 #[test]
 fn quest_update_serializes_to_json() {
-    let update = validate_quest_update("The Corrupted Grove", "completed: the source was purified").unwrap();
+    let update =
+        validate_quest_update("The Corrupted Grove", "completed: the source was purified").unwrap();
     let json = serde_json::to_value(&update).expect("QuestUpdate must serialize");
     assert_eq!(json["quest_name"], "The Corrupted Grove");
     assert_eq!(json["status"], "completed: the source was purified");
@@ -213,11 +203,8 @@ fn quest_update_serializes_to_json() {
 /// Multiple quest_update calls in one turn produce distinct QuestUpdate values.
 #[test]
 fn multiple_quest_updates_are_independent() {
-    let update1 = validate_quest_update(
-        "The Corrupted Grove",
-        "completed: the source was purified",
-    )
-    .unwrap();
+    let update1 =
+        validate_quest_update("The Corrupted Grove", "completed: the source was purified").unwrap();
     let update2 = validate_quest_update(
         "The Missing Merchant",
         "active: Search the docks at midnight (from: Harbormaster Dex)",
@@ -285,7 +272,6 @@ fn narrator_prompt_omits_quest_updates_json_field() {
         "quest_updates field documentation must be removed from JSON block"
     );
 }
-
 
 // ============================================================================
 // AC-4: assemble_turn collects quest tool calls into quest_updates HashMap
@@ -407,7 +393,10 @@ fn assemble_turn_empty_tool_quests_overrides_narrator() {
 fn assemble_turn_quest_tools_preserve_other_fields() {
     let extraction = extraction_with_quests();
     let mut tool_quests = HashMap::new();
-    tool_quests.insert("The Heist".to_string(), "active: plan the heist".to_string());
+    tool_quests.insert(
+        "The Heist".to_string(),
+        "active: plan the heist".to_string(),
+    );
 
     let tool_results = ToolCallResults {
         quest_updates: Some(tool_quests),
@@ -422,7 +411,10 @@ fn assemble_turn_quest_tools_preserve_other_fields() {
     assert!(result.quest_updates.contains_key("The Heist"));
 
     // Other fields still pass through
-    assert_eq!(result.narration, "The ancient grove pulses with dark energy.");
+    assert_eq!(
+        result.narration,
+        "The ancient grove pulses with dark energy."
+    );
     assert_eq!(result.scene_mood.as_deref(), Some("tension"));
     assert!(result.action_rewrite.is_some());
 }
@@ -488,7 +480,10 @@ fn validate_quest_update_otel_on_invalid_input() {
     );
 
     let result = validate_quest_update("", "active: some quest");
-    assert!(result.is_err(), "empty name should be rejected even under tracing");
+    assert!(
+        result.is_err(),
+        "empty name should be rejected even under tracing"
+    );
 }
 
 // ============================================================================
@@ -608,12 +603,17 @@ fn cleanup_sidecar(session_id: &str) {
 #[test]
 fn parser_extracts_quest_update_from_sidecar() {
     let sid = test_session_id("parse-quest");
-    write_sidecar(&sid, &[
-        r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: the source was purified"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: the source was purified"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let quests = results.quest_updates.expect("quest_update tool result should populate quest_updates");
+    let quests = results
+        .quest_updates
+        .expect("quest_update tool result should populate quest_updates");
     assert_eq!(quests.len(), 1);
     assert_eq!(
         quests.get("The Corrupted Grove").unwrap(),
@@ -627,13 +627,18 @@ fn parser_extracts_quest_update_from_sidecar() {
 #[test]
 fn parser_accumulates_multiple_quest_updates() {
     let sid = test_session_id("parse-quest-multi");
-    write_sidecar(&sid, &[
-        r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: purified"}}"#,
-        r#"{"tool":"quest_update","result":{"quest_name":"The Missing Merchant","status":"active: search the docks (from: Harbormaster Dex)"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: purified"}}"#,
+            r#"{"tool":"quest_update","result":{"quest_name":"The Missing Merchant","status":"active: search the docks (from: Harbormaster Dex)"}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let quests = results.quest_updates.expect("multiple quest_updates should accumulate");
+    let quests = results
+        .quest_updates
+        .expect("multiple quest_updates should accumulate");
     assert_eq!(quests.len(), 2);
     assert!(quests.contains_key("The Corrupted Grove"));
     assert!(quests.contains_key("The Missing Merchant"));
@@ -646,9 +651,10 @@ fn parser_accumulates_multiple_quest_updates() {
 #[test]
 fn parser_rejects_empty_quest_name_from_sidecar() {
     let sid = test_session_id("parse-quest-empty-name");
-    write_sidecar(&sid, &[
-        r#"{"tool":"quest_update","result":{"quest_name":"","status":"active: some quest"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"quest_update","result":{"quest_name":"","status":"active: some quest"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
     // Empty quest_name must be rejected — quest_updates should be None (no valid records)
@@ -665,9 +671,10 @@ fn parser_rejects_empty_quest_name_from_sidecar() {
 #[test]
 fn parser_rejects_whitespace_quest_name_from_sidecar() {
     let sid = test_session_id("parse-quest-ws-name");
-    write_sidecar(&sid, &[
-        r#"{"tool":"quest_update","result":{"quest_name":"   ","status":"active: some quest"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[r#"{"tool":"quest_update","result":{"quest_name":"   ","status":"active: some quest"}}"#],
+    );
 
     let results = parse_tool_results(&sid);
     assert!(
@@ -682,12 +689,17 @@ fn parser_rejects_whitespace_quest_name_from_sidecar() {
 #[test]
 fn parser_trims_quest_update_fields() {
     let sid = test_session_id("parse-quest-trim");
-    write_sidecar(&sid, &[
-        r#"{"tool":"quest_update","result":{"quest_name":"  The Corrupted Grove  ","status":"  active: find the source  "}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"quest_update","result":{"quest_name":"  The Corrupted Grove  ","status":"  active: find the source  "}}"#,
+        ],
+    );
 
     let results = parse_tool_results(&sid);
-    let quests = results.quest_updates.expect("trimmed quest_update should be accepted");
+    let quests = results
+        .quest_updates
+        .expect("trimmed quest_update should be accepted");
     assert_eq!(
         quests.get("The Corrupted Grove").unwrap(),
         "active: find the source",
@@ -706,9 +718,12 @@ fn parser_trims_quest_update_fields() {
 #[test]
 fn quest_update_e2e_sidecar_to_action_result() {
     let sid = test_session_id("e2e-quest");
-    write_sidecar(&sid, &[
-        r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: the source was purified"}}"#,
-    ]);
+    write_sidecar(
+        &sid,
+        &[
+            r#"{"tool":"quest_update","result":{"quest_name":"The Corrupted Grove","status":"completed: the source was purified"}}"#,
+        ],
+    );
 
     let tool_results = parse_tool_results(&sid);
     let extraction = extraction_with_quests(); // has narrator fallback quest

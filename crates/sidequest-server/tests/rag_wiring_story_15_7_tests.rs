@@ -5,8 +5,8 @@
 //! 2. apply_state_mutations processes lore_established entries
 //! 3. OTEL events are emitted for lore operations
 
-use std::collections::HashMap;
 use sidequest_agents::orchestrator::ActionResult;
+use std::collections::HashMap;
 
 // ============================================================
 // AC-1: ActionResult carries lore_established from agent output
@@ -18,8 +18,7 @@ fn action_result_has_lore_established_field() {
     // call accumulate_lore() in post-narration state mutations.
     let result = ActionResult {
         narration: "You discover ancient ruins.".to_string(),
-        combat_patch: None,
-        chase_patch: None,
+        beat_selections: vec![],
         is_degraded: false,
         classified_intent: None,
         agent_name: None,
@@ -46,6 +45,10 @@ fn action_result_has_lore_established_field() {
         sfx_triggers: vec![],
         merchant_transactions: vec![],
         prompt_tier: String::new(),
+        confrontation: None,
+        location: None,
+        prompt_text: None,
+        raw_response_text: None,
     };
 
     let lore = result.lore_established.as_ref().unwrap();
@@ -59,8 +62,7 @@ fn action_result_lore_established_defaults_to_none() {
     // When no lore is established, the field should be None
     let result = ActionResult {
         narration: "Nothing notable happens.".to_string(),
-        combat_patch: None,
-        chase_patch: None,
+        beat_selections: vec![],
         is_degraded: false,
         classified_intent: None,
         agent_name: None,
@@ -83,6 +85,10 @@ fn action_result_lore_established_defaults_to_none() {
         sfx_triggers: vec![],
         merchant_transactions: vec![],
         prompt_tier: String::new(),
+        confrontation: None,
+        location: None,
+        prompt_text: None,
+        raw_response_text: None,
     };
 
     assert!(result.lore_established.is_none());
