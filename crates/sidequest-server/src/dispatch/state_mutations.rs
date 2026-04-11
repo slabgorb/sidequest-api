@@ -336,11 +336,12 @@ pub(crate) async fn apply_state_mutations(
                 sidequest_game::ResourcePatchOp::Subtract
             };
             let value = delta.abs();
+            let mut lore_guard = ctx.lore_store.lock().await;
             match ctx.snapshot.process_resource_patch_with_lore(
                 name,
                 op,
                 value,
-                ctx.lore_store,
+                &mut *lore_guard,
                 turn,
             ) {
                 Ok(patch_result) => {

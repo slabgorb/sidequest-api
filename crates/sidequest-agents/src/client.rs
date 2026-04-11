@@ -153,6 +153,8 @@ impl ClaudeClient {
             duration_ms = tracing::field::Empty,
             input_tokens = tracing::field::Empty,
             output_tokens = tracing::field::Empty,
+            cache_create_tokens = tracing::field::Empty,
+            cache_read_tokens = tracing::field::Empty,
             cost_usd = tracing::field::Empty,
         );
         let _guard = span.enter();
@@ -260,9 +262,34 @@ impl ClaudeClient {
                         serde_json::from_str::<serde_json::Value>(&trimmed)
                     {
                         if let Some(usage) = envelope.get("usage") {
-                            if let Some(inp) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
-                                span.record("input_tokens", inp);
-                                input_tokens = Some(inp);
+                            // Under ADR-066 persistent Opus sessions, prompt
+                            // caching shuttles most input tokens through the
+                            // cache_creation_input_tokens / cache_read_input_tokens
+                            // fields. Raw input_tokens is only the delta — often
+                            // near zero. Sum all three so the GM panel shows the
+                            // real input cost instead of "1 in".
+                            let raw_in = usage
+                                .get("input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let cache_create = usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let cache_read = usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let total_in = raw_in + cache_create + cache_read;
+                            if total_in > 0 {
+                                span.record("input_tokens", total_in);
+                                input_tokens = Some(total_in);
+                            }
+                            if cache_create > 0 {
+                                span.record("cache_create_tokens", cache_create);
+                            }
+                            if cache_read > 0 {
+                                span.record("cache_read_tokens", cache_read);
                             }
                             if let Some(out) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
                                 span.record("output_tokens", out);
@@ -344,6 +371,8 @@ impl ClaudeClient {
             duration_ms = tracing::field::Empty,
             input_tokens = tracing::field::Empty,
             output_tokens = tracing::field::Empty,
+            cache_create_tokens = tracing::field::Empty,
+            cache_read_tokens = tracing::field::Empty,
             cost_usd = tracing::field::Empty,
         );
         let _guard = span.enter();
@@ -444,11 +473,35 @@ impl ClaudeClient {
                     let text = if let Ok(envelope) =
                         serde_json::from_str::<serde_json::Value>(&trimmed)
                     {
-                        // Extract token counts from usage block
+                        // Extract token counts from usage block.
+                        // Prompt caching (ADR-066) sends most input tokens through
+                        // the cache_creation_input_tokens / cache_read_input_tokens
+                        // fields — raw input_tokens is only the delta. Sum all
+                        // three for the display total so the GM panel doesn't
+                        // show "1 in".
                         if let Some(usage) = envelope.get("usage") {
-                            if let Some(inp) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
-                                span.record("input_tokens", inp);
-                                input_tokens = Some(inp);
+                            let raw_in = usage
+                                .get("input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let cache_create = usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let cache_read = usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0);
+                            let total_in = raw_in + cache_create + cache_read;
+                            if total_in > 0 {
+                                span.record("input_tokens", total_in);
+                                input_tokens = Some(total_in);
+                            }
+                            if cache_create > 0 {
+                                span.record("cache_create_tokens", cache_create);
+                            }
+                            if cache_read > 0 {
+                                span.record("cache_read_tokens", cache_read);
                             }
                             if let Some(out) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
                                 span.record("output_tokens", out);
