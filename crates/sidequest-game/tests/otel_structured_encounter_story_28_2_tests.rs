@@ -105,11 +105,8 @@ fn fresh_subscriber() -> (
 /// Collect all available events from the receiver (non-blocking).
 fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
     let mut events = Vec::new();
-    loop {
-        match rx.try_recv() {
-            Ok(event) => events.push(event),
-            Err(_) => break,
-        }
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
     }
     events
 }
@@ -124,9 +121,7 @@ fn find_events_by_action(
         .iter()
         .filter(|e| {
             e.component == component
-                && (e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str) == Some(action))
+                && (e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action))
         })
         .cloned()
         .collect()

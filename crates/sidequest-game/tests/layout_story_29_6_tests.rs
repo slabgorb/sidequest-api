@@ -88,13 +88,6 @@ fn room_c_grid() -> TacticalGrid {
     TacticalGrid::parse(raw, &HashMap::new()).unwrap()
 }
 
-/// 7x7 hub room with exits on north (cols 3-4), east (rows 3-4), south (cols 3-4).
-/// Used for T-junction tests.
-/// ```text
-/// ###..##
-/// #.....#
-/// #.....#
-/// #......
 // ==========================================================================
 // Room graph fixture builders
 // ==========================================================================
@@ -802,7 +795,8 @@ fn t_junction_no_collisions() {
 fn layout_module_is_public() {
     // This test compiles only if the layout module is publicly accessible.
     // If it doesn't compile, the module isn't wired.
-    type LayoutFn = fn(&[RoomDef], &HashMap<String, TacticalGrid>) -> Result<DungeonLayout, LayoutError>;
+    type LayoutFn =
+        fn(&[RoomDef], &HashMap<String, TacticalGrid>) -> Result<DungeonLayout, LayoutError>;
     let _: LayoutFn = layout_tree;
 }
 

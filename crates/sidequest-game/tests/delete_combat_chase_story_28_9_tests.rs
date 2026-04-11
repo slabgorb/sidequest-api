@@ -205,8 +205,10 @@ fn structured_encounter_round_trips_independently() {
         narrator_hints: vec![],
     };
 
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(encounter.clone());
+    let snapshot = GameSnapshot {
+        encounter: Some(encounter.clone()),
+        ..Default::default()
+    };
 
     let json = serde_json::to_value(&snapshot).unwrap();
     let obj = json.as_object().unwrap();

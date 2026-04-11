@@ -21,8 +21,7 @@
 use std::collections::HashMap;
 
 use sidequest_game::tactical::{
-    CardinalDirection, FeatureType, GridParseError, GridPos,
-    TacticalCell, TacticalGrid,
+    CardinalDirection, FeatureType, GridParseError, GridPos, TacticalCell, TacticalGrid,
 };
 
 use sidequest_genre::models::world::LegendEntry;

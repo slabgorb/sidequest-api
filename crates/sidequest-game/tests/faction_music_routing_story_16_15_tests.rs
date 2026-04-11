@@ -13,9 +13,7 @@
 //!   AC6: Faction music overrides default mood-based selection when conditions match
 //!   AC7: Falls back to mood-based selection when no faction conditions match
 
-use sidequest_game::music_director::{
-    FactionContext, MoodContext, MusicDirector, MusicEvalResult,
-};
+use sidequest_game::music_director::{FactionContext, MoodContext, MusicDirector, MusicEvalResult};
 use sidequest_genre::AudioConfig;
 use std::path::PathBuf;
 

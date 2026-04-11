@@ -1,6 +1,13 @@
 //! Story 7-7: Scenario archiver — save/resume mid-scenario state, session boundary handling
 //!
 //! RED phase — these tests reference types and methods that don't exist yet.
+//!
+//! `clippy::arc_with_non_send_sync` is allowed at the module level because
+//! these tests are intentionally single-threaded — `SqliteStore` is `!Sync`
+//! by design (the production code wraps it in an actor pattern), and for
+//! test scaffolding an `Arc<SqliteStore>` is the right shape for calling
+//! `ScenarioArchiver::new`.
+#![allow(clippy::arc_with_non_send_sync)]
 //! They will fail to compile until Dev implements:
 //!   - ScenarioArchiver — persistence wrapper with versioned save/load
 //!   - VersionedScenario — version-tagged wrapper around ScenarioState
@@ -386,10 +393,12 @@ fn game_snapshot_round_trips_scenario_state_through_sqlite() {
         .expect("init session");
 
     let scenario = build_rich_scenario_state();
-    let mut snapshot = GameSnapshot::default();
-    snapshot.genre_slug = "mutant_wasteland".to_string();
-    snapshot.world_slug = "flickering_reach".to_string();
-    snapshot.scenario_state = Some(scenario);
+    let snapshot = GameSnapshot {
+        genre_slug: "mutant_wasteland".to_string(),
+        world_slug: "flickering_reach".to_string(),
+        scenario_state: Some(scenario),
+        ..Default::default()
+    };
 
     use sidequest_game::persistence::SessionStore;
     store.save(&snapshot).expect("save snapshot");
@@ -520,7 +529,9 @@ fn versioned_scenario_serde_round_trip() {
 
 #[test]
 fn versioned_scenario_format_version_is_positive() {
-    assert!(
+    // Compile-time assertion on a constant — evaluate in a const block so
+    // clippy sees a static check, not a runtime check of a variable.
+    const _: () = assert!(
         SCENARIO_FORMAT_VERSION > 0,
         "format version must be a positive integer"
     );

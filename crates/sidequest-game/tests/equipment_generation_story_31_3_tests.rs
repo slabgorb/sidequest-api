@@ -764,10 +764,7 @@ fn find_chargen_events(events: &[WatcherEvent], action: &str) -> Vec<WatcherEven
         .iter()
         .filter(|e| {
             e.component == "chargen"
-                && e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    == Some(action)
+                && e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action)
         })
         .cloned()
         .collect()

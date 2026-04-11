@@ -4,9 +4,7 @@
 //! in the SceneDirective output from format_scene_directive().
 
 use sidequest_game::faction_agenda::{AgendaUrgency, FactionAgenda};
-use sidequest_game::scene_directive::{
-    format_scene_directive, ActiveStake, DirectiveSource,
-};
+use sidequest_game::scene_directive::{format_scene_directive, ActiveStake, DirectiveSource};
 
 // ===========================================================================
 // Helpers

@@ -567,4 +567,3 @@ fn character_with_multiple_involuntary_abilities() {
 // All tests above use assert_eq! or specific content checks. This meta-test
 // verifies the test file is not accidentally empty.
 // ============================================================================
-

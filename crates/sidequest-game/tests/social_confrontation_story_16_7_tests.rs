@@ -28,9 +28,7 @@
 //!   AC9-Integration:   Full negotiation sequence: persuade → concede → threaten → resolution
 //!   AC10-OTEL:         OTEL events emitted for beat execution and metric changes
 
-use sidequest_game::encounter::{
-    EncounterPhase, MetricDirection, StructuredEncounter,
-};
+use sidequest_game::encounter::{EncounterPhase, MetricDirection, StructuredEncounter};
 use sidequest_genre::ConfrontationDef;
 
 // =========================================================================

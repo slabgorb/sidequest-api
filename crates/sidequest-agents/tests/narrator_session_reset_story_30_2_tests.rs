@@ -12,7 +12,6 @@
 //! 4. Delta tier for a DIFFERENT genre than the original session triggers Full
 //! 5. OTEL spans capture tier selection for observability
 
-
 use sidequest_agents::orchestrator::{NarratorPromptTier, Orchestrator, TurnContext};
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
 use sidequest_genre::Prompts;

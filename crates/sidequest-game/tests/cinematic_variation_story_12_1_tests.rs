@@ -13,8 +13,7 @@
 use std::collections::HashMap;
 
 use sidequest_game::{
-    AudioChannel, MoodClassification, MoodContext, MoodKey, MusicDirector,
-    MusicEvalResult,
+    AudioChannel, MoodClassification, MoodContext, MoodKey, MusicDirector, MusicEvalResult,
 };
 use sidequest_genre::{AudioConfig, AudioTheme, AudioVariation, MixerConfig, MoodTrack};
 
@@ -290,10 +289,7 @@ fn mood_context_new_fields_exist_with_defaults() {
         !ctx.combat_just_ended,
         "combat_just_ended should default to false"
     );
-    assert!(
-        !ctx.session_start,
-        "session_start should default to false"
-    );
+    assert!(!ctx.session_start, "session_start should default to false");
 }
 
 /// AC2: MoodContext new fields can be set explicitly.
@@ -642,8 +638,6 @@ fn select_variation_fallback_to_full_when_preferred_unavailable() {
 /// AC4: Constructor indexes themes into per-variation lookup.
 #[test]
 fn music_director_indexes_themes_by_variation() {
-    
-
     let config = config_with_themes();
     let mut director = MusicDirector::new(&config);
 

@@ -3,7 +3,6 @@
 //! Written by TEA (Han Solo) against acceptance criteria.
 //! All tests should FAIL (compile error) since the module doesn't exist yet.
 
-
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 

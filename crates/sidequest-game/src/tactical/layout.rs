@@ -378,10 +378,8 @@ pub fn layout_tree(
                 // Try first valid opposite-wall pair for error details
                 let current_used: HashSet<usize> =
                     used_gaps.get(&current_id).cloned().unwrap_or_default();
-                let target_used: HashSet<usize> = used_gaps
-                    .get(target_id)
-                    .cloned()
-                    .unwrap_or_default();
+                let target_used: HashSet<usize> =
+                    used_gaps.get(target_id).cloned().unwrap_or_default();
                 for (gi_a, gap_a) in current_grid.exits().iter().enumerate() {
                     if current_used.contains(&gi_a) {
                         continue;

@@ -20,9 +20,7 @@ use uuid::Uuid;
 use sidequest_game::render_queue::RenderJobResult;
 use sidequest_game::subject::{RenderSubject, SceneType, SubjectTier};
 use sidequest_protocol::{GameMessage, SessionEventPayload};
-use sidequest_server::render_integration::{
-    ImagePacingThrottle, RenderResultContext,
-};
+use sidequest_server::render_integration::{ImagePacingThrottle, RenderResultContext};
 
 // =========================================================================
 // Helper: build test subjects and render contexts

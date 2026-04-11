@@ -1573,4 +1573,3 @@ pub fn inject_merchant_context(
         ));
     }
 }
-
