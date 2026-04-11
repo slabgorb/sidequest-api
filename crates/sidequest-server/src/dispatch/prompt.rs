@@ -757,11 +757,27 @@ pub(crate) async fn build_prompt_context(
                     match client.embed(params).await {
                         Ok(result) => Some(result.embedding),
                         Err(e) => {
+                            // Surface the failure to the GM panel — without
+                            // this watcher event, a wedged daemon would
+                            // silently downgrade every prompt to keyword
+                            // ranking and the operator would have no
+                            // signal that semantic retrieval was disabled.
                             tracing::warn!(error = %e, "lore.query_embedding_failed — falling back to category ranking");
+                            WatcherEventBuilder::new("lore", WatcherEventType::ValidationWarning)
+                                .field("event", "lore.query_embedding_failed")
+                                .field("error_kind", "embed_failed")
+                                .field("error", e.to_string().as_str())
+                                .field("query_hint", hint_text)
+                                .send();
                             None
                         }
                     }
                 } else {
+                    WatcherEventBuilder::new("lore", WatcherEventType::ValidationWarning)
+                        .field("event", "lore.query_embedding_failed")
+                        .field("error_kind", "daemon_unreachable")
+                        .field("query_hint", hint_text)
+                        .send();
                     None
                 }
             } else {

@@ -11,8 +11,9 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -23,6 +24,15 @@ pub const MAX_QUEUE_DEPTH: usize = 1000;
 
 /// Default cache TTL before stale entries are evicted.
 pub const DEFAULT_CACHE_TTL: Duration = Duration::from_secs(300);
+
+/// Default per-job TTL — how long a Queued/InProgress job may sit in the
+/// dedup table before a fresh enqueue is allowed to evict it.
+///
+/// Sized so a healthy Flux render (typically 30–90s) is comfortably under
+/// the threshold, but a wedged daemon (the 2026-04-10 playtest scenario,
+/// where MPS deadlocked and a job latched the dedup table indefinitely)
+/// gets evicted within ~2 minutes and the player sees images resume.
+pub const DEFAULT_JOB_TTL: Duration = Duration::from_secs(120);
 
 /// Status of a render job in the queue.
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +132,7 @@ pub struct RenderQueueConfig {
     queue_depth: usize,
     result_buffer: usize,
     cache_ttl: Duration,
+    job_ttl: Duration,
 }
 
 impl RenderQueueConfig {
@@ -131,7 +142,21 @@ impl RenderQueueConfig {
     /// - `queue_depth` is 0 or exceeds `MAX_QUEUE_DEPTH`
     /// - `result_buffer` is 0
     /// - `cache_ttl` is zero
+    /// - `job_ttl` is zero
+    ///
+    /// Uses [`DEFAULT_JOB_TTL`] for the per-job staleness threshold.
     pub fn new(queue_depth: usize, result_buffer: usize, cache_ttl: Duration) -> Option<Self> {
+        Self::new_with_job_ttl(queue_depth, result_buffer, cache_ttl, DEFAULT_JOB_TTL)
+    }
+
+    /// Like [`Self::new`] but lets the caller override the per-job TTL.
+    /// Used by the eviction tests to assert behavior on tight deadlines.
+    pub fn new_with_job_ttl(
+        queue_depth: usize,
+        result_buffer: usize,
+        cache_ttl: Duration,
+        job_ttl: Duration,
+    ) -> Option<Self> {
         if queue_depth == 0 || queue_depth > MAX_QUEUE_DEPTH {
             return None;
         }
@@ -141,10 +166,14 @@ impl RenderQueueConfig {
         if cache_ttl.is_zero() {
             return None;
         }
+        if job_ttl.is_zero() {
+            return None;
+        }
         Some(Self {
             queue_depth,
             result_buffer,
             cache_ttl,
+            job_ttl,
         })
     }
 
@@ -162,6 +191,15 @@ impl RenderQueueConfig {
     pub fn cache_ttl(&self) -> Duration {
         self.cache_ttl
     }
+
+    /// Time after which a Queued/InProgress job is considered stale and
+    /// can be evicted from the dedup table by a fresh enqueue.
+    ///
+    /// Distinct from [`Self::cache_ttl`], which applies to completed
+    /// entries. This one is the "is the daemon hung?" deadline.
+    pub fn job_ttl(&self) -> Duration {
+        self.job_ttl
+    }
 }
 
 impl Default for RenderQueueConfig {
@@ -170,6 +208,7 @@ impl Default for RenderQueueConfig {
             queue_depth: 64,
             result_buffer: 32,
             cache_ttl: DEFAULT_CACHE_TTL,
+            job_ttl: DEFAULT_JOB_TTL,
         }
     }
 }
@@ -250,8 +289,11 @@ pub fn compute_content_hash(subject: &RenderSubject) -> u64 {
 /// Internal job entry tracked by the queue.
 struct JobEntry {
     status: RenderStatus,
-    #[allow(dead_code)]
     content_hash: u64,
+    /// Wall-clock instant the job was first enqueued. Compared against
+    /// [`RenderQueueConfig::job_ttl`] in the dedup path to evict stale
+    /// in-flight jobs (the 2026-04-10 hung-daemon scenario).
+    enqueued_at: Instant,
 }
 
 /// Shared state between the queue handle and background worker.
@@ -264,6 +306,8 @@ struct QueueState {
     pending_count: usize,
     /// Maximum pending jobs allowed.
     queue_depth: usize,
+    /// Per-job staleness threshold copied from [`RenderQueueConfig::job_ttl`].
+    job_ttl: Duration,
 }
 
 /// Parameters passed to the render callback closure registered with
@@ -375,6 +419,7 @@ impl RenderQueue {
             hash_to_job: HashMap::new(),
             pending_count: 0,
             queue_depth: config.queue_depth(),
+            job_ttl: config.job_ttl(),
         }));
 
         let (job_tx, mut job_rx) = tokio::sync::mpsc::channel::<RenderJob>(config.queue_depth());
@@ -431,12 +476,34 @@ impl RenderQueue {
                     }
                     Err(error) => {
                         let mut guard = worker_state.lock().await;
+                        // Capture the content_hash BEFORE marking failed so we
+                        // can scrub the dedup table — without this, the
+                        // failed entry latches and every subsequent identical
+                        // enqueue returns Deduplicated forever (the second
+                        // half of the 2026-04-10 cascade bug).
+                        let content_hash =
+                            guard.jobs.get(&job.job_id).map(|entry| entry.content_hash);
                         if let Some(entry) = guard.jobs.get_mut(&job.job_id) {
                             entry.status = RenderStatus::Failed {
                                 error: error.clone(),
                             };
                         }
+                        if let Some(hash) = content_hash {
+                            // Only evict if THIS job_id still owns the hash
+                            // entry — a concurrent re-enqueue may have
+                            // already replaced it via TTL eviction.
+                            if guard.hash_to_job.get(&hash).copied() == Some(job.job_id) {
+                                guard.hash_to_job.remove(&hash);
+                            }
+                        }
                         guard.pending_count = guard.pending_count.saturating_sub(1);
+                        drop(guard);
+                        WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+                            .field("action", "dedup_evicted")
+                            .field("reason", "daemon_error")
+                            .field("job_id", job.job_id.to_string().as_str())
+                            .field("error", error.as_str())
+                            .send();
                         RenderJobResult::Failed {
                             job_id: job.job_id,
                             error,
@@ -492,9 +559,78 @@ impl RenderQueue {
         let content_hash = compute_content_hash(&subject);
         let mut guard = self.state.lock().await;
 
-        // Dedup check
+        // Dedup check with TTL-based and failure-based eviction.
+        //
+        // The naive "if hash already mapped, return Deduplicated" was the
+        // 2026-04-10 cascade trigger: when the daemon wedged on an
+        // in-flight job, the dedup table latched on that job_id forever
+        // and every subsequent identical enqueue returned Deduplicated
+        // — image generation silently stopped for the rest of the session.
+        //
+        // Two evictable conditions:
+        //   1. The existing job is Failed (manual retry-after-failure).
+        //   2. The existing job is Queued/InProgress AND its enqueued_at
+        //      is older than `job_ttl` — the daemon has had its window
+        //      and we're freeing the slot for a fresh attempt.
+        //
+        // Both eviction paths emit `render.dedup_evicted` so the GM
+        // panel sees the recovery; the TTL path also emits a separate
+        // `render.job_stuck` ValidationWarning so the operator knows
+        // a daemon round-trip exceeded the deadline (the lie detector
+        // signal — Claude's narration would otherwise hide a wedged
+        // image pipeline).
         if let Some(&original_id) = guard.hash_to_job.get(&content_hash) {
-            return Ok(EnqueueResult::Deduplicated { original_id });
+            let job_ttl = guard.job_ttl;
+            let existing_status = guard.jobs.get(&original_id).map(|e| e.status.clone());
+            let existing_age = guard
+                .jobs
+                .get(&original_id)
+                .map(|e| e.enqueued_at.elapsed());
+            let evict = match (&existing_status, existing_age) {
+                (Some(RenderStatus::Failed { .. }), _) => Some("prior_failure"),
+                (Some(RenderStatus::Queued | RenderStatus::InProgress), Some(age))
+                    if age >= job_ttl =>
+                {
+                    Some("ttl_expired")
+                }
+                _ => None,
+            };
+            match evict {
+                None => return Ok(EnqueueResult::Deduplicated { original_id }),
+                Some(reason) => {
+                    let age_secs = existing_age.map(|a| a.as_secs()).unwrap_or(0);
+                    guard.hash_to_job.remove(&content_hash);
+                    // The stale job's JobEntry is left in `jobs` so its
+                    // job_id remains queryable via job_status — but it
+                    // no longer holds the dedup slot. Drop the lock
+                    // before emitting OTEL so the watcher channel never
+                    // blocks the queue mutex.
+                    drop(guard);
+                    WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+                        .field("action", "dedup_evicted")
+                        .field("reason", reason)
+                        .field("evicted_job_id", original_id.to_string().as_str())
+                        .field("age_seconds", age_secs.to_string().as_str())
+                        .send();
+                    if reason == "ttl_expired" {
+                        tracing::warn!(
+                            evicted_job_id = %original_id,
+                            age_seconds = age_secs,
+                            job_ttl_seconds = job_ttl.as_secs(),
+                            "render.job_stuck — dispatch never completed within TTL; evicting from dedup table"
+                        );
+                        WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+                            .field("action", "job_stuck")
+                            .field("evicted_job_id", original_id.to_string().as_str())
+                            .field("age_seconds", age_secs.to_string().as_str())
+                            .field("job_ttl_seconds", job_ttl.as_secs().to_string().as_str())
+                            .send();
+                    }
+                    // Re-acquire the lock so the rest of enqueue runs
+                    // against fresh state.
+                    guard = self.state.lock().await;
+                }
+            }
         }
 
         // Backpressure check
@@ -516,6 +652,7 @@ impl RenderQueue {
             JobEntry {
                 status: RenderStatus::Queued,
                 content_hash,
+                enqueued_at: Instant::now(),
             },
         );
         guard.hash_to_job.insert(content_hash, job_id);
@@ -571,6 +708,53 @@ impl RenderQueue {
         guard.jobs.get(&job_id).map(|entry| entry.status.clone())
     }
 
+    /// Mark a job as explicitly failed and evict it from the dedup table.
+    ///
+    /// Intended for callers that observe a daemon-side error before the
+    /// background worker reaches it (e.g., a connection refused at the
+    /// dispatch layer). The 2026-04-10 cascade caught this on the worker
+    /// side already by removing failed jobs from `hash_to_job` in the
+    /// worker's failure branch — this public API is the eager-eviction
+    /// surface for callers that want to short-circuit before the worker
+    /// gets there.
+    ///
+    /// Returns `true` if the job existed and was newly marked failed.
+    /// Returns `false` if the job was unknown or already in a terminal
+    /// state (idempotent).
+    pub async fn mark_failed(&self, job_id: Uuid, error: impl Into<String>) -> bool {
+        let error_str = error.into();
+        let mut guard = self.state.lock().await;
+        let Some(entry) = guard.jobs.get_mut(&job_id) else {
+            return false;
+        };
+        // Idempotent — already terminal.
+        if matches!(
+            entry.status,
+            RenderStatus::Failed { .. }
+                | RenderStatus::Complete { .. }
+                | RenderStatus::Deduplicated { .. }
+        ) {
+            return false;
+        }
+        let content_hash = entry.content_hash;
+        entry.status = RenderStatus::Failed {
+            error: error_str.clone(),
+        };
+        // Only evict the dedup slot if THIS job_id still owns it.
+        if guard.hash_to_job.get(&content_hash).copied() == Some(job_id) {
+            guard.hash_to_job.remove(&content_hash);
+        }
+        guard.pending_count = guard.pending_count.saturating_sub(1);
+        drop(guard);
+        WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+            .field("action", "dedup_evicted")
+            .field("reason", "mark_failed")
+            .field("job_id", job_id.to_string().as_str())
+            .field("error", error_str.as_str())
+            .send();
+        true
+    }
+
     /// Number of jobs currently in the cache (including completed).
     pub async fn cache_len(&self) -> usize {
         let guard = self.state.lock().await;
@@ -584,5 +768,155 @@ impl RenderQueue {
         if let Some(handle) = self.worker_handle.take() {
             let _ = handle.await;
         }
+    }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Eviction tests — guards against the 2026-04-10 cascade regression where a
+// hung daemon latched the dedup table and silently halted image generation.
+// ────────────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod eviction_tests {
+    use super::*;
+    use crate::subject::{RenderSubject, SceneType, SubjectTier};
+
+    fn make_subject(name: &str) -> RenderSubject {
+        RenderSubject::new(
+            vec![name.to_string()],
+            SceneType::Exploration,
+            SubjectTier::Scene,
+            format!("a sketch of {}", name),
+            0.6,
+        )
+        .expect("valid subject")
+    }
+
+    /// Build a queue whose render closure parks forever, simulating a
+    /// wedged daemon. Jobs sit in InProgress until the test exits.
+    fn make_hung_queue(job_ttl: Duration) -> RenderQueue {
+        let config = RenderQueueConfig::new_with_job_ttl(16, 16, Duration::from_secs(60), job_ttl)
+            .expect("valid config");
+        RenderQueue::spawn(config, |_params: RenderJobParams| async move {
+            // Pretend the daemon never returns. The job stays InProgress
+            // forever from the queue's POV — exactly the playtest scenario.
+            std::future::pending::<()>().await;
+            Ok(("never".to_string(), 0))
+        })
+    }
+
+    #[tokio::test]
+    async fn dedup_evicts_stale_in_flight_job() {
+        // Sub-second TTL so the test runs fast.
+        let queue = make_hung_queue(Duration::from_millis(50));
+        let subject = make_subject("ruin");
+
+        // First enqueue: succeeds, job latches the dedup slot.
+        let r1 = queue
+            .enqueue(subject.clone(), "", "", "", "", None, None)
+            .await
+            .expect("first enqueue ok");
+        let original_id = match r1 {
+            EnqueueResult::Queued { job_id } => job_id,
+            other => panic!("first enqueue should be Queued, got {:?}", other),
+        };
+
+        // Wait until the TTL has elapsed.
+        tokio::time::sleep(Duration::from_millis(120)).await;
+
+        // Second enqueue: should NOT be deduplicated against the stale job.
+        let r2 = queue
+            .enqueue(subject.clone(), "", "", "", "", None, None)
+            .await
+            .expect("second enqueue ok");
+        match r2 {
+            EnqueueResult::Queued { job_id } => {
+                assert_ne!(
+                    job_id, original_id,
+                    "TTL eviction must allocate a fresh job_id, not reuse the stale one"
+                );
+            }
+            EnqueueResult::Deduplicated { .. } => {
+                panic!("TTL eviction failed: stale in-flight job still latching dedup table");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn dedup_evicts_on_explicit_failure() {
+        let queue = make_hung_queue(Duration::from_secs(60));
+        let subject = make_subject("statue");
+
+        let r1 = queue
+            .enqueue(subject.clone(), "", "", "", "", None, None)
+            .await
+            .expect("first enqueue ok");
+        let job_id = match r1 {
+            EnqueueResult::Queued { job_id } => job_id,
+            other => panic!("first enqueue should be Queued, got {:?}", other),
+        };
+
+        // Eagerly fail the job — simulates a dispatch-side observation
+        // that the daemon is unreachable.
+        let evicted = queue.mark_failed(job_id, "daemon down").await;
+        assert!(evicted, "mark_failed should report success on first call");
+
+        // Idempotent: second mark_failed returns false.
+        assert!(
+            !queue.mark_failed(job_id, "daemon down").await,
+            "mark_failed must be idempotent — second call should return false"
+        );
+
+        // Re-enqueue: should NOT dedupe against the failed job.
+        let r2 = queue
+            .enqueue(subject.clone(), "", "", "", "", None, None)
+            .await
+            .expect("second enqueue ok");
+        assert!(
+            matches!(r2, EnqueueResult::Queued { .. }),
+            "after mark_failed, identical re-enqueue must not be deduplicated, got {:?}",
+            r2
+        );
+    }
+
+    #[tokio::test]
+    async fn dedup_still_works_for_fast_sequential_enqueues() {
+        // Long TTL so neither enqueue can possibly age out.
+        let queue = make_hung_queue(Duration::from_secs(60));
+        let subject = make_subject("temple");
+
+        let r1 = queue
+            .enqueue(subject.clone(), "", "", "", "", None, None)
+            .await
+            .expect("first enqueue ok");
+        let original_id = match r1 {
+            EnqueueResult::Queued { job_id } => job_id,
+            other => panic!("first enqueue should be Queued, got {:?}", other),
+        };
+
+        // Immediate re-enqueue while the original is still in-flight and
+        // well within the TTL → must dedupe.
+        let r2 = queue
+            .enqueue(subject.clone(), "", "", "", "", None, None)
+            .await
+            .expect("second enqueue ok");
+        match r2 {
+            EnqueueResult::Deduplicated {
+                original_id: dup_id,
+            } => {
+                assert_eq!(dup_id, original_id);
+            }
+            other => panic!("expected Deduplicated, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn mark_failed_returns_false_for_unknown_job() {
+        let queue = make_hung_queue(Duration::from_secs(60));
+        let unknown = Uuid::new_v4();
+        assert!(
+            !queue.mark_failed(unknown, "anything").await,
+            "mark_failed on unknown job_id must return false"
+        );
     }
 }
