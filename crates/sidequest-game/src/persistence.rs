@@ -516,8 +516,10 @@ pub enum PersistenceCommand {
         world_slug: String,
         /// Player name for session isolation.
         player_name: String,
-        /// The game state to persist.
-        snapshot: GameSnapshot,
+        /// The game state to persist. Boxed to keep `PersistenceCommand`
+        /// variants uniform in size (clippy::large_enum_variant —
+        /// `GameSnapshot` is ~1.3 KB).
+        snapshot: Box<GameSnapshot>,
         /// Reply channel.
         reply: oneshot::Sender<Result<(), PersistError>>,
     },
@@ -624,7 +626,7 @@ impl PersistenceHandle {
                 genre_slug: genre_slug.to_string(),
                 world_slug: world_slug.to_string(),
                 player_name: player_name.to_string(),
-                snapshot: snapshot.clone(),
+                snapshot: Box::new(snapshot.clone()),
                 reply: reply_tx,
             })
             .await

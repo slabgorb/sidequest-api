@@ -190,6 +190,12 @@ pub struct Orchestrator {
     /// Genre-tunable pacing breakpoints (Story 5-7).
     drama_thresholds: DramaThresholds,
     /// Trope beat injection agent (ADR-018).
+    ///
+    /// Currently unwired — see `sidequest-agents/CLAUDE.md` → "NEEDS FULL
+    /// IMPLEMENTATION" section. The TropeEngine in `sidequest-game/trope.rs`
+    /// handles passive ticking, but LLM-driven beat injection is not yet
+    /// orchestrated from here.
+    #[allow(dead_code)]
     troper: TroperAgent,
     /// SOUL.md principles — filtered per agent via `<agents>` tags and injected in the Early zone.
     soul_data: Option<crate::prompt_framework::SoulData>,
@@ -1568,7 +1574,3 @@ pub fn inject_merchant_context(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-}

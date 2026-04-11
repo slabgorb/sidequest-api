@@ -9,13 +9,12 @@
 //!   - Full pipeline: engagement multiplier → trope tick → directive → prompt
 
 use sidequest_game::engagement::engagement_multiplier;
-use sidequest_game::scene_directive::{format_scene_directive, ActiveStake, SceneDirective};
+use sidequest_game::scene_directive::{format_scene_directive, ActiveStake};
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::trope::{FiredBeat, TropeEngine, TropeState};
 
-use sidequest_agents::orchestrator::{AgentKind, TurnContext};
 use sidequest_agents::prompt_framework::{
-    render_scene_directive, AttentionZone, PromptComposer, PromptRegistry, SectionCategory,
+    render_scene_directive, AttentionZone, PromptComposer, PromptRegistry,
 };
 
 use sidequest_agents::agents::intent_router::{Intent, IntentRoute};

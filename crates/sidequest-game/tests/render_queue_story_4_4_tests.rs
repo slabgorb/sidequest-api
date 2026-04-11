@@ -54,16 +54,8 @@ fn portrait_subject() -> RenderSubject {
     )
 }
 
-fn abstract_subject() -> RenderSubject {
-    make_subject(&[], SceneType::Exploration, SubjectTier::Abstract)
-}
-
 fn default_config() -> RenderQueueConfig {
     RenderQueueConfig::default()
-}
-
-fn small_queue_config() -> RenderQueueConfig {
-    RenderQueueConfig::new(2, 4, Duration::from_secs(60)).expect("Valid small config")
 }
 
 // ============================================================================
@@ -480,7 +472,6 @@ async fn queue_rejects_when_full() {
     // Fill the queue with distinct subjects
     let subject_a = combat_subject();
     let subject_b = landscape_subject();
-    let subject_c = portrait_subject();
 
     let _ = queue
         .enqueue(subject_a, "oil_painting", "", "", "", None, None)
@@ -896,11 +887,13 @@ fn queue_error_implements_std_error() {
 
 #[test]
 fn max_queue_depth_is_reasonable() {
-    assert!(MAX_QUEUE_DEPTH > 0, "MAX_QUEUE_DEPTH must be positive");
-    assert!(
+    // These are compile-time constants — evaluate the bound check in a const
+    // block so clippy understands it's a static assertion about the constant,
+    // not a runtime check of a variable.
+    const _: () = assert!(MAX_QUEUE_DEPTH > 0, "MAX_QUEUE_DEPTH must be positive");
+    const _: () = assert!(
         MAX_QUEUE_DEPTH <= 10_000,
-        "MAX_QUEUE_DEPTH should not be unreasonably large. Got {}",
-        MAX_QUEUE_DEPTH
+        "MAX_QUEUE_DEPTH should not be unreasonably large"
     );
 }
 

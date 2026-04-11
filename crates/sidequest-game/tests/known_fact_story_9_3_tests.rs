@@ -13,7 +13,6 @@
 //! ACs tested: Model defined, Source types, Confidence levels,
 //!             Patch extension, Character storage, Persistence, Accumulation
 
-use sidequest_game::ability::AbilityDefinition;
 use sidequest_game::character::Character;
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::inventory::Inventory;

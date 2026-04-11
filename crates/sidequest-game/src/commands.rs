@@ -317,7 +317,7 @@ impl GmCommand {
                 ));
             }
         }
-        CommandResult::StateMutation(patch)
+        CommandResult::StateMutation(Box::new(patch))
     }
 
     fn handle_teleport(args: &str) -> CommandResult {
@@ -331,12 +331,12 @@ impl GmCommand {
             }
         };
 
-        CommandResult::StateMutation(WorldStatePatch {
+        CommandResult::StateMutation(Box::new(WorldStatePatch {
             location: Some(location.to_string()),
             current_region: Some(region.to_string()),
             discover_regions: Some(vec![region.to_string()]),
             ..Default::default()
-        })
+        }))
     }
 
     fn handle_spawn(args: &str) -> CommandResult {
@@ -351,7 +351,7 @@ impl GmCommand {
         let role = parts.get(1).map(|s| s.to_string());
         let personality = parts.get(2).map(|s| s.to_string());
 
-        CommandResult::StateMutation(WorldStatePatch {
+        CommandResult::StateMutation(Box::new(WorldStatePatch {
             npcs_present: Some(vec![NpcPatch {
                 name: name.to_string(),
                 description: None,
@@ -366,7 +366,7 @@ impl GmCommand {
                 location: None,
             }]),
             ..Default::default()
-        })
+        }))
     }
 
     fn handle_dmg(args: &str) -> CommandResult {
@@ -396,9 +396,9 @@ impl GmCommand {
         let mut hp_changes = HashMap::new();
         hp_changes.insert(target.to_string(), -amount);
 
-        CommandResult::StateMutation(WorldStatePatch {
+        CommandResult::StateMutation(Box::new(WorldStatePatch {
             hp_changes: Some(hp_changes),
             ..Default::default()
-        })
+        }))
     }
 }

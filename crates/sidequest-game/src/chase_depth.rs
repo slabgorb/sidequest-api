@@ -494,8 +494,8 @@ pub fn format_chase_context(
     // Rig status (C1)
     let tier = rig.damage_tier();
     lines.push(format!(
-        "Rig: {} — HP: {}/{} ({}) | Speed: {} | Armor: {} | Maneuver: {} | Fuel: {}/{}",
-        format!("{:?}", rig.rig_type),
+        "Rig: {:?} — HP: {}/{} ({}) | Speed: {} | Armor: {} | Maneuver: {} | Fuel: {}/{}",
+        rig.rig_type,
         rig.rig_hp,
         rig.max_rig_hp,
         tier,

@@ -110,7 +110,6 @@ impl std::fmt::Display for LayoutError {
                 )
             }
             LayoutError::NoEntrance => write!(f, "no entrance room found in room list"),
-            _ => write!(f, "layout error"),
         }
     }
 }
@@ -159,11 +158,6 @@ pub fn align_rooms(
             let bx = a.offset_x - (b_grid.width() as i32 - 1);
             let by = a.offset_y + a_exit.cells[0] as i32 - b_exit.cells[0] as i32;
             (bx, by)
-        }
-        _ => {
-            // Future cardinal directions — place at origin as fallback.
-            // This arm is required by #[non_exhaustive] on CardinalDirection.
-            (a.offset_x, a.offset_y)
         }
     }
 }
@@ -385,7 +379,7 @@ pub fn layout_tree(
                 let current_used: HashSet<usize> =
                     used_gaps.get(&current_id).cloned().unwrap_or_default();
                 let target_used: HashSet<usize> = used_gaps
-                    .get(&target_id.to_string())
+                    .get(target_id)
                     .cloned()
                     .unwrap_or_default();
                 for (gi_a, gap_a) in current_grid.exits().iter().enumerate() {
@@ -516,7 +510,6 @@ fn shared_boundary_positions(
                 boundary.insert((shared_x, y));
             }
         }
-        _ => {}
     }
 
     boundary

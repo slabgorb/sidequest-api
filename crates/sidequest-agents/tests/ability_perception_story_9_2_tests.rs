@@ -568,10 +568,3 @@ fn character_with_multiple_involuntary_abilities() {
 // verifies the test file is not accidentally empty.
 // ============================================================================
 
-#[test]
-fn meta_test_file_has_substantive_tests() {
-    // This test exists to satisfy rule #6: test quality. If it compiles and
-    // the above tests run, the test file is substantive. Each test above uses
-    // assert!, assert_eq!, or content checks — no `let _ =` or `assert!(true)`.
-    assert!(true, "meta: test file compiled and ran");
-}

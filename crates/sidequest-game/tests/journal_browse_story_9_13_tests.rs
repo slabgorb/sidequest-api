@@ -16,7 +16,7 @@ use sidequest_game::inventory::Inventory;
 use sidequest_game::journal::{build_journal_entries, JournalFilter};
 use sidequest_game::known_fact::{Confidence, FactSource, KnownFact};
 use sidequest_protocol::NonBlankString;
-use sidequest_protocol::{FactCategory, JournalEntry, JournalSortOrder};
+use sidequest_protocol::{FactCategory, JournalSortOrder};
 use std::collections::HashMap;
 
 // ============================================================================

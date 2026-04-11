@@ -139,6 +139,12 @@ impl Args {
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct PlayerId(uuid::Uuid);
 
+impl Default for PlayerId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlayerId {
     /// Generate a new random PlayerId.
     pub fn new() -> Self {
@@ -625,6 +631,13 @@ impl AppState {
     }
 
     /// Send a message to all broadcast subscribers.
+    ///
+    /// `#[allow(clippy::result_large_err)]`: the error variant of
+    /// `broadcast::SendError<GameMessage>` holds the full `GameMessage` that
+    /// failed to send, which is intentionally ~300 bytes. Boxing the error
+    /// would make the happy path less ergonomic for every caller; the error
+    /// path is cold enough that the size doesn't matter.
+    #[allow(clippy::result_large_err)]
     pub fn broadcast(
         &self,
         msg: GameMessage,

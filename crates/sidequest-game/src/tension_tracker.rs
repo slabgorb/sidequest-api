@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn drama_weight_is_max_of_both_tracks() {
-        let mut tracker = TensionTracker::with_values(0.3, 0.7);
+        let tracker = TensionTracker::with_values(0.3, 0.7);
         assert_eq!(
             tracker.drama_weight(),
             0.7,
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn drama_weight_follows_action_when_higher() {
-        let mut tracker = TensionTracker::with_values(0.9, 0.2);
+        let tracker = TensionTracker::with_values(0.9, 0.2);
         assert_eq!(
             tracker.drama_weight(),
             0.9,

@@ -767,7 +767,7 @@ fn find_chargen_events(events: &[WatcherEvent], action: &str) -> Vec<WatcherEven
                 && e.fields
                     .get("action")
                     .and_then(serde_json::Value::as_str)
-                    .map_or(false, |a| a == action)
+                    == Some(action)
         })
         .cloned()
         .collect()

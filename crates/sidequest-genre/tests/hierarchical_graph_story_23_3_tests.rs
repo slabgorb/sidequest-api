@@ -102,7 +102,7 @@ name: The Stump
 "#;
     let node: WorldGraphNode = serde_yaml::from_str(yaml).unwrap();
     assert_eq!(node.id, "the_stump");
-    assert!(node.description.is_empty() || node.description == "");
+    assert!(node.description.is_empty());
 }
 
 // ═══════════════════════════════════════════════════════════

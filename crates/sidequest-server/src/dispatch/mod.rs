@@ -88,6 +88,11 @@ pub(crate) struct DispatchContext<'a> {
     >,
     pub music_director: &'a mut Option<sidequest_game::MusicDirector>,
     pub audio_mixer: &'a Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
+    /// Prerender scheduler handle — wired through DispatchContext so that
+    /// future dispatch code can trigger speculative renders without plumbing
+    /// it through every call site. Currently constructed but not read
+    /// directly from here (see `sidequest-server/CLAUDE.md` → PARTIAL wiring).
+    #[allow(dead_code)]
     pub prerender_scheduler:
         &'a Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
     pub state: &'a AppState,
@@ -1652,7 +1657,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     if npc.name.contains(&generated_name.name) {
                         let mut lore_guard = ctx.lore_store.lock().await;
                         let record_result = sidequest_game::record_name_knowledge(
-                            &mut *lore_guard,
+                            &mut lore_guard,
                             generated_name,
                             ctx.player_id,
                             turn,
@@ -1692,7 +1697,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 if let Some(morpheme) = glossary.lookup(trimmed) {
                     let mut lore_guard = ctx.lore_store.lock().await;
                     let record_result = sidequest_game::record_language_knowledge(
-                        &mut *lore_guard,
+                        &mut lore_guard,
                         morpheme,
                         ctx.player_id,
                         turn,
@@ -2065,7 +2070,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         if !crossed.is_empty() {
             {
                 let mut lore_guard = ctx.lore_store.lock().await;
-                sidequest_game::mint_threshold_lore(&crossed, &mut *lore_guard, turn_number as u64);
+                sidequest_game::mint_threshold_lore(&crossed, &mut lore_guard, turn_number);
             }
             for threshold in &crossed {
                 WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)

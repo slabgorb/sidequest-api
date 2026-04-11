@@ -465,8 +465,8 @@ impl PromptComposer for PromptRegistry {
             .map(|sections| {
                 sections
                     .iter()
-                    .filter(|s| category.map_or(true, |c| s.category == c))
-                    .filter(|s| zone.map_or(true, |z| s.zone == z))
+                    .filter(|s| category.is_none_or(|c| s.category == c))
+                    .filter(|s| zone.is_none_or(|z| s.zone == z))
                     .collect()
             })
             .unwrap_or_default()

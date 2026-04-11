@@ -28,7 +28,7 @@ use sidequest_game::tactical::layout::{
     align_rooms, check_overlap, layout_tree, DungeonLayout, LayoutError, PlacedRoom,
 };
 
-use sidequest_genre::models::world::{LegendEntry, RoomDef, RoomExit};
+use sidequest_genre::models::world::{RoomDef, RoomExit};
 
 // ==========================================================================
 // Test grid fixtures
@@ -95,64 +95,6 @@ fn room_c_grid() -> TacticalGrid {
 /// #.....#
 /// #.....#
 /// #......
-/// #......
-/// #.....#
-/// ###..##
-/// ```
-fn hub_grid() -> TacticalGrid {
-    let raw = "\
-###..##\n\
-#.....#\n\
-#.....#\n\
-#......\n\
-#......\n\
-#.....#\n\
-###..##";
-    TacticalGrid::parse(raw, &HashMap::new()).unwrap()
-}
-
-/// 5x5 room with a single south exit (columns 2-3). For T-junction spoke.
-/// ```text
-/// #####
-/// #...#
-/// #...#
-/// #...#
-/// ##..#
-/// ```
-fn spoke_south_grid() -> TacticalGrid {
-    room_a_grid() // Same shape as room A
-}
-
-/// 5x5 room with a single west exit (rows 2-3). For T-junction spoke.
-/// ```text
-/// #####
-/// #...#
-/// ....#
-/// ....#
-/// #####
-/// ```
-fn spoke_west_grid() -> TacticalGrid {
-    room_c_grid() // Same shape as room C
-}
-
-/// 5x5 room with a single north exit (columns 2-3). For T-junction spoke.
-/// ```text
-/// ##..#
-/// #...#
-/// #...#
-/// #...#
-/// #####
-/// ```
-fn spoke_north_grid() -> TacticalGrid {
-    let raw = "\
-##..#\n\
-#...#\n\
-#...#\n\
-#...#\n\
-#####";
-    TacticalGrid::parse(raw, &HashMap::new()).unwrap()
-}
-
 // ==========================================================================
 // Room graph fixture builders
 // ==========================================================================
@@ -496,7 +438,7 @@ fn layout_error_on_unresolvable_overlap() {
     // Hub with south and east exits. Room B connects to the south exit and is
     // very wide (extends east). Room C connects to the east exit and is very
     // tall (extends south). B and C will overlap in the southeast quadrant.
-    let hub = room_def(
+    let _hub = room_def(
         "hub",
         "entrance",
         vec![
@@ -860,8 +802,8 @@ fn t_junction_no_collisions() {
 fn layout_module_is_public() {
     // This test compiles only if the layout module is publicly accessible.
     // If it doesn't compile, the module isn't wired.
-    let _: fn(&[RoomDef], &HashMap<String, TacticalGrid>) -> Result<DungeonLayout, LayoutError> =
-        layout_tree;
+    type LayoutFn = fn(&[RoomDef], &HashMap<String, TacticalGrid>) -> Result<DungeonLayout, LayoutError>;
+    let _: LayoutFn = layout_tree;
 }
 
 // ==========================================================================
@@ -910,7 +852,7 @@ fn align_rooms_south_to_north() {
     let (bx, by) = align_rooms(&placed_a, a_south_exit, &grid_b, b_north_exit);
 
     // B's north wall should align with A's south wall (shared wall)
-    let a_south_y = 0 + (grid_a.height() as i32 - 1); // = 4
+    let a_south_y = grid_a.height() as i32 - 1; // = 4
     assert_eq!(
         by, a_south_y,
         "B's offset_y should place its north wall at A's south wall"
@@ -918,7 +860,7 @@ fn align_rooms_south_to_north() {
 
     // Exit gap columns should align
     for (a_col, b_col) in a_south_exit.cells.iter().zip(b_north_exit.cells.iter()) {
-        let a_global_x = 0 + *a_col as i32;
+        let a_global_x = *a_col as i32;
         let b_global_x = bx + *b_col as i32;
         assert_eq!(
             a_global_x, b_global_x,
@@ -950,7 +892,7 @@ fn align_rooms_east_to_west() {
     let (cx, cy) = align_rooms(&placed_b, b_east_exit, &grid_c, c_west_exit);
 
     // C's west wall should align with B's east wall (shared wall)
-    let b_east_x = 0 + (grid_b.width() as i32 - 1); // = 4
+    let b_east_x = grid_b.width() as i32 - 1; // = 4
     assert_eq!(
         cx, b_east_x,
         "C's offset_x should place its west wall at B's east wall"
@@ -958,7 +900,7 @@ fn align_rooms_east_to_west() {
 
     // Exit gap rows should align
     for (b_row, c_row) in b_east_exit.cells.iter().zip(c_west_exit.cells.iter()) {
-        let b_global_y = 0 + *b_row as i32;
+        let b_global_y = *b_row as i32;
         let c_global_y = cy + *c_row as i32;
         assert_eq!(
             b_global_y, c_global_y,
@@ -1066,9 +1008,9 @@ fn empty_room_list() {
     let rooms: Vec<RoomDef> = vec![];
     let grids: HashMap<String, TacticalGrid> = HashMap::new();
     let result = layout_tree(&rooms, &grids);
-    match result {
-        Ok(layout) => assert!(layout.rooms().is_empty(), "Empty input → empty layout"),
-        Err(_) => {} // Error is also acceptable for empty input
+    // Error is also acceptable for empty input, so we only assert on the Ok path.
+    if let Ok(layout) = result {
+        assert!(layout.rooms().is_empty(), "Empty input → empty layout");
     }
 }
 

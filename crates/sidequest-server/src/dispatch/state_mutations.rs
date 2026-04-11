@@ -341,7 +341,7 @@ pub(crate) async fn apply_state_mutations(
                 name,
                 op,
                 value,
-                &mut *lore_guard,
+                &mut lore_guard,
                 turn,
             ) {
                 Ok(patch_result) => {
