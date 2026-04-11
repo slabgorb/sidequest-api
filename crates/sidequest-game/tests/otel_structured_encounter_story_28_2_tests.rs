@@ -90,11 +90,20 @@ static TELEMETRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Initialize the global telemetry channel (idempotent via OnceLock).
 /// Subscribe and drain any stale events, returning a clean receiver.
 /// Also acquires TELEMETRY_LOCK — caller must hold the returned guard.
+///
+/// **Lock poison recovery**: if a previous test panicked while holding the
+/// guard (the panic doesn't release the lock cleanly — it poisons it),
+/// `lock().unwrap()` would propagate the poison and panic every subsequent
+/// test. The mutex guards `()` (no shared state to be in an inconsistent
+/// state), so we recover from poison and continue. This stops the cascade
+/// where a single buggy test takes down all 20+ tests in the binary.
 fn fresh_subscriber() -> (
     std::sync::MutexGuard<'static, ()>,
     tokio::sync::broadcast::Receiver<WatcherEvent>,
 ) {
-    let guard = TELEMETRY_LOCK.lock().unwrap();
+    let guard = TELEMETRY_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let _ = init_global_channel();
     let mut rx = subscribe_global().expect("channel must be initialized");
     // Drain any stale events from prior tests

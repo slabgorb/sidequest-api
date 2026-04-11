@@ -84,8 +84,6 @@ fn audio_config_with_unknown_variation_type() -> AudioConfig {
             music_volume: 0.6,
             sfx_volume: 0.8,
             voice_volume: 1.0,
-            duck_music_for_voice: true,
-            duck_amount_db: -12.0,
             crossfade_default_ms: 3000,
         },
         themes: vec![AudioTheme {
@@ -117,8 +115,6 @@ fn audio_config_with_mixed_variation_types() -> AudioConfig {
             music_volume: 0.6,
             sfx_volume: 0.8,
             voice_volume: 1.0,
-            duck_music_for_voice: true,
-            duck_amount_db: -12.0,
             crossfade_default_ms: 3000,
         },
         themes: vec![AudioTheme {

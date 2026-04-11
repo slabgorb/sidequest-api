@@ -669,7 +669,7 @@ fn write_minimal_genre_files(pack_dir: &std::path::Path) {
     std::fs::write(pack_dir.join("axes.yaml"), "definitions: []\n").unwrap();
     std::fs::write(
         pack_dir.join("audio.yaml"),
-        "mood_tracks: {}\nsfx_library: {}\ncreature_voice_presets: {}\nmixer:\n  music_volume: 0.8\n  sfx_volume: 0.9\n  voice_volume: 1.0\n  duck_music_for_voice: true\n  duck_amount_db: 3.0\n  crossfade_default_ms: 500\n",
+        "mood_tracks: {}\nsfx_library: {}\ncreature_voice_presets: {}\nmixer:\n  music_volume: 0.8\n  sfx_volume: 0.9\n  voice_volume: 1.0\n  crossfade_default_ms: 500\n",
     )
     .unwrap();
     std::fs::write(pack_dir.join("cultures.yaml"), "[]\n").unwrap();
