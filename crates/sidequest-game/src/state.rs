@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::achievement::AchievementTracker;
 use crate::axis::AxisValue;
@@ -389,19 +390,18 @@ impl From<GameSnapshotRaw> for GameSnapshot {
 impl GameSnapshot {
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
+    ///
+    /// Delegates to `Combatant::hp_fraction()` so the `combatant.bloodied`
+    /// OTEL watcher event added by story 35-10 is reachable from production
+    /// state-build code (CLAUDE.md "No half-wired features"). The trait
+    /// method already short-circuits on `max_hp == 0`, so the previous
+    /// inline guard is no longer needed.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {
         use crate::combatant::Combatant;
         self.characters
             .iter()
             .filter(|c| c.is_friendly)
-            .map(|c| {
-                let max = c.max_hp();
-                if max == 0 {
-                    0.0
-                } else {
-                    c.hp() as f64 / max as f64
-                }
-            })
+            .map(|c| c.hp_fraction())
             .fold(1.0_f64, f64::min)
     }
 
@@ -858,6 +858,33 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         payload: PartyStatusPayload { members },
         player_id: String::new(),
     });
+
+    // OTEL: combatant.bloodied — emitted when this turn mutated character
+    // state and any friendly is now below half HP. Transition-site emission
+    // follows the disposition::apply_delta precedent: telemetry at the
+    // mutation/ship point, never inside a pure accessor. broadcast_state_changes
+    // is dispatched from sidequest-server/src/dispatch/mod.rs:1737 every turn,
+    // so this is the canonical place for the GM panel to observe combat
+    // engagement (CLAUDE.md OTEL Observability Principle, story 35-10).
+    if delta.characters_changed() {
+        for c in state.characters.iter().filter(|c| c.is_friendly) {
+            let hp = Combatant::hp(c);
+            let max_hp = Combatant::max_hp(c);
+            if max_hp == 0 {
+                continue;
+            }
+            let frac = hp as f64 / max_hp as f64;
+            if frac < 0.5 {
+                WatcherEventBuilder::new("combatant", WatcherEventType::StateTransition)
+                    .field("action", "bloodied")
+                    .field("name", c.name())
+                    .field("hp", hp)
+                    .field("max_hp", max_hp)
+                    .field("hp_fraction", frac)
+                    .send();
+            }
+        }
+    }
 
     // CHAPTER_MARKER if location changed
     if delta.location_changed() {
