@@ -745,6 +745,16 @@ impl Orchestrator {
                      Quieter turns can be shorter — vary the rhythm.\n\
                      </length-limit>"
                 }
+                // `NarratorVerbosity` is `#[non_exhaustive]` — fall back to
+                // Standard behavior for unknown values from newer wire versions.
+                _ => {
+                    "<length-limit>\n\
+                     Target: 2-3 short paragraphs, around 800 characters of prose. \
+                     Describe the scene, the action, and what the player sees next. \
+                     Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
+                     Dialogue gets voice and personality. Vary length by moment.\n\
+                     </length-limit>"
+                }
             };
             builder.add_section(PromptSection::new(
                 "narrator_verbosity",
@@ -802,6 +812,14 @@ impl Orchestrator {
                      sentence structures, rare words, and poetic constructions. \
                      Channel the cadence of sagas, epics, and high fantasy prose. \
                      Unrestricted complexity."
+                }
+                // `NarratorVocabulary` is `#[non_exhaustive]` — fall back to
+                // Literary (the default) for unknown values from newer wire versions.
+                _ => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use rich but clear prose. Employ varied vocabulary and literary \
+                     devices where they serve the narrative. Balance elegance with \
+                     accessibility — vivid but not purple."
                 }
             };
             builder.add_section(PromptSection::new(

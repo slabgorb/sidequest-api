@@ -61,6 +61,11 @@ pub fn build_journal_entries(facts: &[KnownFact], filter: &JournalFilter) -> Vec
                 }
             });
         }
+        // `JournalSortOrder` is `#[non_exhaustive]` — unknown sort orders from a
+        // newer client fall back to Time (the default, most-common case).
+        _ => {
+            entries.sort_by(|a, b| b.learned_turn.cmp(&a.learned_turn));
+        }
     }
 
     entries

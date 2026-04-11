@@ -35,6 +35,7 @@ use std::collections::HashMap;
 /// `default_for_player_count()`.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum NarratorVerbosity {
     /// Keep descriptions to 1-2 sentences. Prioritize action over atmosphere.
     Concise,
@@ -70,6 +71,7 @@ impl NarratorVerbosity {
 /// for wire compatibility with the React UI. Default is `Literary`.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum NarratorVocabulary {
     /// Simple, direct language. Approximately 8th-grade reading level.
     Accessible,
@@ -91,6 +93,7 @@ pub enum NarratorVocabulary {
 /// maps Rust's PascalCase to the SCREAMING_CASE the React UI expects.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
+#[non_exhaustive]
 pub enum GameMessage {
     /// Player submits an action or aside.
     #[serde(rename = "PLAYER_ACTION")]
@@ -379,10 +382,14 @@ pub enum GameMessage {
 
     /// Server broadcasts the resolved dice outcome to all clients (story 34-2 / ADR-074).
     ///
-    /// Contains the raw die faces, total, outcome classification, and the physics
-    /// seed plus throw parameters needed for deterministic client-side replay.
-    /// All clients run identical Rapier physics from the same seed + throw params,
-    /// producing visually identical animations regardless of who threw.
+    /// Contains per-group die faces (via `DieGroupResult`), total, outcome
+    /// classification, and the physics seed plus throw parameters needed for
+    /// deterministic client-side replay. All clients run identical Rapier
+    /// physics from the same seed + throw params, producing visually identical
+    /// animations regardless of who threw. The envelope `player_id` is the
+    /// sender (typically `"server"`), while `payload.rolling_player_id`
+    /// identifies whose character rolled — see `DiceRequest` for the same
+    /// distinction.
     #[serde(rename = "DICE_RESULT")]
     DiceResult {
         /// The typed payload for this message.
@@ -1273,6 +1280,7 @@ pub struct AchievementEarnedPayload {
 /// Story 9-13: Controls how journal entries are ordered in the response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum JournalSortOrder {
     /// Sort by learned_turn, newest first.
     Time,
@@ -1449,26 +1457,99 @@ pub struct TacticalActionPayload {
 // Dice resolution protocol (story 34-2, ADR-074)
 // ---------------------------------------------------------------------------
 
+/// Supported die sizes (faces per die) per ADR-074 §3.
+///
+/// The seven values are the tabletop standard. Making this a bounded enum
+/// (rather than a raw `u32`) means invalid sides like `0` (divide-by-zero in
+/// `roll % sides`) or `3` (not a real tabletop die) cannot exist on the wire —
+/// serde rejects unknown integers at deserialization time.
+///
+/// Serialized as the integer face count (`4`, `6`, `8`, `10`, `12`, `20`, `100`)
+/// to keep the JSON shape identical to what the UI drag-and-flick code expects
+/// from ADR-074 fixtures.
+///
+/// **Forward-compatibility:** unknown integers from a newer wire protocol fall
+/// through to the `Unknown` catch-all via `#[serde(other)]`. This is the
+/// serde-level story; `#[non_exhaustive]` handles the compile-time side for
+/// consumer `match` arms. (We intentionally use both — they solve different
+/// problems.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum DieSides {
+    /// Four-sided die (d4).
+    #[serde(rename = "4")]
+    D4,
+    /// Six-sided die (d6).
+    #[serde(rename = "6")]
+    D6,
+    /// Eight-sided die (d8).
+    #[serde(rename = "8")]
+    D8,
+    /// Ten-sided die (d10).
+    #[serde(rename = "10")]
+    D10,
+    /// Twelve-sided die (d12).
+    #[serde(rename = "12")]
+    D12,
+    /// Twenty-sided die (d20) — the primary check die in ADR-074.
+    #[serde(rename = "20")]
+    D20,
+    /// Percentile die (d100).
+    #[serde(rename = "100")]
+    D100,
+    /// Unknown die size from a newer wire protocol. Older clients fall
+    /// through to this variant via `#[serde(other)]` instead of hard-erroring
+    /// on deserialization — see `RollOutcome::Unknown` for the same pattern.
+    #[serde(other)]
+    Unknown,
+}
+
+impl DieSides {
+    /// Returns the face count as a `u32` for use in RNG modular arithmetic.
+    ///
+    /// Returns `None` for `Unknown` (caller must decide how to handle an
+    /// unrecognized die from a newer protocol — typically: refuse the roll).
+    pub fn faces(self) -> Option<u32> {
+        match self {
+            Self::D4 => Some(4),
+            Self::D6 => Some(6),
+            Self::D8 => Some(8),
+            Self::D10 => Some(10),
+            Self::D12 => Some(12),
+            Self::D20 => Some(20),
+            Self::D100 => Some(100),
+            Self::Unknown => None,
+        }
+    }
+}
+
 /// Specification for one group of dice in a roll (story 34-2).
 ///
-/// A dice pool is `Vec<DieSpec>` — e.g., `[{sides: 20, count: 1}]` for a single
-/// d20, or `[{sides: 6, count: 4}, {sides: 10, count: 2}]` for 4d6 + 2d10 thrown
-/// together in one gesture. Supported sides per ADR-074: 4, 6, 8, 10, 12, 20, 100.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// A dice pool is `Vec<DieSpec>` — e.g., `[{sides: "20", count: 1}]` for a
+/// single d20, or `[{sides: "6", count: 4}, {sides: "10", count: 2}]` for
+/// 4d6 + 2d10 thrown together in one gesture.
+///
+/// `count` uses `NonZeroU8` (max 255 dice, minimum 1) — prevents a malicious
+/// client from requesting `count: u32::MAX` as an allocation DoS, and makes
+/// `count == 0` unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DieSpec {
-    /// Number of faces on each die in this group.
-    pub sides: u32,
-    /// How many dice of this type to throw.
-    pub count: u32,
+    /// Which die to throw (bounded by `DieSides`).
+    pub sides: DieSides,
+    /// How many dice of this type to throw. `NonZeroU8` caps at 255 and
+    /// rejects zero — both serde and direct construction enforce it.
+    pub count: std::num::NonZeroU8,
 }
 
 /// Throw gesture parameters captured from the drag-and-flick interaction (story 34-2).
 ///
 /// Server authority model (ADR-074): these parameters control animation aesthetics
-/// — angle, force, tumble path — but NOT the outcome. The server generates a
-/// cryptographic seed independently. All clients run identical Rapier physics
-/// from the same seed + throw params, producing identical visual animation.
+/// — angle, force, tumble path — but NOT the outcome. The outcome is determined
+/// entirely by the independently-generated seed on `DiceResultPayload.seed`
+/// (see that field for the cheat-resistance rationale). All clients run
+/// identical Rapier physics from the same seed + throw params, producing
+/// identical visual animation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThrowParams {
@@ -1487,16 +1568,31 @@ pub struct ThrowParams {
 /// is distinguishable from plain `Fail` on the wire so the narrator can pick a
 /// different register.
 ///
-/// `#[non_exhaustive]` allows future additions (e.g., `NearMiss` for genre-specific
-/// resolution systems) without breaking downstream exhaustive matches. Follows the
-/// `FactCategory` precedent in this crate. `Eq`/`Hash` are intentionally NOT derived
-/// — no consumer uses `RollOutcome` as a map key, and deriving `Hash` on a
-/// `#[non_exhaustive]` enum ties the hash surface to the public variant list.
+/// **Forward-compatibility model — two orthogonal mechanisms:**
+///
+/// - `#[non_exhaustive]` is a *compile-time* guard. It forces downstream crates
+///   matching on `RollOutcome` to include a wildcard arm, so adding a new variant
+///   (e.g., `NearMiss`) does not break their builds.
+/// - `#[serde(other)] Unknown` is the *wire-level* guard. Without it, serde would
+///   hard-reject any variant string it doesn't know about — an older client
+///   talking to a newer server would `Err` on deserialization. With it, unknown
+///   variants silently fall through to `Unknown`, which downstream code can then
+///   treat however it prefers (typically: refuse the outcome and request a retry).
+///
+/// Both are needed. Prior revisions of this doc claimed `#[non_exhaustive]` alone
+/// delivered forward-compat; it does not.
+///
+/// `Eq`/`Hash` are intentionally NOT derived — deriving `Hash` on a
+/// `#[non_exhaustive]` enum ties the hash surface to the public variant list,
+/// which breaks wire stability when new variants are added. If you need
+/// outcome-keyed aggregation, match to an integer discriminant instead.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum RollOutcome {
     /// Natural maximum on the primary die (e.g., nat 20 on d20). Always succeeds
-    /// dramatically regardless of DC.
+    /// dramatically regardless of DC. "Primary die" is resolved from the
+    /// `DieGroupResult` with the largest face count — typically the d20 in a
+    /// skill-check pool.
     CritSuccess,
     /// Total (sum of rolls + modifier) meets or exceeds the DC.
     Success,
@@ -1505,36 +1601,175 @@ pub enum RollOutcome {
     /// Natural minimum on the primary die (e.g., nat 1 on d20). Always fails
     /// dramatically regardless of modifier.
     CritFail,
+    /// Unknown outcome from a newer wire protocol. Older clients fall through
+    /// to this variant via `#[serde(other)]` instead of hard-erroring on
+    /// deserialization. Downstream code should refuse the outcome and surface
+    /// a "client needs upgrade" error to the user rather than guessing.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Resolved face values for one group in a pool roll (story 34-2).
+///
+/// Paired with the originating `DieSpec` so downstream consumers (narrator tone,
+/// physics replay, UI rendering) can attribute each rolled face back to its
+/// die type. Before this type existed, the result payload used a flat
+/// `Vec<u32>` of face values, which made `RollOutcome::CritSuccess` ("natural
+/// max on the primary die") formally unresolvable for mixed pools like 4d6+2d10.
+///
+/// Invariant (enforced at construction and via the `#[serde(try_from)]` guard
+/// on the containing payload): `faces.len() == spec.count.get() as usize`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DieGroupResult {
+    /// The die this group was rolled against (echoes the request's `DieSpec`).
+    pub spec: DieSpec,
+    /// The raw face values in roll order. Length must match `spec.count`.
+    pub faces: Vec<u32>,
 }
 
 /// Server -> client: request a dice roll during the reveal phase (story 34-2).
 ///
-/// Broadcast to all clients; the rolling player is identified by `player_id`
-/// (note: this is the *payload* player_id for who must throw, distinct from the
-/// envelope `player_id` on the `GameMessage::DiceRequest` variant which is
-/// typically "server"). Spectators see the same DC and dice configuration.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+/// Broadcast to all clients. The `rolling_player_id` identifies who must
+/// throw; other clients watch. Note that this is distinct from the envelope
+/// `player_id` on `GameMessage::DiceRequest` which identifies the sender of
+/// the frame (typically `"server"`).
+///
+/// **Deserialization is validated.** `#[serde(try_from = "DiceRequestPayloadRaw")]`
+/// rejects empty dice pools (`dice == []`) at parse time — an empty pool is
+/// a nonsensical game state (a modifier-only "roll" with no dice actually thrown).
+/// `difficulty` uses `NonZeroU32` to reject `difficulty == 0`, which would
+/// guarantee `Success` on any roll regardless of the faces.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(into = "DiceRequestPayloadRaw")]
 pub struct DiceRequestPayload {
     /// Correlation ID matching the eventual `DiceResult`. Also used by the
     /// rolling player when submitting a `DiceThrow`.
     pub request_id: String,
-    /// Player who must throw the dice.
-    pub player_id: String,
+    /// Player who must throw the dice. (Distinct from the envelope `player_id`
+    /// on the `GameMessage::DiceRequest` variant — that identifies the sender
+    /// of the frame, typically `"server"`. This field identifies the thrower.)
+    pub rolling_player_id: String,
     /// Display name of the character making the check.
     pub character_name: String,
-    /// Dice pool to throw (one or more `DieSpec` groups).
+    /// Dice pool to throw (one or more `DieSpec` groups). Guaranteed non-empty
+    /// via the validated deserialization path.
     pub dice: Vec<DieSpec>,
     /// Stat modifier applied to the sum of rolls. Can be negative (penalties).
     pub modifier: i32,
-    /// Ability name from `BeatDef.stat_check` (e.g., "dexterity", "strength").
+    /// Ability name for the check (e.g., `"dexterity"`, `"strength"`). Set by
+    /// the narrator from the beat definition. Must be non-blank and non-empty;
+    /// whitespace-only values are rejected at the wire boundary.
     pub stat: String,
     /// Difficulty class the total must meet or exceed. Revealed HERE, not during
     /// the sealed phase (ADR-074: DC-reveal-at-roll-time tension mechanic).
-    pub difficulty: u32,
+    /// Uses `NonZeroU32` to reject `0`, which would otherwise make every roll
+    /// a guaranteed `Success` — a silent footgun if a narrator prompt omits DC.
+    pub difficulty: std::num::NonZeroU32,
     /// Narrator flavor text for the dice tray UI — sets the scene for the throw.
     pub context: String,
 }
+
+/// Deserialization-time representation of `DiceRequestPayload`.
+///
+/// This is an implementation detail — the public type is `DiceRequestPayload`.
+/// Serde deserializes through this raw struct and then `TryFrom` enforces the
+/// non-empty-pool and non-blank-stat invariants before constructing the real
+/// payload. `#[serde(deny_unknown_fields)]` is on the raw type so the schema
+/// shape is still enforced.
+#[doc(hidden)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiceRequestPayloadRaw {
+    /// Correlation ID — see `DiceRequestPayload::request_id`.
+    pub request_id: String,
+    /// Rolling player — see `DiceRequestPayload::rolling_player_id`.
+    pub rolling_player_id: String,
+    /// Character display name — see `DiceRequestPayload::character_name`.
+    pub character_name: String,
+    /// Dice pool (validated non-empty on TryFrom).
+    pub dice: Vec<DieSpec>,
+    /// Stat modifier (can be negative).
+    pub modifier: i32,
+    /// Stat name (validated non-blank on TryFrom).
+    pub stat: String,
+    /// Difficulty class (NonZeroU32 enforced by serde).
+    pub difficulty: std::num::NonZeroU32,
+    /// Narrator flavor text.
+    pub context: String,
+}
+
+impl From<DiceRequestPayload> for DiceRequestPayloadRaw {
+    fn from(p: DiceRequestPayload) -> Self {
+        Self {
+            request_id: p.request_id,
+            rolling_player_id: p.rolling_player_id,
+            character_name: p.character_name,
+            dice: p.dice,
+            modifier: p.modifier,
+            stat: p.stat,
+            difficulty: p.difficulty,
+            context: p.context,
+        }
+    }
+}
+
+impl TryFrom<DiceRequestPayloadRaw> for DiceRequestPayload {
+    type Error = DiceRequestPayloadError;
+    fn try_from(raw: DiceRequestPayloadRaw) -> Result<Self, Self::Error> {
+        if raw.dice.is_empty() {
+            return Err(DiceRequestPayloadError::EmptyDicePool);
+        }
+        if raw.stat.trim().is_empty() {
+            return Err(DiceRequestPayloadError::BlankStat);
+        }
+        Ok(Self {
+            request_id: raw.request_id,
+            rolling_player_id: raw.rolling_player_id,
+            character_name: raw.character_name,
+            dice: raw.dice,
+            modifier: raw.modifier,
+            stat: raw.stat,
+            difficulty: raw.difficulty,
+            context: raw.context,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for DiceRequestPayload {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = DiceRequestPayloadRaw::deserialize(deserializer)?;
+        Self::try_from(raw).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Validation errors produced by `DiceRequestPayload::try_from(raw)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DiceRequestPayloadError {
+    /// The dice pool was empty. A roll with zero dice is a nonsensical game
+    /// state — the modifier and difficulty would compare against a total of
+    /// `0`, making every sufficiently-low DC a guaranteed success.
+    EmptyDicePool,
+    /// The `stat` field was blank or whitespace-only. Stat names must be
+    /// non-empty at the wire boundary; downstream consumers expect a real
+    /// ability name to feed into narrator prompts.
+    BlankStat,
+}
+
+impl std::fmt::Display for DiceRequestPayloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EmptyDicePool => f.write_str("dice pool is empty"),
+            Self::BlankStat => f.write_str("stat field is blank or whitespace-only"),
+        }
+    }
+}
+
+impl std::error::Error for DiceRequestPayloadError {}
 
 /// Client -> server: rolling player submits a throw gesture (story 34-2).
 ///
@@ -1553,29 +1788,49 @@ pub struct DiceThrowPayload {
 /// Server -> all clients: resolved dice roll outcome (story 34-2).
 ///
 /// Contains everything needed to replay identical physics and display the
-/// outcome: raw die faces, total, DC, outcome classification, physics seed,
-/// and the echoed throw parameters.
+/// outcome: per-group die faces (so consumers can attribute rolls back to
+/// their `DieSpec`), total, DC, outcome classification, physics seed, and
+/// the echoed throw parameters.
+///
+/// Note that the envelope `player_id` on `GameMessage::DiceResult` identifies
+/// the sender (typically `"server"`), while `rolling_player_id` identifies the
+/// player whose character rolled. See the `DiceRequest` doc for the same
+/// distinction — the two `player_id`-shaped fields serve different roles and
+/// the payload field is renamed to make the ambiguity impossible.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiceResultPayload {
     /// Correlation ID matching the original `DiceRequest`.
     pub request_id: String,
-    /// Player who threw the dice.
-    pub player_id: String,
+    /// Player whose character threw the dice. (Distinct from the envelope
+    /// `player_id` on `GameMessage::DiceResult`, which is the sender — typically
+    /// `"server"`.)
+    pub rolling_player_id: String,
     /// Display name of the character that rolled.
     pub character_name: String,
-    /// Raw die faces in the order they were rolled, e.g., `[17]` or `[3, 5, 2, 6]`.
-    pub rolls: Vec<u32>,
+    /// Per-group face values. Each `DieGroupResult` pairs its originating
+    /// `DieSpec` with the rolled faces, so downstream consumers can identify
+    /// which roll came from which die (e.g., the d20 in a 4d6+1d20 pool).
+    /// This is required for `RollOutcome::CritSuccess` / `CritFail` detection
+    /// on the "primary die" and for per-group UI rendering.
+    pub rolls: Vec<DieGroupResult>,
     /// Stat modifier applied to the sum (can be negative).
     pub modifier: i32,
-    /// `sum(rolls) + modifier` — final check total.
-    pub total: u32,
-    /// Difficulty class echoed from the `DiceRequest` for UI display.
-    pub difficulty: u32,
+    /// `sum(rolls_flat) + modifier` — final check total. Uses `i32` because a
+    /// sufficiently negative modifier can push the total below zero
+    /// (e.g., rolls=[1], modifier=-5 → total=-4), and silently wrapping that
+    /// to `u32::MAX - 3` would be a catastrophic mechanical lie.
+    pub total: i32,
+    /// Difficulty class echoed from the `DiceRequest` for UI display. Uses
+    /// `NonZeroU32` to match the request-side invariant.
+    pub difficulty: std::num::NonZeroU32,
     /// Outcome classification — feeds the narrator prompt for tone shaping.
     pub outcome: RollOutcome,
-    /// Deterministic physics seed. All clients run identical Rapier simulation
-    /// from this seed + `throw_params` to produce the same visual animation.
+    /// Cryptographically-generated deterministic physics seed. Produced by
+    /// the server *independently* of the client's `throw_params`, so a client
+    /// cannot influence the outcome by crafting its gesture — the seed alone
+    /// drives the Rapier simulation. All clients run identical physics from
+    /// this seed + `throw_params` to produce the same visual animation.
     pub seed: u64,
     /// Throw gesture parameters echoed back for client-side replay.
     pub throw_params: ThrowParams,
