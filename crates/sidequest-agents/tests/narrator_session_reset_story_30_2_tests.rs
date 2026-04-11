@@ -12,7 +12,6 @@
 //! 4. Delta tier for a DIFFERENT genre than the original session triggers Full
 //! 5. OTEL spans capture tier selection for observability
 
-use std::collections::HashMap;
 
 use sidequest_agents::orchestrator::{NarratorPromptTier, Orchestrator, TurnContext};
 use sidequest_agents::turn_record::{TurnRecord, WATCHER_CHANNEL_CAPACITY};
@@ -282,7 +281,7 @@ fn process_action_tier_selection_uses_session_state() {
     let orch = Orchestrator::new(tx);
 
     // No session → should select Full
-    let ctx = context_with_genre("low_fantasy", "Grim narrator voice");
+    let _ctx = context_with_genre("low_fantasy", "Grim narrator voice");
 
     // We can't easily test process_action (it calls Claude CLI),
     // but we CAN test the tier selection logic directly.

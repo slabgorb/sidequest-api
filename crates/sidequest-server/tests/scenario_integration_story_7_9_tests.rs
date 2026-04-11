@@ -25,8 +25,8 @@
 /// server crate. Compile-time wiring proof.
 #[test]
 fn scenario_state_importable_from_server_crate() {
-    use sidequest_game::ScenarioEvent;
-    use sidequest_game::ScenarioEventType;
+    
+    
     use sidequest_game::ScenarioState;
 
     // Verify types exist and are constructable
@@ -206,7 +206,7 @@ fn accusation_result_triggers_resolution() {
 #[test]
 fn accusation_types_importable() {
     use sidequest_game::Accusation;
-    use sidequest_game::AccusationResult;
+    
     use sidequest_game::EvidenceQuality;
 
     // Verify types are constructable

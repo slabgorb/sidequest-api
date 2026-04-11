@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 
 use sidequest_game::tactical::{
-    CardinalDirection, CellProperties, ExitGap, FeatureDef, FeatureType, GridParseError, GridPos,
+    CardinalDirection, FeatureType, GridParseError, GridPos,
     TacticalCell, TacticalGrid,
 };
 

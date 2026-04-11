@@ -19,9 +19,9 @@ use uuid::Uuid;
 
 use sidequest_game::render_queue::RenderJobResult;
 use sidequest_game::subject::{RenderSubject, SceneType, SubjectTier};
-use sidequest_protocol::{GameMessage, ImagePayload, SessionEventPayload};
+use sidequest_protocol::{GameMessage, SessionEventPayload};
 use sidequest_server::render_integration::{
-    spawn_image_broadcaster, ImagePacingThrottle, RenderResultContext,
+    ImagePacingThrottle, RenderResultContext,
 };
 
 // =========================================================================
@@ -196,7 +196,7 @@ fn custom_cooldown_overrides_default() {
 
 #[test]
 fn throttle_allows_first_render() {
-    let mut throttle = ImagePacingThrottle::with_cooldown(60);
+    let throttle = ImagePacingThrottle::with_cooldown(60);
     assert!(
         throttle.should_allow(),
         "first render should always be allowed"

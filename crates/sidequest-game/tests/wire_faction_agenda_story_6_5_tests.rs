@@ -5,7 +5,7 @@
 
 use sidequest_game::faction_agenda::{AgendaUrgency, FactionAgenda};
 use sidequest_game::scene_directive::{
-    format_scene_directive, ActiveStake, DirectivePriority, DirectiveSource, SceneDirective,
+    format_scene_directive, ActiveStake, DirectiveSource,
 };
 
 // ===========================================================================

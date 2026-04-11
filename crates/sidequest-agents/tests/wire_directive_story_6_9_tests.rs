@@ -157,8 +157,10 @@ fn intent_route_exposes_meaningful_via_intent() {
 
 #[test]
 fn meaningful_intent_resets_turns_since_meaningful() {
-    let mut snap = GameSnapshot::default();
-    snap.turns_since_meaningful = 5; // player was idle
+    let mut snap = GameSnapshot {
+        turns_since_meaningful: 5, // player was idle
+        ..Default::default()
+    };
 
     // Simulate meaningful action (Combat)
     let route = IntentRoute::for_intent(Intent::Combat);
@@ -176,8 +178,10 @@ fn meaningful_intent_resets_turns_since_meaningful() {
 
 #[test]
 fn non_meaningful_intent_increments_turns_since_meaningful() {
-    let mut snap = GameSnapshot::default();
-    snap.turns_since_meaningful = 3;
+    let mut snap = GameSnapshot {
+        turns_since_meaningful: 3,
+        ..Default::default()
+    };
 
     // Simulate non-meaningful action (Exploration)
     let route = IntentRoute::for_intent(Intent::Exploration);
@@ -200,8 +204,10 @@ fn non_meaningful_intent_increments_turns_since_meaningful() {
 #[test]
 fn engagement_multiplier_feeds_into_tick_with_multiplier() {
     // Full wiring: GameSnapshot counter → engagement_multiplier → tick_with_multiplier
-    let mut snap = GameSnapshot::default();
-    snap.turns_since_meaningful = 7; // very passive
+    let snap = GameSnapshot {
+        turns_since_meaningful: 7, // very passive
+        ..Default::default()
+    };
 
     let multiplier = engagement_multiplier(snap.turns_since_meaningful);
     assert_eq!(multiplier, 2.0, "7 turns idle should give 2.0x multiplier");
@@ -388,8 +394,10 @@ fn faction_events_field_exists_on_directive() {
 fn full_pipeline_engagement_to_directive_to_prompt() {
     // Integration test: simulate a full turn pipeline
     // 1. Start with a passive player (7 turns idle)
-    let mut snap = GameSnapshot::default();
-    snap.turns_since_meaningful = 7;
+    let snap = GameSnapshot {
+        turns_since_meaningful: 7,
+        ..Default::default()
+    };
 
     // 2. Compute engagement multiplier
     let multiplier = engagement_multiplier(snap.turns_since_meaningful);
@@ -432,8 +440,10 @@ fn full_pipeline_engagement_to_directive_to_prompt() {
 #[test]
 fn active_player_pipeline_may_not_fire_beats() {
     // Contrast test: active player (0 turns idle) → 0.5x multiplier → slower progression
-    let mut snap = GameSnapshot::default();
-    snap.turns_since_meaningful = 0;
+    let snap = GameSnapshot {
+        turns_since_meaningful: 0,
+        ..Default::default()
+    };
 
     let multiplier = engagement_multiplier(snap.turns_since_meaningful);
     assert_eq!(multiplier, 0.5);

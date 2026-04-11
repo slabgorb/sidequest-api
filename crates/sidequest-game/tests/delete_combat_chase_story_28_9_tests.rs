@@ -7,7 +7,6 @@
 //! serialization shape — the only practical way to test "this field/type
 //! was deleted" in Rust without compile-fail harnesses.
 
-use serde_json;
 use sidequest_game::state::GameSnapshot;
 
 // ==========================================================================

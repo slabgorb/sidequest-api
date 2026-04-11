@@ -16,7 +16,7 @@
 //!                              delta, max_hp, clamped
 
 use sidequest_game::creature_core::CreatureCore;
-use sidequest_game::encounter::{EncounterActor, EncounterPhase, StructuredEncounter};
+use sidequest_game::encounter::{EncounterActor, StructuredEncounter};
 use sidequest_game::inventory::Inventory;
 use sidequest_genre::ConfrontationDef;
 use sidequest_protocol::NonBlankString;
@@ -124,10 +124,9 @@ fn find_events_by_action(
         .iter()
         .filter(|e| {
             e.component == component
-                && e.fields
+                && (e.fields
                     .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    .map_or(false, |a| a == action)
+                    .and_then(serde_json::Value::as_str) == Some(action))
         })
         .cloned()
         .collect()

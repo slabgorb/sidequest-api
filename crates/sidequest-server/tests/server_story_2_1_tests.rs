@@ -509,9 +509,11 @@ fn server_error_enum_is_non_exhaustive() {
     // If ServerError is #[non_exhaustive], this match with wildcard compiles.
     // The test verifies the enum exists and has expected variants.
     let err = ServerError::connection_closed();
+    // Wildcard arm needed because `ServerError` is `#[non_exhaustive]`.
+    #[allow(clippy::single_match)]
     match err {
         ServerError::ConnectionClosed => {}
-        _ => {} // wildcard needed because #[non_exhaustive]
+        _ => {}
     }
 }
 

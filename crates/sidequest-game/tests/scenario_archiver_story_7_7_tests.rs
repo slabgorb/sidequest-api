@@ -12,10 +12,9 @@
 //! ACs tested: Round-trip, All state preserved, Version check, No scenario,
 //!             Store integration, Session resume
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
 use sidequest_game::clue_activation::{ClueNode, ClueType, ClueVisibility, DiscoveryMethod};
 use sidequest_game::npc_actions::ScenarioRole;
 use sidequest_game::persistence::{SessionStore, SqliteStore};

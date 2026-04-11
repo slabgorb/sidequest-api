@@ -3,7 +3,6 @@
 //! Written by TEA (Han Solo) against acceptance criteria.
 //! All tests should FAIL (compile error) since the module doesn't exist yet.
 
-use std::collections::HashMap;
 
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -230,7 +229,7 @@ fn ac_low_tension_innocent_only_act_normal() {
 
 #[test]
 fn ac_alibi_creates_false_claim_in_belief_state() {
-    let mut belief = BeliefState::new();
+    let _belief = BeliefState::new();
     let action = NpcAction::CreateAlibi {
         false_claim: Belief::Claim {
             subject: "suspect".to_string(),

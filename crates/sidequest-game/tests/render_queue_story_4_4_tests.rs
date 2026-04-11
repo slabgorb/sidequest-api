@@ -46,14 +46,6 @@ fn landscape_subject() -> RenderSubject {
     make_subject(&[], SceneType::Exploration, SubjectTier::Landscape)
 }
 
-fn portrait_subject() -> RenderSubject {
-    make_subject(
-        &["Old Sage Theron"],
-        SceneType::Dialogue,
-        SubjectTier::Portrait,
-    )
-}
-
 fn default_config() -> RenderQueueConfig {
     RenderQueueConfig::default()
 }

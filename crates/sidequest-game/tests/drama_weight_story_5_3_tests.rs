@@ -11,7 +11,7 @@
 //! spike replacement, drama_weight as max, clamped output, full observe flow
 
 use sidequest_game::tension_tracker::{
-    classify_combat_outcome, DetailedCombatEvent, TensionTracker, TurnClassification,
+    DetailedCombatEvent, TensionTracker, TurnClassification,
 };
 use sidequest_game::tension_tracker::{DamageEvent, RoundResult};
 
@@ -95,7 +95,7 @@ fn drama_weight_is_max_of_three_tracks_not_additive() {
 
 #[test]
 fn drama_weight_returns_action_when_highest() {
-    let mut tracker = TensionTracker::with_values(0.9, 0.2);
+    let tracker = TensionTracker::with_values(0.9, 0.2);
     // No spike — drama_weight should be action_tension
     assert!(
         (tracker.drama_weight() - 0.9).abs() < 0.01,
@@ -106,7 +106,7 @@ fn drama_weight_returns_action_when_highest() {
 
 #[test]
 fn drama_weight_returns_stakes_when_highest() {
-    let mut tracker = TensionTracker::with_values(0.2, 0.85);
+    let tracker = TensionTracker::with_values(0.2, 0.85);
     assert!(
         (tracker.drama_weight() - 0.85).abs() < 0.01,
         "drama_weight should be max(0.2, 0.85, 0.0) = 0.85, got {}",

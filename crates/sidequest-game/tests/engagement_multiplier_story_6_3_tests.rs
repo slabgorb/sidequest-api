@@ -7,7 +7,6 @@
 //!   - Integration: multiplier applied to trope engine tick progression
 //!   - Integration test: end-to-end GameSnapshot → multiplier → tick → beat verification
 
-use ordered_float::OrderedFloat;
 use sidequest_genre::{PassiveProgression, TropeDefinition, TropeEscalation};
 use sidequest_protocol::NonBlankString;
 

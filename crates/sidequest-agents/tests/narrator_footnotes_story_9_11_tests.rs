@@ -339,13 +339,11 @@ fn callback_footnote_serializes_with_fact_id() {
 #[test]
 fn fact_category_covers_all_variants() {
     // All five categories from the spec should be constructable
-    let categories = vec![
-        FactCategory::Lore,
+    let categories = [FactCategory::Lore,
         FactCategory::Place,
         FactCategory::Person,
         FactCategory::Quest,
-        FactCategory::Ability,
-    ];
+        FactCategory::Ability];
 
     assert_eq!(categories.len(), 5, "FactCategory should have 5 variants");
 }

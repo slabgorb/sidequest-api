@@ -242,7 +242,7 @@ async fn watcher_broadcast_delivers_to_multiple_subscribers() {
 /// The broadcast::send error (no receivers) should be silently ignored.
 #[tokio::test]
 async fn watcher_broadcast_no_subscribers_does_not_panic() {
-    let state = test_app_state();
+    let _state = test_app_state();
 
     // No subscribers — this must not panic
     let event = sample_watcher_event();
@@ -275,7 +275,7 @@ async fn watcher_endpoint_rejects_non_upgrade_request() {
     let status = response.status().as_u16();
     assert_ne!(status, 404, "/ws/watcher route must exist, got 404");
     assert!(
-        status >= 400 && status < 500,
+        (400..500).contains(&status),
         "/ws/watcher should reject non-upgrade with 4xx, got {}",
         status
     );
@@ -567,11 +567,12 @@ async fn watcher_events_do_not_leak_to_game_clients() {
 /// as new telemetry event types are added in future stories.
 #[test]
 fn watcher_event_type_is_non_exhaustive() {
-    // If #[non_exhaustive], the wildcard arm is required
+    // If #[non_exhaustive], the wildcard arm is required.
     let et = WatcherEventType::AgentSpanOpen;
+    #[allow(clippy::single_match)]
     match et {
         WatcherEventType::AgentSpanOpen => {}
-        _ => {} // wildcard needed because #[non_exhaustive]
+        _ => {}
     }
 }
 
@@ -579,9 +580,10 @@ fn watcher_event_type_is_non_exhaustive() {
 #[test]
 fn severity_is_non_exhaustive() {
     let s = Severity::Info;
+    #[allow(clippy::single_match)]
     match s {
         Severity::Info => {}
-        _ => {} // wildcard needed because #[non_exhaustive]
+        _ => {}
     }
 }
 

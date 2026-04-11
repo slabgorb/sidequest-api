@@ -29,9 +29,9 @@
 //!   AC10-OTEL:         OTEL events emitted for beat execution and metric changes
 
 use sidequest_game::encounter::{
-    EncounterMetric, EncounterPhase, MetricDirection, StructuredEncounter,
+    EncounterPhase, MetricDirection, StructuredEncounter,
 };
-use sidequest_genre::{BeatDef, ConfrontationDef, MetricDef};
+use sidequest_genre::ConfrontationDef;
 
 // =========================================================================
 // Helpers
@@ -724,7 +724,7 @@ fn full_negotiation_sequence_to_defeat() {
     // Start: leverage = 5, concede 5 times (-1 each)
     for i in 0..5 {
         encounter.apply_beat("concede_point", &def).unwrap();
-        let expected = 5 - (i + 1) as i32;
+        let expected = 5 - (i + 1);
         assert_eq!(
             encounter.metric.current,
             expected,

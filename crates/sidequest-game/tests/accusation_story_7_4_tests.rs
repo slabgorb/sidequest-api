@@ -6,9 +6,9 @@
 use std::collections::{HashMap, HashSet};
 
 use sidequest_game::accusation::{
-    evaluate_accusation, Accusation, AccusationResult, EvidenceQuality, EvidenceSummary,
+    evaluate_accusation, Accusation, EvidenceQuality,
 };
-use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
+use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState};
 use sidequest_game::clue_activation::{ClueNode, ClueType, ClueVisibility, DiscoveryMethod};
 
 // ---------------------------------------------------------------------------

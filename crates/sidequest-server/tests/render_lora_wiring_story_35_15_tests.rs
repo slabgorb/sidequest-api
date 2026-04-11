@@ -16,13 +16,13 @@
 //! Covers:
 //!   - AC-2: dispatch/render.rs reads visual_style.lora and passes it down
 //!   - AC-4: a WatcherEvent with `action=lora_activated` is emitted from
-//!           the dispatch layer (GM panel visibility — lie-detector pattern)
+//!     the dispatch layer (GM panel visibility — lie-detector pattern)
 //!   - Architect's Design Deviation #2: trigger substitution happens in
-//!           Rust, not in the daemon. The composed positive prompt must
-//!           include `lora_trigger` instead of (or in addition to)
-//!           `positive_suffix` when LoRA is active.
+//!     Rust, not in the daemon. The composed positive prompt must
+//!     include `lora_trigger` instead of (or in addition to)
+//!     `positive_suffix` when LoRA is active.
 //!   - AC-5: the non-LoRA branch of dispatch/render.rs must still exist
-//!           and must NOT emit a `lora_activated` event.
+//!     and must NOT emit a `lora_activated` event.
 
 // ===========================================================================
 // 1. Non-test consumer — dispatch/render.rs must read the new VisualStyle
