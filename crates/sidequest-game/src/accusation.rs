@@ -203,7 +203,7 @@ fn gather_evidence(
                                        // Average credibility across all NPCs' trust in the accused
     let mut total_credibility = 0.0;
     let mut count = 0;
-    for (_, beliefs) in npc_beliefs {
+    for beliefs in npc_beliefs.values() {
         let cred = beliefs.credibility_of(&accusation.accused_npc_name);
         total_credibility += cred.score();
         count += 1;

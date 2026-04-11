@@ -165,7 +165,7 @@ pub fn summarize_lore_retrieval<'a>(
         .fragments
         .values()
         .filter(|f| !selected_ids.contains(f.id()))
-        .map(|f| fragment_to_summary(f))
+        .map(fragment_to_summary)
         .collect();
 
     let tokens_used: usize = selected.iter().map(|f| f.token_estimate()).sum();

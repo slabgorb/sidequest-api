@@ -4,7 +4,6 @@
 //! payload serialization, and wiring into the protocol crate.
 
 use super::*;
-use serde_json;
 
 // ==========================================================================
 // AC-1: TacticalStatePayload serializes/deserializes correctly

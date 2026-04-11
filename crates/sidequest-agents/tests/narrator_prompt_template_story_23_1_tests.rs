@@ -100,10 +100,16 @@ fn narrator_has_constraints_guardrail_in_primacy() {
 
 #[test]
 fn narrator_has_output_only_guardrail_in_primacy() {
-    // The "output only narrative prose" critical block should be Primacy/Guardrail.
+    // The "output only narrative prose" critical block lives in Primacy/Guardrail
+    // but is injected by `build_output_format()` rather than `build_context()`,
+    // because the orchestrator re-emits it on every Delta-tier resume so the
+    // schema survives across persistent Claude sessions (see comment in
+    // narrator.rs::build_context). The combined narrator prompt — the thing
+    // the LLM actually sees — must contain the TWO-parts block in Primacy.
     let narrator = sidequest_agents::agents::narrator::NarratorAgent::new();
     let mut builder = ContextBuilder::new();
     narrator.build_context(&mut builder);
+    narrator.build_output_format(&mut builder);
 
     let primacy_guardrails = builder
         .sections_by_zone(AttentionZone::Primacy)

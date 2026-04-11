@@ -546,7 +546,7 @@ pub(crate) async fn build_prompt_context(
                 if !undiscovered.is_empty() {
                     // Filter by adjacency if world graph is available
                     let filtered: Vec<&str> = if let Some(ref wg) = ctx.world_graph {
-                        let neighbors: Vec<&str> = wg.neighbors(&ctx.current_location).collect();
+                        let neighbors: Vec<&str> = wg.neighbors(ctx.current_location).collect();
                         undiscovered
                             .into_iter()
                             .filter(|r| {

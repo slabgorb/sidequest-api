@@ -86,6 +86,7 @@ fn three_room_graph() -> Vec<RoomDef> {
 #[test]
 fn explored_location_has_room_exits_field() {
     let loc = ExploredLocation {
+        id: "entrance".into(),
         name: "Entrance Hall".into(),
         x: 0,
         y: 0,
@@ -109,6 +110,7 @@ fn explored_location_has_room_exits_field() {
 #[test]
 fn explored_location_has_room_type_field() {
     let loc = ExploredLocation {
+        id: "chamber".into(),
         name: "Treasure Chamber".into(),
         x: 0,
         y: 0,
@@ -127,6 +129,7 @@ fn explored_location_has_room_type_field() {
 #[test]
 fn explored_location_has_size_field() {
     let loc = ExploredLocation {
+        id: "entrance".into(),
         name: "Entrance Hall".into(),
         x: 0,
         y: 0,
@@ -145,6 +148,7 @@ fn explored_location_has_size_field() {
 #[test]
 fn explored_location_has_is_current_room_flag() {
     let current = ExploredLocation {
+        id: "entrance".into(),
         name: "Entrance Hall".into(),
         x: 0,
         y: 0,
@@ -157,6 +161,7 @@ fn explored_location_has_is_current_room_flag() {
         tactical_grid: None,
     };
     let not_current = ExploredLocation {
+        id: "corridor".into(),
         name: "corridor".into(),
         x: 0,
         y: 0,
@@ -289,6 +294,7 @@ fn build_room_graph_explored_empty_discovered_returns_empty() {
 #[test]
 fn explored_location_serde_round_trip_with_room_graph_fields() {
     let loc = ExploredLocation {
+        id: "entrance".into(),
         name: "Entrance Hall".into(),
         x: 0,
         y: 0,

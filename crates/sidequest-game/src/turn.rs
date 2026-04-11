@@ -22,8 +22,10 @@ use serde::{Deserialize, Serialize};
 /// StatePatch -> Broadcast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum TurnPhase {
     /// Collecting player input.
+    #[default]
     InputCollection,
     /// Routing intents to agents.
     IntentRouting,
@@ -35,11 +37,6 @@ pub enum TurnPhase {
     Broadcast,
 }
 
-impl Default for TurnPhase {
-    fn default() -> Self {
-        Self::InputCollection
-    }
-}
 
 /// Tracks the current turn round, phase, and player input barrier.
 ///

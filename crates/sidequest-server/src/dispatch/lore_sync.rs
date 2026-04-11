@@ -142,7 +142,7 @@ pub(super) async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_nar
 
     let validation_result = sidequest_agents::continuity_validator::validate_continuity_llm_async(
         clean_narration,
-        &ctx.current_location,
+        ctx.current_location,
         &dead_npcs,
         &inventory_items,
         "", // time_of_day not tracked in dispatch context yet

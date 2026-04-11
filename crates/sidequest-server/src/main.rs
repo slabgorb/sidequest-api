@@ -177,7 +177,7 @@ async fn turn_record_bridge(mut rx: tokio::sync::mpsc::Receiver<TurnRecord>) {
 
         let mut builder = WatcherEventBuilder::new("orchestrator", WatcherEventType::TurnComplete)
             .timestamp(record.timestamp)
-            .field("turn_id", &record.turn_id)
+            .field("turn_id", record.turn_id)
             .field("player_input", &record.player_input)
             .field("classified_intent", record.classified_intent.to_string())
             .field("agent_name", &record.agent_name)

@@ -762,8 +762,12 @@ fn default_true() -> bool {
 /// A participant in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationActor {
+    /// Display name of the actor (e.g., "Sheriff Reyes").
     pub name: String,
+    /// Narrative role this actor plays in the confrontation
+    /// (e.g., "antagonist", "witness", "ally").
     pub role: String,
+    /// Optional URL to a portrait image for the actor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
 }
@@ -771,12 +775,20 @@ pub struct ConfrontationActor {
 /// Primary metric being tracked in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationMetric {
+    /// Display name of the metric (e.g., "Suspicion", "Distance").
     pub name: String,
+    /// Current value of the metric.
     pub current: i32,
+    /// Starting value of the metric at the beginning of the confrontation.
     pub starting: i32,
+    /// Direction of progress: "ascending", "descending", or "bidirectional".
     pub direction: String,
+    /// Optional upper threshold that triggers a confrontation outcome
+    /// when crossed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threshold_high: Option<i32>,
+    /// Optional lower threshold that triggers a confrontation outcome
+    /// when crossed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threshold_low: Option<i32>,
 }
@@ -784,14 +796,20 @@ pub struct ConfrontationMetric {
 /// A beat option the player can choose during a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationBeat {
+    /// Stable identifier for the beat (used in `BeatSelected` messages).
     pub id: String,
+    /// Player-facing label describing the beat (e.g., "Stand your ground").
     pub label: String,
+    /// Amount the metric changes when this beat is selected.
     #[serde(default)]
     pub metric_delta: i32,
+    /// Stat check that gates the beat (empty = no check).
     #[serde(default)]
     pub stat_check: String,
+    /// Optional narrative risk descriptor (e.g., "high", "fatal").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk: Option<String>,
+    /// Whether selecting this beat resolves the confrontation.
     #[serde(default)]
     pub resolution: bool,
 }
@@ -1083,7 +1101,14 @@ pub struct InventoryItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExploredLocation {
-    /// Location name.
+    /// Stable location identifier. In room-graph mode this is the `RoomDef`
+    /// slug that `room_exits[].target` references — the UI joins exits back
+    /// to rooms by this id. In region/cartography mode this equals `name`
+    /// (no distinct slug exists). Always populated; `#[serde(default)]`
+    /// allows older saves to deserialize cleanly.
+    #[serde(default)]
+    pub id: String,
+    /// Display name (human-readable).
     pub name: String,
     /// X coordinate on map (0 when no coordinate data available).
     #[serde(default)]

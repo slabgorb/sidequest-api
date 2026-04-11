@@ -115,6 +115,7 @@ fn explored_location_has_tactical_grid_field() {
     };
 
     let loc = ExploredLocation {
+        id: "vault".into(),
         name: "Vault of Teeth".into(),
         x: 0,
         y: 0,
@@ -143,6 +144,7 @@ fn explored_location_has_tactical_grid_field() {
 #[test]
 fn explored_location_tactical_grid_none_is_valid() {
     let loc = ExploredLocation {
+        id: "rusty_mug".into(),
         name: "The Rusty Mug".into(),
         x: 0,
         y: 0,
@@ -274,6 +276,7 @@ fn explored_location_serde_round_trip_with_tactical_grid() {
     };
 
     let loc = ExploredLocation {
+        id: "test_room".into(),
         name: "Test Room".into(),
         x: 0,
         y: 0,

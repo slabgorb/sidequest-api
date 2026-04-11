@@ -193,9 +193,19 @@ pub enum MusicEvalResult {
     /// A cue was produced — play this track.
     Cue(AudioCue),
     /// Mood unchanged and intensity below threshold — intentional suppression.
-    Suppressed { mood: String, intensity: f32 },
+    Suppressed {
+        /// Mood that was evaluated.
+        mood: String,
+        /// Intensity computed for this evaluation.
+        intensity: f32,
+    },
     /// Track lookup failed — no eligible tracks for this mood/variation combo.
-    NoTrackFound { mood: String, variation: String },
+    NoTrackFound {
+        /// Mood that was requested.
+        mood: String,
+        /// Variation that was requested (e.g. "ambient", "overture").
+        variation: String,
+    },
 }
 
 /// Result of mood classification.
@@ -251,7 +261,9 @@ pub struct FactionContext {
 /// OTEL telemetry snapshot for the music director's current state.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct MusicTelemetry {
+    /// Currently selected mood key, if any.
     pub current_mood: Option<String>,
+    /// Currently playing track title, if any.
     pub current_track: Option<String>,
     /// Per-mood recently-played track titles (the anti-repetition history).
     pub rotation_history: HashMap<String, Vec<String>>,
@@ -268,6 +280,7 @@ pub struct MusicTelemetry {
 /// Mood classification with human-readable reasoning for OTEL telemetry.
 #[derive(Debug, Clone)]
 pub struct MoodClassificationWithReason {
+    /// The underlying mood classification result.
     pub classification: MoodClassification,
     /// Why this mood was chosen (e.g. "state_override: in_combat", "keyword_scoring: tension (score=3.0)").
     pub reason: String,
@@ -742,7 +755,7 @@ impl MusicDirector {
                 t.faction_id == *faction_id
                     && t.triggers
                         .reputation_threshold
-                        .map_or(false, |thresh| reputation >= thresh)
+                        .is_some_and(|thresh| reputation >= thresh)
             }) {
                 return Some(theme);
             }

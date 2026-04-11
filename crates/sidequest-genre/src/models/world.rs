@@ -46,8 +46,10 @@ pub struct WorldConfig {
 /// dungeon crawl genre packs where room transitions drive game mechanics.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum NavigationMode {
     /// Freeform region-based navigation (default for all existing genre packs).
+    #[default]
     Region,
     /// Validated room graph with checked exits (dungeon crawl mode).
     RoomGraph,
@@ -55,11 +57,6 @@ pub enum NavigationMode {
     Hierarchical,
 }
 
-impl Default for NavigationMode {
-    fn default() -> Self {
-        Self::Region
-    }
-}
 
 /// A single exit from a room to another room.
 ///
@@ -192,8 +189,10 @@ fn default_keeper_awareness_modifier() -> f64 {
 /// Terrain type for graph edges.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Terrain {
     /// Established roads and highways between locations.
+    #[default]
     Road,
     /// Untamed terrain — forests, plains, wastelands.
     Wilderness,
@@ -203,11 +202,6 @@ pub enum Terrain {
     Underground,
 }
 
-impl Default for Terrain {
-    fn default() -> Self {
-        Self::Road
-    }
-}
 
 /// A node in the world graph — a major location (city, region, landmark).
 #[derive(Debug, Clone, Serialize, Deserialize)]

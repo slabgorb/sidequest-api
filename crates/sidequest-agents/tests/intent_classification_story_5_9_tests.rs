@@ -105,25 +105,35 @@ fn classify_with_classifier_fallback_intent() {
 }
 
 // ============================================================================
-// AC: State override bypasses classifier
+// AC: ADR-067 / Story 28-6 — unified narrator routing
+//
+// The intent router was simplified in ADR-067: every action routes to the
+// narrator with Intent::Exploration. Encounters are still recognised, but the
+// narrator handles them via beat_selections injected into the game_patch
+// output instead of dispatching to a separate Combat/Chase agent. The tests
+// below pin that architecture so we don't drift back into split routing.
 // ============================================================================
 
 #[test]
-fn state_override_combat() {
+fn in_combat_state_still_routes_to_narrator() {
     let ctx = TurnContext {
         in_combat: true,
         in_chase: false,
         state_summary: None,
         ..Default::default()
     };
-    // Classifier says Exploration, but state override should force Combat
     let classifier = MockClassifier(Intent::Exploration);
-    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
-    assert_eq!(route.intent(), Intent::Combat);
+    let route = IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
+    assert_eq!(
+        route.intent(),
+        Intent::Exploration,
+        "ADR-067: in_combat does not branch — narrator handles encounters via beat_selections"
+    );
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
-fn state_override_chase() {
+fn in_chase_state_still_routes_to_narrator() {
     let ctx = TurnContext {
         in_combat: false,
         in_chase: true,
@@ -131,12 +141,17 @@ fn state_override_chase() {
         ..Default::default()
     };
     let classifier = MockClassifier(Intent::Dialogue);
-    let route = IntentRouter::classify_with_classifier("I talk to the merchant", &ctx, &classifier);
-    assert_eq!(route.intent(), Intent::Chase);
+    let route = IntentRouter::classify_with_classifier("I run for the alley", &ctx, &classifier);
+    assert_eq!(
+        route.intent(),
+        Intent::Exploration,
+        "ADR-067: in_chase does not branch — narrator handles chase beats via beat_selections"
+    );
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 #[test]
-fn chase_takes_priority_over_combat() {
+fn combat_and_chase_simultaneously_still_routes_to_narrator() {
     let ctx = TurnContext {
         in_combat: true,
         in_chase: true,
@@ -144,11 +159,11 @@ fn chase_takes_priority_over_combat() {
         ..Default::default()
     };
     let classifier = MockClassifier(Intent::Combat);
-    let route = IntentRouter::classify_with_classifier("I attack", &ctx, &classifier);
+    let route = IntentRouter::classify_with_classifier("I attack while running", &ctx, &classifier);
     assert_eq!(
         route.intent(),
-        Intent::Chase,
-        "Chase should take priority over combat"
+        Intent::Exploration,
+        "ADR-067: combined encounter states still defer to the narrator"
     );
 }
 

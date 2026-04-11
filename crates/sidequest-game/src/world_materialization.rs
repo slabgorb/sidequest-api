@@ -33,8 +33,10 @@ use crate::trope::{TropeState, TropeStatus};
 /// letting fresh campaigns feel sparse and veteran campaigns feel rich.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum CampaignMaturity {
     /// Turns 0-5 effective: minimal history, world is new.
+    #[default]
     Fresh,
     /// Turns 6-20 effective: factions introduced, stakes emerging.
     Early,
@@ -44,11 +46,6 @@ pub enum CampaignMaturity {
     Veteran,
 }
 
-impl Default for CampaignMaturity {
-    fn default() -> Self {
-        Self::Fresh
-    }
-}
 
 impl CampaignMaturity {
     /// Derive maturity from a game snapshot's turn count and beats fired.

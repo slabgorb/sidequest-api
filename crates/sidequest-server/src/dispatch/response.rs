@@ -93,7 +93,7 @@ pub(super) async fn build_response_messages(
                 }
             }
 
-            let turn = ctx.turn_manager.interaction() as u64;
+            let turn = ctx.turn_manager.interaction();
             for df in &discovered {
                 let lore_cat: sidequest_game::lore::LoreCategory = df.fact.category.into();
                 let mut meta = std::collections::HashMap::new();
@@ -226,6 +226,8 @@ pub(super) async fn build_response_messages(
         ctx.discovered_regions
             .iter()
             .map(|name| sidequest_protocol::ExploredLocation {
+                // Region mode has no separate slug — id mirrors name.
+                id: name.clone(),
                 name: name.clone(),
                 x: 0,
                 y: 0,

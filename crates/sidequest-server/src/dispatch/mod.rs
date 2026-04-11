@@ -171,19 +171,19 @@ impl<'a> DispatchContext<'a> {
     /// Whether any encounter is active (not resolved).
     /// Story 28-9: replaces `combat_state.in_combat() || chase_state.is_some()`.
     pub fn in_encounter(&self) -> bool {
-        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved)
+        self.snapshot.encounter.as_ref().is_some_and(|e| !e.resolved)
     }
 
     /// Whether a combat-type encounter is active.
     /// Story 28-9: replaces `combat_state.in_combat()`.
     pub fn in_combat(&self) -> bool {
-        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "combat")
+        self.snapshot.encounter.as_ref().is_some_and(|e| !e.resolved && e.encounter_type == "combat")
     }
 
     /// Whether a chase-type encounter is active.
     /// Story 28-9: replaces `chase_state.is_some()`.
     pub fn in_chase(&self) -> bool {
-        self.snapshot.encounter.as_ref().map_or(false, |e| !e.resolved && e.encounter_type == "chase")
+        self.snapshot.encounter.as_ref().is_some_and(|e| !e.resolved && e.encounter_type == "chase")
     }
 }
 
@@ -611,7 +611,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 tension = %format!("{:.2}", scenario.tension()),
             ).entered();
 
-            let turn_number_u64 = turn_number as u64;
+            let turn_number_u64 = turn_number;
             let events = scenario.process_between_turns(&mut ctx.snapshot.npcs, turn_number_u64);
 
             let mut npc_action_lines: Vec<String> = Vec::new();
@@ -837,7 +837,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Recalculate maturity from current turn count — the snapshot's stored
     // value is only set at connect/materialize time and goes stale as turns
     // progress (e.g., turn 6 should be EARLY, not FRESH).
-    let live_maturity = sidequest_game::world_materialization::CampaignMaturity::from_snapshot(&ctx.snapshot);
+    let live_maturity = sidequest_game::world_materialization::CampaignMaturity::from_snapshot(ctx.snapshot);
     if live_maturity != ctx.snapshot.campaign_maturity {
         tracing::info!(
             stored = ?ctx.snapshot.campaign_maturity,
@@ -1220,7 +1220,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
                             .field("event", "inventory.light_depleted")
                             .field("item_name", &item_name)
-                            .field("remaining_before", &remaining_before.to_string())
+                            .field("remaining_before", remaining_before.to_string())
                             .send();
                         messages.push(GameMessage::ItemDepleted {
                             payload: ItemDepletedPayload {
@@ -1290,7 +1290,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     ctx,
                     &summary,
                     sidequest_game::lore::LoreCategory::Geography,
-                    turn_number as u64,
+                    turn_number,
                     std::collections::HashMap::new(),
                 ).await;
 
@@ -1300,8 +1300,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 let location_slug = location
                     .to_lowercase()
                     .replace(' ', "_")
-                    .replace('\'', "")
-                    .replace('\u{2019}', "");
+                    .replace(['\'', '\u{2019}'], "");
                 let poi_image_path = ctx
                     .state
                     .genre_packs_path()
@@ -1322,7 +1321,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     messages.push(GameMessage::Image {
                         payload: sidequest_protocol::ImagePayload {
                             url: served_url.clone(),
-                            description: format!("{}", location),
+                            description: location.to_string(),
                             handout: true,
                             render_id: None,
                             tier: Some("landscape".to_string()),
@@ -1368,6 +1367,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 ctx.discovered_regions
                     .iter()
                     .map(|name| sidequest_protocol::ExploredLocation {
+                        // Region mode has no separate slug — id mirrors name.
+                        id: name.clone(),
                         name: name.clone(),
                         x: 0,
                         y: 0,
@@ -1467,13 +1468,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     {
         use sidequest_agents::entity_reference::{EntityRegistry, extract_potential_references};
 
-        let registry = EntityRegistry::from_snapshot(&ctx.snapshot);
+        let registry = EntityRegistry::from_snapshot(ctx.snapshot);
         let references = extract_potential_references(&clean_narration);
         for reference in &references {
             if !registry.matches(reference) {
                 WatcherEventBuilder::new("entity_reference", WatcherEventType::ValidationWarning)
                     .field("unresolved_name", reference)
-                    .field("narration_excerpt", &clean_narration.chars().take(120).collect::<String>())
+                    .field("narration_excerpt", clean_narration.chars().take(120).collect::<String>())
                     .send();
             }
         }
@@ -1627,7 +1628,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // This creates a StructuredEncounter from the genre pack's ConfrontationDef and
     // populates actors from the player characters + NPCs present in the scene.
     if let Some(ref confrontation_type) = result.confrontation {
-        if ctx.snapshot.encounter.is_none() || ctx.snapshot.encounter.as_ref().map_or(false, |e| e.resolved) {
+        if ctx.snapshot.encounter.is_none() || ctx.snapshot.encounter.as_ref().is_some_and(|e| e.resolved) {
             if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, confrontation_type) {
                 let mut encounter = sidequest_game::encounter::StructuredEncounter::from_confrontation_def(def);
 
@@ -1814,7 +1815,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 ctx,
                 entry,
                 sidequest_game::lore::LoreCategory::Event,
-                turn_number as u64,
+                turn_number,
                 std::collections::HashMap::new(),
             ).await;
         }
@@ -1832,7 +1833,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             ctx,
             &summary,
             sidequest_game::lore::LoreCategory::Event,
-            turn_number as u64,
+            turn_number,
             std::collections::HashMap::new(),
         ).await;
     }
@@ -1909,7 +1910,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             ctx,
             &summary,
             sidequest_game::lore::LoreCategory::Event,
-            turn_number as u64,
+            turn_number,
             meta,
         ).await;
     }
@@ -1918,7 +1919,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     {
         let crossed = ctx.snapshot.apply_pool_decay();
         if !crossed.is_empty() {
-            sidequest_game::mint_threshold_lore(&crossed, ctx.lore_store, turn_number as u64);
+            sidequest_game::mint_threshold_lore(&crossed, ctx.lore_store, turn_number);
             for threshold in &crossed {
                 WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
                     .field("event", "resource_pool.threshold_crossed")

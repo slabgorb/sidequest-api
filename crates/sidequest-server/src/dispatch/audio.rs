@@ -487,7 +487,7 @@ pub(crate) async fn process_audio(
                             .field("action", "mood_image_queued")
                             .field(
                                 "old_mood",
-                                &pre_telemetry.current_mood.as_deref().unwrap_or("none"),
+                                pre_telemetry.current_mood.as_deref().unwrap_or("none"),
                             )
                             .field("new_mood", mood_key)
                             .field("location", &*ctx.current_location)

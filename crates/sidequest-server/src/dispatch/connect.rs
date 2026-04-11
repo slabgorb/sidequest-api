@@ -276,7 +276,7 @@ pub(crate) async fn dispatch_connect(
                                     name: character.core.name.as_str().to_string(),
                                     class: character.char_class.as_str().to_string(),
                                     race: character.race.as_str().to_string(),
-                                    level: character.core.level as u32,
+                                    level: character.core.level,
                                     stats: character
                                         .stats
                                         .iter()
@@ -357,7 +357,7 @@ pub(crate) async fn dispatch_connect(
                                 max_hp: c.core.max_hp,
                                 statuses: c.core.statuses.clone(),
                                 class: c.char_class.as_str().to_string(),
-                                level: c.core.level as u32,
+                                level: c.core.level,
                                 portrait_url: None,
                                 current_location: current_location.clone(),
                             });
@@ -401,6 +401,8 @@ pub(crate) async fn dispatch_connect(
                                         .discovered_regions
                                         .iter()
                                         .map(|name| sidequest_protocol::ExploredLocation {
+                                            // Region mode has no separate slug — id mirrors name.
+                                            id: name.clone(),
                                             name: name.clone(),
                                             x: 0,
                                             y: 0,
@@ -1482,7 +1484,7 @@ pub(crate) async fn dispatch_character_creation(
 
                     if let Err(e) = state
                         .persistence()
-                        .save(&genre, &world, &pname_for_save, &snapshot)
+                        .save(&genre, &world, &pname_for_save, snapshot)
                         .await
                     {
                         tracing::warn!(error = %e, genre = %genre, world = %world, player = %pname_for_save, "Failed to persist initial session");
@@ -1530,7 +1532,7 @@ pub(crate) async fn dispatch_character_creation(
                                     name: character.core.name.as_str().to_string(),
                                     hp: *character_hp,
                                     max_hp: *character_max_hp,
-                                    level: *character_level as u32,
+                                    level: *character_level,
                                     class: character.char_class.as_str().to_string(),
                                     statuses: vec![],
                                     inventory: inventory
@@ -1811,7 +1813,7 @@ pub(crate) async fn dispatch_character_creation(
                             name: character.core.name.as_str().to_string(),
                             class: character.char_class.as_str().to_string(),
                             race: character.race.as_str().to_string(),
-                            level: character.core.level as u32,
+                            level: character.core.level,
                             stats: character
                                 .stats
                                 .iter()
@@ -1903,7 +1905,7 @@ pub(crate) async fn dispatch_character_creation(
                                         Some(character.core.name.as_str().to_string());
                                     transferred.character_hp = character.core.hp;
                                     transferred.character_max_hp = character.core.max_hp;
-                                    transferred.character_level = character.core.level as u32;
+                                    transferred.character_level = character.core.level;
                                     transferred.character_class =
                                         character.char_class.as_str().to_string();
                                     transferred.inventory = inventory.clone();
@@ -1990,7 +1992,7 @@ pub(crate) async fn dispatch_character_creation(
                                         Some(character.core.name.as_str().to_string());
                                     p.character_hp = character.core.hp;
                                     p.character_max_hp = character.core.max_hp;
-                                    p.character_level = character.core.level as u32;
+                                    p.character_level = character.core.level;
                                     p.character_class = character.char_class.as_str().to_string();
                                     p.inventory = inventory.clone();
                                     p.character_xp = character.core.xp;
@@ -2143,7 +2145,7 @@ pub(crate) async fn dispatch_character_creation(
                                                 max_hp: character.core.max_hp,
                                                 statuses: character.core.statuses.clone(),
                                                 class: character.char_class.as_str().to_string(),
-                                                level: character.core.level as u32,
+                                                level: character.core.level,
                                                 portrait_url: None,
                                                 current_location: current_location.clone(),
                                             }

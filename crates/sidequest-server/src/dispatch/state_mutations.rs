@@ -304,7 +304,7 @@ pub(crate) async fn apply_state_mutations(
                         Some(ctx.rooms.as_slice())
                     };
                     let txp_result = sidequest_game::apply_treasure_xp(
-                        &mut ctx.snapshot,
+                        ctx.snapshot,
                         gold_delta as u32,
                         &config,
                         rooms,
@@ -328,7 +328,7 @@ pub(crate) async fn apply_state_mutations(
 
     // Resource delta application (story 16-1 + epic 16 ResourcePool wiring)
     if !result.resource_deltas.is_empty() {
-        let turn = ctx.turn_manager.interaction() as u64;
+        let turn = ctx.turn_manager.interaction();
         for (name, delta) in &result.resource_deltas {
             let op = if *delta >= 0.0 {
                 sidequest_game::ResourcePatchOp::Add

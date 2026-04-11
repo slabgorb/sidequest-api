@@ -131,7 +131,7 @@ pub(super) async fn persist_game_state(
             ctx.genre_slug,
             ctx.world_slug,
             ctx.player_name_for_save,
-            &ctx.snapshot,
+            ctx.snapshot,
         )
         .await
     {
@@ -162,7 +162,7 @@ pub(super) async fn persist_game_state(
             tracing::error!(error = %e, "Failed to persist game state");
             WatcherEventBuilder::new("persistence", WatcherEventType::ValidationWarning)
                 .field("event", "persistence.save_failed")
-                .field("error", &format!("{e}"))
+                .field("error", format!("{e}"))
                 .field("player", ctx.player_name_for_save)
                 .field("turn", ctx.turn_manager.interaction())
                 .send();

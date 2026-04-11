@@ -76,15 +76,23 @@ pub fn preprocess_action(
 /// Errors from preprocessing — no silent fallbacks.
 #[derive(Debug, thiserror::Error)]
 pub enum PreprocessError {
+    /// The Haiku LLM call failed (timeout, subprocess error, etc.).
     #[error("Haiku LLM call failed: {0}")]
     LlmFailed(String),
+    /// The Haiku response could not be parsed as a `PreprocessedAction`.
     #[error("Failed to parse Haiku response as PreprocessedAction: {0}")]
     ParseFailed(String),
+    /// The preprocessor produced output longer than 2x the raw input —
+    /// usually a hallucination or runaway expansion.
     #[error("Preprocessor output exceeded 2x input length (raw={raw_len}, you={you_len}, named={named_len}, intent={intent_len})")]
     OutputTooLong {
+        /// Length of the raw input string.
         raw_len: usize,
+        /// Length of the player-facing rewrite.
         you_len: usize,
+        /// Length of the third-person rewrite.
         named_len: usize,
+        /// Length of the intent label.
         intent_len: usize,
     },
 }
