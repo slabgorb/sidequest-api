@@ -94,6 +94,22 @@ pub(super) fn emit_telemetry(
             .field("player_id", ctx.player_id)
             .field_opt("token_count_in", &result.token_count_in)
             .field_opt("token_count_out", &result.token_count_out)
+            // Playtest 2026-04-11: extraction_tier was previously only emitted on
+            // the AgentSpanClose event (dispatch/mod.rs:1127), but the OTEL
+            // dashboard's TimelineTab reads it from the TurnComplete fields. Net
+            // effect: every Turn Details panel showed `Tier: ?` because the field
+            // didn't exist on the event the dashboard was reading. Adding it here
+            // restores the per-turn tier visibility (full vs delta per ADR-066),
+            // which is critical for diagnosing prompt-cost regressions during
+            // playtests.
+            .field("extraction_tier", &result.prompt_tier)
+            // Genre and world are added so the dashboard can group turns by
+            // session/world for the "Turn # collides across sessions" bug.
+            // The dashboard already has player_id; (player_id, genre, world) is
+            // a stable session identifier across reconnects of the same
+            // character into the same world.
+            .field("genre", ctx.genre_slug)
+            .field("world", ctx.world_slug)
             .field("spans", &spans)
             .field("total_duration_ms", total_ms);
         if result.is_degraded {
