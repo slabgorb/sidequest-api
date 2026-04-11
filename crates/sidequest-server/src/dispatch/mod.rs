@@ -1762,8 +1762,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // buildSegments tried to match render_id → images fell to the bottom.
     render::process_render(ctx, &clean_narration, narration_text, &result).await;
 
-    // Build response messages (narration, party status, inventory)
-    response::build_response_messages(
+    // Build response messages (narration, party status, inventory).
+    //
+    // Returns the merged footnotes so we can forward them to
+    // `sync_back_to_shared_session` for observer broadcasts. Narration and
+    // NarrationEnd are fast-pathed to the acting player directly from inside
+    // `build_response_messages` via `ctx.tx.send` and are NOT pushed into
+    // `messages` — the caller only flushes the Vec, so if they were in it
+    // they'd be sent twice (the 2026-04-11 regression).
+    let merged_footnotes = response::build_response_messages(
         ctx,
         &clean_narration,
         narration_text,
@@ -2103,6 +2110,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         ctx,
         &messages,
         &clean_narration,
+        &merged_footnotes,
         &char_class,
         &effective_action,
     )

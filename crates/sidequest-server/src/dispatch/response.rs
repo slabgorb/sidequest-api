@@ -13,6 +13,13 @@ use super::DispatchContext;
 ///
 /// Story 15-20: `narration_state_delta` is pre-built via `build_protocol_delta`
 /// using game-crate delta computation instead of inline construction.
+///
+/// Returns the merged footnotes (narrator footnotes + affinity tier-up
+/// synthesis events) so the caller can forward them to
+/// `sync_back_to_shared_session` for observer broadcasts. The returned Vec
+/// is the same set baked into the Narration message sent to the acting
+/// player, guaranteeing parity between what the acting player sees and
+/// what gets rebroadcast to observers.
 pub(super) async fn build_response_messages(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
@@ -22,7 +29,7 @@ pub(super) async fn build_response_messages(
     _effective_action: &str,
     messages: &mut Vec<GameMessage>,
     narration_state_delta: sidequest_protocol::StateDelta,
-) {
+) -> Vec<sidequest_protocol::Footnote> {
     // Merge narrator footnotes with affinity tier-up events
     let mut footnotes = result.footnotes.clone();
     for event in tier_events {
@@ -44,8 +51,27 @@ pub(super) async fn build_response_messages(
             is_new: true,
         });
     }
+    // Snapshot the merged footnotes for the return value. The clone inside
+    // the Narration message below is moved into `ctx.tx.send`, so we keep
+    // a parallel copy to forward to `sync_back_to_shared_session`.
+    let merged_footnotes = footnotes.clone();
 
-    // Send narration to client IMMEDIATELY
+    // Send narration to the acting player IMMEDIATELY via the direct mpsc
+    // channel. This is the fast-path per ADR-063: the acting player sees
+    // narration within a few ms while the ~100-500ms RAG/embed work and
+    // the ~15s deferred continuity validation run after
+    // `build_response_messages` returns.
+    //
+    // The Narration is NOT pushed into the returned `messages` Vec. The
+    // caller's ws writer loop iterates that Vec and flushes every entry
+    // through the same `ctx.tx` channel — if Narration were in the Vec,
+    // the acting player would receive every turn's narration twice (the
+    // 2026-04-11 regression introduced in d3896421's dispatch decomposition
+    // refactor and observed mid-playtest by Keith).
+    //
+    // Observers still see the narration: `sync_back_to_shared_session`
+    // builds its own Narration message from the explicit `clean_narration`
+    // + `footnotes` parameters and fans it out via the session channel.
     let narration_msg = GameMessage::Narration {
         payload: NarrationPayload {
             text: clean_narration.to_string(),
@@ -54,7 +80,6 @@ pub(super) async fn build_response_messages(
         },
         player_id: ctx.player_id.to_string(),
     };
-    messages.push(narration_msg.clone());
     let _ = ctx.tx.send(narration_msg).await;
     tracing::info!("Narration sent to client — state cleanup continues async");
 
@@ -122,11 +147,16 @@ pub(super) async fn build_response_messages(
         }
     }
 
+    // NarrationEnd follows the same fast-path as Narration: sent directly
+    // to the acting player via `ctx.tx`, NOT pushed into the `messages`
+    // Vec. A duplicate NARRATION_END double-flushes the narration buffer
+    // in the UI and double-fires the canType unlock — part of the same
+    // 2026-04-11 regression as the duplicate NARRATION. Observers receive
+    // NarrationEnd via `sync_back_to_shared_session`.
     let narration_end = GameMessage::NarrationEnd {
         payload: NarrationEndPayload { state_delta: None },
         player_id: ctx.player_id.to_string(),
     };
-    messages.push(narration_end.clone());
     let _ = ctx.tx.send(narration_end).await;
 
     // Party status — now carries the per-member sheet and inventory facets
@@ -330,4 +360,6 @@ pub(super) async fn build_response_messages(
             }
         }
     }
+
+    merged_footnotes
 }
