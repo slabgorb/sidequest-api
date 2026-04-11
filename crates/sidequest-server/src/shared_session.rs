@@ -153,7 +153,9 @@ impl PlayerState {
 // construction site.
 
 /// Convert an `Inventory` into the wire-format `InventoryPayload`.
-pub fn inventory_payload_from(inv: &sidequest_game::Inventory) -> sidequest_protocol::InventoryPayload {
+pub fn inventory_payload_from(
+    inv: &sidequest_game::Inventory,
+) -> sidequest_protocol::InventoryPayload {
     sidequest_protocol::InventoryPayload {
         items: inv
             .carried()

@@ -46,7 +46,6 @@ pub enum CampaignMaturity {
     Veteran,
 }
 
-
 impl CampaignMaturity {
     /// Derive maturity from a game snapshot's turn count and beats fired.
     ///

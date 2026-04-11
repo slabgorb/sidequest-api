@@ -58,9 +58,7 @@
 
 use std::collections::HashSet;
 
-use sidequest_game::guest_npc::{
-    ActionCategory, ActionError, GuestNpcContext, PlayerRole,
-};
+use sidequest_game::guest_npc::{ActionCategory, ActionError, GuestNpcContext, PlayerRole};
 
 // ============================================================================
 // Contract tests on the existing guest_npc module
@@ -148,11 +146,7 @@ fn custom_guest_allowed_set_is_respected() {
     let mut custom = HashSet::new();
     custom.insert(ActionCategory::Combat);
     custom.insert(ActionCategory::Dialogue);
-    let ctx = GuestNpcContext::new(
-        "player-3".to_string(),
-        "Razortooth".to_string(),
-        custom,
-    );
+    let ctx = GuestNpcContext::new("player-3".to_string(), "Razortooth".to_string(), custom);
     assert!(ctx.validate_action(&ActionCategory::Combat).is_ok());
     assert!(ctx.validate_action(&ActionCategory::Dialogue).is_ok());
     assert!(ctx.validate_action(&ActionCategory::Movement).is_err());

@@ -176,7 +176,6 @@ pub enum GameMessage {
     // (`sheet` and `inventory` fields) and are broadcast via PARTY_STATUS.
     // This collapses three message types into one, eliminates the
     // observer-null race condition, and makes teammate gear visible.
-
     /// World map state for map overlay.
     #[serde(rename = "MAP_UPDATE")]
     MapUpdate {

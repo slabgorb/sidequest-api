@@ -42,7 +42,6 @@ pub enum ItemState {
     },
 }
 
-
 impl ItemState {
     /// Whether the item is currently in the player's active inventory.
     pub fn is_carried(&self) -> bool {

@@ -77,10 +77,7 @@ impl ThemeRotator {
             return None;
         }
 
-        let history = self
-            .history
-            .entry(mood_key.to_string())
-            .or_default();
+        let history = self.history.entry(mood_key.to_string()).or_default();
 
         // Filter out recently played tracks
         let mut eligible: Vec<(usize, &MoodTrack)> = tracks

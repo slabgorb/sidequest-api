@@ -180,13 +180,14 @@ pub(super) async fn build_response_messages(
             match *holder {
                 Some(ref ss_arc) => {
                     let ss = ss_arc.lock().await;
-                    ss.players.get(ctx.player_id).and_then(|ps| ps.sheet.clone())
+                    ss.players
+                        .get(ctx.player_id)
+                        .and_then(|ps| ps.sheet.clone())
                 }
                 None => None,
             }
         };
-        let acting_inventory =
-            Some(crate::shared_session::inventory_payload_from(ctx.inventory));
+        let acting_inventory = Some(crate::shared_session::inventory_payload_from(ctx.inventory));
 
         let mut party_members = vec![PartyMember {
             player_id: ctx.player_id.to_string(),

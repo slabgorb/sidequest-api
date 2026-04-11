@@ -109,12 +109,9 @@ pub(crate) async fn sync_back_to_shared_session(
                         // Use Claude-backed perception rewriter for actual narration variant
                         let client = ctx.state.create_claude_client();
                         let strategy =
-                            sidequest_agents::agents::resonator::ClaudeRewriteStrategy::new(
-                                client,
-                            );
-                        let rewriter = sidequest_game::perception::PerceptionRewriter::new(
-                            Box::new(strategy),
-                        );
+                            sidequest_agents::agents::resonator::ClaudeRewriteStrategy::new(client);
+                        let rewriter =
+                            sidequest_game::perception::PerceptionRewriter::new(Box::new(strategy));
                         match rewriter.rewrite(clean_narration, filter, ctx.genre_slug) {
                             Ok(rewritten) => {
                                 tracing::info!(

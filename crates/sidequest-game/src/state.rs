@@ -794,11 +794,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         .map(|c| {
             let sheet = sidequest_protocol::CharacterSheetDetails {
                 race: c.race.as_str().to_string(),
-                stats: c
-                    .stats
-                    .iter()
-                    .map(|(k, v)| (k.clone(), *v))
-                    .collect(),
+                stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                 abilities: c
                     .hooks
                     .iter()

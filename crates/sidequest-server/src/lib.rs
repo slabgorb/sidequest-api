@@ -1061,12 +1061,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // spawned immediately below and receives fragment ids via an unbounded
     // mpsc channel — dispatch sends, worker drains, neither awaits the
     // daemon on the critical path. See `dispatch/lore_embed_worker.rs`.
-    let lore_store = std::sync::Arc::new(tokio::sync::Mutex::new(
-        sidequest_game::LoreStore::new(),
-    ));
-    let (lore_embed_tx, lore_embed_rx) = tokio::sync::mpsc::unbounded_channel::<
-        dispatch::lore_embed_worker::EmbedRequest,
-    >();
+    let lore_store = std::sync::Arc::new(tokio::sync::Mutex::new(sidequest_game::LoreStore::new()));
+    let (lore_embed_tx, lore_embed_rx) =
+        tokio::sync::mpsc::unbounded_channel::<dispatch::lore_embed_worker::EmbedRequest>();
     // Worker handle is not awaited — the task self-terminates when this
     // scope exits and drops `lore_embed_tx`, closing the channel.
     let _lore_embed_worker_handle =
@@ -1377,9 +1374,7 @@ async fn dispatch_message(
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
     lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<
-        dispatch::lore_embed_worker::EmbedRequest,
-    >,
+    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<dispatch::lore_embed_worker::EmbedRequest>,
     shared_session_holder: &Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,

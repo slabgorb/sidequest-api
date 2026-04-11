@@ -22,8 +22,7 @@ fn repo_file(relative: &str) -> String {
     // CARGO_MANIFEST_DIR points at `crates/sidequest-server` during tests.
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     path.push(relative);
-    fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
 }
 
 /// Find every line index where `needle` appears (0-indexed).
@@ -57,9 +56,7 @@ fn assert_telemetry_before_emit(
 
     for emit_line in emit_lines {
         let start = emit_line.saturating_sub(window);
-        let covered = telemetry_lines
-            .iter()
-            .any(|&t| t >= start && t < emit_line);
+        let covered = telemetry_lines.iter().any(|&t| t >= start && t < emit_line);
         assert!(
             covered,
             "MapUpdate emit site at {}:{} has no `{}` call within the {} lines preceding it.\n\

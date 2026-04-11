@@ -81,16 +81,16 @@ impl GenrePack {
             // RoomGraph mode validates starting_region in validate_room_graph
             if world.cartography.navigation_mode == crate::models::NavigationMode::Region
                 && !world.cartography.starting_region.is_empty()
-                    && !region_slugs.contains(world.cartography.starting_region.as_str())
-                {
-                    errors.push(GenreError::ValidationError {
-                        message: format!(
-                            "world '{world_slug}' has starting_region '{}' \
+                && !region_slugs.contains(world.cartography.starting_region.as_str())
+            {
+                errors.push(GenreError::ValidationError {
+                    message: format!(
+                        "world '{world_slug}' has starting_region '{}' \
                              which does not exist",
-                            world.cartography.starting_region
-                        ),
-                    });
-                }
+                        world.cartography.starting_region
+                    ),
+                });
+            }
 
             // Check adjacent references
             for (slug, region) in &world.cartography.regions {

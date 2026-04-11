@@ -67,7 +67,6 @@ impl PartyReconciliation {
     ) -> ReconciliationResult {
         let player_count = players.len();
 
-
         // Nothing to reconcile with 0 or 1 players
         if player_count <= 1 {
             emit_watcher_event("no_action_needed", player_count, None, 0);

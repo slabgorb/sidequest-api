@@ -39,11 +39,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
             },
         };
         let json = serde_json::to_string(&handshake).unwrap_or_default();
-        if ws_sink
-            .send(AxumWsMessage::Text(json))
-            .await
-            .is_err()
-        {
+        if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
             tracing::warn!("Watcher WebSocket closed before handshake sent");
             return;
         }
@@ -116,11 +112,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
                 },
             };
             let json = serde_json::to_string(&event).unwrap_or_default();
-            if ws_sink
-                .send(AxumWsMessage::Text(json))
-                .await
-                .is_err()
-            {
+            if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                 tracing::warn!("Watcher WebSocket closed during initial state replay");
                 return;
             }
@@ -144,11 +136,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
             );
             for event in &history {
                 let json = serde_json::to_string(event).unwrap_or_default();
-                if ws_sink
-                    .send(AxumWsMessage::Text(json))
-                    .await
-                    .is_err()
-                {
+                if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                     tracing::warn!("Watcher WebSocket closed during history replay");
                     return;
                 }
@@ -176,11 +164,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
                     "watcher.event_forwarded"
                 );
             }
-            if ws_sink
-                .send(AxumWsMessage::Text(json))
-                .await
-                .is_err()
-            {
+            if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                 tracing::info!(event_count, "watcher.writer_closed — WebSocket send failed");
                 break;
             }

@@ -278,11 +278,7 @@ pub(crate) async fn dispatch_connect(
                                 // Build the sheet facet from the saved character.
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
                                     race: c.race.as_str().to_string(),
-                                    stats: c
-                                        .stats
-                                        .iter()
-                                        .map(|(k, v)| (k.clone(), *v))
-                                        .collect(),
+                                    stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
                                         .hooks
                                         .iter()
@@ -334,7 +330,6 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
-
                         // CHAPTER_MARKER for current location
                         if !saved.snapshot.location.is_empty() {
                             responses.push(GameMessage::ChapterMarker {
@@ -375,9 +370,7 @@ pub(crate) async fn dispatch_connect(
                         let (recap_text, recap_source) = {
                             if let Some(text) = saved.recap.clone() {
                                 (Some(text), "recap")
-                            } else if let Some(entry) =
-                                saved.snapshot.narrative_log.last()
-                            {
+                            } else if let Some(entry) = saved.snapshot.narrative_log.last() {
                                 (Some(entry.content.clone()), "narrative_log_last")
                             } else {
                                 // Location fallback: pull the current RoomDef
@@ -385,29 +378,28 @@ pub(crate) async fn dispatch_connect(
                                 // the room_graph backfill above — keep it
                                 // inline rather than factored so future edits
                                 // can see both branches together.
-                                let current_room_desc: Option<String> =
-                                    GenreCode::new(genre)
-                                        .ok()
-                                        .and_then(|gc| {
-                                            state
-                                                .genre_cache()
-                                                .get_or_load(&gc, state.genre_loader())
-                                                .ok()
-                                        })
-                                        .and_then(|pack| pack.worlds.get(world).cloned())
-                                        .and_then(|w| w.cartography.rooms.clone())
-                                        .and_then(|rooms| {
-                                            rooms
-                                                .into_iter()
-                                                .find(|r| r.id == saved.snapshot.location)
-                                                .map(|r| match r.description.as_deref() {
-                                                    Some(desc) if !desc.is_empty() => format!(
-                                                        "You find yourself at {}.\n\n{}",
-                                                        r.name, desc
-                                                    ),
-                                                    _ => format!("You find yourself at {}.", r.name),
-                                                })
-                                        });
+                                let current_room_desc: Option<String> = GenreCode::new(genre)
+                                    .ok()
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
+                                    .and_then(|pack| pack.worlds.get(world).cloned())
+                                    .and_then(|w| w.cartography.rooms.clone())
+                                    .and_then(|rooms| {
+                                        rooms
+                                            .into_iter()
+                                            .find(|r| r.id == saved.snapshot.location)
+                                            .map(|r| match r.description.as_deref() {
+                                                Some(desc) if !desc.is_empty() => format!(
+                                                    "You find yourself at {}.\n\n{}",
+                                                    r.name, desc
+                                                ),
+                                                _ => format!("You find yourself at {}.", r.name),
+                                            })
+                                    });
                                 if let Some(text) = current_room_desc {
                                     (Some(text), "room_description_fallback")
                                 } else if !saved.snapshot.location.is_empty() {
@@ -456,11 +448,7 @@ pub(crate) async fn dispatch_connect(
                                 // Build the sheet facet from the saved character.
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
                                     race: c.race.as_str().to_string(),
-                                    stats: c
-                                        .stats
-                                        .iter()
-                                        .map(|(k, v)| (k.clone(), *v))
-                                        .collect(),
+                                    stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
                                         .hooks
                                         .iter()
@@ -1133,7 +1121,12 @@ pub(crate) async fn dispatch_character_creation(
     let confirmation_pack = session
         .genre_slug()
         .and_then(|g| GenreCode::new(g).ok())
-        .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok());
+        .and_then(|gc| {
+            state
+                .genre_cache()
+                .get_or_load(&gc, state.genre_loader())
+                .ok()
+        });
 
     let phase = payload.phase.as_str();
     tracing::info!(phase = %phase, player_id = %player_id, "Character creation phase");

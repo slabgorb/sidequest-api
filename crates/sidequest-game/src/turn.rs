@@ -37,7 +37,6 @@ pub enum TurnPhase {
     Broadcast,
 }
 
-
 /// Tracks the current turn round, phase, and player input barrier.
 ///
 /// Two-tier model:

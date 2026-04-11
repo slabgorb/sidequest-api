@@ -219,22 +219,16 @@ pub fn render_confirmation_summary(
     // (e.g. the 2026-04-09 Thessa bug: name_source=none, equipment_source=none
     // despite a lobby name being present and the pack defining a Delver
     // loadout).
-    WatcherEventBuilder::new(
-        "character_creation",
-        WatcherEventType::StateTransition,
-    )
-    .field("event", "confirmation_rendered")
-    .field("name_source", name_source.as_str())
-    .field("has_name", resolved_name.is_some())
-    .field("equipment_source", equipment_source.as_str())
-    .field("equipment_count", equipment_ids.len() as i64)
-    .field(
-        "lookup_class",
-        lookup_class.as_deref().unwrap_or(""),
-    )
-    .field("has_rolled_stats", builder.rolled_stats().is_some())
-    .field("player_id", player_id)
-    .send();
+    WatcherEventBuilder::new("character_creation", WatcherEventType::StateTransition)
+        .field("event", "confirmation_rendered")
+        .field("name_source", name_source.as_str())
+        .field("has_name", resolved_name.is_some())
+        .field("equipment_source", equipment_source.as_str())
+        .field("equipment_count", equipment_ids.len() as i64)
+        .field("lookup_class", lookup_class.as_deref().unwrap_or(""))
+        .field("has_rolled_stats", builder.rolled_stats().is_some())
+        .field("player_id", player_id)
+        .send();
 
     GameMessage::CharacterCreation {
         payload: CharacterCreationPayload {

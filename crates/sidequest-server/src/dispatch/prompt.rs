@@ -738,9 +738,9 @@ pub(crate) async fn build_prompt_context(
             Some(&priority_cats)
         };
         let lore_budget = 500; // ~500 tokens for lore context
-        // Phase 1: short lock to read the embedded-fragment count. Must not
-        // hold the lock across the query-embedding daemon call below —
-        // that would re-introduce the dispatch blocking we just fixed.
+                               // Phase 1: short lock to read the embedded-fragment count. Must not
+                               // hold the lock across the query-embedding daemon call below —
+                               // that would re-introduce the dispatch blocking we just fixed.
         let has_embeddings = {
             let store = ctx.lore_store.lock().await;
             store.fragments_with_embeddings_count() > 0
@@ -855,8 +855,7 @@ pub(crate) async fn build_prompt_context(
         // Acquire the lore store lock for the scope that holds the
         // borrowed `lang_fragments` refs.
         let store = ctx.lore_store.lock().await;
-        let lang_fragments =
-            sidequest_game::query_all_language_knowledge(&*store, ctx.player_id);
+        let lang_fragments = sidequest_game::query_all_language_knowledge(&*store, ctx.player_id);
         if !lang_fragments.is_empty() {
             let conlang_text =
                 sidequest_game::format_language_knowledge_for_prompt(&lang_fragments);

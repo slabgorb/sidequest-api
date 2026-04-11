@@ -102,12 +102,12 @@ pub fn check_location_validity(record: &TurnRecord) -> Vec<ValidationResult> {
             .snapshot_after
             .discovered_regions
             .contains(after_region)
-        {
-            return vec![ValidationResult::Violation(format!(
-                "Region changed to '{}' which is not in discovered_regions",
-                after_region
-            ))];
-        }
+    {
+        return vec![ValidationResult::Violation(format!(
+            "Region changed to '{}' which is not in discovered_regions",
+            after_region
+        ))];
+    }
 
     vec![]
 }

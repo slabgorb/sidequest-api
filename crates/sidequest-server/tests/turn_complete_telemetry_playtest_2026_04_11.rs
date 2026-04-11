@@ -88,9 +88,18 @@ fn turn_complete_still_carries_existing_dashboard_fields() {
             "classified_intent",
             r#".field_opt("classified_intent", &result.classified_intent)"#,
         ),
-        ("agent_name", r#".field_opt("agent_name", &result.agent_name)"#),
-        ("agent_duration_ms", r#".field("agent_duration_ms", agent_ms)"#),
-        ("is_degraded", r#".field("is_degraded", result.is_degraded)"#),
+        (
+            "agent_name",
+            r#".field_opt("agent_name", &result.agent_name)"#,
+        ),
+        (
+            "agent_duration_ms",
+            r#".field("agent_duration_ms", agent_ms)"#,
+        ),
+        (
+            "is_degraded",
+            r#".field("is_degraded", result.is_degraded)"#,
+        ),
         ("player_id", r#".field("player_id", ctx.player_id)"#),
         (
             "token_count_in",
@@ -101,7 +110,10 @@ fn turn_complete_still_carries_existing_dashboard_fields() {
             r#".field_opt("token_count_out", &result.token_count_out)"#,
         ),
         ("spans", r#".field("spans", &spans)"#),
-        ("total_duration_ms", r#".field("total_duration_ms", total_ms)"#),
+        (
+            "total_duration_ms",
+            r#".field("total_duration_ms", total_ms)"#,
+        ),
     ];
 
     for (name, pattern) in &required_fields {
