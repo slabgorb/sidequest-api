@@ -12,7 +12,6 @@
 use sidequest_game::state::{
     GameSnapshot, ResourcePatch, ResourcePatchOp, ResourcePool, ResourceThreshold,
 };
-use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════
 // Test helpers
@@ -631,7 +630,7 @@ fn threshold_crossing_on_set_operation() {
 
 #[test]
 fn resource_pool_decay_reduces_current() {
-    let mut pool = ResourcePool {
+    let pool = ResourcePool {
         name: "heat".to_string(),
         label: "Heat".to_string(),
         current: 5.0,

@@ -24,7 +24,7 @@ use sidequest_game::disposition::Disposition;
 use sidequest_game::inventory::Inventory;
 use sidequest_game::npc::Npc;
 use sidequest_game::slash_router::{CommandHandler, CommandResult, SlashRouter};
-use sidequest_game::state::{GameSnapshot, WorldStatePatch};
+use sidequest_game::state::GameSnapshot;
 use sidequest_game::turn::TurnManager;
 use sidequest_protocol::NonBlankString;
 
@@ -251,7 +251,7 @@ fn gm_teleport_discovers_region() {
                 patch
                     .discover_regions
                     .as_ref()
-                    .map_or(false, |r| r.contains(&"Haunted_Wastes".to_string())),
+                    .is_some_and(|r| r.contains(&"Haunted_Wastes".to_string())),
                 "Should discover the target region, got: {:?}",
                 patch.discover_regions
             );

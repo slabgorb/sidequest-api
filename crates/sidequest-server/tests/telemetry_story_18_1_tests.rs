@@ -4,91 +4,9 @@
 //! (preprocess, agent_llm, system_tick) and that prompt_build and barrier spans
 //! capture real durations.
 //!
-//! These tests use a `SpanCaptureLayer` to observe tracing span creation.
-//! Tests that require full DispatchContext (system_tick sub-spans) use the
-//! `assert_span_emitted_by_source!` macro to verify span definitions exist in
-//! the source code — a structural test that fails until spans are added.
-
-use std::sync::{Arc, Mutex};
-use tracing::subscriber::with_default;
-use tracing::Subscriber;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::Registry;
-
-// ---------------------------------------------------------------------------
-// Test infrastructure: span capture layer (same pattern as story 3-1)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-struct CapturedSpan {
-    name: String,
-    fields: Vec<(String, String)>,
-}
-
-struct SpanCaptureLayer {
-    captured: Arc<Mutex<Vec<CapturedSpan>>>,
-}
-
-impl SpanCaptureLayer {
-    fn new() -> (Self, Arc<Mutex<Vec<CapturedSpan>>>) {
-        let captured = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                captured: captured.clone(),
-            },
-            captured,
-        )
-    }
-}
-
-impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
-    fn on_new_span(
-        &self,
-        attrs: &tracing::span::Attributes<'_>,
-        id: &tracing::span::Id,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        let mut fields = Vec::new();
-        let mut visitor = FieldCaptureVisitor(&mut fields);
-        attrs.record(&mut visitor);
-
-        self.captured.lock().unwrap().push(CapturedSpan {
-            name: attrs.metadata().name().to_string(),
-            fields,
-        });
-    }
-
-    fn on_record(
-        &self,
-        _id: &tracing::span::Id,
-        values: &tracing::span::Record<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        // Deferred field recording — not needed for span existence tests
-        let _ = values;
-    }
-}
-
-struct FieldCaptureVisitor<'a>(&'a mut Vec<(String, String)>);
-
-impl<'a> tracing::field::Visit for FieldCaptureVisitor<'a> {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.0
-            .push((field.name().to_string(), format!("{:?}", value)));
-    }
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.0.push((field.name().to_string(), value.to_string()));
-    }
-    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.0.push((field.name().to_string(), value.to_string()));
-    }
-    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.0.push((field.name().to_string(), value.to_string()));
-    }
-    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.0.push((field.name().to_string(), value.to_string()));
-    }
-}
+//! Tests use the `assert_span_emitted_by_source!` macro to verify span
+//! definitions exist in the source code — a structural test that fails until
+//! spans are added to dispatch/preprocess/orchestrator.
 
 // ---------------------------------------------------------------------------
 // Structural verification: span names must exist in dispatch source code

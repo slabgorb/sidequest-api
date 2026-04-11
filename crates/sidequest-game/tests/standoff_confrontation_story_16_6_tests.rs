@@ -760,8 +760,10 @@ fn game_snapshot_accepts_standoff_encounter() {
     use sidequest_game::state::GameSnapshot;
 
     let def = standoff_def();
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(StructuredEncounter::from_confrontation_def(&def));
+    let snapshot = GameSnapshot {
+        encounter: Some(StructuredEncounter::from_confrontation_def(&def)),
+        ..Default::default()
+    };
 
     let enc = snapshot.encounter.as_ref().expect("encounter set");
     assert_eq!(enc.encounter_type, "standoff");
@@ -886,7 +888,9 @@ fn tension_overshoot_resolves() {
 // =========================================================================
 
 /// Verify the new methods are re-exported from sidequest_game.
-/// This is a compile-time wiring test — if it compiles, the exports exist.
+/// This is primarily a compile-time wiring test — if it compiles, the exports
+/// exist — but we also sanity-check that `format_encounter_context` returns a
+/// non-empty string so the test has a real assertion.
 #[test]
 fn encounter_methods_exported_from_crate() {
     // from_confrontation_def must be callable via the public API
@@ -895,8 +899,10 @@ fn encounter_methods_exported_from_crate() {
     let _ = encounter.apply_beat("size_up", &def);
     let _ = encounter.escalation_target(&def);
     let _ = encounter.escalate_to_combat();
-    let _ = encounter.format_encounter_context(&def);
+    let context = encounter.format_encounter_context(&def);
 
-    // If this test compiles, the methods are properly exported
-    assert!(true);
+    assert!(
+        !context.is_empty(),
+        "format_encounter_context should produce narrator-visible text"
+    );
 }

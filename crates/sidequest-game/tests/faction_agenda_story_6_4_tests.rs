@@ -10,7 +10,7 @@
 //!
 //! Dev must implement the faction_agenda module to make these pass.
 
-use sidequest_game::faction_agenda::{AgendaUrgency, FactionAgenda, FactionAgendaError};
+use sidequest_game::faction_agenda::{AgendaUrgency, FactionAgenda};
 use sidequest_game::scene_directive::DirectivePriority;
 
 // ===========================================================================

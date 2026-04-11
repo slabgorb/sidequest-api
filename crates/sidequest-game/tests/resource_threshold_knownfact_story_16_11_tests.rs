@@ -213,7 +213,7 @@ fn duplicate_threshold_crossing_does_not_mint_second_fragment() {
     let mut lore = LoreStore::new();
 
     // First crossing — should succeed
-    mint_threshold_lore(&[threshold.clone()], &mut lore, 5);
+    mint_threshold_lore(std::slice::from_ref(&threshold), &mut lore, 5);
     assert_eq!(lore.len(), 1);
 
     // Second crossing with same event_id — should not add duplicate

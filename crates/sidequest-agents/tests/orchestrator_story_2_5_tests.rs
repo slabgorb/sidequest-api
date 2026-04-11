@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use sidequest_agents::agents::intent_router::{
     Intent, IntentClassifier, IntentRoute, IntentRouter,
 };
-use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
+use sidequest_agents::orchestrator::{AgentKind, TurnContext, TurnResult};
 
 /// Mock classifier that always returns a fixed intent.
 struct MockClassifier(Intent);

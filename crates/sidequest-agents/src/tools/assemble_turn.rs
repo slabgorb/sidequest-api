@@ -69,10 +69,10 @@ pub fn assemble_turn(
     let mut override_count: u32 = 0;
 
     // Scene mood: tool call > narrator extraction
-    if tool_results.scene_mood.is_some() {
+    if let Some(mood) = &tool_results.scene_mood {
         tracing::info!(
             source = "tool_call",
-            value = %tool_results.scene_mood.as_ref().unwrap(),
+            value = %mood,
             "assemble.override.scene_mood"
         );
         override_count += 1;
@@ -80,10 +80,10 @@ pub fn assemble_turn(
     let scene_mood = tool_results.scene_mood.or(extraction.scene_mood);
 
     // Scene intent: tool call > narrator extraction
-    if tool_results.scene_intent.is_some() {
+    if let Some(intent) = &tool_results.scene_intent {
         tracing::info!(
             source = "tool_call",
-            value = %tool_results.scene_intent.as_ref().unwrap(),
+            value = %intent,
             "assemble.override.scene_intent"
         );
         override_count += 1;
@@ -98,10 +98,10 @@ pub fn assemble_turn(
     let visual_scene = tool_results.visual_scene.or(extraction.visual_scene);
 
     // Quest updates: tool calls > narrator extraction
-    if tool_results.quest_updates.is_some() {
+    if let Some(updates) = &tool_results.quest_updates {
         tracing::info!(
             source = "tool_call",
-            count = tool_results.quest_updates.as_ref().unwrap().len(),
+            count = updates.len(),
             "assemble.override.quest_updates"
         );
         override_count += 1;
@@ -111,10 +111,10 @@ pub fn assemble_turn(
         .unwrap_or(extraction.quest_updates);
 
     // Personality events: tool calls > narrator extraction
-    if tool_results.personality_events.is_some() {
+    if let Some(events) = &tool_results.personality_events {
         tracing::info!(
             source = "tool_call",
-            count = tool_results.personality_events.as_ref().unwrap().len(),
+            count = events.len(),
             "assemble.override.personality_events"
         );
         override_count += 1;
@@ -124,10 +124,10 @@ pub fn assemble_turn(
         .unwrap_or(extraction.personality_events);
 
     // Resource deltas: tool calls > narrator extraction
-    if tool_results.resource_deltas.is_some() {
+    if let Some(deltas) = &tool_results.resource_deltas {
         tracing::info!(
             source = "tool_call",
-            count = tool_results.resource_deltas.as_ref().unwrap().len(),
+            count = deltas.len(),
             "assemble.override.resource_deltas"
         );
         override_count += 1;
@@ -137,10 +137,10 @@ pub fn assemble_turn(
         .unwrap_or(extraction.resource_deltas);
 
     // SFX triggers: tool calls > narrator extraction
-    if tool_results.sfx_triggers.is_some() {
+    if let Some(triggers) = &tool_results.sfx_triggers {
         tracing::info!(
             source = "tool_call",
-            count = tool_results.sfx_triggers.as_ref().unwrap().len(),
+            count = triggers.len(),
             "assemble.override.sfx_triggers"
         );
         override_count += 1;
@@ -148,10 +148,10 @@ pub fn assemble_turn(
     let sfx_triggers = tool_results.sfx_triggers.unwrap_or(extraction.sfx_triggers);
 
     // Items gained: tool calls > narrator extraction
-    if tool_results.items_acquired.is_some() {
+    if let Some(items) = &tool_results.items_acquired {
         tracing::info!(
             source = "tool_call",
-            count = tool_results.items_acquired.as_ref().unwrap().len(),
+            count = items.len(),
             "assemble.override.items_acquired"
         );
         override_count += 1;

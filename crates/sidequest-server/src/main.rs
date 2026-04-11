@@ -171,7 +171,7 @@ async fn turn_record_bridge(mut rx: tokio::sync::mpsc::Receiver<TurnRecord>) {
         // needing the intermediate Value rebuilds.
 
         // Story 26-2: Emit SubsystemExerciseSummary at tracker's summary interval.
-        if tracker.turn_count % tracker.summary_interval == 0 {
+        if tracker.turn_count.is_multiple_of(tracker.summary_interval) {
             let histogram: Vec<serde_json::Value> = tracker
                 .histogram()
                 .iter()

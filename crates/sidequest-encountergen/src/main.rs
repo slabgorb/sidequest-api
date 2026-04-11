@@ -605,8 +605,8 @@ fn generate_abilities(
         .min(class_abilities.len() - 1);
 
     // Pick abilities from current tier and below
-    for t in 0..=tier_idx {
-        let pool = class_abilities[t];
+    for (t, pool) in class_abilities.iter().enumerate().take(tier_idx + 1) {
+        let pool = *pool;
         // 1-2 abilities per tier, weighted toward current tier
         let pick_count = if t == tier_idx { 2 } else { 1 };
         let mut picked = 0;

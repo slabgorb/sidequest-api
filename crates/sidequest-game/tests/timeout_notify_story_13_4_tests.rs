@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
+use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
 use sidequest_game::multiplayer::MultiplayerSession;
 use sidequest_game::turn_mode::TurnMode;
 
@@ -309,7 +309,7 @@ async fn e2e_all_players_timeout() {
     assert!(auto_names.contains(&"Elara".to_string()));
 
     // All narration entries should have mode-contextual default
-    for (_, narration) in &result.narration {
+    for narration in result.narration.values() {
         assert!(
             narration.contains("hesitate") || narration.contains("waiting"),
             "all-timeout structured should use hesitates, got: {}",

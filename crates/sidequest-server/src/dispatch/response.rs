@@ -20,6 +20,8 @@ use super::DispatchContext;
 /// is the same set baked into the Narration message sent to the acting
 /// player, guaranteeing parity between what the acting player sees and
 /// what gets rebroadcast to observers.
+// 8 args — fold into a `ResponseContext` struct in the dispatch refactor.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn build_response_messages(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
@@ -264,7 +266,7 @@ pub(super) async fn build_response_messages(
     super::emit_map_update_telemetry(
         "turn",
         ctx.player_id,
-        &ctx.current_location,
+        ctx.current_location,
         &explored_locs,
         ctx.cartography_metadata.as_ref(),
     );

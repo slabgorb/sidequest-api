@@ -23,9 +23,7 @@ use std::io::Write;
 
 use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction, VisualScene};
 use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
-use sidequest_agents::tools::scene_render::{
-    validate_scene_render, SceneTier, VisualMood, VisualTag,
-};
+use sidequest_agents::tools::scene_render::validate_scene_render;
 use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
 
 // ============================================================================
@@ -543,7 +541,7 @@ fn scene_tier_enum_is_non_exhaustive() {
         .expect("SceneTier enum must exist");
     let before_tier = &src[..tier_pos];
     assert!(
-        before_tier.rfind("#[non_exhaustive]").map_or(false, |pos| {
+        before_tier.rfind("#[non_exhaustive]").is_some_and(|pos| {
             // Verify it's close to the enum (within 200 chars, accounting for derives/docs)
             tier_pos - pos < 200
         }),
@@ -564,7 +562,7 @@ fn visual_mood_enum_is_non_exhaustive() {
     assert!(
         before_mood
             .rfind("#[non_exhaustive]")
-            .map_or(false, |pos| { mood_pos - pos < 200 }),
+            .is_some_and(|pos| mood_pos - pos < 200),
         "VisualMood must have #[non_exhaustive] — new moods may be added"
     );
 }
@@ -582,7 +580,7 @@ fn visual_tag_enum_is_non_exhaustive() {
     assert!(
         before_tag
             .rfind("#[non_exhaustive]")
-            .map_or(false, |pos| { tag_pos - pos < 200 }),
+            .is_some_and(|pos| tag_pos - pos < 200),
         "VisualTag must have #[non_exhaustive] — new tags may be added"
     );
 }

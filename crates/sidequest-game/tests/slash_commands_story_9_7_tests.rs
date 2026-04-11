@@ -69,8 +69,10 @@ fn test_snapshot() -> GameSnapshot {
 }
 
 fn test_character() -> Character {
-    let mut inventory = Inventory::default();
-    inventory.gold = 50;
+    let mut inventory = Inventory {
+        gold: 50,
+        ..Default::default()
+    };
 
     inventory.items.push(Item {
         id: NonBlankString::new("machete_rusty").unwrap(),

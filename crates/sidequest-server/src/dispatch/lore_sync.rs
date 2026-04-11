@@ -32,11 +32,8 @@ pub(super) async fn accumulate_and_persist_lore(
 ) -> Option<String> {
     let fragment_id = {
         let mut store = ctx.lore_store.lock().await;
-        // Explicit deref: pass a `&mut LoreStore` through the MutexGuard
-        // rather than relying on autoref-to-guard coercion, which doesn't
-        // bridge from `&mut MutexGuard<T>` to `&mut T` at call sites.
         match sidequest_game::accumulate_lore(
-            &mut *store,
+            &mut store,
             text,
             category.clone(),
             turn,

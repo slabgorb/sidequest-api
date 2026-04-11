@@ -144,7 +144,7 @@ fn constructor_auto_computes_token_estimate() {
 
 #[test]
 fn all_fixed_categories_are_distinct() {
-    let categories = vec![
+    let categories = [
         LoreCategory::History,
         LoreCategory::Geography,
         LoreCategory::Faction,
@@ -183,7 +183,7 @@ fn custom_categories_with_different_values_are_distinct() {
 
 #[test]
 fn all_sources_are_distinct() {
-    let sources = vec![
+    let sources = [
         LoreSource::GenrePack,
         LoreSource::CharacterCreation,
         LoreSource::GameEvent,

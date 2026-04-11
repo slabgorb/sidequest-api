@@ -15,7 +15,10 @@ pub enum CommandResult {
     /// Text response displayed to the player.
     Display(String),
     /// A state mutation to apply (for /gm commands).
-    StateMutation(WorldStatePatch),
+    ///
+    /// Boxed because `WorldStatePatch` is ~500 bytes and would bloat every
+    /// `CommandResult` variant on the stack (clippy::large_enum_variant).
+    StateMutation(Box<WorldStatePatch>),
     /// An error message (unknown command, bad args, etc.).
     Error(String),
     /// Axis value change (for /tone commands). The full new set of axis values.
@@ -38,6 +41,12 @@ pub trait CommandHandler: Send + Sync {
 /// Routes `/command` input to registered handlers.
 pub struct SlashRouter {
     commands: HashMap<String, Box<dyn CommandHandler>>,
+}
+
+impl Default for SlashRouter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SlashRouter {

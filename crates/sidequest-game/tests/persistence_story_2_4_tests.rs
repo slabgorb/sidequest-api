@@ -24,17 +24,13 @@
 //!  10. In-memory tests — open_in_memory() works
 //!  11. Schema migration — idempotent reopen
 
-use std::path::Path;
-
 use chrono::Utc;
 
 use sidequest_game::narrative::NarrativeEntry;
 use sidequest_game::state::GameSnapshot;
 
 // === New types from story 2-4 (some exist, some need refactoring) ===
-use sidequest_game::persistence::{
-    PersistError, SavedSession, SessionMeta, SessionStore, SqliteStore,
-};
+use sidequest_game::persistence::{PersistError, SessionStore, SqliteStore};
 
 // ============================================================================
 // Test fixtures
@@ -44,7 +40,7 @@ fn test_snapshot() -> GameSnapshot {
     use sidequest_game::character::Character;
     use sidequest_game::creature_core::CreatureCore;
     use sidequest_game::inventory::Inventory;
-    use sidequest_game::turn::{TurnManager, TurnPhase};
+    use sidequest_game::turn::TurnManager;
     use sidequest_protocol::NonBlankString;
     use std::collections::HashMap;
 

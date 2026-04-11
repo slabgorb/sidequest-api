@@ -7,7 +7,6 @@
 //!   - Integration: multiplier applied to trope engine tick progression
 //!   - Integration test: end-to-end GameSnapshot → multiplier → tick → beat verification
 
-use ordered_float::OrderedFloat;
 use sidequest_genre::{PassiveProgression, TropeDefinition, TropeEscalation};
 use sidequest_protocol::NonBlankString;
 
@@ -17,51 +16,6 @@ use sidequest_game::trope::{TropeEngine, TropeState, TropeStatus};
 // ============================================================================
 // Test fixtures
 // ============================================================================
-
-fn test_trope_def() -> TropeDefinition {
-    TropeDefinition {
-        id: Some("rising_threat".to_string()),
-        name: NonBlankString::new("Rising Threat").unwrap(),
-        description: Some("A danger grows in the shadows".to_string()),
-        category: "conflict".to_string(),
-        triggers: vec!["combat".to_string()],
-        narrative_hints: vec!["Hint at growing danger".to_string()],
-        tension_level: Some(0.5),
-        resolution_hints: None,
-        resolution_patterns: None,
-        tags: vec![],
-        escalation: vec![
-            TropeEscalation {
-                at: 0.25,
-                event: "Strange noises in the night".to_string(),
-                npcs_involved: vec![],
-                stakes: "Safety of the camp".to_string(),
-            },
-            TropeEscalation {
-                at: 0.5,
-                event: "A scout goes missing".to_string(),
-                npcs_involved: vec!["Scout Kira".to_string()],
-                stakes: "Lives at risk".to_string(),
-            },
-            TropeEscalation {
-                at: 1.0,
-                event: "The creature attacks the camp".to_string(),
-                npcs_involved: vec!["The Beast".to_string()],
-                stakes: "Survival of the party".to_string(),
-            },
-        ],
-        passive_progression: Some(PassiveProgression {
-            rate_per_turn: 0.1,
-            rate_per_day: 0.0,
-            accelerators: vec!["danger".to_string(), "threat".to_string()],
-            decelerators: vec!["safe".to_string(), "calm".to_string()],
-            accelerator_bonus: 0.05,
-            decelerator_penalty: 0.03,
-        }),
-        is_abstract: false,
-        extends: None,
-    }
-}
 
 /// Trope with a small passive rate for precise multiplier testing.
 /// rate_per_turn = 0.05 so we can clearly see multiplier effects.
@@ -241,8 +195,10 @@ fn game_snapshot_has_turns_since_meaningful_field() {
 #[test]
 fn game_snapshot_turns_since_meaningful_serializes() {
     // Verify serde round-trip preserves the counter
-    let mut snap = sidequest_game::state::GameSnapshot::default();
-    snap.turns_since_meaningful = 5;
+    let snap = sidequest_game::state::GameSnapshot {
+        turns_since_meaningful: 5,
+        ..Default::default()
+    };
     let json = serde_json::to_string(&snap).expect("serialize");
     let deser: sidequest_game::state::GameSnapshot =
         serde_json::from_str(&json).expect("deserialize");
@@ -282,8 +238,10 @@ fn increment_turns_since_meaningful() {
 
 #[test]
 fn reset_turns_since_meaningful_on_meaningful_action() {
-    let mut snap = sidequest_game::state::GameSnapshot::default();
-    snap.turns_since_meaningful = 7; // player was idle
+    let mut snap = sidequest_game::state::GameSnapshot {
+        turns_since_meaningful: 7, // player was idle
+        ..Default::default()
+    };
 
     // Meaningful action resets to 0
     snap.turns_since_meaningful = 0;
@@ -427,8 +385,10 @@ fn integration_passive_player_accelerates_trope_beats() {
     let defs = vec![slow_trope_def()]; // rate_per_turn = 0.05, beat at 0.1
 
     // --- Active player scenario (0 turns idle → 0.5x multiplier) ---
-    let mut snap_active = sidequest_game::state::GameSnapshot::default();
-    snap_active.turns_since_meaningful = 0;
+    let snap_active = sidequest_game::state::GameSnapshot {
+        turns_since_meaningful: 0,
+        ..Default::default()
+    };
     let active_mult = engagement_multiplier(snap_active.turns_since_meaningful);
     assert_eq!(active_mult, 0.5);
 
@@ -438,8 +398,10 @@ fn integration_passive_player_accelerates_trope_beats() {
     let active_prog = tropes_active[0].progression();
 
     // --- Passive player scenario (7 turns idle → 2.0x multiplier) ---
-    let mut snap_passive = sidequest_game::state::GameSnapshot::default();
-    snap_passive.turns_since_meaningful = 7;
+    let snap_passive = sidequest_game::state::GameSnapshot {
+        turns_since_meaningful: 7,
+        ..Default::default()
+    };
     let passive_mult = engagement_multiplier(snap_passive.turns_since_meaningful);
     assert_eq!(passive_mult, 2.0);
 

@@ -96,8 +96,8 @@ fn clue_node_construction() {
 fn clue_node_with_requirements() {
     let n = hidden_node("motive_deduction", &["torn_letter", "financial_records"]);
     assert_eq!(n.requires().len(), 2);
-    assert!(n.requires().contains(&"torn_letter".to_string()));
-    assert!(n.requires().contains(&"financial_records".to_string()));
+    assert!(n.requires().iter().any(|s| s == "torn_letter"));
+    assert!(n.requires().iter().any(|s| s == "financial_records"));
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn clue_node_with_implications() {
     let mut n = node("bloody_knife");
     n.add_implication("suspect_varek".to_string());
     assert_eq!(n.implicates().len(), 1);
-    assert!(n.implicates().contains(&"suspect_varek".to_string()));
+    assert!(n.implicates().iter().any(|s| s == "suspect_varek"));
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn obvious_clue_no_deps_always_discoverable() {
 
     let available = activation.discoverable_clues(&discovered);
     assert!(
-        available.contains(&"obvious_evidence".to_string()),
+        available.iter().any(|s| s == "obvious_evidence"),
         "obvious clue with no deps should always be discoverable"
     );
 }
@@ -229,11 +229,11 @@ fn hidden_clue_blocked_by_unmet_dependency() {
     // Nothing discovered yet — motive should be blocked
     let available = activation.discoverable_clues(&discovered(&[]));
     assert!(
-        !available.contains(&"motive".to_string()),
+        !available.iter().any(|s| s == "motive"),
         "hidden clue should be blocked when dependency not met"
     );
     // torn_letter is obvious, so it IS discoverable
-    assert!(available.contains(&"torn_letter".to_string()));
+    assert!(available.iter().any(|s| s == "torn_letter"));
 }
 
 #[test]
@@ -246,7 +246,7 @@ fn hidden_clue_unlocked_by_dependency() {
 
     let available = activation.discoverable_clues(&discovered(&["torn_letter"]));
     assert!(
-        available.contains(&"motive".to_string()),
+        available.iter().any(|s| s == "motive"),
         "hidden clue should unlock once dependency is discovered"
     );
 }
@@ -263,14 +263,14 @@ fn multiple_dependencies_all_must_be_met() {
     // Only one dependency met
     let partial = activation.discoverable_clues(&discovered(&["torn_letter"]));
     assert!(
-        !partial.contains(&"motive_deduction".to_string()),
+        !partial.iter().any(|s| s == "motive_deduction"),
         "deduction should be blocked when not all deps are met"
     );
 
     // Both met
     let full = activation.discoverable_clues(&discovered(&["torn_letter", "financial_records"]));
     assert!(
-        full.contains(&"motive_deduction".to_string()),
+        full.iter().any(|s| s == "motive_deduction"),
         "deduction should unlock when all deps met"
     );
 }
@@ -291,18 +291,18 @@ fn transitive_dependency_chain() {
 
     // Nothing discovered — only A is available
     let step0 = activation.discoverable_clues(&discovered(&[]));
-    assert!(step0.contains(&"clue_a".to_string()));
-    assert!(!step0.contains(&"clue_b".to_string()));
-    assert!(!step0.contains(&"clue_c".to_string()));
+    assert!(step0.iter().any(|s| s == "clue_a"));
+    assert!(!step0.iter().any(|s| s == "clue_b"));
+    assert!(!step0.iter().any(|s| s == "clue_c"));
 
     // A discovered — B unlocks, C still blocked
     let step1 = activation.discoverable_clues(&discovered(&["clue_a"]));
-    assert!(step1.contains(&"clue_b".to_string()));
-    assert!(!step1.contains(&"clue_c".to_string()));
+    assert!(step1.iter().any(|s| s == "clue_b"));
+    assert!(!step1.iter().any(|s| s == "clue_c"));
 
     // A+B discovered — C unlocks
     let step2 = activation.discoverable_clues(&discovered(&["clue_a", "clue_b"]));
-    assert!(step2.contains(&"clue_c".to_string()));
+    assert!(step2.iter().any(|s| s == "clue_c"));
 }
 
 // ============================================================================
@@ -316,7 +316,7 @@ fn already_discovered_clues_not_in_discoverable() {
 
     let available = activation.discoverable_clues(&discovered(&["obvious_clue"]));
     assert!(
-        !available.contains(&"obvious_clue".to_string()),
+        !available.iter().any(|s| s == "obvious_clue"),
         "already discovered clues should not appear in discoverable list"
     );
 }
@@ -384,7 +384,7 @@ fn red_herring_still_discoverable() {
 
     let available = activation.discoverable_clues(&discovered(&[]));
     assert!(
-        available.contains(&"planted_scarf".to_string()),
+        available.iter().any(|s| s == "planted_scarf"),
         "red herrings should still be discoverable"
     );
 }
@@ -418,7 +418,7 @@ fn npc_with_relevant_belief_enables_testimonial_clue() {
 
     let available = activation.discoverable_clues_with_npc(&discovered(&[]), &npc_beliefs);
     assert!(
-        available.contains(&"confession_about_poison".to_string()),
+        available.iter().any(|s| s == "confession_about_poison"),
         "testimonial clue should be available when NPC has relevant knowledge"
     );
 }
@@ -442,7 +442,7 @@ fn npc_without_relevant_belief_blocks_testimonial_clue() {
 
     let available = activation.discoverable_clues_with_npc(&discovered(&[]), &npc_beliefs);
     assert!(
-        !available.contains(&"confession_about_poison".to_string()),
+        !available.iter().any(|s| s == "confession_about_poison"),
         "testimonial clue should be blocked when NPC lacks relevant knowledge"
     );
 }
@@ -456,7 +456,7 @@ fn npc_knowledge_filter_does_not_affect_physical_clues() {
     let empty_beliefs = BeliefState::new();
     let available = activation.discoverable_clues_with_npc(&discovered(&[]), &empty_beliefs);
     assert!(
-        available.contains(&"physical_evidence".to_string()),
+        available.iter().any(|s| s == "physical_evidence"),
         "physical clues should not be blocked by NPC knowledge filter"
     );
 }
@@ -486,7 +486,7 @@ fn npc_suspicion_also_enables_testimonial_clue() {
 
     let available = activation.discoverable_clues_with_npc(&discovered(&[]), &npc_beliefs);
     assert!(
-        available.contains(&"suspicion_about_motive".to_string()),
+        available.iter().any(|s| s == "suspicion_about_motive"),
         "suspicion-level belief should also enable testimonial clue"
     );
 }
@@ -521,7 +521,7 @@ fn both_dependency_and_npc_knowledge_required() {
     // Has NPC knowledge but missing dependency
     let no_dep = activation.discoverable_clues_with_npc(&discovered(&[]), &npc_beliefs);
     assert!(
-        !no_dep.contains(&"deep_confession".to_string()),
+        !no_dep.iter().any(|s| s == "deep_confession"),
         "should be blocked when dependency not met, even with NPC knowledge"
     );
 
@@ -529,7 +529,7 @@ fn both_dependency_and_npc_knowledge_required() {
     let no_knowledge = activation
         .discoverable_clues_with_npc(&discovered(&["evidence_shown"]), &BeliefState::new());
     assert!(
-        !no_knowledge.contains(&"deep_confession".to_string()),
+        !no_knowledge.iter().any(|s| s == "deep_confession"),
         "should be blocked when NPC lacks knowledge, even with dependency met"
     );
 
@@ -537,7 +537,7 @@ fn both_dependency_and_npc_knowledge_required() {
     let both =
         activation.discoverable_clues_with_npc(&discovered(&["evidence_shown"]), &npc_beliefs);
     assert!(
-        both.contains(&"deep_confession".to_string()),
+        both.iter().any(|s| s == "deep_confession"),
         "should unlock when both dependency and NPC knowledge are present"
     );
 }
@@ -557,7 +557,7 @@ fn clue_node_serde_roundtrip() {
 
     assert_eq!(deserialized.id(), "test_clue");
     assert_eq!(deserialized.requires().len(), 1);
-    assert!(deserialized.requires().contains(&"dep_a".to_string()));
+    assert!(deserialized.requires().iter().any(|s| s == "dep_a"));
     assert_eq!(deserialized.implicates().len(), 1);
     assert!(deserialized.is_red_herring());
     assert_eq!(deserialized.visibility(), &ClueVisibility::Hidden);
@@ -657,7 +657,7 @@ fn dependency_on_nonexistent_clue_blocks_forever() {
     let activation = ClueActivation::new(&graph);
     let available = activation.discoverable_clues(&discovered(&[]));
     assert!(
-        !available.contains(&"orphan".to_string()),
+        !available.iter().any(|s| s == "orphan"),
         "clue with nonexistent dependency should never be discoverable"
     );
 }
@@ -678,7 +678,7 @@ fn duplicate_node_ids_last_wins() {
         1,
         "duplicate IDs — last definition should win"
     );
-    assert!(n.implicates().contains(&"suspect_2".to_string()));
+    assert!(n.implicates().iter().any(|s| s == "suspect_2"));
 }
 
 #[test]
@@ -702,8 +702,8 @@ fn clue_node_locations_field() {
     n.add_location("dining_car".to_string());
     n.add_location("kitchen".to_string());
     assert_eq!(n.locations().len(), 2);
-    assert!(n.locations().contains(&"dining_car".to_string()));
-    assert!(n.locations().contains(&"kitchen".to_string()));
+    assert!(n.locations().iter().any(|s| s == "dining_car"));
+    assert!(n.locations().iter().any(|s| s == "kitchen"));
 }
 
 #[test]
