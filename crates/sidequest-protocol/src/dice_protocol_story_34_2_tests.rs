@@ -201,32 +201,8 @@ fn dice_throw_payload_carries_request_id_and_params() {
 }
 
 // ============================================================================
-// AC1 + AC5: RollOutcome — all four variants
+// AC1 + AC5: RollOutcome — all four variants survive serde round-trip
 // ============================================================================
-
-#[test]
-fn roll_outcome_crit_success_variant() {
-    let o = RollOutcome::CritSuccess;
-    assert!(matches!(o, RollOutcome::CritSuccess));
-}
-
-#[test]
-fn roll_outcome_success_variant() {
-    let o = RollOutcome::Success;
-    assert!(matches!(o, RollOutcome::Success));
-}
-
-#[test]
-fn roll_outcome_fail_variant() {
-    let o = RollOutcome::Fail;
-    assert!(matches!(o, RollOutcome::Fail));
-}
-
-#[test]
-fn roll_outcome_crit_fail_variant() {
-    let o = RollOutcome::CritFail;
-    assert!(matches!(o, RollOutcome::CritFail));
-}
 
 #[test]
 fn roll_outcome_all_four_variants_round_trip() {

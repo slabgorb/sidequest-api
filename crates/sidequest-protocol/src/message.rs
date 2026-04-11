@@ -1455,7 +1455,7 @@ pub struct TacticalActionPayload {
 /// A dice pool is `Vec<DieSpec>` — e.g., `[{sides: 20, count: 1}]` for a single
 /// d20, or `[{sides: 6, count: 4}, {sides: 10, count: 2}]` for 4d6 + 2d10 thrown
 /// together in one gesture. Supported sides per ADR-074: 4, 6, 8, 10, 12, 20, 100.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DieSpec {
     /// Number of faces on each die in this group.
@@ -1490,8 +1490,10 @@ pub struct ThrowParams {
 ///
 /// `#[non_exhaustive]` allows future additions (e.g., `NearMiss` for genre-specific
 /// resolution systems) without breaking downstream exhaustive matches. Follows the
-/// `FactCategory` precedent in this crate.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// `FactCategory` precedent in this crate. `Eq`/`Hash` are intentionally NOT derived
+/// — no consumer uses `RollOutcome` as a map key, and deriving `Hash` on a
+/// `#[non_exhaustive]` enum ties the hash surface to the public variant list.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum RollOutcome {
     /// Natural maximum on the primary die (e.g., nat 20 on d20). Always succeeds
