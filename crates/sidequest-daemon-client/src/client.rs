@@ -54,16 +54,26 @@ impl DaemonClient {
             serde_json::to_string(&req).map_err(|e| DaemonError::InvalidResponse(e.to_string()))?;
         line.push('\n');
 
-        let result = tokio::time::timeout(timeout, async {
+        let (bytes_read, result) = tokio::time::timeout(timeout, async {
             self.stream.get_mut().write_all(line.as_bytes()).await?;
             self.stream.get_mut().flush().await?;
             let mut response_line = String::new();
-            self.stream.read_line(&mut response_line).await?;
-            Ok::<_, std::io::Error>(response_line)
+            let bytes_read = self.stream.read_line(&mut response_line).await?;
+            Ok::<_, std::io::Error>((bytes_read, response_line))
         })
         .await
         .map_err(|_| DaemonError::Timeout { duration: timeout })?
         .map_err(DaemonError::SocketError)?;
+
+        // A clean EOF on read (bytes_read == 0) means the daemon closed the
+        // socket without sending a response line. Distinguish it from a JSON
+        // parse error so the operator sees "daemon crashed" instead of the
+        // misleading "EOF while parsing a value at line 1 column 0".
+        if bytes_read == 0 {
+            return Err(DaemonError::ConnectionClosed {
+                method: method.to_string(),
+            });
+        }
 
         let resp: DaemonResponse = serde_json::from_str(&result)
             .map_err(|e| DaemonError::InvalidResponse(format!("{e}: {result}")))?;
