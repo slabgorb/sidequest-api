@@ -15,6 +15,7 @@ mod audio;
 mod barrier;
 mod beat;
 pub(crate) mod catch_up;
+pub(crate) mod chargen_summary;
 pub(crate) mod connect;
 mod lore_sync;
 mod npc_registry;
@@ -1368,6 +1369,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 ctx.discovered_regions
                     .iter()
                     .map(|name| sidequest_protocol::ExploredLocation {
+                        id: String::new(),
                         name: name.clone(),
                         x: 0,
                         y: 0,
@@ -1390,6 +1392,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     .field("total_explored", explored_locs.len())
                     .send();
             }
+            emit_map_update_telemetry(
+                "location_change",
+                ctx.player_id,
+                &location,
+                &explored_locs,
+                ctx.cartography_metadata.as_ref(),
+            );
             messages.push(GameMessage::MapUpdate {
                 payload: MapUpdatePayload {
                     current_location: location,
@@ -1400,11 +1409,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 },
                 player_id: ctx.player_id.to_string(),
             });
-            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
-                .field("event", "cartography_dispatch")
-                .field("has_cartography", ctx.cartography_metadata.is_some())
-                .field("navigation_mode", ctx.cartography_metadata.as_ref().map(|c| c.navigation_mode.as_str()).unwrap_or("none"))
-                .send();
             ctx.turn_manager.advance_round();
             tracing::info!(
                 new_round = ctx.turn_manager.round(),
@@ -2109,6 +2113,58 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
 // ── Inline helpers extracted from dispatch_player_action ──────────────────
 
+/// Emit the GM panel telemetry span for a MAP_UPDATE message.
+///
+/// Called at every emit site (per-turn refresh, location-change dispatch,
+/// reconnect replay) so the GM panel can distinguish "the server actually
+/// sent a map with N rooms and K exits" from "Claude is narrating rooms
+/// that don't exist in the room graph." This is the lie-detector coverage
+/// for the Map subsystem per CLAUDE.md's OTEL Observability Principle.
+///
+/// `origin` identifies which code path produced the update:
+/// - `"turn"` — per-turn refresh in build_response_messages
+/// - `"location_change"` — cartography dispatch on room transition
+/// - `"reconnect"` — session-resume replay in connect.rs
+pub(crate) fn emit_map_update_telemetry(
+    origin: &'static str,
+    player_id: &str,
+    current_location: &str,
+    explored: &[sidequest_protocol::ExploredLocation],
+    cartography: Option<&sidequest_protocol::CartographyMetadata>,
+) {
+    // room_graph mode populates `room_exits`; region mode leaves it empty.
+    // Using `any` rather than `all` so a mixed payload still counts as
+    // room graph (shouldn't happen today, but keeps the classifier loud).
+    let mode = if explored.iter().any(|loc| !loc.room_exits.is_empty()) {
+        "room_graph"
+    } else if explored.is_empty() {
+        "empty"
+    } else {
+        "region"
+    };
+    let room_exits_total: usize = explored.iter().map(|loc| loc.room_exits.len()).sum();
+    let current_room = explored
+        .iter()
+        .find(|loc| loc.is_current_room)
+        .map(|loc| loc.id.as_str())
+        .unwrap_or("");
+    let nav_mode = cartography
+        .map(|c| c.navigation_mode.as_str())
+        .unwrap_or("none");
+
+    crate::WatcherEventBuilder::new("map", crate::WatcherEventType::StateTransition)
+        .field("event", "map_update.emitted")
+        .field("origin", origin)
+        .field("player_id", player_id)
+        .field("mode", mode)
+        .field("room_count", explored.len())
+        .field("room_exits_total", room_exits_total)
+        .field("current_location", current_location)
+        .field("current_room_id", current_room)
+        .field("has_cartography", cartography.is_some())
+        .field("cartography_navigation_mode", nav_mode)
+        .send();
+}
 
 #[cfg(test)]
 mod tests {

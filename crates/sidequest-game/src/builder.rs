@@ -452,6 +452,32 @@ impl CharacterBuilder {
         &self.results
     }
 
+    /// Pre-rolled stats from `roll_3d6_strict` generation, if any.
+    ///
+    /// Exposed so external renderers (e.g. the server-side confirmation
+    /// summary composer) can read stats without reaching into private fields.
+    pub fn rolled_stats(&self) -> Option<&[(String, i32)]> {
+        self.rolled_stats.as_deref()
+    }
+
+    /// Genre-specific label for the "race" field (e.g., "Species", "Origin").
+    pub fn race_label(&self) -> &str {
+        &self.race_label
+    }
+
+    /// Genre-specific label for the "class" field (e.g., "Archetype", "Path").
+    pub fn class_label(&self) -> &str {
+        &self.class_label
+    }
+
+    /// Default class from the genre pack's rules, if defined.
+    ///
+    /// Used by external renderers to resolve starting equipment when the
+    /// chargen flow doesn't set an explicit `class_hint`.
+    pub fn default_class(&self) -> Option<&str> {
+        self.default_class.as_deref()
+    }
+
     /// Extract the character name from the name-entry scene (last scene with
     /// no choices where the player typed freeform text).
     pub fn character_name(&self) -> Option<&str> {
@@ -1196,78 +1222,23 @@ impl CharacterBuilder {
                 player_id: player_id.to_string(),
             },
             BuilderPhase::Confirmation => {
-                let acc = self.accumulated();
-                let mut parts = Vec::new();
-                if let Some(name) = self.character_name() {
-                    parts.push(format!("Name: {}", name));
-                }
-                // Only show race/class/personality if the chargen accumulated a value.
-                // Genres like caverns_and_claudes deliberately omit these — don't lie
-                // with "Unknown" for fields the genre doesn't define.
-                if let Some(ref r) = acc.race_hint {
-                    parts.push(format!("{}: {}", self.race_label, r));
-                }
-                if let Some(ref c) = acc.class_hint {
-                    parts.push(format!("{}: {}", self.class_label, c));
-                }
-                if let Some(ref p) = acc.personality_trait {
-                    parts.push(format!("Personality: {}", p));
-                }
-                if let Some(ref pn) = acc.pronoun_hint {
-                    parts.push(format!("Pronouns: {}", pn));
-                }
-                if let Some(ref rolled) = self.rolled_stats {
-                    let stat_line = rolled
-                        .iter()
-                        .map(|(name, val)| format!("{} {}", name, val))
-                        .collect::<Vec<_>>()
-                        .join("  ");
-                    parts.push(format!("Stats: {}", stat_line));
-                }
-                if let Some(ref m) = acc.mutation_hint {
-                    parts.push(format!("Mutation: {}", humanize_snake_case(m)));
-                }
-                if let Some(ref a) = acc.affinity_hint {
-                    parts.push(format!("Affinity: {}", a));
-                }
-                if let Some(ref r) = acc.rig_type_hint {
-                    parts.push(format!("Rig: {}", r));
-                }
-                if let Some(ref rt) = acc.rig_trait {
-                    parts.push(format!("Rig Trait: {}", rt));
-                }
-                if !acc.item_hints.is_empty() {
-                    let display_items: Vec<String> = acc
-                        .item_hints
-                        .iter()
-                        .map(|h| humanize_snake_case(h))
-                        .collect();
-                    parts.push(format!("Equipment: {}", display_items.join(", ")));
-                }
-                if let Some(bg) = &acc.background {
-                    parts.push(format!("\nBackstory: {}", bg));
-                }
-                let summary = parts.join("\n");
-
-                GameMessage::CharacterCreation {
-                    payload: CharacterCreationPayload {
-                        phase: "confirmation".to_string(),
-                        scene_index: None,
-                        total_scenes: Some(self.scenes.len() as u32),
-                        prompt: None,
-                        summary: Some(summary),
-                        message: None,
-                        choices: None,
-                        allows_freeform: None,
-                        input_type: None,
-                        loading_text: None,
-                        character_preview: None,
-                        rolled_stats: None,
-                        choice: None,
-                        character: None,
-                    },
-                    player_id: player_id.to_string(),
-                }
+                // Confirmation summaries depend on inputs the builder does not
+                // own (the lobby-provided player name and the genre pack's
+                // `starting_equipment` table). Rendering them here produced
+                // half-empty summaries — see the 2026-04-09 playtest bug where
+                // Thessa's confirmation dropped Name and Equipment.
+                //
+                // Rendering has moved to `sidequest-server`'s
+                // `dispatch::chargen_summary::render_confirmation_summary`,
+                // which has access to the genre pack and lobby name. Calling
+                // this method in Confirmation phase is a programmer error.
+                panic!(
+                    "CharacterBuilder::to_scene_message called in Confirmation phase. \
+                     Callers must branch on `is_confirmation()` and invoke \
+                     `dispatch::chargen_summary::render_confirmation_summary` instead. \
+                     The builder cannot render a complete summary without pack \
+                     inventory and the lobby-provided name."
+                );
             }
         }
     }
@@ -1565,7 +1536,7 @@ fn extract_hooks(scene_id: &str, effects: &MechanicalEffects) -> Vec<NarrativeHo
 
 /// Convert a snake_case identifier to Title Case display name.
 /// E.g. "natural_armor" → "Natural Armor", "mystery_compass" → "Mystery Compass".
-fn humanize_snake_case(s: &str) -> String {
+pub fn humanize_snake_case(s: &str) -> String {
     s.split('_')
         .map(|word| {
             let mut chars = word.chars();

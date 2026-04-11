@@ -196,24 +196,12 @@ pub(crate) async fn sync_back_to_shared_session(
                 GameMessage::PartyStatus { .. } => {
                     // Build targeted PARTY_STATUS per player so every player's
                     // player_id is set correctly (client HUD uses this for identity).
+                    // The helper pulls sheet + inventory facets off PlayerState,
+                    // which was just synced from the acting player's ctx above.
                     let members: Vec<PartyMember> = ss
                         .players
                         .iter()
-                        .map(|(pid, ps)| PartyMember {
-                            player_id: pid.clone(),
-                            name: ps.player_name.clone(),
-                            character_name: ps
-                                .character_name
-                                .clone()
-                                .unwrap_or_else(|| ps.player_name.clone()),
-                            current_hp: ps.character_hp,
-                            max_hp: ps.character_max_hp,
-                            statuses: vec![],
-                            class: ps.character_class.clone(),
-                            level: ps.character_level,
-                            portrait_url: None,
-                            current_location: ps.display_location.clone(),
-                        })
+                        .map(|(pid, ps)| crate::shared_session::party_member_from(pid, ps))
                         .collect();
                     let player_ids: Vec<String> = ss.players.keys().cloned().collect();
                     for target_pid in &player_ids {
