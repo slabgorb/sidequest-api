@@ -969,10 +969,9 @@ impl CharacterBuilder {
             .results
             .iter()
             .any(|r| r.effects_applied.equipment_generation.as_deref() == Some("random_table"));
-        let (equipment_method, equipment_added, equipment_skipped) = if random_table_requested
-            && self.equipment_tables.is_some()
+        let (equipment_method, equipment_added, equipment_skipped) = if let (true, Some(tables)) =
+            (random_table_requested, self.equipment_tables.as_ref())
         {
-            let tables = self.equipment_tables.as_ref().unwrap();
             let mut rng = rand::rng();
             let mut added = 0usize;
             let mut skipped = 0usize;

@@ -20,6 +20,11 @@ use crate::session::Session;
 use crate::shared_session;
 use crate::{error_response, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 
+// 29 args — way over clippy's limit of 7. This function is the session
+// initialization entry point and needs a dedicated refactor story to fold
+// the per-session state into a single ConnectContext struct. Allowing the
+// lint until that refactor lands.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_connect(
     payload: &SessionEventPayload,
     session: &mut Session,
@@ -316,7 +321,7 @@ pub(crate) async fn dispatch_connect(
                                     max_hp: c.core.max_hp,
                                     statuses: c.core.statuses.clone(),
                                     class: c.char_class.as_str().to_string(),
-                                    level: c.core.level as u32,
+                                    level: c.core.level,
                                     portrait_url: None,
                                     current_location: current_location.clone(),
                                     sheet: Some(sheet),
@@ -486,7 +491,7 @@ pub(crate) async fn dispatch_connect(
                                     max_hp: c.core.max_hp,
                                     statuses: c.core.statuses.clone(),
                                     class: c.char_class.as_str().to_string(),
-                                    level: c.core.level as u32,
+                                    level: c.core.level,
                                     portrait_url: None,
                                     current_location: current_location.clone(),
                                     sheet: Some(sheet),
@@ -681,7 +686,7 @@ pub(crate) async fn dispatch_connect(
                                 // Seed lore store from genre pack (story 11-4)
                                 let lore_count = {
                                     let mut store = lore_store.lock().await;
-                                    sidequest_game::seed_lore_from_genre_pack(&mut *store, &pack)
+                                    sidequest_game::seed_lore_from_genre_pack(&mut store, &pack)
                                 };
                                 tracing::info!(
                                     count = lore_count,
@@ -893,6 +898,9 @@ pub(crate) async fn dispatch_connect(
 }
 
 /// Load genre pack, create CharacterBuilder, return first scene message + trope defs + world context.
+// 15 args — same refactor candidate as `dispatch_connect` above. Fold into a
+// `StartCharacterCreationContext` struct in the follow-up refactor.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn start_character_creation(
     builder: &mut Option<CharacterBuilder>,
     trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
@@ -943,7 +951,7 @@ pub(crate) async fn start_character_creation(
     // Seed lore store from genre pack (story 11-4)
     let lore_count = {
         let mut store = lore_store.lock().await;
-        sidequest_game::seed_lore_from_genre_pack(&mut *store, &pack)
+        sidequest_game::seed_lore_from_genre_pack(&mut store, &pack)
     };
     tracing::info!(count = lore_count, genre = %genre, "rag.lore_store_seeded");
 

@@ -14,7 +14,6 @@
 
 use sidequest_agents::preprocessor::preprocess_action;
 use sidequest_agents::preprocessor::preprocess_action_async;
-use sidequest_game::PreprocessedAction;
 
 // ============================================================================
 // AC-2: Async preprocessor produces identical output to sync fallback

@@ -546,6 +546,13 @@ impl RenderQueue {
     /// Returns immediately with `EnqueueResult::Queued` or
     /// `EnqueueResult::Deduplicated`. Returns `Err(QueueError::Full)`
     /// if the queue is at capacity.
+    ///
+    /// Note: 8 args exceeds clippy's default of 7. Each argument is a
+    /// distinct part of the render request (prompt context, style,
+    /// negative prompt, narration for caption, LoRA selection). Folding
+    /// them into a struct would require updating 8 call sites across
+    /// 3 crates and represents an API redesign, not a lint fix.
+    #[allow(clippy::too_many_arguments)]
     pub async fn enqueue(
         &self,
         subject: RenderSubject,

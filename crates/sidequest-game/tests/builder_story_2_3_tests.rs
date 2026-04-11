@@ -13,19 +13,17 @@
 //!   3. Mechanical effects from genre pack applied to initial game state
 //!   4. Character creation completed and handed off to turn loop
 //!   5. State transitions and message flow validated
+//!
 //!   6-11. Choice, freeform, followup, back, confirmation, build, invalid, inventory, anchors
 
 use std::collections::HashMap;
 
 use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, RulesConfig};
-use sidequest_protocol::NonBlankString;
 
 // === New types from story 2-3 (do not exist yet) ===
 use sidequest_game::builder::{
-    AccumulatedChoices, BuilderError, BuilderPhase, CharacterBuilder, HookType, LoreAnchor,
-    NarrativeHook, SceneInputType, SceneResult,
+    BuilderError, BuilderPhase, CharacterBuilder, HookType, SceneInputType,
 };
-use sidequest_game::Character;
 
 // ============================================================================
 // Test fixtures

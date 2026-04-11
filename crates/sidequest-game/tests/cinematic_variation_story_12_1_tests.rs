@@ -13,8 +13,7 @@
 use std::collections::HashMap;
 
 use sidequest_game::{
-    AudioAction, AudioChannel, MoodClassification, MoodContext, MoodKey, MusicDirector,
-    MusicEvalResult,
+    AudioChannel, MoodClassification, MoodContext, MoodKey, MusicDirector, MusicEvalResult,
 };
 use sidequest_genre::{AudioConfig, AudioTheme, AudioVariation, MixerConfig, MoodTrack};
 
@@ -277,8 +276,8 @@ fn track_variation_is_non_exhaustive() {
 fn mood_context_new_fields_exist_with_defaults() {
     let ctx = MoodContext::default();
 
-    assert_eq!(
-        ctx.location_changed, false,
+    assert!(
+        !ctx.location_changed,
         "location_changed should default to false"
     );
     assert_eq!(
@@ -286,14 +285,11 @@ fn mood_context_new_fields_exist_with_defaults() {
         "scene_turn_count should default to 0"
     );
     assert_eq!(ctx.drama_weight, 0.0, "drama_weight should default to 0.0");
-    assert_eq!(
-        ctx.combat_just_ended, false,
+    assert!(
+        !ctx.combat_just_ended,
         "combat_just_ended should default to false"
     );
-    assert_eq!(
-        ctx.session_start, false,
-        "session_start should default to false"
-    );
+    assert!(!ctx.session_start, "session_start should default to false");
 }
 
 /// AC2: MoodContext new fields can be set explicitly.
@@ -642,14 +638,12 @@ fn select_variation_fallback_to_full_when_preferred_unavailable() {
 /// AC4: Constructor indexes themes into per-variation lookup.
 #[test]
 fn music_director_indexes_themes_by_variation() {
-    use sidequest_game::TrackVariation;
-
     let config = config_with_themes();
     let mut director = MusicDirector::new(&config);
 
     // The director should have themed tracks indexed
     // We verify through behavior: selecting an overture should return an overture track
-    let classification = MoodClassification {
+    let _classification = MoodClassification {
         primary: MoodKey::EXPLORATION,
         intensity: 0.4,
         confidence: 0.8,
@@ -713,7 +707,7 @@ fn theme_rotator_uses_variation_keying() {
     );
 
     // Back to exploration with overture conditions
-    let cue2 = director.evaluate("Arriving at the next town", &ctx);
+    let _cue2 = director.evaluate("Arriving at the next town", &ctx);
 
     // Telemetry should show per-variation history keying
     let telemetry = director.telemetry_snapshot();
@@ -847,7 +841,7 @@ fn full_pipeline_combat_end_resolution() {
     assert!(
         cue.track_id
             .as_ref()
-            .map_or(false, |t| t.contains("resolution")),
+            .is_some_and(|t| t.contains("resolution")),
         "post-combat should play a resolution track, got: {:?}",
         cue.track_id
     );
@@ -879,7 +873,7 @@ fn backward_compat_no_themes_still_works() {
 #[test]
 fn backward_compat_new_fields_default_no_regression() {
     let config = config_without_themes();
-    let mut director = MusicDirector::new(&config);
+    let director = MusicDirector::new(&config);
 
     // Default MoodContext (all new fields false/0) should behave like before
     let ctx = MoodContext::default();

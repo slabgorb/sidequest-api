@@ -476,9 +476,8 @@ fn command_result_is_non_exhaustive() {
         _ => {} // This arm only compiles if #[non_exhaustive] is present
     }
 
-    match error {
-        CommandResult::Error(ref s) => assert_eq!(s, "fail"),
-        _ => {}
+    if let CommandResult::Error(ref s) = error {
+        assert_eq!(s, "fail");
     }
 }
 

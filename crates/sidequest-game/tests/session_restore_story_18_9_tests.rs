@@ -28,7 +28,7 @@ use sidequest_game::persistence::{SessionStore, SqliteStore};
 use sidequest_game::state::GameSnapshot;
 use sidequest_game::turn::TurnManager;
 // RED: This module does not exist yet. Dev must create it.
-use sidequest_game::session_restore::{extract_character_state, RestoredCharacterState};
+use sidequest_game::session_restore::extract_character_state;
 use sidequest_protocol::NonBlankString;
 
 // ============================================================================

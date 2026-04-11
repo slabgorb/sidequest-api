@@ -156,7 +156,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
                     continue;
                 }
             };
-            if event_count <= 3 || event_count % 50 == 0 {
+            if event_count <= 3 || event_count.is_multiple_of(50) {
                 tracing::info!(
                     event_count,
                     component = %event.component,

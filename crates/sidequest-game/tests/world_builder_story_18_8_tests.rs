@@ -9,7 +9,6 @@
 //! character stats, NPCs, quests, lore, narrative log, scene context,
 //! tropes, and extras (extra NPCs, extra lore, combat setup).
 
-use sidequest_game::state::GameSnapshot;
 use sidequest_game::world_materialization::{CampaignMaturity, HistoryChapter, WorldBuilder};
 
 // ═══════════════════════════════════════════════════════════════
@@ -195,7 +194,6 @@ fn make_chapter_with_character() -> HistoryChapter {
             personality: Some("Dry-witted, slow to trust.".to_string()),
             description: Some("A broad-shouldered young man.".to_string()),
             gold: Some(15),
-            ..Default::default()
         }),
         ..Default::default()
     }

@@ -25,10 +25,6 @@ use sidequest_genre::{CharCreationChoice, CharCreationScene, MechanicalEffects, 
 // Test fixtures
 // ============================================================================
 
-fn effects_empty() -> MechanicalEffects {
-    MechanicalEffects::default()
-}
-
 /// C&C-style scenes: the_roll (no choices), pronouns, the_mouth.
 fn caverns_scenes() -> Vec<CharCreationScene> {
     vec![
@@ -342,16 +338,19 @@ fn seeded_rng_produces_deterministic_stats() {
     // random implementation — it validates that Dev wires up seed support.
     // Dev should update this test to use the seeded builder API.
     //
-    // For now, we assert they CAN differ (proving randomness works),
-    // and Dev adds a seeded variant that proves determinism.
-    // This is a placeholder that Dev should replace with the seeded API test.
-    let _stats1 = &char1.stats;
-    let _stats2 = &char2.stats;
-
-    // TODO(Dev): Replace with seeded RNG test. For RED phase, we verify
-    // the builder compiles with roll_3d6_strict and produces valid output.
-    // The determinism test requires the RNG injection API.
-    assert!(true, "Placeholder — Dev replaces with seeded RNG assertion");
+    // The seeded-RNG determinism check is blocked on the RNG injection API
+    // (see the NOTE above). For now we assert the minimum invariant both
+    // random and seeded paths must uphold: two successful builds under the
+    // same rules produce non-empty stat sets with the same stat structure.
+    assert!(
+        !char1.stats.is_empty(),
+        "roll_3d6_strict must populate stats on the first build"
+    );
+    assert_eq!(
+        char1.stats.len(),
+        char2.stats.len(),
+        "two builds under identical rules must produce the same number of stats"
+    );
 }
 
 // ============================================================================

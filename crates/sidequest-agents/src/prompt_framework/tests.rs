@@ -62,7 +62,9 @@ fn attention_zone_primacy_not_greater_than_recency() {
 #[test]
 fn attention_zone_same_zone_is_equal() {
     assert_eq!(AttentionZone::Valley, AttentionZone::Valley);
-    assert!(!(AttentionZone::Valley < AttentionZone::Valley));
+    // Same-zone ordering must not strictly precede itself — enforces a strict
+    // weak ordering so Vec::sort() is stable for co-zoned sections.
+    assert!(AttentionZone::Valley >= AttentionZone::Valley);
 }
 
 #[test]
@@ -88,7 +90,7 @@ fn attention_zone_all_ordered_is_sorted() {
 
 #[test]
 fn attention_zone_sorting_vec_produces_correct_order() {
-    let mut zones = vec![
+    let mut zones = [
         AttentionZone::Recency,
         AttentionZone::Primacy,
         AttentionZone::Late,
@@ -169,7 +171,7 @@ fn section_category_roundtrips_through_json() {
 
 #[test]
 fn rule_tier_has_three_variants() {
-    let tiers = vec![RuleTier::Critical, RuleTier::Firm, RuleTier::Coherence];
+    let tiers = [RuleTier::Critical, RuleTier::Firm, RuleTier::Coherence];
     assert_eq!(tiers.len(), 3);
     assert_ne!(tiers[0], tiers[1]);
     assert_ne!(tiers[1], tiers[2]);

@@ -50,8 +50,10 @@ fn test_item(id: &str, name: &str, value: i32) -> Item {
 }
 
 fn merchant_npc(name: &str, items: Vec<Item>) -> Npc {
-    let mut inv = Inventory::default();
-    inv.gold = 500;
+    let mut inv = Inventory {
+        gold: 500,
+        ..Default::default()
+    };
     for item in items {
         inv.add(item, 100).unwrap();
     }
@@ -404,14 +406,17 @@ mod otel_tests {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::Registry;
 
+    /// Shared handle to captured tracing spans: (span_name, [(field_name, field_value)]).
+    type CapturedSpans = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
+
     /// Lightweight span capture layer for testing OTEL emission.
     struct SpanCapture {
-        spans: Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>,
+        spans: CapturedSpans,
     }
 
     impl SpanCapture {
-        fn new() -> (Self, Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>) {
-            let spans = Arc::new(Mutex::new(Vec::new()));
+        fn new() -> (Self, CapturedSpans) {
+            let spans: CapturedSpans = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
                     spans: spans.clone(),

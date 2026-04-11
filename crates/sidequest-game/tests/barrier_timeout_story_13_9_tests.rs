@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig, TurnBarrierResult};
+use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
 use sidequest_game::multiplayer::MultiplayerSession;
 
 mod common;
@@ -184,7 +184,7 @@ async fn named_actions_after_timeout_marks_auto_resolved() {
 
     barrier.submit_action("player-1", "I search the room");
 
-    let result = barrier.wait_for_turn().await;
+    let _result = barrier.wait_for_turn().await;
 
     // After timeout, named_actions should distinguish real vs auto-filled
     let named = barrier.named_actions();

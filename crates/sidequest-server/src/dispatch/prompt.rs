@@ -804,7 +804,7 @@ pub(crate) async fn build_prompt_context(
         {
             let store = ctx.lore_store.lock().await;
             let selected = sidequest_game::select_lore_for_prompt(
-                &*store,
+                &store,
                 lore_budget,
                 priority_ref,
                 query_embedding.as_deref(),
@@ -820,7 +820,7 @@ pub(crate) async fn build_prompt_context(
 
             // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
             let lore_summary = sidequest_game::summarize_lore_retrieval(
-                &*store,
+                &store,
                 &selected,
                 lore_budget,
                 priority_ref,
@@ -855,7 +855,7 @@ pub(crate) async fn build_prompt_context(
         // Acquire the lore store lock for the scope that holds the
         // borrowed `lang_fragments` refs.
         let store = ctx.lore_store.lock().await;
-        let lang_fragments = sidequest_game::query_all_language_knowledge(&*store, ctx.player_id);
+        let lang_fragments = sidequest_game::query_all_language_knowledge(&store, ctx.player_id);
         if !lang_fragments.is_empty() {
             let conlang_text =
                 sidequest_game::format_language_knowledge_for_prompt(&lang_fragments);

@@ -4,10 +4,7 @@
 //! to Vec<HistoryChapter>, and the integration of WorldBuilder with session
 //! creation to produce materialized GameSnapshots at target maturity levels.
 
-use sidequest_game::state::GameSnapshot;
-use sidequest_game::world_materialization::{
-    CampaignMaturity, ChapterCharacter, ChapterNpc, ChapterTrope, HistoryChapter, WorldBuilder,
-};
+use sidequest_game::world_materialization::CampaignMaturity;
 
 // ═══════════════════════════════════════════════════════════════
 // AC-1: Convert raw history JSON to Vec<HistoryChapter>

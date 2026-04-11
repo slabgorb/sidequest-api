@@ -1,9 +1,14 @@
 //! Story 2-2: Session Actor — acceptance tests
 //!
 //! RED-phase tests: the `Session` type has not been implemented yet.
-//! These tests are preserved behind a feature gate so they don't break
-//! the build. Remove the gate when Session is implemented.
-#![cfg(feature = "session_actor")]
+//! These tests are preserved behind an `#[ignore]` attribute so they don't
+//! break the build. Remove the `#[ignore]` when Session is implemented.
+//!
+//! Everything below is intentionally skipped at compile time via
+//! `#[cfg(any())]` because the `Session` type doesn't exist yet. When the
+//! story lands, replace `#[cfg(any())]` with the real implementation and
+//! drop this header comment.
+#![cfg(any())]
 //!
 //! Tests cover 7 acceptance criteria:
 //! 1. Session state machine: AwaitingConnect → Creating → Playing

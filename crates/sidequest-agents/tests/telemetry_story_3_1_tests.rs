@@ -19,7 +19,6 @@ use tracing_subscriber::Registry;
 struct CapturedSpan {
     name: String,
     fields: Vec<(String, String)>,
-    target: String,
 }
 
 /// Layer that captures span creation events with field names and debug values.
@@ -53,7 +52,6 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
         self.captured.lock().unwrap().push(CapturedSpan {
             name: attrs.metadata().name().to_string(),
             fields,
-            target: attrs.metadata().target().to_string(),
         });
     }
 }
@@ -335,8 +333,6 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for RecordCaptureLayer {
 #[test]
 #[ignore = "span contract test — run manually to verify agent.call fields"]
 fn agent_invocation_span_has_required_fields() {
-    use sidequest_agents::client::ClaudeClient;
-
     // Verify that ClaudeClient has a call_agent method by calling it.
     // This is a compile-time contract test — if the method doesn't exist,
     // the test file won't compile, which is an acceptable RED state.

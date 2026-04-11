@@ -5,7 +5,6 @@
 //! StructuredEncounter with string-keyed types, EncounterMetric,
 //! SecondaryStats, EncounterActor, and backward compatibility.
 
-use serde_json;
 use std::collections::HashMap;
 
 // --- Imports for new encounter types ---
@@ -307,7 +306,7 @@ fn secondary_stats_rig_convenience_constructor() {
 
 #[test]
 fn encounter_actor_string_roles() {
-    let actors = vec![
+    let actors = [
         EncounterActor {
             name: "Max".to_string(),
             role: "driver".to_string(),
@@ -365,7 +364,7 @@ fn encounter_actor_serde_roundtrip() {
 #[test]
 fn encounter_phase_variants() {
     // The universal narrative arc: Setup → Opening → Escalation → Climax → Resolution
-    let phases = vec![
+    let phases = [
         EncounterPhase::Setup,
         EncounterPhase::Opening,
         EncounterPhase::Escalation,
@@ -437,29 +436,31 @@ fn game_snapshot_has_encounter_field() {
 
 #[test]
 fn game_snapshot_encounter_serde_roundtrip() {
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(StructuredEncounter {
-        encounter_type: "standoff".to_string(),
-        metric: EncounterMetric {
-            name: "tension".to_string(),
-            current: 7,
-            starting: 0,
-            direction: MetricDirection::Ascending,
-            threshold_high: Some(10),
-            threshold_low: None,
-        },
-        beat: 4,
-        structured_phase: Some(EncounterPhase::Climax),
-        secondary_stats: None,
-        actors: vec![EncounterActor {
-            name: "Angel Eyes".to_string(),
-            role: "duelist".to_string(),
-        }],
-        outcome: None,
-        resolved: false,
-        mood_override: Some("standoff".to_string()),
-        narrator_hints: vec!["The clock strikes noon".to_string()],
-    });
+    let snapshot = GameSnapshot {
+        encounter: Some(StructuredEncounter {
+            encounter_type: "standoff".to_string(),
+            metric: EncounterMetric {
+                name: "tension".to_string(),
+                current: 7,
+                starting: 0,
+                direction: MetricDirection::Ascending,
+                threshold_high: Some(10),
+                threshold_low: None,
+            },
+            beat: 4,
+            structured_phase: Some(EncounterPhase::Climax),
+            secondary_stats: None,
+            actors: vec![EncounterActor {
+                name: "Angel Eyes".to_string(),
+                role: "duelist".to_string(),
+            }],
+            outcome: None,
+            resolved: false,
+            mood_override: Some("standoff".to_string()),
+            narrator_hints: vec!["The clock strikes noon".to_string()],
+        }),
+        ..Default::default()
+    };
 
     let json = serde_json::to_string(&snapshot).expect("serialize snapshot");
     let de: GameSnapshot = serde_json::from_str(&json).expect("deserialize snapshot");
@@ -840,7 +841,7 @@ fn encounter_metric_negative_values_valid() {
 
 #[test]
 fn encounter_resolved_flag_persists() {
-    let mut encounter = StructuredEncounter {
+    let encounter = StructuredEncounter {
         encounter_type: "chase".to_string(),
         metric: EncounterMetric {
             name: "separation".to_string(),

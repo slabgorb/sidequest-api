@@ -319,8 +319,10 @@ impl WorldBuilder {
     /// Filters chapters by maturity (cumulative), applies each chapter's data
     /// to the snapshot, then applies extras (NPCs, lore, combat).
     pub fn build(&self) -> GameSnapshot {
-        let mut snap = GameSnapshot::default();
-        snap.campaign_maturity = self.maturity.clone();
+        let mut snap = GameSnapshot {
+            campaign_maturity: self.maturity.clone(),
+            ..Default::default()
+        };
 
         // Filter chapters by maturity (cumulative — include all at or below target)
         let applicable: Vec<&HistoryChapter> = self
