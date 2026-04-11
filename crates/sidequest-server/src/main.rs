@@ -148,52 +148,27 @@ async fn turn_record_bridge(mut rx: tokio::sync::mpsc::Receiver<TurnRecord>) {
             "TurnRecord → WatcherEvent bridge"
         );
 
-        let patches: Vec<serde_json::Value> = record
-            .patches_applied
-            .iter()
-            .map(|p| {
-                serde_json::json!({
-                    "patch_type": p.patch_type,
-                    "fields_changed": p.fields_changed,
-                })
-            })
-            .collect();
-        let beats_fired: Vec<serde_json::Value> = record
-            .beats_fired
-            .iter()
-            .map(|(name, thresh)| serde_json::json!({"trope": name, "threshold": thresh}))
-            .collect();
-        let spans: Vec<serde_json::Value> = record
-            .spans
-            .iter()
-            .map(|(name, start_ms, dur_ms)| {
-                serde_json::json!({
-                    "name": name,
-                    "start_ms": start_ms,
-                    "duration_ms": dur_ms,
-                })
-            })
-            .collect();
-
-        let mut builder = WatcherEventBuilder::new("orchestrator", WatcherEventType::TurnComplete)
-            .timestamp(record.timestamp)
-            .field("turn_id", record.turn_id)
-            .field("player_input", &record.player_input)
-            .field("classified_intent", record.classified_intent.to_string())
-            .field("agent_name", &record.agent_name)
-            .field("agent_duration_ms", record.agent_duration_ms)
-            .field("token_count_in", record.token_count_in)
-            .field("token_count_out", record.token_count_out)
-            .field("is_degraded", record.is_degraded)
-            .field("narration_len", record.narration.len())
-            .field("patches", &patches)
-            .field("delta_empty", record.delta.is_empty())
-            .field("beats_fired", &beats_fired)
-            .field("spans", &spans);
-        if record.is_degraded {
-            builder = builder.severity(Severity::Warn);
-        }
-        builder.send();
+        // Playtest 2026-04-11: WatcherEventType::TurnComplete emission was
+        // REMOVED from this bridge to fix the OTEL dashboard 2× duplicate-row
+        // bug. Two TurnComplete events were firing per real player turn —
+        // this one (component: "orchestrator") and another from
+        // dispatch/telemetry.rs::emit_telemetry (component: "game"). Both
+        // showed up as separate rows in the dashboard's TimelineTab. The
+        // consolidated emission now lives entirely in emit_telemetry, which
+        // carries the full field set (patches/beats_fired/delta_empty/
+        // narration_len ported from this bridge, plus turn_id/total_duration_ms/
+        // genre/world/extraction_tier from the dispatch path).
+        //
+        // The TurnRecord this bridge consumes is STILL needed below — it
+        // drives the ADR-073 JSONL training-data persistence path and the
+        // SubsystemTracker that emits SubsystemExerciseSummary and
+        // CoverageGap events. The patches/beats_fired/spans serde_json
+        // remappings that previously lived here are also gone — they were
+        // ONLY consumed by the removed TurnComplete builder. The JSONL
+        // writer below serializes the entire `record` struct directly via
+        // serde_json::to_string(&record), so it pulls patches_applied,
+        // beats_fired, and spans straight off the typed TurnRecord without
+        // needing the intermediate Value rebuilds.
 
         // Story 26-2: Emit SubsystemExerciseSummary at tracker's summary interval.
         if tracker.turn_count % tracker.summary_interval == 0 {

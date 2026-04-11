@@ -2040,10 +2040,36 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     persistence::persist_game_state(ctx, narration_text, &clean_narration).await;
 
-    // GM Panel snapshot + timing telemetry
-    telemetry::emit_telemetry(ctx, turn_number, &result, turn_start, preprocess_done, agent_done);
+    // Playtest 2026-04-11: derive patches BEFORE the telemetry emission so
+    // emit_telemetry can include them in the TurnComplete event. Previously
+    // this was computed inside the TurnRecord block below and a duplicate
+    // TurnComplete event was emitted from main.rs::turn_record_bridge with
+    // a different set of fields, producing 2× rows in the dashboard timeline.
+    // The consolidated emission lives in emit_telemetry; main.rs's bridge no
+    // longer emits a competing TurnComplete event (it still drives JSONL
+    // training-data persistence and the SubsystemTracker).
+    let patches_applied = patching::derive_patches_from_delta(&game_delta);
 
-    // ADR-073: Construct and send TurnRecord for training data capture + OTEL bridge.
+    // GM Panel snapshot + timing telemetry — single source of truth for
+    // the dashboard's TurnComplete event. See emit_telemetry's doc comment.
+    telemetry::emit_telemetry(
+        ctx,
+        turn_number,
+        &result,
+        turn_start,
+        preprocess_done,
+        agent_done,
+        &game_delta,
+        &patches_applied,
+        &turn_beats_for_record,
+    );
+
+    // ADR-073: Construct and send TurnRecord for training data capture +
+    // SubsystemTracker. The TurnRecord bridge in main.rs persists records to
+    // JSONL files for training-data capture and accumulates per-agent
+    // invocation counts via SubsystemTracker — those workloads are still
+    // alive. Only the WatcherEvent emission was removed from the bridge to
+    // de-duplicate the dashboard timeline rows.
     if let Some(watcher_tx) = ctx.state.watcher_tx() {
         use sidequest_agents::turn_record::{try_send_record, TurnRecord};
         use sidequest_agents::agents::intent_router::Intent;
@@ -2059,7 +2085,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             .and_then(Intent::from_display_str)
             .unwrap_or(Intent::Exploration);
 
-        let patches_applied = patching::derive_patches_from_delta(&game_delta);
         let after_game_snapshot = ctx.snapshot.clone();
 
         let record = TurnRecord {
