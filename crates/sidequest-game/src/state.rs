@@ -611,11 +611,10 @@ impl GameSnapshot {
 
         span.record(
             "fields_changed",
-            &tracing::field::display(&changed.join(",")),
+            tracing::field::display(&changed.join(",")),
         );
     }
 
-    /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     ///
     /// Each request is resolved using the named NPC's disposition for pricing.
@@ -878,7 +877,8 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
             .iter()
             .enumerate()
             .map(|(i, name)| ExploredLocation {
-                id: String::new(),
+                // Region mode has no separate slug — id mirrors name.
+                id: name.clone(),
                 name: name.clone(),
                 x: i as i32,
                 y: 0,
