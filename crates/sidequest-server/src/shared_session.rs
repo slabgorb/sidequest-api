@@ -83,6 +83,11 @@ pub struct PlayerState {
     /// Raw narrator location string (display text for UI).
     pub display_location: String,
     pub inventory: sidequest_game::Inventory,
+    /// Cached character sheet details (race/stats/abilities/backstory/etc.)
+    /// populated at the end of chargen. `None` before chargen completes.
+    /// This is the single source of truth the PARTY_STATUS builder reads from;
+    /// there is no longer a separate CHARACTER_SHEET message to fall back on.
+    pub sheet: Option<sidequest_protocol::CharacterSheetDetails>,
 }
 
 impl PlayerState {
@@ -107,6 +112,7 @@ impl PlayerState {
             region_id: String::new(),
             display_location: String::new(),
             inventory: sidequest_game::Inventory::default(),
+            sheet: None,
         }
     }
 
@@ -134,6 +140,60 @@ impl PlayerState {
     #[allow(dead_code)]
     pub(crate) fn set_role(&mut self, role: PlayerRole) {
         self.role = role;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PartyMember construction helpers
+// ---------------------------------------------------------------------------
+//
+// PARTY_STATUS is now the single source of truth for per-character state, so
+// every PartyMember construction site should go through these helpers. Doing
+// it in one place means adding a field to PartyMember can't silently skip a
+// construction site.
+
+/// Convert an `Inventory` into the wire-format `InventoryPayload`.
+pub fn inventory_payload_from(inv: &sidequest_game::Inventory) -> sidequest_protocol::InventoryPayload {
+    sidequest_protocol::InventoryPayload {
+        items: inv
+            .carried()
+            .map(|item| sidequest_protocol::InventoryItem {
+                name: item.name.as_str().to_string(),
+                item_type: item.category.as_str().to_string(),
+                equipped: item.equipped,
+                quantity: item.quantity,
+                description: item.description.as_str().to_string(),
+            })
+            .collect(),
+        gold: inv.gold,
+    }
+}
+
+/// Build a `PartyMember` for an observer from their `PlayerState`.
+///
+/// Used by the PARTY_STATUS broadcast path in session_sync and everywhere
+/// else that iterates `SharedGameSession::players`. The acting player in
+/// dispatch/mod.rs builds its own PartyMember inline because the live turn
+/// data on `DispatchContext` is fresher than `PlayerState` until
+/// `sync_from_locals` runs — but it uses this same helper to populate the
+/// `sheet` facet from the cached per-player detail.
+pub fn party_member_from(pid: &str, ps: &PlayerState) -> sidequest_protocol::PartyMember {
+    sidequest_protocol::PartyMember {
+        player_id: pid.to_string(),
+        name: ps.player_name.clone(),
+        character_name: ps
+            .character_name
+            .clone()
+            .unwrap_or_else(|| ps.player_name.clone()),
+        current_hp: ps.character_hp,
+        max_hp: ps.character_max_hp,
+        statuses: vec![],
+        class: ps.character_class.clone(),
+        level: ps.character_level,
+        portrait_url: None,
+        current_location: ps.display_location.clone(),
+        sheet: ps.sheet.clone(),
+        inventory: Some(inventory_payload_from(&ps.inventory)),
     }
 }
 

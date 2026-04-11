@@ -10,9 +10,9 @@ use sidequest_game::builder::CharacterBuilder;
 use sidequest_game::session_restore;
 use sidequest_genre::GenreCode;
 use sidequest_protocol::{
-    AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterSheetPayload,
-    CharacterState, GameMessage, InitialState, InventoryPayload, MapUpdatePayload,
-    NarrationEndPayload, NarrationPayload, PartyMember, PartyStatusPayload, SessionEventPayload,
+    AudioCuePayload, ChapterMarkerPayload, CharacterCreationPayload, CharacterState, GameMessage,
+    InitialState, MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember,
+    PartyStatusPayload, SessionEventPayload,
 };
 
 use crate::npc_context;
@@ -268,30 +268,31 @@ pub(crate) async fn dispatch_connect(
                         };
                         responses.push(ready);
 
-                        // Replay essential state for reconnecting client
-                        // CHARACTER_SHEET
-                        if let Some(character) = saved.snapshot.characters.first() {
-                            responses.push(GameMessage::CharacterSheet {
-                                payload: CharacterSheetPayload {
-                                    name: character.core.name.as_str().to_string(),
-                                    class: character.char_class.as_str().to_string(),
-                                    race: character.race.as_str().to_string(),
-                                    level: character.core.level as u32,
-                                    stats: character
+                        // PARTY_STATUS — single-player reconnect. PARTY_STATUS
+                        // is now the single source of truth for the character
+                        // sheet and inventory (CHARACTER_SHEET / INVENTORY
+                        // messages were deleted), so the reconnecting client
+                        // receives all per-member state in this one message.
+                        {
+                            let member = saved.snapshot.characters.first().map(|c| {
+                                // Build the sheet facet from the saved character.
+                                let sheet = sidequest_protocol::CharacterSheetDetails {
+                                    race: c.race.as_str().to_string(),
+                                    stats: c
                                         .stats
                                         .iter()
                                         .map(|(k, v)| (k.clone(), *v))
                                         .collect(),
-                                    abilities: character
+                                    abilities: c
                                         .hooks
                                         .iter()
                                         .filter(|s| !s.contains("auto-filled"))
                                         .cloned()
                                         .collect(),
-                                    backstory: character.backstory.as_str().to_string(),
-                                    personality: character.core.personality.as_str().to_string(),
-                                    pronouns: character.pronouns.clone(),
-                                    equipment: character
+                                    backstory: c.backstory.as_str().to_string(),
+                                    personality: c.core.personality.as_str().to_string(),
+                                    pronouns: c.pronouns.clone(),
+                                    equipment: c
                                         .core
                                         .inventory
                                         .items
@@ -304,12 +305,35 @@ pub(crate) async fn dispatch_connect(
                                             }
                                         })
                                         .collect(),
+                                };
+                                // Inventory facet from the live dispatch-scope `inventory`.
+                                let inventory_payload =
+                                    crate::shared_session::inventory_payload_from(inventory);
+                                PartyMember {
+                                    player_id: player_id.to_string(),
+                                    name: player_name_store
+                                        .as_deref()
+                                        .unwrap_or("Player")
+                                        .to_string(),
+                                    character_name: c.core.name.as_str().to_string(),
+                                    current_hp: c.core.hp,
+                                    max_hp: c.core.max_hp,
+                                    statuses: c.core.statuses.clone(),
+                                    class: c.char_class.as_str().to_string(),
+                                    level: c.core.level as u32,
                                     portrait_url: None,
                                     current_location: current_location.clone(),
-                                },
+                                    sheet: Some(sheet),
+                                    inventory: Some(inventory_payload),
+                                }
+                            });
+                            let members = member.into_iter().collect();
+                            responses.push(GameMessage::PartyStatus {
+                                payload: PartyStatusPayload { members },
                                 player_id: player_id.to_string(),
                             });
                         }
+
 
                         // CHAPTER_MARKER for current location
                         if !saved.snapshot.location.is_empty() {
@@ -322,14 +346,91 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
-                        // Last NARRATION — recap or last narrative log entry
-                        let recap_text = saved.recap.clone().or_else(|| {
-                            saved
-                                .snapshot
-                                .narrative_log
-                                .last()
-                                .map(|e| e.content.clone())
-                        });
+                        // Last NARRATION — recap, last narrative log entry, or
+                        // a location-based fallback built from the current
+                        // RoomDef description. The fallback case was added
+                        // after sq-playtest 2026-04-09 found that a player
+                        // could reconnect into a valid session (correct
+                        // stats, correct location) with a BLANK narrative
+                        // panel whenever `narrative_log` had no rows — e.g.
+                        // if the player closed the tab right after chargen
+                        // without completing a turn. A silent blank panel
+                        // is the worst possible state: the player has no
+                        // "what was I doing?" context and nothing to react
+                        // to.
+                        //
+                        // Source priority:
+                        //   1. `saved.recap` — rich "Previously On..." format
+                        //      generated from the last 3 narrative_log rows
+                        //      (built by PersistenceWorker::load).
+                        //   2. `saved.snapshot.narrative_log.last()` — raw
+                        //      last entry if recap was skipped for any reason.
+                        //   3. Location fallback: look up the current room in
+                        //      the genre pack's cartography.rooms list and
+                        //      synthesize a "You find yourself at NAME. DESC"
+                        //      string. Guaranteed to produce narration as long
+                        //      as the room is in the genre pack.
+                        //   4. Terminal fallback: "You find yourself at
+                        //      {location}." — plain text from snapshot.location.
+                        let (recap_text, recap_source) = {
+                            if let Some(text) = saved.recap.clone() {
+                                (Some(text), "recap")
+                            } else if let Some(entry) =
+                                saved.snapshot.narrative_log.last()
+                            {
+                                (Some(entry.content.clone()), "narrative_log_last")
+                            } else {
+                                // Location fallback: pull the current RoomDef
+                                // from the genre pack. Same loader pattern as
+                                // the room_graph backfill above — keep it
+                                // inline rather than factored so future edits
+                                // can see both branches together.
+                                let current_room_desc: Option<String> =
+                                    GenreCode::new(genre)
+                                        .ok()
+                                        .and_then(|gc| {
+                                            state
+                                                .genre_cache()
+                                                .get_or_load(&gc, state.genre_loader())
+                                                .ok()
+                                        })
+                                        .and_then(|pack| pack.worlds.get(world).cloned())
+                                        .and_then(|w| w.cartography.rooms.clone())
+                                        .and_then(|rooms| {
+                                            rooms
+                                                .into_iter()
+                                                .find(|r| r.id == saved.snapshot.location)
+                                                .map(|r| match r.description.as_deref() {
+                                                    Some(desc) if !desc.is_empty() => format!(
+                                                        "You find yourself at {}.\n\n{}",
+                                                        r.name, desc
+                                                    ),
+                                                    _ => format!("You find yourself at {}.", r.name),
+                                                })
+                                        });
+                                if let Some(text) = current_room_desc {
+                                    (Some(text), "room_description_fallback")
+                                } else if !saved.snapshot.location.is_empty() {
+                                    (
+                                        Some(format!(
+                                            "You find yourself at {}.",
+                                            saved.snapshot.location
+                                        )),
+                                        "location_only_fallback",
+                                    )
+                                } else {
+                                    (None, "none")
+                                }
+                            }
+                        };
+                        WatcherEventBuilder::new("narration", WatcherEventType::StateTransition)
+                            .field("event", "reconnect.narration_source")
+                            .field("source", recap_source)
+                            .field("has_text", recap_text.is_some())
+                            .field("location", saved.snapshot.location.as_str())
+                            .field("narrative_log_rows", saved.snapshot.narrative_log.len())
+                            .field("player_id", player_id)
+                            .send();
                         if let Some(text) = recap_text {
                             responses.push(GameMessage::Narration {
                                 payload: NarrationPayload {
@@ -345,21 +446,64 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
-                        // PARTY_STATUS — single player reconnect sends only
-                        // the first character (the player's) to avoid duplication
-                        // from stale snapshot.characters entries.
+                        // PARTY_STATUS — single-player reconnect. PARTY_STATUS
+                        // is now the single source of truth for the character
+                        // sheet and inventory (CHARACTER_SHEET / INVENTORY
+                        // messages were deleted), so the reconnecting client
+                        // receives all per-member state in this one message.
                         {
-                            let member = saved.snapshot.characters.first().map(|c| PartyMember {
-                                player_id: player_id.to_string(),
-                                name: player_name_store.as_deref().unwrap_or("Player").to_string(),
-                                character_name: c.core.name.as_str().to_string(),
-                                current_hp: c.core.hp,
-                                max_hp: c.core.max_hp,
-                                statuses: c.core.statuses.clone(),
-                                class: c.char_class.as_str().to_string(),
-                                level: c.core.level as u32,
-                                portrait_url: None,
-                                current_location: current_location.clone(),
+                            let member = saved.snapshot.characters.first().map(|c| {
+                                // Build the sheet facet from the saved character.
+                                let sheet = sidequest_protocol::CharacterSheetDetails {
+                                    race: c.race.as_str().to_string(),
+                                    stats: c
+                                        .stats
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), *v))
+                                        .collect(),
+                                    abilities: c
+                                        .hooks
+                                        .iter()
+                                        .filter(|s| !s.contains("auto-filled"))
+                                        .cloned()
+                                        .collect(),
+                                    backstory: c.backstory.as_str().to_string(),
+                                    personality: c.core.personality.as_str().to_string(),
+                                    pronouns: c.pronouns.clone(),
+                                    equipment: c
+                                        .core
+                                        .inventory
+                                        .items
+                                        .iter()
+                                        .map(|i| {
+                                            if i.equipped {
+                                                format!("{} [equipped]", i.name)
+                                            } else {
+                                                i.name.as_str().to_string()
+                                            }
+                                        })
+                                        .collect(),
+                                };
+                                // Inventory facet from the live dispatch-scope `inventory`.
+                                let inventory_payload =
+                                    crate::shared_session::inventory_payload_from(inventory);
+                                PartyMember {
+                                    player_id: player_id.to_string(),
+                                    name: player_name_store
+                                        .as_deref()
+                                        .unwrap_or("Player")
+                                        .to_string(),
+                                    character_name: c.core.name.as_str().to_string(),
+                                    current_hp: c.core.hp,
+                                    max_hp: c.core.max_hp,
+                                    statuses: c.core.statuses.clone(),
+                                    class: c.char_class.as_str().to_string(),
+                                    level: c.core.level as u32,
+                                    portrait_url: None,
+                                    current_location: current_location.clone(),
+                                    sheet: Some(sheet),
+                                    inventory: Some(inventory_payload),
+                                }
                             });
                             let members = member.into_iter().collect();
                             responses.push(GameMessage::PartyStatus {
@@ -401,6 +545,7 @@ pub(crate) async fn dispatch_connect(
                                         .discovered_regions
                                         .iter()
                                         .map(|name| sidequest_protocol::ExploredLocation {
+                                            id: String::new(),
                                             name: name.clone(),
                                             x: 0,
                                             y: 0,
@@ -467,6 +612,13 @@ pub(crate) async fn dispatch_connect(
                                                 .collect(),
                                         }
                                     });
+                            super::emit_map_update_telemetry(
+                                "reconnect",
+                                player_id,
+                                &saved.snapshot.location,
+                                &explored_locs,
+                                cartography_meta.as_ref(),
+                            );
                             responses.push(GameMessage::MapUpdate {
                                 payload: MapUpdatePayload {
                                     current_location: saved.snapshot.location.clone(),
@@ -482,30 +634,11 @@ pub(crate) async fn dispatch_connect(
                                 location = %saved.snapshot.location,
                                 "map_update.reconnect — replayed explored state for automapper"
                             );
-                            WatcherEventBuilder::new("map", WatcherEventType::StateTransition)
-                                .field("event", "map_update.reconnect")
-                                .field("explored_count", explored_count)
-                                .field("location", saved.snapshot.location.as_str())
-                                .send();
                         }
 
-                        // INVENTORY — replay carried items so the client panel populates
-                        responses.push(GameMessage::Inventory {
-                            payload: InventoryPayload {
-                                items: inventory
-                                    .carried()
-                                    .map(|item| sidequest_protocol::InventoryItem {
-                                        name: item.name.as_str().to_string(),
-                                        item_type: item.category.as_str().to_string(),
-                                        equipped: item.equipped,
-                                        quantity: item.quantity,
-                                        description: item.description.as_str().to_string(),
-                                    })
-                                    .collect(),
-                                gold: inventory.gold,
-                            },
-                            player_id: player_id.to_string(),
-                        });
+                        // INVENTORY reconnect-replay was deleted: inventory is
+                        // now nested inside the PARTY_STATUS above. OTEL still
+                        // fires so the GM panel keeps its reconnect marker.
                         WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
                             .field("event", "inventory.reconnect")
                             .field("item_count", inventory.carried().count())
@@ -984,6 +1117,15 @@ pub(crate) async fn dispatch_character_creation(
         None => return vec![error_response(player_id, "No character builder active")],
     };
 
+    // Pack lookup for Confirmation-phase summary rendering. Loaded once here
+    // because `scene` / `continue` can both transition into Confirmation after
+    // apply_choice / apply_auto_advance, and the confirmation summary renderer
+    // needs the pack to resolve `starting_equipment` (60798b6).
+    let confirmation_pack = session
+        .genre_slug()
+        .and_then(|g| GenreCode::new(g).ok())
+        .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok());
+
     let phase = payload.phase.as_str();
     tracing::info!(phase = %phase, player_id = %player_id, "Character creation phase");
 
@@ -1031,7 +1173,22 @@ pub(crate) async fn dispatch_character_creation(
             // (or to Confirmation). Display-only scenes are now first-class —
             // they get their own message with input_type="continue" and wait
             // for the player to acknowledge.
-            vec![b.to_scene_message(player_id)]
+            if b.is_confirmation() {
+                match confirmation_pack.as_ref() {
+                    Some(pack) => vec![super::chargen_summary::render_confirmation_summary(
+                        b,
+                        pack,
+                        player_name_store.as_deref(),
+                        player_id,
+                    )],
+                    None => vec![error_response(
+                        player_id,
+                        "Failed to load genre pack for confirmation summary",
+                    )],
+                }
+            } else {
+                vec![b.to_scene_message(player_id)]
+            }
         }
         "continue" => {
             // Player acknowledged a display-only scene. Advance and emit
@@ -1047,7 +1204,22 @@ pub(crate) async fn dispatch_character_creation(
                     &format!("Cannot continue from current scene: {:?}", e),
                 )];
             }
-            vec![b.to_scene_message(player_id)]
+            if b.is_confirmation() {
+                match confirmation_pack.as_ref() {
+                    Some(pack) => vec![super::chargen_summary::render_confirmation_summary(
+                        b,
+                        pack,
+                        player_name_store.as_deref(),
+                        player_id,
+                    )],
+                    None => vec![error_response(
+                        player_id,
+                        "Failed to load genre pack for confirmation summary",
+                    )],
+                }
+            } else {
+                vec![b.to_scene_message(player_id)]
+            }
         }
         "confirmation" => {
             // Story 30-1: Build the character — use the name from the name-entry scene
@@ -1805,41 +1977,35 @@ pub(crate) async fn dispatch_character_creation(
                         result
                     };
 
-                    // Emit CHARACTER_SHEET for the UI overlay
-                    let char_sheet = GameMessage::CharacterSheet {
-                        payload: CharacterSheetPayload {
-                            name: character.core.name.as_str().to_string(),
-                            class: character.char_class.as_str().to_string(),
-                            race: character.race.as_str().to_string(),
-                            level: character.core.level as u32,
-                            stats: character
-                                .stats
-                                .iter()
-                                .map(|(k, v)| (k.clone(), *v))
-                                .collect(),
-                            abilities: character
-                                .hooks
-                                .iter()
-                                .filter(|s| !s.contains("auto-filled"))
-                                .cloned()
-                                .collect(),
-                            backstory: character.backstory.as_str().to_string(),
-                            personality: character.core.personality.as_str().to_string(),
-                            pronouns: character.pronouns.clone(),
-                            equipment: inventory
-                                .carried()
-                                .map(|i| {
-                                    if i.equipped {
-                                        format!("{} [equipped]", i.name)
-                                    } else {
-                                        i.name.as_str().to_string()
-                                    }
-                                })
-                                .collect(),
-                            portrait_url: None,
-                            current_location: current_location.clone(),
-                        },
-                        player_id: player_id.to_string(),
+                    // Build the character sheet facet for the PlayerState cache.
+                    // This used to be emitted as a standalone CHARACTER_SHEET message;
+                    // now it's stashed on PlayerState and surfaces via PARTY_STATUS.
+                    let built_sheet = sidequest_protocol::CharacterSheetDetails {
+                        race: character.race.as_str().to_string(),
+                        stats: character
+                            .stats
+                            .iter()
+                            .map(|(k, v)| (k.clone(), *v))
+                            .collect(),
+                        abilities: character
+                            .hooks
+                            .iter()
+                            .filter(|s| !s.contains("auto-filled"))
+                            .cloned()
+                            .collect(),
+                        backstory: character.backstory.as_str().to_string(),
+                        personality: character.core.personality.as_str().to_string(),
+                        pronouns: character.pronouns.clone(),
+                        equipment: inventory
+                            .carried()
+                            .map(|i| {
+                                if i.equipped {
+                                    format!("{} [equipped]", i.name)
+                                } else {
+                                    i.name.as_str().to_string()
+                                }
+                            })
+                            .collect(),
                     };
 
                     // Emit the character's backstory as a prose narration so
@@ -1908,6 +2074,7 @@ pub(crate) async fn dispatch_character_creation(
                                         character.char_class.as_str().to_string();
                                     transferred.inventory = inventory.clone();
                                     transferred.character_xp = character.core.xp;
+                                    transferred.sheet = Some(built_sheet.clone());
                                     if let Some(ref cj) = *character_json_store {
                                         transferred.character_json = Some(cj.clone());
                                     }
@@ -1994,6 +2161,7 @@ pub(crate) async fn dispatch_character_creation(
                                     p.character_class = character.char_class.as_str().to_string();
                                     p.inventory = inventory.clone();
                                     p.character_xp = character.core.xp;
+                                    p.sheet = Some(built_sheet.clone());
                                     if let Some(ref cj) = *character_json_store {
                                         p.character_json = Some(cj.clone());
                                     }
@@ -2125,46 +2293,23 @@ pub(crate) async fn dispatch_character_creation(
                             if ss.players.len() <= 1 {
                                 tracing::debug!("Skipping connect PartyStatus — single player, dispatch will send");
                             } else {
+                                // The acting player's PlayerState was just populated
+                                // above with live turn data (character/inventory/sheet),
+                                // so every member can be built via the shared helper.
+                                // `current_location` on the acting player's PlayerState
+                                // may lag — override just that field.
                                 let members: Vec<PartyMember> = ss
                                     .players
                                     .iter()
                                     .map(|(pid, ps)| {
+                                        let mut m =
+                                            crate::shared_session::party_member_from(pid, ps);
                                         if pid == player_id {
-                                            // Current player — use local character data
-                                            PartyMember {
-                                                player_id: pid.clone(),
-                                                name: ps.player_name.clone(),
-                                                character_name: character
-                                                    .core
-                                                    .name
-                                                    .as_str()
-                                                    .to_string(),
-                                                current_hp: character.core.hp,
-                                                max_hp: character.core.max_hp,
-                                                statuses: character.core.statuses.clone(),
-                                                class: character.char_class.as_str().to_string(),
-                                                level: character.core.level as u32,
-                                                portrait_url: None,
-                                                current_location: current_location.clone(),
-                                            }
-                                        } else {
-                                            // Other player — use PlayerState fields
-                                            PartyMember {
-                                                player_id: pid.clone(),
-                                                name: ps.player_name.clone(),
-                                                character_name: ps
-                                                    .character_name
-                                                    .clone()
-                                                    .unwrap_or_else(|| ps.player_name.clone()),
-                                                current_hp: ps.character_hp,
-                                                max_hp: ps.character_max_hp,
-                                                statuses: vec![],
-                                                class: ps.character_class.clone(),
-                                                level: ps.character_level,
-                                                portrait_url: None,
-                                                current_location: ps.display_location.clone(),
-                                            }
+                                            // Force live statuses + location for the acting player.
+                                            m.statuses = character.core.statuses.clone();
+                                            m.current_location = current_location.clone();
                                         }
+                                        m
                                     })
                                     .collect();
                                 if !members.is_empty() {
@@ -2326,7 +2471,7 @@ pub(crate) async fn dispatch_character_creation(
                     // if "ready" arrives before the narration flushes the
                     // opening text is wiped.  Placing "ready" last ensures all
                     // turn-1 messages are delivered first.
-                    let mut msgs = vec![complete, char_sheet, backstory_narration, backstory_end];
+                    let mut msgs = vec![complete, backstory_narration, backstory_end];
                     // Catch-up narration slots in after backstory, before intro/ready.
                     // The joining player sees: backstory → "here's what's been happening" → opening scene.
                     msgs.extend(catch_up_messages);

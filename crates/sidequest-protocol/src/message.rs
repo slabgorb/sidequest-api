@@ -171,23 +171,11 @@ pub enum GameMessage {
         player_id: String,
     },
 
-    /// Full character details for sheet overlay.
-    #[serde(rename = "CHARACTER_SHEET")]
-    CharacterSheet {
-        /// The typed payload for this message.
-        payload: CharacterSheetPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
-
-    /// Full inventory snapshot.
-    #[serde(rename = "INVENTORY")]
-    Inventory {
-        /// The typed payload for this message.
-        payload: InventoryPayload,
-        /// The player who sent this message.
-        player_id: String,
-    },
+    // NOTE: CHARACTER_SHEET and INVENTORY variants were removed in 2026-04.
+    // Per-character sheet and inventory state now live on `PartyMember`
+    // (`sheet` and `inventory` fields) and are broadcast via PARTY_STATUS.
+    // This collapses three message types into one, eliminates the
+    // observer-null race condition, and makes teammate gear visible.
 
     /// World map state for map overlay.
     #[serde(rename = "MAP_UPDATE")]
@@ -593,41 +581,8 @@ pub struct PartyStatusPayload {
     pub members: Vec<PartyMember>,
 }
 
-/// Character sheet details.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CharacterSheetPayload {
-    /// Character name.
-    pub name: String,
-    /// Character class.
-    pub class: String,
-    /// Character race/origin.
-    #[serde(default)]
-    pub race: String,
-    /// Character level.
-    pub level: u32,
-    /// Ability scores / stats.
-    pub stats: HashMap<String, i32>,
-    /// Known abilities.
-    pub abilities: Vec<String>,
-    /// Character backstory.
-    pub backstory: String,
-    /// Personality trait.
-    #[serde(default)]
-    pub personality: String,
-    /// Pronouns.
-    #[serde(default)]
-    pub pronouns: String,
-    /// Equipped/carried items.
-    #[serde(default)]
-    pub equipment: Vec<String>,
-    /// Portrait image URL.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub portrait_url: Option<String>,
-    /// Current location name (for character sheet display).
-    #[serde(default)]
-    pub current_location: String,
-}
+// CharacterSheetPayload removed 2026-04. See `CharacterSheetDetails` (nested
+// inside `PartyMember.sheet`) for the replacement.
 
 /// Full inventory snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1034,6 +989,13 @@ pub struct CreationChoice {
 }
 
 /// A party member in PARTY_STATUS.
+///
+/// PARTY_STATUS is the single source of truth for all per-character state,
+/// including the character sheet (`sheet`) and inventory (`inventory`) facets.
+/// Observers receive the full sheet and inventory for every member, which is
+/// what enables "look at your teammate's gear" affordances and removes the
+/// old reactive-null race condition where client-side state was gated on
+/// separate CHARACTER_SHEET / INVENTORY messages that never reached observers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartyMember {
@@ -1060,6 +1022,41 @@ pub struct PartyMember {
     /// Current location name (for party panel display).
     #[serde(default)]
     pub current_location: String,
+    /// Full character sheet — `None` until the member completes chargen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheet: Option<CharacterSheetDetails>,
+    /// Full inventory snapshot — `None` until the member has a loadout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inventory: Option<InventoryPayload>,
+}
+
+/// Character sheet details nested inside `PartyMember`.
+///
+/// Fields that already exist on `PartyMember` (`name`, `class`, `level`,
+/// `portrait_url`, `current_location`) are intentionally NOT duplicated here —
+/// the party member fields remain the single place those values live.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CharacterSheetDetails {
+    /// Character race/origin.
+    #[serde(default)]
+    pub race: String,
+    /// Ability scores / stats.
+    pub stats: HashMap<String, i32>,
+    /// Known abilities.
+    pub abilities: Vec<String>,
+    /// Character backstory.
+    #[serde(default)]
+    pub backstory: String,
+    /// Personality trait.
+    #[serde(default)]
+    pub personality: String,
+    /// Pronouns.
+    #[serde(default)]
+    pub pronouns: String,
+    /// Equipped/carried items as display strings.
+    #[serde(default)]
+    pub equipment: Vec<String>,
 }
 
 /// An inventory item.
@@ -1083,7 +1080,14 @@ pub struct InventoryItem {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExploredLocation {
-    /// Location name.
+    /// Stable room/location identifier (slug). In room graph mode this is
+    /// the RoomDef id that `RoomExitInfo.target` references; the UI uses
+    /// this to join exits to rooms. Empty string when not in room graph
+    /// mode (`#[serde(default)]` makes it backward-compatible for the
+    /// cartography region flow that only cares about `name`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// Location name (display).
     pub name: String,
     /// X coordinate on map (0 when no coordinate data available).
     #[serde(default)]

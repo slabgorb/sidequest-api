@@ -196,6 +196,7 @@ pub fn build_room_graph_explored(
             let tactical_grid = parse_room_grid(room);
 
             ExploredLocation {
+                id: room.id.clone(),
                 name: room.name.clone(),
                 x: 0,
                 y: 0,
