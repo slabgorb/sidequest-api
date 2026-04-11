@@ -349,6 +349,48 @@ pub enum GameMessage {
         /// The player who sent this message.
         player_id: String,
     },
+
+    /// Server asks a player to throw dice for a confrontation check (story 34-2 / ADR-074).
+    ///
+    /// Broadcast to all clients during the reveal phase, after the narrator sets
+    /// the scene. Contains the DC (revealed NOW, not during sealed phase), the
+    /// dice pool, the stat modifier, and narrator flavor. The `payload.player_id`
+    /// identifies who must throw; other clients watch.
+    #[serde(rename = "DICE_REQUEST")]
+    DiceRequest {
+        /// The typed payload for this message.
+        payload: DiceRequestPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
+
+    /// Rolling player submits a throw gesture to the server (story 34-2 / ADR-074).
+    ///
+    /// Contains physics parameters (velocity, angular, position) captured from the
+    /// drag-and-flick gesture. The server authority model uses these for animation
+    /// replay only — the outcome is determined server-side from an independent RNG
+    /// seed. Sent by the rolling player only; spectators cannot submit throws.
+    #[serde(rename = "DICE_THROW")]
+    DiceThrow {
+        /// The typed payload for this message.
+        payload: DiceThrowPayload,
+        /// The player who sent this message.
+        player_id: String,
+    },
+
+    /// Server broadcasts the resolved dice outcome to all clients (story 34-2 / ADR-074).
+    ///
+    /// Contains the raw die faces, total, outcome classification, and the physics
+    /// seed plus throw parameters needed for deterministic client-side replay.
+    /// All clients run identical Rapier physics from the same seed + throw params,
+    /// producing visually identical animations regardless of who threw.
+    #[serde(rename = "DICE_RESULT")]
+    DiceResult {
+        /// The typed payload for this message.
+        payload: DiceResultPayload,
+        /// The player who sent this message (typically "server").
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -1402,4 +1444,138 @@ pub struct TacticalActionPayload {
     pub target: Option<[u32; 2]>,
     /// Ability being used (for target actions).
     pub ability: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Dice resolution protocol (story 34-2, ADR-074)
+// ---------------------------------------------------------------------------
+
+/// Specification for one group of dice in a roll (story 34-2).
+///
+/// A dice pool is `Vec<DieSpec>` — e.g., `[{sides: 20, count: 1}]` for a single
+/// d20, or `[{sides: 6, count: 4}, {sides: 10, count: 2}]` for 4d6 + 2d10 thrown
+/// together in one gesture. Supported sides per ADR-074: 4, 6, 8, 10, 12, 20, 100.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DieSpec {
+    /// Number of faces on each die in this group.
+    pub sides: u32,
+    /// How many dice of this type to throw.
+    pub count: u32,
+}
+
+/// Throw gesture parameters captured from the drag-and-flick interaction (story 34-2).
+///
+/// Server authority model (ADR-074): these parameters control animation aesthetics
+/// — angle, force, tumble path — but NOT the outcome. The server generates a
+/// cryptographic seed independently. All clients run identical Rapier physics
+/// from the same seed + throw params, producing identical visual animation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThrowParams {
+    /// Initial linear velocity vector `[x, y, z]`.
+    pub velocity: [f32; 3],
+    /// Initial angular velocity `[x, y, z]` — spin around each axis.
+    pub angular: [f32; 3],
+    /// Release point on screen, normalized `[x, y]` in `[0.0, 1.0]`.
+    pub position: [f32; 2],
+}
+
+/// Outcome classification for a resolved dice roll (story 34-2, ADR-074).
+///
+/// The narrator uses this to shape prose tone — crit successes produce triumphant
+/// narration, crit fails produce dread or comedy depending on context. `CritFail`
+/// is distinguishable from plain `Fail` on the wire so the narrator can pick a
+/// different register.
+///
+/// `#[non_exhaustive]` allows future additions (e.g., `NearMiss` for genre-specific
+/// resolution systems) without breaking downstream exhaustive matches. Follows the
+/// `FactCategory` precedent in this crate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum RollOutcome {
+    /// Natural maximum on the primary die (e.g., nat 20 on d20). Always succeeds
+    /// dramatically regardless of DC.
+    CritSuccess,
+    /// Total (sum of rolls + modifier) meets or exceeds the DC.
+    Success,
+    /// Total falls short of the DC but was not a critical failure.
+    Fail,
+    /// Natural minimum on the primary die (e.g., nat 1 on d20). Always fails
+    /// dramatically regardless of modifier.
+    CritFail,
+}
+
+/// Server -> client: request a dice roll during the reveal phase (story 34-2).
+///
+/// Broadcast to all clients; the rolling player is identified by `player_id`
+/// (note: this is the *payload* player_id for who must throw, distinct from the
+/// envelope `player_id` on the `GameMessage::DiceRequest` variant which is
+/// typically "server"). Spectators see the same DC and dice configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiceRequestPayload {
+    /// Correlation ID matching the eventual `DiceResult`. Also used by the
+    /// rolling player when submitting a `DiceThrow`.
+    pub request_id: String,
+    /// Player who must throw the dice.
+    pub player_id: String,
+    /// Display name of the character making the check.
+    pub character_name: String,
+    /// Dice pool to throw (one or more `DieSpec` groups).
+    pub dice: Vec<DieSpec>,
+    /// Stat modifier applied to the sum of rolls. Can be negative (penalties).
+    pub modifier: i32,
+    /// Ability name from `BeatDef.stat_check` (e.g., "dexterity", "strength").
+    pub stat: String,
+    /// Difficulty class the total must meet or exceed. Revealed HERE, not during
+    /// the sealed phase (ADR-074: DC-reveal-at-roll-time tension mechanic).
+    pub difficulty: u32,
+    /// Narrator flavor text for the dice tray UI — sets the scene for the throw.
+    pub context: String,
+}
+
+/// Client -> server: rolling player submits a throw gesture (story 34-2).
+///
+/// Matched to the original `DiceRequest` via `request_id`. The server uses the
+/// `throw_params` for animation replay parameters but determines the outcome
+/// independently from an RNG seed.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiceThrowPayload {
+    /// Correlation ID matching the triggering `DiceRequest`.
+    pub request_id: String,
+    /// Physics parameters captured from the drag-and-flick gesture.
+    pub throw_params: ThrowParams,
+}
+
+/// Server -> all clients: resolved dice roll outcome (story 34-2).
+///
+/// Contains everything needed to replay identical physics and display the
+/// outcome: raw die faces, total, DC, outcome classification, physics seed,
+/// and the echoed throw parameters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiceResultPayload {
+    /// Correlation ID matching the original `DiceRequest`.
+    pub request_id: String,
+    /// Player who threw the dice.
+    pub player_id: String,
+    /// Display name of the character that rolled.
+    pub character_name: String,
+    /// Raw die faces in the order they were rolled, e.g., `[17]` or `[3, 5, 2, 6]`.
+    pub rolls: Vec<u32>,
+    /// Stat modifier applied to the sum (can be negative).
+    pub modifier: i32,
+    /// `sum(rolls) + modifier` — final check total.
+    pub total: u32,
+    /// Difficulty class echoed from the `DiceRequest` for UI display.
+    pub difficulty: u32,
+    /// Outcome classification — feeds the narrator prompt for tone shaping.
+    pub outcome: RollOutcome,
+    /// Deterministic physics seed. All clients run identical Rapier simulation
+    /// from this seed + `throw_params` to produce the same visual animation.
+    pub seed: u64,
+    /// Throw gesture parameters echoed back for client-side replay.
+    pub throw_params: ThrowParams,
 }

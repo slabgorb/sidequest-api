@@ -6,10 +6,10 @@
 //!   - GameMessage::DiceThrow variant      (client -> server, rolling player)
 //!   - GameMessage::DiceResult variant     (server -> all clients broadcast)
 //!   - DiceRequestPayload { request_id, player_id, character_name, dice,
-//!                          modifier, stat, difficulty, context }
+//!     modifier, stat, difficulty, context }
 //!   - DiceThrowPayload   { request_id, throw_params }
 //!   - DiceResultPayload  { request_id, player_id, character_name, rolls,
-//!                          modifier, total, difficulty, outcome, seed, throw_params }
+//!     modifier, total, difficulty, outcome, seed, throw_params }
 //!   - DieSpec            { sides, count }
 //!   - ThrowParams        { velocity: [f32;3], angular: [f32;3], position: [f32;2] }
 //!   - RollOutcome enum   { CritSuccess, Success, Fail, CritFail }
@@ -154,10 +154,7 @@ fn dice_request_supports_pool_of_dice() {
         player_id: "p1".to_string(),
         character_name: "Kira".to_string(),
         dice: vec![
-            DieSpec {
-                sides: 6,
-                count: 4,
-            },
+            DieSpec { sides: 6, count: 4 },
             DieSpec {
                 sides: 10,
                 count: 2,
@@ -244,8 +241,7 @@ fn roll_outcome_all_four_variants_round_trip() {
         RollOutcome::CritFail,
     ] {
         let json = serde_json::to_string(&outcome).expect("serialize RollOutcome");
-        let restored: RollOutcome =
-            serde_json::from_str(&json).expect("deserialize RollOutcome");
+        let restored: RollOutcome = serde_json::from_str(&json).expect("deserialize RollOutcome");
         assert_eq!(
             std::mem::discriminant(&outcome),
             std::mem::discriminant(&restored),
@@ -387,8 +383,7 @@ fn dice_result_round_trip_with_pool_rolls() {
         player_id: "server".to_string(),
     };
     let json = serde_json::to_string(&msg).expect("serialize pool DiceResult");
-    let restored: GameMessage =
-        serde_json::from_str(&json).expect("deserialize pool DiceResult");
+    let restored: GameMessage = serde_json::from_str(&json).expect("deserialize pool DiceResult");
     if let GameMessage::DiceResult { payload, .. } = restored {
         assert_eq!(payload.rolls, vec![3, 5, 2, 6]);
         assert_eq!(payload.total, 16);
