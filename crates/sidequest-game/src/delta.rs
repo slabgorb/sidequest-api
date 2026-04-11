@@ -146,9 +146,9 @@ pub fn compute_delta(before: &StateSnapshot, after: &StateSnapshot) -> StateDelt
 
     span.record(
         "fields_changed",
-        &tracing::field::display(&changed.join(",")),
+        tracing::field::display(&changed.join(",")),
     );
-    span.record("is_empty", &delta.is_empty());
+    span.record("is_empty", delta.is_empty());
 
     delta
 }

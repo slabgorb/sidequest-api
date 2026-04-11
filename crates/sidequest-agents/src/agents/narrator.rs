@@ -248,11 +248,14 @@ DIALOGUE NARRATION RULES (NPC interaction):\n\
 - NEVER speak for the player character. Only NPCs talk.\n\
 - Present what the NPC says and does. Let the player decide their reply.";
 
+/// The exploration/narration agent — drives story progression, world description,
+/// NPC dialogue, and patch emission. Routed to as the default agent (per ADR-067).
 pub struct NarratorAgent {
     identity: String,
 }
 
 impl NarratorAgent {
+    /// Construct a NarratorAgent with the standard identity prompt.
     pub fn new() -> Self {
         Self {
             identity: NARRATOR_IDENTITY.to_string(),

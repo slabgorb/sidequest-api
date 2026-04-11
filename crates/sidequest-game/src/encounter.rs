@@ -353,20 +353,20 @@ impl StructuredEncounter {
             MetricDirection::Ascending => self
                 .metric
                 .threshold_high
-                .map_or(false, |t| self.metric.current >= t),
+                .is_some_and(|t| self.metric.current >= t),
             MetricDirection::Descending => self
                 .metric
                 .threshold_low
-                .map_or(false, |t| self.metric.current <= t),
+                .is_some_and(|t| self.metric.current <= t),
             MetricDirection::Bidirectional => {
                 let high = self
                     .metric
                     .threshold_high
-                    .map_or(false, |t| self.metric.current >= t);
+                    .is_some_and(|t| self.metric.current >= t);
                 let low = self
                     .metric
                     .threshold_low
-                    .map_or(false, |t| self.metric.current <= t);
+                    .is_some_and(|t| self.metric.current <= t);
                 high || low
             }
         };

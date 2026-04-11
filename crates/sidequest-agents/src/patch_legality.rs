@@ -97,8 +97,8 @@ pub fn check_location_validity(record: &TurnRecord) -> Vec<ValidationResult> {
     let before_region = &record.snapshot_before.current_region;
     let after_region = &record.snapshot_after.current_region;
 
-    if before_region != after_region {
-        if !record
+    if before_region != after_region
+        && !record
             .snapshot_after
             .discovered_regions
             .contains(after_region)
@@ -108,7 +108,6 @@ pub fn check_location_validity(record: &TurnRecord) -> Vec<ValidationResult> {
                 after_region
             ))];
         }
-    }
 
     vec![]
 }

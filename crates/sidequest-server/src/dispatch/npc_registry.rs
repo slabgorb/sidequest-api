@@ -136,8 +136,8 @@ pub(super) fn update_npc_registry(
 
                 let validated = namegen_result.is_some();
                 span.record("namegen_validated", validated);
-                span.record("ocean_summary", &ocean_summary.as_str());
-                span.record("archetype_source", &source.as_str());
+                span.record("ocean_summary", ocean_summary.as_str());
+                span.record("archetype_source", source.as_str());
 
                 if !validated && ctx.state.namegen_binary_path().is_some() {
                     tracing::warn!(
@@ -158,8 +158,7 @@ pub(super) fn update_npc_registry(
                     .name
                     .to_lowercase()
                     .replace(' ', "_")
-                    .replace('\'', "")
-                    .replace('\u{2019}', "");
+                    .replace(['\'', '\u{2019}'], "");
                 let mut npc_image_url: Option<String> = None;
 
                 let creature_image_path = ctx

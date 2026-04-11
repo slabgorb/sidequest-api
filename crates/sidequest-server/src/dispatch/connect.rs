@@ -43,7 +43,7 @@ pub(crate) async fn dispatch_connect(
     >,
     turn_manager: &mut sidequest_game::TurnManager,
     npc_registry: &mut Vec<NpcRegistryEntry>,
-    lore_store: &mut sidequest_game::LoreStore,
+    lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
     opening_seed: &mut Option<String>,
     opening_directive: &mut Option<String>,
     state: &AppState,
@@ -690,8 +690,10 @@ pub(crate) async fn dispatch_connect(
                                 responses.push(mixer_config_cue(&pack.audio.mixer, player_id));
 
                                 // Seed lore store from genre pack (story 11-4)
-                                let lore_count =
-                                    sidequest_game::seed_lore_from_genre_pack(lore_store, &pack);
+                                let lore_count = {
+                                    let mut store = lore_store.lock().await;
+                                    sidequest_game::seed_lore_from_genre_pack(&mut *store, &pack)
+                                };
                                 tracing::info!(
                                     count = lore_count,
                                     genre = %genre,
@@ -706,9 +708,11 @@ pub(crate) async fn dispatch_connect(
                                 {
                                     Ok(fragments) => {
                                         let restored_count = fragments.len();
+                                        let mut store = lore_store.lock().await;
                                         for fragment in fragments {
-                                            let _ = lore_store.add(fragment);
+                                            let _ = store.add(fragment);
                                         }
+                                        drop(store);
                                         if restored_count > 0 {
                                             tracing::info!(
                                                 count = restored_count,
@@ -909,7 +913,7 @@ pub(crate) async fn start_character_creation(
     music_director_out: &mut Option<sidequest_game::MusicDirector>,
     audio_mixer_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>>,
     prerender_lock: &std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::PrerenderScheduler>>>,
-    lore_store: &mut sidequest_game::LoreStore,
+    lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
     opening_seed_out: &mut Option<String>,
     opening_directive_out: &mut Option<String>,
     genre: &str,
@@ -948,7 +952,10 @@ pub(crate) async fn start_character_creation(
     tracing::info!(genre = %genre, "Audio subsystems initialized from genre pack");
 
     // Seed lore store from genre pack (story 11-4)
-    let lore_count = sidequest_game::seed_lore_from_genre_pack(lore_store, &pack);
+    let lore_count = {
+        let mut store = lore_store.lock().await;
+        sidequest_game::seed_lore_from_genre_pack(&mut *store, &pack)
+    };
     tracing::info!(count = lore_count, genre = %genre, "rag.lore_store_seeded");
 
     // Extract trope definitions from the genre pack for per-session use.
@@ -1091,7 +1098,8 @@ pub(crate) async fn dispatch_character_creation(
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
-    lore_store: &mut sidequest_game::LoreStore,
+    lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
+    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<super::lore_embed_worker::EmbedRequest>,
     shared_session_holder: &Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
@@ -1760,6 +1768,7 @@ pub(crate) async fn dispatch_character_creation(
                             discovered_regions,
                             turn_manager,
                             lore_store,
+                            lore_embed_tx,
                             shared_session_holder,
                             music_director,
                             audio_mixer,

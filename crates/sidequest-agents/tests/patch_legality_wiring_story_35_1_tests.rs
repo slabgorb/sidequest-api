@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use tokio::sync::mpsc;
 
+use serial_test::serial;
 use sidequest_agents::agents::intent_router::Intent;
 use sidequest_agents::turn_record::{run_validator, PatchSummary, TurnRecord};
 use sidequest_game::{
@@ -153,6 +154,7 @@ fn drain_watcher_events(
 ///
 /// RED: run_validator does not call run_legality_checks, so no summary event.
 #[tokio::test]
+#[serial]
 async fn ac1_clean_record_emits_legality_summary() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -185,6 +187,7 @@ async fn ac1_clean_record_emits_legality_summary() {
 ///
 /// RED: run_validator does not call run_legality_checks.
 #[tokio::test]
+#[serial]
 async fn ac1_multiple_records_each_checked() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -223,6 +226,7 @@ async fn ac1_multiple_records_each_checked() {
 ///
 /// RED: run_validator does not call run_legality_checks or emit WatcherEvents.
 #[tokio::test]
+#[serial]
 async fn ac2_violation_emits_validation_warning_event() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -259,6 +263,7 @@ async fn ac2_violation_emits_validation_warning_event() {
 ///
 /// RED: no WatcherEvents emitted at all.
 #[tokio::test]
+#[serial]
 async fn ac2_validation_warning_contains_check_name_and_text() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -321,6 +326,7 @@ async fn ac2_validation_warning_contains_check_name_and_text() {
 ///
 /// RED: no summary event emitted.
 #[tokio::test]
+#[serial]
 async fn ac3_summary_contains_check_counts() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -383,6 +389,7 @@ async fn ac3_summary_contains_check_counts() {
 ///
 /// RED: no summary event emitted.
 #[tokio::test]
+#[serial]
 async fn ac3_summary_includes_turn_id() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -428,6 +435,7 @@ async fn ac3_summary_includes_turn_id() {
 ///
 /// RED: run_validator does not call any legality checks.
 #[tokio::test]
+#[serial]
 async fn ac4_integration_hp_violation_through_full_pipeline() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -477,6 +485,7 @@ async fn ac4_integration_hp_violation_through_full_pipeline() {
 ///
 /// RED: run_validator does not call run_legality_checks.
 #[tokio::test]
+#[serial]
 async fn ac4_integration_dead_npc_revival_through_pipeline() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -518,6 +527,7 @@ async fn ac4_integration_dead_npc_revival_through_pipeline() {
 ///
 /// RED: run_validator does not call run_legality_checks.
 #[tokio::test]
+#[serial]
 async fn ac5_entity_reference_check_exercised_through_validator() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");
@@ -590,6 +600,7 @@ async fn ac5_entity_reference_check_exercised_through_validator() {
 ///
 /// RED: run_validator just logs, no legality check call.
 #[tokio::test]
+#[serial]
 async fn wiring_run_validator_is_production_consumer_of_legality_checks() {
     let _tx = init_global_channel();
     let mut watcher_rx = subscribe_global().expect("channel initialized");

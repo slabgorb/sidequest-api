@@ -12,6 +12,10 @@ pub enum DaemonError {
     InvalidResponse(String),
     /// Daemon returned an explicit error response.
     DaemonErrorResponse { code: i32, message: String },
+    /// Daemon closed the Unix socket without sending a response line.
+    /// Distinct from InvalidResponse so daemon crashes/restarts are
+    /// diagnosable instead of masquerading as JSON parse errors.
+    ConnectionClosed { method: String },
 }
 
 impl std::fmt::Display for DaemonError {
@@ -26,6 +30,12 @@ impl std::fmt::Display for DaemonError {
             }
             DaemonError::DaemonErrorResponse { code, message } => {
                 write!(f, "daemon error ({code}): {message}")
+            }
+            DaemonError::ConnectionClosed { method } => {
+                write!(
+                    f,
+                    "daemon closed connection without response (method: {method}) — daemon may have crashed, been killed, or be restarting"
+                )
             }
         }
     }

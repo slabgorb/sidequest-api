@@ -40,7 +40,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
         };
         let json = serde_json::to_string(&handshake).unwrap_or_default();
         if ws_sink
-            .send(AxumWsMessage::Text(json.into()))
+            .send(AxumWsMessage::Text(json))
             .await
             .is_err()
         {
@@ -117,7 +117,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
             };
             let json = serde_json::to_string(&event).unwrap_or_default();
             if ws_sink
-                .send(AxumWsMessage::Text(json.into()))
+                .send(AxumWsMessage::Text(json))
                 .await
                 .is_err()
             {
@@ -145,7 +145,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
             for event in &history {
                 let json = serde_json::to_string(event).unwrap_or_default();
                 if ws_sink
-                    .send(AxumWsMessage::Text(json.into()))
+                    .send(AxumWsMessage::Text(json))
                     .await
                     .is_err()
                 {
@@ -177,7 +177,7 @@ async fn handle_watcher_connection(socket: WebSocket, state: AppState) {
                 );
             }
             if ws_sink
-                .send(AxumWsMessage::Text(json.into()))
+                .send(AxumWsMessage::Text(json))
                 .await
                 .is_err()
             {

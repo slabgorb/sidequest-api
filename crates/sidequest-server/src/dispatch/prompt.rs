@@ -738,9 +738,18 @@ pub(crate) async fn build_prompt_context(
             Some(&priority_cats)
         };
         let lore_budget = 500; // ~500 tokens for lore context
-        let has_embeddings = ctx.lore_store.fragments_with_embeddings_count() > 0;
+        // Phase 1: short lock to read the embedded-fragment count. Must not
+        // hold the lock across the query-embedding daemon call below —
+        // that would re-introduce the dispatch blocking we just fixed.
+        let has_embeddings = {
+            let store = ctx.lore_store.lock().await;
+            store.fragments_with_embeddings_count() > 0
+        };
 
-        // Generate query embedding for semantic search when fragments have embeddings
+        // Phase 2: generate query embedding for semantic search when
+        // fragments have embeddings. Runs WITHOUT holding the lore store
+        // lock so concurrent embed worker writes aren't blocked by the
+        // prompt pipeline.
         let query_embedding = if has_embeddings {
             let hint = if !ctx.current_location.is_empty() {
                 Some(ctx.current_location.as_str())
@@ -788,56 +797,66 @@ pub(crate) async fn build_prompt_context(
         };
 
         let fallback_to_keyword = query_embedding.is_none();
-        let selected = sidequest_game::select_lore_for_prompt(
-            ctx.lore_store,
-            lore_budget,
-            priority_ref,
-            query_embedding.as_deref(),
-        );
-
-        // AC-7: OTEL lore.semantic_retrieval (story 15-7)
-        WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
-            .field("event", "lore.semantic_retrieval")
-            .field("query_hint", ctx.current_location.as_str())
-            .field("fallback_to_keyword", fallback_to_keyword)
-            .field("selected_count", selected.len())
-            .send();
-
-        // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
-        let lore_summary = sidequest_game::summarize_lore_retrieval(
-            ctx.lore_store,
-            &selected,
-            lore_budget,
-            priority_ref,
-        );
-        WatcherEventBuilder::new("lore", WatcherEventType::LoreRetrieval)
-            .field("budget", lore_summary.budget)
-            .field("tokens_used", lore_summary.tokens_used)
-            .field("selected_count", lore_summary.selected.len())
-            .field("rejected_count", lore_summary.rejected.len())
-            .field("selected", &lore_summary.selected)
-            .field("rejected", &lore_summary.rejected)
-            .field("total_fragments", lore_summary.total_fragments)
-            .field_opt("context_hint", &lore_summary.context_hint)
-            .send();
-
-        if !selected.is_empty() {
-            let lore_text = sidequest_game::format_lore_context(&selected);
-            tracing::info!(
-                fragments = selected.len(),
-                tokens = selected.iter().map(|f| f.token_estimate()).sum::<usize>(),
-                priority_categories = ?priority_ref,
-                "rag.lore_injected_to_prompt"
+        // Phase 3: re-acquire the lock for the duration of `selected`'s
+        // lifetime — `select_lore_for_prompt` returns `Vec<&LoreFragment>`
+        // that borrows from the store, so the guard must stay alive until
+        // we're done reading those refs.
+        {
+            let store = ctx.lore_store.lock().await;
+            let selected = sidequest_game::select_lore_for_prompt(
+                &*store,
+                lore_budget,
+                priority_ref,
+                query_embedding.as_deref(),
             );
-            state_summary.push_str("\n\n");
-            state_summary.push_str(&lore_text);
+
+            // AC-7: OTEL lore.semantic_retrieval (story 15-7)
+            WatcherEventBuilder::new("lore", WatcherEventType::StateTransition)
+                .field("event", "lore.semantic_retrieval")
+                .field("query_hint", ctx.current_location.as_str())
+                .field("fallback_to_keyword", fallback_to_keyword)
+                .field("selected_count", selected.len())
+                .send();
+
+            // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
+            let lore_summary = sidequest_game::summarize_lore_retrieval(
+                &*store,
+                &selected,
+                lore_budget,
+                priority_ref,
+            );
+            WatcherEventBuilder::new("lore", WatcherEventType::LoreRetrieval)
+                .field("budget", lore_summary.budget)
+                .field("tokens_used", lore_summary.tokens_used)
+                .field("selected_count", lore_summary.selected.len())
+                .field("rejected_count", lore_summary.rejected.len())
+                .field("selected", &lore_summary.selected)
+                .field("rejected", &lore_summary.rejected)
+                .field("total_fragments", lore_summary.total_fragments)
+                .field_opt("context_hint", &lore_summary.context_hint)
+                .send();
+
+            if !selected.is_empty() {
+                let lore_text = sidequest_game::format_lore_context(&selected);
+                tracing::info!(
+                    fragments = selected.len(),
+                    tokens = selected.iter().map(|f| f.token_estimate()).sum::<usize>(),
+                    priority_categories = ?priority_ref,
+                    "rag.lore_injected_to_prompt"
+                );
+                state_summary.push_str("\n\n");
+                state_summary.push_str(&lore_text);
+            }
         }
     }
 
     // Inject conlang vocabulary — learned language knowledge (story 15-19)
     {
+        // Acquire the lore store lock for the scope that holds the
+        // borrowed `lang_fragments` refs.
+        let store = ctx.lore_store.lock().await;
         let lang_fragments =
-            sidequest_game::query_all_language_knowledge(ctx.lore_store, ctx.player_id);
+            sidequest_game::query_all_language_knowledge(&*store, ctx.player_id);
         if !lang_fragments.is_empty() {
             let conlang_text =
                 sidequest_game::format_language_knowledge_for_prompt(&lang_fragments);

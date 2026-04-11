@@ -1055,7 +1055,22 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut npc_registry: Vec<NpcRegistryEntry> = vec![];
     let mut discovered_regions: Vec<String> = vec![];
     let mut turn_manager = sidequest_game::TurnManager::new();
-    let mut lore_store = sidequest_game::LoreStore::new();
+    // Wrap LoreStore in `Arc<tokio::sync::Mutex<>>` so the background embed
+    // worker can attach embeddings without blocking dispatch. Mirrors the
+    // `render_queue.rs` shared-state-plus-worker pattern. The worker is
+    // spawned immediately below and receives fragment ids via an unbounded
+    // mpsc channel — dispatch sends, worker drains, neither awaits the
+    // daemon on the critical path. See `dispatch/lore_embed_worker.rs`.
+    let lore_store = std::sync::Arc::new(tokio::sync::Mutex::new(
+        sidequest_game::LoreStore::new(),
+    ));
+    let (lore_embed_tx, lore_embed_rx) = tokio::sync::mpsc::unbounded_channel::<
+        dispatch::lore_embed_worker::EmbedRequest,
+    >();
+    // Worker handle is not awaited — the task self-terminates when this
+    // scope exits and drops `lore_embed_tx`, closing the channel.
+    let _lore_embed_worker_handle =
+        dispatch::lore_embed_worker::spawn(lore_store.clone(), lore_embed_rx);
     // Bug 17: In-memory narration history for context accumulation across turns.
     // Each entry is "Player: <action>\nNarrator: <response>" for the last N turns.
     let mut narration_history: Vec<String> = vec![];
@@ -1120,7 +1135,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             &mut narration_history,
                             &mut discovered_regions,
                             &mut turn_manager,
-                            &mut lore_store,
+                            &lore_store,
+                            &lore_embed_tx,
                             &shared_session,
                             &state,
                             &player_id_str,
@@ -1360,7 +1376,10 @@ async fn dispatch_message(
     narration_history: &mut Vec<String>,
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
-    lore_store: &mut sidequest_game::LoreStore,
+    lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
+    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<
+        dispatch::lore_embed_worker::EmbedRequest,
+    >,
     shared_session_holder: &Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
@@ -1632,6 +1651,7 @@ async fn dispatch_message(
                 discovered_regions,
                 turn_manager,
                 lore_store,
+                lore_embed_tx,
                 shared_session_holder,
                 music_director,
                 audio_mixer,
@@ -1704,6 +1724,7 @@ async fn dispatch_message(
                     discovered_regions,
                     turn_manager,
                     lore_store,
+                    lore_embed_tx,
                     shared_session_holder,
                     music_director,
                     audio_mixer,

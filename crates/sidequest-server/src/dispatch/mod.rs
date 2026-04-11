@@ -17,6 +17,7 @@ mod beat;
 pub(crate) mod catch_up;
 pub(crate) mod chargen_summary;
 pub(crate) mod connect;
+pub(crate) mod lore_embed_worker;
 mod lore_sync;
 mod npc_registry;
 pub(crate) mod pregen;
@@ -77,7 +78,14 @@ pub(crate) struct DispatchContext<'a> {
     pub narration_history: &'a mut Vec<String>,
     pub discovered_regions: &'a mut Vec<String>,
     pub turn_manager: &'a mut sidequest_game::TurnManager,
-    pub lore_store: &'a mut sidequest_game::LoreStore,
+    /// Session-scoped lore store. Dispatch reads and writes go through
+    /// `.lock().await`; a background embed worker holds a cloned Arc so it
+    /// can attach embeddings without blocking dispatch (playtest 2026-04-11
+    /// fix — see `dispatch/lore_embed_worker.rs`).
+    pub lore_store: &'a Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
+    /// Sender for the background lore embed worker. Dispatch fires and
+    /// forgets — embedding latency never touches the turn wall clock.
+    pub lore_embed_tx: &'a tokio::sync::mpsc::UnboundedSender<lore_embed_worker::EmbedRequest>,
     pub shared_session_holder: &'a Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
@@ -1557,12 +1565,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             for bank in &ctx.name_banks {
                 for generated_name in &bank.names {
                     if npc.name.contains(&generated_name.name) {
-                        if let Ok(_frag_id) = sidequest_game::record_name_knowledge(
-                            ctx.lore_store,
+                        let mut lore_guard = ctx.lore_store.lock().await;
+                        let record_result = sidequest_game::record_name_knowledge(
+                            &mut *lore_guard,
                             generated_name,
                             ctx.player_id,
                             turn,
-                        ) {
+                        );
+                        drop(lore_guard);
+                        if let Ok(_frag_id) = record_result {
                             WatcherEventBuilder::new(
                                 "conlang",
                                 WatcherEventType::StateTransition,
@@ -1597,12 +1608,15 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     continue;
                 }
                 if let Some(morpheme) = glossary.lookup(trimmed) {
-                    if let Ok(_frag_id) = sidequest_game::record_language_knowledge(
-                        ctx.lore_store,
+                    let mut lore_guard = ctx.lore_store.lock().await;
+                    let record_result = sidequest_game::record_language_knowledge(
+                        &mut *lore_guard,
                         morpheme,
                         ctx.player_id,
                         turn,
-                    ) {
+                    );
+                    drop(lore_guard);
+                    if let Ok(_frag_id) = record_result {
                         WatcherEventBuilder::new("conlang", WatcherEventType::StateTransition)
                             .field("event", "morpheme_learned")
                             .field("character_id", ctx.player_id)
@@ -1929,7 +1943,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     {
         let crossed = ctx.snapshot.apply_pool_decay();
         if !crossed.is_empty() {
-            sidequest_game::mint_threshold_lore(&crossed, ctx.lore_store, turn_number as u64);
+            {
+                let mut lore_guard = ctx.lore_store.lock().await;
+                sidequest_game::mint_threshold_lore(
+                    &crossed,
+                    &mut *lore_guard,
+                    turn_number as u64,
+                );
+            }
             for threshold in &crossed {
                 WatcherEventBuilder::new("resource_pool", WatcherEventType::StateTransition)
                     .field("event", "resource_pool.threshold_crossed")
