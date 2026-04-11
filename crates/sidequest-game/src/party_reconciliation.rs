@@ -9,17 +9,24 @@ use std::collections::HashMap;
 /// A player's location at session resume time.
 #[derive(Debug, Clone)]
 pub struct PlayerLocation {
+    /// Stable player identifier.
     pub player_id: String,
+    /// Display name of the player.
     pub player_name: String,
+    /// Location slug the player is currently at.
     pub location: String,
 }
 
 /// A player who was moved during reconciliation (telemetry payload).
 #[derive(Debug, Clone)]
 pub struct MovedPlayer {
+    /// Stable player identifier.
     pub player_id: String,
+    /// Display name of the player.
     pub player_name: String,
+    /// Where the player was before reconciliation.
     pub old_location: String,
+    /// Where the player was moved to.
     pub new_location: String,
 }
 
@@ -32,8 +39,11 @@ pub enum ReconciliationResult {
     SplitPartyAllowed,
     /// Locations were reconciled to a single target.
     Reconciled {
+        /// Canonical location all players were moved to.
         target_location: String,
+        /// Per-player records for everyone who was relocated.
         players_moved: Vec<MovedPlayer>,
+        /// Narration text describing the reconciliation event.
         narration_text: String,
     },
 }

@@ -80,7 +80,7 @@ impl ThemeRotator {
         let history = self
             .history
             .entry(mood_key.to_string())
-            .or_insert_with(VecDeque::new);
+            .or_default();
 
         // Filter out recently played tracks
         let mut eligible: Vec<(usize, &MoodTrack)> = tracks

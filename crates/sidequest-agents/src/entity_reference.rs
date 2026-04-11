@@ -143,7 +143,7 @@ pub fn extract_potential_references(narration: &str) -> Vec<String> {
         let has_trailing_sentence_end =
             word.ends_with('.') || word.ends_with('!') || word.ends_with('?');
 
-        let is_capitalized = clean.chars().next().map_or(false, |c| c.is_uppercase());
+        let is_capitalized = clean.chars().next().is_some_and(|c| c.is_uppercase());
 
         if is_capitalized && !sentence_start && !stop_set.contains(clean) {
             current_phrase.push(clean);

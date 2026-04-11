@@ -621,15 +621,27 @@ impl CharacterBuilder {
             }
             // Collect the rich description text from each choice for backstory.
             // Skip pronoun-only choices — their description (e.g., "He.") is not
-            // a backstory fragment.
+            // a backstory fragment. ANY other narrative-bearing hint (item,
+            // mutation, affinity, training, emotion, rig, catch phrase, etc.)
+            // disqualifies the filter so that meaningful choices like "the
+            // armed woman with murder in her eyes" survive into the backstory.
+            // Reviewer finding from story 31-2.
             if let Some(ref desc) = result.choice_description {
                 let is_pronoun_only = eff.pronoun_hint.is_some()
                     && eff.class_hint.is_none()
                     && eff.race_hint.is_none()
+                    && eff.mutation_hint.is_none()
+                    && eff.item_hint.is_none()
+                    && eff.affinity_hint.is_none()
+                    && eff.training_hint.is_none()
                     && eff.background.is_none()
                     && eff.personality_trait.is_none()
+                    && eff.emotional_state.is_none()
                     && eff.relationship.is_none()
-                    && eff.goals.is_none();
+                    && eff.goals.is_none()
+                    && eff.rig_type_hint.is_none()
+                    && eff.rig_trait.is_none()
+                    && eff.catch_phrase.is_none();
                 if !is_pronoun_only {
                     acc.backstory_fragments.push(desc.clone());
                 }
@@ -897,7 +909,7 @@ impl CharacterBuilder {
                 let dominated = hook
                     .mechanical_key
                     .as_deref()
-                    .map_or(false, |k| excluded_keys.contains(&k));
+                    .is_some_and(|k| excluded_keys.contains(&k));
                 if !dominated {
                     hooks.push(hook.text.clone());
                 }
@@ -1059,7 +1071,11 @@ impl CharacterBuilder {
                     result = result.replace(&format!("{{{}}}", key), pick);
                 }
             }
-            (result, "tables")
+            // Strip any remaining {key} placeholders for tables that the genre
+            // pack didn't provide. Leaving the literal "{feature}" in the
+            // user-facing backstory is worse than dropping the fragment.
+            // Reviewer finding from story 31-2.
+            (strip_unmatched_placeholders(&result), "tables")
         } else {
             let _span = info_span!("chargen.backstory_composed", method = "fallback").entered();
             let mut parts = Vec::new();
@@ -1283,7 +1299,7 @@ impl CharacterBuilder {
                 let base_values = vec![15, 14, 13, 12, 10, 8];
                 self.ability_score_names
                     .iter()
-                    .zip(base_values.into_iter())
+                    .zip(base_values)
                     .map(|(name, val)| (name.clone(), val))
                     .collect()
             }
@@ -1298,7 +1314,7 @@ impl CharacterBuilder {
                 );
                 self.ability_score_names
                     .iter()
-                    .zip(values.into_iter())
+                    .zip(values)
                     .map(|(name, val)| (name.clone(), val))
                     .collect()
             }
@@ -1406,7 +1422,7 @@ impl CharacterBuilder {
         expr = expr.replace("level", &level.to_string());
 
         // Strip parentheses (simple formulas only)
-        expr = expr.replace('(', "").replace(')', "");
+        expr = expr.replace(['(', ')'], "");
 
         // Evaluate the arithmetic expression (supports +, -, *)
         let result = Self::eval_simple_arithmetic(&expr).map_err(|token| {
@@ -1468,6 +1484,56 @@ impl CharacterBuilder {
 
         Ok(result)
     }
+}
+
+// ============================================================================
+// Backstory template helpers
+// ============================================================================
+
+/// Strip any unmatched `{key}` placeholders from a substituted backstory
+/// template, along with the trailing punctuation/whitespace they leave behind.
+///
+/// After `tables.template` has had every known table key substituted, any
+/// remaining placeholders correspond to keys the genre pack didn't supply
+/// (e.g. template references `{feature}` but no `feature` table exists). The
+/// literal `"{feature}"` would otherwise leak into the user-facing backstory.
+///
+/// We drop the placeholder and any orphaned trailing `". "` or `", "` so the
+/// output reads cleanly. Reviewer finding from story 31-2.
+fn strip_unmatched_placeholders(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '{' {
+            out.push(c);
+            continue;
+        }
+        // Skip to the matching '}' (or end of string if unbalanced).
+        let mut closed = false;
+        for inner in chars.by_ref() {
+            if inner == '}' {
+                closed = true;
+                break;
+            }
+        }
+        if !closed {
+            // Unbalanced template — preserve the literal '{' so the bug is
+            // visible rather than silently swallowed.
+            out.push('{');
+            break;
+        }
+        // Eat orphan punctuation/whitespace immediately after the placeholder
+        // so we don't leave "Former ratcatcher. . ." in the output.
+        while let Some(&peek) = chars.peek() {
+            if matches!(peek, '.' | ',' | ' ') {
+                chars.next();
+            } else {
+                break;
+            }
+        }
+    }
+    // Collapse internal whitespace runs and trim leading/trailing whitespace.
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 // ============================================================================

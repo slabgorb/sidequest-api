@@ -72,39 +72,46 @@ fn chase_routes_to_narrator() {
 }
 
 // ============================================================================
-// AC-7: Chase detection — state override
+// AC-7/8: Chase + combat detection — superseded by ADR-067 / story 28-6.
+//
+// Originally these tests pinned the IntentRouter's split routing (in_chase →
+// Chase agent, in_combat → Combat agent). ADR-067 unified all routing under
+// the narrator: every action becomes Intent::Exploration and the encounter is
+// driven by `beat_selections` injected into the narrator's game_patch output.
+// The asserts below pin the new architecture so we don't drift back into
+// split-agent routing.
 // ============================================================================
 
 #[test]
-fn chase_state_overrides_classification() {
-    let mut ctx = TurnContext::default();
-    ctx.in_chase = true;
-
+fn chase_state_does_not_branch_router_post_adr_067() {
+    let ctx = TurnContext {
+        in_chase: true,
+        ..TurnContext::default()
+    };
     let classifier = MockClassifier(Intent::Exploration);
     let route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
     assert_eq!(
         route.intent(),
-        Intent::Chase,
-        "Active chase should override keyword classification"
+        Intent::Exploration,
+        "ADR-067: in_chase no longer branches the router — narrator handles via beat_selections"
     );
+    assert_eq!(route.agent_name(), "narrator");
 }
 
-// ============================================================================
-// AC-8: Combat detection — state override
-// ============================================================================
-
 #[test]
-fn combat_state_overrides_classification() {
-    let mut ctx = TurnContext::default();
-    ctx.in_combat = true;
-
+fn combat_state_does_not_branch_router_post_adr_067() {
+    let ctx = TurnContext {
+        in_combat: true,
+        ..TurnContext::default()
+    };
     let classifier = MockClassifier(Intent::Exploration);
     let route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
     assert_eq!(
         route.intent(),
-        Intent::Combat,
-        "Active combat should override keyword classification"
+        Intent::Exploration,
+        "ADR-067: in_combat no longer branches the router — narrator handles via beat_selections"
     );
+    assert_eq!(route.agent_name(), "narrator");
 }
 
 // ============================================================================

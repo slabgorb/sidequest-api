@@ -9,12 +9,16 @@ use crate::orchestrator::VisualScene;
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SceneTier {
+    /// Tight portrait of a single subject.
     Portrait,
+    /// Wide environmental landscape shot.
     Landscape,
+    /// Mid-distance scene with multiple subjects and setting.
     SceneIllustration,
 }
 
 impl SceneTier {
+    /// Return the lower-snake-case wire string for this tier.
     pub fn as_str(&self) -> &'static str {
         match self {
             SceneTier::Portrait => "portrait",
@@ -37,15 +41,22 @@ impl SceneTier {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VisualMood {
+    /// Foreboding, threatening atmosphere.
     Ominous,
+    /// Suspenseful, on-edge atmosphere.
     Tense,
+    /// Magical, otherworldly atmosphere.
     Mystical,
+    /// High-stakes, theatrical atmosphere.
     Dramatic,
+    /// Sorrowful, somber atmosphere.
     Melancholic,
+    /// General environmental ambience without strong emotional cue.
     Atmospheric,
 }
 
 impl VisualMood {
+    /// Return the lower-snake-case wire string for this mood.
     pub fn as_str(&self) -> &'static str {
         match self {
             VisualMood::Ominous => "ominous",
@@ -74,15 +85,22 @@ impl VisualMood {
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VisualTag {
+    /// Combat or violence content.
     Combat,
+    /// Magical/supernatural content.
     Magic,
+    /// Special-effect emphasis (explosions, glows, etc.).
     SpecialEffect,
+    /// Character-focused composition.
     Character,
+    /// Location/environment-focused composition.
     Location,
+    /// Atmospheric/environmental ambience.
     Atmosphere,
 }
 
 impl VisualTag {
+    /// Return the lower-snake-case wire string for this tag.
     pub fn as_str(&self) -> &'static str {
         match self {
             VisualTag::Combat => "combat",
@@ -110,12 +128,16 @@ impl VisualTag {
 /// Error returned when scene_render validation fails.
 #[derive(Debug, thiserror::Error)]
 pub enum SceneRenderError {
+    /// Subject string was empty, too long, or otherwise invalid.
     #[error("invalid subject: {0}")]
     InvalidSubject(String),
+    /// Tier did not match a known `SceneTier` variant.
     #[error("invalid tier: \"{0}\" — expected one of: portrait, landscape, scene_illustration")]
     InvalidTier(String),
+    /// Mood did not match a known `VisualMood` variant.
     #[error("invalid mood: \"{0}\" — expected one of: ominous, tense, mystical, dramatic, melancholic, atmospheric")]
     InvalidMood(String),
+    /// Tag did not match a known `VisualTag` variant.
     #[error("invalid tag: \"{0}\" — expected one of: combat, magic, special_effect, character, location, atmosphere")]
     InvalidTag(String),
 }

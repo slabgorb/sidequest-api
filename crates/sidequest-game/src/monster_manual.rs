@@ -68,9 +68,13 @@ pub struct ManualEncounter {
 /// Grows over play sessions — every generated entry persists.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MonsterManual {
+    /// Genre slug this manual belongs to.
     pub genre: String,
+    /// World slug this manual belongs to.
     pub world: String,
+    /// Pre-generated NPC entries available to this world.
     pub npcs: Vec<ManualNpc>,
+    /// Pre-generated encounter entries available to this world.
     pub encounters: Vec<ManualEncounter>,
 }
 

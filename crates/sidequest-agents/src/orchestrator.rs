@@ -994,7 +994,8 @@ impl GameService for Orchestrator {
                 }
 
                 // Story 28-6: Extract beat_selections from game_patch block.
-                // CombatPatch/ChasePatch extraction removed in story 28-9.
+                // The legacy combat/chase patch extraction pathways were removed
+                // in story 28-9 — beat_selections is the unified replacement.
                 let beat_selections = extraction.beat_selections.clone();
                 if !beat_selections.is_empty() {
                     for bs in &beat_selections {
@@ -1291,10 +1292,13 @@ pub struct MerchantTransactionExtracted {
 /// Action rewrite from inline preprocessor (narrator/creature_smith JSON block).
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct ActionRewrite {
+    /// Player-facing rewrite ("you ...").
     #[serde(default)]
     pub you: String,
+    /// Third-person rewrite ("Kael ...").
     #[serde(default)]
     pub named: String,
+    /// Distilled intent label.
     #[serde(default)]
     pub intent: String,
 }
@@ -1302,14 +1306,19 @@ pub struct ActionRewrite {
 /// Relevance flags from inline preprocessor (narrator/creature_smith JSON block).
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct ActionFlags {
+    /// True if the action is a coercive/power-claim style move.
     #[serde(default)]
     pub is_power_grab: bool,
+    /// True if the action references inventory items.
     #[serde(default)]
     pub references_inventory: bool,
+    /// True if the action references an NPC by name.
     #[serde(default)]
     pub references_npc: bool,
+    /// True if the action references a character ability.
     #[serde(default)]
     pub references_ability: bool,
+    /// True if the action references a location.
     #[serde(default)]
     pub references_location: bool,
 }

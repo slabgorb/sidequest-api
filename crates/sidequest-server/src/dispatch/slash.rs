@@ -163,7 +163,7 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
                 .send();
 
             // Story 35-3: Score the scenario after accusation resolution.
-            let total_turns = ctx.turn_manager.interaction() as u64;
+            let total_turns = ctx.turn_manager.interaction();
             let questioned: Vec<String> = scenario.questioned_npcs().iter().cloned().collect();
             let score_input = sidequest_game::ScenarioScoreInput {
                 scenario_state: scenario,
@@ -257,15 +257,15 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
                     *ctx.current_location = loc.clone();
                 }
                 if let Some(ref hp_changes) = patch.hp_changes {
-                    for (_target, delta) in hp_changes {
+                    for delta in hp_changes.values() {
                         *ctx.hp = (*ctx.hp + delta).max(0);
                     }
                 }
-                format!("GM command applied.")
+                "GM command applied.".to_string()
             }
             sidequest_game::slash_router::CommandResult::ToneChange(new_values) => {
                 *ctx.axis_values = new_values.clone();
-                format!("Tone updated.")
+                "Tone updated.".to_string()
             }
             _ => "Command executed.".to_string(),
         };

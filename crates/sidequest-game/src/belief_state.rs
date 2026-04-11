@@ -127,25 +127,39 @@ impl Default for BeliefState {
 pub enum Belief {
     /// Confirmed knowledge — the NPC knows this for certain.
     Fact {
+        /// Subject the belief is about (NPC name, location, item, etc.).
         subject: String,
+        /// Free-text content of the fact.
         content: String,
+        /// Turn number on which this belief was acquired.
         turn_learned: u64,
+        /// How the NPC came to know this fact.
         source: BeliefSource,
     },
     /// Uncertain belief with a confidence level (0.0..=1.0).
     Suspicion {
+        /// Subject the suspicion is about.
         subject: String,
+        /// Free-text content of the suspicion.
         content: String,
+        /// Turn number on which this suspicion formed.
         turn_learned: u64,
+        /// How the NPC came to suspect this.
         source: BeliefSource,
+        /// Confidence level on a 0.0..=1.0 scale.
         confidence: f32,
     },
     /// A statement made by another NPC, which may or may not be believed.
     Claim {
+        /// Subject the claim is about.
         subject: String,
+        /// Free-text content of the claim.
         content: String,
+        /// Turn number on which the claim was heard.
         turn_learned: u64,
+        /// Who told the NPC this claim.
         source: BeliefSource,
+        /// Whether the NPC currently believes the claim.
         believed: bool,
         /// Typed sentiment — set by the LLM when the belief is created.
         #[serde(default = "default_claim_sentiment")]

@@ -71,7 +71,7 @@ fn strip_first_person(input: &str) -> String {
 
     // Strip leading "I " (case-insensitive)
     let result = if trimmed.len() >= 2
-        && trimmed.as_bytes()[0].to_ascii_lowercase() == b'i'
+        && trimmed.as_bytes()[0].eq_ignore_ascii_case(&b'i')
         && trimmed.as_bytes()[1] == b' '
     {
         trimmed[2..].trim_start().to_string()

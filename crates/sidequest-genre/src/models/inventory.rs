@@ -77,18 +77,15 @@ pub struct CatalogItem {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
+#[derive(Default)]
 pub enum CarryMode {
     /// Limit by number of carried items (existing behavior).
+    #[default]
     Count,
     /// Limit by total weight of carried items.
     Weight,
 }
 
-impl Default for CarryMode {
-    fn default() -> Self {
-        Self::Count
-    }
-}
 
 /// Inventory philosophy configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]

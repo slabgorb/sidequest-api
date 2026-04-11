@@ -139,8 +139,11 @@ fn narrator_prompt_retains_core_identity() {
         composed.contains("Game Master"),
         "Narrator prompt must still identify the agent as Game Master"
     );
+    // The "tweet-length" pressure was deliberately removed in commit a75ea75
+    // (raised verbosity limits). Pacing guidance now lives under VARY-your-length
+    // language in the OUTPUT_STYLE block — assert against the current copy.
     assert!(
-        composed.contains("tweet-length"),
+        composed.contains("VARY your length"),
         "Narrator prompt must still contain pacing/output-style guidance"
     );
     assert!(

@@ -79,8 +79,8 @@ impl GenrePack {
 
             // Check starting_region references an existing region (Region mode only)
             // RoomGraph mode validates starting_region in validate_room_graph
-            if world.cartography.navigation_mode == crate::models::NavigationMode::Region {
-                if !world.cartography.starting_region.is_empty()
+            if world.cartography.navigation_mode == crate::models::NavigationMode::Region
+                && !world.cartography.starting_region.is_empty()
                     && !region_slugs.contains(world.cartography.starting_region.as_str())
                 {
                     errors.push(GenreError::ValidationError {
@@ -91,7 +91,6 @@ impl GenrePack {
                         ),
                     });
                 }
-            }
 
             // Check adjacent references
             for (slug, region) in &world.cartography.regions {

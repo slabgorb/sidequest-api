@@ -257,7 +257,7 @@ fn build_narrative_hook(
         .unwrap_or_else(|| "nothing but your wits".to_string());
 
     let armor_phrase = armor
-        .map(|a| format!("{}", a.name.to_lowercase()))
+        .map(|a| a.name.to_lowercase().to_string())
         .unwrap_or_else(|| "the clothes on your back".to_string());
 
     let gold_phrase = if gold > 0 {
