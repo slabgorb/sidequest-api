@@ -1646,6 +1646,49 @@ pub(crate) async fn dispatch_character_creation(
                         discovered_regions.push(current_location.clone());
                     }
 
+                    // Playtest 2026-04-11: clear per-character narrative state at
+                    // the chargen→Playing transition. This closes the "NPC state
+                    // carries over between fresh sessions" bug where e.g. NPC
+                    // "Spine Copperjaw" introduced during character A's parley
+                    // was appearing in character B's opening narration in the
+                    // same genre:world.
+                    //
+                    // The npc_registry leaks via multiple paths: the SharedGame-
+                    // Session is keyed by genre:world and holds NPCs shared
+                    // across players; the SQLite save persists them for
+                    // reconnect; session_restore populates the local registry
+                    // from the save on returning-player connect. Any path that
+                    // lands in chargen (new player name, save-corrupted fallback,
+                    // or a future explicit "new character" flow) inherits those
+                    // NPCs unless we explicitly clear them HERE, at the moment
+                    // a fresh character starts existing in the world.
+                    //
+                    // Only the npc_registry is cleared — world history, lore,
+                    // tropes, and region discovery are world-level state that
+                    // SHOULD persist across characters in the same world.
+                    npc_registry.clear();
+                    snapshot.npc_registry.clear();
+                    {
+                        let holder = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let mut ss = ss_arc.lock().await;
+                            ss.npc_registry.clear();
+                        }
+                    }
+                    WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
+                        .field("event", "npc_registry.cleared_on_chargen_complete")
+                        .field("genre", genre.as_str())
+                        .field("world", world.as_str())
+                        .field("player", pname_for_save.as_str())
+                        .field("reason", "fresh_character_narrative_reset")
+                        .send();
+                    tracing::info!(
+                        genre = %genre,
+                        world = %world,
+                        player = %pname_for_save,
+                        "npc_registry.cleared — fresh character entering world, prior NPCs wiped"
+                    );
+
                     // Sync initial location to SharedGameSession so sync_to_locals
                     // doesn't overwrite it with "" at the start of the opening turn.
                     {
