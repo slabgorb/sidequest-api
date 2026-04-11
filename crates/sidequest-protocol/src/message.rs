@@ -717,8 +717,12 @@ fn default_true() -> bool {
 /// A participant in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationActor {
+    /// Display name of the actor (e.g., "Sheriff Reyes").
     pub name: String,
+    /// Narrative role this actor plays in the confrontation
+    /// (e.g., "antagonist", "witness", "ally").
     pub role: String,
+    /// Optional URL to a portrait image for the actor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
 }
@@ -726,12 +730,20 @@ pub struct ConfrontationActor {
 /// Primary metric being tracked in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationMetric {
+    /// Display name of the metric (e.g., "Suspicion", "Distance").
     pub name: String,
+    /// Current value of the metric.
     pub current: i32,
+    /// Starting value of the metric at the beginning of the confrontation.
     pub starting: i32,
+    /// Direction of progress: "ascending", "descending", or "bidirectional".
     pub direction: String,
+    /// Optional upper threshold that triggers a confrontation outcome
+    /// when crossed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threshold_high: Option<i32>,
+    /// Optional lower threshold that triggers a confrontation outcome
+    /// when crossed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub threshold_low: Option<i32>,
 }
@@ -739,14 +751,20 @@ pub struct ConfrontationMetric {
 /// A beat option the player can choose during a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationBeat {
+    /// Stable identifier for the beat (used in `BeatSelected` messages).
     pub id: String,
+    /// Player-facing label describing the beat (e.g., "Stand your ground").
     pub label: String,
+    /// Amount the metric changes when this beat is selected.
     #[serde(default)]
     pub metric_delta: i32,
+    /// Stat check that gates the beat (empty = no check).
     #[serde(default)]
     pub stat_check: String,
+    /// Optional narrative risk descriptor (e.g., "high", "fatal").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub risk: Option<String>,
+    /// Whether selecting this beat resolves the confrontation.
     #[serde(default)]
     pub resolution: bool,
 }

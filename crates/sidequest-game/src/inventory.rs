@@ -13,8 +13,10 @@ use sidequest_protocol::NonBlankString;
 /// stolen sword"), narrative callbacks, and full item history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "detail")]
+#[derive(Default)]
 pub enum ItemState {
     /// Player is carrying this item (default, active inventory).
+    #[default]
     Carried,
     /// Item was consumed (potion drunk, food eaten, ammo spent).
     Consumed,
@@ -40,11 +42,6 @@ pub enum ItemState {
     },
 }
 
-impl Default for ItemState {
-    fn default() -> Self {
-        Self::Carried
-    }
-}
 
 impl ItemState {
     /// Whether the item is currently in the player's active inventory.

@@ -84,10 +84,10 @@ impl BeatFilterConfig {
         burst_limit: u32,
         burst_window: Duration,
     ) -> Option<Self> {
-        if weight_threshold < 0.0 || weight_threshold > 1.0 {
+        if !(0.0..=1.0).contains(&weight_threshold) {
             return None;
         }
-        if combat_threshold < 0.0 || combat_threshold > 1.0 {
+        if !(0.0..=1.0).contains(&combat_threshold) {
             return None;
         }
         if combat_threshold > weight_threshold {
@@ -168,6 +168,7 @@ struct RenderRecord {
 ///
 /// Provided alongside the `RenderSubject` to `BeatFilter::evaluate()`.
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct FilterContext {
     /// Whether the game is currently in an active combat encounter.
     pub in_combat: bool,
@@ -177,15 +178,6 @@ pub struct FilterContext {
     pub player_requested: bool,
 }
 
-impl Default for FilterContext {
-    fn default() -> Self {
-        Self {
-            in_combat: false,
-            scene_transition: false,
-            player_requested: false,
-        }
-    }
-}
 
 /// Stateful beat filter that gates the image render pipeline.
 ///
