@@ -153,9 +153,7 @@ pub enum AudioAction {
     FadeIn,
     /// Fade out to silence.
     FadeOut,
-    /// Duck volume for speech.
-    Duck,
-    /// Restore volume after speech.
+    /// Restore volume after a temporary volume drop.
     Restore,
     /// Stop playback.
     Stop,
@@ -167,7 +165,6 @@ impl std::fmt::Display for AudioAction {
             AudioAction::Play => write!(f, "play"),
             AudioAction::FadeIn => write!(f, "fade_in"),
             AudioAction::FadeOut => write!(f, "fade_out"),
-            AudioAction::Duck => write!(f, "duck"),
             AudioAction::Restore => write!(f, "restore"),
             AudioAction::Stop => write!(f, "stop"),
         }
