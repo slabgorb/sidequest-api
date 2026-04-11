@@ -1460,47 +1460,52 @@ pub struct TacticalActionPayload {
 /// Supported die sizes (faces per die) per ADR-074 §3.
 ///
 /// The seven values are the tabletop standard. Making this a bounded enum
-/// (rather than a raw `u32`) means invalid sides like `0` (divide-by-zero in
-/// `roll % sides`) or `3` (not a real tabletop die) cannot exist on the wire —
-/// serde rejects unknown integers at deserialization time.
+/// (rather than a raw `u32`) means invalid sides like `3` (not a real tabletop
+/// die) do not materialize as a usable variant — they fall through to
+/// `Unknown` via the `From<u32>` bridge below.
 ///
-/// Serialized as the integer face count (`4`, `6`, `8`, `10`, `12`, `20`, `100`)
-/// to keep the JSON shape identical to what the UI drag-and-flick code expects
-/// from ADR-074 fixtures.
+/// **Wire format: unsigned integer face count** (`4`, `6`, `8`, `10`, `12`,
+/// `20`, `100`). Implemented via `#[serde(from = "u32", into = "u32")]` — the
+/// JSON shape is a bare integer (`"sides": 20`) matching ADR-074's fixture
+/// exactly, and the From/Into u32 bridge handles the enum ↔ integer mapping.
 ///
-/// **Forward-compatibility:** unknown integers from a newer wire protocol fall
-/// through to the `Unknown` catch-all via `#[serde(other)]`. This is the
-/// serde-level story; `#[non_exhaustive]` handles the compile-time side for
-/// consumer `match` arms. (We intentionally use both — they solve different
-/// problems.)
+/// **Forward-compatibility — two orthogonal mechanisms:**
+///
+/// - `#[non_exhaustive]` is the compile-time guard. It forces downstream
+///   `match` arms to include a wildcard, so adding a new die size (e.g., `D30`)
+///   does not break downstream builds.
+/// - `From<u32>` maps every unknown integer to `Unknown`. This is the wire-level
+///   guard: any integer from a newer server that the older client does not know
+///   about deserializes to `Unknown` rather than failing with a serde error.
+///
+/// Older revisions used `#[serde(rename = "4")] + #[serde(other)]` which
+/// actually produced **string**-tagged wire output (`"sides": "20"`). The doc
+/// said integer but the code emitted strings. Cycle-2 review caught this; the
+/// current `From`/`Into<u32>` pattern actually delivers the integer wire
+/// format the doc claims.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "u32", into = "u32")]
 #[non_exhaustive]
 pub enum DieSides {
     /// Four-sided die (d4).
-    #[serde(rename = "4")]
     D4,
     /// Six-sided die (d6).
-    #[serde(rename = "6")]
     D6,
     /// Eight-sided die (d8).
-    #[serde(rename = "8")]
     D8,
     /// Ten-sided die (d10).
-    #[serde(rename = "10")]
     D10,
     /// Twelve-sided die (d12).
-    #[serde(rename = "12")]
     D12,
     /// Twenty-sided die (d20) — the primary check die in ADR-074.
-    #[serde(rename = "20")]
     D20,
     /// Percentile die (d100).
-    #[serde(rename = "100")]
     D100,
-    /// Unknown die size from a newer wire protocol. Older clients fall
-    /// through to this variant via `#[serde(other)]` instead of hard-erroring
-    /// on deserialization — see `RollOutcome::Unknown` for the same pattern.
-    #[serde(other)]
+    /// Unknown die size from a newer wire protocol. Deserialization of any
+    /// integer not in the supported set maps here. Downstream code should
+    /// refuse the roll and surface a "client needs upgrade" signal rather than
+    /// guessing at face count — see `DieSides::faces()` which returns `None`
+    /// for this variant.
     Unknown,
 }
 
@@ -1519,6 +1524,48 @@ impl DieSides {
             Self::D20 => Some(20),
             Self::D100 => Some(100),
             Self::Unknown => None,
+        }
+    }
+}
+
+impl From<u32> for DieSides {
+    /// Infallible mapping from the wire-format integer to the variant.
+    ///
+    /// Any value not in the ADR-074 set of `{4, 6, 8, 10, 12, 20, 100}`
+    /// (including `0`, `1`, `3`, `7`, `u32::MAX`) maps to `Unknown`. This is
+    /// the wire-level forward-compat path — downstream `match` sites see
+    /// `Unknown` and decide policy, rather than serde erroring at parse time.
+    fn from(value: u32) -> Self {
+        match value {
+            4 => Self::D4,
+            6 => Self::D6,
+            8 => Self::D8,
+            10 => Self::D10,
+            12 => Self::D12,
+            20 => Self::D20,
+            100 => Self::D100,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<DieSides> for u32 {
+    /// Maps a `DieSides` back to its face count for wire serialization.
+    ///
+    /// `Unknown` serializes as `0` — a deliberate sentinel that any sane
+    /// downstream consumer should reject before rolling. `0` is not in the
+    /// `From<u32>` accepted set, so round-tripping `Unknown → 0 → Unknown` is
+    /// stable (the wire value maps back to `Unknown` on deserialize).
+    fn from(value: DieSides) -> Self {
+        match value {
+            DieSides::D4 => 4,
+            DieSides::D6 => 6,
+            DieSides::D8 => 8,
+            DieSides::D10 => 10,
+            DieSides::D12 => 12,
+            DieSides::D20 => 20,
+            DieSides::D100 => 100,
+            DieSides::Unknown => 0,
         }
     }
 }
@@ -1617,14 +1664,20 @@ pub enum RollOutcome {
 /// `Vec<u32>` of face values, which made `RollOutcome::CritSuccess` ("natural
 /// max on the primary die") formally unresolvable for mixed pools like 4d6+2d10.
 ///
-/// Invariant (enforced at construction and via the `#[serde(try_from)]` guard
-/// on the containing payload): `faces.len() == spec.count.get() as usize`.
+/// **Invariant: `faces.len() == spec.count.get() as usize`.** Enforced at the
+/// wire boundary via `DiceResultPayload`'s validated deserialization path (see
+/// `dice_payload_raw::DiceResultPayloadRaw::try_from`). A payload where the
+/// face count and the declared die count disagree is rejected with
+/// `DiceResultPayloadError::FaceCountMismatch` — this invariant used to be a
+/// docstring-only claim (cycle-2 review finding #2), it is now actually
+/// enforced.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DieGroupResult {
     /// The die this group was rolled against (echoes the request's `DieSpec`).
     pub spec: DieSpec,
-    /// The raw face values in roll order. Length must match `spec.count`.
+    /// The raw face values in roll order. Length must match `spec.count` —
+    /// enforced by `DiceResultPayload`'s `TryFrom` guard at deserialization.
     pub faces: Vec<u32>,
 }
 
@@ -1635,13 +1688,17 @@ pub struct DieGroupResult {
 /// `player_id` on `GameMessage::DiceRequest` which identifies the sender of
 /// the frame (typically `"server"`).
 ///
-/// **Deserialization is validated.** `#[serde(try_from = "DiceRequestPayloadRaw")]`
-/// rejects empty dice pools (`dice == []`) at parse time — an empty pool is
-/// a nonsensical game state (a modifier-only "roll" with no dice actually thrown).
-/// `difficulty` uses `NonZeroU32` to reject `difficulty == 0`, which would
-/// guarantee `Success` on any roll regardless of the faces.
+/// **Deserialization is validated** via the private
+/// `dice_payload_raw::DiceRequestPayloadRaw` intermediary. Rejects empty dice
+/// pools (`dice == []`) — a modifier-only "roll" with no dice actually thrown
+/// — and whitespace-only stat names. `difficulty` uses `NonZeroU32` to reject
+/// `difficulty == 0`, which would guarantee `Success` on any roll.
+///
+/// The Raw intermediary type is private to the `dice_payload_raw` module to
+/// prevent direct construction/deserialization bypassing the validation (see
+/// cycle-2 review finding #3).
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(into = "DiceRequestPayloadRaw")]
+#[serde(into = "dice_payload_raw::DiceRequestPayloadRaw")]
 pub struct DiceRequestPayload {
     /// Correlation ID matching the eventual `DiceResult`. Also used by the
     /// rolling player when submitting a `DiceThrow`.
@@ -1670,69 +1727,138 @@ pub struct DiceRequestPayload {
     pub context: String,
 }
 
-/// Deserialization-time representation of `DiceRequestPayload`.
+/// Private deserialization intermediaries for the dice request and result
+/// payloads. Kept inside a module so the Raw types are `pub(super)` rather
+/// than crate-public — serde's `#[serde(into = "...")]` attribute requires
+/// the target type to be name-resolvable from the attribute site, and a
+/// submodule satisfies that while preventing direct `pub` bypass (cycle-2
+/// finding #3).
 ///
-/// This is an implementation detail — the public type is `DiceRequestPayload`.
-/// Serde deserializes through this raw struct and then `TryFrom` enforces the
-/// non-empty-pool and non-blank-stat invariants before constructing the real
-/// payload. `#[serde(deny_unknown_fields)]` is on the raw type so the schema
-/// shape is still enforced.
-#[doc(hidden)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct DiceRequestPayloadRaw {
-    /// Correlation ID — see `DiceRequestPayload::request_id`.
-    pub request_id: String,
-    /// Rolling player — see `DiceRequestPayload::rolling_player_id`.
-    pub rolling_player_id: String,
-    /// Character display name — see `DiceRequestPayload::character_name`.
-    pub character_name: String,
-    /// Dice pool (validated non-empty on TryFrom).
-    pub dice: Vec<DieSpec>,
-    /// Stat modifier (can be negative).
-    pub modifier: i32,
-    /// Stat name (validated non-blank on TryFrom).
-    pub stat: String,
-    /// Difficulty class (NonZeroU32 enforced by serde).
-    pub difficulty: std::num::NonZeroU32,
-    /// Narrator flavor text.
-    pub context: String,
-}
+/// The Raw types mirror their public counterparts field-for-field, derive
+/// plain `Serialize`/`Deserialize` with `#[serde(deny_unknown_fields)]`, and
+/// `TryFrom` implementations that enforce the cross-field invariants:
+///
+/// - `DiceRequestPayloadRaw::try_into()`: dice pool non-empty, stat non-blank.
+/// - `DiceResultPayloadRaw::try_into()`: every `DieGroupResult.faces.len() ==
+///   spec.count.get() as usize`. This is the enforcement of the invariant
+///   that the `DieGroupResult` doc claims (cycle-2 finding #2).
+mod dice_payload_raw {
+    use super::{
+        DiceRequestPayload, DiceResultPayload, DieGroupResult, DieSpec, RollOutcome, ThrowParams,
+    };
+    use serde::{Deserialize, Serialize};
 
-impl From<DiceRequestPayload> for DiceRequestPayloadRaw {
-    fn from(p: DiceRequestPayload) -> Self {
-        Self {
-            request_id: p.request_id,
-            rolling_player_id: p.rolling_player_id,
-            character_name: p.character_name,
-            dice: p.dice,
-            modifier: p.modifier,
-            stat: p.stat,
-            difficulty: p.difficulty,
-            context: p.context,
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct DiceRequestPayloadRaw {
+        pub request_id: String,
+        pub rolling_player_id: String,
+        pub character_name: String,
+        pub dice: Vec<DieSpec>,
+        pub modifier: i32,
+        pub stat: String,
+        pub difficulty: std::num::NonZeroU32,
+        pub context: String,
+    }
+
+    impl From<DiceRequestPayload> for DiceRequestPayloadRaw {
+        fn from(p: DiceRequestPayload) -> Self {
+            Self {
+                request_id: p.request_id,
+                rolling_player_id: p.rolling_player_id,
+                character_name: p.character_name,
+                dice: p.dice,
+                modifier: p.modifier,
+                stat: p.stat,
+                difficulty: p.difficulty,
+                context: p.context,
+            }
         }
     }
-}
 
-impl TryFrom<DiceRequestPayloadRaw> for DiceRequestPayload {
-    type Error = DiceRequestPayloadError;
-    fn try_from(raw: DiceRequestPayloadRaw) -> Result<Self, Self::Error> {
-        if raw.dice.is_empty() {
-            return Err(DiceRequestPayloadError::EmptyDicePool);
+    impl TryFrom<DiceRequestPayloadRaw> for DiceRequestPayload {
+        type Error = super::DiceRequestPayloadError;
+        fn try_from(raw: DiceRequestPayloadRaw) -> Result<Self, Self::Error> {
+            if raw.dice.is_empty() {
+                return Err(super::DiceRequestPayloadError::EmptyDicePool);
+            }
+            if raw.stat.trim().is_empty() {
+                return Err(super::DiceRequestPayloadError::BlankStat);
+            }
+            Ok(Self {
+                request_id: raw.request_id,
+                rolling_player_id: raw.rolling_player_id,
+                character_name: raw.character_name,
+                dice: raw.dice,
+                modifier: raw.modifier,
+                stat: raw.stat,
+                difficulty: raw.difficulty,
+                context: raw.context,
+            })
         }
-        if raw.stat.trim().is_empty() {
-            return Err(DiceRequestPayloadError::BlankStat);
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub(super) struct DiceResultPayloadRaw {
+        pub request_id: String,
+        pub rolling_player_id: String,
+        pub character_name: String,
+        pub rolls: Vec<DieGroupResult>,
+        pub modifier: i32,
+        pub total: i32,
+        pub difficulty: std::num::NonZeroU32,
+        pub outcome: RollOutcome,
+        pub seed: u64,
+        pub throw_params: ThrowParams,
+    }
+
+    impl From<DiceResultPayload> for DiceResultPayloadRaw {
+        fn from(p: DiceResultPayload) -> Self {
+            Self {
+                request_id: p.request_id,
+                rolling_player_id: p.rolling_player_id,
+                character_name: p.character_name,
+                rolls: p.rolls,
+                modifier: p.modifier,
+                total: p.total,
+                difficulty: p.difficulty,
+                outcome: p.outcome,
+                seed: p.seed,
+                throw_params: p.throw_params,
+            }
         }
-        Ok(Self {
-            request_id: raw.request_id,
-            rolling_player_id: raw.rolling_player_id,
-            character_name: raw.character_name,
-            dice: raw.dice,
-            modifier: raw.modifier,
-            stat: raw.stat,
-            difficulty: raw.difficulty,
-            context: raw.context,
-        })
+    }
+
+    impl TryFrom<DiceResultPayloadRaw> for DiceResultPayload {
+        type Error = super::DiceResultPayloadError;
+        fn try_from(raw: DiceResultPayloadRaw) -> Result<Self, Self::Error> {
+            // Enforce the DieGroupResult invariant that was previously
+            // documentary-only (cycle-2 review finding #2).
+            for (idx, group) in raw.rolls.iter().enumerate() {
+                let declared = group.spec.count.get() as usize;
+                let actual = group.faces.len();
+                if declared != actual {
+                    return Err(super::DiceResultPayloadError::FaceCountMismatch {
+                        group_index: idx,
+                        declared,
+                        actual,
+                    });
+                }
+            }
+            Ok(Self {
+                request_id: raw.request_id,
+                rolling_player_id: raw.rolling_player_id,
+                character_name: raw.character_name,
+                rolls: raw.rolls,
+                modifier: raw.modifier,
+                total: raw.total,
+                difficulty: raw.difficulty,
+                outcome: raw.outcome,
+                seed: raw.seed,
+                throw_params: raw.throw_params,
+            })
+        }
     }
 }
 
@@ -1741,7 +1867,7 @@ impl<'de> Deserialize<'de> for DiceRequestPayload {
     where
         D: serde::Deserializer<'de>,
     {
-        let raw = DiceRequestPayloadRaw::deserialize(deserializer)?;
+        let raw = dice_payload_raw::DiceRequestPayloadRaw::deserialize(deserializer)?;
         Self::try_from(raw).map_err(serde::de::Error::custom)
     }
 }
@@ -1771,6 +1897,55 @@ impl std::fmt::Display for DiceRequestPayloadError {
 
 impl std::error::Error for DiceRequestPayloadError {}
 
+/// Validation errors produced by `DiceResultPayload::try_from(raw)`.
+///
+/// Currently only surfaces the per-group face-count invariant. Future
+/// consistency checks (e.g., `total == sum(flat_rolls) + modifier`) can be
+/// added here without breaking the public API.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum DiceResultPayloadError {
+    /// A `DieGroupResult` declared a different `spec.count` than the number
+    /// of `faces` actually present. This invariant is load-bearing for
+    /// `RollOutcome::CritSuccess` detection — the "natural max on the primary
+    /// die" needs every declared die to have a rolled face.
+    FaceCountMismatch {
+        /// Zero-based index into `DiceResultPayload.rolls`.
+        group_index: usize,
+        /// The count declared by `spec.count.get()`.
+        declared: usize,
+        /// The actual `faces.len()` value.
+        actual: usize,
+    },
+}
+
+impl std::fmt::Display for DiceResultPayloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FaceCountMismatch {
+                group_index,
+                declared,
+                actual,
+            } => write!(
+                f,
+                "rolls[{group_index}] declared count={declared} but got {actual} face value(s)"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DiceResultPayloadError {}
+
+impl<'de> Deserialize<'de> for DiceResultPayload {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = dice_payload_raw::DiceResultPayloadRaw::deserialize(deserializer)?;
+        Self::try_from(raw).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Client -> server: rolling player submits a throw gesture (story 34-2).
 ///
 /// Matched to the original `DiceRequest` via `request_id`. The server uses the
@@ -1797,8 +1972,14 @@ pub struct DiceThrowPayload {
 /// player whose character rolled. See the `DiceRequest` doc for the same
 /// distinction — the two `player_id`-shaped fields serve different roles and
 /// the payload field is renamed to make the ambiguity impossible.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+///
+/// **Deserialization is validated** via the private
+/// `dice_payload_raw::DiceResultPayloadRaw` intermediary. The `DieGroupResult`
+/// invariant `faces.len() == spec.count.get() as usize` is enforced at the
+/// wire boundary — cycle-2 review finding #2 (this was previously
+/// documentary only).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(into = "dice_payload_raw::DiceResultPayloadRaw")]
 pub struct DiceResultPayload {
     /// Correlation ID matching the original `DiceRequest`.
     pub request_id: String,

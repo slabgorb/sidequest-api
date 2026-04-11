@@ -522,7 +522,7 @@ fn dice_request_payload_rejects_unknown_fields() {
         "request_id": "req-1",
         "rolling_player_id": "p1",
         "character_name": "Kira",
-        "dice": [{"sides": "20", "count": 1}],
+        "dice": [{"sides": 20, "count": 1}],
         "modifier": 3,
         "stat": "dexterity",
         "difficulty": 15,
@@ -560,7 +560,7 @@ fn dice_result_payload_rejects_unknown_fields() {
         "request_id": "req-1",
         "rolling_player_id": "p1",
         "character_name": "Kira",
-        "rolls": [{"spec": {"sides": "20", "count": 1}, "faces": [17]}],
+        "rolls": [{"spec": {"sides": 20, "count": 1}, "faces": [17]}],
         "modifier": 3,
         "total": 20,
         "difficulty": 15,
@@ -582,7 +582,7 @@ fn dice_result_payload_rejects_unknown_fields() {
 
 #[test]
 fn die_spec_rejects_unknown_fields() {
-    let bad_json = r#"{"sides": "20", "count": 1, "weighted": true}"#;
+    let bad_json = r#"{"sides": 20, "count": 1, "weighted": true}"#;
     let result: Result<DieSpec, _> = serde_json::from_str(bad_json);
     assert!(
         result.is_err(),
@@ -594,7 +594,7 @@ fn die_spec_rejects_unknown_fields() {
 fn die_group_result_rejects_unknown_fields() {
     // New type from review fix #6. Same crate convention — extra fields reject.
     let bad_json = r#"{
-        "spec": {"sides": "20", "count": 1},
+        "spec": {"sides": 20, "count": 1},
         "faces": [17],
         "multiplier": 2
     }"#;
@@ -603,6 +603,71 @@ fn die_group_result_rejects_unknown_fields() {
         result.is_err(),
         "DieGroupResult must reject unknown fields — 'multiplier' would silently alter outcomes"
     );
+}
+
+#[test]
+fn dice_result_payload_rejects_face_count_mismatch() {
+    // Cycle-2 review fix #2: the DieGroupResult invariant
+    // `faces.len() == spec.count.get() as usize` must actually be enforced at
+    // the wire boundary, not just documented. Send a payload where the declared
+    // count is 4 but only 1 face value is present — deserialization must fail
+    // with `DiceResultPayloadError::FaceCountMismatch`.
+    let bad_json = r#"{
+        "request_id": "cheat",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "rolls": [{"spec": {"sides": 6, "count": 4}, "faces": [6]}],
+        "modifier": 0,
+        "total": 6,
+        "difficulty": 10,
+        "outcome": "Success",
+        "seed": 0,
+        "throw_params": {
+            "velocity": [0.0, 0.0, 0.0],
+            "angular": [0.0, 0.0, 0.0],
+            "position": [0.5, 0.5]
+        }
+    }"#;
+    let result: Result<DiceResultPayload, _> = serde_json::from_str(bad_json);
+    assert!(
+        result.is_err(),
+        "count=4 + faces=[6] must be rejected — DieGroupResult invariant"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("declared count=4") && err.contains("got 1 face"),
+        "rejection must name the mismatch explicitly: got {err}"
+    );
+}
+
+#[test]
+fn dice_result_payload_accepts_correct_face_counts_for_pool() {
+    // Happy path for the new invariant — a 4d6+2d10 pool with exactly 4 and 2
+    // face values must deserialize cleanly.
+    let ok_json = r#"{
+        "request_id": "ok",
+        "rolling_player_id": "p1",
+        "character_name": "Kira",
+        "rolls": [
+            {"spec": {"sides": 6, "count": 4}, "faces": [3, 5, 2, 6]},
+            {"spec": {"sides": 10, "count": 2}, "faces": [7, 9]}
+        ],
+        "modifier": 0,
+        "total": 32,
+        "difficulty": 12,
+        "outcome": "Success",
+        "seed": 0,
+        "throw_params": {
+            "velocity": [0.0, 0.0, 0.0],
+            "angular": [0.0, 0.0, 0.0],
+            "position": [0.5, 0.5]
+        }
+    }"#;
+    let payload: DiceResultPayload =
+        serde_json::from_str(ok_json).expect("valid pool must deserialize");
+    assert_eq!(payload.rolls.len(), 2);
+    assert_eq!(payload.rolls[0].faces.len(), 4);
+    assert_eq!(payload.rolls[1].faces.len(), 2);
 }
 
 #[test]
@@ -660,7 +725,7 @@ fn dice_request_payload_rejects_blank_stat() {
         "request_id": "req-1",
         "rolling_player_id": "p1",
         "character_name": "Kira",
-        "dice": [{"sides": "20", "count": 1}],
+        "dice": [{"sides": 20, "count": 1}],
         "modifier": 0,
         "stat": "   ",
         "difficulty": 15,
@@ -687,7 +752,7 @@ fn dice_request_payload_rejects_zero_difficulty() {
         "request_id": "req-1",
         "rolling_player_id": "p1",
         "character_name": "Kira",
-        "dice": [{"sides": "20", "count": 1}],
+        "dice": [{"sides": 20, "count": 1}],
         "modifier": 0,
         "stat": "dexterity",
         "difficulty": 0,
@@ -704,7 +769,7 @@ fn dice_request_payload_rejects_zero_difficulty() {
 fn die_spec_rejects_zero_count() {
     // Review fix #2 (narrow form): count=0 was previously representable as u32.
     // NonZeroU8 at the type level rejects it at deserialization.
-    let bad_json = r#"{"sides": "20", "count": 0}"#;
+    let bad_json = r#"{"sides": 20, "count": 0}"#;
     let result: Result<DieSpec, _> = serde_json::from_str(bad_json);
     assert!(
         result.is_err(),
@@ -714,17 +779,20 @@ fn die_spec_rejects_zero_count() {
 
 #[test]
 fn die_sides_rejects_invalid_sides_with_unknown_fallback() {
-    // Review fix #2: previously `sides: u32` accepted any integer including
-    // 0 (divide-by-zero), 3 (unspecified), and u32::MAX. Now `DieSides` is a
-    // bounded enum with an `Unknown` catch-all. Invalid values deserialize to
-    // `Unknown` (which downstream code should treat as a reject-the-roll
-    // signal), NOT as a divide-by-zero-ready `0`.
+    // Review fix #2 (cycle 1): previously `sides: u32` accepted any integer
+    // including 0 (divide-by-zero), 3 (unspecified), and u32::MAX. Now
+    // `DieSides` is a bounded enum with a `From<u32>` bridge where any
+    // unrecognized integer maps to `Unknown`.
+    //
+    // Cycle-2 review fix: wire format is bare JSON integer (not quoted
+    // string). The From/Into u32 bridge handles the integer ↔ enum mapping.
     let invalid_values = [
-        "\"0\"",
-        "\"3\"",
-        "\"7\"",
-        "\"999\"",
-        "\"18446744073709551615\"",
+        "0",
+        "1",
+        "3",
+        "7",
+        "999",
+        "4294967295", // u32::MAX
     ];
     for raw in invalid_values {
         let restored: DieSides =
@@ -734,6 +802,22 @@ fn die_sides_rejects_invalid_sides_with_unknown_fallback() {
             "DieSides must not materialize invalid value {raw} as a real die"
         );
     }
+}
+
+#[test]
+fn die_sides_unknown_round_trips_via_zero_sentinel() {
+    // Cycle-2 review fix: the `From<DieSides> for u32` impl maps `Unknown` to
+    // the sentinel `0`, and `0` is not in the accepted face-count set, so
+    // `0 → Unknown → 0 → Unknown` is stable. This pins the sentinel so a
+    // future refactor that changed the sentinel would fail this test.
+    let unknown = DieSides::Unknown;
+    let json = serde_json::to_string(&unknown).expect("serialize Unknown");
+    assert_eq!(
+        json, "0",
+        "DieSides::Unknown must serialize as the sentinel integer 0"
+    );
+    let restored: DieSides = serde_json::from_str(&json).expect("deserialize sentinel");
+    assert!(matches!(restored, DieSides::Unknown));
 }
 
 // ============================================================================
@@ -750,7 +834,7 @@ fn dice_request_deserializes_from_adr_074_fixture() {
             "request_id": "req-abc",
             "rolling_player_id": "kira",
             "character_name": "Kira the Sly",
-            "dice": [{"sides": "20", "count": 1}],
+            "dice": [{"sides": 20, "count": 1}],
             "modifier": 3,
             "stat": "dexterity",
             "difficulty": 15,
@@ -788,7 +872,7 @@ fn dice_result_deserializes_from_adr_074_crit_success_fixture() {
             "request_id": "req-abc",
             "rolling_player_id": "kira",
             "character_name": "Kira the Sly",
-            "rolls": [{"spec": {"sides": "20", "count": 1}, "faces": [20]}],
+            "rolls": [{"spec": {"sides": 20, "count": 1}, "faces": [20]}],
             "modifier": 3,
             "total": 23,
             "difficulty": 15,
@@ -830,7 +914,7 @@ fn dice_result_deserializes_from_adr_074_crit_fail_fixture() {
             "request_id": "req-def",
             "rolling_player_id": "kira",
             "character_name": "Kira the Sly",
-            "rolls": [{"spec": {"sides": "20", "count": 1}, "faces": [1]}],
+            "rolls": [{"spec": {"sides": 20, "count": 1}, "faces": [1]}],
             "modifier": 3,
             "total": 4,
             "difficulty": 18,
@@ -860,19 +944,25 @@ fn dice_result_deserializes_from_adr_074_crit_fail_fixture() {
 }
 
 // ============================================================================
-// AC3: DieSpec round-trip — wire format is {"sides": "<N>", "count": <N>}
+// AC3: DieSpec round-trip — wire format is {"sides": <int>, "count": <int>}
 // ============================================================================
 
 #[test]
 fn die_spec_serde_round_trip() {
+    // Cycle-2 review fix: DieSides now serializes as a bare JSON integer
+    // (not a quoted string). The test pins the exact JSON shape.
     let spec = DieSpec {
         sides: DieSides::D20,
         count: NonZeroU8::new(1).unwrap(),
     };
     let json = serde_json::to_string(&spec).expect("serialize DieSpec");
     let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(v["sides"], "20");
-    assert_eq!(v["count"], 1);
+    assert_eq!(
+        v["sides"],
+        serde_json::json!(20),
+        "sides must be JSON integer 20, not string \"20\""
+    );
+    assert_eq!(v["count"], serde_json::json!(1));
     let restored: DieSpec = serde_json::from_str(&json).expect("deserialize DieSpec");
     assert_eq!(restored.sides, DieSides::D20);
     assert_eq!(restored.count.get(), 1);
@@ -881,20 +971,21 @@ fn die_spec_serde_round_trip() {
 #[test]
 fn die_sides_covers_all_adr_074_tabletop_values() {
     // ADR-074: "4, 6, 8, 10, 12, 20, 100"
+    // Cycle-2 review fix: wire is bare JSON integer via #[serde(from/into = "u32")].
     let cases = [
-        (DieSides::D4, "\"4\"", 4_u32),
-        (DieSides::D6, "\"6\"", 6),
-        (DieSides::D8, "\"8\"", 8),
-        (DieSides::D10, "\"10\"", 10),
-        (DieSides::D12, "\"12\"", 12),
-        (DieSides::D20, "\"20\"", 20),
-        (DieSides::D100, "\"100\"", 100),
+        (DieSides::D4, "4", 4_u32),
+        (DieSides::D6, "6", 6),
+        (DieSides::D8, "8", 8),
+        (DieSides::D10, "10", 10),
+        (DieSides::D12, "12", 12),
+        (DieSides::D20, "20", 20),
+        (DieSides::D100, "100", 100),
     ];
     for (variant, expected_wire, expected_faces) in cases {
         let json = serde_json::to_string(&variant).expect("serialize DieSides");
         assert_eq!(
             json, expected_wire,
-            "DieSides::{variant:?} must serialize to ADR-074 wire string"
+            "DieSides::{variant:?} must serialize as bare JSON integer"
         );
         let restored: DieSides =
             serde_json::from_str(&json).expect("deserialize DieSides round-trip");
