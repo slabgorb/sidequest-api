@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::combatant::Combatant;
 use crate::hp::clamp_hp;
@@ -41,10 +42,29 @@ pub struct CreatureCore {
 
 impl CreatureCore {
     /// Apply HP damage or healing, clamped to [0, max_hp].
+    ///
+    /// Emits a `creature.hp_delta` watcher event so the GM panel can verify
+    /// HP mutations. Story 28-2 added the WatcherEventBuilder emission;
+    /// story 28-12 added the parallel `tracing::info_span!` for log-level
+    /// visibility — both channels stay because they serve different
+    /// audiences (broadcast for GM panel, tracing for stdout/jaeger).
     pub fn apply_hp_delta(&mut self, delta: i32) {
         let old_hp = self.hp;
         self.hp = clamp_hp(self.hp, delta, self.max_hp);
         let clamped = self.hp != old_hp + delta;
+
+        // OTEL: creature.hp_delta — broadcast for the GM panel (story 28-2).
+        WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
+            .field("action", "hp_delta")
+            .field("name", self.name.as_str())
+            .field("old_hp", old_hp)
+            .field("new_hp", self.hp)
+            .field("delta", delta)
+            .field("max_hp", self.max_hp)
+            .field("clamped", clamped)
+            .send();
+
+        // tracing span — for log/jaeger consumers (story 28-12).
         let span = tracing::info_span!(
             "creature.hp_delta",
             name = %self.name,
