@@ -606,8 +606,6 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
                 "music_volume": 0.5,
                 "sfx_volume": 0.5,
                 "voice_volume": 0.8,
-                "duck_music_for_voice": true,
-                "duck_amount_db": -6.0,
                 "crossfade_default_ms": 2000
             }
         }))

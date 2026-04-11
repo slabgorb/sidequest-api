@@ -441,8 +441,6 @@ mixer:
   music_volume: 0.4
   sfx_volume: 0.7
   voice_volume: 1.0
-  duck_music_for_voice: true
-  duck_amount_db: -12.0
   crossfade_default_ms: 3000
 themes:
   - name: exploration
@@ -456,7 +454,6 @@ themes:
     let exploration_tracks = audio.mood_tracks.get("exploration").unwrap();
     assert_eq!(exploration_tracks[0].title, "Wasteland Horizon");
     assert_eq!(exploration_tracks[0].bpm, 90);
-    assert!(audio.mixer.duck_music_for_voice);
     assert_eq!(audio.themes.len(), 1);
     let brute = audio.creature_voice_presets.get("mutant_brute").unwrap();
     assert!((brute.pitch - 0.5).abs() < f64::EPSILON);

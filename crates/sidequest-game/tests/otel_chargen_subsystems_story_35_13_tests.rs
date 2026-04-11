@@ -447,8 +447,6 @@ fn audio_config_exploration_full_only() -> AudioConfig {
             music_volume: 0.6,
             sfx_volume: 0.8,
             voice_volume: 1.0,
-            duck_music_for_voice: true,
-            duck_amount_db: -12.0,
             crossfade_default_ms: 3000,
         },
         themes: vec![AudioTheme {
@@ -520,8 +518,6 @@ fn audio_config_themes_for_exploration_only() -> AudioConfig {
             music_volume: 0.6,
             sfx_volume: 0.8,
             voice_volume: 1.0,
-            duck_music_for_voice: true,
-            duck_amount_db: -12.0,
             crossfade_default_ms: 3000,
         },
         // Only exploration has themed variations — combat does not.
@@ -775,8 +771,6 @@ fn audio_config_combat_theme_with_empty_variations() -> AudioConfig {
             music_volume: 0.6,
             sfx_volume: 0.8,
             voice_volume: 1.0,
-            duck_music_for_voice: true,
-            duck_amount_db: -12.0,
             crossfade_default_ms: 3000,
         },
         // Malformed on purpose: the theme bundle has an empty variations vec.

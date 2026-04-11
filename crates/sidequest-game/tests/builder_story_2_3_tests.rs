@@ -909,9 +909,18 @@ fn builder_produces_character_creation_scene_message() {
 }
 
 #[test]
-fn builder_produces_confirmation_message() {
-    use sidequest_protocol::GameMessage;
-
+fn builder_reaches_confirmation_state_after_full_walk() {
+    // This test originally called `builder.to_scene_message("player-1")` in
+    // Confirmation phase and asserted on the resulting GameMessage. That call
+    // now panics by design — confirmation rendering moved to
+    // `sidequest_server::dispatch::chargen_summary::render_confirmation_summary`
+    // because a faithful summary needs the GenrePack and the lobby-provided
+    // name (see the 2026-04-09 Thessa playtest bug). The game crate cannot
+    // depend on the server crate, so the rendering itself is covered by
+    // server-side tests against `render_confirmation_summary`. This test now
+    // verifies only what lives in the builder's lane: the FSM correctly
+    // reaches Confirmation phase after the player's choice walk, and the
+    // accumulated state is intact for the renderer to consume.
     let scenes = test_scenes();
     let rules = test_rules();
     let mut builder = CharacterBuilder::new(scenes.clone(), &rules, None);
@@ -921,21 +930,24 @@ fn builder_produces_confirmation_message() {
     builder.apply_choice(0).unwrap();
     builder.answer_followup("Gone").unwrap();
 
-    let msg = builder.to_scene_message("player-1");
-    match msg {
-        GameMessage::CharacterCreation { payload, .. } => {
-            assert_eq!(
-                payload.phase.as_str(),
-                "confirmation",
-                "In Confirmation state, message phase should be 'confirmation'"
-            );
-            assert!(
-                payload.summary.is_some(),
-                "Confirmation message should include summary"
-            );
-        }
-        other => panic!("Expected CharacterCreation message, got {:?}", other),
-    }
+    assert!(
+        builder.is_confirmation(),
+        "After choosing all 3 scenes and answering the followup, builder must be in Confirmation phase"
+    );
+    let acc = builder.accumulated();
+    assert!(
+        acc.race_hint.is_some(),
+        "First scene's race_hint should be accumulated"
+    );
+    assert!(
+        acc.class_hint.is_some(),
+        "Second scene's class_hint should be accumulated"
+    );
+    assert_eq!(
+        builder.scene_results().len(),
+        3,
+        "All 3 scene results should be on the stack at Confirmation"
+    );
 }
 
 // ============================================================================
@@ -1097,13 +1109,22 @@ fn standard_array_produces_valid_stats() {
 
     let character = builder.build("Thorn").unwrap();
 
-    // Standard array: 15, 14, 13, 12, 10, 8
+    // Standard array base values: 15, 14, 13, 12, 10, 8 (assigned in
+    // ability_score_names order — STR=15, DEX=14, CON=13, INT=12, WIS=10,
+    // CHA=8). After the base assignment, builder.rs:1332-1361 applies
+    // *derived differentiation* when stat_bonuses is empty:
+    //   - race_hint set (Dwarf, from origin choice 0) → STR += 3 → STR=18
+    //   - class_hint set (Fighter, from calling choice 0) → CON += 2 → CON=15
+    // Sorted result: [8, 10, 12, 14, 15, 18].
+    //
+    // The earlier expected vec ([8, 10, 12, 13, 14, 15]) predated the
+    // derivation block and was never updated when it landed.
     let mut values: Vec<i32> = character.stats.values().copied().collect();
     values.sort_unstable();
     assert_eq!(
         values,
-        vec![8, 10, 12, 13, 14, 15],
-        "Standard array should produce 15, 14, 13, 12, 10, 8"
+        vec![8, 10, 12, 14, 15, 18],
+        "Standard array + Dwarf race (+3 STR) + Fighter class (+2 CON) should sort to [8, 10, 12, 14, 15, 18]"
     );
 }
 
