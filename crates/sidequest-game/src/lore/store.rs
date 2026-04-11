@@ -72,13 +72,47 @@ impl LoreStore {
 
     /// Attach an embedding vector to an existing fragment by id.
     /// Returns `Err` if the fragment does not exist.
+    ///
+    /// Also clears the `embedding_pending` flag, since attaching a real
+    /// embedding necessarily resolves any prior failure.
     pub fn set_embedding(&mut self, id: &str, embedding: Vec<f32>) -> Result<(), String> {
         let frag = self
             .fragments
             .get_mut(id)
             .ok_or_else(|| format!("fragment not found: {id}"))?;
         frag.embedding = Some(embedding);
+        frag.embedding_pending = false;
         Ok(())
+    }
+
+    /// Mark a fragment as pending embedding retry. Used by the dispatch
+    /// layer when the embed daemon is unavailable — the fragment is
+    /// already stored, but it can't participate in semantic search until
+    /// a later sweep succeeds in generating its vector.
+    ///
+    /// Returns `Err` if the fragment does not exist.
+    pub fn mark_embedding_pending(&mut self, id: &str) -> Result<(), String> {
+        let frag = self
+            .fragments
+            .get_mut(id)
+            .ok_or_else(|| format!("fragment not found: {id}"))?;
+        frag.embedding_pending = true;
+        Ok(())
+    }
+
+    /// Snapshot of `(id, content)` for every fragment currently awaiting
+    /// embedding retry. The dispatch layer iterates this list at the start
+    /// of each lore sync, attempting to embed each pending fragment via
+    /// the daemon and clearing the flag on success via [`set_embedding`].
+    ///
+    /// Returns `Vec<(String, String)>` so the caller doesn't need to hold
+    /// a borrow on the store across the daemon round-trip.
+    pub fn pending_embedding_fragments(&self) -> Vec<(String, String)> {
+        self.fragments
+            .values()
+            .filter(|f| f.embedding_pending && f.embedding.is_none())
+            .map(|f| (f.id().to_string(), f.content().to_string()))
+            .collect()
     }
 
     /// Count of fragments that have embedding vectors attached.
@@ -159,6 +193,21 @@ pub struct LoreFragment {
     /// Optional embedding vector for semantic similarity search (story 11-6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     embedding: Option<Vec<f32>>,
+    /// `true` when the embedding daemon was unavailable at fragment-creation
+    /// time. The 2026-04-10 cascade-fix path uses this flag to retry on the
+    /// next lore sync — without it, fragments accumulated during a daemon
+    /// outage would silently be invisible to semantic search forever (the
+    /// "no silent fallbacks" rule applies even to recoverable failures).
+    ///
+    /// `#[serde(default)]` keeps existing on-disk fragments compatible.
+    #[serde(default, skip_serializing_if = "is_false")]
+    embedding_pending: bool,
+}
+
+/// Helper for `serde(skip_serializing_if)` — keeps the field out of saved JSON
+/// when it's the default value.
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl LoreFragment {
@@ -181,7 +230,15 @@ impl LoreFragment {
             turn_created,
             metadata,
             embedding: None,
+            embedding_pending: false,
         }
+    }
+
+    /// Whether this fragment is awaiting an embedding retry — set when the
+    /// embed daemon was unavailable at fragment creation time, cleared when
+    /// the retry sweep eventually succeeds.
+    pub fn is_embedding_pending(&self) -> bool {
+        self.embedding_pending
     }
 
     /// The fragment's unique identifier.
