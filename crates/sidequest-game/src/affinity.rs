@@ -60,7 +60,7 @@ pub struct AffinityTierUpEvent {
 /// `thresholds_for` maps affinity name -> tier thresholds array.
 /// `narration_hint_for` maps (affinity_name, new_tier) -> optional hint text.
 pub fn check_affinity_thresholds(
-    affinities: &mut Vec<AffinityState>,
+    affinities: &mut [AffinityState],
     character_name: &str,
     thresholds_for: &dyn Fn(&str) -> Option<Vec<u32>>,
     narration_hint_for: &dyn Fn(&str, u8) -> Option<String>,

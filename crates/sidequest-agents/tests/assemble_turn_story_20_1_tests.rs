@@ -62,6 +62,8 @@ fn minimal_extraction() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 
@@ -448,6 +450,8 @@ fn assemble_turn_works_when_narrator_omits_rewrite_and_flags() {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     };
 
     let rewrite = ActionRewrite {

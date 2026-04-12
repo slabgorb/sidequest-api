@@ -339,7 +339,7 @@ fn callback_footnote_serializes_with_fact_id() {
 #[test]
 fn fact_category_covers_all_variants() {
     // All five categories from the spec should be constructable
-    let categories = vec![
+    let categories = [
         FactCategory::Lore,
         FactCategory::Place,
         FactCategory::Person,

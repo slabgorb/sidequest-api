@@ -5,6 +5,27 @@ use crate::{Severity, WatcherEventBuilder, WatcherEventType};
 use super::DispatchContext;
 
 /// Emit GM panel snapshot and turn timing telemetry.
+///
+/// Playtest 2026-04-11: this function is now the SINGLE SOURCE OF TRUTH for
+/// the `WatcherEventType::TurnComplete` event consumed by the OTEL dashboard.
+/// Previously there were TWO emitters of TurnComplete per real player turn:
+///
+/// 1. This function (component: "game") — fired in the dispatch hot path
+/// 2. main.rs::turn_record_bridge (component: "orchestrator") — fired
+///    asynchronously from the TurnRecord mpsc channel
+///
+/// Both fired per real turn → 2× rows in the dashboard timeline. SM diagnosed
+/// this from a server log showing two narrator-component spans per turn with
+/// identical durations but different turn_numbers.
+///
+/// Fix: this emitter now carries ALL the fields the dashboard reads (patches,
+/// beats_fired, delta_empty, narration_len in addition to the existing
+/// turn_id/agent/duration/tokens), and main.rs has been updated to NOT emit
+/// the duplicate event. The TurnRecord bridge in main.rs is still alive — it
+/// continues to drive ADR-073 JSONL training data persistence and the
+/// SubsystemTracker — but no longer emits a competing WatcherEvent.
+// 9 args — fold into a `TelemetryContext` struct in the dispatch refactor.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_telemetry(
     ctx: &mut DispatchContext<'_>,
     turn_number: u64,
@@ -12,6 +33,9 @@ pub(super) fn emit_telemetry(
     turn_start: std::time::Instant,
     preprocess_done: std::time::Instant,
     agent_done: std::time::Instant,
+    game_delta: &sidequest_game::StateDelta,
+    patches_applied: &[sidequest_agents::turn_record::PatchSummary],
+    beats_fired: &[(String, f32)],
 ) {
     // GM Panel: emit full game state snapshot after all mutations
     {
@@ -83,6 +107,24 @@ pub(super) fn emit_telemetry(
     ]);
 
     {
+        // Render patches/beats into JSON the dashboard's TurnCompleteFields
+        // expects. These were previously only emitted via main.rs::turn_record_bridge
+        // — now bundled into the single TurnComplete event source. See the
+        // function-level doc comment for the consolidation rationale.
+        let patches_json: Vec<serde_json::Value> = patches_applied
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "patch_type": p.patch_type,
+                    "fields_changed": p.fields_changed,
+                })
+            })
+            .collect();
+        let beats_json: Vec<serde_json::Value> = beats_fired
+            .iter()
+            .map(|(name, thresh)| serde_json::json!({"trope": name, "threshold": thresh}))
+            .collect();
+
         let mut builder = WatcherEventBuilder::new("game", WatcherEventType::TurnComplete)
             .field("turn_id", turn_number)
             .field("turn_number", turn_number)
@@ -94,6 +136,18 @@ pub(super) fn emit_telemetry(
             .field("player_id", ctx.player_id)
             .field_opt("token_count_in", &result.token_count_in)
             .field_opt("token_count_out", &result.token_count_out)
+            .field("extraction_tier", &result.prompt_tier)
+            .field("genre", ctx.genre_slug)
+            .field("world", ctx.world_slug)
+            // Playtest 2026-04-11 follow-up: ported from main.rs's turn_record_bridge
+            // emission (now disabled) to consolidate to a single TurnComplete source.
+            // Without these fields the dashboard's Turn Details panel would display
+            // "Patches: none" / "Beats: none" / wrong delta_empty / wrong narration_len
+            // for every turn after the consolidation.
+            .field("patches", &patches_json)
+            .field("beats_fired", &beats_json)
+            .field("delta_empty", game_delta.is_empty())
+            .field("narration_len", result.narration.len())
             .field("spans", &spans)
             .field("total_duration_ms", total_ms);
         if result.is_degraded {

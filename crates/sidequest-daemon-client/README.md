@@ -8,7 +8,6 @@ domain socket. JSON-RPC style protocol (newline-delimited JSON).
 
 - **`DaemonClient`** — Connect, send requests, read responses with timeout handling
 - **`render()`** — Image generation (Flux) with OTEL lifecycle tracing
-- **`synthesize()`** — Text-to-speech (Kokoro) returning PCM audio bytes
 - **`embed()`** — Sentence embeddings for semantic lore retrieval
 - **`warm_up()`** / **`ping()`** / **`shutdown()`** — Daemon lifecycle management
 

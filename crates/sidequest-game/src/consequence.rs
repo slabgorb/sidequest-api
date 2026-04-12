@@ -7,6 +7,7 @@
 //! the narrator fills in the creative consequence description.
 
 use serde::{Deserialize, Serialize};
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 use uuid::Uuid;
 
 /// Status of a genie wish through its lifecycle.
@@ -101,11 +102,31 @@ impl WishConsequenceEngine {
         is_power_grab: bool,
     ) -> Option<GenieWish> {
         if !is_power_grab {
+            // OTEL: consequence.wish_evaluated — fires even on the no-op branch
+            // so the GM panel can distinguish "engine declined" from "engine
+            // never called" (story 35-10).
+            WatcherEventBuilder::new("consequence", WatcherEventType::StateTransition)
+                .field("action", "wish_evaluated")
+                .field("is_power_grab", false)
+                .field("wisher_name", player_name)
+                .field("category", serde_json::Value::Null)
+                .field("rotation_counter", self.rotation_counter as u64)
+                .send();
             return None;
         }
 
         let category = ConsequenceCategory::from_rotation(self.rotation_counter);
         self.rotation_counter += 1;
+
+        // OTEL: consequence.wish_evaluated — power-grab path. Reports the
+        // assigned category and the post-evaluation rotation counter.
+        WatcherEventBuilder::new("consequence", WatcherEventType::StateTransition)
+            .field("action", "wish_evaluated")
+            .field("is_power_grab", true)
+            .field("wisher_name", player_name)
+            .field("category", category_str(category))
+            .field("rotation_counter", self.rotation_counter as u64)
+            .send();
 
         Some(GenieWish {
             id: Uuid::new_v4(),
@@ -158,6 +179,16 @@ impl WishConsequenceEngine {
 impl Default for WishConsequenceEngine {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Render a `ConsequenceCategory` as the lowercase string used in OTEL events.
+fn category_str(category: ConsequenceCategory) -> &'static str {
+    match category {
+        ConsequenceCategory::Backfire => "backfire",
+        ConsequenceCategory::Attention => "attention",
+        ConsequenceCategory::Cost => "cost",
+        ConsequenceCategory::Curse => "curse",
     }
 }
 

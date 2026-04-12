@@ -5,10 +5,7 @@
 //! verify the unified loader, trope inheritance resolution, and
 //! cross-reference validation.
 
-use sidequest_genre::{
-    AssignmentMatrix, AtmosphereMatrix, ClueGraph, GenreError, GenrePack, ScenarioNpc,
-    ScenarioPack, TropeDefinition,
-};
+use sidequest_genre::{GenreError, TropeDefinition};
 use std::path::PathBuf;
 
 /// Locate the genre_packs directory relative to this crate.

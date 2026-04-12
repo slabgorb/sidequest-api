@@ -415,6 +415,24 @@ pub(crate) async fn process_audio(
                                     None
                                 };
 
+                                // Mirror render.rs fallback: if LoRA was
+                                // semantically active but the file didn't
+                                // resolve, revert to positive_suffix so the
+                                // daemon gets the real style description.
+                                let style = if lora_active && lora_abs.is_none() {
+                                    let fallback = match tag_override_opt.as_deref() {
+                                        Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
+                                        None => vs.positive_suffix.clone(),
+                                    };
+                                    tracing::warn!(
+                                        genre = %ctx.genre_slug,
+                                        "lora file not resolved — reverting mood image art style from trigger word to positive_suffix"
+                                    );
+                                    fallback
+                                } else {
+                                    style
+                                };
+
                                 (
                                     style,
                                     vs.preferred_model.clone(),

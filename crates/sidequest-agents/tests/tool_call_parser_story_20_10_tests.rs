@@ -64,6 +64,8 @@ fn extraction_with_known_values() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 
@@ -404,38 +406,17 @@ fn missing_sidecar_falls_back_to_narrator_extraction() {
 
 // ============================================================================
 // AC-3: Orchestrator wiring test — source code verification
+//
+// Story 20-10 originally asserted that `orchestrator.rs` must call
+// `parse_tool_results()` instead of `ToolCallResults::default()`. ADR-059
+// (Monster Manual server-side pre-generation) superseded that direction:
+// Claude reliably ignores `claude -p` tool calls, so the sidecar-backed
+// tool mechanism was abandoned and the orchestrator correctly went back to
+// `ToolCallResults::default()`. The two source-grep tests that enforced
+// story 20-10's direction have been removed here — the `parse_tool_results`
+// unit tests above are still valid because the parser module itself remains
+// exported (it just has no orchestrator-side consumer anymore).
 // ============================================================================
-
-#[test]
-fn orchestrator_imports_parse_tool_results() {
-    // Verify that orchestrator.rs imports and uses parse_tool_results
-    // (not ToolCallResults::default)
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let orchestrator_src = std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
-        .expect("should be able to read orchestrator.rs");
-
-    assert!(
-        orchestrator_src.contains("parse_tool_results"),
-        "orchestrator.rs must import/use parse_tool_results — \
-         currently uses ToolCallResults::default() which discards tool call output"
-    );
-}
-
-#[test]
-fn orchestrator_does_not_use_default_tool_call_results() {
-    // After 20-10, the orchestrator should NOT be calling ToolCallResults::default()
-    // in process_action(). It should call parse_tool_results() instead.
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let orchestrator_src = std::fs::read_to_string(format!("{manifest_dir}/src/orchestrator.rs"))
-        .expect("should be able to read orchestrator.rs");
-
-    // The default() call from story 20-9 should be replaced
-    assert!(
-        !orchestrator_src.contains("ToolCallResults::default()"),
-        "orchestrator.rs must NOT use ToolCallResults::default() — \
-         story 20-10 replaces this with parse_tool_results()"
-    );
-}
 
 // ============================================================================
 // AC-3 wiring: tool_call_parser module is public and exported

@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 use crate::achievement::AchievementTracker;
 use crate::axis::AxisValue;
@@ -214,6 +215,34 @@ where
     }
 }
 
+/// Minimal shape of the legacy `chase` field on pre-16-2 save files.
+///
+/// Story 16-2 collapsed `ChaseState` into `StructuredEncounter`, and story
+/// 28-9 then deleted `StructuredEncounter::from_chase_state()` because new
+/// encounters are built from `ConfrontationDef` or `apply_beat()` at runtime.
+/// Neither story addressed the load-old-save path: real user save files on
+/// disk from before 16-2 still carry a `chase: { ... }` block, and without
+/// this shim they would deserialize into a snapshot with `encounter = None`
+/// (silent mid-chase state loss).
+///
+/// This type intentionally does NOT use `deny_unknown_fields` — we want to
+/// quietly drop the legacy chase fields we no longer model (chase_phase,
+/// chase_event, rounds, structured_phase, outcome, actors, etc.) while
+/// preserving the values that map cleanly onto the new encounter shape.
+#[derive(Deserialize)]
+struct LegacyChaseState {
+    #[serde(default)]
+    separation_distance: i32,
+    #[serde(default)]
+    goal: i32,
+    #[serde(default)]
+    escape_threshold: f64,
+    #[serde(default)]
+    beat: u32,
+    #[serde(default)]
+    resolved: bool,
+}
+
 /// Raw deserialization helper for GameSnapshot backward compatibility (story 16-2).
 ///
 /// Handles migration of old saves that have a `chase` field but no `encounter`
@@ -241,6 +270,10 @@ struct GameSnapshotRaw {
     narrative_log: Vec<NarrativeEntry>,
     #[serde(default)]
     encounter: Option<StructuredEncounter>,
+    /// Legacy chase block from pre-16-2 saves. Migrated into `encounter`
+    /// in `From<GameSnapshotRaw>` when the new field is absent.
+    #[serde(default)]
+    chase: Option<LegacyChaseState>,
     #[serde(default, deserialize_with = "deserialize_trope_states")]
     active_tropes: Vec<TropeState>,
     #[serde(default)]
@@ -360,7 +393,21 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             quest_log: raw.quest_log,
             notes: raw.notes,
             narrative_log: raw.narrative_log,
-            encounter: raw.encounter,
+            // Migrate legacy `chase` field into the new `encounter` field
+            // when the save predates story 16-2. The chase migration was
+            // documented in the GameSnapshotRaw doc comment but the actual
+            // shim was missing — story 28-9 deleted
+            // StructuredEncounter::from_chase_state() and never replaced it.
+            // See encounter_story_16_2_tests::old_chase_state_json_deserializes_as_encounter.
+            encounter: raw.encounter.or_else(|| {
+                raw.chase.map(|c| {
+                    let mut enc = StructuredEncounter::chase(c.escape_threshold, None, c.goal);
+                    enc.metric.current = c.separation_distance;
+                    enc.beat = c.beat;
+                    enc.resolved = c.resolved;
+                    enc
+                })
+            }),
             active_tropes: raw.active_tropes,
             atmosphere: raw.atmosphere,
             current_region: raw.current_region,
@@ -389,19 +436,18 @@ impl From<GameSnapshotRaw> for GameSnapshot {
 impl GameSnapshot {
     /// Find the lowest HP ratio among friendly (player-controlled) characters.
     /// Returns 1.0 if no friendly characters exist.
+    ///
+    /// Delegates to `Combatant::hp_fraction()` so the `combatant.bloodied`
+    /// OTEL watcher event added by story 35-10 is reachable from production
+    /// state-build code (CLAUDE.md "No half-wired features"). The trait
+    /// method already short-circuits on `max_hp == 0`, so the previous
+    /// inline guard is no longer needed.
     pub fn lowest_friendly_hp_ratio(&self) -> f64 {
         use crate::combatant::Combatant;
         self.characters
             .iter()
             .filter(|c| c.is_friendly)
-            .map(|c| {
-                let max = c.max_hp();
-                if max == 0 {
-                    0.0
-                } else {
-                    c.hp() as f64 / max as f64
-                }
-            })
+            .map(|c| c.hp_fraction())
             .fold(1.0_f64, f64::min)
     }
 
@@ -611,11 +657,10 @@ impl GameSnapshot {
 
         span.record(
             "fields_changed",
-            &tracing::field::display(&changed.join(",")),
+            tracing::field::display(&changed.join(",")),
         );
     }
 
-    /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     /// Apply merchant transactions mechanically via execute_buy/execute_sell.
     ///
     /// Each request is resolved using the named NPC's disposition for pricing.
@@ -795,11 +840,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         .map(|c| {
             let sheet = sidequest_protocol::CharacterSheetDetails {
                 race: c.race.as_str().to_string(),
-                stats: c
-                    .stats
-                    .iter()
-                    .map(|(k, v)| (k.clone(), *v))
-                    .collect(),
+                stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                 abilities: c
                     .hooks
                     .iter()
@@ -860,6 +901,33 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         player_id: String::new(),
     });
 
+    // OTEL: combatant.bloodied — emitted when this turn mutated character
+    // state and any friendly is now below half HP. Transition-site emission
+    // follows the disposition::apply_delta precedent: telemetry at the
+    // mutation/ship point, never inside a pure accessor. broadcast_state_changes
+    // is dispatched from sidequest-server/src/dispatch/mod.rs:1737 every turn,
+    // so this is the canonical place for the GM panel to observe combat
+    // engagement (CLAUDE.md OTEL Observability Principle, story 35-10).
+    if delta.characters_changed() {
+        for c in state.characters.iter().filter(|c| c.is_friendly) {
+            let hp = Combatant::hp(c);
+            let max_hp = Combatant::max_hp(c);
+            if max_hp == 0 {
+                continue;
+            }
+            let frac = hp as f64 / max_hp as f64;
+            if frac < 0.5 {
+                WatcherEventBuilder::new("combatant", WatcherEventType::StateTransition)
+                    .field("action", "bloodied")
+                    .field("name", c.name())
+                    .field("hp", hp)
+                    .field("max_hp", max_hp)
+                    .field("hp_fraction", frac)
+                    .send();
+            }
+        }
+    }
+
     // CHAPTER_MARKER if location changed
     if delta.location_changed() {
         messages.push(GameMessage::ChapterMarker {
@@ -878,7 +946,8 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
             .iter()
             .enumerate()
             .map(|(i, name)| ExploredLocation {
-                id: String::new(),
+                // Region mode has no separate slug — id mirrors name.
+                id: name.clone(),
                 name: name.clone(),
                 x: i as i32,
                 y: 0,

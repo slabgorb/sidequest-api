@@ -670,7 +670,7 @@ fn unresolved_reference_emits_tracing_warn() {
     assert!(
         warnings.iter().any(|e| {
             e.field_value("unresolved")
-                .map_or(false, |v| v.contains("Mordecai"))
+                .is_some_and(|v| v.contains("Mordecai"))
         }),
         "Warning event should have unresolved field containing 'Mordecai'; events: {:?}",
         *events

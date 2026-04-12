@@ -4,6 +4,9 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub(crate) mod debug_api;
+#[cfg(test)]
+mod dice_broadcast_34_8_tests;
+pub mod dice_dispatch;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -139,6 +142,12 @@ impl Args {
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct PlayerId(uuid::Uuid);
 
+impl Default for PlayerId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PlayerId {
     /// Generate a new random PlayerId.
     pub fn new() -> Self {
@@ -232,6 +241,11 @@ struct AppStateInner {
     /// one warning per process lifetime, regardless of how many turns
     /// or sessions render with that genre.
     lora_warned_genres: Mutex<HashSet<String>>,
+    /// Map from render job UUID → session key ("genre:world") for routing
+    /// completed render results to the correct session broadcast channel.
+    /// Story 37-2: Without this, IMAGE messages go to global broadcast and
+    /// leak across sessions on shared servers.
+    render_job_sessions: Mutex<HashMap<uuid::Uuid, String>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -409,6 +423,7 @@ impl AppState {
                 watcher_tx: None,
                 turn_id_counter: Mutex::new(sidequest_agents::turn_record::TurnIdCounter::new()),
                 lora_warned_genres: Mutex::new(HashSet::new()),
+                render_job_sessions: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -536,6 +551,28 @@ impl AppState {
             .insert(genre_slug.to_string())
     }
 
+    /// Register a render job's session affinity for image routing (story 37-2).
+    /// Called by render.rs after successful enqueue so the image broadcaster
+    /// can route the completed IMAGE message to the correct session channel.
+    pub fn register_render_session(&self, job_id: uuid::Uuid, session_key: String) {
+        self.inner
+            .render_job_sessions
+            .lock()
+            .unwrap()
+            .insert(job_id, session_key);
+    }
+
+    /// Look up and remove a render job's session key (story 37-2).
+    /// Returns the session key if found, None otherwise. Removal prevents
+    /// unbounded growth of the mapping.
+    pub fn take_render_session(&self, job_id: &uuid::Uuid) -> Option<String> {
+        self.inner
+            .render_job_sessions
+            .lock()
+            .unwrap()
+            .remove(job_id)
+    }
+
     /// Cached genre pack loader — loads from disk once, then returns the same `Arc`.
     pub fn genre_cache(&self) -> &GenreCache {
         &self.inner.genre_cache
@@ -625,6 +662,13 @@ impl AppState {
     }
 
     /// Send a message to all broadcast subscribers.
+    ///
+    /// `#[allow(clippy::result_large_err)]`: the error variant of
+    /// `broadcast::SendError<GameMessage>` holds the full `GameMessage` that
+    /// failed to send, which is intentionally ~300 bytes. Boxing the error
+    /// would make the happy path less ergonomic for every caller; the error
+    /// path is cold enough that the size doesn't matter.
+    #[allow(clippy::result_large_err)]
     pub fn broadcast(
         &self,
         msg: GameMessage,
@@ -746,67 +790,153 @@ pub fn reconnect_required_response(player_id: &str, message: &str) -> GameMessag
 /// Middleware:
 /// - CORS for React dev server at localhost:5173
 pub fn build_router(state: AppState) -> Router {
-    // Spawn image broadcaster — listens for render completions and broadcasts IMAGE messages
+    // Spawn image broadcaster — listens for render completions and routes
+    // IMAGE messages to the correct session channel (story 37-2).
+    //
+    // Pre-37-2: all images went to global broadcast_tx, leaking across
+    // sessions on shared servers. Now: render.rs registers job_id→session_key
+    // at enqueue time; the broadcaster looks up the session and routes through
+    // the session-scoped channel. No global broadcast fallback — if the session
+    // is missing or the mapping is absent, the IMAGE is dropped with an error
+    // WatcherEvent (fail loudly, per CLAUDE.md).
     if let Some(ref queue) = state.inner.render_queue {
         let mut render_rx = queue.subscribe();
-        let broadcast_tx = state.inner.broadcast_tx.clone();
+        let state_for_broadcaster = state.clone();
         tokio::spawn(async move {
             while let Ok(result) = render_rx.recv().await {
-                if let sidequest_game::RenderJobResult::Success {
-                    job_id,
-                    image_url,
-                    generation_ms,
-                    tier,
-                    scene_type,
-                } = result
-                {
-                    if image_url.trim().is_empty() {
-                        tracing::error!(job_id = %job_id, "render_broadcast_blocked — empty image_url");
-                        continue;
-                    }
-                    // Rewrite absolute file paths to served URLs.
-                    let served_url = {
-                        let img_path = std::path::Path::new(&image_url);
-                        let renders_base = std::env::var("SIDEQUEST_OUTPUT_DIR")
-                            .map(std::path::PathBuf::from)
-                            .unwrap_or_else(|_| {
-                                std::path::PathBuf::from(
-                                    std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
-                                )
-                                .join(".sidequest")
-                                .join("renders")
-                            });
-                        if let Ok(rel) = img_path.strip_prefix(&renders_base) {
-                            format!("/api/renders/{}", rel.display())
-                        } else if let Some(filename) = img_path.file_name().and_then(|f| f.to_str())
-                        {
-                            format!("/api/renders/{}", filename)
-                        } else {
-                            image_url
+                match result {
+                    sidequest_game::RenderJobResult::Success {
+                        job_id,
+                        image_url,
+                        generation_ms,
+                        tier,
+                        scene_type,
+                    } => {
+                        if image_url.trim().is_empty() {
+                            tracing::error!(job_id = %job_id, "render_broadcast_blocked — empty image_url");
+                            state_for_broadcaster.take_render_session(&job_id);
+                            continue;
                         }
-                    };
-                    tracing::info!(
-                        job_id = %job_id, url = %served_url,
-                        tier = %tier, scene_type = %scene_type,
-                        "render_broadcast — sending IMAGE"
-                    );
-                    let msg = GameMessage::Image {
-                        payload: sidequest_protocol::ImagePayload {
-                            url: served_url,
-                            description: String::new(),
-                            handout: false,
-                            render_id: Some(job_id.to_string()),
-                            tier: if tier.is_empty() { None } else { Some(tier) },
-                            scene_type: if scene_type.is_empty() {
-                                None
+                        // Rewrite absolute file paths to served URLs.
+                        let served_url = {
+                            let img_path = std::path::Path::new(&image_url);
+                            let renders_base = std::env::var("SIDEQUEST_OUTPUT_DIR")
+                                .map(std::path::PathBuf::from)
+                                .unwrap_or_else(|_| {
+                                    std::path::PathBuf::from(
+                                        std::env::var("HOME")
+                                            .unwrap_or_else(|_| "/tmp".to_string()),
+                                    )
+                                    .join(".sidequest")
+                                    .join("renders")
+                                });
+                            if let Ok(rel) = img_path.strip_prefix(&renders_base) {
+                                format!("/api/renders/{}", rel.display())
+                            } else if let Some(filename) =
+                                img_path.file_name().and_then(|f| f.to_str())
+                            {
+                                format!("/api/renders/{}", filename)
                             } else {
-                                Some(scene_type)
+                                image_url
+                            }
+                        };
+
+                        let msg = GameMessage::Image {
+                            payload: sidequest_protocol::ImagePayload {
+                                url: served_url.clone(),
+                                description: String::new(),
+                                handout: false,
+                                render_id: Some(job_id.to_string()),
+                                tier: if tier.is_empty() {
+                                    None
+                                } else {
+                                    Some(tier.clone())
+                                },
+                                scene_type: if scene_type.is_empty() {
+                                    None
+                                } else {
+                                    Some(scene_type.clone())
+                                },
+                                generation_ms: Some(generation_ms),
                             },
-                            generation_ms: Some(generation_ms),
-                        },
-                        player_id: String::new(),
-                    };
-                    let _ = broadcast_tx.send(msg);
+                            player_id: String::new(),
+                        };
+
+                        // Story 37-2: Route through session channel.
+                        // Peek the session mapping first; only consume after delivery.
+                        let session_key = {
+                            state_for_broadcaster
+                                .inner
+                                .render_job_sessions
+                                .lock()
+                                .unwrap()
+                                .get(&job_id)
+                                .cloned()
+                        };
+                        if let Some(ref key) = session_key {
+                            let session_arc = {
+                                let sessions = state_for_broadcaster.inner.sessions.lock().unwrap();
+                                sessions.get(key).cloned()
+                            };
+                            if let Some(ss_arc) = session_arc {
+                                // Use .lock().await — the broadcaster is async and not
+                                // on the dispatch critical path. Waiting for the session
+                                // lock is correct; try_lock + global fallback would
+                                // reintroduce cross-session leakage under contention.
+                                let ss = ss_arc.lock().await;
+                                tracing::info!(
+                                    job_id = %job_id, url = %served_url,
+                                    tier = %tier, scene_type = %scene_type,
+                                    session_key = %key,
+                                    "render_broadcast — sending IMAGE to session channel"
+                                );
+                                ss.broadcast(msg);
+                            } else {
+                                // Session evicted between enqueue and delivery — drop
+                                // the message rather than broadcasting to wrong sessions.
+                                tracing::error!(
+                                    job_id = %job_id,
+                                    session_key = %key,
+                                    "render_broadcast — session not found in registry, dropping IMAGE (no silent fallback)"
+                                );
+                                WatcherEventBuilder::new(
+                                    "render",
+                                    WatcherEventType::ValidationWarning,
+                                )
+                                .severity(Severity::Error)
+                                .field("action", "image_session_not_found")
+                                .field("job_id", job_id.to_string())
+                                .field("session_key", key.as_str())
+                                .send();
+                            }
+                        } else {
+                            // No session mapping — should not happen in normal flow.
+                            // Drop the message and emit a WatcherEvent error.
+                            tracing::error!(
+                                job_id = %job_id,
+                                "render_broadcast — no session mapping for job, dropping IMAGE (no silent fallback)"
+                            );
+                            WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+                                .severity(Severity::Error)
+                                .field("action", "image_no_session_mapping")
+                                .field("job_id", job_id.to_string())
+                                .send();
+                        }
+                        // Consume the mapping after delivery (or drop).
+                        state_for_broadcaster.take_render_session(&job_id);
+                    }
+                    sidequest_game::RenderJobResult::Failed { job_id, error } => {
+                        tracing::error!(
+                            job_id = %job_id,
+                            error = %error,
+                            "RENDER PIPELINE FAILED — no fallback, no silent skip"
+                        );
+                        // Clean up orphaned session mapping.
+                        state_for_broadcaster.take_render_session(&job_id);
+                    }
+                    _ => {
+                        tracing::debug!("Unrecognized render result variant");
+                    }
                 }
             }
         });
@@ -963,7 +1093,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             continue;
                         }
                     };
-                    if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                    if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                         break;
                     }
                 }
@@ -975,7 +1105,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             continue;
                         }
                     };
-                    if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                    if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                         break;
                     }
                 }
@@ -1021,7 +1151,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                                 continue;
                             }
                         };
-                        if ws_sink.send(AxumWsMessage::Text(json.into())).await.is_err() {
+                        if ws_sink.send(AxumWsMessage::Text(json)).await.is_err() {
                             break;
                         }
                     }
@@ -1061,12 +1191,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // spawned immediately below and receives fragment ids via an unbounded
     // mpsc channel — dispatch sends, worker drains, neither awaits the
     // daemon on the critical path. See `dispatch/lore_embed_worker.rs`.
-    let lore_store = std::sync::Arc::new(tokio::sync::Mutex::new(
-        sidequest_game::LoreStore::new(),
-    ));
-    let (lore_embed_tx, lore_embed_rx) = tokio::sync::mpsc::unbounded_channel::<
-        dispatch::lore_embed_worker::EmbedRequest,
-    >();
+    let lore_store = std::sync::Arc::new(tokio::sync::Mutex::new(sidequest_game::LoreStore::new()));
+    let (lore_embed_tx, lore_embed_rx) =
+        tokio::sync::mpsc::unbounded_channel::<dispatch::lore_embed_worker::EmbedRequest>();
     // Worker handle is not awaited — the task self-terminates when this
     // scope exits and drops `lore_embed_tx`, closing the channel.
     let _lore_embed_worker_handle =
@@ -1377,9 +1504,7 @@ async fn dispatch_message(
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
     lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<
-        dispatch::lore_embed_worker::EmbedRequest,
-    >,
+    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<dispatch::lore_embed_worker::EmbedRequest>,
     shared_session_holder: &Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
@@ -1401,6 +1526,140 @@ async fn dispatch_message(
         player_id = %player_id,
         "dispatch_message.entry"
     );
+
+    // ── BEAT_SELECTION preprocessing ──────────────────────────────────────
+    // Validate the beat_id, apply the beat to the encounter BEFORE the
+    // narrator runs, then convert to a synthetic PlayerAction so the
+    // narrator receives structured context ("player chose beat X, describe
+    // the outcome") through the existing dispatch pipeline. This avoids
+    // duplicating the 200-line DispatchContext construction.
+    let mut chosen_player_beat: Option<String> = None;
+    // Story 34-9: dice outcome consumed by the next narration turn.
+    let mut pending_roll_outcome: Option<sidequest_protocol::RollOutcome> = None;
+    let msg = match msg {
+        GameMessage::BeatSelection { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(
+                    player_id,
+                    "Cannot select beat before game starts",
+                )];
+            }
+            // Load confrontation defs to validate beat_id
+            let conf_defs: Vec<sidequest_genre::ConfrontationDef> = {
+                let gs = session.genre_slug().unwrap_or("");
+                sidequest_genre::GenreCode::new(gs)
+                    .ok()
+                    .and_then(|gc| {
+                        state
+                            .genre_cache()
+                            .get_or_load(&gc, state.genre_loader())
+                            .ok()
+                    })
+                    .map(|pack| pack.rules.confrontations.clone())
+                    .unwrap_or_default()
+            };
+            let Some(ref mut encounter) = snapshot.encounter else {
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "beat_selection.no_active_encounter")
+                    .field("beat_id", &payload.beat_id)
+                    .send();
+                return vec![error_response(
+                    player_id,
+                    "No active encounter — beat selection rejected",
+                )];
+            };
+            let Some(def) = crate::find_confrontation_def(&conf_defs, &encounter.encounter_type)
+            else {
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "No confrontation def for type '{}'",
+                        encounter.encounter_type
+                    ),
+                )];
+            };
+            let Some(beat) = def.beats.iter().find(|b| b.id == payload.beat_id) else {
+                // FAIL LOUD — no label fallback, no fuzzy match, no silent drop.
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "beat_selection.unknown_beat_id")
+                    .field("beat_id", &payload.beat_id)
+                    .field("encounter_type", &encounter.encounter_type)
+                    .field(
+                        "available_ids",
+                        def.beats
+                            .iter()
+                            .map(|b| b.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    )
+                    .severity(Severity::Error)
+                    .send();
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "Unknown beat_id '{}' in {} encounter. Available: [{}]",
+                        payload.beat_id,
+                        encounter.encounter_type,
+                        def.beats
+                            .iter()
+                            .map(|b| b.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                )];
+            };
+            let beat_label = beat.label.clone();
+            let stat_check = beat.stat_check.clone();
+            let metric_name = encounter.metric.name.clone();
+            let metric_before = encounter.metric.current;
+
+            // Apply beat deterministically — mechanical state change happens HERE,
+            // before the narrator runs. The narrator only describes the outcome.
+            if let Err(e) = encounter.apply_beat(&payload.beat_id, def) {
+                return vec![error_response(
+                    player_id,
+                    &format!("Beat apply failed: {}", e),
+                )];
+            }
+            let metric_after = encounter.metric.current;
+
+            // OTEL: structured beat received + applied
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("event", "encounter.player_beat_received")
+                .field("beat_id", &payload.beat_id)
+                .field("actor", &payload.actor)
+                .field("source", "structured_beat_selection")
+                .field("metric_before", metric_before)
+                .field("metric_after", metric_after)
+                .field("stat_check", &stat_check)
+                .send();
+
+            chosen_player_beat = Some(payload.beat_id.clone());
+
+            // Synthesize a structured PlayerAction for the narrator.
+            // This is NOT natural-language text — it's a structured tag that the
+            // narrator prompt will format into context. The narrator's job is to
+            // describe the outcome, not to choose the beat.
+            let action_text = format!(
+                "[BEAT_RESOLVED] {label} ({stat_check}): {metric_name} {before} → {after}",
+                label = beat_label,
+                stat_check = stat_check,
+                metric_name = metric_name,
+                before = metric_before,
+                after = metric_after,
+            );
+
+            GameMessage::PlayerAction {
+                payload: sidequest_protocol::PlayerActionPayload {
+                    action: action_text,
+                    aside: false,
+                },
+                player_id: player_id.to_string(),
+            }
+        }
+        other => other,
+    };
+
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
             let mut responses = dispatch::connect::dispatch_connect(
@@ -1432,7 +1691,7 @@ async fn dispatch_message(
                 continuity_corrections,
                 inventory,
                 snapshot,
-                &tx,
+                tx,
             )
             .await;
             // After connect identifies genre/world, join/create the shared session
@@ -1666,7 +1925,7 @@ async fn dispatch_message(
                 narrator_verbosity,
                 narrator_vocabulary,
                 pending_trope_context,
-                &tx,
+                tx,
             )
             .await
         }
@@ -1861,7 +2120,7 @@ async fn dispatch_message(
                     pending_trope_context,
                     achievement_tracker,
                     snapshot,
-                    tx: &tx,
+                    tx,
                     monster_manual: &mut monster_manual,
                     morpheme_glossaries: Vec::new(),
                     name_banks: Vec::new(),
@@ -1901,6 +2160,8 @@ async fn dispatch_message(
                                     .and_then(|phil| phil.weight_limit)
                             })
                     },
+                    chosen_player_beat: chosen_player_beat.clone(),
+                    pending_roll_outcome: pending_roll_outcome.take(),
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {
@@ -1966,6 +2227,142 @@ async fn dispatch_message(
             vec![GameMessage::JournalResponse {
                 payload: sidequest_protocol::JournalResponsePayload { entries },
                 player_id: player_id.to_string(),
+            }]
+        }
+        // Dice throw — rolling player submits gesture after DiceRequest (story 34-8).
+        // Resolve immediately, broadcast DiceResult to all clients.
+        // The throw_params control animation only — outcome is seed-determined.
+        GameMessage::DiceThrow { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(
+                    player_id,
+                    "Cannot process dice throw before game starts",
+                )];
+            }
+
+            // Look up pending DiceRequest by request_id
+            let pending = {
+                let holder_guard = shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder_guard {
+                    let mut ss = ss_arc.lock().await;
+                    ss.pending_dice_requests.remove(&payload.request_id)
+                } else {
+                    None
+                }
+            };
+
+            let Some(pending_request) = pending else {
+                tracing::warn!(
+                    request_id = %payload.request_id,
+                    player_id = %player_id,
+                    "dice.throw_no_pending — no pending DiceRequest for this request_id"
+                );
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "No pending dice request for request_id '{}'",
+                        payload.request_id
+                    ),
+                )];
+            };
+
+            // Validate inputs at dispatch boundary
+            if let Err(e) = dice_dispatch::validate_dice_inputs(
+                &pending_request.dice,
+                pending_request.modifier,
+                pending_request.difficulty,
+            ) {
+                tracing::error!(
+                    request_id = %payload.request_id,
+                    error = %e,
+                    "dice.validation_failed"
+                );
+                return vec![error_response(
+                    player_id,
+                    &format!("Dice validation failed: {e}"),
+                )];
+            }
+
+            // Generate deterministic seed and resolve
+            let session_id = {
+                let holder_guard = shared_session_holder.lock().await;
+                match holder_guard.as_ref() {
+                    Some(ss_arc) => {
+                        let ss = ss_arc.lock().await;
+                        ss.session_id.clone()
+                    }
+                    None => {
+                        tracing::error!(
+                            request_id = %payload.request_id,
+                            "dice.no_shared_session — session holder is empty during DiceThrow"
+                        );
+                        return vec![error_response(
+                            player_id,
+                            "No active game session for dice resolution",
+                        )];
+                    }
+                }
+            };
+            let seed = dice_dispatch::generate_dice_seed(&session_id, turn_manager.round());
+
+            let resolved = match sidequest_game::dice::resolve_dice(
+                &pending_request.dice,
+                pending_request.modifier,
+                pending_request.difficulty,
+                seed,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!(
+                        request_id = %payload.request_id,
+                        error = %e,
+                        "dice.resolution_failed"
+                    );
+                    return vec![error_response(
+                        player_id,
+                        &format!("Dice resolution failed: {e}"),
+                    )];
+                }
+            };
+
+            // Compose DiceResult and broadcast to all players
+            let result_payload = dice_dispatch::compose_dice_result(
+                &pending_request.request_id,
+                &pending_request.rolling_player_id,
+                &pending_request.character_name,
+                &resolved,
+                pending_request.modifier,
+                pending_request.difficulty,
+                seed,
+                &payload.throw_params,
+            );
+
+            tracing::info!(
+                request_id = %payload.request_id,
+                rolling_player = %pending_request.rolling_player_id,
+                total = resolved.total,
+                outcome = ?resolved.outcome,
+                seed = seed,
+                "dice.result_resolved"
+            );
+
+            // Broadcast via shared session to all connected players
+            {
+                let holder_guard = shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder_guard {
+                    let ss = ss_arc.lock().await;
+                    ss.broadcast(GameMessage::DiceResult {
+                        player_id: "server".to_string(),
+                        payload: result_payload.clone(),
+                    });
+                }
+            }
+
+            // Also return DiceResult as a direct response (for the acting player's
+            // non-broadcast path, in case they're not subscribed to session broadcast)
+            vec![GameMessage::DiceResult {
+                player_id: "server".to_string(),
+                payload: result_payload,
             }]
         }
         // All other valid message types in wrong state

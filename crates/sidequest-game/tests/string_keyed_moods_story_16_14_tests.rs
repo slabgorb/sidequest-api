@@ -213,8 +213,6 @@ mixer:
   music_volume: 0.8
   sfx_volume: 0.9
   voice_volume: 1.0
-  duck_music_for_voice: true
-  duck_amount_db: 3.0
   crossfade_default_ms: 500
 mood_aliases:
   standoff: tension
@@ -245,8 +243,6 @@ mixer:
   music_volume: 0.8
   sfx_volume: 0.9
   voice_volume: 1.0
-  duck_music_for_voice: true
-  duck_amount_db: 3.0
   crossfade_default_ms: 500
 "#;
 

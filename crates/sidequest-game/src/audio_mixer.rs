@@ -32,6 +32,12 @@ pub struct AudioMixer {
     channels: HashMap<AudioChannel, ChannelState>,
 }
 
+impl Default for AudioMixer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioMixer {
     /// Create a new mixer.
     pub fn new() -> Self {

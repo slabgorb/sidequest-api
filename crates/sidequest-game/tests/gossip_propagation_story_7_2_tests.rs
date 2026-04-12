@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 
-use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState, Credibility};
+use sidequest_game::belief_state::{Belief, BeliefSource, BeliefState};
 use sidequest_game::gossip::{Contradiction, GossipEngine};
 
 // ============================================================================

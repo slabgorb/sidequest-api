@@ -4,7 +4,6 @@
 //! spans with semantic fields. Patch application and delta computation are
 //! the "what changed?" observability layer.
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::subscriber::with_default;
 use tracing::Subscriber;
@@ -20,7 +19,6 @@ struct CapturedSpan {
     id: u64,
     name: String,
     fields: Vec<(String, String)>,
-    target: String,
 }
 
 struct SpanCaptureLayer {
@@ -54,7 +52,6 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
             id: id.into_u64(),
             name: attrs.metadata().name().to_string(),
             fields,
-            target: attrs.metadata().target().to_string(),
         });
     }
 

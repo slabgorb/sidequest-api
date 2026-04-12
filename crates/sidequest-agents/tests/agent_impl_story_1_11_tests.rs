@@ -6,15 +6,15 @@
 use std::collections::HashMap;
 
 // These modules don't exist yet — compilation will fail (RED state).
-use sidequest_agents::agent::{Agent, AgentResponse};
+use sidequest_agents::agent::Agent;
 use sidequest_agents::context_builder::ContextBuilder;
 // ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into unified narrator
-use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::intent_router::{Intent, IntentRoute};
 use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::agents::resonator::ResonatorAgent;
 use sidequest_agents::agents::troper::TroperAgent;
 use sidequest_agents::agents::world_builder::WorldBuilderAgent;
-use sidequest_agents::orchestrator::{ActionResult, GameService, Orchestrator};
+use sidequest_agents::orchestrator::{ActionResult, GameService};
 use sidequest_agents::patches::WorldStatePatch;
 
 // ============================================================
@@ -159,6 +159,8 @@ mod agent_types_tests {
             sfx_triggers: vec![],
             merchant_transactions: vec![],
             prompt_tier: String::new(),
+            affinity_progress: vec![],
+            gold_change: None,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -171,7 +173,7 @@ mod agent_types_tests {
 
 mod context_building_tests {
     use super::*;
-    use sidequest_agents::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
+    use sidequest_agents::prompt_framework::SectionCategory;
 
     #[test]
     fn narrator_has_system_prompt() {
@@ -191,11 +193,11 @@ mod context_building_tests {
             Box::new(TroperAgent::new()),
             Box::new(ResonatorAgent::new()),
         ];
-        for agent in &agents {
-            let mut builder = ContextBuilder::new();
+        for _agent in &agents {
+            let builder = ContextBuilder::new();
             // Each agent should add at least an identity section
             // This will need a build_context method signature
-            let identity_sections = builder.sections_by_category(SectionCategory::Identity);
+            let _identity_sections = builder.sections_by_category(SectionCategory::Identity);
             // After build_context, identity should be populated
             // For now, assert the builder API exists
             assert_eq!(builder.token_estimate(), 0, "Empty builder has zero tokens");
@@ -217,7 +219,7 @@ mod intent_routing_tests {
         let dialogue = Intent::Dialogue;
         let exploration = Intent::Exploration;
         let examine = Intent::Examine;
-        let meta = Intent::Meta;
+        let _meta = Intent::Meta;
         // Verify they're distinct
         assert_ne!(format!("{:?}", combat), format!("{:?}", dialogue));
         assert_ne!(format!("{:?}", exploration), format!("{:?}", examine));
@@ -251,11 +253,10 @@ mod intent_routing_tests {
     }
 
     #[test]
-    fn intent_router_has_classify_method() {
-        use sidequest_agents::client::ClaudeClient;
-        let router = IntentRouter::new(ClaudeClient::new());
-        // Verify the type exists and can be constructed
-        let _ = &router; // type exists and can be constructed
+    fn intent_route_exploration_returns_narrator() {
+        let route = IntentRoute::exploration();
+        assert_eq!(route.agent_name(), "narrator");
+        assert_eq!(route.intent(), Intent::Exploration);
     }
 }
 
@@ -312,9 +313,11 @@ mod game_service_tests {
             sfx_triggers: vec![],
             merchant_transactions: vec![],
             prompt_tier: String::new(),
+            affinity_progress: vec![],
+            gold_change: None,
         };
         assert_eq!(result.narration, "test");
-        assert_eq!(result.is_degraded, false);
+        assert!(!result.is_degraded);
     }
 }
 
@@ -367,6 +370,8 @@ mod error_handling_tests {
             sfx_triggers: vec![],
             merchant_transactions: vec![],
             prompt_tier: String::new(),
+            affinity_progress: vec![],
+            gold_change: None,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

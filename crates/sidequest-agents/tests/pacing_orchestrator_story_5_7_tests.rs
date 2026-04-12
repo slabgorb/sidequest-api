@@ -10,8 +10,8 @@
 //! ACs tested: AC1 (turn pipeline threading), AC2 (narrator prompt),
 //!             AC4 (no breaking changes), AC5 (delivery_mode in result)
 
-use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnContext, TurnResult};
-use sidequest_game::tension_tracker::{DeliveryMode, DramaThresholds, PacingHint, TensionTracker};
+use sidequest_agents::orchestrator::{AgentKind, Orchestrator, TurnResult};
+use sidequest_game::tension_tracker::{DeliveryMode, PacingHint};
 
 // ============================================================================
 // AC4: TurnResult backward compatibility — existing fields still present

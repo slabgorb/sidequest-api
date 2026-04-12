@@ -144,7 +144,7 @@ fn constructor_auto_computes_token_estimate() {
 
 #[test]
 fn all_fixed_categories_are_distinct() {
-    let categories = vec![
+    let categories = [
         LoreCategory::History,
         LoreCategory::Geography,
         LoreCategory::Faction,
@@ -183,7 +183,7 @@ fn custom_categories_with_different_values_are_distinct() {
 
 #[test]
 fn all_sources_are_distinct() {
-    let sources = vec![
+    let sources = [
         LoreSource::GenrePack,
         LoreSource::CharacterCreation,
         LoreSource::GameEvent,
@@ -606,8 +606,6 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
                 "music_volume": 0.5,
                 "sfx_volume": 0.5,
                 "voice_volume": 0.8,
-                "duck_music_for_voice": true,
-                "duck_amount_db": -6.0,
                 "crossfade_default_ms": 2000
             }
         }))

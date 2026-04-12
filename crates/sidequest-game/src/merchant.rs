@@ -297,8 +297,10 @@ mod tests {
 
     #[test]
     fn buy_success() {
-        let mut buyer = Inventory::default();
-        buyer.gold = 200;
+        let mut buyer = Inventory {
+            gold: 200,
+            ..Default::default()
+        };
         let mut seller = Inventory::default();
         seller
             .add(test_item("sword", "Iron Sword", 100), 100)
@@ -318,8 +320,10 @@ mod tests {
 
     #[test]
     fn buy_insufficient_gold() {
-        let mut buyer = Inventory::default();
-        buyer.gold = 10;
+        let mut buyer = Inventory {
+            gold: 10,
+            ..Default::default()
+        };
         let mut seller = Inventory::default();
         seller
             .add(test_item("sword", "Iron Sword", 100), 100)
@@ -343,8 +347,10 @@ mod tests {
 
     #[test]
     fn buy_item_not_found() {
-        let mut buyer = Inventory::default();
-        buyer.gold = 200;
+        let mut buyer = Inventory {
+            gold: 200,
+            ..Default::default()
+        };
         let mut seller = Inventory::default();
 
         let d = Disposition::new(0);
@@ -355,8 +361,10 @@ mod tests {
 
     #[test]
     fn buy_inventory_full() {
-        let mut buyer = Inventory::default();
-        buyer.gold = 200;
+        let mut buyer = Inventory {
+            gold: 200,
+            ..Default::default()
+        };
         buyer
             .add(test_item("existing", "Existing Item", 10), 1)
             .unwrap();
@@ -379,8 +387,10 @@ mod tests {
 
     #[test]
     fn buy_with_friendly_discount() {
-        let mut buyer = Inventory::default();
-        buyer.gold = 200;
+        let mut buyer = Inventory {
+            gold: 200,
+            ..Default::default()
+        };
         let mut seller = Inventory::default();
         seller
             .add(test_item("sword", "Iron Sword", 100), 100)
@@ -395,8 +405,10 @@ mod tests {
 
     #[test]
     fn buy_with_hostile_markup() {
-        let mut buyer = Inventory::default();
-        buyer.gold = 200;
+        let mut buyer = Inventory {
+            gold: 200,
+            ..Default::default()
+        };
         let mut seller = Inventory::default();
         seller
             .add(test_item("sword", "Iron Sword", 100), 100)
@@ -418,8 +430,10 @@ mod tests {
             .add(test_item("sword", "Iron Sword", 100), 100)
             .unwrap();
 
-        let mut merchant = Inventory::default();
-        merchant.gold = 500;
+        let mut merchant = Inventory {
+            gold: 500,
+            ..Default::default()
+        };
 
         let d = Disposition::new(0);
         let tx = execute_sell(&mut player, &mut merchant, "sword", &d).unwrap();
@@ -451,8 +465,10 @@ mod tests {
             .add(test_item("sword", "Iron Sword", 100), 100)
             .unwrap();
 
-        let mut merchant = Inventory::default();
-        merchant.gold = 500;
+        let mut merchant = Inventory {
+            gold: 500,
+            ..Default::default()
+        };
 
         let d = Disposition::new(50); // max friendly → sell price = 75
         let tx = execute_sell(&mut player, &mut merchant, "sword", &d).unwrap();

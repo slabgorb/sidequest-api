@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use tokio::sync::broadcast;
+use uuid::Uuid;
 
 use sidequest_game::barrier::TurnBarrier;
 use sidequest_game::builder::CharacterBuilder;
@@ -153,7 +154,9 @@ impl PlayerState {
 // construction site.
 
 /// Convert an `Inventory` into the wire-format `InventoryPayload`.
-pub fn inventory_payload_from(inv: &sidequest_game::Inventory) -> sidequest_protocol::InventoryPayload {
+pub fn inventory_payload_from(
+    inv: &sidequest_game::Inventory,
+) -> sidequest_protocol::InventoryPayload {
     sidequest_protocol::InventoryPayload {
         items: inv
             .carried()
@@ -209,6 +212,10 @@ pub struct SharedGameSession {
     // --- Identity ---
     pub genre_slug: String,
     pub world_slug: String,
+    /// Unique identifier for this game session instance. Distinguishes
+    /// sequential games on the same genre:world pair. Generated as UUID v4
+    /// on session creation. Used for OTEL tracing and stale-session detection.
+    pub session_id: String,
 
     // --- World state (shared) ---
     pub world_context: String,
@@ -242,6 +249,12 @@ pub struct SharedGameSession {
     /// Region registry from cartography.yaml: region_id → display name (lowercase for matching).
     pub region_names: Vec<(String, String)>,
 
+    // --- Dice ---
+    /// Pending DiceRequests awaiting DiceThrow from the rolling player.
+    /// Keyed by `request_id`. Inserted when DiceRequest is broadcast,
+    /// consumed when DiceThrow arrives and resolution completes.
+    pub pending_dice_requests: HashMap<String, sidequest_protocol::DiceRequestPayload>,
+
     // --- Per-player state ---
     pub players: HashMap<String, PlayerState>,
 
@@ -254,9 +267,11 @@ impl SharedGameSession {
     pub fn new(genre_slug: String, world_slug: String) -> Self {
         let (session_tx, _) = broadcast::channel::<TargetedMessage>(64);
         let multiplayer = MultiplayerSession::new(HashMap::new());
+        let session_id = Uuid::new_v4().to_string();
         Self {
             genre_slug,
             world_slug,
+            session_id,
             world_context: String::new(),
             visual_style: None,
             trope_defs: vec![],
@@ -275,6 +290,7 @@ impl SharedGameSession {
             active_scenario: None,
             scene_count: 0,
             region_names: vec![],
+            pending_dice_requests: HashMap::new(),
             players: HashMap::new(),
             session_tx,
         }
@@ -341,7 +357,7 @@ impl SharedGameSession {
             if loc_lower.contains(name_lower.as_str()) {
                 // Prefer longest match to avoid "The" matching everything
                 let len = name_lower.len();
-                if best.map_or(true, |(_, prev_len)| len > prev_len) {
+                if best.is_none_or(|(_, prev_len)| len > prev_len) {
                     best = Some((region_id.as_str(), len));
                 }
             }
@@ -389,6 +405,8 @@ impl SharedGameSession {
     /// Sync per-player state FROM PlayerState INTO per-connection locals.
     /// Called at the start of dispatch_player_action to pick up changes
     /// made by the barrier path (which can't access per-connection locals).
+    // 8 args — fold into a `PlayerLocals` struct in the dispatch refactor.
+    #[allow(clippy::too_many_arguments)]
     pub fn sync_player_to_locals(
         &self,
         player_id: &str,

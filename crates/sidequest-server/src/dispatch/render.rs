@@ -276,6 +276,25 @@ pub(crate) async fn process_render(
                         None
                     };
 
+                    // If LoRA was semantically active but the file didn't
+                    // resolve (missing .safetensors — Epic 32 not yet
+                    // delivered), the trigger word is meaningless without the
+                    // weights. Revert to positive_suffix so the daemon gets
+                    // the real style description, not an orphaned trigger.
+                    let style = if lora_active && lora_abs.is_none() {
+                        let fallback = match tag_override {
+                            Some(tag) => format!("{}, {}", tag, vs.positive_suffix),
+                            None => vs.positive_suffix.clone(),
+                        };
+                        tracing::warn!(
+                            genre = %ctx.genre_slug,
+                            "lora file not resolved — reverting art style from trigger word to positive_suffix"
+                        );
+                        fallback
+                    } else {
+                        style
+                    };
+
                     (
                         style,
                         vs.preferred_model.clone(),
@@ -334,6 +353,14 @@ pub(crate) async fn process_render(
             {
                 Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {
                     tracing::info!(%job_id, "Render job enqueued");
+
+                    // Story 37-2: Register session affinity so the image
+                    // broadcaster routes the completed IMAGE to the correct
+                    // session channel instead of global broadcast.
+                    let session_key =
+                        crate::shared_session::game_session_key(ctx.genre_slug, ctx.world_slug);
+                    ctx.state.register_render_session(job_id, session_key);
+
                     // Notify UI to show placeholder shimmer while Flux generates
                     let dims = sidequest_game::tier_to_dimensions(subject.tier());
                     let _ = ctx

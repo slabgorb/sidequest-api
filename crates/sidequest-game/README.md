@@ -43,10 +43,8 @@ and the server exposes.
 | `narrative` | `NarrativeEntry` — timestamped story log |
 | `tension_tracker` | Dual-track pacing (action + stakes), `PacingHint` injection |
 | `music_director` | Mood classification, track selection from genre pack |
-| `audio_mixer` | 3-channel ducking mixer (Music, SFX, Ambience) |
-| `tts_stream` | TTS streaming (Start → Chunk* → End sequence) |
-| `segmenter` | Sentence segmentation with abbreviation awareness |
-| `voice_router` | Narrator + archetype + creature type voice assignment |
+| `audio_mixer` | 3-channel cue-driven mixer (Music, SFX, Ambience) |
+| `voice_router` | Narrator + archetype + creature type voice assignment (text framing) |
 | `theme_rotator` | Anti-repetition track selection with per-mood history |
 
 ### World State & Knowledge
@@ -66,7 +64,7 @@ and the server exposes.
 | `subject` | `SubjectExtractor` — parse narration for render subjects (4 tiers) |
 | `render_queue` | Async image queue with SHA256 content dedup |
 | `beat_filter` | Render suppression by narrative weight, cooldown, burst rate |
-| `prerender` | Speculative rendering during TTS, `WasteTracker` |
+| `prerender` | Speculative rendering between narration turns, `WasteTracker` |
 
 ### Game Mechanics
 | Module | Purpose |

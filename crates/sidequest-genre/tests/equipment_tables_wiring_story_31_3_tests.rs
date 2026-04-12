@@ -205,11 +205,16 @@ tables:
 // REWORK (after Reviewer rejection 2026-04-10): AudioConfig/MixerConfig
 // must reject unknown fields to honor CLAUDE.md "No Silent Fallbacks".
 //
-// The initial Dev fix (making voice_volume/duck_music_for_voice/
-// creature_voice_presets optional with defaults) was correct for content
-// that legitimately dropped those fields, but both parent structs lack
-// #[serde(deny_unknown_fields)]. Typos in adjacent keys silently drop.
-// These tests will fail until Dev adds the attribute.
+// The initial Dev fix (making voice_volume/creature_voice_presets optional
+// with defaults) was correct for content that legitimately dropped those
+// fields, but both parent structs lacked #[serde(deny_unknown_fields)].
+// Typos in adjacent keys silently dropped. These tests guard the strict
+// deserialization contract.
+//
+// Update 2026-04-11 (chore/adr-076-code-residue): the duck_music_for_voice
+// and duck_amount_db fields were also removed from MixerConfig as part of
+// the post-TTS legacy purge. They are now *unknown* fields and must be
+// rejected by deny_unknown_fields like any other typo.
 // ============================================================================
 
 #[test]
@@ -220,7 +225,6 @@ fn mixer_config_rejects_unknown_fields() {
     let yaml = r#"
 music_volume: 0.8
 sfx_volume: 0.9
-duck_amount_db: -6.0
 crossfade_default_ms: 2000
 musik_volume: 0.3
 "#;
@@ -244,7 +248,6 @@ sfx_library: {}
 mixer:
   music_volume: 0.8
   sfx_volume: 0.9
-  duck_amount_db: -6.0
   crossfade_default_ms: 2000
 mod_tracks: {}
 "#;
@@ -260,18 +263,17 @@ mod_tracks: {}
 #[test]
 fn mixer_config_still_accepts_missing_voice_volume() {
     // Regression guard: after adding deny_unknown_fields, the TTS-removal
-    // schema-drift fix must still work — a mixer without voice_volume,
-    // duck_music_for_voice, or creature_voice_presets must still deserialize.
+    // schema-drift fix must still work — a mixer without voice_volume must
+    // still deserialize cleanly with voice_volume defaulting to 1.0.
     let yaml = r#"
 music_volume: 0.3
 sfx_volume: 0.7
-duck_amount_db: -15.0
 crossfade_default_ms: 2000
 "#;
     let result: Result<sidequest_genre::MixerConfig, _> = serde_yaml::from_str(yaml);
     assert!(
         result.is_ok(),
-        "MixerConfig must still deserialize without voice_volume / duck_music_for_voice \
+        "MixerConfig must still deserialize without voice_volume \
          (the TTS-removal schema-drift fix). Got: {:?}",
         result.err()
     );
@@ -280,9 +282,30 @@ crossfade_default_ms: 2000
         mixer.voice_volume, 1.0,
         "voice_volume should default to 1.0"
     );
+}
+
+#[test]
+fn mixer_config_rejects_legacy_duck_fields() {
+    // Once the duck_music_for_voice and duck_amount_db fields were removed
+    // from MixerConfig (chore/adr-076-code-residue), any audio.yaml that
+    // still carries them must hard-fail under deny_unknown_fields. This
+    // catches the case where a stale genre pack was missed during the
+    // sweep — better to fail loudly at load time than to silently ignore
+    // ducking config the engine no longer honors.
+    let yaml = r#"
+music_volume: 0.3
+sfx_volume: 0.7
+voice_volume: 1.0
+duck_music_for_voice: true
+duck_amount_db: -12.0
+crossfade_default_ms: 2000
+"#;
+    let result: Result<sidequest_genre::MixerConfig, _> = serde_yaml::from_str(yaml);
     assert!(
-        !mixer.duck_music_for_voice,
-        "duck_music_for_voice should default to false"
+        result.is_err(),
+        "MixerConfig must reject legacy duck_music_for_voice / duck_amount_db \
+         fields with deny_unknown_fields. Got: {:?}",
+        result
     );
 }
 
@@ -294,7 +317,6 @@ sfx_library: {}
 mixer:
   music_volume: 0.8
   sfx_volume: 0.9
-  duck_amount_db: -6.0
   crossfade_default_ms: 2000
 "#;
     let result: Result<sidequest_genre::AudioConfig, _> = serde_yaml::from_str(yaml);

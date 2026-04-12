@@ -16,7 +16,7 @@
 //!                              delta, max_hp, clamped
 
 use sidequest_game::creature_core::CreatureCore;
-use sidequest_game::encounter::{EncounterActor, EncounterPhase, StructuredEncounter};
+use sidequest_game::encounter::{EncounterActor, StructuredEncounter};
 use sidequest_game::inventory::Inventory;
 use sidequest_genre::ConfrontationDef;
 use sidequest_protocol::NonBlankString;
@@ -90,11 +90,20 @@ static TELEMETRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Initialize the global telemetry channel (idempotent via OnceLock).
 /// Subscribe and drain any stale events, returning a clean receiver.
 /// Also acquires TELEMETRY_LOCK — caller must hold the returned guard.
+///
+/// **Lock poison recovery**: if a previous test panicked while holding the
+/// guard (the panic doesn't release the lock cleanly — it poisons it),
+/// `lock().unwrap()` would propagate the poison and panic every subsequent
+/// test. The mutex guards `()` (no shared state to be in an inconsistent
+/// state), so we recover from poison and continue. This stops the cascade
+/// where a single buggy test takes down all 20+ tests in the binary.
 fn fresh_subscriber() -> (
     std::sync::MutexGuard<'static, ()>,
     tokio::sync::broadcast::Receiver<WatcherEvent>,
 ) {
-    let guard = TELEMETRY_LOCK.lock().unwrap();
+    let guard = TELEMETRY_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let _ = init_global_channel();
     let mut rx = subscribe_global().expect("channel must be initialized");
     // Drain any stale events from prior tests
@@ -105,11 +114,8 @@ fn fresh_subscriber() -> (
 /// Collect all available events from the receiver (non-blocking).
 fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
     let mut events = Vec::new();
-    loop {
-        match rx.try_recv() {
-            Ok(event) => events.push(event),
-            Err(_) => break,
-        }
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
     }
     events
 }
@@ -124,10 +130,7 @@ fn find_events_by_action(
         .iter()
         .filter(|e| {
             e.component == component
-                && e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    .map_or(false, |a| a == action)
+                && (e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action))
         })
         .cloned()
         .collect()

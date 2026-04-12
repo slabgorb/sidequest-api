@@ -14,7 +14,7 @@
 //!   AC3: Default is Standard for multiplayer, Verbose for solo
 
 use sidequest_agents::prompt_framework::{
-    AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
+    AttentionZone, PromptComposer, PromptRegistry, SectionCategory,
 };
 use sidequest_protocol::NarratorVerbosity;
 

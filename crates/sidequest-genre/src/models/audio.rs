@@ -55,8 +55,6 @@ impl AudioConfig {
                 music_volume: 0.8,
                 sfx_volume: 0.9,
                 voice_volume: 1.0,
-                duck_music_for_voice: true,
-                duck_amount_db: 3.0,
                 crossfade_default_ms: 500,
             },
             themes: Vec::new(),
@@ -165,18 +163,12 @@ pub struct MixerConfig {
     pub music_volume: f64,
     /// SFX volume (0.0–1.0).
     pub sfx_volume: f64,
-    /// Voice volume (0.0–1.0). Kept for protocol compatibility; TTS pipeline
-    /// was removed in PR #388 but content repos stripped this field from
-    /// audio.yaml before the model was updated. Defaults to 1.0 so genre
-    /// packs without the field load cleanly.
+    /// Voice volume (0.0–1.0). Kept for protocol compatibility with the
+    /// `set_voice_volume` AudioCue path; the TTS pipeline itself was removed
+    /// in PR #388. Defaults to 1.0 so genre packs without the field load
+    /// cleanly.
     #[serde(default = "default_voice_volume")]
     pub voice_volume: f64,
-    /// Whether to duck music during voice. Also TTS-related legacy; defaults
-    /// to `false` since there is no voice stream to duck for anymore.
-    #[serde(default)]
-    pub duck_music_for_voice: bool,
-    /// Ducking amount in decibels.
-    pub duck_amount_db: f64,
     /// Default crossfade duration in milliseconds.
     pub crossfade_default_ms: u32,
 }

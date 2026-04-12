@@ -29,6 +29,12 @@ pub trait Combatant {
     }
 
     /// Current HP as a fraction of max HP (0.0 to 1.0).
+    ///
+    /// Returns 0.0 when `max_hp == 0` (degenerate combatant — no meaningful
+    /// HP state to report). Pure accessor: no side effects, no telemetry.
+    /// The `combatant.bloodied` OTEL emission lives at the per-turn state-ship
+    /// site (`state::broadcast_state_changes`) rather than inside this default
+    /// trait method — see story 35-10 for the rationale.
     fn hp_fraction(&self) -> f64 {
         if self.max_hp() == 0 {
             return 0.0;

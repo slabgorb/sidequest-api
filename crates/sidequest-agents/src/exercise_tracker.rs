@@ -66,7 +66,7 @@ impl SubsystemTracker {
         self.turn_count += 1;
 
         // Emit periodic histogram summary at interval boundaries.
-        if self.turn_count % self.summary_interval == 0 {
+        if self.turn_count.is_multiple_of(self.summary_interval) {
             let histogram_str = self.format_histogram();
             tracing::info!(
                 component = "watcher",

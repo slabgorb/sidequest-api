@@ -327,7 +327,6 @@ fn none_character_json_is_distinct_from_null_value() {
     // These must be distinguishable — None means "no character yet",
     // Null means "serialization failed silently"
     assert!(none_val.is_none());
-    assert!(null_val.is_some());
-    assert!(null_val.unwrap().is_null());
+    assert_eq!(null_val, Some(serde_json::Value::Null));
     // The fix should ensure we never get Some(Null) from serialization
 }

@@ -226,10 +226,17 @@ impl<'de> serde::Deserialize<'de> for BackstoryTables {
             }
             // Skip comment-only keys
             if let serde_yaml::Value::Sequence(seq) = value {
-                let entries: Vec<String> = seq
-                    .iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect();
+                let mut entries = Vec::new();
+                for (i, v) in seq.iter().enumerate() {
+                    match v.as_str() {
+                        Some(s) => entries.push(s.to_string()),
+                        None => {
+                            return Err(D::Error::custom(format!(
+                                "backstory_tables.{key}[{i}]: expected string, got {v:?}"
+                            )));
+                        }
+                    }
+                }
                 if !entries.is_empty() {
                     tables.insert(key.clone(), entries);
                 }

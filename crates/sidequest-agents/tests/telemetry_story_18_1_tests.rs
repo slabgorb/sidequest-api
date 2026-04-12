@@ -210,8 +210,7 @@ fn preprocess_llm_span_records_model_field() {
 /// wrapping ContextBuilder zone assembly.
 #[test]
 fn orchestrator_emits_prompt_build_sub_span() {
-    use sidequest_agents::orchestrator::{GameService, TurnContext};
-    use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    use sidequest_agents::orchestrator::GameService;
 
     let orch = test_orchestrator();
     let context = test_turn_context();
@@ -236,8 +235,7 @@ fn orchestrator_emits_prompt_build_sub_span() {
 /// wrapping the actual Claude subprocess call.
 #[test]
 fn orchestrator_emits_inference_sub_span() {
-    use sidequest_agents::orchestrator::{GameService, TurnContext};
-    use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    use sidequest_agents::orchestrator::GameService;
 
     let orch = test_orchestrator();
     let context = test_turn_context();
@@ -262,8 +260,7 @@ fn orchestrator_emits_inference_sub_span() {
 /// wrapping response parsing and patch extraction.
 #[test]
 fn orchestrator_emits_extraction_sub_span() {
-    use sidequest_agents::orchestrator::{GameService, TurnContext};
-    use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    use sidequest_agents::orchestrator::GameService;
 
     let orch = test_orchestrator();
     let context = test_turn_context();
@@ -287,8 +284,7 @@ fn orchestrator_emits_extraction_sub_span() {
 /// AC5: turn.agent_llm.inference must record token_count_in or model field.
 #[test]
 fn orchestrator_inference_span_records_diagnostic_field() {
-    use sidequest_agents::orchestrator::{GameService, TurnContext};
-    use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    use sidequest_agents::orchestrator::GameService;
 
     let orch = test_orchestrator();
     let context = test_turn_context();
@@ -315,8 +311,7 @@ fn orchestrator_inference_span_records_diagnostic_field() {
 /// AC5: turn.agent_llm.prompt_build must record section_count or total_sections.
 #[test]
 fn orchestrator_prompt_build_span_records_diagnostic_field() {
-    use sidequest_agents::orchestrator::{GameService, TurnContext};
-    use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    use sidequest_agents::orchestrator::GameService;
 
     let orch = test_orchestrator();
     let context = test_turn_context();
@@ -345,8 +340,7 @@ fn orchestrator_prompt_build_span_records_diagnostic_field() {
 /// AC5: turn.agent_llm.parse_response must record narration_len.
 #[test]
 fn orchestrator_extraction_span_records_diagnostic_field() {
-    use sidequest_agents::orchestrator::{GameService, TurnContext};
-    use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
+    use sidequest_agents::orchestrator::GameService;
 
     let orch = test_orchestrator();
     let context = test_turn_context();

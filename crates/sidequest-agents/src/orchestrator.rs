@@ -13,7 +13,7 @@ use crate::lore_filter::LoreFilter;
 use crate::tools::assemble_turn::assemble_turn;
 // ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
 // ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into unified narrator
-use crate::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use crate::agents::intent_router::{Intent, IntentRoute};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::agents::world_builder::WorldBuilderAgent;
@@ -94,6 +94,13 @@ pub struct ActionResult {
     pub prompt_text: Option<String>,
     /// Raw LLM response text before extraction (ADR-073).
     pub raw_response_text: Option<String>,
+    /// Narrator-emitted affinity progress deltas. Replaces keyword trigger matching
+    /// in dispatch/state_mutations.rs (Zork Problem fix). Each entry is (name, delta).
+    pub affinity_progress: Vec<(String, u32)>,
+    /// Narrator-emitted gold/currency change. Complements beat-driven gold_delta
+    /// (which handles fixed per-beat costs) with narrator-determined outcomes
+    /// (e.g., poker winnings, quest rewards, bribes, fines).
+    pub gold_change: Option<i64>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -182,7 +189,8 @@ pub struct Orchestrator {
     /// Claude CLI client for LLM invocations.
     client: ClaudeClient,
     /// State-based intent inference (ADR-067: no LLM classification).
-    intent_router: IntentRouter,
+    // IntentRouter field deleted — confrontation wiring repair. All intents
+    // route to narrator per ADR-067. See IntentRoute::exploration().
     /// Unified narrator agent (ADR-067: absorbs combat, chase, dialogue).
     narrator: NarratorAgent,
     /// Pacing engine — tracks drama weight across combat turns (Story 5-7).
@@ -190,6 +198,12 @@ pub struct Orchestrator {
     /// Genre-tunable pacing breakpoints (Story 5-7).
     drama_thresholds: DramaThresholds,
     /// Trope beat injection agent (ADR-018).
+    ///
+    /// Currently unwired — see `sidequest-agents/CLAUDE.md` → "NEEDS FULL
+    /// IMPLEMENTATION" section. The TropeEngine in `sidequest-game/trope.rs`
+    /// handles passive ticking, but LLM-driven beat injection is not yet
+    /// orchestrated from here.
+    #[allow(dead_code)]
     troper: TroperAgent,
     /// SOUL.md principles — filtered per agent via `<agents>` tags and injected in the Early zone.
     soul_data: Option<crate::prompt_framework::SoulData>,
@@ -240,7 +254,7 @@ impl Orchestrator {
         Self {
             watcher_tx,
             turn_id_counter: TurnIdCounter::new(),
-            intent_router: IntentRouter::new(client.clone()),
+            // IntentRouter deleted — confrontation wiring repair.
             client,
             narrator: NarratorAgent::new(),
             tension_tracker: TensionTracker::new(),
@@ -387,7 +401,10 @@ impl Orchestrator {
         context: &TurnContext,
         tier: NarratorPromptTier,
     ) -> NarratorPromptResult {
-        let route = self.intent_router.classify(action, context);
+        // ADR-067: all intents route to narrator. Encounter context injected
+        // via conditional prompt sections. Player beat selections arrive via
+        // the structured BEAT_SELECTION protocol message.
+        let route = IntentRoute::exploration();
 
         let mut builder = ContextBuilder::new();
         let script_tools_injected: Vec<String> = Vec::new();
@@ -693,6 +710,33 @@ impl Orchestrator {
             ));
         }
 
+        // Dice outcome injection (Valley zone, both tiers) — story 34-9.
+        // Injects the RollOutcome as a visible tag so the narrator shapes prose tone.
+        if let Some(ref outcome) = context.roll_outcome {
+            let variant_name = match outcome {
+                sidequest_protocol::RollOutcome::CritSuccess => "CritSuccess",
+                sidequest_protocol::RollOutcome::Success => "Success",
+                sidequest_protocol::RollOutcome::Fail => "Fail",
+                sidequest_protocol::RollOutcome::CritFail => "CritFail",
+                _ => "Unknown",
+            };
+            builder.add_section(PromptSection::new(
+                "dice_outcome",
+                format!(
+                    "[DICE_OUTCOME: {}]\n\
+                     The dice roll resolved with this outcome. Shape your narration tone accordingly:\n\
+                     - CritSuccess: triumphant, dramatic success\n\
+                     - Success: confident, positive resolution\n\
+                     - Fail: setback, complication, dramatic tension\n\
+                     - CritFail: catastrophic, spectacular failure\n\
+                     - Unknown: neutral, factual narration",
+                    variant_name
+                ),
+                AttentionZone::Valley,
+                SectionCategory::State,
+            ));
+        }
+
         // Backstory capture directive — static format, only on Full tier
         if is_full && route.intent() == Intent::Backstory {
             builder.add_section(PromptSection::new(
@@ -743,6 +787,16 @@ impl Orchestrator {
                      Rich atmosphere, sensory detail, NPC personality. Let scenes breathe. \
                      Big moments (arrivals, reveals, combat starts) get the full treatment. \
                      Quieter turns can be shorter — vary the rhythm.\n\
+                     </length-limit>"
+                }
+                // `NarratorVerbosity` is `#[non_exhaustive]` — fall back to
+                // Standard behavior for unknown values from newer wire versions.
+                _ => {
+                    "<length-limit>\n\
+                     Target: 2-3 short paragraphs, around 800 characters of prose. \
+                     Describe the scene, the action, and what the player sees next. \
+                     Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
+                     Dialogue gets voice and personality. Vary length by moment.\n\
                      </length-limit>"
                 }
             };
@@ -802,6 +856,14 @@ impl Orchestrator {
                      sentence structures, rare words, and poetic constructions. \
                      Channel the cadence of sagas, epics, and high fantasy prose. \
                      Unrestricted complexity."
+                }
+                // `NarratorVocabulary` is `#[non_exhaustive]` — fall back to
+                // Literary (the default) for unknown values from newer wire versions.
+                _ => {
+                    "[NARRATION VOCABULARY]\n\
+                     Use rich but clear prose. Employ varied vocabulary and literary \
+                     devices where they serve the narrative. Balance elegance with \
+                     accessibility — vivid but not purple."
                 }
             };
             builder.add_section(PromptSection::new(
@@ -1097,6 +1159,8 @@ impl GameService for Orchestrator {
                     location: None,
                     prompt_text: Some(prompt.clone()),
                     raw_response_text: None,
+                    affinity_progress: vec![],
+                    gold_change: None,
                 }
             }
         }
@@ -1136,8 +1200,35 @@ fn extract_fenced_json<T: serde::de::DeserializeOwned>(
 /// Remove fenced code blocks (```json, ```game_patch, or bare ```) from narration
 /// so the player sees clean prose.
 fn strip_json_fence(input: &str) -> String {
+    // The narrator output format is: PROSE then ```game_patch {...} ```
+    // Anything AFTER the closing ``` is meta-commentary / prompt reflection
+    // that must be stripped — Claude sometimes appends "helpful" notes after
+    // completing the structured output block.
     let re = regex::Regex::new(r"(?s)```(?:json|game_patch)?\s*\n[\s\S]*?\n```").unwrap();
-    re.replace(input, "").trim().to_string()
+    if let Some(m) = re.find(input) {
+        // Take only the prose BEFORE the fence block, discard the block and
+        // everything after it (meta-commentary, prompt reflections, etc.)
+        let prose_before = &input[..m.start()];
+        let after_block = &input[m.end()..];
+        // Keep any trailing prose only if it looks like narrative (starts with
+        // a letter or **). Meta-commentary typically starts with "I notice",
+        // "Note:", "Could you", etc. — but rather than pattern-match, just
+        // truncate at the fence. The narrator contract is prose-then-patch,
+        // nothing after.
+        if after_block.trim().is_empty() {
+            prose_before.trim().to_string()
+        } else {
+            tracing::warn!(
+                after_len = after_block.trim().len(),
+                preview = %after_block.trim().chars().take(80).collect::<String>(),
+                "strip_json_fence: discarding post-patch content (likely meta-commentary)"
+            );
+            prose_before.trim().to_string()
+        }
+    } else {
+        // No fence found — return input as-is (stripped of whitespace)
+        input.trim().to_string()
+    }
 }
 
 // ============================================================================
@@ -1195,6 +1286,32 @@ struct GamePatchExtraction {
     /// Location name from the narrator's game_patch JSON (fallback for header extraction).
     #[serde(default)]
     location: Option<String>,
+    /// Narrator-emitted affinity progress deltas. Replaces the keyword trigger
+    /// matching in dispatch/state_mutations.rs that violated the Zork Problem
+    /// (ADR-010/032). The narrator has access to genre pack affinity definitions
+    /// via prompt context and emits structured deltas instead of relying on
+    /// server-side substring matching against action text.
+    #[serde(default)]
+    affinity_progress: Vec<AffinityProgressDelta>,
+    /// Narrator-emitted gold/currency change. Positive = player gains gold
+    /// (e.g., winning a poker hand), negative = player loses gold. Complements
+    /// the beat-driven gold_delta path which only handles fixed per-beat costs.
+    #[serde(default)]
+    gold_change: Option<i64>,
+}
+
+/// Structured affinity progress from the narrator (replaces keyword trigger matching).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct AffinityProgressDelta {
+    /// Affinity name from the genre pack definition (e.g., "vehicular_combat").
+    name: String,
+    /// Progress increment (typically 1).
+    #[serde(default = "default_affinity_delta")]
+    delta: u32,
+}
+
+fn default_affinity_delta() -> u32 {
+    1
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -1228,7 +1345,12 @@ fn extract_game_patch(raw: &str) -> GamePatchExtraction {
 
 /// Serde model for the narrator's structured JSON output block.
 /// An NPC mentioned in the narrator's structured output.
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+///
+/// Accepts either a full struct `{"name": "Nub", "role": "provisioner", ...}`
+/// or a bare string `"Nub"` (mapped to `NpcMention { name: "Nub", ..default }`).
+/// Fix: playtest-2026-04-12 — bare string NPC names caused serde rejection of
+/// the entire game_patch block, cascading to total data loss.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct NpcMention {
     /// Full canonical name (e.g., "Toggler Copperjaw", not "Toggler").
     pub name: String,
@@ -1244,6 +1366,59 @@ pub struct NpcMention {
     /// True if this NPC appears for the first time this turn.
     #[serde(default)]
     pub is_new: bool,
+}
+
+impl<'de> serde::Deserialize<'de> for NpcMention {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum NpcMentionRaw {
+            Full {
+                name: String,
+                #[serde(default)]
+                pronouns: String,
+                #[serde(default)]
+                role: String,
+                #[serde(default)]
+                appearance: String,
+                #[serde(default)]
+                is_new: bool,
+            },
+            NameOnly(String),
+        }
+
+        match NpcMentionRaw::deserialize(deserializer)? {
+            NpcMentionRaw::Full {
+                name,
+                pronouns,
+                role,
+                appearance,
+                is_new,
+            } => Ok(NpcMention {
+                name,
+                pronouns,
+                role,
+                appearance,
+                is_new,
+            }),
+            NpcMentionRaw::NameOnly(name) => {
+                tracing::debug!(
+                    npc_name = %name,
+                    "npc_mention.bare_string_fallback — wrapped to NpcMention struct"
+                );
+                Ok(NpcMention {
+                    name,
+                    pronouns: String::new(),
+                    role: String::new(),
+                    appearance: String::new(),
+                    is_new: false,
+                })
+            }
+        }
+    }
 }
 
 /// Visual scene description extracted from narrator JSON block.
@@ -1362,6 +1537,10 @@ pub struct NarratorExtraction {
     pub confrontation: Option<String>,
     /// Location name from game_patch JSON (fallback for header extraction).
     pub location: Option<String>,
+    /// Narrator-emitted affinity progress deltas. Replaces keyword trigger matching.
+    pub affinity_progress: Vec<(String, u32)>,
+    /// Narrator-emitted gold/currency change (e.g., poker winnings, rewards, fines).
+    pub gold_change: Option<i64>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1394,6 +1573,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         beat_selections = patch.beat_selections.len(),
         confrontation = ?patch.confrontation,
         has_location = patch.location.is_some(),
+        gold_change = ?patch.gold_change,
         "game_patch.extracted"
     );
 
@@ -1418,6 +1598,12 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         beat_selections: patch.beat_selections,
         confrontation: patch.confrontation,
         location: patch.location,
+        affinity_progress: patch
+            .affinity_progress
+            .into_iter()
+            .map(|d| (d.name, d.delta))
+            .collect(),
+        gold_change: patch.gold_change,
     }
 }
 
@@ -1474,6 +1660,10 @@ pub struct TurnContext {
     /// Genre-specific prompt templates from prompts.yaml.
     /// Injected contextually: narrator voice on Full tier, combat/npc/world_state per state.
     pub genre_prompts: Option<sidequest_genre::Prompts>,
+    /// Dice roll outcome from the most recent resolution (story 34-9).
+    /// When Some, injected as a [DICE_OUTCOME: X] tag in the Valley zone
+    /// so the narrator shapes prose tone to match the mechanical result.
+    pub roll_outcome: Option<sidequest_protocol::RollOutcome>,
 }
 
 /// Result of processing a player action through the full turn loop.
@@ -1571,4 +1761,44 @@ pub fn inject_merchant_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npc_mention_deserializes_full_struct() {
+        let json = r#"{"name": "Toggler Copperjaw", "role": "blacksmith", "pronouns": "he/him", "is_new": true}"#;
+        let npc: NpcMention = serde_json::from_str(json).unwrap();
+        assert_eq!(npc.name, "Toggler Copperjaw");
+        assert_eq!(npc.role, "blacksmith");
+        assert_eq!(npc.pronouns, "he/him");
+        assert!(npc.is_new);
+    }
+
+    #[test]
+    fn npc_mention_deserializes_bare_string() {
+        let json = r#""Nub""#;
+        let npc: NpcMention = serde_json::from_str(json).unwrap();
+        assert_eq!(npc.name, "Nub");
+        assert_eq!(npc.role, "");
+        assert!(!npc.is_new);
+    }
+
+    #[test]
+    fn npc_mention_vec_mixed_formats() {
+        let json = r#"[{"name": "Toggler", "role": "smith"}, "Nub", {"name": "Vera"}]"#;
+        let npcs: Vec<NpcMention> = serde_json::from_str(json).unwrap();
+        assert_eq!(npcs.len(), 3);
+        assert_eq!(npcs[0].name, "Toggler");
+        assert_eq!(npcs[0].role, "smith");
+        assert_eq!(npcs[1].name, "Nub");
+        assert_eq!(npcs[1].role, "");
+        assert_eq!(npcs[2].name, "Vera");
+    }
+
+    #[test]
+    fn game_patch_with_bare_string_npcs_parses() {
+        let json = r#"{"npcs_present": ["Nub", "Vera"], "footnotes": []}"#;
+        let patch: GamePatchExtraction = serde_json::from_str(json).unwrap();
+        assert_eq!(patch.npcs_present.len(), 2);
+        assert_eq!(patch.npcs_present[0].name, "Nub");
+        assert_eq!(patch.npcs_present[1].name, "Vera");
+    }
 }

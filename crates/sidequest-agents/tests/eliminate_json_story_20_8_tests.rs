@@ -30,33 +30,6 @@ use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use sidequest_protocol::FactCategory;
 
 // ============================================================================
-// Helper: build a minimal NarratorExtraction
-// ============================================================================
-
-fn minimal_extraction() -> NarratorExtraction {
-    NarratorExtraction {
-        prose: "**The Collapsed Overpass**\n\nYou step into the ruins.".to_string(),
-        footnotes: vec![],
-        items_gained: vec![],
-        npcs_present: vec![],
-        quest_updates: HashMap::new(),
-        visual_scene: None,
-        scene_mood: Some("exploration".to_string()),
-        personality_events: vec![],
-        scene_intent: Some("Exploration".to_string()),
-        resource_deltas: HashMap::new(),
-        lore_established: None,
-        merchant_transactions: vec![],
-        sfx_triggers: vec![],
-        action_rewrite: None,
-        action_flags: None,
-        beat_selections: vec![],
-        confrontation: None,
-        location: None,
-    }
-}
-
-// ============================================================================
 // AC-1: Narrator system prompt contains no JSON schema documentation
 // ============================================================================
 
@@ -292,6 +265,8 @@ fn assemble_turn_produces_complete_action_result() {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     };
 
     let rewrite = ActionRewrite {

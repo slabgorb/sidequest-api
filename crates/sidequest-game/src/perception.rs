@@ -40,6 +40,47 @@ pub enum PerceptualEffect {
     },
 }
 
+impl PerceptualEffect {
+    /// Parse a structured status code into a PerceptualEffect.
+    ///
+    /// Expected formats (exact, case-insensitive):
+    /// - `"blinded"` → Blinded
+    /// - `"deafened"` → Deafened
+    /// - `"hallucinating"` → Hallucinating
+    /// - `"charmed_by:<source>"` → Charmed { source }
+    /// - `"dominated_by:<controller>"` → Dominated { controller }
+    ///
+    /// Returns None for unrecognized codes. Callers MUST emit an OTEL warning
+    /// for None — no silent drop. This replaces the keyword `contains()` matching
+    /// in dispatch/barrier.rs that violated the Zork Problem (ADR-010/032).
+    pub fn from_status_code(code: &str) -> Option<Self> {
+        let lower = code.to_lowercase();
+        let lower = lower.trim();
+        match lower {
+            "blinded" => Some(Self::Blinded),
+            "deafened" => Some(Self::Deafened),
+            "hallucinating" => Some(Self::Hallucinating),
+            _ if lower.starts_with("charmed_by:") => {
+                let source = lower
+                    .strip_prefix("charmed_by:")
+                    .unwrap_or("unknown")
+                    .trim()
+                    .to_string();
+                Some(Self::Charmed { source })
+            }
+            _ if lower.starts_with("dominated_by:") => {
+                let controller = lower
+                    .strip_prefix("dominated_by:")
+                    .unwrap_or("unknown")
+                    .trim()
+                    .to_string();
+                Some(Self::Dominated { controller })
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Specifies which character is affected and by what effects.
 ///
 /// Fields are private with getters (lang-review rule #9) to preserve

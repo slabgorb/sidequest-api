@@ -19,7 +19,6 @@ use tracing_subscriber::Registry;
 struct CapturedSpan {
     name: String,
     fields: Vec<(String, String)>,
-    target: String,
 }
 
 /// Layer that captures span creation events with field names and debug values.
@@ -53,7 +52,6 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for SpanCaptureLayer {
         self.captured.lock().unwrap().push(CapturedSpan {
             name: attrs.metadata().name().to_string(),
             fields,
-            target: attrs.metadata().target().to_string(),
         });
     }
 }
@@ -94,99 +92,9 @@ fn has_field(span: &CapturedSpan, field_name: &str) -> bool {
     span.fields.iter().any(|(name, _)| name == field_name)
 }
 
-// ===========================================================================
-// AC: IntentRouter span — classify() must emit semantic fields
-// ===========================================================================
-
-/// IntentRouter::classify_with_classifier must emit a span with player_input,
-/// classified_intent, agent_routed_to, confidence.
-#[test]
-fn intent_router_classify_emits_span_with_semantic_fields() {
-    use sidequest_agents::agents::intent_router::{
-        Intent, IntentClassifier, IntentRoute, IntentRouter,
-    };
-    use sidequest_agents::orchestrator::TurnContext;
-
-    struct MockClassifier;
-    impl IntentClassifier for MockClassifier {
-        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
-            IntentRoute::for_intent(Intent::Combat)
-        }
-    }
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        let ctx = TurnContext::default();
-        let classifier = MockClassifier;
-        let _route =
-            IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
-    });
-
-    let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "classify_intent")
-        .or_else(|| find_span(&spans, "classify"))
-        .expect("Expected a 'classify_intent' span to be emitted");
-
-    assert!(
-        has_field(span, "player_input"),
-        "IntentRouter span missing 'player_input' field"
-    );
-    assert!(
-        has_field(span, "classified_intent"),
-        "IntentRouter span missing 'classified_intent' field"
-    );
-    assert!(
-        has_field(span, "agent_routed_to"),
-        "IntentRouter span missing 'agent_routed_to' field"
-    );
-    assert!(
-        has_field(span, "confidence"),
-        "IntentRouter span missing 'confidence' field"
-    );
-}
-
-/// State override classification must emit a span with classified_intent.
-#[test]
-fn intent_router_state_override_emits_span() {
-    use sidequest_agents::agents::intent_router::{
-        Intent, IntentClassifier, IntentRoute, IntentRouter,
-    };
-    use sidequest_agents::orchestrator::TurnContext;
-
-    struct MockClassifier;
-    impl IntentClassifier for MockClassifier {
-        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
-            IntentRoute::for_intent(Intent::Exploration)
-        }
-    }
-
-    let ctx = TurnContext {
-        in_combat: true,
-        in_chase: false,
-        state_summary: None,
-        ..Default::default()
-    };
-
-    let (layer, captured) = SpanCaptureLayer::new();
-    let subscriber = Registry::default().with(layer);
-
-    with_default(subscriber, || {
-        let classifier = MockClassifier;
-        let _route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
-    });
-
-    let spans = captured.lock().unwrap();
-    let span = find_span(&spans, "classify_intent")
-        .or_else(|| find_span(&spans, "classify"))
-        .expect("Expected a 'classify_intent' span from state override");
-
-    assert!(
-        has_field(span, "classified_intent"),
-        "classify span missing 'classified_intent' field"
-    );
-}
+// IntentRouter span tests removed — IntentRouter was deleted in the
+// confrontation wiring repair. IntentRoute::exploration() is a constant
+// constructor with no telemetry span (no decision to observe).
 
 // ===========================================================================
 // AC: Context builder span — compose() must emit sections_count, total_tokens
@@ -243,76 +151,7 @@ fn context_builder_compose_emits_span_with_metrics() {
 // AC: Deferred fields — spans use Empty + Span::current().record()
 // ===========================================================================
 
-/// Spans for classification and extraction should use the deferred field pattern:
-/// declare fields as tracing::field::Empty at span entry, then populate via
-/// Span::current().record() after computation. This test verifies that
-/// the fields ARE populated (not left as Empty) after the function returns.
-#[test]
-fn intent_router_deferred_fields_are_populated_after_classify() {
-    use sidequest_agents::agents::intent_router::{
-        Intent, IntentClassifier, IntentRoute, IntentRouter,
-    };
-    use sidequest_agents::orchestrator::TurnContext;
-
-    struct MockClassifier;
-    impl IntentClassifier for MockClassifier {
-        fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
-            IntentRoute::for_intent(Intent::Combat)
-        }
-    }
-
-    // We need a layer that captures both span creation AND field recording.
-    // The SpanCaptureLayer above only captures on_new_span. For deferred fields,
-    // we need to also capture on_record events.
-    let (layer, captured) = SpanCaptureLayer::new();
-    let recorded_fields: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
-    let recorded_clone = recorded_fields.clone();
-
-    // Create a second layer that captures record events
-    let record_layer = RecordCaptureLayer {
-        recorded: recorded_clone,
-    };
-
-    let subscriber = Registry::default().with(layer).with(record_layer);
-
-    with_default(subscriber, || {
-        let ctx = TurnContext::default();
-        let classifier = MockClassifier;
-        let _route =
-            IntentRouter::classify_with_classifier("I attack the goblin", &ctx, &classifier);
-    });
-
-    let _recorded = recorded_fields.lock().unwrap();
-
-    // After classify returns, the span fields should have been recorded
-    // Note: classify_with_classifier uses info_span! which records fields at creation,
-    // not via deferred Span::record(). This test verifies the span was emitted.
-    // The actual field values are checked by the span capture test above.
-    let spans = captured.lock().unwrap();
-    assert!(
-        !spans.is_empty(),
-        "classify_with_classifier must emit at least one span"
-    );
-}
-
-/// Layer that captures Span::record() calls (deferred field population).
-struct RecordCaptureLayer {
-    recorded: Arc<Mutex<Vec<(String, String)>>>,
-}
-
-impl<S: Subscriber> tracing_subscriber::Layer<S> for RecordCaptureLayer {
-    fn on_record(
-        &self,
-        _id: &tracing::span::Id,
-        values: &tracing::span::Record<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        let mut fields = Vec::new();
-        let mut visitor = FieldCaptureVisitor(&mut fields);
-        values.record(&mut visitor);
-        self.recorded.lock().unwrap().extend(fields);
-    }
-}
+// Deferred field test and RecordCaptureLayer removed — IntentRouter deleted.
 
 // ===========================================================================
 // AC: Agent invocation span (call_agent) — agent_name, token counts, duration
@@ -335,8 +174,6 @@ impl<S: Subscriber> tracing_subscriber::Layer<S> for RecordCaptureLayer {
 #[test]
 #[ignore = "span contract test — run manually to verify agent.call fields"]
 fn agent_invocation_span_has_required_fields() {
-    use sidequest_agents::client::ClaudeClient;
-
     // Verify that ClaudeClient has a call_agent method by calling it.
     // This is a compile-time contract test — if the method doesn't exist,
     // the test file won't compile, which is an acceptable RED state.

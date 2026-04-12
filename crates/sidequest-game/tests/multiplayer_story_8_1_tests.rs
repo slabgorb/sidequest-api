@@ -191,7 +191,7 @@ fn actions_are_keyed_by_player_id() {
         actions.get("player-1").map(String::as_str),
         Some("I swing my sword")
     );
-    assert!(actions.get("player-2").is_none());
+    assert!(!actions.contains_key("player-2"));
 }
 
 #[test]

@@ -20,6 +20,8 @@ use super::DispatchContext;
 /// is the same set baked into the Narration message sent to the acting
 /// player, guaranteeing parity between what the acting player sees and
 /// what gets rebroadcast to observers.
+// 8 args — fold into a `ResponseContext` struct in the dispatch refactor.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn build_response_messages(
     ctx: &mut DispatchContext<'_>,
     clean_narration: &str,
@@ -118,7 +120,7 @@ pub(super) async fn build_response_messages(
                 }
             }
 
-            let turn = ctx.turn_manager.interaction() as u64;
+            let turn = ctx.turn_manager.interaction();
             for df in &discovered {
                 let lore_cat: sidequest_game::lore::LoreCategory = df.fact.category.into();
                 let mut meta = std::collections::HashMap::new();
@@ -180,13 +182,14 @@ pub(super) async fn build_response_messages(
             match *holder {
                 Some(ref ss_arc) => {
                     let ss = ss_arc.lock().await;
-                    ss.players.get(ctx.player_id).and_then(|ps| ps.sheet.clone())
+                    ss.players
+                        .get(ctx.player_id)
+                        .and_then(|ps| ps.sheet.clone())
                 }
                 None => None,
             }
         };
-        let acting_inventory =
-            Some(crate::shared_session::inventory_payload_from(ctx.inventory));
+        let acting_inventory = Some(crate::shared_session::inventory_payload_from(ctx.inventory));
 
         let mut party_members = vec![PartyMember {
             player_id: ctx.player_id.to_string(),
@@ -245,7 +248,8 @@ pub(super) async fn build_response_messages(
         ctx.discovered_regions
             .iter()
             .map(|name| sidequest_protocol::ExploredLocation {
-                id: String::new(),
+                // Region mode has no separate slug — id mirrors name.
+                id: name.clone(),
                 name: name.clone(),
                 x: 0,
                 y: 0,
@@ -262,7 +266,7 @@ pub(super) async fn build_response_messages(
     super::emit_map_update_telemetry(
         "turn",
         ctx.player_id,
-        &ctx.current_location,
+        ctx.current_location,
         &explored_locs,
         ctx.cartography_metadata.as_ref(),
     );

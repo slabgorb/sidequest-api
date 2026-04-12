@@ -86,7 +86,6 @@ pub enum CarryMode {
     Weight,
 }
 
-
 /// Inventory philosophy configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct InventoryPhilosophy {

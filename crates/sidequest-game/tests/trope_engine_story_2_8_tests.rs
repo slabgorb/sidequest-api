@@ -8,14 +8,12 @@
 //!   - GameSnapshot::activate_trope() / resolve_trope() lifecycle
 //!   - Beat injection prompt section formatting
 
-use std::collections::HashSet;
-
 use ordered_float::OrderedFloat;
 use sidequest_genre::{PassiveProgression, TropeDefinition, TropeEscalation};
 use sidequest_protocol::NonBlankString;
 
 // New types from story 2-8
-use sidequest_game::trope::{FiredBeat, TropeEngine, TropeState, TropeStatus};
+use sidequest_game::trope::{TropeEngine, TropeState, TropeStatus};
 
 // ============================================================================
 // Test fixtures

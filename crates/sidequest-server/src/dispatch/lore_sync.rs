@@ -32,11 +32,8 @@ pub(super) async fn accumulate_and_persist_lore(
 ) -> Option<String> {
     let fragment_id = {
         let mut store = ctx.lore_store.lock().await;
-        // Explicit deref: pass a `&mut LoreStore` through the MutexGuard
-        // rather than relying on autoref-to-guard coercion, which doesn't
-        // bridge from `&mut MutexGuard<T>` to `&mut T` at call sites.
         match sidequest_game::accumulate_lore(
-            &mut *store,
+            &mut store,
             text,
             category.clone(),
             turn,
@@ -150,7 +147,7 @@ pub(super) async fn validate_continuity(ctx: &mut DispatchContext<'_>, clean_nar
 
     let validation_result = sidequest_agents::continuity_validator::validate_continuity_llm_async(
         clean_narration,
-        &ctx.current_location,
+        ctx.current_location,
         &dead_npcs,
         &inventory_items,
         "", // time_of_day not tracked in dispatch context yet

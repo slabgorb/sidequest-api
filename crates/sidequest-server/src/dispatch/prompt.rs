@@ -546,7 +546,7 @@ pub(crate) async fn build_prompt_context(
                 if !undiscovered.is_empty() {
                     // Filter by adjacency if world graph is available
                     let filtered: Vec<&str> = if let Some(ref wg) = ctx.world_graph {
-                        let neighbors: Vec<&str> = wg.neighbors(&ctx.current_location).collect();
+                        let neighbors: Vec<&str> = wg.neighbors(ctx.current_location).collect();
                         undiscovered
                             .into_iter()
                             .filter(|r| {
@@ -580,30 +580,55 @@ pub(crate) async fn build_prompt_context(
         }
     }
 
-    // Room graph navigation — inject current room + available exits
+    // Room graph navigation — inject current room + available exits.
+    // Uses room IDs as the canonical vocabulary so the narrator emits IDs
+    // that resolve_room_id() can match without fuzzy matching.
     if !ctx.rooms.is_empty() {
-        if let Some(current_room) = ctx
+        // Try exact ID match first, then name match, then fall back to
+        // the entrance room when current_location is corrupted (pre-fix saves
+        // stored narrator display names like "threshold" instead of room IDs).
+        let current_room = ctx
             .rooms
             .iter()
-            .find(|r| r.id == *ctx.current_location || r.name == *ctx.current_location)
-        {
+            .find(|r| r.id == *ctx.current_location)
+            .or_else(|| {
+                ctx.rooms
+                    .iter()
+                    .find(|r| r.name.to_lowercase() == ctx.current_location.to_lowercase())
+            })
+            .or_else(|| {
+                tracing::warn!(
+                    current_location = %ctx.current_location,
+                    "room_graph.prompt — current_location matches no room, falling back to entrance"
+                );
+                ctx.rooms.iter().find(|r| r.room_type == "entrance")
+            });
+        if let Some(current_room) = current_room {
             state_summary.push_str("\n\nROOM NAVIGATION (room-graph mode):\n");
             state_summary.push_str(&format!(
-                "Current room: {} — {}\n",
+                "Current room: {} (id: {}) — {}\n",
                 current_room.name,
+                current_room.id,
                 current_room.description.as_deref().unwrap_or("")
             ));
             if !current_room.exits.is_empty() {
                 state_summary.push_str("Exits:\n");
                 for exit in &current_room.exits {
+                    let target_name = ctx
+                        .rooms
+                        .iter()
+                        .find(|r| r.id == exit.target())
+                        .map(|r| r.name.as_str())
+                        .unwrap_or("unknown");
                     state_summary.push_str(&format!(
-                        "- {} → {}\n",
+                        "- {} → {} (\"{}\")\n",
                         exit.display_name(),
-                        exit.target()
+                        exit.target(),
+                        target_name
                     ));
                 }
             }
-            state_summary.push_str("When the player moves through an exit, update the location header to the target room name.\n");
+            state_summary.push_str("When the player moves through an exit, start your narration with **room_id** using the EXACT exit target ID shown above (e.g., **throat**, **cistern**). Do NOT use display names, landmark names, or invented names as the location header.\n");
             state_summary.push_str("IMPORTANT: When the player enters a new room, always end your narration by describing the visible exits and 2-3 obvious actions or points of interest. Players navigate by exits — without them, every turn becomes 'where can I go?'\n");
 
             WatcherEventBuilder::new("navigation", WatcherEventType::StateTransition)
@@ -738,9 +763,9 @@ pub(crate) async fn build_prompt_context(
             Some(&priority_cats)
         };
         let lore_budget = 500; // ~500 tokens for lore context
-        // Phase 1: short lock to read the embedded-fragment count. Must not
-        // hold the lock across the query-embedding daemon call below —
-        // that would re-introduce the dispatch blocking we just fixed.
+                               // Phase 1: short lock to read the embedded-fragment count. Must not
+                               // hold the lock across the query-embedding daemon call below —
+                               // that would re-introduce the dispatch blocking we just fixed.
         let has_embeddings = {
             let store = ctx.lore_store.lock().await;
             store.fragments_with_embeddings_count() > 0
@@ -804,7 +829,7 @@ pub(crate) async fn build_prompt_context(
         {
             let store = ctx.lore_store.lock().await;
             let selected = sidequest_game::select_lore_for_prompt(
-                &*store,
+                &store,
                 lore_budget,
                 priority_ref,
                 query_embedding.as_deref(),
@@ -820,7 +845,7 @@ pub(crate) async fn build_prompt_context(
 
             // Watcher: lore retrieval breakdown (story 18-4 — Lore tab)
             let lore_summary = sidequest_game::summarize_lore_retrieval(
-                &*store,
+                &store,
                 &selected,
                 lore_budget,
                 priority_ref,
@@ -855,8 +880,7 @@ pub(crate) async fn build_prompt_context(
         // Acquire the lore store lock for the scope that holds the
         // borrowed `lang_fragments` refs.
         let store = ctx.lore_store.lock().await;
-        let lang_fragments =
-            sidequest_game::query_all_language_knowledge(&*store, ctx.player_id);
+        let lang_fragments = sidequest_game::query_all_language_knowledge(&store, ctx.player_id);
         if !lang_fragments.is_empty() {
             let conlang_text =
                 sidequest_game::format_language_knowledge_for_prompt(&lang_fragments);
