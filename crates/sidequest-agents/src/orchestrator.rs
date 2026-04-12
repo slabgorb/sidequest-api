@@ -1173,8 +1173,35 @@ fn extract_fenced_json<T: serde::de::DeserializeOwned>(
 /// Remove fenced code blocks (```json, ```game_patch, or bare ```) from narration
 /// so the player sees clean prose.
 fn strip_json_fence(input: &str) -> String {
+    // The narrator output format is: PROSE then ```game_patch {...} ```
+    // Anything AFTER the closing ``` is meta-commentary / prompt reflection
+    // that must be stripped — Claude sometimes appends "helpful" notes after
+    // completing the structured output block.
     let re = regex::Regex::new(r"(?s)```(?:json|game_patch)?\s*\n[\s\S]*?\n```").unwrap();
-    re.replace(input, "").trim().to_string()
+    if let Some(m) = re.find(input) {
+        // Take only the prose BEFORE the fence block, discard the block and
+        // everything after it (meta-commentary, prompt reflections, etc.)
+        let prose_before = &input[..m.start()];
+        let after_block = &input[m.end()..];
+        // Keep any trailing prose only if it looks like narrative (starts with
+        // a letter or **). Meta-commentary typically starts with "I notice",
+        // "Note:", "Could you", etc. — but rather than pattern-match, just
+        // truncate at the fence. The narrator contract is prose-then-patch,
+        // nothing after.
+        if after_block.trim().is_empty() {
+            prose_before.trim().to_string()
+        } else {
+            tracing::warn!(
+                after_len = after_block.trim().len(),
+                preview = %after_block.trim().chars().take(80).collect::<String>(),
+                "strip_json_fence: discarding post-patch content (likely meta-commentary)"
+            );
+            prose_before.trim().to_string()
+        }
+    } else {
+        // No fence found — return input as-is (stripped of whitespace)
+        input.trim().to_string()
+    }
 }
 
 // ============================================================================
