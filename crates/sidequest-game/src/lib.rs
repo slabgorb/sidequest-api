@@ -109,6 +109,7 @@ pub use consequence::{ConsequenceCategory, GenieWish, WishConsequenceEngine, Wis
 pub use continuity::{Contradiction, ContradictionCategory, ValidationResult};
 pub use creature_core::CreatureCore;
 pub use delta::{StateDelta, StateSnapshot};
+pub use dice::{resolve_dice, ResolveError, ResolvedRoll};
 pub use disposition::{Attitude, Disposition};
 pub use encounter::{
     EncounterActor, EncounterMetric, EncounterPhase, MetricDirection, SecondaryStats, StatValue,
