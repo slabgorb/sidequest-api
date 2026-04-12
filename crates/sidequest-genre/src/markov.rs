@@ -81,17 +81,31 @@ impl MarkovChain {
             .or_insert(1);
     }
 
-    /// Train on raw text — splits into words, keeps only capitalized words (proper nouns).
+    /// Train on raw text — splits into words, trains on each.
     ///
-    /// Filters out common/function words by requiring the first character to be uppercase.
-    /// This works across all languages: "The", "nosotros", "aber" are filtered out while
-    /// "Friedrich", "Zarathustra", "Montmartre" are kept. Minimum 3 chars to skip
-    /// single-letter words and abbreviations.
+    /// For prose corpora: filters to capitalized words (proper nouns) to avoid
+    /// learning function-word character patterns. For curated word lists (detected
+    /// when no word in the text starts uppercase), trains on all words directly.
+    /// Minimum 3 chars to skip single-letter words and abbreviations.
     pub fn train(&mut self, text: &str) {
+        // Detect if this is a curated word list (all lowercase) vs prose
+        let has_uppercase = text
+            .split_whitespace()
+            .any(|w| w.chars().next().is_some_and(|c| c.is_uppercase()));
+
         for line in text.lines() {
             for word in line.split_whitespace() {
                 let cleaned: String = word.chars().filter(|c| c.is_alphabetic()).collect();
-                if cleaned.len() >= 3 && cleaned.chars().next().is_some_and(|c| c.is_uppercase()) {
+                if cleaned.len() < 3 {
+                    continue;
+                }
+                if has_uppercase {
+                    // Prose mode: only train on capitalized words (proper nouns)
+                    if cleaned.chars().next().is_some_and(|c| c.is_uppercase()) {
+                        self.add_word(&cleaned);
+                    }
+                } else {
+                    // Word-list mode: train on everything
                     self.add_word(&cleaned);
                 }
             }
