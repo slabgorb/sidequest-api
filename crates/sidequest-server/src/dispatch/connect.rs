@@ -2093,12 +2093,52 @@ pub(crate) async fn dispatch_character_creation(
                             // Story 8-8: Capture context for catch-up narration before
                             // releasing the lock. Only needed when joining an in-progress
                             // session (narration_history is non-empty).
+                            //
+                            // Story 37-1: Session-scoped resume markers. If narration_history
+                            // exists but no other players are connected, this is a stale
+                            // session from a previous game on the same genre:world pair.
+                            // The remove_player_from_session cleanup has a try_lock race
+                            // that can leave zombie sessions in the registry. Clear stale
+                            // state instead of generating catch-up from a dead game.
                             if !ss.narration_history.is_empty() {
-                                catch_up_context = Some((
-                                    ss.narration_history.clone(),
-                                    ss.current_location.clone(),
-                                    ss.world_context.clone(),
-                                ));
+                                if ss.players.is_empty() {
+                                    tracing::info!(
+                                        session_id = %ss.session_id,
+                                        genre = %ss.genre_slug,
+                                        world = %ss.world_slug,
+                                        history_len = ss.narration_history.len(),
+                                        "session.stale_history_cleared — no active players, clearing narration from previous game instance"
+                                    );
+                                    crate::WatcherEventBuilder::new(
+                                        "session",
+                                        crate::WatcherEventType::StateTransition,
+                                    )
+                                    .field("action", "stale_session_cleared")
+                                    .field("session_id", &ss.session_id)
+                                    .field("genre", &ss.genre_slug)
+                                    .field("world", &ss.world_slug)
+                                    .field("stale_history_len", &ss.narration_history.len().to_string())
+                                    .send();
+                                    ss.narration_history.clear();
+                                    ss.discovered_regions.clear();
+                                    ss.current_location.clear();
+                                    ss.npc_registry.clear();
+                                    ss.trope_states.clear();
+                                    // Generate fresh session_id for the new game instance
+                                    ss.session_id = uuid::Uuid::new_v4().to_string();
+                                } else {
+                                    catch_up_context = Some((
+                                        ss.narration_history.clone(),
+                                        ss.current_location.clone(),
+                                        ss.world_context.clone(),
+                                    ));
+                                    tracing::info!(
+                                        session_id = %ss.session_id,
+                                        player_count = ss.players.len(),
+                                        history_len = ss.narration_history.len(),
+                                        "session.catch_up_context_captured — joining in-progress game"
+                                    );
+                                }
                             }
 
                             // Reconnect detection: if a player with the same
