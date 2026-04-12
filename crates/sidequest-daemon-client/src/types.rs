@@ -25,7 +25,7 @@ pub struct RenderParams {
     /// Art style to apply (e.g. "oil_painting", "pixel_art").
     pub art_style: String,
     /// Render tier — routes to the correct daemon worker.
-    /// One of: "scene_illustration", "portrait", "landscape", "cartography", "tts", "music".
+    /// One of: "scene_illustration", "portrait", "landscape", "cartography".
     pub tier: String,
     /// Pre-composed positive prompt with genre style suffix and tag overrides baked in.
     /// When set, the daemon's flux worker uses this directly instead of building from parts.

@@ -57,14 +57,12 @@ or rewrite them. Use the existing types and functions.
 - **MusicDirector** — `music_director.rs` (667 LOC) — mood classification from
   narration, track selection from genre pack. Mood enum: Combat, Exploration,
   Tension, Triumph, Sorrow, Mystery, Calm.
-- **AudioMixer** — `audio_mixer.rs` (369 LOC) — 3-channel ducking mixer (Music,
-  SFX, Ambience). duck_for_tts() / restore_volume() for voice playback.
-- **TTS streaming** — `tts_stream.rs` (211 LOC) — TtsSegment, TtsSynthesizer trait,
-  TtsStreamer (Start -> Chunk* -> End sequence). Respects pause hints.
-- **Segmenter** — `segmenter.rs` (274 LOC) — sentence segmentation with abbreviation
-  awareness. Feeds TTS synthesis.
+- **AudioMixer** — `audio_mixer.rs` — 3-channel cue-driven mixer (Music, SFX,
+  Ambience). `apply_cue()` routes AudioCue events; `set_ambience()` swaps the
+  ambience bed. The old TTS-duck API was retired with Epic 27 / ADR-076.
 - **VoiceRouter** — `voice_router.rs` (350 LOC) — narrator + character archetype +
-  creature type voice assignment. Genre pack integration.
+  creature type voice assignment for text framing. Genre pack integration. No
+  longer drives TTS synthesis — voice metadata now flavors narration tone only.
 - **ThemeRotator** — `theme_rotator.rs` (323 LOC) — anti-repetition track selection
   with per-mood play history.
 
@@ -89,8 +87,9 @@ or rewrite them. Use the existing types and functions.
   content dedup. Max depth 1000.
 - **BeatFilter** — `beat_filter.rs` (322 LOC) — render suppression by narrative weight,
   cooldown, burst rate.
-- **PrerenderScheduler** — `prerender.rs` (417 LOC) — speculative rendering during
-  TTS playback. WasteTracker disables if hit rate drops below threshold.
+- **PrerenderScheduler** — `prerender.rs` (417 LOC) — speculative rendering between
+  narration turns, amortizing render latency against the player's reading/thinking
+  gap. WasteTracker disables if hit rate drops below threshold.
 
 ### Game Mechanics
 - **Inventory** — `inventory.rs` (346 LOC) — Item with narrative_weight-driven
@@ -141,7 +140,7 @@ These exist and compile but have gaps in their implementation:
 ## Key Patterns
 
 - **Composition over inheritance**: GameSnapshot composes domain structs; Character/Npc embed CreatureCore
-- **Trait-based abstraction**: Combatant, CommandHandler, SessionStore, TtsSynthesizer, RewriteStrategy
+- **Trait-based abstraction**: Combatant, CommandHandler, SessionStore, RewriteStrategy
 - **Typed patches**: WorldStatePatch, NpcPatch for composable state mutations
 - **Unified encounters**: StructuredEncounter (ADR-033) collapses combat/chase/standoff/negotiation into one model — no per-type state structs
 - **Actor pattern**: PersistenceWorker owns SQLite Connection (single-threaded, !Send)
