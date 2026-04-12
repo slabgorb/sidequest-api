@@ -26,6 +26,7 @@ pub mod consequence;
 pub mod continuity;
 pub mod creature_core;
 pub mod delta;
+pub mod dice;
 pub mod disposition;
 pub mod encounter;
 pub mod engagement;
