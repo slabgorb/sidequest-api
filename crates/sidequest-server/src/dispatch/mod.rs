@@ -1254,13 +1254,26 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     WatcherEventBuilder::new("room_graph", WatcherEventType::ValidationWarning)
                         .field("event", "room_graph.name_unresolved")
                         .field("input", &location)
+                        .field("current_room", ctx.current_location.as_str())
+                        .field(
+                            "available_ids",
+                            ctx.rooms
+                                .iter()
+                                .map(|r| r.id.as_str())
+                                .collect::<Vec<_>>()
+                                .join(","),
+                        )
                         .send();
                     tracing::warn!(
                         name: "room_graph.name_unresolved",
                         input = %location,
-                        "narrator used unknown room name — falling through to validation"
+                        current_room = %ctx.current_location,
+                        "narrator used unknown room name — rejecting location change, staying in current room"
                     );
-                    location.clone()
+                    // Do NOT fall through with the raw name — it will fail
+                    // validation and previously polluted discovered_rooms in
+                    // pre-resolver builds. Stay in current room.
+                    ctx.current_location.clone()
                 }
             }
         } else {
@@ -1954,8 +1967,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Diff against before_snapshot (captured at dispatch entry) to detect what changed.
     let narration_state_delta = {
         let mut temp_state = ctx.snapshot.clone();
-        temp_state.location =
-            extract_location_header(narration_text).unwrap_or_else(|| ctx.current_location.clone());
+        // Use ctx.current_location which was already resolved through
+        // resolve_room_id() above — not the raw narrator header which may
+        // contain display names that don't match room IDs.
+        temp_state.location = ctx.current_location.clone();
         temp_state.quest_log = ctx.quest_log.clone();
         if let Some(ch) = temp_state.characters.first().cloned() {
             let mut updated = ch;
