@@ -5,6 +5,8 @@
 
 pub(crate) mod debug_api;
 pub mod dice_dispatch;
+#[cfg(test)]
+mod dice_broadcast_34_8_tests;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
