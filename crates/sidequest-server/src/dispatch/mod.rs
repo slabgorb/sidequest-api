@@ -438,25 +438,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
                 for mutation in &mutations {
                     if mutation.action == MutationAction::Acquired {
-                        // New item acquisition — add to inventory
-                        if let Some(gold) = mutation.gold {
-                            ctx.inventory.gold += gold;
-                            tracing::info!(
-                                gold_gained = gold,
-                                total_gold = ctx.inventory.gold,
+                        // Gold mutations are handled by the narrator's gold_change
+                        // field in state_mutations.rs — skip here to avoid
+                        // double-counting (extractor runs on prev turn's narration,
+                        // gold_change was already applied on the turn it happened).
+                        if mutation.gold.is_some() {
+                            tracing::debug!(
+                                gold = mutation.gold,
                                 detail = %mutation.detail,
-                                "inventory.two_pass_gold_acquired"
+                                "inventory.two_pass_gold_skipped — handled by narrator gold_change"
                             );
-                            WatcherEventBuilder::new(
-                                "inventory",
-                                WatcherEventType::StateTransition,
-                            )
-                            .field("action", "gold_acquired")
-                            .field("gold_gained", gold)
-                            .field("total_gold", ctx.inventory.gold)
-                            .field("detail", &mutation.detail)
-                            .send();
-                        } else {
+                            continue;
+                        }
+                        {
                             let item_id = mutation
                                 .item_name
                                 .to_lowercase()
@@ -509,38 +503,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         continue;
                     }
 
-                    // Gold loss (spent, tossed, given away, etc.) — non-Acquired mutations
-                    if let Some(gold) = mutation.gold {
-                        if gold > 0 {
-                            let actual = ctx.inventory.spend_gold(gold);
-                            if actual < gold {
-                                tracing::warn!(
-                                    requested = gold,
-                                    actual_spent = actual,
-                                    remaining = ctx.inventory.gold,
-                                    detail = %mutation.detail,
-                                    "inventory.insufficient_gold — clamped to available balance"
-                                );
-                            }
-                            tracing::info!(
-                                gold_spent = actual,
-                                total_gold = ctx.inventory.gold,
-                                action = %mutation.action,
-                                detail = %mutation.detail,
-                                "inventory.two_pass_gold_spent"
-                            );
-                            WatcherEventBuilder::new(
-                                "inventory",
-                                WatcherEventType::StateTransition,
-                            )
-                            .field("action", "gold_spent")
-                            .field("gold_spent", actual)
-                            .field("total_gold", ctx.inventory.gold)
-                            .field("mutation_action", format!("{}", mutation.action))
-                            .field("detail", &mutation.detail)
-                            .send();
-                            continue;
-                        }
+                    // Gold loss — skip, handled by narrator gold_change in
+                    // state_mutations.rs (same dedup reasoning as acquisition).
+                    if mutation.gold.is_some() {
+                        tracing::debug!(
+                            gold = mutation.gold,
+                            action = %mutation.action,
+                            detail = %mutation.detail,
+                            "inventory.two_pass_gold_loss_skipped — handled by narrator gold_change"
+                        );
+                        continue;
                     }
 
                     // State transition on existing item
