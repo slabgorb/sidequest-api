@@ -6,7 +6,7 @@
 use std::num::NonZeroU32;
 
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use sidequest_protocol::{DieGroupResult, DieSpec, DieSides, RollOutcome};
+use sidequest_protocol::{DieGroupResult, DieSides, DieSpec, RollOutcome};
 
 /// Result of resolving a dice pool against a DC.
 #[derive(Debug, Clone, PartialEq)]
@@ -96,10 +96,7 @@ pub fn resolve_dice(
             }
         }
 
-        rolls.push(DieGroupResult {
-            spec: *spec,
-            faces,
-        });
+        rolls.push(DieGroupResult { spec: *spec, faces });
     }
 
     let total = face_sum + modifier;

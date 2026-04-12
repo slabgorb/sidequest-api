@@ -10,7 +10,7 @@ use std::num::{NonZeroU32, NonZeroU8};
 
 use sidequest_game::dice::resolve_dice;
 use sidequest_protocol::{
-    DiceRequestPayload, DiceResultPayload, DieGroupResult, DieSpec, DieSides, RollOutcome,
+    DiceRequestPayload, DiceResultPayload, DieSides, DieSpec, RollOutcome,
     ThrowParams,
 };
 
@@ -42,10 +42,7 @@ fn server_can_resolve_dice_and_compose_result_payload() {
     assert_eq!(resolved.rolls.len(), 1, "Single d20 → one group");
     assert_eq!(resolved.rolls[0].faces.len(), 1, "1d20 → one face");
     let face = resolved.rolls[0].faces[0];
-    assert!(
-        (1..=20).contains(&face),
-        "d20 face {face} out of range"
-    );
+    assert!((1..=20).contains(&face), "d20 face {face} out of range");
     assert!(
         !matches!(resolved.outcome, RollOutcome::Unknown),
         "outcome must never be Unknown"
@@ -72,10 +69,9 @@ fn server_can_resolve_dice_and_compose_result_payload() {
     };
 
     // --- 5. Round-trip through serde (proves wire compatibility) ---
-    let json = serde_json::to_string(&result_payload)
-        .expect("DiceResultPayload should serialize");
-    let deserialized: DiceResultPayload = serde_json::from_str(&json)
-        .expect("DiceResultPayload should round-trip through serde");
+    let json = serde_json::to_string(&result_payload).expect("DiceResultPayload should serialize");
+    let deserialized: DiceResultPayload =
+        serde_json::from_str(&json).expect("DiceResultPayload should round-trip through serde");
 
     assert_eq!(deserialized.request_id, "test-req-001");
     assert_eq!(deserialized.total, result_payload.total);

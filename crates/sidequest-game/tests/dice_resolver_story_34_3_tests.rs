@@ -7,8 +7,8 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use sidequest_game::dice::{resolve_dice, ResolveError, ResolvedRoll};
-use sidequest_protocol::{DieGroupResult, DieSpec, DieSides, RollOutcome};
+use sidequest_game::dice::{resolve_dice, ResolveError};
+use sidequest_protocol::{DieSides, DieSpec, RollOutcome};
 
 // ---------------------------------------------------------------------------
 // Seed discovery helpers
@@ -69,7 +69,10 @@ fn dc(val: u32) -> NonZeroU32 {
 fn resolve_dice_exists_and_returns_resolved_roll() {
     let seed = find_d20_seed(10);
     let result = resolve_dice(&[d20_spec()], 0, dc(10), seed);
-    assert!(result.is_ok(), "resolve_dice should return Ok for valid input");
+    assert!(
+        result.is_ok(),
+        "resolve_dice should return Ok for valid input"
+    );
     let roll = result.unwrap();
     // ResolvedRoll must have rolls, total, and outcome fields
     assert_eq!(roll.rolls.len(), 1);
@@ -351,10 +354,7 @@ fn determinism_100_iterations_same_seed() {
             roll.rolls, baseline.rolls,
             "Iteration {i}: rolls diverged from baseline"
         );
-        assert_eq!(
-            roll.total, baseline.total,
-            "Iteration {i}: total diverged"
-        );
+        assert_eq!(roll.total, baseline.total, "Iteration {i}: total diverged");
         assert_eq!(
             roll.outcome, baseline.outcome,
             "Iteration {i}: outcome diverged"
