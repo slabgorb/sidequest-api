@@ -249,6 +249,12 @@ pub struct SharedGameSession {
     /// Region registry from cartography.yaml: region_id → display name (lowercase for matching).
     pub region_names: Vec<(String, String)>,
 
+    // --- Dice ---
+    /// Pending DiceRequests awaiting DiceThrow from the rolling player.
+    /// Keyed by `request_id`. Inserted when DiceRequest is broadcast,
+    /// consumed when DiceThrow arrives and resolution completes.
+    pub pending_dice_requests: HashMap<String, sidequest_protocol::DiceRequestPayload>,
+
     // --- Per-player state ---
     pub players: HashMap<String, PlayerState>,
 
@@ -284,6 +290,7 @@ impl SharedGameSession {
             active_scenario: None,
             scene_count: 0,
             region_names: vec![],
+            pending_dice_requests: HashMap::new(),
             players: HashMap::new(),
             session_tx,
         }
