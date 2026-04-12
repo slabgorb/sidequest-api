@@ -4,6 +4,7 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub(crate) mod debug_api;
+pub mod dice_dispatch;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -1420,14 +1421,22 @@ async fn dispatch_message(
     let msg = match msg {
         GameMessage::BeatSelection { payload, .. } => {
             if !session.is_playing() {
-                return vec![error_response(player_id, "Cannot select beat before game starts")];
+                return vec![error_response(
+                    player_id,
+                    "Cannot select beat before game starts",
+                )];
             }
             // Load confrontation defs to validate beat_id
             let conf_defs: Vec<sidequest_genre::ConfrontationDef> = {
                 let gs = session.genre_slug().unwrap_or("");
                 sidequest_genre::GenreCode::new(gs)
                     .ok()
-                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                    .and_then(|gc| {
+                        state
+                            .genre_cache()
+                            .get_or_load(&gc, state.genre_loader())
+                            .ok()
+                    })
                     .map(|pack| pack.rules.confrontations.clone())
                     .unwrap_or_default()
             };
@@ -1436,10 +1445,20 @@ async fn dispatch_message(
                     .field("event", "beat_selection.no_active_encounter")
                     .field("beat_id", &payload.beat_id)
                     .send();
-                return vec![error_response(player_id, "No active encounter — beat selection rejected")];
+                return vec![error_response(
+                    player_id,
+                    "No active encounter — beat selection rejected",
+                )];
             };
-            let Some(def) = crate::find_confrontation_def(&conf_defs, &encounter.encounter_type) else {
-                return vec![error_response(player_id, &format!("No confrontation def for type '{}'", encounter.encounter_type))];
+            let Some(def) = crate::find_confrontation_def(&conf_defs, &encounter.encounter_type)
+            else {
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "No confrontation def for type '{}'",
+                        encounter.encounter_type
+                    ),
+                )];
             };
             let Some(beat) = def.beats.iter().find(|b| b.id == payload.beat_id) else {
                 // FAIL LOUD — no label fallback, no fuzzy match, no silent drop.
@@ -1447,15 +1466,29 @@ async fn dispatch_message(
                     .field("event", "beat_selection.unknown_beat_id")
                     .field("beat_id", &payload.beat_id)
                     .field("encounter_type", &encounter.encounter_type)
-                    .field("available_ids", def.beats.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(","))
+                    .field(
+                        "available_ids",
+                        def.beats
+                            .iter()
+                            .map(|b| b.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    )
                     .severity(Severity::Error)
                     .send();
-                return vec![error_response(player_id, &format!(
-                    "Unknown beat_id '{}' in {} encounter. Available: [{}]",
-                    payload.beat_id,
-                    encounter.encounter_type,
-                    def.beats.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(", "),
-                ))];
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "Unknown beat_id '{}' in {} encounter. Available: [{}]",
+                        payload.beat_id,
+                        encounter.encounter_type,
+                        def.beats
+                            .iter()
+                            .map(|b| b.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                )];
             };
             let beat_label = beat.label.clone();
             let stat_check = beat.stat_check.clone();
@@ -1465,7 +1498,10 @@ async fn dispatch_message(
             // Apply beat deterministically — mechanical state change happens HERE,
             // before the narrator runs. The narrator only describes the outcome.
             if let Err(e) = encounter.apply_beat(&payload.beat_id, def) {
-                return vec![error_response(player_id, &format!("Beat apply failed: {}", e))];
+                return vec![error_response(
+                    player_id,
+                    &format!("Beat apply failed: {}", e),
+                )];
             }
             let metric_after = encounter.metric.current;
 
@@ -2073,6 +2109,31 @@ async fn dispatch_message(
                 payload: sidequest_protocol::JournalResponsePayload { entries },
                 player_id: player_id.to_string(),
             }]
+        }
+        // Dice throw — rolling player submits gesture after DiceRequest (story 34-4).
+        // Phase 1: resolve immediately, broadcast DiceResult to all clients.
+        // The throw_params control animation only — outcome is seed-determined.
+        GameMessage::DiceThrow { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(
+                    player_id,
+                    "Cannot process dice throw before game starts",
+                )];
+            }
+
+            // TODO(34-4): Look up pending DiceRequest by payload.request_id,
+            // retrieve pool/modifier/DC/seed, call validate_dice_inputs + resolve_dice,
+            // compose DiceResult, broadcast.
+            tracing::warn!(
+                request_id = %payload.request_id,
+                player_id = %player_id,
+                "dice.throw_received — handler not yet wired (story 34-4)"
+            );
+
+            vec![error_response(
+                player_id,
+                "Dice throw dispatch not yet fully wired (story 34-4 in progress)",
+            )]
         }
         // All other valid message types in wrong state
         _ => {

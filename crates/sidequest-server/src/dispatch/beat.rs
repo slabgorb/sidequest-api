@@ -52,7 +52,14 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
                 .field("event", "beat_id.unknown")
                 .field("submitted", beat_id)
                 .field("encounter_type", &encounter_type)
-                .field("available_ids", def.beats.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(","))
+                .field(
+                    "available_ids",
+                    def.beats
+                        .iter()
+                        .map(|b| b.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )
                 .severity(Severity::Error)
                 .send();
             return;
