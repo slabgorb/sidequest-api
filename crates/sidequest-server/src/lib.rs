@@ -2277,16 +2277,22 @@ async fn dispatch_message(
             // Generate deterministic seed and resolve
             let session_id = {
                 let holder_guard = shared_session_holder.lock().await;
-                holder_guard
-                    .as_ref()
-                    .map(|ss_arc| {
-                        // Can't await inside map, use try_lock for session_id read
-                        ss_arc
-                            .try_lock()
-                            .map(|ss| ss.session_id.clone())
-                            .unwrap_or_else(|_| "unknown".to_string())
-                    })
-                    .unwrap_or_else(|| "unknown".to_string())
+                match holder_guard.as_ref() {
+                    Some(ss_arc) => {
+                        let ss = ss_arc.lock().await;
+                        ss.session_id.clone()
+                    }
+                    None => {
+                        tracing::error!(
+                            request_id = %payload.request_id,
+                            "dice.no_shared_session — session holder is empty during DiceThrow"
+                        );
+                        return vec![error_response(
+                            player_id,
+                            "No active game session for dice resolution",
+                        )];
+                    }
+                }
             };
             let seed = dice_dispatch::generate_dice_seed(
                 &session_id,
