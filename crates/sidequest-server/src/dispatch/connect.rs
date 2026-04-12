@@ -2124,6 +2124,14 @@ pub(crate) async fn dispatch_character_creation(
                                     ss.current_location.clear();
                                     ss.npc_registry.clear();
                                     ss.trope_states.clear();
+                                    // Reset multiplayer coordination state — a stale
+                                    // TurnBarrier with old player IDs is a liveness
+                                    // hazard (deadlock waiting for absent players).
+                                    ss.turn_barrier = None;
+                                    ss.perception_filters.clear();
+                                    ss.turn_mode = sidequest_game::turn_mode::TurnMode::default();
+                                    ss.scene_count = 0;
+                                    ss.active_scenario = None;
                                     // Generate fresh session_id for the new game instance
                                     ss.session_id = uuid::Uuid::new_v4().to_string();
                                 } else {
