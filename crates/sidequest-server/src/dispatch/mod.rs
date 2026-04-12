@@ -47,7 +47,9 @@ use crate::extraction::{
     extract_location_header, strip_combat_brackets, strip_fenced_blocks, strip_fourth_wall,
     strip_location_header,
 };
-use crate::{shared_session, AppState, NpcRegistryEntry, Severity, WatcherEventBuilder, WatcherEventType};
+use crate::{
+    shared_session, AppState, NpcRegistryEntry, Severity, WatcherEventBuilder, WatcherEventType,
+};
 
 /// Mutable per-player state passed through the dispatch pipeline.
 pub(crate) struct DispatchContext<'a> {
@@ -1813,9 +1815,24 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
                     .field("event", "encounter.player_beat_from_narrator_ignored")
                     .field("narrator_beat_id", beat_id)
-                    .field("authoritative_beat_id", ctx.chosen_player_beat.as_deref().unwrap_or("none"))
+                    .field(
+                        "authoritative_beat_id",
+                        ctx.chosen_player_beat.as_deref().unwrap_or("none"),
+                    )
                     .severity(Severity::Warn)
                     .send();
+                continue;
+            }
+
+            // If a previous beat in this loop already resolved the encounter,
+            // skip remaining beats — they'd fail with "already resolved" and
+            // emit spurious OTEL warnings.
+            if ctx.snapshot.encounter.as_ref().map_or(true, |e| e.resolved) {
+                tracing::info!(
+                    skipped_beat_id = %beat_id,
+                    actor = %actor,
+                    "encounter.beat_skipped — encounter already resolved by earlier beat in this turn"
+                );
                 continue;
             }
 
@@ -1860,7 +1877,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // OTEL: encounter state transitions (story 28-9)
     if encounter_just_resolved {
-        let resolved_type = ctx.snapshot
+        let resolved_type = ctx
+            .snapshot
             .encounter
             .as_ref()
             .map_or("unknown".to_string(), |e| e.encounter_type.clone());
@@ -1893,7 +1911,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         ctx.snapshot.encounter = None;
     }
     if encounter_just_started {
-        let encounter_type_str = ctx.snapshot
+        let encounter_type_str = ctx
+            .snapshot
             .encounter
             .as_ref()
             .map_or("unknown", |e| &e.encounter_type)
