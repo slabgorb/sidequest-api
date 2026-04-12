@@ -257,9 +257,27 @@ pub(crate) fn strip_fourth_wall(text: &str) -> String {
         "instruction",
     ];
 
-    // Two-pass stripping:
+    // System terminology that should NEVER appear in player-facing narration.
+    // These are internal engine terms the narrator prompt uses for navigation
+    // context — if they leak into prose, the line is stripped unconditionally.
+    // Fix: playtest-2026-04-12 — narrator echoed "room graph" in prose.
+    const SYSTEM_TERMS: &[&str] = &[
+        "room graph",
+        "room_graph",
+        "room navigation",
+        "mapped exit",
+        "mapped_exit",
+        "exit target",
+        "room_id",
+        "room id",
+        "unmapped exit",
+        "navigation graph",
+    ];
+
+    // Three-pass stripping:
     // 1. Line-level: original fourth-wall patterns (removes individual lines)
     // 2. Paragraph-level: meta-commentary (starter + keyword on paragraph starts)
+    // 3. Line-level: system terminology (removes lines with engine internals)
 
     // --- Pass 1: line-level fourth-wall stripping (preserves backward compat) ---
     let mut pass1_lines: Vec<&str> = Vec::new();
@@ -317,11 +335,31 @@ pub(crate) fn strip_fourth_wall(text: &str) -> String {
         }
     }
 
+    // --- Pass 3: line-level system terminology stripping ---
+    // Engine-internal terms should never appear in player-facing prose.
+    let after_pass2 = kept_paragraphs.join("\n\n");
+    let mut pass3_lines: Vec<&str> = Vec::new();
+    for line in after_pass2.lines() {
+        let lower = line.to_lowercase();
+        let has_system_term = SYSTEM_TERMS
+            .iter()
+            .any(|term| lower.contains(term));
+        if has_system_term {
+            stripped_any = true;
+            tracing::warn!(
+                stripped_text = %line,
+                reason = "system_terminology",
+                "narrator.fourth_wall_stripped"
+            );
+        } else {
+            pass3_lines.push(line);
+        }
+    }
+
     if stripped_any {
-        let joined = kept_paragraphs.join("\n\n");
-        let trimmed = joined.trim();
+        let result = pass3_lines.join("\n");
+        let trimmed = result.trim();
         if trimmed.is_empty() {
-            // Everything was meta — return a safe fallback
             "You look around, taking in your surroundings.".to_string()
         } else {
             trimmed.to_string()
@@ -536,5 +574,31 @@ mod tests {
         let input = "I notice the genre isn't specified. I'll assume fantasy.";
         let result = strip_fourth_wall(input);
         assert_eq!(result, "You look around, taking in your surroundings.");
+    }
+
+    // === system terminology (pass 3) tests ===
+
+    #[test]
+    fn strip_fourth_wall_removes_room_graph_reference() {
+        let input = "The corridor splits ahead.\nYou follow the room graph northward.\nTorchlight flickers on damp stone.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(
+            result,
+            "The corridor splits ahead.\nTorchlight flickers on damp stone."
+        );
+    }
+
+    #[test]
+    fn strip_fourth_wall_removes_mapped_exit() {
+        let input = "The mapped exit leads to the eastern tower.\nA cold wind greets you.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(result, "A cold wind greets you.");
+    }
+
+    #[test]
+    fn strip_fourth_wall_preserves_normal_exit_mention() {
+        let input = "You see an exit to the north, partially blocked by rubble.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(result, input);
     }
 }
