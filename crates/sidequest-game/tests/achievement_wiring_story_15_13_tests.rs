@@ -441,8 +441,10 @@ fn advance_between_sessions_and_check_achievements_no_transition() {
 fn game_snapshot_achievement_tracker_accessible() {
     use sidequest_game::state::GameSnapshot;
 
-    let mut snap = GameSnapshot::default();
-    snap.achievement_tracker = AchievementTracker::new(sample_achievements());
+    let mut snap = GameSnapshot {
+        achievement_tracker: AchievementTracker::new(sample_achievements()),
+        ..Default::default()
+    };
 
     // Set up tropes on the snapshot
     snap.active_tropes.push(TropeState::new("betrayal"));

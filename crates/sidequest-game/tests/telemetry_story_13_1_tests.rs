@@ -529,8 +529,6 @@ fn test_audio_config() -> sidequest_genre::AudioConfig {
             music_volume: 0.7,
             sfx_volume: 0.8,
             voice_volume: 1.0,
-            duck_music_for_voice: true,
-            duck_amount_db: -6.0,
             crossfade_default_ms: 2000,
         },
         themes: vec![],

@@ -47,3 +47,7 @@ mod tactical_state_story_29_5_tests;
 #[cfg(test)]
 #[path = "narration_collapse_story_27_9_tests.rs"]
 mod narration_collapse_story_27_9_tests;
+
+#[cfg(test)]
+#[path = "dice_protocol_story_34_2_tests.rs"]
+mod dice_protocol_story_34_2_tests;

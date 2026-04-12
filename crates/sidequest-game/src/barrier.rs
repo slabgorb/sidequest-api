@@ -387,7 +387,16 @@ impl TurnBarrier {
             // on next submit_action()). Handles the "late arrival" case where
             // multiple concurrent wait_for_turn() calls exist and one resolves
             // before others are polled.
-            if *self.inner.just_resolved.lock().unwrap() {
+            //
+            // Story 36-1: guard this check with a turn-number comparison. A
+            // stale `just_resolved=true` from a PREVIOUS turn must not cause a
+            // `wait_for_turn` for the CURRENT turn to return early. Only
+            // short-circuit if the recorded resolution was for this turn or
+            // later (`last_resolved_turn >= initial_turn`). Otherwise the
+            // flag is leftover from the prior turn and should be ignored.
+            if *self.inner.just_resolved.lock().unwrap()
+                && *self.inner.last_resolved_turn.lock().unwrap() >= initial_turn
+            {
                 return TurnBarrierResult {
                     claimed_resolution: false,
                     timed_out: false,

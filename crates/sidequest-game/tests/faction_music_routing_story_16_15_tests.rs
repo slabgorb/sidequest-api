@@ -13,9 +13,7 @@
 //!   AC6: Faction music overrides default mood-based selection when conditions match
 //!   AC7: Falls back to mood-based selection when no faction conditions match
 
-use sidequest_game::music_director::{
-    FactionContext, FactionThemeDef, MoodContext, MusicDirector, MusicEvalResult,
-};
+use sidequest_game::music_director::{FactionContext, MoodContext, MusicDirector, MusicEvalResult};
 use sidequest_genre::AudioConfig;
 use std::path::PathBuf;
 
@@ -263,15 +261,14 @@ fn low_reputation_does_not_trigger_faction_theme() {
         &mood_ctx,
         &faction_ctx,
     );
-    match &result {
-        MusicEvalResult::Cue(cue) => {
-            assert!(
-                !cue.track_id.as_deref().unwrap_or("").contains("lowrider"),
-                "low reputation should not trigger faction theme, got: {:?}",
-                cue.track_id
-            );
-        }
-        _ => {} // Suppressed or NoTrackFound is fine — just not faction track
+    // Suppressed or NoTrackFound is fine — we only care that the Cue path
+    // doesn't contain the faction track.
+    if let MusicEvalResult::Cue(cue) = &result {
+        assert!(
+            !cue.track_id.as_deref().unwrap_or("").contains("lowrider"),
+            "low reputation should not trigger faction theme, got: {:?}",
+            cue.track_id
+        );
     }
 }
 
@@ -396,17 +393,15 @@ fn no_faction_context_falls_back_to_mood() {
     let empty_faction = FactionContext::default();
     let result =
         director.evaluate_with_faction("The desert wind howls.", &mood_ctx, &empty_faction);
-    match &result {
-        MusicEvalResult::Cue(cue) => {
-            // Should NOT contain any faction track
-            let track = cue.track_id.as_deref().unwrap_or("");
-            assert!(
-                !track.contains("faction_"),
-                "no faction context should fall back to mood-based, got: {:?}",
-                track
-            );
-        }
-        _ => {} // Suppressed or NoTrackFound is fine for fallback
+    // Suppressed or NoTrackFound is fine for fallback — only assert on the Cue path.
+    if let MusicEvalResult::Cue(cue) = &result {
+        // Should NOT contain any faction track
+        let track = cue.track_id.as_deref().unwrap_or("");
+        assert!(
+            !track.contains("faction_"),
+            "no faction context should fall back to mood-based, got: {:?}",
+            track
+        );
     }
 }
 
@@ -416,16 +411,14 @@ fn unknown_faction_falls_back_to_mood() {
     let mood_ctx = base_mood_ctx();
     let faction_ctx = location_faction_ctx("nonexistent_faction");
     let result = director.evaluate_with_faction("Somewhere unknown.", &mood_ctx, &faction_ctx);
-    match &result {
-        MusicEvalResult::Cue(cue) => {
-            let track = cue.track_id.as_deref().unwrap_or("");
-            assert!(
-                !track.contains("nonexistent"),
-                "unknown faction should fall back to mood-based, got: {:?}",
-                track
-            );
-        }
-        _ => {} // Suppressed or NoTrackFound is acceptable fallback
+    // Suppressed or NoTrackFound is acceptable fallback — only check Cue path.
+    if let MusicEvalResult::Cue(cue) = &result {
+        let track = cue.track_id.as_deref().unwrap_or("");
+        assert!(
+            !track.contains("nonexistent"),
+            "unknown faction should fall back to mood-based, got: {:?}",
+            track
+        );
     }
 }
 
@@ -437,17 +430,14 @@ fn no_faction_themes_in_genre_falls_back_to_mood() {
     let mood_ctx = base_mood_ctx();
     let faction_ctx = location_faction_ctx("some_faction");
     let result = director.evaluate_with_faction("The neon streets glow.", &mood_ctx, &faction_ctx);
-    // Should not panic — graceful fallback
-    match &result {
-        MusicEvalResult::Cue(cue) => {
-            let track = cue.track_id.as_deref().unwrap_or("");
-            assert!(
-                !track.contains("faction_"),
-                "genre without faction themes should use mood-based, got: {:?}",
-                track
-            );
-        }
-        _ => {} // Suppressed or NoTrackFound is fine
+    // Should not panic — graceful fallback. Suppressed or NoTrackFound is fine.
+    if let MusicEvalResult::Cue(cue) = &result {
+        let track = cue.track_id.as_deref().unwrap_or("");
+        assert!(
+            !track.contains("faction_"),
+            "genre without faction themes should use mood-based, got: {:?}",
+            track
+        );
     }
 }
 

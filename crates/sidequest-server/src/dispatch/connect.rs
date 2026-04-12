@@ -20,6 +20,11 @@ use crate::session::Session;
 use crate::shared_session;
 use crate::{error_response, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 
+// 29 args — way over clippy's limit of 7. This function is the session
+// initialization entry point and needs a dedicated refactor story to fold
+// the per-session state into a single ConnectContext struct. Allowing the
+// lint until that refactor lands.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn dispatch_connect(
     payload: &SessionEventPayload,
     session: &mut Session,
@@ -278,11 +283,7 @@ pub(crate) async fn dispatch_connect(
                                 // Build the sheet facet from the saved character.
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
                                     race: c.race.as_str().to_string(),
-                                    stats: c
-                                        .stats
-                                        .iter()
-                                        .map(|(k, v)| (k.clone(), *v))
-                                        .collect(),
+                                    stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
                                         .hooks
                                         .iter()
@@ -320,7 +321,7 @@ pub(crate) async fn dispatch_connect(
                                     max_hp: c.core.max_hp,
                                     statuses: c.core.statuses.clone(),
                                     class: c.char_class.as_str().to_string(),
-                                    level: c.core.level as u32,
+                                    level: c.core.level,
                                     portrait_url: None,
                                     current_location: current_location.clone(),
                                     sheet: Some(sheet),
@@ -333,7 +334,6 @@ pub(crate) async fn dispatch_connect(
                                 player_id: player_id.to_string(),
                             });
                         }
-
 
                         // CHAPTER_MARKER for current location
                         if !saved.snapshot.location.is_empty() {
@@ -375,9 +375,7 @@ pub(crate) async fn dispatch_connect(
                         let (recap_text, recap_source) = {
                             if let Some(text) = saved.recap.clone() {
                                 (Some(text), "recap")
-                            } else if let Some(entry) =
-                                saved.snapshot.narrative_log.last()
-                            {
+                            } else if let Some(entry) = saved.snapshot.narrative_log.last() {
                                 (Some(entry.content.clone()), "narrative_log_last")
                             } else {
                                 // Location fallback: pull the current RoomDef
@@ -385,29 +383,28 @@ pub(crate) async fn dispatch_connect(
                                 // the room_graph backfill above — keep it
                                 // inline rather than factored so future edits
                                 // can see both branches together.
-                                let current_room_desc: Option<String> =
-                                    GenreCode::new(genre)
-                                        .ok()
-                                        .and_then(|gc| {
-                                            state
-                                                .genre_cache()
-                                                .get_or_load(&gc, state.genre_loader())
-                                                .ok()
-                                        })
-                                        .and_then(|pack| pack.worlds.get(world).cloned())
-                                        .and_then(|w| w.cartography.rooms.clone())
-                                        .and_then(|rooms| {
-                                            rooms
-                                                .into_iter()
-                                                .find(|r| r.id == saved.snapshot.location)
-                                                .map(|r| match r.description.as_deref() {
-                                                    Some(desc) if !desc.is_empty() => format!(
-                                                        "You find yourself at {}.\n\n{}",
-                                                        r.name, desc
-                                                    ),
-                                                    _ => format!("You find yourself at {}.", r.name),
-                                                })
-                                        });
+                                let current_room_desc: Option<String> = GenreCode::new(genre)
+                                    .ok()
+                                    .and_then(|gc| {
+                                        state
+                                            .genre_cache()
+                                            .get_or_load(&gc, state.genre_loader())
+                                            .ok()
+                                    })
+                                    .and_then(|pack| pack.worlds.get(world).cloned())
+                                    .and_then(|w| w.cartography.rooms.clone())
+                                    .and_then(|rooms| {
+                                        rooms
+                                            .into_iter()
+                                            .find(|r| r.id == saved.snapshot.location)
+                                            .map(|r| match r.description.as_deref() {
+                                                Some(desc) if !desc.is_empty() => format!(
+                                                    "You find yourself at {}.\n\n{}",
+                                                    r.name, desc
+                                                ),
+                                                _ => format!("You find yourself at {}.", r.name),
+                                            })
+                                    });
                                 if let Some(text) = current_room_desc {
                                     (Some(text), "room_description_fallback")
                                 } else if !saved.snapshot.location.is_empty() {
@@ -456,11 +453,7 @@ pub(crate) async fn dispatch_connect(
                                 // Build the sheet facet from the saved character.
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
                                     race: c.race.as_str().to_string(),
-                                    stats: c
-                                        .stats
-                                        .iter()
-                                        .map(|(k, v)| (k.clone(), *v))
-                                        .collect(),
+                                    stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
                                         .hooks
                                         .iter()
@@ -498,7 +491,7 @@ pub(crate) async fn dispatch_connect(
                                     max_hp: c.core.max_hp,
                                     statuses: c.core.statuses.clone(),
                                     class: c.char_class.as_str().to_string(),
-                                    level: c.core.level as u32,
+                                    level: c.core.level,
                                     portrait_url: None,
                                     current_location: current_location.clone(),
                                     sheet: Some(sheet),
@@ -693,7 +686,7 @@ pub(crate) async fn dispatch_connect(
                                 // Seed lore store from genre pack (story 11-4)
                                 let lore_count = {
                                     let mut store = lore_store.lock().await;
-                                    sidequest_game::seed_lore_from_genre_pack(&mut *store, &pack)
+                                    sidequest_game::seed_lore_from_genre_pack(&mut store, &pack)
                                 };
                                 tracing::info!(
                                     count = lore_count,
@@ -905,6 +898,9 @@ pub(crate) async fn dispatch_connect(
 }
 
 /// Load genre pack, create CharacterBuilder, return first scene message + trope defs + world context.
+// 15 args — same refactor candidate as `dispatch_connect` above. Fold into a
+// `StartCharacterCreationContext` struct in the follow-up refactor.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn start_character_creation(
     builder: &mut Option<CharacterBuilder>,
     trope_defs_out: &mut Vec<sidequest_genre::TropeDefinition>,
@@ -955,7 +951,7 @@ pub(crate) async fn start_character_creation(
     // Seed lore store from genre pack (story 11-4)
     let lore_count = {
         let mut store = lore_store.lock().await;
-        sidequest_game::seed_lore_from_genre_pack(&mut *store, &pack)
+        sidequest_game::seed_lore_from_genre_pack(&mut store, &pack)
     };
     tracing::info!(count = lore_count, genre = %genre, "rag.lore_store_seeded");
 
@@ -1133,7 +1129,12 @@ pub(crate) async fn dispatch_character_creation(
     let confirmation_pack = session
         .genre_slug()
         .and_then(|g| GenreCode::new(g).ok())
-        .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok());
+        .and_then(|gc| {
+            state
+                .genre_cache()
+                .get_or_load(&gc, state.genre_loader())
+                .ok()
+        });
 
     let phase = payload.phase.as_str();
     tracing::info!(phase = %phase, player_id = %player_id, "Character creation phase");
@@ -1646,6 +1647,49 @@ pub(crate) async fn dispatch_character_creation(
                         discovered_regions.push(current_location.clone());
                     }
 
+                    // Playtest 2026-04-11: clear per-character narrative state at
+                    // the chargen→Playing transition. This closes the "NPC state
+                    // carries over between fresh sessions" bug where e.g. NPC
+                    // "Spine Copperjaw" introduced during character A's parley
+                    // was appearing in character B's opening narration in the
+                    // same genre:world.
+                    //
+                    // The npc_registry leaks via multiple paths: the SharedGame-
+                    // Session is keyed by genre:world and holds NPCs shared
+                    // across players; the SQLite save persists them for
+                    // reconnect; session_restore populates the local registry
+                    // from the save on returning-player connect. Any path that
+                    // lands in chargen (new player name, save-corrupted fallback,
+                    // or a future explicit "new character" flow) inherits those
+                    // NPCs unless we explicitly clear them HERE, at the moment
+                    // a fresh character starts existing in the world.
+                    //
+                    // Only the npc_registry is cleared — world history, lore,
+                    // tropes, and region discovery are world-level state that
+                    // SHOULD persist across characters in the same world.
+                    npc_registry.clear();
+                    snapshot.npc_registry.clear();
+                    {
+                        let holder = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder {
+                            let mut ss = ss_arc.lock().await;
+                            ss.npc_registry.clear();
+                        }
+                    }
+                    WatcherEventBuilder::new("npc_registry", WatcherEventType::StateTransition)
+                        .field("event", "npc_registry.cleared_on_chargen_complete")
+                        .field("genre", genre.as_str())
+                        .field("world", world.as_str())
+                        .field("player", pname_for_save.as_str())
+                        .field("reason", "fresh_character_narrative_reset")
+                        .send();
+                    tracing::info!(
+                        genre = %genre,
+                        world = %world,
+                        player = %pname_for_save,
+                        "npc_registry.cleared — fresh character entering world, prior NPCs wiped"
+                    );
+
                     // Sync initial location to SharedGameSession so sync_to_locals
                     // doesn't overwrite it with "" at the start of the opening turn.
                     {
@@ -1963,6 +2007,7 @@ pub(crate) async fn dispatch_character_creation(
                                             .and_then(|phil| phil.weight_limit)
                                     })
                             },
+                            chosen_player_beat: None,
                         };
                         // OTEL: log loaded confrontation defs (story 28-1)
                         if !ctx.confrontation_defs.is_empty() {

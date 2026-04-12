@@ -15,7 +15,7 @@ use std::collections::HashMap;
 
 use sidequest_game::barrier::{TurnBarrier, TurnBarrierConfig};
 use sidequest_game::multiplayer::MultiplayerSession;
-use sidequest_game::sealed_round::{build_sealed_round_context, SealedRoundContext};
+use sidequest_game::sealed_round::build_sealed_round_context;
 use sidequest_genre::InitiativeRule;
 
 // ===========================================================================

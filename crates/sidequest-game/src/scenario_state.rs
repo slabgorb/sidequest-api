@@ -266,7 +266,7 @@ impl ScenarioState {
     ///
     /// Runs gossip propagation, NPC autonomous actions, and clue availability
     /// checks. Returns a list of scenario events for narrator context injection.
-    pub fn process_between_turns(&mut self, npcs: &mut Vec<Npc>, turn: u64) -> Vec<ScenarioEvent> {
+    pub fn process_between_turns(&mut self, npcs: &mut [Npc], turn: u64) -> Vec<ScenarioEvent> {
         if self.resolved {
             return vec![];
         }

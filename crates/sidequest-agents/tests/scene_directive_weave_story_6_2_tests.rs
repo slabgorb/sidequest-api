@@ -9,7 +9,7 @@ use sidequest_agents::prompt_framework::{
     AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
 };
 use sidequest_game::scene_directive::{
-    format_scene_directive, ActiveStake, DirectivePriority, DirectiveSource, SceneDirective,
+    format_scene_directive, ActiveStake, DirectiveSource, SceneDirective,
 };
 use sidequest_game::trope::FiredBeat;
 use sidequest_genre::TropeEscalation;

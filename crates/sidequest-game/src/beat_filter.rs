@@ -167,8 +167,7 @@ struct RenderRecord {
 /// Contextual state that influences filter decisions.
 ///
 /// Provided alongside the `RenderSubject` to `BeatFilter::evaluate()`.
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FilterContext {
     /// Whether the game is currently in an active combat encounter.
     pub in_combat: bool,
@@ -177,7 +176,6 @@ pub struct FilterContext {
     /// Whether the player explicitly requested visual rendering.
     pub player_requested: bool,
 }
-
 
 /// Stateful beat filter that gates the image render pipeline.
 ///

@@ -6,8 +6,8 @@ where coordinated Claude agents run the game. Ported from Python
 
 Players connect via WebSocket. Seven Claude agents collaborate as the game
 master: narrating scenes, building worlds, creating creatures, managing
-dialogue, and routing player intent. The ML stack (image generation, TTS,
-audio mixing) stays in Python as a sidecar daemon.
+dialogue, and routing player intent. The ML stack (image generation, audio
+mixing) stays in Python as a sidecar daemon.
 
 ## Architecture
 
@@ -79,11 +79,11 @@ Core game state engine. 59 modules (~23.7k LOC) covering:
 - **Persistence** -- SQLite via rusqlite
 - **Character builder** -- state machine ([ADR-015](../docs/adr/015-character-builder-state-machine.md))
 - **Tension tracker** -- dual-track model ([ADR-024](../docs/adr/024-dual-track-tension-model.md))
-- **Beat filter, render queue, segmenter** -- pacing control ([ADR-025](../docs/adr/025-pacing-detection.md))
-- **Music director, audio mixer, voice router** -- cinematic audio
+- **Beat filter, render queue** -- pacing control ([ADR-025](../docs/adr/025-pacing-detection.md))
+- **Music director, audio mixer, voice router** -- cinematic audio cues and pre-rendered music selection
 - **Multiplayer, guest NPC** -- concurrent player sessions
 - **Lore store, conlang** -- knowledge indexing and constructed languages
-- **Prerender scheduler** -- speculative image rendering during TTS
+- **Prerender scheduler** -- speculative image rendering between narration turns
 
 One module stubbed: `perception.rs` (RED phase, story 8-6).
 
@@ -121,7 +121,7 @@ and graceful shutdown.
 
 Unix socket client for the Python media daemon
 ([sidequest-daemon](https://github.com/slabgorb/sidequest-daemon)).
-JSON-RPC protocol for image generation, TTS, and audio requests.
+JSON-RPC protocol for image generation and embedding requests.
 Typed request/response structs with error handling.
 
 **Depends on:** protocol
@@ -194,7 +194,7 @@ For developers coming from the Python codebase:
 
 - [orc-quest](https://github.com/slabgorb/orc-quest) -- Orchestrator (sprint tracking, ADRs, genre packs)
 - [sidequest-ui](https://github.com/slabgorb/sidequest-ui) -- React/TypeScript game client
-- [sidequest-daemon](https://github.com/slabgorb/sidequest-daemon) -- Python media services (image gen, TTS, audio)
+- [sidequest-daemon](https://github.com/slabgorb/sidequest-daemon) -- Python media services (image gen, embeddings)
 
 ## Git Workflow
 

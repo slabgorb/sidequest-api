@@ -16,9 +16,7 @@ use std::collections::HashMap;
 
 use sidequest_agents::agent::Agent;
 use sidequest_agents::agents::narrator::NarratorAgent;
-use sidequest_agents::orchestrator::{
-    ActionFlags, ActionResult, ActionRewrite, NarratorExtraction,
-};
+use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
 use sidequest_agents::tools::assemble_turn::assemble_turn;
 use sidequest_agents::tools::assemble_turn::ToolCallResults;
 use sidequest_agents::tools::set_intent::{validate_intent, SceneIntent};
@@ -66,6 +64,8 @@ fn extraction_with_mood_and_intent() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 

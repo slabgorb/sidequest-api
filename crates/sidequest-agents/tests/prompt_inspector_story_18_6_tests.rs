@@ -14,8 +14,6 @@
 
 use sidequest_agents::context_builder::ContextBuilder;
 use sidequest_agents::prompt_framework::{AttentionZone, PromptSection, SectionCategory};
-// RED: This struct does not exist yet. Dev must create it.
-use sidequest_agents::context_builder::ZoneBreakdown;
 
 // ============================================================================
 // Test fixtures

@@ -153,10 +153,6 @@ pub enum AudioAction {
     FadeIn,
     /// Fade out to silence.
     FadeOut,
-    /// Duck volume for speech.
-    Duck,
-    /// Restore volume after speech.
-    Restore,
     /// Stop playback.
     Stop,
 }
@@ -167,8 +163,6 @@ impl std::fmt::Display for AudioAction {
             AudioAction::Play => write!(f, "play"),
             AudioAction::FadeIn => write!(f, "fade_in"),
             AudioAction::FadeOut => write!(f, "fade_out"),
-            AudioAction::Duck => write!(f, "duck"),
-            AudioAction::Restore => write!(f, "restore"),
             AudioAction::Stop => write!(f, "stop"),
         }
     }
@@ -1214,8 +1208,6 @@ mod tests {
                 music_volume: 0.6,
                 sfx_volume: 0.8,
                 voice_volume: 1.0,
-                duck_music_for_voice: true,
-                duck_amount_db: -12.0,
                 crossfade_default_ms: 3000,
             },
             themes: vec![],

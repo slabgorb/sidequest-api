@@ -146,7 +146,7 @@ fn action_category_is_debug() {
 #[test]
 fn action_category_is_clone() {
     let cat = ActionCategory::Movement;
-    let cloned = cat.clone();
+    let cloned = cat;
     assert!(matches!(cloned, ActionCategory::Movement));
 }
 

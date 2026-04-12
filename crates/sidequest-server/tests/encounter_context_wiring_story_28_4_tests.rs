@@ -14,7 +14,6 @@
 //!   AC-Wiring:            format_encounter_context has a non-test consumer in sidequest-server
 
 use sidequest_genre::ConfrontationDef;
-use sidequest_server::find_confrontation_def;
 
 // =========================================================================
 // Test fixtures

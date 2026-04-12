@@ -57,7 +57,6 @@ pub enum NavigationMode {
     Hierarchical,
 }
 
-
 /// A single exit from a room to another room.
 ///
 /// Tagged enum discriminated by `type` in YAML/JSON. Each variant carries
@@ -201,7 +200,6 @@ pub enum Terrain {
     /// Caves, tunnels, and subterranean passages.
     Underground,
 }
-
 
 /// A node in the world graph — a major location (city, region, landmark).
 #[derive(Debug, Clone, Serialize, Deserialize)]

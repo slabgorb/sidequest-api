@@ -9,9 +9,11 @@ use super::DispatchContext;
 /// Playtest 2026-04-11: this function is now the SINGLE SOURCE OF TRUTH for
 /// the `WatcherEventType::TurnComplete` event consumed by the OTEL dashboard.
 /// Previously there were TWO emitters of TurnComplete per real player turn:
-///   1. This function (component: "game") — fired in the dispatch hot path
-///   2. main.rs::turn_record_bridge (component: "orchestrator") — fired
-///      asynchronously from the TurnRecord mpsc channel
+///
+/// 1. This function (component: "game") — fired in the dispatch hot path
+/// 2. main.rs::turn_record_bridge (component: "orchestrator") — fired
+///    asynchronously from the TurnRecord mpsc channel
+///
 /// Both fired per real turn → 2× rows in the dashboard timeline. SM diagnosed
 /// this from a server log showing two narrator-component spans per turn with
 /// identical durations but different turn_numbers.
@@ -22,6 +24,8 @@ use super::DispatchContext;
 /// the duplicate event. The TurnRecord bridge in main.rs is still alive — it
 /// continues to drive ADR-073 JSONL training data persistence and the
 /// SubsystemTracker — but no longer emits a competing WatcherEvent.
+// 9 args — fold into a `TelemetryContext` struct in the dispatch refactor.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_telemetry(
     ctx: &mut DispatchContext<'_>,
     turn_number: u64,
@@ -132,6 +136,9 @@ pub(super) fn emit_telemetry(
             .field("player_id", ctx.player_id)
             .field_opt("token_count_in", &result.token_count_in)
             .field_opt("token_count_out", &result.token_count_out)
+            .field("extraction_tier", &result.prompt_tier)
+            .field("genre", ctx.genre_slug)
+            .field("world", ctx.world_slug)
             // Playtest 2026-04-11 follow-up: ported from main.rs's turn_record_bridge
             // emission (now disabled) to consolidate to a single TurnComplete source.
             // Without these fields the dashboard's Turn Details panel would display

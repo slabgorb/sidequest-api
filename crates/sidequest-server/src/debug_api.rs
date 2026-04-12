@@ -62,7 +62,9 @@ pub async fn debug_state(State(state): State<AppState>) -> Json<Vec<SessionState
         let ss = ss_arc.lock().await;
 
         let players: Vec<PlayerStateView> = ss
-            .players.values().map(|ps| PlayerStateView {
+            .players
+            .values()
+            .map(|ps| PlayerStateView {
                 player_name: ps.player_name.clone(),
                 character_name: ps.character_name.clone(),
                 character_class: ps.character_class.clone(),

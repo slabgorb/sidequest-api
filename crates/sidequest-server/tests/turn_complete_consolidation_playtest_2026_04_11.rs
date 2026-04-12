@@ -49,7 +49,10 @@ fn telemetry_emit_carries_patches_beats_delta_narration_fields() {
     let required_fields = [
         (".field(\"patches\", &patches_json)", "patches"),
         (".field(\"beats_fired\", &beats_json)", "beats_fired"),
-        (".field(\"delta_empty\", game_delta.is_empty())", "delta_empty"),
+        (
+            ".field(\"delta_empty\", game_delta.is_empty())",
+            "delta_empty",
+        ),
         (
             ".field(\"narration_len\", result.narration.len())",
             "narration_len",
@@ -112,9 +115,7 @@ fn main_turn_record_bridge_does_not_emit_turn_complete_event() {
     // was deleted, plus a broader scan for "TurnComplete" inside the
     // turn_record_bridge function body.
     assert!(
-        !src.contains(
-            "WatcherEventBuilder::new(\"orchestrator\", WatcherEventType::TurnComplete)"
-        ),
+        !src.contains("WatcherEventBuilder::new(\"orchestrator\", WatcherEventType::TurnComplete)"),
         "main.rs::turn_record_bridge must NOT emit a `WatcherEventType::\
          TurnComplete` event with `component: \"orchestrator\"` — that's \
          the duplicate emission removed in the playtest 2026-04-11 \

@@ -4,6 +4,7 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub(crate) mod debug_api;
+pub mod dice_dispatch;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -138,6 +139,12 @@ impl Args {
 /// A player identifier backed by UUID v4.
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub struct PlayerId(uuid::Uuid);
+
+impl Default for PlayerId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl PlayerId {
     /// Generate a new random PlayerId.
@@ -625,6 +632,13 @@ impl AppState {
     }
 
     /// Send a message to all broadcast subscribers.
+    ///
+    /// `#[allow(clippy::result_large_err)]`: the error variant of
+    /// `broadcast::SendError<GameMessage>` holds the full `GameMessage` that
+    /// failed to send, which is intentionally ~300 bytes. Boxing the error
+    /// would make the happy path less ergonomic for every caller; the error
+    /// path is cold enough that the size doesn't matter.
+    #[allow(clippy::result_large_err)]
     pub fn broadcast(
         &self,
         msg: GameMessage,
@@ -1061,12 +1075,9 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     // spawned immediately below and receives fragment ids via an unbounded
     // mpsc channel — dispatch sends, worker drains, neither awaits the
     // daemon on the critical path. See `dispatch/lore_embed_worker.rs`.
-    let lore_store = std::sync::Arc::new(tokio::sync::Mutex::new(
-        sidequest_game::LoreStore::new(),
-    ));
-    let (lore_embed_tx, lore_embed_rx) = tokio::sync::mpsc::unbounded_channel::<
-        dispatch::lore_embed_worker::EmbedRequest,
-    >();
+    let lore_store = std::sync::Arc::new(tokio::sync::Mutex::new(sidequest_game::LoreStore::new()));
+    let (lore_embed_tx, lore_embed_rx) =
+        tokio::sync::mpsc::unbounded_channel::<dispatch::lore_embed_worker::EmbedRequest>();
     // Worker handle is not awaited — the task self-terminates when this
     // scope exits and drops `lore_embed_tx`, closing the channel.
     let _lore_embed_worker_handle =
@@ -1377,9 +1388,7 @@ async fn dispatch_message(
     discovered_regions: &mut Vec<String>,
     turn_manager: &mut sidequest_game::TurnManager,
     lore_store: &std::sync::Arc<tokio::sync::Mutex<sidequest_game::LoreStore>>,
-    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<
-        dispatch::lore_embed_worker::EmbedRequest,
-    >,
+    lore_embed_tx: &tokio::sync::mpsc::UnboundedSender<dispatch::lore_embed_worker::EmbedRequest>,
     shared_session_holder: &Arc<
         tokio::sync::Mutex<Option<Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>>>,
     >,
@@ -1401,6 +1410,138 @@ async fn dispatch_message(
         player_id = %player_id,
         "dispatch_message.entry"
     );
+
+    // ── BEAT_SELECTION preprocessing ──────────────────────────────────────
+    // Validate the beat_id, apply the beat to the encounter BEFORE the
+    // narrator runs, then convert to a synthetic PlayerAction so the
+    // narrator receives structured context ("player chose beat X, describe
+    // the outcome") through the existing dispatch pipeline. This avoids
+    // duplicating the 200-line DispatchContext construction.
+    let mut chosen_player_beat: Option<String> = None;
+    let msg = match msg {
+        GameMessage::BeatSelection { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(
+                    player_id,
+                    "Cannot select beat before game starts",
+                )];
+            }
+            // Load confrontation defs to validate beat_id
+            let conf_defs: Vec<sidequest_genre::ConfrontationDef> = {
+                let gs = session.genre_slug().unwrap_or("");
+                sidequest_genre::GenreCode::new(gs)
+                    .ok()
+                    .and_then(|gc| {
+                        state
+                            .genre_cache()
+                            .get_or_load(&gc, state.genre_loader())
+                            .ok()
+                    })
+                    .map(|pack| pack.rules.confrontations.clone())
+                    .unwrap_or_default()
+            };
+            let Some(ref mut encounter) = snapshot.encounter else {
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "beat_selection.no_active_encounter")
+                    .field("beat_id", &payload.beat_id)
+                    .send();
+                return vec![error_response(
+                    player_id,
+                    "No active encounter — beat selection rejected",
+                )];
+            };
+            let Some(def) = crate::find_confrontation_def(&conf_defs, &encounter.encounter_type)
+            else {
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "No confrontation def for type '{}'",
+                        encounter.encounter_type
+                    ),
+                )];
+            };
+            let Some(beat) = def.beats.iter().find(|b| b.id == payload.beat_id) else {
+                // FAIL LOUD — no label fallback, no fuzzy match, no silent drop.
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "beat_selection.unknown_beat_id")
+                    .field("beat_id", &payload.beat_id)
+                    .field("encounter_type", &encounter.encounter_type)
+                    .field(
+                        "available_ids",
+                        def.beats
+                            .iter()
+                            .map(|b| b.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    )
+                    .severity(Severity::Error)
+                    .send();
+                return vec![error_response(
+                    player_id,
+                    &format!(
+                        "Unknown beat_id '{}' in {} encounter. Available: [{}]",
+                        payload.beat_id,
+                        encounter.encounter_type,
+                        def.beats
+                            .iter()
+                            .map(|b| b.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                )];
+            };
+            let beat_label = beat.label.clone();
+            let stat_check = beat.stat_check.clone();
+            let metric_name = encounter.metric.name.clone();
+            let metric_before = encounter.metric.current;
+
+            // Apply beat deterministically — mechanical state change happens HERE,
+            // before the narrator runs. The narrator only describes the outcome.
+            if let Err(e) = encounter.apply_beat(&payload.beat_id, def) {
+                return vec![error_response(
+                    player_id,
+                    &format!("Beat apply failed: {}", e),
+                )];
+            }
+            let metric_after = encounter.metric.current;
+
+            // OTEL: structured beat received + applied
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("event", "encounter.player_beat_received")
+                .field("beat_id", &payload.beat_id)
+                .field("actor", &payload.actor)
+                .field("source", "structured_beat_selection")
+                .field("metric_before", metric_before)
+                .field("metric_after", metric_after)
+                .field("stat_check", &stat_check)
+                .send();
+
+            chosen_player_beat = Some(payload.beat_id.clone());
+
+            // Synthesize a structured PlayerAction for the narrator.
+            // This is NOT natural-language text — it's a structured tag that the
+            // narrator prompt will format into context. The narrator's job is to
+            // describe the outcome, not to choose the beat.
+            let action_text = format!(
+                "[BEAT_RESOLVED] {label} ({stat_check}): {metric_name} {before} → {after}",
+                label = beat_label,
+                stat_check = stat_check,
+                metric_name = metric_name,
+                before = metric_before,
+                after = metric_after,
+            );
+
+            GameMessage::PlayerAction {
+                payload: sidequest_protocol::PlayerActionPayload {
+                    action: action_text,
+                    aside: false,
+                },
+                player_id: player_id.to_string(),
+            }
+        }
+        other => other,
+    };
+
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
             let mut responses = dispatch::connect::dispatch_connect(
@@ -1901,6 +2042,7 @@ async fn dispatch_message(
                                     .and_then(|phil| phil.weight_limit)
                             })
                     },
+                    chosen_player_beat: chosen_player_beat.clone(),
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {
@@ -1967,6 +2109,31 @@ async fn dispatch_message(
                 payload: sidequest_protocol::JournalResponsePayload { entries },
                 player_id: player_id.to_string(),
             }]
+        }
+        // Dice throw — rolling player submits gesture after DiceRequest (story 34-4).
+        // Phase 1: resolve immediately, broadcast DiceResult to all clients.
+        // The throw_params control animation only — outcome is seed-determined.
+        GameMessage::DiceThrow { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(
+                    player_id,
+                    "Cannot process dice throw before game starts",
+                )];
+            }
+
+            // TODO(34-4): Look up pending DiceRequest by payload.request_id,
+            // retrieve pool/modifier/DC/seed, call validate_dice_inputs + resolve_dice,
+            // compose DiceResult, broadcast.
+            tracing::warn!(
+                request_id = %payload.request_id,
+                player_id = %player_id,
+                "dice.throw_received — handler not yet wired (story 34-4)"
+            );
+
+            vec![error_response(
+                player_id,
+                "Dice throw dispatch not yet fully wired (story 34-4 in progress)",
+            )]
         }
         // All other valid message types in wrong state
         _ => {

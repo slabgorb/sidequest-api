@@ -215,6 +215,34 @@ where
     }
 }
 
+/// Minimal shape of the legacy `chase` field on pre-16-2 save files.
+///
+/// Story 16-2 collapsed `ChaseState` into `StructuredEncounter`, and story
+/// 28-9 then deleted `StructuredEncounter::from_chase_state()` because new
+/// encounters are built from `ConfrontationDef` or `apply_beat()` at runtime.
+/// Neither story addressed the load-old-save path: real user save files on
+/// disk from before 16-2 still carry a `chase: { ... }` block, and without
+/// this shim they would deserialize into a snapshot with `encounter = None`
+/// (silent mid-chase state loss).
+///
+/// This type intentionally does NOT use `deny_unknown_fields` — we want to
+/// quietly drop the legacy chase fields we no longer model (chase_phase,
+/// chase_event, rounds, structured_phase, outcome, actors, etc.) while
+/// preserving the values that map cleanly onto the new encounter shape.
+#[derive(Deserialize)]
+struct LegacyChaseState {
+    #[serde(default)]
+    separation_distance: i32,
+    #[serde(default)]
+    goal: i32,
+    #[serde(default)]
+    escape_threshold: f64,
+    #[serde(default)]
+    beat: u32,
+    #[serde(default)]
+    resolved: bool,
+}
+
 /// Raw deserialization helper for GameSnapshot backward compatibility (story 16-2).
 ///
 /// Handles migration of old saves that have a `chase` field but no `encounter`
@@ -242,6 +270,10 @@ struct GameSnapshotRaw {
     narrative_log: Vec<NarrativeEntry>,
     #[serde(default)]
     encounter: Option<StructuredEncounter>,
+    /// Legacy chase block from pre-16-2 saves. Migrated into `encounter`
+    /// in `From<GameSnapshotRaw>` when the new field is absent.
+    #[serde(default)]
+    chase: Option<LegacyChaseState>,
     #[serde(default, deserialize_with = "deserialize_trope_states")]
     active_tropes: Vec<TropeState>,
     #[serde(default)]
@@ -361,7 +393,22 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             quest_log: raw.quest_log,
             notes: raw.notes,
             narrative_log: raw.narrative_log,
-            encounter: raw.encounter,
+            // Migrate legacy `chase` field into the new `encounter` field
+            // when the save predates story 16-2. The chase migration was
+            // documented in the GameSnapshotRaw doc comment but the actual
+            // shim was missing — story 28-9 deleted
+            // StructuredEncounter::from_chase_state() and never replaced it.
+            // See encounter_story_16_2_tests::old_chase_state_json_deserializes_as_encounter.
+            encounter: raw.encounter.or_else(|| {
+                raw.chase.map(|c| {
+                    let mut enc =
+                        StructuredEncounter::chase(c.escape_threshold, None, c.goal);
+                    enc.metric.current = c.separation_distance;
+                    enc.beat = c.beat;
+                    enc.resolved = c.resolved;
+                    enc
+                })
+            }),
             active_tropes: raw.active_tropes,
             atmosphere: raw.atmosphere,
             current_region: raw.current_region,
@@ -794,11 +841,7 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
         .map(|c| {
             let sheet = sidequest_protocol::CharacterSheetDetails {
                 race: c.race.as_str().to_string(),
-                stats: c
-                    .stats
-                    .iter()
-                    .map(|(k, v)| (k.clone(), *v))
-                    .collect(),
+                stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                 abilities: c
                     .hooks
                     .iter()

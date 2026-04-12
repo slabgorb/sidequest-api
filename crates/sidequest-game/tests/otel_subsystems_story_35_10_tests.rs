@@ -68,10 +68,7 @@ fn find_events(events: &[WatcherEvent], component: &str, action: &str) -> Vec<Wa
         .iter()
         .filter(|e| {
             e.component == component
-                && e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    == Some(action)
+                && e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action)
         })
         .cloned()
         .collect()
@@ -474,9 +471,7 @@ fn party_reconciliation_no_action_needed_emits_watcher_event() {
 
     let evt = &recon[0];
     assert_eq!(
-        evt.fields
-            .get("result")
-            .and_then(serde_json::Value::as_str),
+        evt.fields.get("result").and_then(serde_json::Value::as_str),
         Some("no_action_needed")
     );
     assert_eq!(
@@ -528,9 +523,7 @@ fn party_reconciliation_split_party_allowed_emits_watcher_event() {
     );
     let evt = &recon[0];
     assert_eq!(
-        evt.fields
-            .get("result")
-            .and_then(serde_json::Value::as_str),
+        evt.fields.get("result").and_then(serde_json::Value::as_str),
         Some("split_party_allowed")
     );
     assert_eq!(
@@ -571,10 +564,7 @@ fn party_reconciliation_reconciled_emits_watcher_event_with_target_and_moved_cou
         },
     ];
     let result = PartyReconciliation::reconcile(&players, false);
-    assert!(matches!(
-        result,
-        ReconciliationResult::Reconciled { .. }
-    ));
+    assert!(matches!(result, ReconciliationResult::Reconciled { .. }));
 
     let events = drain_events(&mut rx);
     let recon = find_events(&events, "party_reconciliation", "reconciled");
@@ -585,9 +575,7 @@ fn party_reconciliation_reconciled_emits_watcher_event_with_target_and_moved_cou
     );
     let evt = &recon[0];
     assert_eq!(
-        evt.fields
-            .get("result")
-            .and_then(serde_json::Value::as_str),
+        evt.fields.get("result").and_then(serde_json::Value::as_str),
         Some("reconciled")
     );
     assert_eq!(

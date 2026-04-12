@@ -153,7 +153,9 @@ impl PlayerState {
 // construction site.
 
 /// Convert an `Inventory` into the wire-format `InventoryPayload`.
-pub fn inventory_payload_from(inv: &sidequest_game::Inventory) -> sidequest_protocol::InventoryPayload {
+pub fn inventory_payload_from(
+    inv: &sidequest_game::Inventory,
+) -> sidequest_protocol::InventoryPayload {
     sidequest_protocol::InventoryPayload {
         items: inv
             .carried()
@@ -341,7 +343,7 @@ impl SharedGameSession {
             if loc_lower.contains(name_lower.as_str()) {
                 // Prefer longest match to avoid "The" matching everything
                 let len = name_lower.len();
-                if best.map_or(true, |(_, prev_len)| len > prev_len) {
+                if best.is_none_or(|(_, prev_len)| len > prev_len) {
                     best = Some((region_id.as_str(), len));
                 }
             }
@@ -389,6 +391,8 @@ impl SharedGameSession {
     /// Sync per-player state FROM PlayerState INTO per-connection locals.
     /// Called at the start of dispatch_player_action to pick up changes
     /// made by the barrier path (which can't access per-connection locals).
+    // 8 args — fold into a `PlayerLocals` struct in the dispatch refactor.
+    #[allow(clippy::too_many_arguments)]
     pub fn sync_player_to_locals(
         &self,
         player_id: &str,

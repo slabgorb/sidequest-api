@@ -42,7 +42,6 @@ pub enum ItemState {
     },
 }
 
-
 impl ItemState {
     /// Whether the item is currently in the player's active inventory.
     pub fn is_carried(&self) -> bool {
@@ -544,8 +543,10 @@ mod tests {
 
     #[test]
     fn gold_can_be_set() {
-        let mut inv = Inventory::default();
-        inv.gold = 100;
+        let inv = Inventory {
+            gold: 100,
+            ..Default::default()
+        };
         assert_eq!(inv.gold, 100);
     }
 
@@ -558,7 +559,7 @@ mod tests {
         let back: Item = serde_json::from_str(&json).unwrap();
         assert_eq!(back.id.as_str(), "sword_iron");
         assert_eq!(back.name.as_str(), "Iron Sword");
-        assert_eq!(back.equipped, true);
+        assert!(back.equipped);
     }
 
     #[test]

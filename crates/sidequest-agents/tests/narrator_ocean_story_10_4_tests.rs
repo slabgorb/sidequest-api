@@ -13,7 +13,6 @@
 //!   AC4: Narrator receives instruction to use personality for dialogue shaping
 //!   AC5: Integration test — full prompt with NPCs, OCEAN text appears
 
-use sidequest_agents::context_builder::ContextBuilder;
 use sidequest_agents::prompt_framework::{
     AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
 };

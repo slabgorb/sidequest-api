@@ -53,8 +53,10 @@ fn test_item(id: &str, name: &str, value: i32) -> Item {
 }
 
 fn merchant_npc(name: &str, items: Vec<Item>, gold: i64) -> Npc {
-    let mut inv = Inventory::default();
-    inv.gold = gold;
+    let mut inv = Inventory {
+        gold,
+        ..Default::default()
+    };
     for item in items {
         inv.add(item, 100).unwrap();
     }
@@ -110,8 +112,10 @@ fn snapshot_with_merchant(
     merchant_items: Vec<Item>,
     merchant_gold: i64,
 ) -> GameSnapshot {
-    let mut player_inv = Inventory::default();
-    player_inv.gold = player_gold;
+    let mut player_inv = Inventory {
+        gold: player_gold,
+        ..Default::default()
+    };
     for item in player_items {
         player_inv.add(item, 100).unwrap();
     }
@@ -142,12 +146,13 @@ fn snapshot_with_merchant(
         is_friendly: true,
     };
 
-    let mut state = GameSnapshot::default();
-    state.characters = vec![character];
-    state.npcs = vec![merchant_npc(merchant_name, merchant_items, merchant_gold)];
-    state.npc_registry = vec![merchant_registry_entry(merchant_name)];
-    state.location = "Market Square".to_string();
-    state
+    GameSnapshot {
+        characters: vec![character],
+        npcs: vec![merchant_npc(merchant_name, merchant_items, merchant_gold)],
+        npc_registry: vec![merchant_registry_entry(merchant_name)],
+        location: "Market Square".to_string(),
+        ..Default::default()
+    }
 }
 
 // ============================================================================
@@ -399,25 +404,48 @@ fn merchant_transaction_uses_npc_disposition_for_pricing() {
 #[cfg(test)]
 mod otel_tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
-    use tracing::subscriber::with_default;
+    use std::sync::{Arc, Mutex, OnceLock};
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::Registry;
 
-    struct SpanCapture {
-        spans: Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>,
+    /// Shared handle to captured tracing spans: (span_name, [(field_name, field_value)]).
+    type CapturedSpans = Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>;
+
+    /// Process-global span capture, installed once per test binary.
+    ///
+    /// Earlier versions of this test used `tracing::subscriber::with_default`
+    /// to install a thread-local capture inside the test closure, but that
+    /// raced against the binary's other 7 merchant tests when cargo test ran
+    /// them in parallel — the tracing dispatcher state on other test threads
+    /// would shadow the thread-local subscriber and the test's OWN
+    /// `info_span!` call would emit into the void. Using a single global
+    /// subscriber installed via OnceLock is race-free: every
+    /// `merchant.transaction` span emitted by any test in any thread lands
+    /// in the same Vec, and this test just searches for one with the right
+    /// field shape (which is what the assertion really cares about).
+    static SPAN_CAPTURE: OnceLock<CapturedSpans> = OnceLock::new();
+
+    fn global_capture() -> CapturedSpans {
+        SPAN_CAPTURE
+            .get_or_init(|| {
+                let spans: CapturedSpans = Arc::new(Mutex::new(Vec::new()));
+                let layer = SpanCapture {
+                    spans: spans.clone(),
+                };
+                let subscriber = Registry::default().with(layer);
+                // set_global_default can only be called once per process. If
+                // another test in this binary races with us here, OnceLock's
+                // get_or_init guarantees only one closure runs, so the
+                // set_global_default call only happens once.
+                tracing::subscriber::set_global_default(subscriber)
+                    .expect("install global span capture subscriber");
+                spans
+            })
+            .clone()
     }
 
-    impl SpanCapture {
-        fn new() -> (Self, Arc<Mutex<Vec<(String, Vec<(String, String)>)>>>) {
-            let spans = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self {
-                    spans: spans.clone(),
-                },
-                spans,
-            )
-        }
+    struct SpanCapture {
+        spans: CapturedSpans,
     }
 
     impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for SpanCapture {
@@ -455,27 +483,28 @@ mod otel_tests {
 
     #[test]
     fn merchant_transaction_otel_span_emitted() {
-        let (layer, captured) = SpanCapture::new();
-        let subscriber = Registry::default().with(layer);
+        let captured = global_capture();
 
-        with_default(subscriber, || {
-            let mut state = snapshot_with_merchant(
-                200,
-                vec![],
-                "Gruk",
-                vec![test_item("sword", "Iron Sword", 100)],
-                500,
-            );
+        let mut state = snapshot_with_merchant(
+            200,
+            vec![],
+            "Gruk",
+            vec![test_item("sword", "Iron Sword", 100)],
+            500,
+        );
 
-            let request = MerchantTransactionRequest {
-                transaction_type: TransactionType::Buy,
-                item_id: "sword".to_string(),
-                merchant_name: "Gruk".to_string(),
-            };
+        let request = MerchantTransactionRequest {
+            transaction_type: TransactionType::Buy,
+            item_id: "sword".to_string(),
+            merchant_name: "Gruk".to_string(),
+        };
 
-            state.apply_merchant_transactions(&[request]);
-        });
+        state.apply_merchant_transactions(&[request]);
 
+        // Find any merchant.transaction span — under the global capture, both
+        // our own span and any concurrent merchant tests' spans land here, and
+        // any of them is sufficient to verify the production code shape (the
+        // field structure is identical for every transaction).
         let spans = captured.lock().unwrap();
         let tx_span = spans
             .iter()

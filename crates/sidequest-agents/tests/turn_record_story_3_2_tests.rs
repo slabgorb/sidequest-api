@@ -809,14 +809,21 @@ fn turn_record_is_not_deserializable_contract() {
     // Attempting: serde_json::from_str::<TurnRecord>("{}") should not compile.
     // We verify at review time, not runtime.
     //
-    // For now, assert the contract is understood:
+    // Minimum runtime check: Debug + Clone must produce non-empty,
+    // equivalent representations. Deserialize absence is verified by
+    // code review (and by the fact that this test file doesn't import
+    // serde_json::from_str for TurnRecord).
     let record = make_mock_record(1);
-    // TurnRecord is Debug + Clone but NOT Serialize/Deserialize
-    let _debug = format!("{:?}", record);
-    let _clone = record.clone();
-    // If this test compiles, TurnRecord has Debug + Clone. Good.
-    // Deserialize absence is verified by code review.
-    assert!(true, "TurnRecord contract: Debug + Clone, NOT Deserialize");
+    let debug = format!("{:?}", record);
+    let clone_debug = format!("{:?}", record.clone());
+    assert!(
+        !debug.is_empty(),
+        "TurnRecord Debug impl must produce output"
+    );
+    assert_eq!(
+        debug, clone_debug,
+        "TurnRecord Clone must produce an equivalent record"
+    );
 }
 
 // Rule #4: Tracing coverage on error paths

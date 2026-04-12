@@ -89,9 +89,10 @@ fn config_without_affinity() -> TreasureXpConfig {
 }
 
 fn snapshot_at_location(location: &str) -> GameSnapshot {
-    let mut snap = GameSnapshot::default();
-    snap.location = location.to_string();
-    snap
+    GameSnapshot {
+        location: location.to_string(),
+        ..Default::default()
+    }
 }
 
 /// Build a minimal valid Character for testing.

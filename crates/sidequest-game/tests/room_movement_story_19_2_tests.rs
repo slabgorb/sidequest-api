@@ -76,10 +76,11 @@ fn three_room_graph() -> Vec<RoomDef> {
 
 /// Build a GameSnapshot at a given room with given discovered_rooms.
 fn snapshot_at(location: &str, discovered: &[&str]) -> GameSnapshot {
-    let mut snap = GameSnapshot::default();
-    snap.location = location.to_string();
-    snap.discovered_rooms = discovered.iter().map(|s| s.to_string()).collect();
-    snap
+    GameSnapshot {
+        location: location.to_string(),
+        discovered_rooms: discovered.iter().map(|s| s.to_string()).collect(),
+        ..Default::default()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -172,8 +173,10 @@ fn test_session_init_sets_entrance_location() {
 #[test]
 fn test_region_mode_no_location_validation() {
     // In region mode, any location string is accepted — no room graph checks.
-    let mut snap = GameSnapshot::default();
-    snap.location = "old_town".into();
+    let mut snap = GameSnapshot {
+        location: "old_town".into(),
+        ..Default::default()
+    };
 
     // apply_world_patch in region mode just sets location directly (existing behavior).
     let patch = WorldStatePatch {

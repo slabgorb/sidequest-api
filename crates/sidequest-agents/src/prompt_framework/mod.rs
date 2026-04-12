@@ -145,6 +145,16 @@ impl PromptRegistry {
                  Quieter turns can be shorter — vary the rhythm.\n\
                  </length-limit>"
             }
+            // `NarratorVerbosity` is `#[non_exhaustive]` — unknown values from
+            // newer wire versions fall back to Standard prose length.
+            _ => {
+                "<length-limit>\n\
+                 Target: 2-3 short paragraphs, around 800 characters of prose. \
+                 Describe the scene, the action, and what the player sees next. \
+                 Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
+                 Dialogue gets voice and personality. Vary length by moment.\n\
+                 </length-limit>"
+            }
         };
 
         self.register_section(
@@ -195,6 +205,14 @@ impl PromptRegistry {
                  sentence structures, rare words, and poetic constructions. \
                  Channel the cadence of sagas, epics, and high fantasy prose. \
                  Unrestricted complexity."
+            }
+            // `NarratorVocabulary` is `#[non_exhaustive]` — unknown values from
+            // newer wire versions fall back to Literary (the default).
+            _ => {
+                "[NARRATION VOCABULARY]\n\
+                 Use rich but clear prose. Employ varied vocabulary and literary \
+                 devices where they serve the narrative. Balance elegance with \
+                 accessibility — vivid but not purple."
             }
         };
 
@@ -465,8 +483,8 @@ impl PromptComposer for PromptRegistry {
             .map(|sections| {
                 sections
                     .iter()
-                    .filter(|s| category.map_or(true, |c| s.category == c))
-                    .filter(|s| zone.map_or(true, |z| s.zone == z))
+                    .filter(|s| category.is_none_or(|c| s.category == c))
+                    .filter(|s| zone.is_none_or(|z| s.zone == z))
                     .collect()
             })
             .unwrap_or_default()
