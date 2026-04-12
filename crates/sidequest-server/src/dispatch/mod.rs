@@ -151,6 +151,10 @@ pub(crate) struct DispatchContext<'a> {
     /// without choosing the beat itself. Narrator-emitted beat_selections
     /// for the player actor are ignored when this is set.
     pub chosen_player_beat: Option<String>,
+    /// Dice roll outcome from the most recent resolution (story 34-9).
+    /// Consumed (taken) when building TurnContext for the narrator.
+    /// Populated by the DiceThrow handler when dice resolve before narration.
+    pub pending_roll_outcome: Option<sidequest_protocol::RollOutcome>,
 }
 
 impl<'a> DispatchContext<'a> {
@@ -954,6 +958,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 })
                 .map(|pack| pack.prompts.clone())
         },
+        // Story 34-9: dice outcome injection — populated from pending dice result
+        roll_outcome: ctx.pending_roll_outcome.take(),
     };
     // For barrier turns, pass the combined multi-player action to the narrator
     // instead of the single-player preprocessed action. The sealed prompt is

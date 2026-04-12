@@ -2008,6 +2008,7 @@ pub(crate) async fn dispatch_character_creation(
                                     })
                             },
                             chosen_player_beat: None,
+                            pending_roll_outcome: None,
                         };
                         // OTEL: log loaded confrontation defs (story 28-1)
                         if !ctx.confrontation_defs.is_empty() {

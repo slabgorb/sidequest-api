@@ -1534,6 +1534,8 @@ async fn dispatch_message(
     // the outcome") through the existing dispatch pipeline. This avoids
     // duplicating the 200-line DispatchContext construction.
     let mut chosen_player_beat: Option<String> = None;
+    // Story 34-9: dice outcome consumed by the next narration turn.
+    let mut pending_roll_outcome: Option<sidequest_protocol::RollOutcome> = None;
     let msg = match msg {
         GameMessage::BeatSelection { payload, .. } => {
             if !session.is_playing() {
@@ -2159,6 +2161,7 @@ async fn dispatch_message(
                             })
                     },
                     chosen_player_beat: chosen_player_beat.clone(),
+                    pending_roll_outcome: pending_roll_outcome.take(),
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {
