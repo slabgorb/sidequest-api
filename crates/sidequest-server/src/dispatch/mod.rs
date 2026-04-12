@@ -438,25 +438,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
                 for mutation in &mutations {
                     if mutation.action == MutationAction::Acquired {
-                        // New item acquisition — add to inventory
-                        if let Some(gold) = mutation.gold {
-                            ctx.inventory.gold += gold;
-                            tracing::info!(
-                                gold_gained = gold,
-                                total_gold = ctx.inventory.gold,
+                        // Gold mutations are handled by the narrator's gold_change
+                        // field in state_mutations.rs — skip here to avoid
+                        // double-counting (extractor runs on prev turn's narration,
+                        // gold_change was already applied on the turn it happened).
+                        if mutation.gold.is_some() {
+                            tracing::debug!(
+                                gold = mutation.gold,
                                 detail = %mutation.detail,
-                                "inventory.two_pass_gold_acquired"
+                                "inventory.two_pass_gold_skipped — handled by narrator gold_change"
                             );
-                            WatcherEventBuilder::new(
-                                "inventory",
-                                WatcherEventType::StateTransition,
-                            )
-                            .field("action", "gold_acquired")
-                            .field("gold_gained", gold)
-                            .field("total_gold", ctx.inventory.gold)
-                            .field("detail", &mutation.detail)
-                            .send();
-                        } else {
+                            continue;
+                        }
+                        {
                             let item_id = mutation
                                 .item_name
                                 .to_lowercase()
@@ -509,38 +503,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         continue;
                     }
 
-                    // Gold loss (spent, tossed, given away, etc.) — non-Acquired mutations
-                    if let Some(gold) = mutation.gold {
-                        if gold > 0 {
-                            let actual = ctx.inventory.spend_gold(gold);
-                            if actual < gold {
-                                tracing::warn!(
-                                    requested = gold,
-                                    actual_spent = actual,
-                                    remaining = ctx.inventory.gold,
-                                    detail = %mutation.detail,
-                                    "inventory.insufficient_gold — clamped to available balance"
-                                );
-                            }
-                            tracing::info!(
-                                gold_spent = actual,
-                                total_gold = ctx.inventory.gold,
-                                action = %mutation.action,
-                                detail = %mutation.detail,
-                                "inventory.two_pass_gold_spent"
-                            );
-                            WatcherEventBuilder::new(
-                                "inventory",
-                                WatcherEventType::StateTransition,
-                            )
-                            .field("action", "gold_spent")
-                            .field("gold_spent", actual)
-                            .field("total_gold", ctx.inventory.gold)
-                            .field("mutation_action", format!("{}", mutation.action))
-                            .field("detail", &mutation.detail)
-                            .send();
-                            continue;
-                        }
+                    // Gold loss — skip, handled by narrator gold_change in
+                    // state_mutations.rs (same dedup reasoning as acquisition).
+                    if mutation.gold.is_some() {
+                        tracing::debug!(
+                            gold = mutation.gold,
+                            action = %mutation.action,
+                            detail = %mutation.detail,
+                            "inventory.two_pass_gold_loss_skipped — handled by narrator gold_change"
+                        );
+                        continue;
                     }
 
                     // State transition on existing item
@@ -817,7 +789,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Only the claiming handler runs the expensive LLM call; others poll for the result.
     if let Some(ref outcome) = barrier_outcome {
         if !outcome.claimed_resolution {
-            for attempt in 0..100u32 {
+            // Poll for up to 30s (300 × 100ms). Opus narrator calls routinely
+            // take 15-20s; the old 10s limit caused fallthrough to a redundant
+            // single-action narrator call.
+            for attempt in 0..300u32 {
                 if attempt > 0 {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
@@ -826,6 +801,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         attempts = attempt + 1,
                         "barrier.non_claimer — retrieved shared narration, skipping narrator call"
                     );
+                    WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                        .field("event", "sealed_round.poll_result")
+                        .field("result", "success")
+                        .field("attempts", attempt + 1)
+                        .send();
                     let msg = GameMessage::Narration {
                         payload: NarrationPayload {
                             text: narration,
@@ -843,8 +823,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     return vec![];
                 }
             }
+            WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                .field("event", "sealed_round.poll_result")
+                .field("result", "timeout")
+                .field("timeout_seconds", 30)
+                .send();
             tracing::warn!(
-                "barrier.non_claimer — timed out (10s) waiting for shared narration, falling through to narrator"
+                "barrier.non_claimer — timed out (30s) waiting for shared narration, falling through to narrator"
             );
         }
     }
@@ -970,10 +955,27 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .map(|pack| pack.prompts.clone())
         },
     };
+    // For barrier turns, pass the combined multi-player action to the narrator
+    // instead of the single-player preprocessed action. The sealed prompt is
+    // already in state_summary (barrier.rs:220), but the narrator's high-attention
+    // {action} zone must also carry the combined text or it weights the single
+    // player's action over the sealed context (ADR-009 attention zones).
+    let narrator_action: &str = if barrier_outcome.is_some() {
+        &effective_action
+    } else {
+        &preprocessed.you
+    };
+    if barrier_outcome.is_some() {
+        WatcherEventBuilder::new("multiplayer", WatcherEventType::AgentSpanOpen)
+            .field("event", "sealed_round.effective_action")
+            .field("effective_action", &effective_action[..effective_action.len().min(200)])
+            .field("original_action", &ctx.action[..ctx.action.len().min(80)])
+            .send();
+    }
     let result = ctx
         .state
         .game_service()
-        .process_action(&preprocessed.you, &context);
+        .process_action(narrator_action, &context);
 
     if let Some(ref intent) = result.classified_intent {
         turn_span.record("intent", intent.as_str());

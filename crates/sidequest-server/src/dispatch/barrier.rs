@@ -118,15 +118,25 @@ pub(super) async fn handle_barrier(
                     world = %ctx.world_slug,
                     "Turn barrier resolved"
                 );
+                crate::WatcherEventBuilder::new("multiplayer", crate::WatcherEventType::StateTransition)
+                    .field("event", "sealed_round.claim_election")
+                    .field("player_id", ctx.player_id)
+                    .field("claimed", claimed)
+                    .field("timed_out", result.timed_out)
+                    .field("missing_players", format!("{:?}", result.missing_players))
+                    .send();
 
                 let auto_resolved_names = result.auto_resolved_character_names();
                 let auto_resolved_context = result.format_auto_resolved_context();
 
-                let (named_actions, player_stats) = {
+                // Read actions from the BARRIER's internal session, not
+                // ss.multiplayer — submit_action() records into the barrier's
+                // own MultiplayerSession, so ss.multiplayer has no actions.
+                let named_actions = barrier_clone.named_actions();
+                let player_stats = {
                     let holder = ctx.shared_session_holder.lock().await;
                     if let Some(ref ss_arc) = *holder {
                         let ss = ss_arc.lock().await;
-                        let actions = ss.multiplayer.named_actions();
                         let stats: HashMap<String, HashMap<String, i32>> = ss
                             .players
                             .values()
@@ -140,9 +150,9 @@ pub(super) async fn handle_barrier(
                                 Some((name.clone(), char_stats))
                             })
                             .collect();
-                        (actions, stats)
+                        stats
                     } else {
-                        (HashMap::new(), HashMap::new())
+                        HashMap::new()
                     }
                 };
 

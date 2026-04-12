@@ -461,6 +461,15 @@ impl TurnBarrier {
         self.inner.resolution_narration.lock().unwrap().clone()
     }
 
+    /// Check whether a player has already submitted an action this turn.
+    ///
+    /// Used by the reconnect handler to determine the correct signal:
+    /// submitted → "waiting", not submitted → "ready".
+    pub fn has_submitted(&self, player_id: &str) -> bool {
+        let session = self.inner.session.lock().unwrap();
+        !session.pending_players().contains(player_id)
+    }
+
     /// Reconfigure the timeout if adaptive mode is active and the player
     /// count crosses a tier boundary.
     fn maybe_reconfigure(&self, player_count: usize) {
