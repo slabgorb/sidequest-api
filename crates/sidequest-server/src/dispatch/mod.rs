@@ -1860,32 +1860,74 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // OTEL: encounter state transitions (story 28-9)
     if encounter_just_resolved {
+        let resolved_type = ctx.snapshot
+            .encounter
+            .as_ref()
+            .map_or("unknown".to_string(), |e| e.encounter_type.clone());
+
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("event", "encounter.resolved")
-            .field(
-                "encounter_type",
-                ctx.snapshot
-                    .encounter
-                    .as_ref()
-                    .map_or("unknown", |e| &e.encounter_type),
-            )
+            .field("encounter_type", &resolved_type)
             .field("turn", turn_number)
             .send();
+
+        // Revert TurnMode to FreePlay now that the encounter is over.
+        {
+            let holder = ctx.shared_session_holder.lock().await;
+            if let Some(ref ss_arc) = *holder {
+                let mut ss = ss_arc.lock().await;
+                ss.turn_mode = sidequest_game::turn_mode::TurnMode::FreePlay;
+                tracing::info!(
+                    encounter_type = %resolved_type,
+                    new_mode = "FreePlay",
+                    "encounter.turn_mode_reverted — barrier deactivated after encounter resolution"
+                );
+                WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                    .field("event", "encounter.turn_mode_freeplay")
+                    .field("encounter_type", &resolved_type)
+                    .send();
+            }
+        }
+
         // Clear resolved encounter so the overlay doesn't keep broadcasting
         ctx.snapshot.encounter = None;
     }
     if encounter_just_started {
+        let encounter_type_str = ctx.snapshot
+            .encounter
+            .as_ref()
+            .map_or("unknown", |e| &e.encounter_type)
+            .to_string();
+
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("event", "encounter.started")
-            .field(
-                "encounter_type",
-                ctx.snapshot
-                    .encounter
-                    .as_ref()
-                    .map_or("unknown", |e| &e.encounter_type),
-            )
+            .field("encounter_type", &encounter_type_str)
             .field("turn", turn_number)
             .send();
+
+        // Install TurnMode::Structured when encounter starts. In multiplayer,
+        // this activates the sealed-letter turn barrier. In solo, the barrier
+        // resolves immediately (single submitter passthrough). TurnMode reverts
+        // to FreePlay when the encounter resolves.
+        {
+            let holder = ctx.shared_session_holder.lock().await;
+            if let Some(ref ss_arc) = *holder {
+                let mut ss = ss_arc.lock().await;
+                let prev_mode = ss.turn_mode.clone();
+                ss.turn_mode = sidequest_game::turn_mode::TurnMode::Structured;
+                tracing::info!(
+                    encounter_type = %encounter_type_str,
+                    prev_mode = ?prev_mode,
+                    new_mode = "Structured",
+                    "encounter.turn_mode_set — barrier activated for encounter"
+                );
+                WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                    .field("event", "encounter.turn_mode_structured")
+                    .field("encounter_type", &encounter_type_str)
+                    .field("prev_mode", format!("{:?}", prev_mode))
+                    .send();
+            }
+        }
     }
 
     // Story 15-20: build narration state delta from current ctx locals via game-crate.
