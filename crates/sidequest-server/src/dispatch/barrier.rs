@@ -118,6 +118,13 @@ pub(super) async fn handle_barrier(
                     world = %ctx.world_slug,
                     "Turn barrier resolved"
                 );
+                crate::WatcherEventBuilder::new("multiplayer", crate::WatcherEventType::StateTransition)
+                    .field("event", "sealed_round.claim_election")
+                    .field("player_id", ctx.player_id)
+                    .field("claimed", claimed)
+                    .field("timed_out", result.timed_out)
+                    .field("missing_players", format!("{:?}", result.missing_players))
+                    .send();
 
                 let auto_resolved_names = result.auto_resolved_character_names();
                 let auto_resolved_context = result.format_auto_resolved_context();

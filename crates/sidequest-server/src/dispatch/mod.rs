@@ -817,7 +817,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Only the claiming handler runs the expensive LLM call; others poll for the result.
     if let Some(ref outcome) = barrier_outcome {
         if !outcome.claimed_resolution {
-            for attempt in 0..100u32 {
+            // Poll for up to 30s (300 × 100ms). Opus narrator calls routinely
+            // take 15-20s; the old 10s limit caused fallthrough to a redundant
+            // single-action narrator call.
+            for attempt in 0..300u32 {
                 if attempt > 0 {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
@@ -826,6 +829,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         attempts = attempt + 1,
                         "barrier.non_claimer — retrieved shared narration, skipping narrator call"
                     );
+                    WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                        .field("event", "sealed_round.poll_result")
+                        .field("result", "success")
+                        .field("attempts", attempt + 1)
+                        .send();
                     let msg = GameMessage::Narration {
                         payload: NarrationPayload {
                             text: narration,
@@ -843,8 +851,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     return vec![];
                 }
             }
+            WatcherEventBuilder::new("multiplayer", WatcherEventType::StateTransition)
+                .field("event", "sealed_round.poll_result")
+                .field("result", "timeout")
+                .field("timeout_seconds", 30)
+                .send();
             tracing::warn!(
-                "barrier.non_claimer — timed out (10s) waiting for shared narration, falling through to narrator"
+                "barrier.non_claimer — timed out (30s) waiting for shared narration, falling through to narrator"
             );
         }
     }
@@ -970,10 +983,27 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .map(|pack| pack.prompts.clone())
         },
     };
+    // For barrier turns, pass the combined multi-player action to the narrator
+    // instead of the single-player preprocessed action. The sealed prompt is
+    // already in state_summary (barrier.rs:220), but the narrator's high-attention
+    // {action} zone must also carry the combined text or it weights the single
+    // player's action over the sealed context (ADR-009 attention zones).
+    let narrator_action: &str = if barrier_outcome.is_some() {
+        &effective_action
+    } else {
+        &preprocessed.you
+    };
+    if barrier_outcome.is_some() {
+        WatcherEventBuilder::new("multiplayer", WatcherEventType::AgentSpanOpen)
+            .field("event", "sealed_round.effective_action")
+            .field("effective_action", &effective_action[..effective_action.len().min(200)])
+            .field("original_action", &ctx.action[..ctx.action.len().min(80)])
+            .send();
+    }
     let result = ctx
         .state
         .game_service()
-        .process_action(&preprocessed.you, &context);
+        .process_action(narrator_action, &context);
 
     if let Some(ref intent) = result.classified_intent {
         turn_span.record("intent", intent.as_str());
