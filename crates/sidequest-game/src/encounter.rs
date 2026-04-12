@@ -150,6 +150,11 @@ pub struct EncounterActor {
     pub name: String,
     /// Role in the encounter (string-keyed, genre-defined).
     pub role: String,
+    /// Per-actor structured state for resolution modes that track per-pilot
+    /// descriptors between turns (e.g., bearing, range, energy, gun_solution).
+    /// Used by `SealedLetterLookup` confrontations (ADR-077).
+    #[serde(default)]
+    pub per_actor_state: HashMap<String, serde_json::Value>,
 }
 
 /// The primary metric being tracked in the encounter.
@@ -242,6 +247,7 @@ impl StructuredEncounter {
             .map(|name| EncounterActor {
                 name,
                 role: "combatant".to_string(),
+                per_actor_state: HashMap::new(),
             })
             .collect();
 
@@ -452,6 +458,7 @@ impl StructuredEncounter {
             .map(|a| EncounterActor {
                 name: a.name.clone(),
                 role: "combatant".to_string(),
+                per_actor_state: HashMap::new(),
             })
             .collect();
 

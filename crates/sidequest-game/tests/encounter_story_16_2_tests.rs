@@ -72,7 +72,7 @@ fn structured_encounter_serde_roundtrip() {
             },
             damage_tier: None,
         }),
-        actors: vec![EncounterActor {
+        actors: vec![EncounterActor { per_actor_state: Default::default(),
             name: "Clint".to_string(),
             role: "duelist".to_string(),
         }],
@@ -307,15 +307,15 @@ fn secondary_stats_rig_convenience_constructor() {
 #[test]
 fn encounter_actor_string_roles() {
     let actors = [
-        EncounterActor {
+        EncounterActor { per_actor_state: Default::default(),
             name: "Max".to_string(),
             role: "driver".to_string(),
         },
-        EncounterActor {
+        EncounterActor { per_actor_state: Default::default(),
             name: "Furiosa".to_string(),
             role: "gunner".to_string(),
         },
-        EncounterActor {
+        EncounterActor { per_actor_state: Default::default(),
             name: "Nux".to_string(),
             role: "mechanic".to_string(),
         },
@@ -330,13 +330,13 @@ fn encounter_actor_string_roles() {
 #[test]
 fn encounter_actor_arbitrary_roles() {
     // String-keyed roles means genre packs can define anything
-    let actor = EncounterActor {
+    let actor = EncounterActor { per_actor_state: Default::default(),
         name: "Neo".to_string(),
         role: "netrunner".to_string(),
     };
     assert_eq!(actor.role, "netrunner");
 
-    let actor2 = EncounterActor {
+    let actor2 = EncounterActor { per_actor_state: Default::default(),
         name: "Deckard".to_string(),
         role: "interrogator".to_string(),
     };
@@ -345,7 +345,7 @@ fn encounter_actor_arbitrary_roles() {
 
 #[test]
 fn encounter_actor_serde_roundtrip() {
-    let actor = EncounterActor {
+    let actor = EncounterActor { per_actor_state: Default::default(),
         name: "Blondie".to_string(),
         role: "duelist".to_string(),
     };
@@ -450,7 +450,7 @@ fn game_snapshot_encounter_serde_roundtrip() {
             beat: 4,
             structured_phase: Some(EncounterPhase::Climax),
             secondary_stats: None,
-            actors: vec![EncounterActor {
+            actors: vec![EncounterActor { per_actor_state: Default::default(),
                 name: "Angel Eyes".to_string(),
                 role: "duelist".to_string(),
             }],
@@ -636,15 +636,15 @@ fn standoff_encounter_full_construction() {
             damage_tier: None,
         }),
         actors: vec![
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "The Good".to_string(),
                 role: "duelist".to_string(),
             },
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "The Bad".to_string(),
                 role: "duelist".to_string(),
             },
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "The Ugly".to_string(),
                 role: "duelist".to_string(),
             },
@@ -688,11 +688,11 @@ fn negotiation_encounter_bidirectional_metric() {
         structured_phase: Some(EncounterPhase::Setup),
         secondary_stats: None,
         actors: vec![
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "Detective".to_string(),
                 role: "interrogator".to_string(),
             },
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "Suspect".to_string(),
                 role: "subject".to_string(),
             },
@@ -751,15 +751,15 @@ fn ship_combat_encounter_with_secondary_stats() {
             damage_tier: Some("PRISTINE".to_string()),
         }),
         actors: vec![
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "Captain".to_string(),
                 role: "commander".to_string(),
             },
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "Pilot".to_string(),
                 role: "helmsman".to_string(),
             },
-            EncounterActor {
+            EncounterActor { per_actor_state: Default::default(),
                 name: "Gunner".to_string(),
                 role: "weapons".to_string(),
             },

@@ -361,10 +361,10 @@ metric:
   name: hp
   current: 25
   starting: 30
-  direction: descending
+  direction: Descending
   threshold_low: 0
 beat: 2
-structured_phase: escalation
+structured_phase: Escalation
 actors:
   - name: "Hero"
     role: "fighter"

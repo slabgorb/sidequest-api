@@ -711,11 +711,13 @@ impl WorldBuilder {
             .map(|c| EncounterActor {
                 name: c.core.name.as_str().to_string(),
                 role: "player".to_string(),
+                per_actor_state: HashMap::new(),
             })
             .collect();
         actors.extend(enemy_list.iter().map(|(name, _, _)| EncounterActor {
             name: name.clone(),
             role: "combatant".to_string(),
+            per_actor_state: HashMap::new(),
         }));
 
         snap.encounter = Some(StructuredEncounter {
