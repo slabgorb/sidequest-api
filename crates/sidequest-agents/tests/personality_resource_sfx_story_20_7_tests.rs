@@ -75,6 +75,8 @@ fn extraction_with_personality_events() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 
@@ -100,6 +102,8 @@ fn extraction_with_resource_deltas() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 
@@ -123,6 +127,8 @@ fn extraction_with_sfx() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 
@@ -146,6 +152,8 @@ fn extraction_empty() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 

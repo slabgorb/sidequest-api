@@ -284,6 +284,8 @@ async fn server_accepts_mock_game_service() {
                 sfx_triggers: vec![],
                 merchant_transactions: vec![],
                 prompt_tier: String::new(),
+                affinity_progress: vec![],
+                gold_change: None,
             }
         }
 

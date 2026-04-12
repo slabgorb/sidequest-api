@@ -64,6 +64,8 @@ fn extraction_with_known_values() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 

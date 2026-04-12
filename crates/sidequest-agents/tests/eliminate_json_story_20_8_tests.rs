@@ -265,6 +265,8 @@ fn assemble_turn_produces_complete_action_result() {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     };
 
     let rewrite = ActionRewrite {

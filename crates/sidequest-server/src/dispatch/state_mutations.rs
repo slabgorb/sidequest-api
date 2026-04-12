@@ -85,17 +85,20 @@ pub(crate) async fn apply_state_mutations(
             // narrator has access to genre pack affinity definitions via prompt
             // context and makes the determination via LLM, not substring matching.
             for (aff_name, delta) in &result.affinity_progress {
-                sidequest_game::increment_affinity_progress(
-                    &mut ch.affinities,
-                    aff_name,
-                    *delta,
-                );
+                sidequest_game::increment_affinity_progress(&mut ch.affinities, aff_name, *delta);
                 WatcherEventBuilder::new("affinity", WatcherEventType::StateTransition)
                     .field("event", "affinity.incremented")
                     .field("affinity", aff_name.as_str())
                     .field("delta", *delta)
                     .field("source", "narrator_game_patch")
-                    .field("progress", ch.affinities.iter().find(|a| a.name == *aff_name).map(|a| a.progress).unwrap_or(0))
+                    .field(
+                        "progress",
+                        ch.affinities
+                            .iter()
+                            .find(|a| a.name == *aff_name)
+                            .map(|a| a.progress)
+                            .unwrap_or(0),
+                    )
                     .send();
                 tracing::info!(
                     affinity = %aff_name,
@@ -401,6 +404,30 @@ pub(crate) async fn apply_state_mutations(
                 }
             }
         }
+    }
+
+    // Narrator-emitted gold change (e.g., poker winnings, quest rewards, fines).
+    // Complements the beat-driven gold_delta in beat.rs which handles fixed per-beat
+    // costs. This path handles narrator-determined variable outcomes.
+    if let Some(gold_change) = result.gold_change {
+        let gold_before = ctx.inventory.gold;
+        ctx.inventory.gold = (ctx.inventory.gold + gold_change).max(0);
+        if let Some(ch) = ctx.snapshot.characters.first_mut() {
+            ch.core.inventory.gold = ctx.inventory.gold;
+        }
+        WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+            .field("event", "inventory.gold_change")
+            .field("source", "narrator")
+            .field("gold_change", gold_change)
+            .field("gold_before", gold_before)
+            .field("gold_after", ctx.inventory.gold)
+            .send();
+        tracing::info!(
+            gold_change,
+            gold_before,
+            gold_after = ctx.inventory.gold,
+            "inventory.gold_change — narrator-emitted currency mutation"
+        );
     }
 
     MutationResult {

@@ -97,6 +97,10 @@ pub struct ActionResult {
     /// Narrator-emitted affinity progress deltas. Replaces keyword trigger matching
     /// in dispatch/state_mutations.rs (Zork Problem fix). Each entry is (name, delta).
     pub affinity_progress: Vec<(String, u32)>,
+    /// Narrator-emitted gold/currency change. Complements beat-driven gold_delta
+    /// (which handles fixed per-beat costs) with narrator-determined outcomes
+    /// (e.g., poker winnings, quest rewards, bribes, fines).
+    pub gold_change: Option<i64>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -1129,6 +1133,7 @@ impl GameService for Orchestrator {
                     prompt_text: Some(prompt.clone()),
                     raw_response_text: None,
                     affinity_progress: vec![],
+                    gold_change: None,
                 }
             }
         }
@@ -1234,6 +1239,11 @@ struct GamePatchExtraction {
     /// server-side substring matching against action text.
     #[serde(default)]
     affinity_progress: Vec<AffinityProgressDelta>,
+    /// Narrator-emitted gold/currency change. Positive = player gains gold
+    /// (e.g., winning a poker hand), negative = player loses gold. Complements
+    /// the beat-driven gold_delta path which only handles fixed per-beat costs.
+    #[serde(default)]
+    gold_change: Option<i64>,
 }
 
 /// Structured affinity progress from the narrator (replaces keyword trigger matching).
@@ -1417,6 +1427,8 @@ pub struct NarratorExtraction {
     pub location: Option<String>,
     /// Narrator-emitted affinity progress deltas. Replaces keyword trigger matching.
     pub affinity_progress: Vec<(String, u32)>,
+    /// Narrator-emitted gold/currency change (e.g., poker winnings, rewards, fines).
+    pub gold_change: Option<i64>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1449,6 +1461,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         beat_selections = patch.beat_selections.len(),
         confrontation = ?patch.confrontation,
         has_location = patch.location.is_some(),
+        gold_change = ?patch.gold_change,
         "game_patch.extracted"
     );
 
@@ -1473,7 +1486,12 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         beat_selections: patch.beat_selections,
         confrontation: patch.confrontation,
         location: patch.location,
-        affinity_progress: patch.affinity_progress.into_iter().map(|d| (d.name, d.delta)).collect(),
+        affinity_progress: patch
+            .affinity_progress
+            .into_iter()
+            .map(|d| (d.name, d.delta))
+            .collect(),
+        gold_change: patch.gold_change,
     }
 }
 

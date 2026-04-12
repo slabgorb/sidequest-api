@@ -202,5 +202,6 @@ pub fn assemble_turn(
         prompt_text: None,
         raw_response_text: None,
         affinity_progress: extraction.affinity_progress,
+        gold_change: extraction.gold_change,
     }
 }
