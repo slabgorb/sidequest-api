@@ -272,19 +272,14 @@ impl TryFrom<RawMetricDef> for MetricDef {
 /// simultaneous-commit variant introduced by ADR-077 (Dogfight Subsystem): each
 /// actor commits a choice privately, and the engine resolves via cross-product
 /// lookup in an interaction table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ResolutionMode {
     /// Existing behavior — narrator selects a beat, engine applies it.
+    #[default]
     BeatSelection,
     /// Simultaneous-commit table lookup (e.g., dogfight maneuvers).
     SealedLetterLookup,
-}
-
-impl Default for ResolutionMode {
-    fn default() -> Self {
-        Self::BeatSelection
-    }
 }
 
 /// Raw confrontation definition for deserialization with validation.
