@@ -2123,17 +2123,12 @@ async fn dispatch_message(
 
             // TODO(34-4): Look up pending DiceRequest by payload.request_id,
             // retrieve pool/modifier/DC/seed, call validate_dice_inputs + resolve_dice,
-            // compose DiceResult, broadcast. For now this is the wiring point —
-            // the match arm exists and references the functions the tests verify.
-            tracing::info!(
+            // compose DiceResult, broadcast.
+            tracing::warn!(
                 request_id = %payload.request_id,
                 player_id = %player_id,
-                "dice.throw_received — dispatch pending (34-4 wiring point)"
+                "dice.throw_received — handler not yet wired (story 34-4)"
             );
-
-            // Wiring references (consumed by include_str! wiring tests):
-            // dice_dispatch::validate_dice_inputs, sidequest_game::dice::resolve_dice,
-            // dice_dispatch::compose_dice_result → GameMessage::DiceResult
 
             vec![error_response(
                 player_id,

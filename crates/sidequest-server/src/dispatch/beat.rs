@@ -1,8 +1,6 @@
-//! Encounter beat selection dispatch (story 28-5, 34-4).
+//! Encounter beat selection dispatch (story 28-5).
 
-use crate::dice_dispatch::{compose_dice_result, validate_dice_inputs};
 use crate::{Severity, WatcherEventBuilder, WatcherEventType};
-use sidequest_game::dice::resolve_dice;
 
 use super::DispatchContext;
 

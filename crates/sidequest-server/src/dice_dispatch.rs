@@ -1,11 +1,9 @@
 //! Dice dispatch integration layer (story 34-4).
 //!
 //! Pure functions for dispatch boundary validation, seed generation, and
-//! DiceResult composition. These are called from the dispatch pipeline
-//! (`lib.rs` and `dispatch/beat.rs`) but are independently testable.
+//! DiceResult composition. Intended for use from the dispatch pipeline
+//! (`lib.rs` and `dispatch/beat.rs`) — wiring pending story 34-4 completion.
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::num::NonZeroU32;
 
 use sidequest_game::dice::ResolvedRoll;
@@ -55,10 +53,7 @@ impl std::fmt::Display for DiceInputError {
                 )
             }
             Self::PoolTooLarge { count } => {
-                write!(
-                    f,
-                    "pool has {count} groups, maximum is {MAX_POOL_GROUPS}"
-                )
+                write!(f, "pool has {count} groups, maximum is {MAX_POOL_GROUPS}")
             }
         }
     }
@@ -92,7 +87,7 @@ pub fn validate_dice_inputs(
             value: difficulty.get(),
         });
     }
-    if modifier > MAX_MODIFIER || modifier < -MAX_MODIFIER {
+    if !(-MAX_MODIFIER..=MAX_MODIFIER).contains(&modifier) {
         return Err(DiceInputError::ModifierOutOfRange { value: modifier });
     }
     if dice.len() > MAX_POOL_GROUPS {
@@ -103,15 +98,27 @@ pub fn validate_dice_inputs(
 
 /// Generate a deterministic dice seed from session identity and turn number.
 ///
-/// The seed is derived from hashing session_id + turn — no OS entropy, no
-/// client influence. Two calls with the same (session_id, turn) produce
-/// the same seed. Different sessions or turns produce different seeds.
+/// Uses FNV-1a (stable across Rust versions and platforms) — NOT DefaultHasher,
+/// which is SipHash and explicitly documented as non-stable across releases.
+/// This is a game-mechanical determinism contract: same (session_id, turn)
+/// must always produce the same seed, even after Rust version upgrades.
+///
+/// No OS entropy, no client influence.
 pub fn generate_dice_seed(session_id: &str, turn: u32) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    session_id.hash(&mut hasher);
-    turn.hash(&mut hasher);
-    // Ensure nonzero — DefaultHasher can theoretically return 0
-    let h = hasher.finish();
+    // FNV-1a: stable, well-specified, no dependencies
+    const FNV_OFFSET: u64 = 14695981039346656037;
+    const FNV_PRIME: u64 = 1099511628211;
+
+    let mut h = FNV_OFFSET;
+    for &b in session_id.as_bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(FNV_PRIME);
+    }
+    for &b in turn.to_le_bytes().iter() {
+        h ^= b as u64;
+        h = h.wrapping_mul(FNV_PRIME);
+    }
+    // Ensure nonzero
     if h == 0 { 1 } else { h }
 }
 
@@ -120,6 +127,7 @@ pub fn generate_dice_seed(session_id: &str, turn: u32) -> u64 {
 /// This is the mapping from the game-crate's resolution output to the
 /// wire-protocol result type. The dispatch layer calls this after
 /// `resolve_dice` succeeds.
+#[allow(clippy::too_many_arguments)] // 1:1 mapping of wire protocol fields
 pub fn compose_dice_result(
     request_id: &str,
     rolling_player_id: &str,
