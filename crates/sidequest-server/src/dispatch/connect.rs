@@ -2081,6 +2081,8 @@ pub(crate) async fn dispatch_character_creation(
                     // Catch-up context — extracted from shared session while lock
                     // is held, used for LLM generation after lock is released.
                     let mut catch_up_context: Option<(Vec<String>, String, String)> = None;
+                    // Barrier state captured during reconnect for post-ready signaling.
+                    let mut reconnect_barrier_state: Option<(Option<String>, bool)> = None;
 
                     // Add player to shared session and broadcast PARTY_STATUS
                     {
@@ -2205,7 +2207,7 @@ pub(crate) async fn dispatch_character_creation(
 
                             // Capture barrier state for reconnecting players so we can
                             // send the correct signal after the "ready" message.
-                            let reconnect_barrier_state: Option<(Option<String>, bool)> =
+                            reconnect_barrier_state =
                                 if is_reconnect {
                                     if let Some(ref barrier) = ss.turn_barrier {
                                         let resolved = barrier.get_resolution_narration();
