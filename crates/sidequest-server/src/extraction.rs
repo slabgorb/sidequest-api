@@ -189,11 +189,14 @@ pub(crate) fn strip_fenced_blocks(text: &str) -> String {
     collapsed.trim().to_string()
 }
 
-/// Strip fourth-wall-breaking meta-questions from narrator output.
+/// Strip fourth-wall-breaking meta-questions and LLM self-referential reasoning
+/// from narrator output.
 ///
 /// Defensive guardrail: if the LLM breaks character and asks the player about game
-/// mechanics, genre, system, or its own constraints, remove those sentences.
+/// mechanics, genre, system, or its own constraints, remove those paragraphs.
 /// Fix: playtest-2026-04-05 — narrator asked "What genre is Ashgate Square in?"
+/// Fix: playtest-2026-04-12 — narrator meta-commentary ("I notice the genre isn't
+///   specified...") leaked into rendered narration.
 pub(crate) fn strip_fourth_wall(text: &str) -> String {
     // Patterns that indicate the narrator is breaking character to ask about
     // game mechanics, genre identity, or its own system prompt.
@@ -221,7 +224,45 @@ pub(crate) fn strip_fourth_wall(text: &str) -> String {
         "i don't know what genre",
     ];
 
-    let mut result_lines: Vec<&str> = Vec::new();
+    // Paragraph-start patterns for LLM self-referential meta-commentary.
+    // These only match when the paragraph STARTS with the pattern AND contains
+    // a meta-keyword — this avoids stripping in-character NPC dialogue like
+    // "I notice the torches have gone out."
+    const META_STARTERS: &[&str] = &[
+        "i notice",
+        "i should",
+        "i need to",
+        "i'll ",
+        "i want to make sure",
+        "let me ",
+    ];
+
+    // Meta-keywords that confirm a paragraph with a META_STARTER is actually
+    // LLM reasoning rather than in-character narration.
+    const META_KEYWORDS: &[&str] = &[
+        "genre",
+        "genre pack",
+        "the field",
+        "is blank",
+        "isn't specified",
+        "not specified",
+        "your request",
+        "system prompt",
+        "specified",
+        "json",
+        "game_patch",
+        "narrator",
+        "as an ai",
+        "language model",
+        "instruction",
+    ];
+
+    // Two-pass stripping:
+    // 1. Line-level: original fourth-wall patterns (removes individual lines)
+    // 2. Paragraph-level: meta-commentary (starter + keyword on paragraph starts)
+
+    // --- Pass 1: line-level fourth-wall stripping (preserves backward compat) ---
+    let mut pass1_lines: Vec<&str> = Vec::new();
     let mut stripped_any = false;
 
     for line in text.lines() {
@@ -232,20 +273,55 @@ pub(crate) fn strip_fourth_wall(text: &str) -> String {
         if is_fourth_wall {
             stripped_any = true;
             tracing::warn!(
-                stripped_line = %line,
-                "narrator.fourth_wall_break_stripped"
+                stripped_text = %line,
+                reason = "fourth_wall_break",
+                "narrator.fourth_wall_stripped"
             );
         } else {
-            result_lines.push(line);
+            pass1_lines.push(line);
+        }
+    }
+
+    let after_pass1 = pass1_lines.join("\n");
+
+    // --- Pass 2: paragraph-level meta-commentary stripping ---
+    // Split on paragraph boundaries (double newline). A META_STARTER at the
+    // start of a paragraph combined with a META_KEYWORD anywhere in it
+    // indicates LLM self-referential reasoning, not in-character narration.
+    let paragraphs: Vec<&str> = after_pass1.split("\n\n").collect();
+    let mut kept_paragraphs: Vec<&str> = Vec::new();
+
+    for para in &paragraphs {
+        let trimmed_para = para.trim();
+        if trimmed_para.is_empty() {
+            continue;
+        }
+        let lower = trimmed_para.to_lowercase();
+
+        let has_meta_starter = META_STARTERS
+            .iter()
+            .any(|starter| lower.starts_with(starter));
+        let has_meta_keyword = META_KEYWORDS
+            .iter()
+            .any(|keyword| lower.contains(keyword));
+
+        if has_meta_starter && has_meta_keyword {
+            stripped_any = true;
+            tracing::warn!(
+                stripped_text = %trimmed_para.chars().take(120).collect::<String>(),
+                reason = "meta_commentary",
+                "narrator.fourth_wall_stripped"
+            );
+        } else {
+            kept_paragraphs.push(para);
         }
     }
 
     if stripped_any {
-        // Collapse blanks left by removed lines
-        let joined = result_lines.join("\n");
+        let joined = kept_paragraphs.join("\n\n");
         let trimmed = joined.trim();
         if trimmed.is_empty() {
-            // Everything was fourth-wall — return a safe fallback
+            // Everything was meta — return a safe fallback
             "You look around, taking in your surroundings.".to_string()
         } else {
             trimmed.to_string()
@@ -415,5 +491,50 @@ mod tests {
         let input = "Could you tell me what setting this is?\nI need more context about the world.\nThe fog rolls in.";
         let result = strip_fourth_wall(input);
         assert_eq!(result, "The fog rolls in.");
+    }
+
+    // === meta-commentary (pass 2) tests ===
+
+    #[test]
+    fn strip_fourth_wall_removes_meta_commentary_i_notice() {
+        let input = "The cavern drips with moisture.\n\nI notice the genre isn't specified in the configuration. Let me continue with a fantasy setting.\n\nYou press deeper into the tunnel.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(
+            result,
+            "The cavern drips with moisture.\n\nYou press deeper into the tunnel."
+        );
+    }
+
+    #[test]
+    fn strip_fourth_wall_removes_let_me_meta() {
+        let input = "Let me check the narrator instructions before continuing.\n\nThe torchlight flickers against the damp stone walls.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(
+            result,
+            "The torchlight flickers against the damp stone walls."
+        );
+    }
+
+    #[test]
+    fn strip_fourth_wall_preserves_in_character_i_notice() {
+        // "I notice" without meta-keywords should NOT be stripped —
+        // it's valid in-character NPC dialogue.
+        let input = "\"I notice the torches have gone out,\" the dwarf mutters.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(result, input);
+    }
+
+    #[test]
+    fn strip_fourth_wall_removes_i_should_meta() {
+        let input = "I should note that the genre pack doesn't specify this region.\n\nThe merchant waves you over.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(result, "The merchant waves you over.");
+    }
+
+    #[test]
+    fn strip_fourth_wall_all_meta_fallback() {
+        let input = "I notice the genre isn't specified. I'll assume fantasy.";
+        let result = strip_fourth_wall(input);
+        assert_eq!(result, "You look around, taking in your surroundings.");
     }
 }

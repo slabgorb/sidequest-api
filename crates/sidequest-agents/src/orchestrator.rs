@@ -1318,7 +1318,12 @@ fn extract_game_patch(raw: &str) -> GamePatchExtraction {
 
 /// Serde model for the narrator's structured JSON output block.
 /// An NPC mentioned in the narrator's structured output.
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+///
+/// Accepts either a full struct `{"name": "Nub", "role": "provisioner", ...}`
+/// or a bare string `"Nub"` (mapped to `NpcMention { name: "Nub", ..default }`).
+/// Fix: playtest-2026-04-12 — bare string NPC names caused serde rejection of
+/// the entire game_patch block, cascading to total data loss.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct NpcMention {
     /// Full canonical name (e.g., "Toggler Copperjaw", not "Toggler").
     pub name: String,
@@ -1334,6 +1339,59 @@ pub struct NpcMention {
     /// True if this NPC appears for the first time this turn.
     #[serde(default)]
     pub is_new: bool,
+}
+
+impl<'de> serde::Deserialize<'de> for NpcMention {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        #[serde(untagged)]
+        enum NpcMentionRaw {
+            Full {
+                name: String,
+                #[serde(default)]
+                pronouns: String,
+                #[serde(default)]
+                role: String,
+                #[serde(default)]
+                appearance: String,
+                #[serde(default)]
+                is_new: bool,
+            },
+            NameOnly(String),
+        }
+
+        match NpcMentionRaw::deserialize(deserializer)? {
+            NpcMentionRaw::Full {
+                name,
+                pronouns,
+                role,
+                appearance,
+                is_new,
+            } => Ok(NpcMention {
+                name,
+                pronouns,
+                role,
+                appearance,
+                is_new,
+            }),
+            NpcMentionRaw::NameOnly(name) => {
+                tracing::debug!(
+                    npc_name = %name,
+                    "npc_mention.bare_string_fallback — wrapped to NpcMention struct"
+                );
+                Ok(NpcMention {
+                    name,
+                    pronouns: String::new(),
+                    role: String::new(),
+                    appearance: String::new(),
+                    is_new: false,
+                })
+            }
+        }
+    }
 }
 
 /// Visual scene description extracted from narrator JSON block.
@@ -1666,5 +1724,50 @@ pub fn inject_merchant_context(
             AttentionZone::Valley,
             SectionCategory::State,
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn npc_mention_deserializes_full_struct() {
+        let json = r#"{"name": "Toggler Copperjaw", "role": "blacksmith", "pronouns": "he/him", "is_new": true}"#;
+        let npc: NpcMention = serde_json::from_str(json).unwrap();
+        assert_eq!(npc.name, "Toggler Copperjaw");
+        assert_eq!(npc.role, "blacksmith");
+        assert_eq!(npc.pronouns, "he/him");
+        assert!(npc.is_new);
+    }
+
+    #[test]
+    fn npc_mention_deserializes_bare_string() {
+        let json = r#""Nub""#;
+        let npc: NpcMention = serde_json::from_str(json).unwrap();
+        assert_eq!(npc.name, "Nub");
+        assert_eq!(npc.role, "");
+        assert!(!npc.is_new);
+    }
+
+    #[test]
+    fn npc_mention_vec_mixed_formats() {
+        let json = r#"[{"name": "Toggler", "role": "smith"}, "Nub", {"name": "Vera"}]"#;
+        let npcs: Vec<NpcMention> = serde_json::from_str(json).unwrap();
+        assert_eq!(npcs.len(), 3);
+        assert_eq!(npcs[0].name, "Toggler");
+        assert_eq!(npcs[0].role, "smith");
+        assert_eq!(npcs[1].name, "Nub");
+        assert_eq!(npcs[1].role, "");
+        assert_eq!(npcs[2].name, "Vera");
+    }
+
+    #[test]
+    fn game_patch_with_bare_string_npcs_parses() {
+        let json = r#"{"npcs_present": ["Nub", "Vera"], "footnotes": []}"#;
+        let patch: GamePatchExtraction = serde_json::from_str(json).unwrap();
+        assert_eq!(patch.npcs_present.len(), 2);
+        assert_eq!(patch.npcs_present[0].name, "Nub");
+        assert_eq!(patch.npcs_present[1].name, "Vera");
     }
 }

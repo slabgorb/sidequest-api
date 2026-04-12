@@ -2203,6 +2203,37 @@ pub(crate) async fn dispatch_character_creation(
                                 .send();
                             }
 
+                            // Capture barrier state for reconnecting players so we can
+                            // send the correct signal after the "ready" message.
+                            let reconnect_barrier_state: Option<(Option<String>, bool)> =
+                                if is_reconnect {
+                                    if let Some(ref barrier) = ss.turn_barrier {
+                                        let resolved = barrier.get_resolution_narration();
+                                        let submitted = barrier.has_submitted(player_id);
+                                        let signal = if resolved.is_some() {
+                                            "narration_replay"
+                                        } else if submitted {
+                                            "waiting"
+                                        } else {
+                                            "ready"
+                                        };
+                                        WatcherEventBuilder::new(
+                                            "multiplayer",
+                                            WatcherEventType::StateTransition,
+                                        )
+                                        .field("event", "barrier_state_on_reconnect")
+                                        .field("player_submitted", submitted)
+                                        .field("barrier_resolved", resolved.is_some())
+                                        .field("signal_sent", signal)
+                                        .send();
+                                        Some((resolved, submitted))
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                };
+
                             if !is_reconnect {
                                 let ps = shared_session::PlayerState::new(connecting_name.clone());
                                 ss.players.insert(player_id.to_string(), ps);
@@ -2532,6 +2563,49 @@ pub(crate) async fn dispatch_character_creation(
                     msgs.extend(catch_up_messages);
                     msgs.extend(intro_messages);
                     msgs.push(ready);
+
+                    // Barrier-aware reconnect signals: override the generic
+                    // "ready" with the actual barrier state so the UI doesn't
+                    // get stuck or miss narration from a resolved turn.
+                    if let Some((resolved_narration, submitted)) = reconnect_barrier_state {
+                        if let Some(narration) = resolved_narration {
+                            // Barrier resolved while player was disconnected —
+                            // replay the stored narration so they see it.
+                            msgs.push(GameMessage::Narration {
+                                payload: NarrationPayload {
+                                    text: narration,
+                                    state_delta: None,
+                                    footnotes: vec![],
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                            msgs.push(GameMessage::NarrationEnd {
+                                payload: NarrationEndPayload { state_delta: None },
+                                player_id: player_id.to_string(),
+                            });
+                        } else if submitted {
+                            // Player already submitted but barrier hasn't
+                            // resolved yet — tell the UI to wait.
+                            msgs.push(GameMessage::SessionEvent {
+                                payload: SessionEventPayload {
+                                    event: "waiting".to_string(),
+                                    player_name: None,
+                                    genre: None,
+                                    world: None,
+                                    has_character: None,
+                                    initial_state: None,
+                                    css: None,
+                                    image_cooldown_seconds: None,
+                                    narrator_verbosity: None,
+                                    narrator_vocabulary: None,
+                                },
+                                player_id: player_id.to_string(),
+                            });
+                        }
+                        // else: barrier active, player hasn't submitted —
+                        // "ready" is correct, they can type to re-submit.
+                    }
+
                     msgs
                 }
                 Err(e) => vec![error_response(
