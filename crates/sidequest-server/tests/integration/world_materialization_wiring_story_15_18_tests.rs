@@ -17,7 +17,7 @@ use sidequest_game::world_materialization::{
 
 #[test]
 fn connect_rs_calls_materialize_world_for_returning_player() {
-    let source = include_str!("../src/dispatch/connect.rs");
+    let source = include_str!("../../src/dispatch/connect.rs");
     assert!(
         source.contains("sidequest_game::materialize_world(snapshot, &chapters)"),
         "connect.rs must call materialize_world() in the returning player path"
@@ -26,7 +26,7 @@ fn connect_rs_calls_materialize_world_for_returning_player() {
 
 #[test]
 fn connect_rs_emits_otel_world_materialization_event_returning_player() {
-    let source = include_str!("../src/dispatch/connect.rs");
+    let source = include_str!("../../src/dispatch/connect.rs");
     assert!(
         source.contains(r#"WatcherEventBuilder::new("world_materialization", WatcherEventType::StateTransition)"#),
         "connect.rs must emit OTEL world_materialization StateTransition event"
@@ -35,7 +35,7 @@ fn connect_rs_emits_otel_world_materialization_event_returning_player() {
 
 #[test]
 fn connect_rs_emits_otel_world_materialization_event_new_player() {
-    let source = include_str!("../src/dispatch/connect.rs");
+    let source = include_str!("../../src/dispatch/connect.rs");
     assert!(
         source.contains(r#""trigger", "new_player_chargen""#),
         "connect.rs must emit OTEL world_materialization event for new player chargen path"
@@ -44,7 +44,7 @@ fn connect_rs_emits_otel_world_materialization_event_new_player() {
 
 #[test]
 fn connect_rs_emits_otel_world_materialization_event_returning_trigger() {
-    let source = include_str!("../src/dispatch/connect.rs");
+    let source = include_str!("../../src/dispatch/connect.rs");
     assert!(
         source.contains(r#""trigger", "returning_player_reconnect""#),
         "connect.rs must emit OTEL world_materialization event with returning_player_reconnect trigger"

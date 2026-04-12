@@ -1,0 +1,46 @@
+//! Consolidated integration tests for sidequest-server.
+//!
+//! All test modules compile as a single binary instead of 41 separate ones.
+//! This dramatically reduces compile time since the dependency tree is linked once.
+
+mod beat_dispatch_wiring_story_28_5_tests;
+mod canonical_snapshot_story_15_8_tests;
+mod confrontation_beats_wiring_story_28_3_tests;
+mod confrontation_defs_wiring_story_28_1_tests;
+mod conlang_wiring_story_15_19_tests;
+mod dice_dispatch_wiring_story_34_4_tests;
+mod dice_resolver_wiring_34_3;
+mod encounter_context_wiring_story_28_4_tests;
+mod entity_reference_wiring_story_35_2_tests;
+mod guest_npc_wiring_story_35_6_tests;
+mod image_broadcast_story_4_5_tests;
+mod image_pacing_story_14_6_tests;
+mod lore_char_creation_story_15_10_tests;
+mod lore_embedding_pending_wiring_tests;
+mod lore_retrieval_story_18_4_tests;
+mod map_telemetry_wiring_tests;
+mod narration_single_send_wiring_tests;
+mod narrative_persist_story_15_29_tests;
+mod npc_registry_chargen_isolation_playtest_2026_04_11;
+mod npc_turns_beat_system_story_28_8_tests;
+mod ocean_shift_wiring_story_15_25_tests;
+mod party_reconciliation_wiring_story_26_11_tests;
+mod prompt_assembled_story_18_6_tests;
+mod rag_wiring_story_15_7_tests;
+mod reconnect_narration_fallback_tests;
+mod render_lora_wiring_story_35_15_tests;
+mod render_queue_eviction_wiring_tests;
+mod scenario_integration_story_7_9_tests;
+mod scenario_scoring_wiring_story_35_3_tests;
+mod server_story_1_12_tests;
+mod server_story_2_1_tests;
+mod server_story_2_2_tests;
+mod session_restore_wiring_story_26_3_tests;
+mod telemetry_story_18_1_tests;
+mod telemetry_story_3_1_tests;
+mod treasure_xp_wiring_story_35_4_tests;
+mod turn_complete_consolidation_playtest_2026_04_11;
+mod turn_complete_telemetry_playtest_2026_04_11;
+mod turn_reminder_wiring_story_35_5_tests;
+mod watcher_story_3_6_tests;
+mod world_materialization_wiring_story_15_18_tests;

@@ -31,7 +31,7 @@
 
 #[test]
 fn wiring_dispatch_render_reads_visual_style_lora() {
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // The field access `vs.lora` (or `visual_style.lora` via bind) must
@@ -50,7 +50,7 @@ fn wiring_dispatch_render_reads_visual_style_lora() {
 
 #[test]
 fn wiring_dispatch_render_reads_visual_style_lora_trigger() {
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // Per Design Deviation #1 (architect), the field is `lora_trigger`,
@@ -75,7 +75,7 @@ fn wiring_dispatch_render_reads_visual_style_lora_trigger() {
 
 #[test]
 fn wiring_dispatch_render_substitutes_trigger_into_prompt() {
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // STRENGTHENED per review finding #8 (2026-04-10). The previous
@@ -124,7 +124,7 @@ fn wiring_dispatch_render_substitutes_trigger_into_prompt() {
 
 #[test]
 fn wiring_dispatch_render_calls_enqueue_with_lora_param() {
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // The call site `queue.enqueue(subject, &art_style, &model, &neg_prompt, "")`
@@ -158,7 +158,7 @@ fn wiring_dispatch_render_calls_enqueue_with_lora_param() {
 
 #[test]
 fn wiring_dispatch_render_emits_lora_activated_watcher_event() {
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // Per the architect's story context and CLAUDE.md OTEL principle,
@@ -195,7 +195,7 @@ fn wiring_dispatch_render_emits_lora_activated_watcher_event() {
 
 #[test]
 fn wiring_dispatch_render_preserves_non_lora_path() {
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // STRENGTHENED per review finding #9 (2026-04-10). Previous version
@@ -261,7 +261,7 @@ fn wiring_dispatch_render_warns_when_lora_has_no_trigger() {
     // emission mechanism in the (Some, None) match branch. Accept either
     // `tracing::warn!` with lora_trigger context OR a WatcherEventBuilder
     // with ValidationWarning severity — both surface to the GM panel.
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // A warning emission must exist AND must be associated with the
@@ -305,7 +305,7 @@ fn wiring_dispatch_render_validates_lora_path_stays_in_genre_pack_dir() {
     // Accept either pattern: explicit starts_with() check on the
     // resolved path, OR a RelativePath newtype that rejects `..` at
     // deserialization, OR Path::canonicalize() + prefix check.
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     let has_starts_with_guard =
@@ -347,7 +347,7 @@ fn wiring_dispatch_audio_reads_visual_style_preferred_model() {
     // compose visual style identically. This test enforces that audio.rs
     // reads `preferred_model` from visual_style rather than hardcoding
     // a literal.
-    let source = include_str!("../src/dispatch/audio.rs");
+    let source = include_str!("../../src/dispatch/audio.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // audio.rs must reference preferred_model from the visual_style
@@ -392,7 +392,7 @@ fn wiring_dispatch_audio_reads_visual_style_preferred_model() {
 
 #[test]
 fn wiring_dispatch_render_passes_preferred_model_as_variant() {
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     assert!(
@@ -417,7 +417,7 @@ fn wiring_no_new_prompt_composer_type_created() {
     // Per architect's Delivery Finding (Gap, non-blocking), Dev should
     // add the trigger substitution inline — not create a speculative
     // `PromptComposer` type. This test guards against scope creep.
-    let source = include_str!("../src/dispatch/render.rs");
+    let source = include_str!("../../src/dispatch/render.rs");
     let has_new_type =
         source.contains("struct PromptComposer") || source.contains("trait PromptComposer");
     assert!(

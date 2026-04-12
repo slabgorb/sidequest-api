@@ -113,7 +113,7 @@ fn conlang_otel_event_constructible() {
 #[test]
 fn dispatch_calls_record_language_knowledge_in_narration_postprocessing() {
     // Check dispatch/mod.rs — the main narration post-processing pipeline
-    let dispatch_source = include_str!("../src/dispatch/mod.rs");
+    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
     assert!(
         dispatch_source.contains("record_language_knowledge"),
         "dispatch/mod.rs must call record_language_knowledge() \
@@ -127,7 +127,7 @@ fn dispatch_calls_record_language_knowledge_in_narration_postprocessing() {
 /// when a morpheme is detected and recorded from narration.
 #[test]
 fn dispatch_emits_morpheme_learned_otel_event() {
-    let dispatch_source = include_str!("../src/dispatch/mod.rs");
+    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
     assert!(
         dispatch_source.contains("morpheme_learned")
             || dispatch_source.contains("conlang.morpheme_learned"),
@@ -142,7 +142,7 @@ fn dispatch_emits_morpheme_learned_otel_event() {
 #[test]
 fn dispatch_calls_record_name_knowledge() {
     // Check dispatch/mod.rs — NPC registry updates happen here
-    let dispatch_source = include_str!("../src/dispatch/mod.rs");
+    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
     assert!(
         dispatch_source.contains("record_name_knowledge"),
         "dispatch/mod.rs must call record_name_knowledge() \
@@ -156,7 +156,7 @@ fn dispatch_calls_record_name_knowledge() {
 /// when a generated name is recorded to the lore store.
 #[test]
 fn dispatch_emits_name_recorded_otel_event() {
-    let dispatch_source = include_str!("../src/dispatch/mod.rs");
+    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
     assert!(
         dispatch_source.contains("name_recorded")
             || dispatch_source.contains("conlang.name_recorded"),
@@ -170,7 +170,7 @@ fn dispatch_emits_name_recorded_otel_event() {
 /// to inject genre-specific name banks into the narrator context.
 #[test]
 fn prompt_calls_format_name_bank_for_prompt() {
-    let prompt_source = include_str!("../src/dispatch/prompt.rs");
+    let prompt_source = include_str!("../../src/dispatch/prompt.rs");
     assert!(
         prompt_source.contains("format_name_bank_for_prompt"),
         "dispatch/prompt.rs must call format_name_bank_for_prompt() \

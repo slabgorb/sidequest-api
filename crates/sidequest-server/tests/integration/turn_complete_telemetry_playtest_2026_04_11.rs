@@ -36,7 +36,7 @@
 
 #[test]
 fn turn_complete_emits_extraction_tier_field() {
-    let src = include_str!("../src/dispatch/telemetry.rs");
+    let src = include_str!("../../src/dispatch/telemetry.rs");
 
     // The fix must add `extraction_tier` to the TurnComplete builder, sourced
     // from result.prompt_tier (the orchestrator's per-turn tier selection).
@@ -53,7 +53,7 @@ fn turn_complete_emits_extraction_tier_field() {
 
 #[test]
 fn turn_complete_emits_genre_and_world_fields() {
-    let src = include_str!("../src/dispatch/telemetry.rs");
+    let src = include_str!("../../src/dispatch/telemetry.rs");
 
     // Both genre and world must be on the TurnComplete event so the dashboard
     // can group turns by session boundary. (player_id, genre, world) is the
@@ -78,7 +78,7 @@ fn turn_complete_still_carries_existing_dashboard_fields() {
     // If a future refactor accidentally drops one of these, the dashboard
     // would silently lose data and we'd be debugging "Tokens: 0 in / 0 out"
     // or "Intent: ?" instead of getting a build error.
-    let src = include_str!("../src/dispatch/telemetry.rs");
+    let src = include_str!("../../src/dispatch/telemetry.rs");
 
     let required_fields = [
         ("turn_id", r#".field("turn_id", turn_number)"#),

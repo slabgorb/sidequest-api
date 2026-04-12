@@ -140,7 +140,7 @@ fn ac3_score_scenario_uses_questioned_npcs_for_breadth() {
 
 #[test]
 fn ac4_slash_rs_calls_score_scenario() {
-    let source = include_str!("../src/dispatch/slash.rs");
+    let source = include_str!("../../src/dispatch/slash.rs");
     assert!(
         source.contains("score_scenario"),
         "dispatch/slash.rs must call score_scenario() after accusation resolution — story 35-3"
@@ -149,7 +149,7 @@ fn ac4_slash_rs_calls_score_scenario() {
 
 #[test]
 fn ac4_slash_rs_emits_scenario_scored_otel() {
-    let source = include_str!("../src/dispatch/slash.rs");
+    let source = include_str!("../../src/dispatch/slash.rs");
     assert!(
         source.contains("scenario.scored"),
         "dispatch/slash.rs must emit scenario.scored OTEL event — story 35-3"
@@ -158,7 +158,7 @@ fn ac4_slash_rs_emits_scenario_scored_otel() {
 
 #[test]
 fn ac5_slash_rs_appends_score_summary_to_narration() {
-    let source = include_str!("../src/dispatch/slash.rs");
+    let source = include_str!("../../src/dispatch/slash.rs");
     assert!(
         source.contains("score_summary"),
         "dispatch/slash.rs must append score summary to accusation narration — story 35-3"
@@ -167,7 +167,7 @@ fn ac5_slash_rs_appends_score_summary_to_narration() {
 
 #[test]
 fn ac2_dispatch_mod_tracks_questioned_npcs() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     assert!(
         source.contains("record_questioned_npc"),
         "dispatch/mod.rs must call record_questioned_npc() for scenario NPC tracking — story 35-3"
@@ -180,7 +180,7 @@ fn ac2_dispatch_mod_tracks_questioned_npcs() {
 
 #[test]
 fn wiring_score_scenario_has_production_consumer() {
-    let source = include_str!("../src/dispatch/slash.rs");
+    let source = include_str!("../../src/dispatch/slash.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
     assert!(
         production_code.contains("score_scenario"),

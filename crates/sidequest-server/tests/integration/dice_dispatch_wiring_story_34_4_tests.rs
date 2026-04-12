@@ -310,7 +310,7 @@ fn compose_dice_result_serde_round_trip() {
 #[test]
 #[ignore = "34-4: DiceThrow handler is a stub — wiring test matches comments, not call sites"]
 fn dispatch_has_dice_throw_handler() {
-    let dispatch_src = include_str!("../src/lib.rs");
+    let dispatch_src = include_str!("../../src/lib.rs");
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -325,8 +325,8 @@ fn dispatch_has_dice_throw_handler() {
 #[test]
 #[ignore = "34-4: resolve_dice not yet called from dispatch — import only"]
 fn dispatch_calls_resolve_dice() {
-    let dispatch_src = include_str!("../src/lib.rs");
-    let beat_src = include_str!("../src/dispatch/beat.rs");
+    let dispatch_src = include_str!("../../src/lib.rs");
+    let beat_src = include_str!("../../src/dispatch/beat.rs");
     let combined = format!("{}\n{}", dispatch_src, beat_src);
     let production_code = combined.split("#[cfg(test)]").next().unwrap_or(&combined);
 
@@ -339,8 +339,8 @@ fn dispatch_calls_resolve_dice() {
 #[test]
 #[ignore = "34-4: validate_dice_inputs not yet called from dispatch"]
 fn dispatch_calls_validate_dice_inputs() {
-    let dispatch_src = include_str!("../src/lib.rs");
-    let beat_src = include_str!("../src/dispatch/beat.rs");
+    let dispatch_src = include_str!("../../src/lib.rs");
+    let beat_src = include_str!("../../src/dispatch/beat.rs");
     let combined = format!("{}\n{}", dispatch_src, beat_src);
     let production_code = combined.split("#[cfg(test)]").next().unwrap_or(&combined);
 
@@ -353,7 +353,7 @@ fn dispatch_calls_validate_dice_inputs() {
 #[test]
 #[ignore = "34-4: DiceResult not yet broadcast — handler returns error"]
 fn dispatch_broadcasts_dice_result() {
-    let dispatch_src = include_str!("../src/lib.rs");
+    let dispatch_src = include_str!("../../src/lib.rs");
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()

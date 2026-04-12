@@ -21,9 +21,9 @@
 //! exactly one NARRATION arrow from dispatch to the writer — that's the
 //! design invariant these tests enforce at the source level.
 
-const RESPONSE_SRC: &str = include_str!("../src/dispatch/response.rs");
-const SESSION_SYNC_SRC: &str = include_str!("../src/dispatch/session_sync.rs");
-const DISPATCH_MOD_SRC: &str = include_str!("../src/dispatch/mod.rs");
+const RESPONSE_SRC: &str = include_str!("../../src/dispatch/response.rs");
+const SESSION_SYNC_SRC: &str = include_str!("../../src/dispatch/session_sync.rs");
+const DISPATCH_MOD_SRC: &str = include_str!("../../src/dispatch/mod.rs");
 
 fn prod(src: &str) -> &str {
     src.split("#[cfg(test)]").next().unwrap_or(src)

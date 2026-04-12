@@ -16,13 +16,13 @@
 #[test]
 fn wiring_server_imports_turn_reminder() {
     // Check lib.rs for a use/import of turn_reminder
-    let lib_source = include_str!("../src/lib.rs");
+    let lib_source = include_str!("../../src/lib.rs");
     let lib_prod = lib_source
         .split("#[cfg(test)]")
         .next()
         .unwrap_or(lib_source);
 
-    let connect_source = include_str!("../src/dispatch/connect.rs");
+    let connect_source = include_str!("../../src/dispatch/connect.rs");
     let connect_prod = connect_source
         .split("#[cfg(test)]")
         .next()
@@ -41,7 +41,7 @@ fn wiring_server_imports_turn_reminder() {
 
 #[test]
 fn wiring_lib_spawns_reminder_after_barrier() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../../src/lib.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // After TurnBarrier::new(), there must be a reminder spawn
@@ -53,7 +53,7 @@ fn wiring_lib_spawns_reminder_after_barrier() {
 
 #[test]
 fn wiring_lib_uses_tokio_spawn_for_reminder() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../../src/lib.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // The reminder is async — it must be spawned, not awaited inline
@@ -72,7 +72,7 @@ fn wiring_lib_uses_tokio_spawn_for_reminder() {
 
 #[test]
 fn wiring_connect_spawns_reminder_after_barrier() {
-    let source = include_str!("../src/dispatch/connect.rs");
+    let source = include_str!("../../src/dispatch/connect.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     assert!(
@@ -83,7 +83,7 @@ fn wiring_connect_spawns_reminder_after_barrier() {
 
 #[test]
 fn wiring_connect_uses_tokio_spawn_for_reminder() {
-    let source = include_str!("../src/dispatch/connect.rs");
+    let source = include_str!("../../src/dispatch/connect.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     let has_spawn =
@@ -100,8 +100,8 @@ fn wiring_connect_uses_tokio_spawn_for_reminder() {
 
 #[test]
 fn wiring_emits_reminder_spawned_otel() {
-    let lib_source = include_str!("../src/lib.rs");
-    let connect_source = include_str!("../src/dispatch/connect.rs");
+    let lib_source = include_str!("../../src/lib.rs");
+    let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     let has_event =
         lib_source.contains("reminder_spawned") || connect_source.contains("reminder_spawned");
@@ -117,8 +117,8 @@ fn wiring_emits_reminder_spawned_otel() {
 
 #[test]
 fn wiring_emits_reminder_fired_otel() {
-    let lib_source = include_str!("../src/lib.rs");
-    let connect_source = include_str!("../src/dispatch/connect.rs");
+    let lib_source = include_str!("../../src/lib.rs");
+    let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     // The reminder_fired event should be in the async reminder task,
     // which could be in either file or in a helper module
@@ -135,8 +135,8 @@ fn wiring_emits_reminder_fired_otel() {
 
 #[test]
 fn wiring_constructs_reminder_config() {
-    let lib_source = include_str!("../src/lib.rs");
-    let connect_source = include_str!("../src/dispatch/connect.rs");
+    let lib_source = include_str!("../../src/lib.rs");
+    let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     let all_source = format!("{}{}", lib_source, connect_source);
     assert!(
@@ -151,8 +151,8 @@ fn wiring_constructs_reminder_config() {
 
 #[test]
 fn wiring_reminder_receives_turn_mode() {
-    let lib_source = include_str!("../src/lib.rs");
-    let connect_source = include_str!("../src/dispatch/connect.rs");
+    let lib_source = include_str!("../../src/lib.rs");
+    let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     let all_source = format!("{}{}", lib_source, connect_source);
     // run_reminder takes turn mode — it must be passed through

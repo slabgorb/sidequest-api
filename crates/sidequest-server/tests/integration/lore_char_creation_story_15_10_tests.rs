@@ -142,7 +142,7 @@ fn seed_lore_from_char_creation_populates_store() {
 
 #[test]
 fn dispatch_character_creation_calls_seed_lore_from_char_creation() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../../src/lib.rs");
 
     // Find the dispatch_character_creation function body
     let fn_start = source
@@ -171,7 +171,7 @@ fn dispatch_character_creation_calls_seed_lore_from_char_creation() {
 
 #[test]
 fn confirmation_branch_seeds_lore_before_builder_cleared() {
-    let source = include_str!("../src/lib.rs");
+    let source = include_str!("../../src/lib.rs");
 
     let fn_start = source
         .find("async fn dispatch_character_creation(")

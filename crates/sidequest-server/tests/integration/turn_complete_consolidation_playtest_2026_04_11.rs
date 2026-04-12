@@ -39,7 +39,7 @@
 
 #[test]
 fn telemetry_emit_carries_patches_beats_delta_narration_fields() {
-    let src = include_str!("../src/dispatch/telemetry.rs");
+    let src = include_str!("../../src/dispatch/telemetry.rs");
 
     // The consolidated emission in emit_telemetry must include all four
     // fields that were previously only on main.rs's bridge emission.
@@ -74,7 +74,7 @@ fn telemetry_emit_carries_patches_beats_delta_narration_fields() {
 
 #[test]
 fn telemetry_emit_signature_takes_consolidated_args() {
-    let src = include_str!("../src/dispatch/telemetry.rs");
+    let src = include_str!("../../src/dispatch/telemetry.rs");
 
     // The function signature must take game_delta + patches_applied +
     // beats_fired so the call site can pass dispatch-computed values
@@ -105,7 +105,7 @@ fn telemetry_emit_signature_takes_consolidated_args() {
 
 #[test]
 fn main_turn_record_bridge_does_not_emit_turn_complete_event() {
-    let src = include_str!("../src/main.rs");
+    let src = include_str!("../../src/main.rs");
 
     // The bridge function must NOT contain a TurnComplete WatcherEventBuilder.
     // If this test ever fires, the dual-emission bug has regressed and the
@@ -126,7 +126,7 @@ fn main_turn_record_bridge_does_not_emit_turn_complete_event() {
 
 #[test]
 fn main_turn_record_bridge_still_persists_jsonl_for_training_data() {
-    let src = include_str!("../src/main.rs");
+    let src = include_str!("../../src/main.rs");
 
     // Sanity check: the bridge function is still alive for its OTHER
     // responsibilities. Removing the WatcherEvent emission must not

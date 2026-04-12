@@ -21,7 +21,7 @@
 /// in the dispatch pipeline, not just defined in the struct.
 #[test]
 fn dispatch_consumes_beat_selections_from_action_result() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     // beat_selections must be read from the ActionResult in dispatch
     assert!(
@@ -46,7 +46,7 @@ fn dispatch_consumes_beat_selections_from_action_result() {
 /// not just process the player's single beat.
 #[test]
 fn dispatch_loops_over_npc_beat_selections() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     // There must be a loop over beat_selections (for, iter, etc.)
     let has_iteration = dispatch_src.contains("for ") && dispatch_src.contains("beat_selection")
@@ -66,7 +66,7 @@ fn dispatch_loops_over_npc_beat_selections() {
 /// or handle all actors uniformly.
 #[test]
 fn dispatch_filters_or_handles_npc_actors() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     // Must distinguish NPC beats from player beats
     let handles_actor_filtering = dispatch_src.contains("actor")
@@ -86,7 +86,7 @@ fn dispatch_filters_or_handles_npc_actors() {
 /// not just once for the player.
 #[test]
 fn apply_beat_called_per_npc_actor() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     // dispatch_beat_selection (or equivalent) must be called inside the NPC loop
     let calls_beat_dispatch_in_loop = dispatch_src.contains("dispatch_beat_selection")
@@ -117,7 +117,7 @@ fn apply_beat_called_per_npc_actor() {
 /// AC-OTEL-NPC-Beat: Every NPC action must emit an encounter.npc_beat OTEL event.
 #[test]
 fn otel_npc_beat_event_emitted() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     assert!(
         dispatch_src.contains("encounter.npc_beat") || dispatch_src.contains("npc_beat"),
@@ -130,7 +130,7 @@ fn otel_npc_beat_event_emitted() {
 /// AC-OTEL-NPC-Beat: The OTEL event must include npc_name, beat_id, target, stat_check_result.
 #[test]
 fn otel_npc_beat_event_has_required_fields() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     // Each required field must appear in the OTEL event builder
     for field in &["npc_name", "beat_id", "target", "stat_check"] {
@@ -228,7 +228,7 @@ fn non_combat_npc_can_select_non_attack_beats() {
 /// NPC beats specifically (not just reusing the player beat path).
 #[test]
 fn npc_beat_dispatch_function_exists() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     // Must have a dedicated NPC beat dispatch path or handle NPC actors in the existing one
     let has_npc_dispatch = dispatch_src.contains("dispatch_npc_beat")
@@ -246,7 +246,7 @@ fn npc_beat_dispatch_function_exists() {
 /// per turn (one per actor), not just a single beat.
 #[test]
 fn dispatch_handles_multiple_beats_per_turn() {
-    let dispatch_src = include_str!("../src/dispatch/mod.rs");
+    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
     // The old pattern: single beat from scene_intent
     // The new pattern: iterate beat_selections for all actors
