@@ -2007,6 +2007,7 @@ pub(crate) async fn dispatch_character_creation(
                                             .and_then(|phil| phil.weight_limit)
                                     })
                             },
+                            chosen_player_beat: None,
                         };
                         // OTEL: log loaded confrontation defs (story 28-1)
                         if !ctx.confrontation_defs.is_empty() {

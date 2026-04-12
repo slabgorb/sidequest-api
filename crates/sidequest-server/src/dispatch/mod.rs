@@ -47,7 +47,7 @@ use crate::extraction::{
     extract_location_header, strip_combat_brackets, strip_fenced_blocks, strip_fourth_wall,
     strip_location_header,
 };
-use crate::{shared_session, AppState, NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
+use crate::{shared_session, AppState, NpcRegistryEntry, Severity, WatcherEventBuilder, WatcherEventType};
 
 /// Mutable per-player state passed through the dispatch pipeline.
 pub(crate) struct DispatchContext<'a> {
@@ -142,6 +142,13 @@ pub(crate) struct DispatchContext<'a> {
     pub carry_mode: sidequest_game::inventory::CarryMode,
     /// Weight limit when carry_mode is Weight. Story 19-7.
     pub weight_limit: Option<f64>,
+    /// Pre-resolved player beat selection from a structured BEAT_SELECTION
+    /// protocol message. When `Some`, the beat has already been validated
+    /// and applied to `snapshot.encounter` before the narrator runs. The
+    /// narrator's prompt includes this context so it can describe the outcome
+    /// without choosing the beat itself. Narrator-emitted beat_selections
+    /// for the player actor are ignored when this is set.
+    pub chosen_player_beat: Option<String>,
 }
 
 impl<'a> DispatchContext<'a> {
@@ -1787,8 +1794,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // actually sets encounter.resolved = true via apply_beat().
     let encounter_active_before_beat = ctx.in_encounter();
 
-    // Story 28-6: Dispatch beat selections for ALL actors (player + NPCs) from
-    // result.beat_selections. The narrator emits one entry per actor per round.
+    // Story 28-6 (original): narrator emits beat_selections for all actors.
+    // Confrontation wiring repair: when chosen_player_beat is set, the player's
+    // beat was already applied by the BEAT_SELECTION preprocessing in lib.rs.
+    // Only dispatch NPC beat_selections from the narrator. Player beat_selections
+    // from the narrator are IGNORED (emit OTEL warning) because the structured
+    // BEAT_SELECTION protocol message is the authoritative source for player beats.
     if ctx.snapshot.encounter.is_some() {
         for bs in result.beat_selections.iter() {
             let actor = &bs.actor;
@@ -1796,7 +1807,20 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             let target = bs.target.as_deref().unwrap_or("none");
             let is_player = actor.to_lowercase() == "player";
 
-            // Dispatch the beat through resolution pipeline (player + NPC same path)
+            if is_player && ctx.chosen_player_beat.is_some() {
+                // Player beat already resolved via structured BEAT_SELECTION.
+                // Narrator tried to pick one too — log and ignore.
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "encounter.player_beat_from_narrator_ignored")
+                    .field("narrator_beat_id", beat_id)
+                    .field("authoritative_beat_id", ctx.chosen_player_beat.as_deref().unwrap_or("none"))
+                    .severity(Severity::Warn)
+                    .send();
+                continue;
+            }
+
+            // NPC beats (or player beats when no structured selection was made,
+            // e.g., the narrator auto-resolved a player hesitation) dispatch normally.
             beat::dispatch_beat_selection(ctx, beat_id);
 
             // OTEL: encounter.beat dispatched — GM panel lie detector
@@ -1824,15 +1848,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         }
     }
 
-    // Legacy fallback: scene_intent carried beat_id before story 28-6 added
-    // beat_selections. Only fires when no beat_selections are present.
-    if result.beat_selections.is_empty() {
-        if let Some(ref beat_id) = result.scene_intent {
-            if ctx.snapshot.encounter.is_some() {
-                beat::dispatch_beat_selection(ctx, beat_id);
-            }
-        }
-    }
+    // DELETED: scene_intent silent fallback. Legacy backward-compat from before
+    // story 28-6 added beat_selections. This was a silent fallback that routed
+    // free-text through dispatch_beat_selection when beat_selections was empty.
+    // Violates "no silent fallbacks" (CLAUDE.md × 4 repos). If the narrator
+    // emits no beat_selections, no beat is dispatched — that's correct behavior.
 
     let encounter_active_after_beat = ctx.in_encounter();
     let encounter_just_resolved = encounter_active_before_beat && !encounter_active_after_beat;
