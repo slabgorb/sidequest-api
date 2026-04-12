@@ -239,6 +239,11 @@ struct AppStateInner {
     /// one warning per process lifetime, regardless of how many turns
     /// or sessions render with that genre.
     lora_warned_genres: Mutex<HashSet<String>>,
+    /// Map from render job UUID → session key ("genre:world") for routing
+    /// completed render results to the correct session broadcast channel.
+    /// Story 37-2: Without this, IMAGE messages go to global broadcast and
+    /// leak across sessions on shared servers.
+    render_job_sessions: Mutex<HashMap<uuid::Uuid, String>>,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -416,6 +421,7 @@ impl AppState {
                 watcher_tx: None,
                 turn_id_counter: Mutex::new(sidequest_agents::turn_record::TurnIdCounter::new()),
                 lora_warned_genres: Mutex::new(HashSet::new()),
+                render_job_sessions: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -541,6 +547,28 @@ impl AppState {
             .lock()
             .unwrap()
             .insert(genre_slug.to_string())
+    }
+
+    /// Register a render job's session affinity for image routing (story 37-2).
+    /// Called by render.rs after successful enqueue so the image broadcaster
+    /// can route the completed IMAGE message to the correct session channel.
+    pub fn register_render_session(&self, job_id: uuid::Uuid, session_key: String) {
+        self.inner
+            .render_job_sessions
+            .lock()
+            .unwrap()
+            .insert(job_id, session_key);
+    }
+
+    /// Look up and remove a render job's session key (story 37-2).
+    /// Returns the session key if found, None otherwise. Removal prevents
+    /// unbounded growth of the mapping.
+    pub fn take_render_session(&self, job_id: &uuid::Uuid) -> Option<String> {
+        self.inner
+            .render_job_sessions
+            .lock()
+            .unwrap()
+            .remove(job_id)
     }
 
     /// Cached genre pack loader — loads from disk once, then returns the same `Arc`.
@@ -760,10 +788,17 @@ pub fn reconnect_required_response(player_id: &str, message: &str) -> GameMessag
 /// Middleware:
 /// - CORS for React dev server at localhost:5173
 pub fn build_router(state: AppState) -> Router {
-    // Spawn image broadcaster — listens for render completions and broadcasts IMAGE messages
+    // Spawn image broadcaster — listens for render completions and routes
+    // IMAGE messages to the correct session channel (story 37-2).
+    //
+    // Pre-37-2: all images went to global broadcast_tx, leaking across
+    // sessions on shared servers. Now: render.rs registers job_id→session_key
+    // at enqueue time; the broadcaster looks up the session and routes through
+    // the session-scoped channel. Falls back to global broadcast only if the
+    // mapping is missing (shouldn't happen in normal flow).
     if let Some(ref queue) = state.inner.render_queue {
         let mut render_rx = queue.subscribe();
-        let broadcast_tx = state.inner.broadcast_tx.clone();
+        let state_for_broadcaster = state.clone();
         tokio::spawn(async move {
             while let Ok(result) = render_rx.recv().await {
                 if let sidequest_game::RenderJobResult::Success {
@@ -799,28 +834,64 @@ pub fn build_router(state: AppState) -> Router {
                             image_url
                         }
                     };
-                    tracing::info!(
-                        job_id = %job_id, url = %served_url,
-                        tier = %tier, scene_type = %scene_type,
-                        "render_broadcast — sending IMAGE"
-                    );
+
                     let msg = GameMessage::Image {
                         payload: sidequest_protocol::ImagePayload {
-                            url: served_url,
+                            url: served_url.clone(),
                             description: String::new(),
                             handout: false,
                             render_id: Some(job_id.to_string()),
-                            tier: if tier.is_empty() { None } else { Some(tier) },
+                            tier: if tier.is_empty() { None } else { Some(tier.clone()) },
                             scene_type: if scene_type.is_empty() {
                                 None
                             } else {
-                                Some(scene_type)
+                                Some(scene_type.clone())
                             },
                             generation_ms: Some(generation_ms),
                         },
                         player_id: String::new(),
                     };
-                    let _ = broadcast_tx.send(msg);
+
+                    // Story 37-2: Route through session channel if mapping exists.
+                    let session_key = state_for_broadcaster.take_render_session(&job_id);
+                    if let Some(ref key) = session_key {
+                        let session_arc = {
+                            let sessions = state_for_broadcaster.inner.sessions.lock().unwrap();
+                            sessions.get(key).cloned()
+                        };
+                        if let Some(ss_arc) = session_arc {
+                            if let Ok(ss) = ss_arc.try_lock() {
+                                tracing::info!(
+                                    job_id = %job_id, url = %served_url,
+                                    tier = %tier, scene_type = %scene_type,
+                                    session_key = %key,
+                                    "render_broadcast — sending IMAGE to session channel"
+                                );
+                                ss.broadcast(msg);
+                                continue;
+                            }
+                            // try_lock failed — session is busy, fall through to global
+                            tracing::warn!(
+                                job_id = %job_id,
+                                session_key = %key,
+                                "render_broadcast — session locked, falling back to global broadcast"
+                            );
+                        } else {
+                            tracing::warn!(
+                                job_id = %job_id,
+                                session_key = %key,
+                                "render_broadcast — session not found in registry, falling back to global broadcast"
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            job_id = %job_id,
+                            "render_broadcast — no session mapping for job, falling back to global broadcast"
+                        );
+                    }
+
+                    // Fallback: global broadcast (pre-37-2 behavior)
+                    let _ = state_for_broadcaster.inner.broadcast_tx.send(msg);
                 }
             }
         });
