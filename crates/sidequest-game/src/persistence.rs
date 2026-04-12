@@ -380,7 +380,7 @@ impl SessionStore for SqliteStore {
         if entries.is_empty() {
             return Ok(None);
         }
-        let mut recap = String::from("Previously On...\n\n");
+        let mut recap = String::from("## Previously On\u{2026}\n\n");
         for entry in &entries {
             let content = if entry.content.len() > 200 {
                 let truncated = &entry.content[..entry.content.floor_char_boundary(200)];
