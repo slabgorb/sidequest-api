@@ -1534,8 +1534,6 @@ async fn dispatch_message(
     // the outcome") through the existing dispatch pipeline. This avoids
     // duplicating the 200-line DispatchContext construction.
     let mut chosen_player_beat: Option<String> = None;
-    // Story 34-9: dice outcome consumed by the next narration turn.
-    let mut pending_roll_outcome: Option<sidequest_protocol::RollOutcome> = None;
     let msg = match msg {
         GameMessage::BeatSelection { payload, .. } => {
             if !session.is_playing() {
@@ -2161,7 +2159,17 @@ async fn dispatch_message(
                             })
                     },
                     chosen_player_beat: chosen_player_beat.clone(),
-                    pending_roll_outcome: pending_roll_outcome.take(),
+                    // Story 34-9: consume last_roll_outcome from shared session
+                    pending_roll_outcome: {
+                        let holder = shared_session_holder.lock().await;
+                        match &*holder {
+                            Some(ss_arc) => {
+                                let mut ss = ss_arc.lock().await;
+                                ss.last_roll_outcome.take()
+                            }
+                            None => None,
+                        }
+                    },
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {
@@ -2347,10 +2355,12 @@ async fn dispatch_message(
             );
 
             // Broadcast via shared session to all connected players
+            // and store outcome for narrator injection (story 34-9)
             {
                 let holder_guard = shared_session_holder.lock().await;
                 if let Some(ref ss_arc) = *holder_guard {
-                    let ss = ss_arc.lock().await;
+                    let mut ss = ss_arc.lock().await;
+                    ss.last_roll_outcome = Some(resolved.outcome);
                     ss.broadcast(GameMessage::DiceResult {
                         player_id: "server".to_string(),
                         payload: result_payload.clone(),
