@@ -794,73 +794,91 @@ pub fn build_router(state: AppState) -> Router {
     // Pre-37-2: all images went to global broadcast_tx, leaking across
     // sessions on shared servers. Now: render.rs registers job_id→session_key
     // at enqueue time; the broadcaster looks up the session and routes through
-    // the session-scoped channel. Falls back to global broadcast only if the
-    // mapping is missing (shouldn't happen in normal flow).
+    // the session-scoped channel. No global broadcast fallback — if the session
+    // is missing or the mapping is absent, the IMAGE is dropped with an error
+    // WatcherEvent (fail loudly, per CLAUDE.md).
     if let Some(ref queue) = state.inner.render_queue {
         let mut render_rx = queue.subscribe();
         let state_for_broadcaster = state.clone();
         tokio::spawn(async move {
             while let Ok(result) = render_rx.recv().await {
-                if let sidequest_game::RenderJobResult::Success {
-                    job_id,
-                    image_url,
-                    generation_ms,
-                    tier,
-                    scene_type,
-                } = result
-                {
-                    if image_url.trim().is_empty() {
-                        tracing::error!(job_id = %job_id, "render_broadcast_blocked — empty image_url");
-                        continue;
-                    }
-                    // Rewrite absolute file paths to served URLs.
-                    let served_url = {
-                        let img_path = std::path::Path::new(&image_url);
-                        let renders_base = std::env::var("SIDEQUEST_OUTPUT_DIR")
-                            .map(std::path::PathBuf::from)
-                            .unwrap_or_else(|_| {
-                                std::path::PathBuf::from(
-                                    std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()),
-                                )
-                                .join(".sidequest")
-                                .join("renders")
-                            });
-                        if let Ok(rel) = img_path.strip_prefix(&renders_base) {
-                            format!("/api/renders/{}", rel.display())
-                        } else if let Some(filename) = img_path.file_name().and_then(|f| f.to_str())
-                        {
-                            format!("/api/renders/{}", filename)
-                        } else {
-                            image_url
+                match result {
+                    sidequest_game::RenderJobResult::Success {
+                        job_id,
+                        image_url,
+                        generation_ms,
+                        tier,
+                        scene_type,
+                    } => {
+                        if image_url.trim().is_empty() {
+                            tracing::error!(job_id = %job_id, "render_broadcast_blocked — empty image_url");
+                            state_for_broadcaster.take_render_session(&job_id);
+                            continue;
                         }
-                    };
-
-                    let msg = GameMessage::Image {
-                        payload: sidequest_protocol::ImagePayload {
-                            url: served_url.clone(),
-                            description: String::new(),
-                            handout: false,
-                            render_id: Some(job_id.to_string()),
-                            tier: if tier.is_empty() { None } else { Some(tier.clone()) },
-                            scene_type: if scene_type.is_empty() {
-                                None
+                        // Rewrite absolute file paths to served URLs.
+                        let served_url = {
+                            let img_path = std::path::Path::new(&image_url);
+                            let renders_base = std::env::var("SIDEQUEST_OUTPUT_DIR")
+                                .map(std::path::PathBuf::from)
+                                .unwrap_or_else(|_| {
+                                    std::path::PathBuf::from(
+                                        std::env::var("HOME")
+                                            .unwrap_or_else(|_| "/tmp".to_string()),
+                                    )
+                                    .join(".sidequest")
+                                    .join("renders")
+                                });
+                            if let Ok(rel) = img_path.strip_prefix(&renders_base) {
+                                format!("/api/renders/{}", rel.display())
+                            } else if let Some(filename) =
+                                img_path.file_name().and_then(|f| f.to_str())
+                            {
+                                format!("/api/renders/{}", filename)
                             } else {
-                                Some(scene_type.clone())
-                            },
-                            generation_ms: Some(generation_ms),
-                        },
-                        player_id: String::new(),
-                    };
-
-                    // Story 37-2: Route through session channel if mapping exists.
-                    let session_key = state_for_broadcaster.take_render_session(&job_id);
-                    if let Some(ref key) = session_key {
-                        let session_arc = {
-                            let sessions = state_for_broadcaster.inner.sessions.lock().unwrap();
-                            sessions.get(key).cloned()
+                                image_url
+                            }
                         };
-                        if let Some(ss_arc) = session_arc {
-                            if let Ok(ss) = ss_arc.try_lock() {
+
+                        let msg = GameMessage::Image {
+                            payload: sidequest_protocol::ImagePayload {
+                                url: served_url.clone(),
+                                description: String::new(),
+                                handout: false,
+                                render_id: Some(job_id.to_string()),
+                                tier: if tier.is_empty() { None } else { Some(tier.clone()) },
+                                scene_type: if scene_type.is_empty() {
+                                    None
+                                } else {
+                                    Some(scene_type.clone())
+                                },
+                                generation_ms: Some(generation_ms),
+                            },
+                            player_id: String::new(),
+                        };
+
+                        // Story 37-2: Route through session channel.
+                        // Peek the session mapping first; only consume after delivery.
+                        let session_key = {
+                            state_for_broadcaster
+                                .inner
+                                .render_job_sessions
+                                .lock()
+                                .unwrap()
+                                .get(&job_id)
+                                .cloned()
+                        };
+                        if let Some(ref key) = session_key {
+                            let session_arc = {
+                                let sessions =
+                                    state_for_broadcaster.inner.sessions.lock().unwrap();
+                                sessions.get(key).cloned()
+                            };
+                            if let Some(ss_arc) = session_arc {
+                                // Use .lock().await — the broadcaster is async and not
+                                // on the dispatch critical path. Waiting for the session
+                                // lock is correct; try_lock + global fallback would
+                                // reintroduce cross-session leakage under contention.
+                                let ss = ss_arc.lock().await;
                                 tracing::info!(
                                     job_id = %job_id, url = %served_url,
                                     tier = %tier, scene_type = %scene_type,
@@ -868,30 +886,55 @@ pub fn build_router(state: AppState) -> Router {
                                     "render_broadcast — sending IMAGE to session channel"
                                 );
                                 ss.broadcast(msg);
-                                continue;
+                            } else {
+                                // Session evicted between enqueue and delivery — drop
+                                // the message rather than broadcasting to wrong sessions.
+                                tracing::error!(
+                                    job_id = %job_id,
+                                    session_key = %key,
+                                    "render_broadcast — session not found in registry, dropping IMAGE (no silent fallback)"
+                                );
+                                WatcherEventBuilder::new(
+                                    "render",
+                                    WatcherEventType::ValidationWarning,
+                                )
+                                .severity(Severity::Error)
+                                .field("action", "image_session_not_found")
+                                .field("job_id", &job_id.to_string())
+                                .field("session_key", key.as_str())
+                                .send();
                             }
-                            // try_lock failed — session is busy, fall through to global
-                            tracing::warn!(
-                                job_id = %job_id,
-                                session_key = %key,
-                                "render_broadcast — session locked, falling back to global broadcast"
-                            );
                         } else {
-                            tracing::warn!(
+                            // No session mapping — should not happen in normal flow.
+                            // Drop the message and emit a WatcherEvent error.
+                            tracing::error!(
                                 job_id = %job_id,
-                                session_key = %key,
-                                "render_broadcast — session not found in registry, falling back to global broadcast"
+                                "render_broadcast — no session mapping for job, dropping IMAGE (no silent fallback)"
                             );
+                            WatcherEventBuilder::new(
+                                "render",
+                                WatcherEventType::ValidationWarning,
+                            )
+                            .severity(Severity::Error)
+                            .field("action", "image_no_session_mapping")
+                            .field("job_id", &job_id.to_string())
+                            .send();
                         }
-                    } else {
-                        tracing::warn!(
-                            job_id = %job_id,
-                            "render_broadcast — no session mapping for job, falling back to global broadcast"
-                        );
+                        // Consume the mapping after delivery (or drop).
+                        state_for_broadcaster.take_render_session(&job_id);
                     }
-
-                    // Fallback: global broadcast (pre-37-2 behavior)
-                    let _ = state_for_broadcaster.inner.broadcast_tx.send(msg);
+                    sidequest_game::RenderJobResult::Failed { job_id, error } => {
+                        tracing::error!(
+                            job_id = %job_id,
+                            error = %error,
+                            "RENDER PIPELINE FAILED — no fallback, no silent skip"
+                        );
+                        // Clean up orphaned session mapping.
+                        state_for_broadcaster.take_render_session(&job_id);
+                    }
+                    _ => {
+                        tracing::debug!("Unrecognized render result variant");
+                    }
                 }
             }
         });
