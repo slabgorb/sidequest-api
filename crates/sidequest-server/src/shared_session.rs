@@ -254,6 +254,10 @@ pub struct SharedGameSession {
     /// Keyed by `request_id`. Inserted when DiceRequest is broadcast,
     /// consumed when DiceThrow arrives and resolution completes.
     pub pending_dice_requests: HashMap<String, sidequest_protocol::DiceRequestPayload>,
+    /// Last resolved dice outcome (story 34-9). Set by DiceThrow handler
+    /// after resolution, consumed (taken) by the next narration dispatch
+    /// to inject into TurnContext for narrator prompt tone shaping.
+    pub last_roll_outcome: Option<sidequest_protocol::RollOutcome>,
 
     // --- Per-player state ---
     pub players: HashMap<String, PlayerState>,
@@ -291,6 +295,7 @@ impl SharedGameSession {
             scene_count: 0,
             region_names: vec![],
             pending_dice_requests: HashMap::new(),
+            last_roll_outcome: None,
             players: HashMap::new(),
             session_tx,
         }
