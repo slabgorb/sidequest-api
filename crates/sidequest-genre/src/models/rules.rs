@@ -265,6 +265,23 @@ impl TryFrom<RawMetricDef> for MetricDef {
     }
 }
 
+/// How a confrontation resolves each turn.
+///
+/// `BeatSelection` is the default: the narrator selects a beat per turn and the
+/// engine applies it to the shared metric. `SealedLetterLookup` is the
+/// simultaneous-commit variant introduced by ADR-077 (Dogfight Subsystem): each
+/// actor commits a choice privately, and the engine resolves via cross-product
+/// lookup in an interaction table.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolutionMode {
+    /// Existing behavior — narrator selects a beat, engine applies it.
+    #[default]
+    BeatSelection,
+    /// Simultaneous-commit table lookup (e.g., dogfight maneuvers).
+    SealedLetterLookup,
+}
+
 /// Raw confrontation definition for deserialization with validation.
 #[derive(Debug, Clone, Deserialize)]
 struct RawConfrontationDef {
@@ -272,6 +289,8 @@ struct RawConfrontationDef {
     confrontation_type: String,
     label: String,
     category: String,
+    #[serde(default)]
+    resolution_mode: ResolutionMode,
     metric: MetricDef,
     beats: Vec<BeatDef>,
     #[serde(default)]
@@ -297,6 +316,9 @@ pub struct ConfrontationDef {
     pub label: String,
     /// Category: "combat", "social", "pre_combat", or "movement".
     pub category: String,
+    /// How this confrontation resolves turns. Defaults to `BeatSelection`.
+    #[serde(default)]
+    pub resolution_mode: ResolutionMode,
     /// Primary tracking metric.
     pub metric: MetricDef,
     /// Available actions during this confrontation.
@@ -345,6 +367,7 @@ impl TryFrom<RawConfrontationDef> for ConfrontationDef {
             confrontation_type: raw.confrontation_type,
             label: raw.label,
             category: raw.category,
+            resolution_mode: raw.resolution_mode,
             metric: raw.metric,
             beats: raw.beats,
             secondary_stats: raw.secondary_stats,
