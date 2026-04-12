@@ -8,9 +8,16 @@ use sidequest_protocol::{
 
 use super::DispatchContext;
 
-/// Map free-text status effect strings to typed perceptual effects.
-/// Status strings are set by the narrator and stored on CreatureCore.statuses.
-/// Perceptual effects drive per-player narration rewriting in multiplayer.
+/// Parse structured status effect codes into typed perceptual effects.
+///
+/// Status codes are set by the narrator in game_patch and stored on
+/// CreatureCore.statuses. Expected formats: "blinded", "deafened",
+/// "hallucinating", "charmed_by:<source>", "dominated_by:<controller>".
+///
+/// Unrecognized codes emit an OTEL warning — no silent drop, no keyword
+/// fuzzy match. This replaces the `lower.contains("blind")` pattern that
+/// violated the Zork Problem (ADR-010/032) and the "no silent fallbacks"
+/// rule (CLAUDE.md).
 pub(super) fn map_statuses_to_perceptual_effects(
     statuses: &[String],
 ) -> Vec<sidequest_game::perception::PerceptualEffect> {
@@ -19,28 +26,23 @@ pub(super) fn map_statuses_to_perceptual_effects(
     statuses
         .iter()
         .filter_map(|s| {
-            let lower = s.to_lowercase();
-            if lower.contains("blind") {
-                Some(PerceptualEffect::Blinded)
-            } else if lower.contains("deaf") {
-                Some(PerceptualEffect::Deafened)
-            } else if lower.contains("hallucin") {
-                Some(PerceptualEffect::Hallucinating)
-            } else if lower.contains("charm") {
-                let source = lower
-                    .strip_prefix("charmed by ")
-                    .unwrap_or("unknown")
-                    .to_string();
-                Some(PerceptualEffect::Charmed { source })
-            } else if lower.contains("dominat") || lower.contains("possess") {
-                let controller = lower
-                    .strip_prefix("dominated by ")
-                    .or_else(|| lower.strip_prefix("possessed by "))
-                    .unwrap_or("unknown")
-                    .to_string();
-                Some(PerceptualEffect::Dominated { controller })
-            } else {
-                None
+            match PerceptualEffect::from_status_code(s) {
+                Some(effect) => Some(effect),
+                None => {
+                    // FAIL LOUD — narrator emitted an unknown status effect code.
+                    // Don't silently drop it. OTEL warning so the GM panel sees it.
+                    crate::WatcherEventBuilder::new("perception", crate::WatcherEventType::ValidationWarning)
+                        .field("event", "perception.unknown_status_code")
+                        .field("status_code", s.as_str())
+                        .field("expected_formats", "blinded|deafened|hallucinating|charmed_by:<source>|dominated_by:<controller>")
+                        .severity(crate::Severity::Warn)
+                        .send();
+                    tracing::warn!(
+                        status_code = %s,
+                        "perception.unknown_status_code — narrator emitted unrecognized status effect, no fallback"
+                    );
+                    None
+                }
             }
         })
         .collect()

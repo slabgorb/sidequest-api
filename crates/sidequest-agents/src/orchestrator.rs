@@ -94,6 +94,9 @@ pub struct ActionResult {
     pub prompt_text: Option<String>,
     /// Raw LLM response text before extraction (ADR-073).
     pub raw_response_text: Option<String>,
+    /// Narrator-emitted affinity progress deltas. Replaces keyword trigger matching
+    /// in dispatch/state_mutations.rs (Zork Problem fix). Each entry is (name, delta).
+    pub affinity_progress: Vec<(String, u32)>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -1125,6 +1128,7 @@ impl GameService for Orchestrator {
                     location: None,
                     prompt_text: Some(prompt.clone()),
                     raw_response_text: None,
+                    affinity_progress: vec![],
                 }
             }
         }
@@ -1223,6 +1227,27 @@ struct GamePatchExtraction {
     /// Location name from the narrator's game_patch JSON (fallback for header extraction).
     #[serde(default)]
     location: Option<String>,
+    /// Narrator-emitted affinity progress deltas. Replaces the keyword trigger
+    /// matching in dispatch/state_mutations.rs that violated the Zork Problem
+    /// (ADR-010/032). The narrator has access to genre pack affinity definitions
+    /// via prompt context and emits structured deltas instead of relying on
+    /// server-side substring matching against action text.
+    #[serde(default)]
+    affinity_progress: Vec<AffinityProgressDelta>,
+}
+
+/// Structured affinity progress from the narrator (replaces keyword trigger matching).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct AffinityProgressDelta {
+    /// Affinity name from the genre pack definition (e.g., "vehicular_combat").
+    name: String,
+    /// Progress increment (typically 1).
+    #[serde(default = "default_affinity_delta")]
+    delta: u32,
+}
+
+fn default_affinity_delta() -> u32 {
+    1
 }
 
 /// Extract and parse the ```game_patch``` block from a raw narrator response.
@@ -1390,6 +1415,8 @@ pub struct NarratorExtraction {
     pub confrontation: Option<String>,
     /// Location name from game_patch JSON (fallback for header extraction).
     pub location: Option<String>,
+    /// Narrator-emitted affinity progress deltas. Replaces keyword trigger matching.
+    pub affinity_progress: Vec<(String, u32)>,
 }
 
 /// Extract the narrator's prose and all structured fields from a raw response.
@@ -1446,6 +1473,7 @@ fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
         beat_selections: patch.beat_selections,
         confrontation: patch.confrontation,
         location: patch.location,
+        affinity_progress: patch.affinity_progress.into_iter().map(|d| (d.name, d.delta)).collect(),
     }
 }
 

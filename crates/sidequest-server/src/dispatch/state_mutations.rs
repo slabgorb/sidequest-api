@@ -17,8 +17,8 @@ pub(crate) struct MutationResult {
 pub(crate) async fn apply_state_mutations(
     ctx: &mut DispatchContext<'_>,
     result: &sidequest_agents::orchestrator::ActionResult,
-    clean_narration: &str,
-    effective_action: &str,
+    _clean_narration: &str,
+    _effective_action: &str,
 ) -> MutationResult {
     let mut all_tier_events = Vec::new();
     let gold_before = ctx.inventory.gold;
@@ -76,83 +76,79 @@ pub(crate) async fn apply_state_mutations(
             ch.core.level = *ctx.level;
             ch.core.inventory = ctx.inventory.clone();
 
-            // Increment affinity progress for any matching action triggers.
-            let genre_code = sidequest_genre::GenreCode::new(ctx.genre_slug);
-            if let Ok(code) = genre_code {
-                let loader = GenreLoader::new(vec![ctx.state.genre_packs_path().to_path_buf()]);
-                if let Ok(pack) = loader.load(&code) {
-                    let genre_affinities = &pack.progression.affinities;
+            // Apply narrator-emitted affinity progress deltas.
+            //
+            // Replaces keyword trigger matching (`combined_lower.contains(&word)`)
+            // that violated the Zork Problem (ADR-010/032). The narrator now emits
+            // structured `affinity_progress: [{name, delta}]` in game_patch when a
+            // player action or narration context matches an affinity trigger. The
+            // narrator has access to genre pack affinity definitions via prompt
+            // context and makes the determination via LLM, not substring matching.
+            for (aff_name, delta) in &result.affinity_progress {
+                sidequest_game::increment_affinity_progress(
+                    &mut ch.affinities,
+                    aff_name,
+                    *delta,
+                );
+                WatcherEventBuilder::new("affinity", WatcherEventType::StateTransition)
+                    .field("event", "affinity.incremented")
+                    .field("affinity", aff_name.as_str())
+                    .field("delta", *delta)
+                    .field("source", "narrator_game_patch")
+                    .field("progress", ch.affinities.iter().find(|a| a.name == *aff_name).map(|a| a.progress).unwrap_or(0))
+                    .send();
+                tracing::info!(
+                    affinity = %aff_name,
+                    delta = delta,
+                    progress = ch.affinities.iter().find(|a| a.name == *aff_name).map(|a| a.progress).unwrap_or(0),
+                    "affinity.incremented — narrator-emitted delta"
+                );
+            }
 
-                    let combined_lower = format!(
-                        "{} {}",
-                        effective_action.to_lowercase(),
-                        clean_narration.to_lowercase(),
-                    );
-                    for aff_def in genre_affinities {
-                        let matches_trigger = aff_def.triggers.iter().any(|trigger| {
-                            trigger
-                                .split_whitespace()
-                                .map(|w| w.to_lowercase())
-                                .filter(|w| w.len() >= 4)
-                                .any(|word| combined_lower.contains(&word))
-                        });
-                        if matches_trigger {
-                            sidequest_game::increment_affinity_progress(
-                                &mut ch.affinities,
-                                &aff_def.name,
-                                1,
-                            );
-                            tracing::info!(
-                                affinity = %aff_def.name,
-                                progress = ch.affinities.iter().find(|a| a.name == aff_def.name).map(|a| a.progress).unwrap_or(0),
-                                "Affinity progress incremented"
-                            );
-                        }
-                    }
-
-                    // Check thresholds for tier-ups
-                    let thresholds_for = |name: &str| -> Option<Vec<u32>> {
-                        genre_affinities
-                            .iter()
-                            .find(|a| a.name == name)
-                            .map(|a| a.tier_thresholds.clone())
-                    };
-                    let narration_hint_for = |name: &str, tier: u8| -> Option<String> {
-                        genre_affinities
-                            .iter()
-                            .find(|a| a.name == name)
-                            .and_then(|a| {
-                                a.unlocks.as_ref().and_then(|u| {
-                                    let tier_data = match tier {
-                                        1 => u.tier_1.as_ref(),
-                                        2 => u.tier_2.as_ref(),
-                                        3 => u.tier_3.as_ref(),
-                                        _ => None,
-                                    };
-                                    tier_data.map(|t| t.description.clone())
-                                })
+            // Check thresholds for tier-ups (uses ctx.genre_affinities, not GenreLoader)
+            {
+                let genre_affinities = &ctx.genre_affinities;
+                let thresholds_for = |name: &str| -> Option<Vec<u32>> {
+                    genre_affinities
+                        .iter()
+                        .find(|a| a.name == name)
+                        .map(|a| a.tier_thresholds.clone())
+                };
+                let narration_hint_for = |name: &str, tier: u8| -> Option<String> {
+                    genre_affinities
+                        .iter()
+                        .find(|a| a.name == name)
+                        .and_then(|a| {
+                            a.unlocks.as_ref().and_then(|u| {
+                                let tier_data = match tier {
+                                    1 => u.tier_1.as_ref(),
+                                    2 => u.tier_2.as_ref(),
+                                    3 => u.tier_3.as_ref(),
+                                    _ => None,
+                                };
+                                tier_data.map(|t| t.description.clone())
                             })
-                    };
+                        })
+                };
 
-                    let tier_events = sidequest_game::check_affinity_thresholds(
-                        &mut ch.affinities,
-                        ctx.char_name,
-                        &thresholds_for,
-                        &narration_hint_for,
+                let tier_events = sidequest_game::check_affinity_thresholds(
+                    &mut ch.affinities,
+                    ctx.char_name,
+                    &thresholds_for,
+                    &narration_hint_for,
+                );
+
+                for event in &tier_events {
+                    tracing::info!(
+                        affinity = %event.affinity_name,
+                        old_tier = event.old_tier,
+                        new_tier = event.new_tier,
+                        character = %event.character_name,
+                        "Affinity tier up!"
                     );
-
-                    for event in &tier_events {
-                        tracing::info!(
-                            affinity = %event.affinity_name,
-                            old_tier = event.old_tier,
-                            new_tier = event.new_tier,
-                            character = %event.character_name,
-                            "Affinity tier up!"
-                        );
-                    }
-                    all_tier_events.extend(tier_events);
                 }
-            } // if let Ok(code)
+                all_tier_events.extend(tier_events);
+            }
 
             // Write updated character back to character_json
             if let Ok(updated_json) = serde_json::to_value(&ch) {
