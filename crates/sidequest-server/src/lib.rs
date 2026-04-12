@@ -1409,6 +1409,103 @@ async fn dispatch_message(
         player_id = %player_id,
         "dispatch_message.entry"
     );
+
+    // ── BEAT_SELECTION preprocessing ──────────────────────────────────────
+    // Validate the beat_id, apply the beat to the encounter BEFORE the
+    // narrator runs, then convert to a synthetic PlayerAction so the
+    // narrator receives structured context ("player chose beat X, describe
+    // the outcome") through the existing dispatch pipeline. This avoids
+    // duplicating the 200-line DispatchContext construction.
+    let mut chosen_player_beat: Option<String> = None;
+    let msg = match msg {
+        GameMessage::BeatSelection { payload, .. } => {
+            if !session.is_playing() {
+                return vec![error_response(player_id, "Cannot select beat before game starts")];
+            }
+            // Load confrontation defs to validate beat_id
+            let conf_defs: Vec<sidequest_genre::ConfrontationDef> = {
+                let gs = session.genre_slug().unwrap_or("");
+                sidequest_genre::GenreCode::new(gs)
+                    .ok()
+                    .and_then(|gc| state.genre_cache().get_or_load(&gc, state.genre_loader()).ok())
+                    .map(|pack| pack.rules.confrontations.clone())
+                    .unwrap_or_default()
+            };
+            let Some(ref mut encounter) = snapshot.encounter else {
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "beat_selection.no_active_encounter")
+                    .field("beat_id", &payload.beat_id)
+                    .send();
+                return vec![error_response(player_id, "No active encounter — beat selection rejected")];
+            };
+            let Some(def) = crate::find_confrontation_def(&conf_defs, &encounter.encounter_type) else {
+                return vec![error_response(player_id, &format!("No confrontation def for type '{}'", encounter.encounter_type))];
+            };
+            let Some(beat) = def.beats.iter().find(|b| b.id == payload.beat_id) else {
+                // FAIL LOUD — no label fallback, no fuzzy match, no silent drop.
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "beat_selection.unknown_beat_id")
+                    .field("beat_id", &payload.beat_id)
+                    .field("encounter_type", &encounter.encounter_type)
+                    .field("available_ids", def.beats.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(","))
+                    .severity(Severity::Error)
+                    .send();
+                return vec![error_response(player_id, &format!(
+                    "Unknown beat_id '{}' in {} encounter. Available: [{}]",
+                    payload.beat_id,
+                    encounter.encounter_type,
+                    def.beats.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(", "),
+                ))];
+            };
+            let beat_label = beat.label.clone();
+            let stat_check = beat.stat_check.clone();
+            let metric_name = encounter.metric.name.clone();
+            let metric_before = encounter.metric.current;
+
+            // Apply beat deterministically — mechanical state change happens HERE,
+            // before the narrator runs. The narrator only describes the outcome.
+            if let Err(e) = encounter.apply_beat(&payload.beat_id, def) {
+                return vec![error_response(player_id, &format!("Beat apply failed: {}", e))];
+            }
+            let metric_after = encounter.metric.current;
+
+            // OTEL: structured beat received + applied
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("event", "encounter.player_beat_received")
+                .field("beat_id", &payload.beat_id)
+                .field("actor", &payload.actor)
+                .field("source", "structured_beat_selection")
+                .field("metric_before", metric_before)
+                .field("metric_after", metric_after)
+                .field("stat_check", &stat_check)
+                .send();
+
+            chosen_player_beat = Some(payload.beat_id.clone());
+
+            // Synthesize a structured PlayerAction for the narrator.
+            // This is NOT natural-language text — it's a structured tag that the
+            // narrator prompt will format into context. The narrator's job is to
+            // describe the outcome, not to choose the beat.
+            let action_text = format!(
+                "[BEAT_RESOLVED] {label} ({stat_check}): {metric_name} {before} → {after}",
+                label = beat_label,
+                stat_check = stat_check,
+                metric_name = metric_name,
+                before = metric_before,
+                after = metric_after,
+            );
+
+            GameMessage::PlayerAction {
+                payload: sidequest_protocol::PlayerActionPayload {
+                    action: action_text,
+                    aside: false,
+                },
+                player_id: player_id.to_string(),
+            }
+        }
+        other => other,
+    };
+
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
             let mut responses = dispatch::connect::dispatch_connect(
@@ -1909,6 +2006,7 @@ async fn dispatch_message(
                                     .and_then(|phil| phil.weight_limit)
                             })
                     },
+                    chosen_player_beat: chosen_player_beat.clone(),
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {

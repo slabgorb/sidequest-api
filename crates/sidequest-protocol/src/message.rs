@@ -397,6 +397,25 @@ pub enum GameMessage {
         /// The player who sent this message (typically "server").
         player_id: String,
     },
+
+    /// Player selects a structured beat action during an encounter.
+    ///
+    /// Sent by the client when the player clicks a beat action button in the
+    /// Confrontation panel (Ram, Brake, Make Your Case, Concede, etc.).
+    /// Carries the exact `beat_id` from `ConfrontationDef.beats` — NO text
+    /// synthesis, NO label fallback, NO narrator interpretation.
+    ///
+    /// The server validates `beat_id` against the active encounter's
+    /// `ConfrontationDef` and dispatches the beat directly via
+    /// `dispatch_beat_selection()`. The narrator is then called to describe
+    /// the mechanical outcome in prose — it does NOT choose the beat.
+    #[serde(rename = "BEAT_SELECTION")]
+    BeatSelection {
+        /// The typed payload for this message.
+        payload: BeatSelectionPayload,
+        /// The player who selected this beat.
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -2015,4 +2034,34 @@ pub struct DiceResultPayload {
     pub seed: u64,
     /// Throw gesture parameters echoed back for client-side replay.
     pub throw_params: ThrowParams,
+}
+
+// ---------------------------------------------------------------------------
+// BeatSelection payload — structured encounter beat dispatch
+// ---------------------------------------------------------------------------
+
+/// Client -> server: player selects a beat action during an encounter.
+///
+/// Carries the structured `beat_id` from the genre pack's `ConfrontationDef`.
+/// The server validates the id against the active encounter, dispatches
+/// `apply_beat()` deterministically, and then invokes the narrator to describe
+/// the outcome. The narrator does NOT choose the player's beat.
+///
+/// The `actor` field defaults to `"player"` for the controlling player. In
+/// multiplayer, guest-NPC controllers set `actor` to their NPC's name so the
+/// server can attribute the beat to the correct `EncounterActor`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BeatSelectionPayload {
+    /// The exact `id` from `ConfrontationDef.beats[].id`. Matched strictly —
+    /// no label fallback, no snake_case normalization.
+    pub beat_id: String,
+    /// Which actor is taking the action. `"player"` for the controlling player.
+    /// In multiplayer guest-NPC mode, this is the NPC's name.
+    #[serde(default = "default_player_actor")]
+    pub actor: String,
+}
+
+fn default_player_actor() -> String {
+    "player".to_string()
 }

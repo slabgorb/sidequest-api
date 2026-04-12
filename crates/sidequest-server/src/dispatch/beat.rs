@@ -1,6 +1,6 @@
 //! Encounter beat selection dispatch (story 28-5).
 
-use crate::{WatcherEventBuilder, WatcherEventType};
+use crate::{Severity, WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
@@ -33,39 +33,29 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
         }
     };
 
+    // Strict match — NO label fallback, NO snake_case normalization.
+    // The label_fallback was a silent fallback that fuzzy-matched narrator-emitted
+    // beat labels back to IDs via `b.label.to_lowercase().replace(' ', "_")`.
+    // This violated: no keyword matching (Zork Problem, ADR-010/032), no silent
+    // fallbacks (CLAUDE.md × 4 repos). Deleted in confrontation wiring repair.
+    // If the narrator emits an unknown beat_id, it fails loud with an OTEL warning.
     let beat = match def.beats.iter().find(|b| b.id == beat_id) {
         Some(b) => b,
         None => {
-            let label_match = def.beats.iter().find(|b| {
-                let snake_label = b.label.to_lowercase().replace(' ', "_");
-                snake_label == beat_id
-            });
-            match label_match {
-                Some(b) => {
-                    tracing::warn!(
-                        submitted_beat_id = %beat_id,
-                        resolved_id = %b.id,
-                        encounter_type = %encounter_type,
-                        "beat_selection: narrator emitted label instead of ID — resolved via label match"
-                    );
-                    WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
-                        .field("event", "beat_id.label_fallback")
-                        .field("submitted", beat_id)
-                        .field("resolved_to", &b.id)
-                        .field("encounter_type", &encounter_type)
-                        .send();
-                    b
-                }
-                None => {
-                    tracing::warn!(
-                        beat_id = %beat_id,
-                        encounter_type = %encounter_type,
-                        available_ids = ?def.beats.iter().map(|b| &b.id).collect::<Vec<_>>(),
-                        "beat_selection: beat_id not found in confrontation def beats"
-                    );
-                    return;
-                }
-            }
+            tracing::warn!(
+                beat_id = %beat_id,
+                encounter_type = %encounter_type,
+                available_ids = ?def.beats.iter().map(|b| &b.id).collect::<Vec<_>>(),
+                "beat_selection: beat_id not found — NO FALLBACK"
+            );
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "beat_id.unknown")
+                .field("submitted", beat_id)
+                .field("encounter_type", &encounter_type)
+                .field("available_ids", def.beats.iter().map(|b| b.id.as_str()).collect::<Vec<_>>().join(","))
+                .severity(Severity::Error)
+                .send();
+            return;
         }
     };
     let stat_check = beat.stat_check.clone();

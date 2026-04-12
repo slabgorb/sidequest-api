@@ -218,79 +218,32 @@ impl IntentRoute {
     pub fn is_meaningful(&self) -> bool {
         self.intent.is_meaningful()
     }
-}
 
-/// Trait for intent classifiers (ADR-032).
-///
-/// Implementations include the Haiku LLM classifier and test mocks.
-pub trait IntentClassifier {
-    /// Classify player input given the current turn context.
-    fn classify(&self, input: &str, context: &crate::orchestrator::TurnContext) -> IntentRoute;
-}
-
-/// Routes player input to the narrator via state-based inference (ADR-067).
-///
-/// No LLM call. Combat and chase are detected from game state flags.
-/// Everything else is Exploration — the narrator handles all intents.
-pub struct IntentRouter;
-
-impl IntentRouter {
-    /// Create a new intent router (ADR-067: no Claude client needed).
-    pub fn new(_client: crate::client::ClaudeClient) -> Self {
-        Self
-    }
-
-    /// State-based intent inference (ADR-067).
+    /// All intents route to the narrator (ADR-067, story 28-6).
     ///
-    /// No LLM call. Combat/chase from state flags, everything else Exploration.
-    pub fn classify(&self, input: &str, ctx: &crate::orchestrator::TurnContext) -> IntentRoute {
-        Self::classify_with_classifier(input, ctx, &NoOpClassifier)
-    }
-
-    /// Classification pipeline (ADR-067, story 28-6).
+    /// This is the only classification path. No LLM call, no state inference,
+    /// no keyword matching. Encounter context is injected into the narrator's
+    /// prompt via conditional sections; the narrator's game_patch output drives
+    /// encounter mechanics. Player beat selections arrive via the structured
+    /// BEAT_SELECTION protocol message, not through intent classification.
     ///
-    /// All actions go through the narrator — encounters are handled via beat_selections
-    /// in the narrator's game_patch output. No separate combat/chase routing.
-    pub fn classify_with_classifier(
-        input: &str,
-        ctx: &crate::orchestrator::TurnContext,
-        _classifier: &dyn IntentClassifier,
-    ) -> IntentRoute {
-        // Story 28-6: Unified encounter engine — the narrator handles all intents.
-        // Encounter context is injected into the prompt when an encounter is active.
-        // The narrator outputs beat_selections which the server dispatches via apply_beat.
-        let _ = ctx; // TurnContext still passed for future use (e.g., in_encounter flag in 28-7)
-        let route = IntentRoute::with_classification(
-            Intent::Exploration,
-            1.0,
-            vec![],
-            ClassificationSource::StateOverride,
-        );
-        Self::emit_span(input, &route);
-        route
-    }
-
-    /// Emit a tracing span for classification.
-    fn emit_span(input: &str, route: &IntentRoute) {
-        let intent_str = format!("{:?}", route.intent());
-        let _span = tracing::info_span!(
-            "classify_intent",
-            player_input = %input,
-            classified_intent = %intent_str,
-            agent_routed_to = %route.agent_name(),
-            source = %route.source(),
-            confidence = route.confidence(),
-            is_ambiguous = route.is_ambiguous(),
-        )
-        .entered();
+    /// The `IntentRouter` struct, `IntentClassifier` trait, and `NoOpClassifier`
+    /// were deleted in the confrontation wiring repair — they were dead code
+    /// that unconditionally returned this same constant while pretending to
+    /// classify. Per CLAUDE.md: "no stubs."
+    pub fn exploration() -> Self {
+        Self {
+            agent_name: Self::agent_for(Intent::Exploration).to_string(),
+            intent: Intent::Exploration,
+            confidence: 1.0,
+            candidates: vec![],
+            source: ClassificationSource::StateOverride,
+        }
     }
 }
 
-/// No-op classifier used internally — state overrides handle all classification (ADR-067).
-struct NoOpClassifier;
-
-impl IntentClassifier for NoOpClassifier {
-    fn classify(&self, _input: &str, _context: &crate::orchestrator::TurnContext) -> IntentRoute {
-        IntentRoute::for_intent(Intent::Exploration)
-    }
-}
+// IntentRouter, IntentClassifier, NoOpClassifier DELETED — confrontation
+// wiring repair, 2026-04-12. The router was a dead stub that returned
+// Intent::Exploration unconditionally since story 28-6 (ADR-067). The
+// classifier trait had exactly one implementor (NoOpClassifier) that also
+// returned Exploration. Callers now use IntentRoute::exploration() directly.

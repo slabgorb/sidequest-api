@@ -10,19 +10,8 @@
 
 use std::collections::HashMap;
 
-use sidequest_agents::agents::intent_router::{
-    Intent, IntentClassifier, IntentRoute, IntentRouter,
-};
+use sidequest_agents::agents::intent_router::{Intent, IntentRoute};
 use sidequest_agents::orchestrator::{AgentKind, TurnContext, TurnResult};
-
-/// Mock classifier that always returns a fixed intent.
-struct MockClassifier(Intent);
-
-impl IntentClassifier for MockClassifier {
-    fn classify(&self, _input: &str, _context: &TurnContext) -> IntentRoute {
-        IntentRoute::for_intent(self.0)
-    }
-}
 use sidequest_game::tension_tracker::DeliveryMode;
 
 // ============================================================================
@@ -83,34 +72,11 @@ fn chase_routes_to_narrator() {
 // ============================================================================
 
 #[test]
-fn chase_state_does_not_branch_router_post_adr_067() {
-    let ctx = TurnContext {
-        in_chase: true,
-        ..TurnContext::default()
-    };
-    let classifier = MockClassifier(Intent::Exploration);
-    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
-    assert_eq!(
-        route.intent(),
-        Intent::Exploration,
-        "ADR-067: in_chase no longer branches the router — narrator handles via beat_selections"
-    );
-    assert_eq!(route.agent_name(), "narrator");
-}
-
-#[test]
-fn combat_state_does_not_branch_router_post_adr_067() {
-    let ctx = TurnContext {
-        in_combat: true,
-        ..TurnContext::default()
-    };
-    let classifier = MockClassifier(Intent::Exploration);
-    let route = IntentRouter::classify_with_classifier("I look around", &ctx, &classifier);
-    assert_eq!(
-        route.intent(),
-        Intent::Exploration,
-        "ADR-067: in_combat no longer branches the router — narrator handles via beat_selections"
-    );
+fn exploration_route_is_narrator_post_adr_067() {
+    // ADR-067: IntentRoute::exploration() is the only classification path.
+    // No state branching — narrator handles encounters via beat_selections.
+    let route = IntentRoute::exploration();
+    assert_eq!(route.intent(), Intent::Exploration);
     assert_eq!(route.agent_name(), "narrator");
 }
 
@@ -130,12 +96,10 @@ fn fallback_routes_to_narrator() {
 // ============================================================================
 
 #[test]
-fn classify_does_not_mutate_context() {
+fn turn_context_default_is_not_in_encounter() {
     let ctx = TurnContext::default();
-    let classifier = MockClassifier(Intent::Combat);
-    let _route = IntentRouter::classify_with_classifier("attack", &ctx, &classifier);
-    assert!(!ctx.in_combat, "classify must not mutate state");
-    assert!(!ctx.in_chase, "classify must not mutate state");
+    assert!(!ctx.in_combat, "default context must not be in combat");
+    assert!(!ctx.in_chase, "default context must not be in chase");
 }
 
 // ============================================================================
