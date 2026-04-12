@@ -1464,7 +1464,7 @@ async fn dispatch_message(
 
             // Apply beat deterministically — mechanical state change happens HERE,
             // before the narrator runs. The narrator only describes the outcome.
-            if let Err(e) = encounter.apply_beat(&payload.beat_id, &def) {
+            if let Err(e) = encounter.apply_beat(&payload.beat_id, def) {
                 return vec![error_response(player_id, &format!("Beat apply failed: {}", e))];
             }
             let metric_after = encounter.metric.current;
