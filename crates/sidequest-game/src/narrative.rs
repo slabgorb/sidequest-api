@@ -69,7 +69,10 @@ pub fn generate_recap(
         return None;
     }
 
-    let mut recap = String::from("Previously On...\n\n");
+    // Emit proper markdown so the UI's markdownToHtml() can style
+    // the heading (h2) and location footer (italic) distinctly from
+    // the recap bullets. Fixes "Previously On" rendering as plain text.
+    let mut recap = String::from("## Previously On\u{2026}\n\n");
 
     // Party intro
     if !character_names.is_empty() {
@@ -91,10 +94,11 @@ pub fn generate_recap(
         recap.push_str(&format!("- {}\n", content));
     }
 
-    // Location footer
+    // Location footer — italic to visually separate from action bullets.
+    // Drops the dash prefix so it reads as a location anchor, not a bullet.
     if !location.is_empty() {
         recap.push_str(&format!(
-            "\nThe party now finds themselves at {}.\n",
+            "\n*The party now finds themselves at {}.*\n",
             location
         ));
     }

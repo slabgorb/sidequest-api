@@ -125,8 +125,8 @@ fn generate_recap_includes_header() {
     let entries = vec![test_entry(1, "The adventure begins.")];
     let recap = generate_recap(&entries, &["Thorn".to_string()], "Town Square").unwrap();
     assert!(
-        recap.starts_with("Previously On..."),
-        "Recap should start with 'Previously On...'. Got: {}",
+        recap.starts_with("## Previously On"),
+        "Recap should start with markdown heading '## Previously On'. Got: {}",
         recap
     );
 }
@@ -229,7 +229,7 @@ fn generate_recap_handles_no_characters() {
         recap
     );
     // Should still have header and entries
-    assert!(recap.contains("Previously On..."));
+    assert!(recap.contains("Previously On"));
     assert!(recap.contains("- Something happened."));
 }
 
@@ -262,7 +262,7 @@ fn generate_recap_full_format() {
     let recap = generate_recap(&entries, &names, "Town Square").unwrap();
 
     // Verify order: header, party intro, entries, footer
-    let header_pos = recap.find("Previously On...").unwrap();
+    let header_pos = recap.find("Previously On").unwrap();
     let party_pos = recap.find("The party").unwrap();
     let entry1_pos = recap.find("- The party entered the tavern.").unwrap();
     let entry2_pos = recap.find("- A brawl erupted.").unwrap();
@@ -381,7 +381,7 @@ fn sqlite_load_produces_rich_recap() {
     let recap = session.recap.unwrap();
 
     assert!(
-        recap.contains("Previously On..."),
+        recap.contains("Previously On"),
         "Has header. Got: {}",
         recap
     );
