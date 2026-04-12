@@ -60,7 +60,11 @@ PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot, beat_selections, visual_scene, footnotes.\n\
+mood, state_snapshot, beat_selections, visual_scene, footnotes, gold_change.\n\
+gold_change: Integer. Emit when the player gains or loses gold/currency \
+outside of beat costs (e.g., winning a poker hand: +50, paying a bribe: -20, \
+finding a coin purse: +10). Beat costs are handled automatically — only emit \
+gold_change for narrator-determined outcomes.\n\
 \n\
 visual_scene: Include this on EVERY turn where the setting changes, a new \
 location is entered, or a visually significant event occurs (combat start, \

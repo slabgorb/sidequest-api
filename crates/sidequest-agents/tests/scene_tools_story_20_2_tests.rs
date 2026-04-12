@@ -64,6 +64,8 @@ fn extraction_with_mood_and_intent() -> NarratorExtraction {
         beat_selections: vec![],
         confrontation: None,
         location: None,
+        affinity_progress: vec![],
+        gold_change: None,
     }
 }
 
