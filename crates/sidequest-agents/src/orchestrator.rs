@@ -13,7 +13,7 @@ use crate::lore_filter::LoreFilter;
 use crate::tools::assemble_turn::assemble_turn;
 // ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
 // ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into unified narrator
-use crate::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use crate::agents::intent_router::{Intent, IntentRoute};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
 use crate::agents::world_builder::WorldBuilderAgent;
@@ -182,7 +182,8 @@ pub struct Orchestrator {
     /// Claude CLI client for LLM invocations.
     client: ClaudeClient,
     /// State-based intent inference (ADR-067: no LLM classification).
-    intent_router: IntentRouter,
+    // IntentRouter field deleted — confrontation wiring repair. All intents
+    // route to narrator per ADR-067. See IntentRoute::exploration().
     /// Unified narrator agent (ADR-067: absorbs combat, chase, dialogue).
     narrator: NarratorAgent,
     /// Pacing engine — tracks drama weight across combat turns (Story 5-7).
@@ -246,7 +247,7 @@ impl Orchestrator {
         Self {
             watcher_tx,
             turn_id_counter: TurnIdCounter::new(),
-            intent_router: IntentRouter::new(client.clone()),
+            // IntentRouter deleted — confrontation wiring repair.
             client,
             narrator: NarratorAgent::new(),
             tension_tracker: TensionTracker::new(),
@@ -393,7 +394,10 @@ impl Orchestrator {
         context: &TurnContext,
         tier: NarratorPromptTier,
     ) -> NarratorPromptResult {
-        let route = self.intent_router.classify(action, context);
+        // ADR-067: all intents route to narrator. Encounter context injected
+        // via conditional prompt sections. Player beat selections arrive via
+        // the structured BEAT_SELECTION protocol message.
+        let route = IntentRoute::exploration();
 
         let mut builder = ContextBuilder::new();
         let script_tools_injected: Vec<String> = Vec::new();

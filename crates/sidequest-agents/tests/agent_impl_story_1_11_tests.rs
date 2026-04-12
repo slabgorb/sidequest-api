@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use sidequest_agents::agent::Agent;
 use sidequest_agents::context_builder::ContextBuilder;
 // ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into unified narrator
-use sidequest_agents::agents::intent_router::{Intent, IntentRoute, IntentRouter};
+use sidequest_agents::agents::intent_router::{Intent, IntentRoute};
 use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::agents::resonator::ResonatorAgent;
 use sidequest_agents::agents::troper::TroperAgent;
@@ -251,11 +251,10 @@ mod intent_routing_tests {
     }
 
     #[test]
-    fn intent_router_has_classify_method() {
-        use sidequest_agents::client::ClaudeClient;
-        let router = IntentRouter::new(ClaudeClient::new());
-        // Verify the type exists and can be constructed
-        let _ = &router; // type exists and can be constructed
+    fn intent_route_exploration_returns_narrator() {
+        let route = IntentRoute::exploration();
+        assert_eq!(route.agent_name(), "narrator");
+        assert_eq!(route.intent(), Intent::Exploration);
     }
 }
 
