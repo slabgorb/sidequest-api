@@ -353,6 +353,16 @@ pub(crate) async fn process_render(
             {
                 Ok(sidequest_game::EnqueueResult::Queued { job_id }) => {
                     tracing::info!(%job_id, "Render job enqueued");
+
+                    // Story 37-2: Register session affinity so the image
+                    // broadcaster routes the completed IMAGE to the correct
+                    // session channel instead of global broadcast.
+                    let session_key = crate::shared_session::game_session_key(
+                        ctx.genre_slug,
+                        ctx.world_slug,
+                    );
+                    ctx.state.register_render_session(job_id, session_key);
+
                     // Notify UI to show placeholder shimmer while Flux generates
                     let dims = sidequest_game::tier_to_dimensions(subject.tier());
                     let _ = ctx
