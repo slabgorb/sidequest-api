@@ -357,10 +357,8 @@ pub(crate) async fn process_render(
                     // Story 37-2: Register session affinity so the image
                     // broadcaster routes the completed IMAGE to the correct
                     // session channel instead of global broadcast.
-                    let session_key = crate::shared_session::game_session_key(
-                        ctx.genre_slug,
-                        ctx.world_slug,
-                    );
+                    let session_key =
+                        crate::shared_session::game_session_key(ctx.genre_slug, ctx.world_slug);
                     ctx.state.register_render_session(job_id, session_key);
 
                     // Notify UI to show placeholder shimmer while Flux generates

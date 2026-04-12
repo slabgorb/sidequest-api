@@ -2118,7 +2118,10 @@ pub(crate) async fn dispatch_character_creation(
                                     .field("session_id", &ss.session_id)
                                     .field("genre", &ss.genre_slug)
                                     .field("world", &ss.world_slug)
-                                    .field("stale_history_len", &ss.narration_history.len().to_string())
+                                    .field(
+                                        "stale_history_len",
+                                        &ss.narration_history.len().to_string(),
+                                    )
                                     .send();
                                     ss.narration_history.clear();
                                     ss.discovered_regions.clear();
@@ -2256,34 +2259,33 @@ pub(crate) async fn dispatch_character_creation(
 
                             // Capture barrier state for reconnecting players so we can
                             // send the correct signal after the "ready" message.
-                            reconnect_barrier_state =
-                                if is_reconnect {
-                                    if let Some(ref barrier) = ss.turn_barrier {
-                                        let resolved = barrier.get_resolution_narration();
-                                        let submitted = barrier.has_submitted(player_id);
-                                        let signal = if resolved.is_some() {
-                                            "narration_replay"
-                                        } else if submitted {
-                                            "waiting"
-                                        } else {
-                                            "ready"
-                                        };
-                                        WatcherEventBuilder::new(
-                                            "multiplayer",
-                                            WatcherEventType::StateTransition,
-                                        )
-                                        .field("event", "barrier_state_on_reconnect")
-                                        .field("player_submitted", submitted)
-                                        .field("barrier_resolved", resolved.is_some())
-                                        .field("signal_sent", signal)
-                                        .send();
-                                        Some((resolved, submitted))
+                            reconnect_barrier_state = if is_reconnect {
+                                if let Some(ref barrier) = ss.turn_barrier {
+                                    let resolved = barrier.get_resolution_narration();
+                                    let submitted = barrier.has_submitted(player_id);
+                                    let signal = if resolved.is_some() {
+                                        "narration_replay"
+                                    } else if submitted {
+                                        "waiting"
                                     } else {
-                                        None
-                                    }
+                                        "ready"
+                                    };
+                                    WatcherEventBuilder::new(
+                                        "multiplayer",
+                                        WatcherEventType::StateTransition,
+                                    )
+                                    .field("event", "barrier_state_on_reconnect")
+                                    .field("player_submitted", submitted)
+                                    .field("barrier_resolved", resolved.is_some())
+                                    .field("signal_sent", signal)
+                                    .send();
+                                    Some((resolved, submitted))
                                 } else {
                                     None
-                                };
+                                }
+                            } else {
+                                None
+                            };
 
                             if !is_reconnect {
                                 let ps = shared_session::PlayerState::new(connecting_name.clone());

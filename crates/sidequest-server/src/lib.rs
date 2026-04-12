@@ -4,9 +4,9 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub(crate) mod debug_api;
-pub mod dice_dispatch;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
+pub mod dice_dispatch;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -847,7 +847,11 @@ pub fn build_router(state: AppState) -> Router {
                                 description: String::new(),
                                 handout: false,
                                 render_id: Some(job_id.to_string()),
-                                tier: if tier.is_empty() { None } else { Some(tier.clone()) },
+                                tier: if tier.is_empty() {
+                                    None
+                                } else {
+                                    Some(tier.clone())
+                                },
                                 scene_type: if scene_type.is_empty() {
                                     None
                                 } else {
@@ -871,8 +875,7 @@ pub fn build_router(state: AppState) -> Router {
                         };
                         if let Some(ref key) = session_key {
                             let session_arc = {
-                                let sessions =
-                                    state_for_broadcaster.inner.sessions.lock().unwrap();
+                                let sessions = state_for_broadcaster.inner.sessions.lock().unwrap();
                                 sessions.get(key).cloned()
                             };
                             if let Some(ss_arc) = session_arc {
@@ -913,14 +916,11 @@ pub fn build_router(state: AppState) -> Router {
                                 job_id = %job_id,
                                 "render_broadcast — no session mapping for job, dropping IMAGE (no silent fallback)"
                             );
-                            WatcherEventBuilder::new(
-                                "render",
-                                WatcherEventType::ValidationWarning,
-                            )
-                            .severity(Severity::Error)
-                            .field("action", "image_no_session_mapping")
-                            .field("job_id", &job_id.to_string())
-                            .send();
+                            WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+                                .severity(Severity::Error)
+                                .field("action", "image_no_session_mapping")
+                                .field("job_id", &job_id.to_string())
+                                .send();
                         }
                         // Consume the mapping after delivery (or drop).
                         state_for_broadcaster.take_render_session(&job_id);
@@ -2259,7 +2259,10 @@ async fn dispatch_message(
                 );
                 return vec![error_response(
                     player_id,
-                    &format!("No pending dice request for request_id '{}'", payload.request_id),
+                    &format!(
+                        "No pending dice request for request_id '{}'",
+                        payload.request_id
+                    ),
                 )];
             };
 
@@ -2274,7 +2277,10 @@ async fn dispatch_message(
                     error = %e,
                     "dice.validation_failed"
                 );
-                return vec![error_response(player_id, &format!("Dice validation failed: {e}"))];
+                return vec![error_response(
+                    player_id,
+                    &format!("Dice validation failed: {e}"),
+                )];
             }
 
             // Generate deterministic seed and resolve
@@ -2297,10 +2303,7 @@ async fn dispatch_message(
                     }
                 }
             };
-            let seed = dice_dispatch::generate_dice_seed(
-                &session_id,
-                turn_manager.round(),
-            );
+            let seed = dice_dispatch::generate_dice_seed(&session_id, turn_manager.round());
 
             let resolved = match sidequest_game::dice::resolve_dice(
                 &pending_request.dice,

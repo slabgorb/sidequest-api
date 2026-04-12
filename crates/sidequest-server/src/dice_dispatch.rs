@@ -119,7 +119,11 @@ pub fn generate_dice_seed(session_id: &str, turn: u32) -> u64 {
         h = h.wrapping_mul(FNV_PRIME);
     }
     // Ensure nonzero
-    if h == 0 { 1 } else { h }
+    if h == 0 {
+        1
+    } else {
+        h
+    }
 }
 
 /// Compose a `DiceResultPayload` from a `ResolvedRoll` and echo fields.

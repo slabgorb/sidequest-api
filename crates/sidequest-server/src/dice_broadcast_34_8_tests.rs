@@ -13,9 +13,7 @@ mod tests {
     use std::num::{NonZeroU32, NonZeroU8};
 
     use sidequest_game::dice::resolve_dice;
-    use sidequest_protocol::{
-        DiceRequestPayload, DieSides, DieSpec, GameMessage, ThrowParams,
-    };
+    use sidequest_protocol::{DiceRequestPayload, DieSides, DieSpec, GameMessage, ThrowParams};
 
     use crate::dice_dispatch::{compose_dice_result, generate_dice_seed, validate_dice_inputs};
     use crate::shared_session::SharedGameSession;
@@ -102,7 +100,10 @@ mod tests {
 
         // Validate inputs
         let validation = validate_dice_inputs(&request.dice, request.modifier, request.difficulty);
-        assert!(validation.is_ok(), "Valid dice inputs should pass validation");
+        assert!(
+            validation.is_ok(),
+            "Valid dice inputs should pass validation"
+        );
 
         // Generate seed
         let seed = generate_dice_seed("test-session-id", 1);
@@ -110,7 +111,10 @@ mod tests {
 
         // Resolve
         let resolved = resolve_dice(&request.dice, request.modifier, request.difficulty, seed);
-        assert!(resolved.is_ok(), "Resolution should succeed for valid inputs");
+        assert!(
+            resolved.is_ok(),
+            "Resolution should succeed for valid inputs"
+        );
         let resolved = resolved.unwrap();
 
         // Compose result
@@ -213,7 +217,10 @@ mod tests {
         });
 
         let received = rx.try_recv();
-        assert!(received.is_ok(), "Subscriber should receive DiceRequest broadcast");
+        assert!(
+            received.is_ok(),
+            "Subscriber should receive DiceRequest broadcast"
+        );
         match received.unwrap().msg {
             GameMessage::DiceRequest { ref payload, .. } => {
                 assert_eq!(payload.request_id, "req-test-001");

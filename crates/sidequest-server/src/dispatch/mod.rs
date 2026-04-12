@@ -974,7 +974,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     if barrier_outcome.is_some() {
         WatcherEventBuilder::new("multiplayer", WatcherEventType::AgentSpanOpen)
             .field("event", "sealed_round.effective_action")
-            .field("effective_action", &effective_action[..effective_action.len().min(200)])
+            .field(
+                "effective_action",
+                &effective_action[..effective_action.len().min(200)],
+            )
             .field("original_action", &ctx.action[..ctx.action.len().min(80)])
             .send();
     }
