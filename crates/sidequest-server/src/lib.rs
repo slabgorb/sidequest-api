@@ -905,7 +905,7 @@ pub fn build_router(state: AppState) -> Router {
                                 )
                                 .severity(Severity::Error)
                                 .field("action", "image_session_not_found")
-                                .field("job_id", &job_id.to_string())
+                                .field("job_id", job_id.to_string())
                                 .field("session_key", key.as_str())
                                 .send();
                             }
@@ -919,7 +919,7 @@ pub fn build_router(state: AppState) -> Router {
                             WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
                                 .severity(Severity::Error)
                                 .field("action", "image_no_session_mapping")
-                                .field("job_id", &job_id.to_string())
+                                .field("job_id", job_id.to_string())
                                 .send();
                         }
                         // Consume the mapping after delivery (or drop).

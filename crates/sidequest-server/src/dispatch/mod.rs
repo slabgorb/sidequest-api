@@ -1851,7 +1851,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             // If a previous beat in this loop already resolved the encounter,
             // skip remaining beats — they'd fail with "already resolved" and
             // emit spurious OTEL warnings.
-            if ctx.snapshot.encounter.as_ref().map_or(true, |e| e.resolved) {
+            if ctx.snapshot.encounter.as_ref().is_none_or(|e| e.resolved) {
                 tracing::info!(
                     skipped_beat_id = %beat_id,
                     actor = %actor,

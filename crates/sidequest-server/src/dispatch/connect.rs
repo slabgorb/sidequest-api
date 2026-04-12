@@ -2120,7 +2120,7 @@ pub(crate) async fn dispatch_character_creation(
                                     .field("world", &ss.world_slug)
                                     .field(
                                         "stale_history_len",
-                                        &ss.narration_history.len().to_string(),
+                                        ss.narration_history.len().to_string(),
                                     )
                                     .send();
                                     ss.narration_history.clear();
