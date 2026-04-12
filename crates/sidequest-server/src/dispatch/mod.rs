@@ -1773,6 +1773,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .push(sidequest_game::encounter::EncounterActor {
                             name: ch.core.name.as_str().to_string(),
                             role: "player".to_string(),
+                            per_actor_state: std::collections::HashMap::new(),
                         });
                 }
                 // Add NPCs from this turn's narration (the narrator knows who's in the scene)
@@ -1782,6 +1783,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .push(sidequest_game::encounter::EncounterActor {
                             name: npc_mention.name.clone(),
                             role: "npc".to_string(),
+                            per_actor_state: std::collections::HashMap::new(),
                         });
                 }
 
