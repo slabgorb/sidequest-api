@@ -14,3 +14,7 @@ split-debuginfo = "unpacked"
 # Optimize dependencies even in dev mode — they rarely change,
 # and optimized deps run faster in tests (especially serde).
 opt-level = 1
+
+[alias]
+# Use nextest for parallel test execution — same args as `cargo test`
+t = "nextest run"

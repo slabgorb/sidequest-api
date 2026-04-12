@@ -20,7 +20,7 @@
 //! alongside the other wiring suites because the cascade affected the
 //! render dispatch path end-to-end.
 
-const RENDER_QUEUE_SRC: &str = include_str!("../../sidequest-game/src/render_queue.rs");
+const RENDER_QUEUE_SRC: &str = include_str!("../../../sidequest-game/src/render_queue.rs");
 
 fn production_code() -> &'static str {
     // Drop everything from the first `#[cfg(test)]` onwards so we don't

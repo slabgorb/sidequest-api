@@ -116,7 +116,7 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
 
 #[test]
 fn dispatch_pipeline_uses_entity_reference_module() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
     assert!(
         production_code.contains("entity_reference")
@@ -133,7 +133,7 @@ fn dispatch_pipeline_uses_entity_reference_module() {
 
 #[test]
 fn dispatch_pipeline_builds_entity_registry_from_snapshot() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
     assert!(
         production_code.contains("EntityRegistry::from_snapshot"),
@@ -148,7 +148,7 @@ fn dispatch_pipeline_builds_entity_registry_from_snapshot() {
 
 #[test]
 fn dispatch_pipeline_calls_extract_potential_references() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
     assert!(
         production_code.contains("extract_potential_references"),
@@ -163,7 +163,7 @@ fn dispatch_pipeline_calls_extract_potential_references() {
 
 #[test]
 fn dispatch_pipeline_emits_entity_reference_validation_warning() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // Must use WatcherEventBuilder with "entity_reference" component
@@ -181,7 +181,7 @@ fn dispatch_pipeline_emits_entity_reference_validation_warning() {
 
 #[test]
 fn entity_reference_check_does_not_block_dispatch() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // First verify the entity_reference block exists at all (prerequisite)
@@ -194,7 +194,7 @@ fn entity_reference_check_does_not_block_dispatch() {
     // that would abort dispatch. The check should be fire-and-forget OTEL.
     if let Some(pos) = production_code.find("entity_reference") {
         // Grab a window around the entity_reference usage (the block should be ~20 lines)
-        let window_end = (pos + 500).min(production_code.len());
+        let window_end = (pos + 500_usize).min(production_code.len());
         let window = &production_code[pos..window_end];
 
         // The block must not contain early returns or error propagation
@@ -216,7 +216,7 @@ fn entity_reference_check_does_not_block_dispatch() {
 
 #[test]
 fn entity_reference_check_runs_after_update_npc_registry() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     let npc_registry_pos = production_code.find("update_npc_registry(");
@@ -338,7 +338,7 @@ fn multiple_unknown_npcs_each_produce_unresolved_references() {
 
 #[test]
 fn dispatch_otel_warning_includes_unresolved_name_field() {
-    let source = include_str!("../src/dispatch/mod.rs");
+    let source = include_str!("../../src/dispatch/mod.rs");
     let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     // The WatcherEventBuilder for entity_reference must include the unresolved
@@ -346,7 +346,7 @@ fn dispatch_otel_warning_includes_unresolved_name_field() {
     // Look for a .field() call containing "name" or "unresolved" or "entity"
     // near the "entity_reference" ValidationWarning emission.
     if let Some(pos) = production_code.find("\"entity_reference\"") {
-        let window_end = (pos + 400).min(production_code.len());
+        let window_end = (pos + 400_usize).min(production_code.len());
         let window = &production_code[pos..window_end];
         assert!(
             window.contains(".field("),

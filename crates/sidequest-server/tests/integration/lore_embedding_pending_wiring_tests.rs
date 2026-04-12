@@ -23,9 +23,9 @@
 //! These source-level guards ensure a future refactor cannot silently
 //! revert any of those pieces.
 
-const STORE_SRC: &str = include_str!("../../sidequest-game/src/lore/store.rs");
-const LORE_SYNC_SRC: &str = include_str!("../src/dispatch/lore_sync.rs");
-const PROMPT_SRC: &str = include_str!("../src/dispatch/prompt.rs");
+const STORE_SRC: &str = include_str!("../../../sidequest-game/src/lore/store.rs");
+const LORE_SYNC_SRC: &str = include_str!("../../src/dispatch/lore_sync.rs");
+const PROMPT_SRC: &str = include_str!("../../src/dispatch/prompt.rs");
 
 fn prod(src: &str) -> &str {
     src.split("#[cfg(test)]").next().unwrap_or(src)

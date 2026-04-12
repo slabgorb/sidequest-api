@@ -43,7 +43,7 @@
 /// inside dispatch_character_creation, not elsewhere.
 #[test]
 fn chargen_clears_local_npc_registry() {
-    let src = include_str!("../src/dispatch/connect.rs");
+    let src = include_str!("../../src/dispatch/connect.rs");
 
     // The fix must call .clear() on the local npc_registry parameter.
     // Use a tight substring search to avoid false positives from unrelated
@@ -61,7 +61,7 @@ fn chargen_clears_local_npc_registry() {
 /// and the fix will be silently ineffective after any reconnect.
 #[test]
 fn chargen_clears_snapshot_npc_registry() {
-    let src = include_str!("../src/dispatch/connect.rs");
+    let src = include_str!("../../src/dispatch/connect.rs");
 
     assert!(
         src.contains("snapshot.npc_registry.clear()"),
@@ -77,7 +77,7 @@ fn chargen_clears_snapshot_npc_registry() {
 /// local registry from the still-populated shared one.
 #[test]
 fn chargen_clears_shared_session_npc_registry() {
-    let src = include_str!("../src/dispatch/connect.rs");
+    let src = include_str!("../../src/dispatch/connect.rs");
 
     // Look for the exact pattern the fix uses: acquiring the holder lock,
     // matching on the Option, and clearing ss.npc_registry.
@@ -97,7 +97,7 @@ fn chargen_clears_shared_session_npc_registry() {
 /// working. This test pins the telemetry emission so it can't regress.
 #[test]
 fn chargen_emits_otel_event_for_npc_registry_clear() {
-    let src = include_str!("../src/dispatch/connect.rs");
+    let src = include_str!("../../src/dispatch/connect.rs");
 
     assert!(
         src.contains("npc_registry.cleared_on_chargen_complete"),
@@ -115,7 +115,7 @@ fn chargen_emits_otel_event_for_npc_registry_clear() {
 /// state. Assert ordering by searching from the clear site to the save().
 #[test]
 fn chargen_clears_npc_registry_before_initial_save() {
-    let src = include_str!("../src/dispatch/connect.rs");
+    let src = include_str!("../../src/dispatch/connect.rs");
 
     let clear_pos = src.find("snapshot.npc_registry.clear()").expect(
         "snapshot.npc_registry.clear() must exist in dispatch/connect.rs \

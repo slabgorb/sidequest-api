@@ -5,6 +5,8 @@
 
 pub(crate) mod debug_api;
 pub mod dice_dispatch;
+#[cfg(test)]
+mod dice_broadcast_34_8_tests;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -2224,8 +2226,8 @@ async fn dispatch_message(
                 player_id: player_id.to_string(),
             }]
         }
-        // Dice throw — rolling player submits gesture after DiceRequest (story 34-4).
-        // Phase 1: resolve immediately, broadcast DiceResult to all clients.
+        // Dice throw — rolling player submits gesture after DiceRequest (story 34-8).
+        // Resolve immediately, broadcast DiceResult to all clients.
         // The throw_params control animation only — outcome is seed-determined.
         GameMessage::DiceThrow { payload, .. } => {
             if !session.is_playing() {
@@ -2235,19 +2237,127 @@ async fn dispatch_message(
                 )];
             }
 
-            // TODO(34-4): Look up pending DiceRequest by payload.request_id,
-            // retrieve pool/modifier/DC/seed, call validate_dice_inputs + resolve_dice,
-            // compose DiceResult, broadcast.
-            tracing::warn!(
-                request_id = %payload.request_id,
-                player_id = %player_id,
-                "dice.throw_received — handler not yet wired (story 34-4)"
+            // Look up pending DiceRequest by request_id
+            let pending = {
+                let holder_guard = shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder_guard {
+                    let mut ss = ss_arc.lock().await;
+                    ss.pending_dice_requests.remove(&payload.request_id)
+                } else {
+                    None
+                }
+            };
+
+            let Some(pending_request) = pending else {
+                tracing::warn!(
+                    request_id = %payload.request_id,
+                    player_id = %player_id,
+                    "dice.throw_no_pending — no pending DiceRequest for this request_id"
+                );
+                return vec![error_response(
+                    player_id,
+                    &format!("No pending dice request for request_id '{}'", payload.request_id),
+                )];
+            };
+
+            // Validate inputs at dispatch boundary
+            if let Err(e) = dice_dispatch::validate_dice_inputs(
+                &pending_request.dice,
+                pending_request.modifier,
+                pending_request.difficulty,
+            ) {
+                tracing::error!(
+                    request_id = %payload.request_id,
+                    error = %e,
+                    "dice.validation_failed"
+                );
+                return vec![error_response(player_id, &format!("Dice validation failed: {e}"))];
+            }
+
+            // Generate deterministic seed and resolve
+            let session_id = {
+                let holder_guard = shared_session_holder.lock().await;
+                match holder_guard.as_ref() {
+                    Some(ss_arc) => {
+                        let ss = ss_arc.lock().await;
+                        ss.session_id.clone()
+                    }
+                    None => {
+                        tracing::error!(
+                            request_id = %payload.request_id,
+                            "dice.no_shared_session — session holder is empty during DiceThrow"
+                        );
+                        return vec![error_response(
+                            player_id,
+                            "No active game session for dice resolution",
+                        )];
+                    }
+                }
+            };
+            let seed = dice_dispatch::generate_dice_seed(
+                &session_id,
+                turn_manager.round(),
             );
 
-            vec![error_response(
-                player_id,
-                "Dice throw dispatch not yet fully wired (story 34-4 in progress)",
-            )]
+            let resolved = match sidequest_game::dice::resolve_dice(
+                &pending_request.dice,
+                pending_request.modifier,
+                pending_request.difficulty,
+                seed,
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!(
+                        request_id = %payload.request_id,
+                        error = %e,
+                        "dice.resolution_failed"
+                    );
+                    return vec![error_response(
+                        player_id,
+                        &format!("Dice resolution failed: {e}"),
+                    )];
+                }
+            };
+
+            // Compose DiceResult and broadcast to all players
+            let result_payload = dice_dispatch::compose_dice_result(
+                &pending_request.request_id,
+                &pending_request.rolling_player_id,
+                &pending_request.character_name,
+                &resolved,
+                pending_request.modifier,
+                pending_request.difficulty,
+                seed,
+                &payload.throw_params,
+            );
+
+            tracing::info!(
+                request_id = %payload.request_id,
+                rolling_player = %pending_request.rolling_player_id,
+                total = resolved.total,
+                outcome = ?resolved.outcome,
+                seed = seed,
+                "dice.result_resolved"
+            );
+
+            // Broadcast via shared session to all connected players
+            {
+                let holder_guard = shared_session_holder.lock().await;
+                if let Some(ref ss_arc) = *holder_guard {
+                    let ss = ss_arc.lock().await;
+                    ss.broadcast(GameMessage::DiceResult {
+                        player_id: "server".to_string(),
+                        payload: result_payload.clone(),
+                    });
+                }
+            }
+
+            // Also return DiceResult as a direct response (for the acting player's
+            // non-broadcast path, in case they're not subscribed to session broadcast)
+            vec![GameMessage::DiceResult {
+                player_id: "server".to_string(),
+                payload: result_payload,
+            }]
         }
         // All other valid message types in wrong state
         _ => {

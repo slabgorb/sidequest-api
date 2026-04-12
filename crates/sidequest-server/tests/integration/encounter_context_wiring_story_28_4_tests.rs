@@ -79,7 +79,7 @@ beats:
 /// This must be replaced by format_encounter_context(), not duplicated alongside.
 #[test]
 fn from_combat_state_removed_from_prompt_rs() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         !prompt_src.contains("from_combat_state"),
@@ -90,7 +90,7 @@ fn from_combat_state_removed_from_prompt_rs() {
 
 #[test]
 fn from_chase_state_removed_from_prompt_rs() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         !prompt_src.contains("from_chase_state"),
@@ -103,7 +103,7 @@ fn from_chase_state_removed_from_prompt_rs() {
 /// Verify the ad-hoc ACTIVE ENCOUNTER string is gone.
 #[test]
 fn inline_active_encounter_formatting_removed() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         !prompt_src.contains("ACTIVE ENCOUNTER"),
@@ -119,7 +119,7 @@ fn inline_active_encounter_formatting_removed() {
 /// dispatch/prompt.rs must call format_encounter_context to produce encounter context.
 #[test]
 fn format_encounter_context_called_in_prompt_rs() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         prompt_src.contains("format_encounter_context"),
@@ -132,7 +132,7 @@ fn format_encounter_context_called_in_prompt_rs() {
 /// needed by format_encounter_context.
 #[test]
 fn find_confrontation_def_called_in_prompt_rs() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         prompt_src.contains("find_confrontation_def"),
@@ -229,7 +229,7 @@ fn format_encounter_context_includes_cinematography() {
 /// and must include encounter_type, phase, and beat_count fields.
 #[test]
 fn otel_context_injected_event_exists_in_prompt_rs() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         prompt_src.contains("context_injected"),
@@ -241,7 +241,7 @@ fn otel_context_injected_event_exists_in_prompt_rs() {
 /// that beats are actually flowing through the narrator prompt.
 #[test]
 fn otel_event_includes_beat_count_field() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         prompt_src.contains("beat_count"),
@@ -252,7 +252,7 @@ fn otel_event_includes_beat_count_field() {
 /// The OTEL event must include encounter_type field.
 #[test]
 fn otel_event_includes_encounter_type_field() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     // The old event already has encounter_type, but verify it persists
     assert!(
@@ -270,7 +270,7 @@ fn otel_event_includes_encounter_type_field() {
 /// called from production code.
 #[test]
 fn format_encounter_context_has_non_test_consumer_in_server() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         prompt_src.contains("format_encounter_context"),
@@ -283,7 +283,7 @@ fn format_encounter_context_has_non_test_consumer_in_server() {
 /// The build_prompt_context function needs access to defs to call find_confrontation_def.
 #[test]
 fn prompt_rs_uses_confrontation_defs() {
-    let prompt_src = include_str!("../src/dispatch/prompt.rs");
+    let prompt_src = include_str!("../../src/dispatch/prompt.rs");
 
     assert!(
         prompt_src.contains("confrontation_defs"),
