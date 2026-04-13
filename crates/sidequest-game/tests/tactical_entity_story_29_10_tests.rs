@@ -1,8 +1,8 @@
-/// Story 29-10: TacticalEntity model + token rendering
-///
-/// RED phase — failing tests for the TacticalEntity domain model.
-/// Tests cover: entity struct, size enum, faction enum, conversion
-/// to protocol payload, PC entrance placement, and lang-review rules.
+//! Story 29-10: TacticalEntity model + token rendering
+//!
+//! RED phase — failing tests for the TacticalEntity domain model.
+//! Tests cover: entity struct, size enum, faction enum, conversion
+//! to protocol payload, PC entrance placement, and lang-review rules.
 
 use sidequest_game::tactical::{GridPos, TacticalEntity, EntitySize, Faction};
 

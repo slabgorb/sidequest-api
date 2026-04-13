@@ -162,6 +162,7 @@ fn dice_throw_payload_carries_request_id_and_params() {
             angular: [0.4, 0.5, 0.6],
             position: [0.25, 0.75],
         },
+        face: vec![17],
     };
     // Review fix #8: previously asserted velocity only; angular and position
     // were constructed with specific values but never checked. Every
@@ -170,6 +171,7 @@ fn dice_throw_payload_carries_request_id_and_params() {
     assert_eq!(payload.throw_params.velocity, [0.1, 0.2, 0.3]);
     assert_eq!(payload.throw_params.angular, [0.4, 0.5, 0.6]);
     assert_eq!(payload.throw_params.position, [0.25, 0.75]);
+    assert_eq!(payload.face, vec![17]);
 }
 
 // ============================================================================
@@ -272,6 +274,7 @@ fn dice_throw_serde_round_trip_preserves_every_field() {
                 angular: [0.1, -0.2, 0.3],
                 position: [0.25, 0.75],
             },
+            face: vec![14],
         },
         player_id: "kira".to_string(),
     };
@@ -284,6 +287,7 @@ fn dice_throw_serde_round_trip_preserves_every_field() {
             assert_eq!(payload.throw_params.velocity, [1.0, 2.5, -0.75]);
             assert_eq!(payload.throw_params.angular, [0.1, -0.2, 0.3]);
             assert_eq!(payload.throw_params.position, [0.25, 0.75]);
+            assert_eq!(payload.face, vec![14]);
         }
         _ => panic!("expected DiceThrow variant"),
     }
@@ -465,6 +469,7 @@ fn dice_throw_serializes_with_dice_throw_type_tag() {
         payload: DiceThrowPayload {
             request_id: "req-1".to_string(),
             throw_params: throw_params_zero(),
+            face: vec![10],
         },
         player_id: "p1".to_string(),
     };
@@ -1036,6 +1041,7 @@ fn all_new_dice_public_types_reachable_via_crate_root() {
     let _throw_payload: DiceThrowPayload = DiceThrowPayload {
         request_id: "req-wire".to_string(),
         throw_params: throw_params_zero(),
+        face: vec![17],
     };
     let _result_payload: DiceResultPayload = DiceResultPayload {
         request_id: "req-wire".to_string(),

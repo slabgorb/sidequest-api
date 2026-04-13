@@ -1965,18 +1965,30 @@ impl<'de> Deserialize<'de> for DiceResultPayload {
     }
 }
 
-/// Client -> server: rolling player submits a throw gesture (story 34-2).
+/// Client -> server: rolling player submits a throw after local physics settles
+/// (story 34-12, physics-is-the-roll).
 ///
-/// Matched to the original `DiceRequest` via `request_id`. The server uses the
-/// `throw_params` for animation replay parameters but determines the outcome
-/// independently from an RNG seed.
+/// Matched to the original `DiceRequest` via `request_id`. The client runs
+/// Rapier physics locally to visual completion, reads the settled face from
+/// each die, and submits the face values alongside the throw parameters.
+/// The server uses `face` as the authoritative roll result (no server-side
+/// RNG on this path) and echoes `throw_params` so spectators can replay the
+/// same physics deterministically.
+///
+/// `face` carries one entry per physical die in the pool, in flat iteration
+/// order matching the `DieSpec`s in the triggering `DiceRequest` — e.g. a
+/// `[{sides:20, count:1}, {sides:6, count:3}]` pool yields `face.len() == 4`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiceThrowPayload {
     /// Correlation ID matching the triggering `DiceRequest`.
     pub request_id: String,
-    /// Physics parameters captured from the drag-and-flick gesture.
+    /// Physics parameters captured from the drag-and-flick gesture, echoed
+    /// to spectators for deterministic animation replay.
     pub throw_params: ThrowParams,
+    /// Client-reported settled face values (physics-is-the-roll).
+    /// One per die, flat order matching the pool's `DieSpec` iteration.
+    pub face: Vec<u32>,
 }
 
 /// Server -> all clients: resolved dice roll outcome (story 34-2).

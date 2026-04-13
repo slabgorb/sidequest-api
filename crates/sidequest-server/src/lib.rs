@@ -2402,13 +2402,23 @@ async fn dispatch_message(
                     }
                 }
             };
+            // Seed is still generated — it drives deterministic rotation for
+            // spectator replay animation. It no longer drives the face value;
+            // that comes from the client's physics (story 34-12).
             let seed = dice_dispatch::generate_dice_seed(&session_id, turn_manager.round());
 
-            let resolved = match sidequest_game::dice::resolve_dice(
+            tracing::info!(
+                request_id = %payload.request_id,
+                rolling_player = %player_id,
+                face = ?payload.face,
+                "dice.face_reported"
+            );
+
+            let resolved = match sidequest_game::dice::resolve_dice_with_faces(
                 &pending_request.dice,
+                &payload.face,
                 pending_request.modifier,
                 pending_request.difficulty,
-                seed,
             ) {
                 Ok(r) => r,
                 Err(e) => {

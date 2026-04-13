@@ -513,3 +513,106 @@ fn positive_modifier_added_to_total() {
     assert_eq!(roll.total, 15);
     assert_eq!(roll.outcome, RollOutcome::Success);
 }
+
+// ---------------------------------------------------------------------------
+// Story 34-12: resolve_dice_with_faces — physics-is-the-roll
+// ---------------------------------------------------------------------------
+
+use sidequest_game::dice::resolve_dice_with_faces;
+
+#[test]
+fn resolve_with_faces_uses_client_faces_verbatim() {
+    let roll = resolve_dice_with_faces(&[d20_spec()], &[12], 1, dc(14)).unwrap();
+    assert_eq!(roll.rolls[0].faces, vec![12]);
+    assert_eq!(roll.total, 13);
+    assert_eq!(roll.outcome, RollOutcome::Fail);
+}
+
+#[test]
+fn resolve_with_faces_detects_crit_success_on_nat20() {
+    let roll = resolve_dice_with_faces(&[d20_spec()], &[20], 0, dc(25)).unwrap();
+    // Nat 20 crits regardless of total vs DC
+    assert_eq!(roll.total, 20);
+    assert_eq!(roll.outcome, RollOutcome::CritSuccess);
+}
+
+#[test]
+fn resolve_with_faces_detects_crit_fail_on_nat1() {
+    let roll = resolve_dice_with_faces(&[d20_spec()], &[1], 10, dc(5)).unwrap();
+    // Nat 1 crit-fails regardless of total vs DC (10+1=11 would beat DC 5)
+    assert_eq!(roll.total, 11);
+    assert_eq!(roll.outcome, RollOutcome::CritFail);
+}
+
+#[test]
+fn resolve_with_faces_crit_success_wins_over_crit_fail() {
+    let pool = [
+        d20_spec(),
+        DieSpec {
+            sides: DieSides::D20,
+            count: NonZeroU8::new(1).unwrap(),
+        },
+    ];
+    let roll = resolve_dice_with_faces(&pool, &[20, 1], 0, dc(15)).unwrap();
+    assert_eq!(roll.outcome, RollOutcome::CritSuccess);
+}
+
+#[test]
+fn resolve_with_faces_rejects_face_count_mismatch() {
+    let err = resolve_dice_with_faces(&[d20_spec()], &[10, 5], 0, dc(10)).unwrap_err();
+    assert_eq!(
+        err,
+        ResolveError::FaceCountMismatch {
+            expected: 1,
+            actual: 2
+        }
+    );
+}
+
+#[test]
+fn resolve_with_faces_rejects_out_of_range_face() {
+    let err = resolve_dice_with_faces(&[d20_spec()], &[21], 0, dc(10)).unwrap_err();
+    assert!(matches!(
+        err,
+        ResolveError::FaceOutOfRange {
+            die_index: 0,
+            face: 21,
+            sides: 20
+        }
+    ));
+}
+
+#[test]
+fn resolve_with_faces_rejects_zero_face() {
+    let err = resolve_dice_with_faces(&[d20_spec()], &[0], 0, dc(10)).unwrap_err();
+    assert!(matches!(err, ResolveError::FaceOutOfRange { face: 0, .. }));
+}
+
+#[test]
+fn resolve_with_faces_rejects_empty_pool() {
+    let err = resolve_dice_with_faces(&[], &[], 0, dc(10)).unwrap_err();
+    assert_eq!(err, ResolveError::EmptyPool);
+}
+
+#[test]
+fn resolve_with_faces_handles_mixed_pool_flat_order() {
+    // Pool: [1 d20, 3 d6] — expected flat order is [d20, d6, d6, d6]
+    let d6_group = DieSpec {
+        sides: DieSides::D6,
+        count: NonZeroU8::new(3).unwrap(),
+    };
+    let roll = resolve_dice_with_faces(&[d20_spec(), d6_group], &[15, 4, 2, 6], 0, dc(20)).unwrap();
+    assert_eq!(roll.rolls.len(), 2);
+    assert_eq!(roll.rolls[0].faces, vec![15]);
+    assert_eq!(roll.rolls[1].faces, vec![4, 2, 6]);
+    assert_eq!(roll.total, 27);
+    assert_eq!(roll.outcome, RollOutcome::Success);
+}
+
+#[test]
+fn resolve_with_faces_is_deterministic_no_seed_input() {
+    // Same inputs must produce byte-identical output every call (no RNG involved).
+    let a = resolve_dice_with_faces(&[d20_spec()], &[17], 3, dc(15)).unwrap();
+    let b = resolve_dice_with_faces(&[d20_spec()], &[17], 3, dc(15)).unwrap();
+    assert_eq!(a, b);
+}
