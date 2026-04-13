@@ -387,14 +387,16 @@ fn assemble_turn_includes_tactical_placements_in_action_result() {
     use std::collections::HashMap;
 
     // Build a ToolCallResults with one tactical placement
-    let mut tool_results = ToolCallResults::default();
-    tool_results.tactical_placements = Some(vec![TacticalPlaceResult {
-        entity_id: "goblin-01".to_string(),
-        x: 3,
-        y: 4,
-        size: 1,
-        faction: "hostile".to_string(),
-    }]);
+    let tool_results = ToolCallResults {
+        tactical_placements: Some(vec![TacticalPlaceResult {
+            entity_id: "goblin-01".to_string(),
+            x: 3,
+            y: 4,
+            size: 1,
+            faction: "hostile".to_string(),
+        }]),
+        ..Default::default()
+    };
 
     let extraction = NarratorExtraction {
         prose: "A goblin charges from the shadows.".to_string(),
