@@ -190,7 +190,7 @@ fn place_pc_at_exit_gap_returns_floor_position() {
     assert_eq!(pc.faction(), &Faction::Player);
     assert_eq!(pc.size(), &EntitySize::Medium);
     // Position must be on a walkable cell
-    let cell = grid.cell_at(pos);
+    let cell = grid.cell_at(pos.x(), pos.y());
     assert!(cell.is_some(), "PC must be on a valid grid cell");
 }
 
