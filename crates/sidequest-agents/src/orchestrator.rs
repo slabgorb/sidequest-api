@@ -601,6 +601,21 @@ impl Orchestrator {
             self.narrator.build_encounter_context(&mut builder);
         }
 
+        // Story 29-11: Tactical grid summary (Primacy zone — narrator needs spatial awareness)
+        if let Some(ref grid_summary) = context.tactical_grid_summary {
+            let _tactical_span = tracing::info_span!(
+                "orchestrator.tactical_grid_injection",
+                summary_len = grid_summary.len(),
+            )
+            .entered();
+            builder.add_section(PromptSection::new(
+                "tactical_grid_summary",
+                format!("<tactical-grid>\n{}\n</tactical-grid>", grid_summary),
+                AttentionZone::Primacy,
+                SectionCategory::State,
+            ));
+        }
+
         // Trope beat directives (Early zone)
         if let Some(ref beats) = context.pending_trope_context {
             let _trope_span =
@@ -1672,6 +1687,10 @@ pub struct TurnContext {
     /// When Some, injected as a [DICE_OUTCOME: X] tag in the Valley zone
     /// so the narrator shapes prose tone to match the mechanical result.
     pub roll_outcome: Option<sidequest_protocol::RollOutcome>,
+    /// Tactical grid summary for narrator spatial awareness (story 29-11).
+    /// When Some, injected into Primacy zone so narrator knows entity positions
+    /// before deciding tactical_place calls.
+    pub tactical_grid_summary: Option<String>,
 }
 
 /// Result of processing a player action through the full turn loop.
