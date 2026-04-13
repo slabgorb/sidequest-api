@@ -1,12 +1,12 @@
 //! Story 34-9: Narrator outcome injection — RollOutcome shapes narration tone.
 //!
-//! RED phase tests. These verify that RollOutcome is injected into the narrator
-//! prompt as a visible context tag in the mechanical facts zone.
+//! Tests verifying that RollOutcome is injected into the narrator prompt as a
+//! visible context tag in the mechanical facts zone.
 //!
 //! ACs tested:
 //! 1. Each RollOutcome variant produces distinct [DICE_OUTCOME: X] tag
 //! 2. Tag is in the mechanical context zone (Valley attention zone)
-//! 3. Unknown outcome is handled gracefully (forward-compat)
+//! 3. Unknown outcome is handled gracefully (skip injection, no silent fallback)
 //! 4. No outcome (None) produces no tag (backward compat)
 //! 5. Other context is unaffected by outcome injection
 //! 6. Integration: full prompt path with outcome set
@@ -89,21 +89,24 @@ fn crit_fail_outcome_produces_tag() {
 }
 
 // ============================================================
-// AC-3: Unknown outcome is handled (forward-compat fallback)
+// AC-3: Unknown outcome skips injection (no silent fallback)
 // ============================================================
 
 #[test]
-fn unknown_outcome_produces_fallback_tag() {
+fn unknown_outcome_skips_injection() {
     let orch = test_orchestrator();
     let ctx = context_with_outcome(Some(RollOutcome::Unknown));
 
     let result = orch.build_narrator_prompt("do something", &ctx);
 
-    // Unknown should still inject a tag — the narrator should know a roll happened
-    // even if the outcome variant is unrecognized. Use a generic fallback.
+    // Unknown means the wire protocol sent an unrecognized variant.
+    // Per project rule "No Silent Fallbacks" and RollOutcome::Unknown docs:
+    // the correct response is to skip injection entirely, not to inject
+    // misleading neutral narration guidance. The narrator should not receive
+    // tone shaping for a mechanically undefined outcome.
     assert!(
-        result.prompt_text.contains("[DICE_OUTCOME: Unknown]"),
-        "Unknown outcome must produce [DICE_OUTCOME: Unknown] tag for forward-compat"
+        !result.prompt_text.contains("[DICE_OUTCOME:"),
+        "Unknown outcome must NOT inject any [DICE_OUTCOME:] tag — silent fallback violates project rules. Got prompt containing DICE_OUTCOME tag."
     );
 }
 

@@ -9,6 +9,7 @@ mod confrontation_beats_wiring_story_28_3_tests;
 mod confrontation_defs_wiring_story_28_1_tests;
 mod conlang_wiring_story_15_19_tests;
 mod dice_dispatch_wiring_story_34_4_tests;
+mod dice_outcome_wiring_story_34_9_tests;
 mod dice_resolver_wiring_34_3;
 mod encounter_context_wiring_story_28_4_tests;
 mod entity_reference_wiring_story_35_2_tests;
