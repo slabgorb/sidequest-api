@@ -22,20 +22,24 @@ response extraction, and post-narration tool result assembly.
 - **ContextBuilder** — `context_builder.rs` (172 LOC) — zone-ordered prompt composition.
   Zones: **Primacy, Early, Valley, Late, Recency** (highest to lowest attention).
   `compose()` sorts sections by zone before joining.
-- **Extractor** — `extractor.rs` (146 LOC) — response parsing/extraction from Claude output.
+- **Response parsing** — lives inline in `orchestrator.rs` / narrator pipeline.
+  There is no standalone `extractor.rs`; JSON extraction is handled per-agent
+  via the prompt framework and patch validation.
 
-### Agent Implementations (7 COMPLETE)
-- **Narrator** — `narrator.rs` (447 LOC) — exploration, description, story progression.
+### Agent Implementations (post-ADR-067)
+Per ADR-067 the narrator is the unified agent. Combat, dialogue, and chase
+handling were absorbed into `narrator.rs` — the former `creature_smith.rs`,
+`ensemble.rs`, and `dialectician.rs` files were removed. The current
+`agents/` directory contains exactly: `intent_router.rs`, `mod.rs`,
+`narrator.rs`, `resonator.rs`, `troper.rs`, `world_builder.rs`.
+
+- **Narrator** — `agents/narrator.rs` — exploration, combat, chase, dialogue.
   Contains complete game_patch JSON schema (~210 lines defining ALL fields the narrator
   can emit). Sections: NARRATOR_IDENTITY, NARRATOR_CONSTRAINTS, NARRATOR_AGENCY,
   NARRATOR_CONSEQUENCES, NARRATOR_OUTPUT_ONLY, NARRATOR_OUTPUT_STYLE,
   NARRATOR_REFERRAL_RULE, NARRATOR_COMBAT_RULES, NARRATOR_CHASE_RULES,
   NARRATOR_DIALOGUE_RULES. Methods: build_output_format(), build_combat_context(),
   build_chase_context(), build_dialogue_context().
-- **CreatureSmith** — `creature_smith.rs` (66 LOC) — combat resolution, tactical encounters.
-  Routed to when TurnContext.in_combat is true.
-- **Ensemble** — `ensemble.rs` (66 LOC) — NPC dialogue & interaction.
-- **Dialectician** — `dialectician.rs` (66 LOC) — chase sequences (pursuit, escape, negotiation).
 - **Resonator** — `resonator.rs` (479 LOC) — TWO responsibilities: hook refinement
   (narrative hook polishing) + perception rewriting (per-player narration based on
   status effects). Implements `ClaudeRewriteStrategy` and `FullContextRewriteStrategy`
@@ -74,15 +78,14 @@ response extraction, and post-narration tool result assembly.
   `assemble_turn` merges tool results with narration (tool values win).
   Modules: `assemble_turn`, `item_acquire`, `personality_event`, `play_sfx`,
   `quest_update`, `resource_change`, `scene_render`, `set_intent`, `set_mood`,
-  `lore_mark`, `merchant_transact`, `tool_call_parser`. Plus `preprocessors.rs`
-  for input preprocessing.
+  `lore_mark`, `merchant_transact`, `tool_call_parser`. Input preprocessing
+  lives in top-level `preprocessor.rs` (not inside `tools/`).
 
 ### Support Systems
 - **TurnRecord** — `turn_record.rs` (150 LOC) — turn history & telemetry (story 3-2).
 - **ExerciseTracker** — `exercise_tracker.rs` (120 LOC) — agent invocation history (story 3-5).
 - **EntityReference** — `entity_reference.rs` (200 LOC) — NPC/entity ID resolution (story 3-4).
 - **PatchLegality** — `patch_legality.rs` (202 LOC) — validate patches before applying (story 3-3).
-- **TropeAlignment** — `trope_alignment.rs` (134 LOC) — trope compatibility checking (story 3-8).
 - **Footnotes** — `footnotes.rs` (38 LOC) — footnote extraction from narrator output.
 - **ContinuityValidator** — `continuity_validator.rs` — continuity checking across turns.
 - **InventoryExtractor** — item extraction from narration.
