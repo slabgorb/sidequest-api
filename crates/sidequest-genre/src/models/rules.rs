@@ -282,6 +282,130 @@ pub enum ResolutionMode {
     SealedLetterLookup,
 }
 
+// ───────────────────────────────────────────────────────────
+// Interaction table (story 38-4) — sealed-letter lookup data
+// ───────────────────────────────────────────────────────────
+
+/// Raw interaction cell for deserialization with validation.
+#[derive(Debug, Clone, Deserialize)]
+struct RawInteractionCell {
+    pair: Vec<String>,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    shape: String,
+    #[serde(default)]
+    red_view: serde_yaml::Value,
+    #[serde(default)]
+    blue_view: serde_yaml::Value,
+    #[serde(default)]
+    narration_hint: String,
+}
+
+/// A single cell of a sealed-letter interaction table.
+///
+/// Each cell is keyed by the `(red_maneuver, blue_maneuver)` pair and carries
+/// the two descriptor-delta views the engine will merge into each pilot's
+/// perspective, plus a narration hint for the LLM.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "RawInteractionCell")]
+pub struct InteractionCell {
+    /// `(red, blue)` maneuver pair keying this cell.
+    pub pair: (String, String),
+    /// Short human-facing cell name (e.g., "Clean merge").
+    pub name: String,
+    /// Shape tag for design review (e.g., "passive vs evasive").
+    pub shape: String,
+    /// Descriptor delta applied to the red pilot's view.
+    pub red_view: serde_yaml::Value,
+    /// Descriptor delta applied to the blue pilot's view.
+    pub blue_view: serde_yaml::Value,
+    /// Narrator hint describing the beat for the LLM.
+    pub narration_hint: String,
+}
+
+impl TryFrom<RawInteractionCell> for InteractionCell {
+    type Error = String;
+
+    fn try_from(raw: RawInteractionCell) -> Result<Self, Self::Error> {
+        if raw.pair.len() != 2 {
+            return Err(format!(
+                "interaction cell pair must have exactly 2 elements, got {}",
+                raw.pair.len()
+            ));
+        }
+        let mut iter = raw.pair.into_iter();
+        let red = iter.next().unwrap();
+        let blue = iter.next().unwrap();
+        Ok(Self {
+            pair: (red, blue),
+            name: raw.name,
+            shape: raw.shape,
+            red_view: raw.red_view,
+            blue_view: raw.blue_view,
+            narration_hint: raw.narration_hint,
+        })
+    }
+}
+
+/// Raw interaction table for deserialization with validation.
+#[derive(Debug, Clone, Deserialize)]
+struct RawInteractionTable {
+    version: String,
+    starting_state: String,
+    #[serde(default)]
+    maneuvers_consumed: Vec<String>,
+    cells: Vec<InteractionCell>,
+}
+
+/// A sealed-letter interaction table — cross-product lookup between two
+/// simultaneously-committed maneuvers, producing per-viewer descriptor deltas
+/// and a narration hint.
+///
+/// Validated on deserialization: version must not be empty, cells must not
+/// be empty, and every `(red, blue)` pair must be unique.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(try_from = "RawInteractionTable")]
+pub struct InteractionTable {
+    /// Table schema version (e.g., "0.1.0").
+    pub version: String,
+    /// Starting descriptor state that all cells deltas apply against (e.g., "merge").
+    pub starting_state: String,
+    /// Maneuver IDs this table covers.
+    pub maneuvers_consumed: Vec<String>,
+    /// Cells in the cross-product lookup.
+    pub cells: Vec<InteractionCell>,
+}
+
+impl TryFrom<RawInteractionTable> for InteractionTable {
+    type Error = String;
+
+    fn try_from(raw: RawInteractionTable) -> Result<Self, Self::Error> {
+        if raw.version.is_empty() {
+            return Err("interaction table version must not be empty".to_string());
+        }
+        if raw.cells.is_empty() {
+            return Err("interaction table must have at least one cell".to_string());
+        }
+        let mut seen = std::collections::HashSet::new();
+        for cell in &raw.cells {
+            let key = (cell.pair.0.clone(), cell.pair.1.clone());
+            if !seen.insert(key) {
+                return Err(format!(
+                    "duplicate interaction cell pair: ({}, {})",
+                    cell.pair.0, cell.pair.1
+                ));
+            }
+        }
+        Ok(Self {
+            version: raw.version,
+            starting_state: raw.starting_state,
+            maneuvers_consumed: raw.maneuvers_consumed,
+            cells: raw.cells,
+        })
+    }
+}
+
 /// Raw confrontation definition for deserialization with validation.
 #[derive(Debug, Clone, Deserialize)]
 struct RawConfrontationDef {
@@ -299,6 +423,8 @@ struct RawConfrontationDef {
     escalates_to: Option<String>,
     #[serde(default)]
     mood: Option<String>,
+    #[serde(default)]
+    interaction_table: Option<InteractionTable>,
 }
 
 /// A confrontation type declared by a genre pack in rules.yaml.
@@ -332,6 +458,11 @@ pub struct ConfrontationDef {
     /// Mood override for MusicDirector.
     #[serde(default)]
     pub mood: Option<String>,
+    /// Sealed-letter interaction table for simultaneous-commit resolution (story 38-4).
+    /// Populated for confrontations with `resolution_mode: sealed_letter_lookup`.
+    /// May be loaded inline or via a `_from: subpath.yaml` pointer in rules.yaml.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interaction_table: Option<InteractionTable>,
 }
 
 impl TryFrom<RawConfrontationDef> for ConfrontationDef {
@@ -373,6 +504,7 @@ impl TryFrom<RawConfrontationDef> for ConfrontationDef {
             secondary_stats: raw.secondary_stats,
             escalates_to: raw.escalates_to,
             mood: raw.mood,
+            interaction_table: raw.interaction_table,
         })
     }
 }
