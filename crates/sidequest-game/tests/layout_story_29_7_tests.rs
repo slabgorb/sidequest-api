@@ -1,9 +1,6 @@
 //! Story 29-7: Jaquayed layout — cycle detection, ring placement, loop closure,
 //! overlap detection for cyclic dungeon topologies.
 //!
-//! RED phase — failing tests for the jaquayed layout extensions to the 29-6
-//! shared-wall layout engine.
-//!
 //! The jaquayed layout algorithm (ADR-071 §5) extends the tree-only placer
 //! from 29-6 with:
 //!   1. DFS cycle detection on the room graph (back-edge extraction)
@@ -614,21 +611,41 @@ fn layout_cycle_closure_error_names_participating_rooms() {
 }
 
 #[test]
-fn cycle_closure_error_display_is_non_empty() {
-    // Display impl must produce a non-empty message for log/error reporting.
+fn cycle_closure_error_display_renders_all_cycle_rooms() {
+    // Uses room identifiers that do NOT appear as substrings of the detail
+    // message. This way, asserting the Display output contains those tokens
+    // proves the `cycle_rooms` field is actually rendered by the Display impl
+    // and not just the `detail` field being echoed back.
     let err = LayoutError::CycleClosureFailed {
-        cycle_rooms: vec!["a".into(), "b".into(), "c".into(), "d".into()],
-        detail: "closing edge C→D: exit gap cols [1,2] vs [2,3]".into(),
+        cycle_rooms: vec!["xyzzy".into(), "plover".into(), "fumble".into()],
+        detail: "closing gap offset mismatch".into(),
     };
     let msg = format!("{}", err);
+
     assert!(
-        msg.contains("a") && msg.contains("d"),
-        "CycleClosureFailed Display must mention participating rooms, got {:?}",
+        msg.contains("xyzzy"),
+        "Display must render first cycle room 'xyzzy', got {:?}",
         msg
     );
     assert!(
-        !msg.is_empty(),
-        "CycleClosureFailed Display must be non-empty"
+        msg.contains("plover"),
+        "Display must render middle cycle room 'plover', got {:?}",
+        msg
+    );
+    assert!(
+        msg.contains("fumble"),
+        "Display must render last cycle room 'fumble', got {:?}",
+        msg
+    );
+    assert!(
+        msg.contains("closing gap offset mismatch"),
+        "Display must include the detail string, got {:?}",
+        msg
+    );
+    assert!(
+        msg.contains("xyzzy, plover"),
+        "Display must join multiple cycle rooms with a separator, got {:?}",
+        msg
     );
 }
 
@@ -723,10 +740,14 @@ fn layout_dungeon_reports_overlap_between_branch_and_cycle() {
 // ==========================================================================
 
 #[test]
-fn layout_dungeon_places_two_disjoint_cycles_without_overlap() {
+fn layout_dungeon_fails_loud_on_multi_cycle_graphs_not_yet_supported() {
+    // AC-7 (multiple disconnected cycles placed with spacing) is NOT yet
+    // implemented by `layout_dungeon` — the current scope of epic 29 story 7
+    // is single-cycle support plus tree branches. This test pins the CURRENT
+    // fail-loud behaviour so a future implementation of multi-cycle layouts
+    // is forced to update the assertion rather than silently changing it.
+    //
     // Build two independent square rings connected by a single bridge edge.
-    // Each ring is a fresh 4-room 2×2; they must be placed with enough
-    // spacing that their bounding boxes do not overlap.
     let mut rooms = rooms_square_ring();
     // Rename first ring rooms to a1/b1/c1/d1 and wire a1 as entrance.
     for r in rooms.iter_mut() {
@@ -759,39 +780,40 @@ fn layout_dungeon_places_two_disjoint_cycles_without_overlap() {
     rooms.extend(ring_2);
     let grids = parse_grids(&rooms);
 
-    // The engine may or may not be able to geometrically bridge two full rings
-    // in a single layout pass — that's a harder problem and not required by
-    // AC-7. What IS required: if it can't, it must Err; if it can, no two
-    // rooms in the result may occupy the same non-void cell.
-    match layout_dungeon(&rooms, &grids) {
-        Ok(layout) => {
-            // No two placed rooms may share non-void cells.
-            let placed: Vec<&PlacedRoom> = layout.rooms().iter().collect();
-            for i in 0..placed.len() {
-                for j in (i + 1)..placed.len() {
-                    let overlaps = sidequest_game::tactical::layout::check_overlap(
-                        &[placed[i].clone()],
-                        placed[j],
-                    );
-                    assert!(
-                        overlaps.is_empty(),
-                        "rooms {} and {} overlap at {} cells after disjoint-cycle layout",
-                        placed[i].room_id(),
-                        placed[j].room_id(),
-                        overlaps.len()
-                    );
-                }
-            }
-        }
-        Err(err) => {
-            // Fail-loud is acceptable. The error must name a specific failure
-            // mode, not be a silent fallback.
-            let msg = format!("{}", err);
+    let err = layout_dungeon(&rooms, &grids)
+        .expect_err("multi-cycle layouts are not yet supported — must fail loud");
+
+    match err {
+        LayoutError::CycleClosureFailed {
+            ref cycle_rooms,
+            ref detail,
+        } => {
+            // Detail must explicitly flag this as a "not yet supported"
+            // capability gap, not a generic closure mismatch. A reader
+            // parsing the error message must be able to distinguish a
+            // temporary limitation from a genuine authoring error.
             assert!(
-                !msg.is_empty(),
-                "layout_dungeon error on disjoint cycles must produce a non-empty message"
+                detail.contains("multi-cycle") && detail.contains("not yet supported"),
+                "multi-cycle error detail must say 'multi-cycle ... not yet supported', got {:?}",
+                detail
+            );
+            // cycle_rooms must include members from both rings so the
+            // operator can see which graph triggered the capability gap.
+            let reported: HashSet<&str> = cycle_rooms.iter().map(String::as_str).collect();
+            let ring_1_members = ["a1", "b1", "c1", "d1"];
+            let ring_2_members = ["a2", "b2", "c2", "d2"];
+            let ring_1_hit = ring_1_members.iter().any(|r| reported.contains(r));
+            let ring_2_hit = ring_2_members.iter().any(|r| reported.contains(r));
+            assert!(
+                ring_1_hit && ring_2_hit,
+                "multi-cycle error must name members from both rings, got {:?}",
+                cycle_rooms
             );
         }
+        other => panic!(
+            "multi-cycle graphs must fail with CycleClosureFailed (capability gap), got {:?}",
+            other
+        ),
     }
 }
 

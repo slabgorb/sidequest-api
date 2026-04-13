@@ -1,12 +1,14 @@
 //! Dungeon layout engine — shared-wall placement (ADR-071).
 //!
 //! Composes individually parsed room grids into a dungeon map. Adjacent rooms
-//! share wall segments at exit gaps — one wall, not two. BFS from the entrance
-//! room places rooms in global coordinates.
+//! share wall segments at exit gaps — one wall, not two.
 //!
-//! `layout_tree` handles acyclic (tree) room graphs; `layout_dungeon` (added
-//! in story 29-7) adds cycle detection, ring placement, and closure validation
-//! for jaquayed topologies per ADR-071 §5.
+//! `layout_tree` BFS-places rooms starting from the entrance (room_type ==
+//! "entrance"), following one tree edge at a time. `layout_dungeon` (added in
+//! story 29-7) adds cycle detection, ring placement in cycle-walk order
+//! starting from `cycle[0]` (not guaranteed to be the entrance), and BFS
+//! tree-branch attachment off ring nodes. See ADR-071 §5 for the jaquayed
+//! layout algorithm.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -468,10 +470,17 @@ pub fn layout_tree(
 /// Uses three-coloured DFS (White → Gray → Black) on an adjacency list built
 /// from each room's exits. Back edges to Gray ancestors extract one cycle
 /// per back edge by walking the DFS stack from the ancestor to the current
-/// node. Edges to Black (fully-explored) neighbours are ignored so undirected
-/// graphs aren't double-counted. Iteration order is deterministic thanks to
-/// `BTreeMap`-sorted adjacency.
+/// node.
 ///
+/// Two separate deduplication mechanisms work together:
+/// - **Parent-skip**: the immediate-parent edge is skipped (the `parent`
+///   check inside the neighbour loop) so the graph is treated as undirected
+///   and trivial A→B→A back-edges don't masquerade as cycles.
+/// - **Black-skip**: edges to already-completed (Black) neighbours are
+///   ignored so cycles already extracted through a completed DFS subtree
+///   aren't re-discovered from a different entry point.
+///
+/// Iteration order is deterministic thanks to `BTreeMap`-sorted adjacency.
 /// Returns an empty vector for acyclic graphs (linear chains, trees, stars).
 pub fn detect_cycles(rooms: &[RoomDef]) -> Vec<Vec<String>> {
     use std::collections::BTreeMap;
@@ -732,8 +741,15 @@ pub fn layout_cycle(
 /// [`layout_tree`] (behaviour-preserving). If exactly one cycle is present,
 /// the cycle is placed as a ring via [`layout_cycle`], then any tree branches
 /// hanging off cycle members are BFS-attached using the same opposite-wall
-/// placement logic as `layout_tree`. Multi-cycle graphs are not yet supported
-/// and fail loudly with [`LayoutError::CycleClosureFailed`].
+/// placement logic as `layout_tree`.
+///
+/// **Multi-cycle graphs (more than one fundamental cycle) are not yet
+/// implemented** — they are a capability gap, not a geometric impossibility.
+/// They return `Err(LayoutError::CycleClosureFailed)` with a detail string
+/// that includes "multi-cycle dungeons are not yet supported" so callers can
+/// distinguish a temporary limitation from a genuine authoring-error closure
+/// mismatch. Support for jaquayed dungeons with more than one cycle is a
+/// planned follow-up in epic 29.
 pub fn layout_dungeon(
     rooms: &[RoomDef],
     grids: &HashMap<String, TacticalGrid>,
@@ -856,10 +872,20 @@ pub fn layout_dungeon(
             }
 
             if !placement_found {
-                return Err(LayoutError::Overlap {
-                    room_a: current_id.clone(),
-                    room_b: target_id.to_string(),
-                    cells: vec![],
+                // BFS branch attachment failed: no opposite-wall exit pair
+                // between `current_id` (on the ring) and `target_id` (the
+                // branch) produced a non-overlapping placement. This is a
+                // topology/authoring error, not a cell-collision error —
+                // `LayoutError::Overlap` with empty `cells` would be a
+                // semantic mismatch (that variant describes concrete cell
+                // collisions). `CycleClosureFailed` is the closest fit for
+                // "the dungeon couldn't be assembled around its cycle".
+                return Err(LayoutError::CycleClosureFailed {
+                    cycle_rooms: vec![current_id.clone(), target_id.to_string()],
+                    detail: format!(
+                        "branch attachment failed: no opposite-wall exit pair between ring room '{}' and branch room '{}' produced a non-overlapping placement",
+                        current_id, target_id
+                    ),
                 });
             }
         }
