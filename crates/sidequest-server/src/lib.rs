@@ -1535,7 +1535,8 @@ async fn dispatch_message(
     // duplicating the 200-line DispatchContext construction.
     let mut chosen_player_beat: Option<String> = None;
     // Story 34-9: dice outcome consumed by the next narration turn.
-    let mut pending_roll_outcome: Option<sidequest_protocol::RollOutcome> = None;
+    // Stored in SharedGameSession (persists across dispatch_message calls).
+    // Taken from shared state into DispatchContext at narration time.
     let msg = match msg {
         GameMessage::BeatSelection { payload, .. } => {
             if !session.is_playing() {
@@ -2161,7 +2162,17 @@ async fn dispatch_message(
                             })
                     },
                     chosen_player_beat: chosen_player_beat.clone(),
-                    pending_roll_outcome: pending_roll_outcome.take(),
+                    // Story 34-9: take outcome from shared session state (persists
+                    // across dispatch_message calls; set by DiceThrow handler).
+                    pending_roll_outcome: {
+                        let holder_guard = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder_guard {
+                            let mut ss = ss_arc.lock().await;
+                            ss.pending_roll_outcome.take()
+                        } else {
+                            None
+                        }
+                    },
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {
@@ -2346,16 +2357,17 @@ async fn dispatch_message(
                 "dice.result_resolved"
             );
 
-            // Story 34-9: store resolved outcome for the next narration turn.
-            // The narrator's prompt builder reads this from TurnContext.roll_outcome
-            // to inject a [DICE_OUTCOME: X] tag that shapes narration tone.
-            pending_roll_outcome = Some(resolved.outcome);
-
-            // Broadcast via shared session to all connected players
+            // Broadcast via shared session to all connected players, and store
+            // the resolved outcome for the next narration turn (story 34-9).
+            // The outcome persists in SharedGameSession across dispatch_message()
+            // calls — the local var `pending_roll_outcome` can't survive past
+            // this return, so shared state is the only viable persistence layer.
             {
                 let holder_guard = shared_session_holder.lock().await;
                 if let Some(ref ss_arc) = *holder_guard {
-                    let ss = ss_arc.lock().await;
+                    let mut ss = ss_arc.lock().await;
+                    // Story 34-9: persist outcome for next PlayerAction narration
+                    ss.pending_roll_outcome = Some(resolved.outcome);
                     ss.broadcast(GameMessage::DiceResult {
                         player_id: "server".to_string(),
                         payload: result_payload.clone(),
