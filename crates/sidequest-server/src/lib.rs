@@ -40,8 +40,8 @@ pub(crate) type NpcRegistryEntry = sidequest_game::NpcRegistryEntry;
 
 use sidequest_genre::{GenreCache, GenreCode, GenreLoader};
 use sidequest_protocol::{
-    ErrorPayload, GameMessage, PartyMember, PartyStatusPayload, SessionEventPayload,
-    TurnStatusPayload,
+    DiceRequestPayload, DieSides, DieSpec, ErrorPayload, GameMessage, PartyMember,
+    PartyStatusPayload, SessionEventPayload, TurnStatusPayload,
 };
 
 // ---------------------------------------------------------------------------
@@ -1537,6 +1537,7 @@ async fn dispatch_message(
     // Story 34-9: dice outcome consumed by the next narration turn.
     // Stored in SharedGameSession (persists across dispatch_message calls).
     // Taken from shared state into DispatchContext at narration time.
+    let mut pending_dice_request: Option<DiceRequestPayload> = None;
     let msg = match msg {
         GameMessage::BeatSelection { payload, .. } => {
             if !session.is_playing() {
@@ -1636,6 +1637,49 @@ async fn dispatch_message(
                 .send();
 
             chosen_player_beat = Some(payload.beat_id.clone());
+
+            // Story 34-4: Construct DiceRequest for the dice overlay.
+            // The beat has a stat_check — look up the character's matching stat
+            // to derive the d20 modifier, and derive DC from metric_delta magnitude.
+            // Dice don't change mechanical outcome (metric_delta is deterministic);
+            // they add ritual and shape the narrator's tone via RollOutcome (34-9).
+            {
+                let char_stat_modifier = snapshot
+                    .characters
+                    .first()
+                    .and_then(|c| c.stats.get(&stat_check))
+                    .map(|&stat_val| (stat_val - 10) / 2)
+                    .unwrap_or(0);
+
+                // DC scales with metric_delta impact: base 10 + 2 per abs(delta), clamped 10..30
+                let raw_dc =
+                    (10u32 + beat.metric_delta.unsigned_abs() * 2).clamp(10, 30);
+                let difficulty = std::num::NonZeroU32::new(raw_dc)
+                    .expect("raw_dc is clamped >= 10, always nonzero");
+
+                let char_display_name = character_name
+                    .as_deref()
+                    .unwrap_or("Unknown")
+                    .to_string();
+
+                pending_dice_request = Some(DiceRequestPayload {
+                    request_id: uuid::Uuid::new_v4().to_string(),
+                    rolling_player_id: player_id.to_string(),
+                    character_name: char_display_name,
+                    dice: vec![DieSpec {
+                        sides: DieSides::D20,
+                        count: std::num::NonZeroU8::new(1)
+                            .expect("1 is nonzero"),
+                    }],
+                    modifier: char_stat_modifier,
+                    stat: stat_check.clone(),
+                    difficulty,
+                    context: format!(
+                        "{} — {} check",
+                        beat_label, stat_check
+                    ),
+                });
+            }
 
             // Synthesize a structured PlayerAction for the narrator.
             // This is NOT natural-language text — it's a structured tag that the
@@ -2190,10 +2234,46 @@ async fn dispatch_message(
                         .send();
                 }
 
-                let result = dispatch::dispatch_player_action(&mut ctx).await;
+                let mut result = dispatch::dispatch_player_action(&mut ctx).await;
 
                 // Save Manual after dispatch (entries may have been marked Active)
                 ctx.monster_manual.save();
+
+                // Story 34-4: If beat selection triggered a dice request, broadcast
+                // it to all clients and store in pending_dice_requests for the
+                // DiceThrow handler to look up.
+                if let Some(dice_req) = pending_dice_request.take() {
+                    {
+                        let holder_guard = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder_guard {
+                            let mut ss = ss_arc.lock().await;
+                            ss.pending_dice_requests
+                                .insert(dice_req.request_id.clone(), dice_req.clone());
+                            ss.broadcast(GameMessage::DiceRequest {
+                                player_id: "server".to_string(),
+                                payload: dice_req.clone(),
+                            });
+                        }
+                    }
+
+                    // Story 34-11: OTEL — dice request sent (wires the dead function)
+                    emit_dice_request_sent(&dice_req);
+
+                    tracing::info!(
+                        request_id = %dice_req.request_id,
+                        rolling_player = %dice_req.rolling_player_id,
+                        stat = %dice_req.stat,
+                        difficulty = dice_req.difficulty.get(),
+                        modifier = dice_req.modifier,
+                        "dice.request_initiated — DiceRequest broadcast after beat selection"
+                    );
+
+                    // Also return as direct response for the acting player
+                    result.push(GameMessage::DiceRequest {
+                        player_id: "server".to_string(),
+                        payload: dice_req,
+                    });
+                }
 
                 result
             }
