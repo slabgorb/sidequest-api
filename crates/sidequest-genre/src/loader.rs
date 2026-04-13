@@ -381,18 +381,13 @@ fn extract_from_pointer(value: &serde_yaml::Value) -> Option<String> {
 
 /// Read a `_from`-referenced sub-file, enforcing pack-relative path safety
 /// and rejecting nested `_from` chains.
-fn resolve_from_pointer(
-    rel: &str,
-    pack_dir: &Path,
-) -> Result<serde_yaml::Value, GenreError> {
+fn resolve_from_pointer(rel: &str, pack_dir: &Path) -> Result<serde_yaml::Value, GenreError> {
     let rel_path = Path::new(rel);
 
     if rel_path.is_absolute() {
         return Err(GenreError::LoadError {
             path: rel.to_string(),
-            detail: format!(
-                "_from path must be pack-relative (got absolute path: {rel})"
-            ),
+            detail: format!("_from path must be pack-relative (got absolute path: {rel})"),
         });
     }
 

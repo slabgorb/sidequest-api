@@ -801,25 +801,36 @@ fn watcher_channel_receives_chargen_equipment_composed_event_on_successful_roll(
             .collect::<Vec<_>>()
     );
 
-    let event = &composed[0];
-    assert_eq!(
-        event
-            .fields
-            .get("method")
-            .and_then(serde_json::Value::as_str),
-        Some("tables"),
-        "Event method field must be 'tables' for the successful-roll path. Got: {:?}",
-        event.fields.get("method")
-    );
+    // Find the method=tables event. The global telemetry channel is a
+    // broadcast channel shared by every test in this file — non-observer
+    // tests (the ones that don't call fresh_subscriber) still run in
+    // parallel and emit their own equipment_composed events into our rx.
+    // Filtering by method makes the assertion resilient to that cross-test
+    // noise without weakening the contract: if the wiring is broken, NO
+    // tables event will be present and the test still fails.
+    let tables_event = composed
+        .iter()
+        .find(|e| {
+            e.fields.get("method").and_then(serde_json::Value::as_str) == Some("tables")
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "Expected at least one equipment_composed event with method=tables, got: {:?}",
+                composed
+                    .iter()
+                    .map(|e| e.fields.get("method"))
+                    .collect::<Vec<_>>()
+            )
+        });
 
-    let items_added = event
+    let items_added = tables_event
         .fields
         .get("items_added")
         .and_then(serde_json::Value::as_i64);
     assert!(
         items_added.is_some() && items_added.unwrap() > 0,
-        "Event must include items_added > 0 for a successful roll. Got: {:?}",
-        event.fields.get("items_added")
+        "Tables event must include items_added > 0 for a successful roll. Got: {:?}",
+        tables_event.fields.get("items_added")
     );
 }
 

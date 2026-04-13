@@ -499,21 +499,19 @@ fn all_genre_packs_load_after_resolution_mode_addition() {
             )
         });
 
-
         // Most confrontations should default to BeatSelection, except those
         // explicitly configured with sealed_letter_lookup (story 38-4)
         for conf in &pack.rules.confrontations {
-            let expected = if pack_name.as_ref() == "space_opera" && conf.confrontation_type == "dogfight" {
-                ResolutionMode::SealedLetterLookup
-            } else {
-                ResolutionMode::BeatSelection
-            };
+            let expected =
+                if pack_name.as_ref() == "space_opera" && conf.confrontation_type == "dogfight" {
+                    ResolutionMode::SealedLetterLookup
+                } else {
+                    ResolutionMode::BeatSelection
+                };
             assert_eq!(
-                conf.resolution_mode,
-                expected,
+                conf.resolution_mode, expected,
                 "genre pack '{}' confrontation '{}' has unexpected resolution_mode",
-                pack_name,
-                conf.confrontation_type
+                pack_name, conf.confrontation_type
             );
         }
     }

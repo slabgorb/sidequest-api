@@ -128,17 +128,9 @@ fn build_minimal_pack(rules_yaml: &str) -> (TempDir, PathBuf) {
     .unwrap();
     fs::write(pack.join("progression.yaml"), "tracks: {}\n").unwrap();
     fs::write(pack.join("axes.yaml"), "axes: []\n").unwrap();
-    fs::write(
-        pack.join("audio.yaml"),
-        "music: {}\nsfx: {}\nambient: {}\n",
-    )
-    .unwrap();
+    fs::write(pack.join("audio.yaml"), "music: {}\nsfx: {}\nambient: {}\n").unwrap();
     fs::write(pack.join("cultures.yaml"), "[]\n").unwrap();
-    fs::write(
-        pack.join("prompts.yaml"),
-        "system: test\nnarrator: test\n",
-    )
-    .unwrap();
+    fs::write(pack.join("prompts.yaml"), "system: test\nnarrator: test\n").unwrap();
     fs::write(pack.join("tropes.yaml"), "[]\n").unwrap();
 
     (tmp, pack)
@@ -303,7 +295,11 @@ confrontations:
 "#,
     );
     fs::create_dir_all(pack.join("dogfight")).unwrap();
-    fs::write(pack.join("dogfight/table.yaml"), minimal_interaction_table_yaml()).unwrap();
+    fs::write(
+        pack.join("dogfight/table.yaml"),
+        minimal_interaction_table_yaml(),
+    )
+    .unwrap();
 
     let rules: RulesConfig = load_rules_config(&pack.join("rules.yaml"), &pack)
         .expect("load_rules_config resolves _from pointer");
@@ -507,11 +503,7 @@ confrontations:
     );
     fs::create_dir_all(pack.join("dogfight")).unwrap();
     // outer.yaml redirects to inner.yaml via `_from` — must be rejected.
-    fs::write(
-        pack.join("dogfight/outer.yaml"),
-        "_from: inner.yaml\n",
-    )
-    .unwrap();
+    fs::write(pack.join("dogfight/outer.yaml"), "_from: inner.yaml\n").unwrap();
     fs::write(
         pack.join("dogfight/inner.yaml"),
         minimal_interaction_table_yaml(),

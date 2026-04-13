@@ -17,8 +17,7 @@
 //!   - Embed worker OTEL events on failure (distinct from lore_sync events)
 //!   - Prompt.rs query embed fallback behaviour when daemon is down
 
-const EMBED_WORKER_SRC: &str =
-    include_str!("../../src/dispatch/lore_embed_worker.rs");
+const EMBED_WORKER_SRC: &str = include_str!("../../src/dispatch/lore_embed_worker.rs");
 
 const PROMPT_SRC: &str = include_str!("../../src/dispatch/prompt.rs");
 
