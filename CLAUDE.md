@@ -85,7 +85,7 @@ tell whether it's engaged or whether Claude is just improvising.
 
 ## Architecture Decision Index (docs/adr/)
 
-Before designing or modifying a subsystem, check the relevant ADR (75 total):
+Before designing or modifying a subsystem, check the relevant ADR (78 total):
 
 | Domain | ADRs |
 |--------|------|
@@ -129,7 +129,6 @@ cargo run                # Run the server
 Port of the Python game engine with these Rust equivalents:
 - Pydantic models → serde structs
 - asyncio → tokio
-- Rich TUI → ratatui (eventually)
 - aiohttp → axum
 - pyyaml → serde_yaml
 - sqlite3 → rusqlite
@@ -141,17 +140,17 @@ The ML stack (image gen, audio) stays in Python as a sidecar daemon.
 
 | Crate | Role |
 |-------|------|
-| `sidequest-protocol` | GameMessage, typed payloads (serde) — ~3.5k LOC |
-| `sidequest-genre` | YAML genre pack loader, models, validation — ~4.8k LOC |
-| `sidequest-game` | State, characters, encounters (StructuredEncounter), tropes, audio, rendering — ~26.7k LOC |
-| `sidequest-agents` | Claude CLI subprocess orchestration, prompt framework, tools — ~10.1k LOC |
-| `sidequest-daemon-client` | Unix socket client for Python media daemon — ~570 LOC |
-| `sidequest-server` | axum HTTP/WebSocket, sessions, dispatch pipeline — ~11.7k LOC |
-| `sidequest-encountergen` | CLI: enemy stat block generator from genre pack data — ~710 LOC |
+| `sidequest-protocol` | GameMessage, typed payloads (serde) — ~6.3k LOC |
+| `sidequest-genre` | YAML genre pack loader, models, validation — ~5.2k LOC |
+| `sidequest-game` | State, characters, encounters (StructuredEncounter), tropes, audio, rendering — ~29.3k LOC |
+| `sidequest-agents` | Claude CLI subprocess orchestration, prompt framework, tools — ~10.3k LOC |
+| `sidequest-daemon-client` | Unix socket client for Python media daemon — ~500 LOC |
+| `sidequest-server` | axum HTTP/WebSocket, sessions, dispatch pipeline — ~16k LOC |
+| `sidequest-encountergen` | CLI: enemy stat block generator from genre pack data — ~840 LOC |
 | `sidequest-loadoutgen` | CLI: starting equipment generator from genre pack data — ~270 LOC |
-| `sidequest-namegen` | CLI: NPC identity block generator from genre pack data — ~370 LOC |
-| `sidequest-validate` | CLI: genre pack YAML schema validator — ~280 LOC |
-| `sidequest-telemetry` | OTEL span definitions and watcher macros — ~840 LOC |
+| `sidequest-namegen` | CLI: NPC identity block generator from genre pack data — ~460 LOC |
+| `sidequest-validate` | CLI: genre pack YAML schema validator — ~770 LOC |
+| `sidequest-telemetry` | OTEL span definitions and watcher macros — ~290 LOC |
 | `sidequest-promptpreview` | CLI: prompt preview and inspection — ~550 LOC |
 
 Each crate has its own CLAUDE.md with a feature inventory. Read those before modifying a crate.

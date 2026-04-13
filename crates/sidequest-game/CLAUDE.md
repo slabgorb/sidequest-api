@@ -1,6 +1,6 @@
 # sidequest-game — Feature Inventory
 
-The core game engine crate. **~26,700 LOC across 71 modules.** Almost everything
+The core game engine crate. **~29,300 LOC across 70 modules.** Almost everything
 you're looking for is already here. Read this before writing any code.
 
 ## COMPLETE — Do Not Rewrite
@@ -122,16 +122,18 @@ or rewrite them. Use the existing types and functions.
 - **StateDelta** — `delta.rs` (239 LOC) — broadcast optimization. Computes changed
   fields between snapshots to avoid redundant client updates.
 
-## PARTIAL — Wired but Incomplete
-
-These exist and compile but have gaps in their implementation:
-
-- **PerceptionRewriter** — `perception.rs` (169 LOC) — types compile, RewriteStrategy
-  trait defined, but rewrite methods are unimplemented. RED phase (story 8-6).
-- **OCEAN shift proposals** — `ocean_shift_proposals.rs` (106 LOC) — event->shift
-  mapping rules exist but are NOT wired to the story flow (story 10-6).
-- **Catch-up narration** — `catch_up.rs` (202 LOC) — trait-based generation with
-  fallback, awaiting concrete LLM strategy implementation (story 8-8).
+### Multiplayer Perception & Catch-Up
+- **PerceptionRewriter** — `perception.rs` (200 LOC) — per-character narration variants
+  based on status effects (blinded, charmed, dominated, etc.). RewriteStrategy trait
+  enables test doubles. Wired into dispatch via `session_sync.rs` + `dispatch/mod.rs`.
+  Production strategy: `ClaudeRewriteStrategy` in resonator agent (story 8-6).
+- **OCEAN shift proposals** — `ocean_shift_proposals.rs` (155 LOC) — event-to-shift
+  mapping (Betrayal, NearDeath, Victory, etc.) + `apply_ocean_shifts()` for batch
+  application. Wired into `dispatch/npc_registry.rs`. Integration tests in
+  `ocean_shift_wiring_story_15_2_tests.rs` (stories 10-6, 15-2).
+- **Catch-up narration** — `catch_up.rs` (201 LOC) — generates arrival snapshot for
+  mid-session joining players. GenerationStrategy trait with `ClaudeGenerationStrategy`
+  impl in `dispatch/catch_up.rs`. Called from `dispatch/connect.rs` (story 8-8).
 
 ## NOT STARTED
 

@@ -1,6 +1,6 @@
 # sidequest-agents — Feature Inventory
 
-LLM agent orchestration via Claude CLI subprocess. **~10,100 LOC across 40 modules.**
+LLM agent orchestration via Claude CLI subprocess. **~10,300 LOC across 52 modules.**
 This crate handles intent classification, agent dispatch, prompt composition,
 response extraction, and post-narration tool result assembly.
 
@@ -24,7 +24,7 @@ response extraction, and post-narration tool result assembly.
   `compose()` sorts sections by zone before joining.
 - **Extractor** — `extractor.rs` (146 LOC) — response parsing/extraction from Claude output.
 
-### Agent Implementations (4 COMPLETE)
+### Agent Implementations (7 COMPLETE)
 - **Narrator** — `narrator.rs` (447 LOC) — exploration, description, story progression.
   Contains complete game_patch JSON schema (~210 lines defining ALL fields the narrator
   can emit). Sections: NARRATOR_IDENTITY, NARRATOR_CONSTRAINTS, NARRATOR_AGENCY,
@@ -36,6 +36,19 @@ response extraction, and post-narration tool result assembly.
   Routed to when TurnContext.in_combat is true.
 - **Ensemble** — `ensemble.rs` (66 LOC) — NPC dialogue & interaction.
 - **Dialectician** — `dialectician.rs` (66 LOC) — chase sequences (pursuit, escape, negotiation).
+- **Resonator** — `resonator.rs` (479 LOC) — TWO responsibilities: hook refinement
+  (narrative hook polishing) + perception rewriting (per-player narration based on
+  status effects). Implements `ClaudeRewriteStrategy` and `FullContextRewriteStrategy`
+  for the `RewriteStrategy` trait from sidequest-game/perception.rs. Wired into
+  `dispatch/session_sync.rs`.
+- **Troper** — `troper.rs` (720 LOC) — trope beat injection into narrator context.
+  Translates mechanical TropeEngine escalation beats (from sidequest-game/trope.rs)
+  into narrative instructions for the narrator. Full prompt framework with zone-ordered
+  sections, active/dormant/completed trope classification.
+- **WorldBuilder** — `world_builder.rs` (497 LOC) — progressive world materialization
+  based on campaign maturity (Fresh/Early/Mid/Veteran). Generates locations, NPCs,
+  lore, faction developments scaled to maturity tier. Full prompt framework with
+  zone-ordered sections.
 
 ### Intent Classification
 - **IntentRouter** — `intent_router.rs` (251 LOC) — state-override classification (ADR-067):
@@ -73,29 +86,6 @@ response extraction, and post-narration tool result assembly.
 - **Footnotes** — `footnotes.rs` (38 LOC) — footnote extraction from narrator output.
 - **ContinuityValidator** — `continuity_validator.rs` — continuity checking across turns.
 - **InventoryExtractor** — item extraction from narration.
-
-## NEEDS FULL IMPLEMENTATION — Not Stubs
-
-These have Agent trait impls but are minimal scaffolding (49 LOC each). All three
-are fully implemented in the Python codebase and in sidequest-game's Rust engine,
-but the agent-level LLM orchestration is not yet ported.
-
-- **Resonator** — `resonator.rs` (372+ LOC in Python) — TWO responsibilities:
-  `hook_refiner.py` (~150 LOC, LLM-assisted narrative hook polishing) +
-  `perception_rewriter.py` (~190 LOC, per-player narration rewriting based on
-  perception effects like blinded/charmed/dominated). The Rust agent needs to
-  orchestrate both via Claude CLI.
-- **Troper** — `troper.rs` (728+ LOC across Python modules) — trope logic distributed
-  across `state.py` (lifecycle), `state_processor.py` (passive ticking), and
-  `prompt_composer.py` (LLM context). The TropeEngine in sidequest-game/trope.rs
-  handles ticking and escalation — the Troper agent's job is LLM-driven trope
-  activation and narrative beat injection.
-- **WorldBuilder** — `world_builder.rs` (500+ LOC in Python) — materializes dense
-  GameState at specified maturity levels (FRESH/EARLY/MID/VETERAN). The Rust
-  world_materialization.rs in sidequest-game handles the maturity model — check
-  what remains for this agent.
-
-These need full implementation, not integration with their current scaffolding.
 
 ## Key Patterns
 

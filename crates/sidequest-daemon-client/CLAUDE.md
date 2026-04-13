@@ -1,6 +1,6 @@
 # sidequest-daemon-client — Feature Inventory
 
-Async Unix socket client for the Python media daemon. **~570 LOC, fully complete.**
+Async Unix socket client for the Python media daemon. **~500 LOC, fully complete.**
 
 ## COMPLETE — Do Not Rewrite
 

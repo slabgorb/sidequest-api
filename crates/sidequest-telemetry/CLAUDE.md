@@ -1,6 +1,6 @@
 # sidequest-telemetry — Feature Inventory
 
-Game telemetry types and global broadcast channel. **~200 LOC, single file.**
+Game telemetry types and global broadcast channel. **~290 LOC, single file.**
 
 Decoupled from `sidequest-server` so any crate can emit telemetry events without
 depending on the server or `AppState`. The server initializes the global channel
