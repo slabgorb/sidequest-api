@@ -66,6 +66,19 @@ outside of beat costs (e.g., winning a poker hand: +50, paying a bribe: -20, \
 finding a coin purse: +10). Beat costs are handled automatically — only emit \
 gold_change for narrator-determined outcomes.\n\
 \n\
+items_gained: Array. Emit when the player acquires, picks up, finds, loots, \
+receives, or is given a new item during this turn. Each entry:\n\
+  {\"name\": \"<short item name>\", \"description\": \"<one-sentence description>\", \
+\"category\": \"weapon|armor|tool|consumable|quest|treasure|misc\"}\n\
+Include items_gained whenever narration describes the player taking possession \
+of an item — even if the action is implicit (e.g., looting a body, receiving \
+a gift, finding something in a chest). Do NOT include items the player merely \
+examines, touches, or sees without acquiring.\n\
+\n\
+items_lost: Array. Same format as items_gained. Emit when the player loses, \
+drops, has stolen, or gives away an item. Only for non-currency items — \
+currency changes use gold_change.\n\
+\n\
 visual_scene: Include this on EVERY turn where the setting changes, a new \
 location is entered, or a visually significant event occurs (combat start, \
 dramatic reveal, new NPC appearance). Format:\n\
@@ -149,11 +162,28 @@ Example C — pure dialogue (no mechanical changes):\n\
 ```\n\
 Note: even dialogue-only turns should include footnotes if the player learned something.\n\
 \n\
+Example D — item acquisition (player picks up, finds, or loots):\n\
+```game_patch\n\
+{\n\
+  \"items_gained\": [\n\
+    {\"name\": \"{{item_name}}\", \"description\": \"{{one-sentence description}}\", \"category\": \"{{category}}\"}\n\
+  ],\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{fact about the item or where it was found}}\", \"category\": \"Lore\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+\n\
 If nothing mechanical happened AND no new knowledge was revealed, emit:\n\
 ```game_patch\n\
 {}\n\
 ```\n\
 ALWAYS emit the game_patch block. It is mandatory.";
+
+/// Returns the narrator output format text for testing and inspection.
+pub fn narrator_output_format_text() -> &'static str {
+    NARRATOR_OUTPUT_ONLY
+}
 
 /// Output-style rules (Early/Format zone).
 /// NOTE: Character-count limits live ONLY in the Recency-zone <length-limit>
