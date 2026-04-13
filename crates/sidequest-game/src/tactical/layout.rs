@@ -1,10 +1,14 @@
-//! Dungeon layout engine — shared-wall tree topology placement (ADR-071).
+//! Dungeon layout engine — shared-wall placement (ADR-071).
 //!
 //! Composes individually parsed room grids into a dungeon map. Adjacent rooms
-//! share wall segments at exit gaps — one wall, not two. BFS from the entrance
-//! room places rooms in global coordinates.
+//! share wall segments at exit gaps — one wall, not two.
 //!
-//! Cycle handling (jaquayed layouts) is deferred to story 29-7.
+//! `layout_tree` BFS-places rooms starting from the entrance (room_type ==
+//! "entrance"), following one tree edge at a time. `layout_dungeon` (added in
+//! story 29-7) adds cycle detection, ring placement in cycle-walk order
+//! starting from `cycle[0]` (not guaranteed to be the entrance), and BFS
+//! tree-branch attachment off ring nodes. See ADR-071 §5 for the jaquayed
+//! layout algorithm.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -91,6 +95,15 @@ pub enum LayoutError {
     },
     /// No room with `room_type == "entrance"` found.
     NoEntrance,
+    /// A cycle in the room graph could not be laid out as a ring.
+    /// The closing edge's exit gaps do not align, or a cycle member could not
+    /// be reached through any opposite-wall exit pair from its predecessor.
+    CycleClosureFailed {
+        /// All rooms participating in the failing cycle, in cycle-walk order.
+        cycle_rooms: Vec<String>,
+        /// Human-readable explanation naming the offending edge or mismatch.
+        detail: String,
+    },
 }
 
 impl std::fmt::Display for LayoutError {
@@ -110,6 +123,17 @@ impl std::fmt::Display for LayoutError {
                 )
             }
             LayoutError::NoEntrance => write!(f, "no entrance room found in room list"),
+            LayoutError::CycleClosureFailed {
+                cycle_rooms,
+                detail,
+            } => {
+                write!(
+                    f,
+                    "cycle closure failed for rooms [{}]: {}",
+                    cycle_rooms.join(", "),
+                    detail
+                )
+            }
         }
     }
 }
@@ -416,6 +440,458 @@ pub fn layout_tree(
     }
 
     // Compute bounding box
+    let (width, height) = if placed.is_empty() {
+        (0, 0)
+    } else {
+        let min_x = placed.iter().map(|r| r.offset_x).min().unwrap();
+        let max_x = placed
+            .iter()
+            .map(|r| r.offset_x + r.grid.width() as i32)
+            .max()
+            .unwrap();
+        let min_y = placed.iter().map(|r| r.offset_y).min().unwrap();
+        let max_y = placed
+            .iter()
+            .map(|r| r.offset_y + r.grid.height() as i32)
+            .max()
+            .unwrap();
+        ((max_x - min_x) as u32, (max_y - min_y) as u32)
+    };
+
+    Ok(DungeonLayout {
+        rooms: placed,
+        width,
+        height,
+    })
+}
+
+/// Detect all fundamental cycles in the room graph (ADR-071 §5).
+///
+/// Uses three-coloured DFS (White → Gray → Black) on an adjacency list built
+/// from each room's exits. Back edges to Gray ancestors extract one cycle
+/// per back edge by walking the DFS stack from the ancestor to the current
+/// node.
+///
+/// Two separate deduplication mechanisms work together:
+/// - **Parent-skip**: the immediate-parent edge is skipped (the `parent`
+///   check inside the neighbour loop) so the graph is treated as undirected
+///   and trivial A→B→A back-edges don't masquerade as cycles.
+/// - **Black-skip**: edges to already-completed (Black) neighbours are
+///   ignored so cycles already extracted through a completed DFS subtree
+///   aren't re-discovered from a different entry point.
+///
+/// Iteration order is deterministic thanks to `BTreeMap`-sorted adjacency.
+/// Returns an empty vector for acyclic graphs (linear chains, trees, stars).
+pub fn detect_cycles(rooms: &[RoomDef]) -> Vec<Vec<String>> {
+    use std::collections::BTreeMap;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Color {
+        White,
+        Gray,
+        Black,
+    }
+
+    // Build sorted adjacency list for determinism.
+    let mut adj: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for room in rooms {
+        let entry = adj.entry(room.id.clone()).or_default();
+        for exit in &room.exits {
+            entry.push(exit.target().to_string());
+        }
+    }
+    for targets in adj.values_mut() {
+        targets.sort();
+        targets.dedup();
+    }
+
+    let ids: Vec<String> = adj.keys().cloned().collect();
+    let mut color: BTreeMap<String, Color> =
+        ids.iter().map(|id| (id.clone(), Color::White)).collect();
+    let mut cycles: Vec<Vec<String>> = Vec::new();
+
+    // Iterative DFS with explicit stack to avoid recursion depth issues and
+    // to keep the DFS stack accessible for back-edge cycle extraction.
+    for start in &ids {
+        if color[start] != Color::White {
+            continue;
+        }
+
+        // dfs_stack entries: (node_id, parent_id, neighbor_iter_index)
+        let mut dfs_stack: Vec<(String, Option<String>, usize)> = Vec::new();
+        let mut path: Vec<String> = Vec::new();
+
+        dfs_stack.push((start.clone(), None, 0));
+        path.push(start.clone());
+        color.insert(start.clone(), Color::Gray);
+
+        while let Some((node, parent, idx)) = dfs_stack.last().cloned() {
+            let neighbors = adj.get(&node).cloned().unwrap_or_default();
+            if idx >= neighbors.len() {
+                // Finished this node
+                dfs_stack.pop();
+                path.pop();
+                color.insert(node.clone(), Color::Black);
+                continue;
+            }
+            // Advance iterator for this frame
+            let last = dfs_stack.last_mut().expect("stack non-empty");
+            last.2 = idx + 1;
+
+            let neighbor = &neighbors[idx];
+            if parent.as_deref() == Some(neighbor.as_str()) {
+                // Skip the edge back to the immediate parent (undirected graph)
+                continue;
+            }
+            match color.get(neighbor).copied().unwrap_or(Color::White) {
+                Color::White => {
+                    color.insert(neighbor.clone(), Color::Gray);
+                    path.push(neighbor.clone());
+                    dfs_stack.push((neighbor.clone(), Some(node.clone()), 0));
+                }
+                Color::Gray => {
+                    // Back edge → extract cycle by walking path from the
+                    // ancestor's position to the current node.
+                    if let Some(start_idx) = path.iter().position(|n| n == neighbor) {
+                        cycles.push(path[start_idx..].to_vec());
+                    }
+                }
+                Color::Black => {
+                    // Already fully explored — no new cycle.
+                }
+            }
+        }
+    }
+
+    cycles
+}
+
+/// Place the rooms of a single cycle as a ring (ADR-071 §5, step 2).
+///
+/// Walks the cycle in order, placing each successive room by finding the
+/// first opposite-wall exit pair between the current and next room and
+/// computing the shared-wall alignment. After all N rooms are placed, the
+/// closing edge from the last room back to the first is validated: the
+/// computed offset for the first room (hypothetically placed from the last)
+/// must match the first room's already-committed offset. If not, an
+/// authoring error is reported as `LayoutError::CycleClosureFailed`.
+///
+/// The first cycle member is always placed at (0, 0).
+pub fn layout_cycle(
+    cycle: &[String],
+    rooms: &[RoomDef],
+    grids: &HashMap<String, TacticalGrid>,
+) -> Result<Vec<PlacedRoom>, LayoutError> {
+    if cycle.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let room_map: HashMap<&str, &RoomDef> = rooms.iter().map(|r| (r.id.as_str(), r)).collect();
+
+    let first_id = &cycle[0];
+    let first_grid = grids
+        .get(first_id)
+        .ok_or_else(|| LayoutError::CycleClosureFailed {
+            cycle_rooms: cycle.to_vec(),
+            detail: format!("cycle member '{}' has no tactical grid", first_id),
+        })?;
+
+    let mut placed: Vec<PlacedRoom> = Vec::with_capacity(cycle.len());
+    let mut used_gaps: HashMap<String, HashSet<usize>> = HashMap::new();
+
+    placed.push(PlacedRoom::new(first_id.clone(), 0, 0, first_grid.clone()));
+
+    // Walk the cycle, placing each next room against its predecessor.
+    for i in 1..cycle.len() {
+        let prev_id = &cycle[i - 1];
+        let curr_id = &cycle[i];
+
+        // Sanity check that the graph edge exists.
+        let prev_room =
+            room_map
+                .get(prev_id.as_str())
+                .ok_or_else(|| LayoutError::CycleClosureFailed {
+                    cycle_rooms: cycle.to_vec(),
+                    detail: format!("cycle member '{}' not found in room list", prev_id),
+                })?;
+        if !prev_room
+            .exits
+            .iter()
+            .any(|e| e.target() == curr_id.as_str())
+        {
+            return Err(LayoutError::CycleClosureFailed {
+                cycle_rooms: cycle.to_vec(),
+                detail: format!(
+                    "cycle member '{}' has no exit toward successor '{}'",
+                    prev_id, curr_id
+                ),
+            });
+        }
+
+        let prev_idx = placed
+            .iter()
+            .position(|p| p.room_id == *prev_id)
+            .expect("previous cycle member was just placed");
+        let prev_grid = grids
+            .get(prev_id)
+            .ok_or_else(|| LayoutError::CycleClosureFailed {
+                cycle_rooms: cycle.to_vec(),
+                detail: format!("cycle member '{}' has no tactical grid", prev_id),
+            })?;
+        let curr_grid = grids
+            .get(curr_id)
+            .ok_or_else(|| LayoutError::CycleClosureFailed {
+                cycle_rooms: cycle.to_vec(),
+                detail: format!("cycle member '{}' has no tactical grid", curr_id),
+            })?;
+
+        let prev_used = used_gaps.get(prev_id).cloned().unwrap_or_default();
+        let curr_used = used_gaps.get(curr_id).cloned().unwrap_or_default();
+
+        let mut placement: Option<(usize, usize, PlacedRoom)> = None;
+        'pair: for (gi_a, gap_a) in prev_grid.exits().iter().enumerate() {
+            if prev_used.contains(&gi_a) {
+                continue;
+            }
+            for (gi_b, gap_b) in curr_grid.exits().iter().enumerate() {
+                if curr_used.contains(&gi_b) {
+                    continue;
+                }
+                if !is_opposite(gap_a.wall, gap_b.wall) {
+                    continue;
+                }
+                let (bx, by) = align_rooms(&placed[prev_idx], gap_a, curr_grid, gap_b);
+                let candidate = PlacedRoom::new(curr_id.clone(), bx, by, curr_grid.clone());
+                placement = Some((gi_a, gi_b, candidate));
+                break 'pair;
+            }
+        }
+
+        let (gi_a, gi_b, candidate) = placement.ok_or_else(|| LayoutError::CycleClosureFailed {
+            cycle_rooms: cycle.to_vec(),
+            detail: format!(
+                "no opposite-wall exit pair between cycle members '{}' and '{}'",
+                prev_id, curr_id
+            ),
+        })?;
+
+        placed.push(candidate);
+        used_gaps.entry(prev_id.clone()).or_default().insert(gi_a);
+        used_gaps.entry(curr_id.clone()).or_default().insert(gi_b);
+    }
+
+    // Validate closure: the last room must reach the first room via an
+    // opposite-wall exit pair that places the first room at its committed
+    // offset (0, 0).
+    if cycle.len() >= 2 {
+        let last_id = &cycle[cycle.len() - 1];
+        let first_id_again = &cycle[0];
+        let last_idx = placed
+            .iter()
+            .position(|p| p.room_id == *last_id)
+            .expect("last cycle member was just placed");
+        let last_grid = grids.get(last_id).expect("last grid checked above");
+        let first_grid_again = grids.get(first_id_again).expect("first grid checked above");
+        let first_offset = (placed[0].offset_x, placed[0].offset_y);
+
+        let last_used = used_gaps.get(last_id).cloned().unwrap_or_default();
+        let first_used = used_gaps.get(first_id_again).cloned().unwrap_or_default();
+
+        let mut closure_valid = false;
+        for (gi_last, gap_last) in last_grid.exits().iter().enumerate() {
+            if last_used.contains(&gi_last) {
+                continue;
+            }
+            for (gi_first, gap_first) in first_grid_again.exits().iter().enumerate() {
+                if first_used.contains(&gi_first) {
+                    continue;
+                }
+                if !is_opposite(gap_last.wall, gap_first.wall) {
+                    continue;
+                }
+                let (cx, cy) =
+                    align_rooms(&placed[last_idx], gap_last, first_grid_again, gap_first);
+                if (cx, cy) == first_offset {
+                    closure_valid = true;
+                    break;
+                }
+            }
+            if closure_valid {
+                break;
+            }
+        }
+
+        if !closure_valid {
+            return Err(LayoutError::CycleClosureFailed {
+                cycle_rooms: cycle.to_vec(),
+                detail: format!(
+                    "closing edge from '{}' back to '{}' does not align at expected offset {:?}",
+                    last_id, first_id_again, first_offset
+                ),
+            });
+        }
+    }
+
+    Ok(placed)
+}
+
+/// Lay out a dungeon with optional cycles (jaquayed layouts).
+///
+/// Detects fundamental cycles via [`detect_cycles`]. If none, delegates to
+/// [`layout_tree`] (behaviour-preserving). If exactly one cycle is present,
+/// the cycle is placed as a ring via [`layout_cycle`], then any tree branches
+/// hanging off cycle members are BFS-attached using the same opposite-wall
+/// placement logic as `layout_tree`.
+///
+/// **Multi-cycle graphs (more than one fundamental cycle) are not yet
+/// implemented** — they are a capability gap, not a geometric impossibility.
+/// They return `Err(LayoutError::CycleClosureFailed)` with a detail string
+/// that includes "multi-cycle dungeons are not yet supported" so callers can
+/// distinguish a temporary limitation from a genuine authoring-error closure
+/// mismatch. Support for jaquayed dungeons with more than one cycle is a
+/// planned follow-up in epic 29.
+pub fn layout_dungeon(
+    rooms: &[RoomDef],
+    grids: &HashMap<String, TacticalGrid>,
+) -> Result<DungeonLayout, LayoutError> {
+    let cycles = detect_cycles(rooms);
+
+    if cycles.is_empty() {
+        return layout_tree(rooms, grids);
+    }
+
+    if cycles.len() > 1 {
+        let mut all: Vec<String> = cycles.into_iter().flatten().collect();
+        all.sort();
+        all.dedup();
+        return Err(LayoutError::CycleClosureFailed {
+            cycle_rooms: all,
+            detail: "multi-cycle dungeons are not yet supported by layout_dungeon".to_string(),
+        });
+    }
+
+    // Single cycle: place the ring, then BFS-attach tree branches.
+    let ring = layout_cycle(&cycles[0], rooms, grids)?;
+
+    let mut placed: Vec<PlacedRoom> = ring;
+    let mut placed_ids: HashSet<String> = placed.iter().map(|p| p.room_id.clone()).collect();
+    let mut used_gaps: HashMap<String, HashSet<usize>> = HashMap::new();
+
+    let room_map: HashMap<&str, &RoomDef> = rooms.iter().map(|r| (r.id.as_str(), r)).collect();
+
+    let mut queue: VecDeque<String> = placed.iter().map(|p| p.room_id.clone()).collect();
+
+    while let Some(current_id) = queue.pop_front() {
+        let current_room = match room_map.get(current_id.as_str()) {
+            Some(r) => r,
+            None => continue,
+        };
+
+        for exit in &current_room.exits {
+            let target_id = exit.target();
+            if placed_ids.contains(target_id) {
+                continue;
+            }
+            let target_grid = match grids.get(target_id) {
+                Some(g) => g,
+                None => continue,
+            };
+
+            let current_placed_idx = placed
+                .iter()
+                .position(|p| p.room_id == current_id)
+                .expect("current room must be placed");
+            let current_grid = match grids.get(current_id.as_str()) {
+                Some(g) => g,
+                None => continue,
+            };
+
+            let current_used = used_gaps.get(&current_id).cloned().unwrap_or_default();
+            let target_used = used_gaps.get(target_id).cloned().unwrap_or_default();
+
+            let mut placement_found = false;
+            'pair: for (gi_a, gap_a) in current_grid.exits().iter().enumerate() {
+                if current_used.contains(&gi_a) {
+                    continue;
+                }
+                for (gi_b, gap_b) in target_grid.exits().iter().enumerate() {
+                    if target_used.contains(&gi_b) {
+                        continue;
+                    }
+                    if !is_opposite(gap_a.wall, gap_b.wall) {
+                        continue;
+                    }
+                    let (bx, by) =
+                        align_rooms(&placed[current_placed_idx], gap_a, target_grid, gap_b);
+                    let candidate =
+                        PlacedRoom::new(target_id.to_string(), bx, by, target_grid.clone());
+
+                    let all_overlaps = check_overlap(&placed, &candidate);
+                    let shared_boundary = shared_boundary_positions(
+                        &placed[current_placed_idx],
+                        current_grid,
+                        gap_a,
+                        &candidate,
+                        target_grid,
+                        gap_b,
+                    );
+                    let real_overlaps: Vec<_> = all_overlaps
+                        .into_iter()
+                        .filter(|pos| {
+                            let gx = pos.x() as i32;
+                            let gy = pos.y() as i32;
+                            if !shared_boundary.contains(&(gx, gy)) {
+                                return true;
+                            }
+                            let a_local_x = (gx - placed[current_placed_idx].offset_x) as u32;
+                            let a_local_y = (gy - placed[current_placed_idx].offset_y) as u32;
+                            let b_local_x = (gx - candidate.offset_x) as u32;
+                            let b_local_y = (gy - candidate.offset_y) as u32;
+                            let cell_a = current_grid.cell_at(a_local_x, a_local_y);
+                            let cell_b = target_grid.cell_at(b_local_x, b_local_y);
+                            cell_a != cell_b
+                        })
+                        .collect();
+
+                    if real_overlaps.is_empty() {
+                        placed.push(candidate);
+                        placed_ids.insert(target_id.to_string());
+                        used_gaps
+                            .entry(current_id.clone())
+                            .or_default()
+                            .insert(gi_a);
+                        used_gaps
+                            .entry(target_id.to_string())
+                            .or_default()
+                            .insert(gi_b);
+                        queue.push_back(target_id.to_string());
+                        placement_found = true;
+                        break 'pair;
+                    }
+                }
+            }
+
+            if !placement_found {
+                // BFS branch attachment failed: no opposite-wall exit pair
+                // between `current_id` (on the ring) and `target_id` (the
+                // branch) produced a non-overlapping placement. This is a
+                // topology/authoring error, not a cell-collision error —
+                // `LayoutError::Overlap` with empty `cells` would be a
+                // semantic mismatch (that variant describes concrete cell
+                // collisions). `CycleClosureFailed` is the closest fit for
+                // "the dungeon couldn't be assembled around its cycle".
+                return Err(LayoutError::CycleClosureFailed {
+                    cycle_rooms: vec![current_id.clone(), target_id.to_string()],
+                    detail: format!(
+                        "branch attachment failed: no opposite-wall exit pair between ring room '{}' and branch room '{}' produced a non-overlapping placement",
+                        current_id, target_id
+                    ),
+                });
+            }
+        }
+    }
+
+    // Compute bounding box across all placed rooms.
     let (width, height) = if placed.is_empty() {
         (0, 0)
     } else {
