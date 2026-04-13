@@ -4,9 +4,9 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub(crate) mod debug_api;
-pub mod dice_dispatch;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
+pub mod dice_dispatch;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -847,7 +847,11 @@ pub fn build_router(state: AppState) -> Router {
                                 description: String::new(),
                                 handout: false,
                                 render_id: Some(job_id.to_string()),
-                                tier: if tier.is_empty() { None } else { Some(tier.clone()) },
+                                tier: if tier.is_empty() {
+                                    None
+                                } else {
+                                    Some(tier.clone())
+                                },
                                 scene_type: if scene_type.is_empty() {
                                     None
                                 } else {
@@ -871,8 +875,7 @@ pub fn build_router(state: AppState) -> Router {
                         };
                         if let Some(ref key) = session_key {
                             let session_arc = {
-                                let sessions =
-                                    state_for_broadcaster.inner.sessions.lock().unwrap();
+                                let sessions = state_for_broadcaster.inner.sessions.lock().unwrap();
                                 sessions.get(key).cloned()
                             };
                             if let Some(ss_arc) = session_arc {
@@ -902,7 +905,7 @@ pub fn build_router(state: AppState) -> Router {
                                 )
                                 .severity(Severity::Error)
                                 .field("action", "image_session_not_found")
-                                .field("job_id", &job_id.to_string())
+                                .field("job_id", job_id.to_string())
                                 .field("session_key", key.as_str())
                                 .send();
                             }
@@ -913,14 +916,11 @@ pub fn build_router(state: AppState) -> Router {
                                 job_id = %job_id,
                                 "render_broadcast — no session mapping for job, dropping IMAGE (no silent fallback)"
                             );
-                            WatcherEventBuilder::new(
-                                "render",
-                                WatcherEventType::ValidationWarning,
-                            )
-                            .severity(Severity::Error)
-                            .field("action", "image_no_session_mapping")
-                            .field("job_id", &job_id.to_string())
-                            .send();
+                            WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+                                .severity(Severity::Error)
+                                .field("action", "image_no_session_mapping")
+                                .field("job_id", job_id.to_string())
+                                .send();
                         }
                         // Consume the mapping after delivery (or drop).
                         state_for_broadcaster.take_render_session(&job_id);
@@ -1534,6 +1534,9 @@ async fn dispatch_message(
     // the outcome") through the existing dispatch pipeline. This avoids
     // duplicating the 200-line DispatchContext construction.
     let mut chosen_player_beat: Option<String> = None;
+    // Story 34-9: dice outcome consumed by the next narration turn.
+    // Stored in SharedGameSession (persists across dispatch_message calls).
+    // Taken from shared state into DispatchContext at narration time.
     let msg = match msg {
         GameMessage::BeatSelection { payload, .. } => {
             if !session.is_playing() {
@@ -2159,6 +2162,17 @@ async fn dispatch_message(
                             })
                     },
                     chosen_player_beat: chosen_player_beat.clone(),
+                    // Story 34-9: take outcome from shared session state (persists
+                    // across dispatch_message calls; set by DiceThrow handler).
+                    pending_roll_outcome: {
+                        let holder_guard = shared_session_holder.lock().await;
+                        if let Some(ref ss_arc) = *holder_guard {
+                            let mut ss = ss_arc.lock().await;
+                            ss.pending_roll_outcome.take()
+                        } else {
+                            None
+                        }
+                    },
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {
@@ -2256,7 +2270,10 @@ async fn dispatch_message(
                 );
                 return vec![error_response(
                     player_id,
-                    &format!("No pending dice request for request_id '{}'", payload.request_id),
+                    &format!(
+                        "No pending dice request for request_id '{}'",
+                        payload.request_id
+                    ),
                 )];
             };
 
@@ -2271,7 +2288,10 @@ async fn dispatch_message(
                     error = %e,
                     "dice.validation_failed"
                 );
-                return vec![error_response(player_id, &format!("Dice validation failed: {e}"))];
+                return vec![error_response(
+                    player_id,
+                    &format!("Dice validation failed: {e}"),
+                )];
             }
 
             // Generate deterministic seed and resolve
@@ -2294,10 +2314,7 @@ async fn dispatch_message(
                     }
                 }
             };
-            let seed = dice_dispatch::generate_dice_seed(
-                &session_id,
-                turn_manager.round(),
-            );
+            let seed = dice_dispatch::generate_dice_seed(&session_id, turn_manager.round());
 
             let resolved = match sidequest_game::dice::resolve_dice(
                 &pending_request.dice,
@@ -2340,11 +2357,17 @@ async fn dispatch_message(
                 "dice.result_resolved"
             );
 
-            // Broadcast via shared session to all connected players
+            // Broadcast via shared session to all connected players, and store
+            // the resolved outcome for the next narration turn (story 34-9).
+            // The outcome persists in SharedGameSession across dispatch_message()
+            // calls — the local var `pending_roll_outcome` can't survive past
+            // this return, so shared state is the only viable persistence layer.
             {
                 let holder_guard = shared_session_holder.lock().await;
                 if let Some(ref ss_arc) = *holder_guard {
-                    let ss = ss_arc.lock().await;
+                    let mut ss = ss_arc.lock().await;
+                    // Story 34-9: persist outcome for next PlayerAction narration
+                    ss.pending_roll_outcome = Some(resolved.outcome);
                     ss.broadcast(GameMessage::DiceResult {
                         player_id: "server".to_string(),
                         payload: result_payload.clone(),

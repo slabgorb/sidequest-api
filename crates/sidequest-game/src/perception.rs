@@ -62,11 +62,19 @@ impl PerceptualEffect {
             "deafened" => Some(Self::Deafened),
             "hallucinating" => Some(Self::Hallucinating),
             _ if lower.starts_with("charmed_by:") => {
-                let source = lower.strip_prefix("charmed_by:").unwrap_or("unknown").trim().to_string();
+                let source = lower
+                    .strip_prefix("charmed_by:")
+                    .unwrap_or("unknown")
+                    .trim()
+                    .to_string();
                 Some(Self::Charmed { source })
             }
             _ if lower.starts_with("dominated_by:") => {
-                let controller = lower.strip_prefix("dominated_by:").unwrap_or("unknown").trim().to_string();
+                let controller = lower
+                    .strip_prefix("dominated_by:")
+                    .unwrap_or("unknown")
+                    .trim()
+                    .to_string();
                 Some(Self::Dominated { controller })
             }
             _ => None,

@@ -710,6 +710,41 @@ impl Orchestrator {
             ));
         }
 
+        // Dice outcome injection (Valley zone, both tiers) — story 34-9.
+        // Injects the RollOutcome as a visible tag so the narrator shapes prose tone.
+        // Unknown variants are skipped (no silent fallback per project rules).
+        if let Some(ref outcome) = context.roll_outcome {
+            let variant_name = match outcome {
+                sidequest_protocol::RollOutcome::CritSuccess => Some("CritSuccess"),
+                sidequest_protocol::RollOutcome::Success => Some("Success"),
+                sidequest_protocol::RollOutcome::Fail => Some("Fail"),
+                sidequest_protocol::RollOutcome::CritFail => Some("CritFail"),
+                sidequest_protocol::RollOutcome::Unknown | _ => {
+                    tracing::warn!(
+                        outcome = ?outcome,
+                        "dice_outcome.unknown_variant — skipping injection for unrecognized RollOutcome"
+                    );
+                    None
+                }
+            };
+            if let Some(name) = variant_name {
+                builder.add_section(PromptSection::new(
+                    "dice_outcome",
+                    format!(
+                        "[DICE_OUTCOME: {}]\n\
+                         The dice roll resolved with this outcome. Shape your narration tone accordingly:\n\
+                         - CritSuccess: triumphant, dramatic success\n\
+                         - Success: confident, positive resolution\n\
+                         - Fail: setback, complication, dramatic tension\n\
+                         - CritFail: catastrophic, spectacular failure",
+                        name
+                    ),
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+            }
+        }
+
         // Backstory capture directive — static format, only on Full tier
         if is_full && route.intent() == Intent::Backstory {
             builder.add_section(PromptSection::new(
@@ -1633,6 +1668,10 @@ pub struct TurnContext {
     /// Genre-specific prompt templates from prompts.yaml.
     /// Injected contextually: narrator voice on Full tier, combat/npc/world_state per state.
     pub genre_prompts: Option<sidequest_genre::Prompts>,
+    /// Dice roll outcome from the most recent resolution (story 34-9).
+    /// When Some, injected as a [DICE_OUTCOME: X] tag in the Valley zone
+    /// so the narrator shapes prose tone to match the mechanical result.
+    pub roll_outcome: Option<sidequest_protocol::RollOutcome>,
 }
 
 /// Result of processing a player action through the full turn loop.

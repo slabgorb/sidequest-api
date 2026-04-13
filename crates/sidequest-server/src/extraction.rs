@@ -319,9 +319,7 @@ pub(crate) fn strip_fourth_wall(text: &str) -> String {
         let has_meta_starter = META_STARTERS
             .iter()
             .any(|starter| lower.starts_with(starter));
-        let has_meta_keyword = META_KEYWORDS
-            .iter()
-            .any(|keyword| lower.contains(keyword));
+        let has_meta_keyword = META_KEYWORDS.iter().any(|keyword| lower.contains(keyword));
 
         if has_meta_starter && has_meta_keyword {
             stripped_any = true;
@@ -341,9 +339,7 @@ pub(crate) fn strip_fourth_wall(text: &str) -> String {
     let mut pass3_lines: Vec<&str> = Vec::new();
     for line in after_pass2.lines() {
         let lower = line.to_lowercase();
-        let has_system_term = SYSTEM_TERMS
-            .iter()
-            .any(|term| lower.contains(term));
+        let has_system_term = SYSTEM_TERMS.iter().any(|term| lower.contains(term));
         if has_system_term {
             stripped_any = true;
             tracing::warn!(

@@ -71,6 +71,7 @@ pub(super) async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessa
                 })
                 .map(|pack| pack.prompts.clone())
         },
+        roll_outcome: None, // Asides don't follow dice resolution
     };
     let result = ctx
         .state

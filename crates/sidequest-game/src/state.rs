@@ -401,8 +401,7 @@ impl From<GameSnapshotRaw> for GameSnapshot {
             // See encounter_story_16_2_tests::old_chase_state_json_deserializes_as_encounter.
             encounter: raw.encounter.or_else(|| {
                 raw.chase.map(|c| {
-                    let mut enc =
-                        StructuredEncounter::chase(c.escape_threshold, None, c.goal);
+                    let mut enc = StructuredEncounter::chase(c.escape_threshold, None, c.goal);
                     enc.metric.current = c.separation_distance;
                     enc.beat = c.beat;
                     enc.resolved = c.resolved;
