@@ -120,10 +120,9 @@ pub fn extract_inventory_mutations(
         Err(e) => {
             warn!(
                 error = %e,
-                OTEL_MUTATION_MISSED,
                 reason = "extraction_timeout_or_error",
+                "{OTEL_MUTATION_MISSED} — skipping this turn"
             );
-            warn!(error = %e, "inventory.extraction_failed — skipping this turn");
             vec![]
         }
     }
