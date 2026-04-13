@@ -2346,6 +2346,11 @@ async fn dispatch_message(
                 "dice.result_resolved"
             );
 
+            // Story 34-9: store resolved outcome for the next narration turn.
+            // The narrator's prompt builder reads this from TurnContext.roll_outcome
+            // to inject a [DICE_OUTCOME: X] tag that shapes narration tone.
+            pending_roll_outcome = Some(resolved.outcome);
+
             // Broadcast via shared session to all connected players
             {
                 let holder_guard = shared_session_holder.lock().await;

@@ -712,29 +712,37 @@ impl Orchestrator {
 
         // Dice outcome injection (Valley zone, both tiers) — story 34-9.
         // Injects the RollOutcome as a visible tag so the narrator shapes prose tone.
+        // Unknown variants are skipped (no silent fallback per project rules).
         if let Some(ref outcome) = context.roll_outcome {
             let variant_name = match outcome {
-                sidequest_protocol::RollOutcome::CritSuccess => "CritSuccess",
-                sidequest_protocol::RollOutcome::Success => "Success",
-                sidequest_protocol::RollOutcome::Fail => "Fail",
-                sidequest_protocol::RollOutcome::CritFail => "CritFail",
-                _ => "Unknown",
+                sidequest_protocol::RollOutcome::CritSuccess => Some("CritSuccess"),
+                sidequest_protocol::RollOutcome::Success => Some("Success"),
+                sidequest_protocol::RollOutcome::Fail => Some("Fail"),
+                sidequest_protocol::RollOutcome::CritFail => Some("CritFail"),
+                sidequest_protocol::RollOutcome::Unknown | _ => {
+                    tracing::warn!(
+                        outcome = ?outcome,
+                        "dice_outcome.unknown_variant — skipping injection for unrecognized RollOutcome"
+                    );
+                    None
+                }
             };
-            builder.add_section(PromptSection::new(
-                "dice_outcome",
-                format!(
-                    "[DICE_OUTCOME: {}]\n\
-                     The dice roll resolved with this outcome. Shape your narration tone accordingly:\n\
-                     - CritSuccess: triumphant, dramatic success\n\
-                     - Success: confident, positive resolution\n\
-                     - Fail: setback, complication, dramatic tension\n\
-                     - CritFail: catastrophic, spectacular failure\n\
-                     - Unknown: neutral, factual narration",
-                    variant_name
-                ),
-                AttentionZone::Valley,
-                SectionCategory::State,
-            ));
+            if let Some(name) = variant_name {
+                builder.add_section(PromptSection::new(
+                    "dice_outcome",
+                    format!(
+                        "[DICE_OUTCOME: {}]\n\
+                         The dice roll resolved with this outcome. Shape your narration tone accordingly:\n\
+                         - CritSuccess: triumphant, dramatic success\n\
+                         - Success: confident, positive resolution\n\
+                         - Fail: setback, complication, dramatic tension\n\
+                         - CritFail: catastrophic, spectacular failure",
+                        name
+                    ),
+                    AttentionZone::Valley,
+                    SectionCategory::State,
+                ));
+            }
         }
 
         // Backstory capture directive — static format, only on Full tier
