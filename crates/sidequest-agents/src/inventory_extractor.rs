@@ -20,6 +20,12 @@ const HAIKU_MODEL: &str = "haiku";
 /// Haiku CLI cold starts can take 10-15s, so 20s gives headroom.
 const EXTRACT_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// OTEL event name emitted when a mutation is successfully extracted.
+pub const OTEL_MUTATION_EXTRACTED: &str = "inventory.mutation_extracted";
+
+/// OTEL event name emitted on extraction failure (timeout or parse error).
+pub const OTEL_MUTATION_MISSED: &str = "inventory.mutation_missed";
+
 /// A single inventory mutation extracted from narration.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct InventoryMutation {
@@ -94,6 +100,15 @@ pub fn extract_inventory_mutations(
         Ok(resp) => match parse_extraction_response(&resp.text) {
             Some(mutations) => {
                 info!(mutations = mutations.len(), "inventory.extraction_complete");
+                for mutation in &mutations {
+                    info!(
+                        item_name = %mutation.item_name,
+                        action = %mutation.action,
+                        category = ?mutation.category,
+                        detail = %mutation.detail,
+                        OTEL_MUTATION_EXTRACTED
+                    );
+                }
                 mutations
             }
             None => {
@@ -102,7 +117,12 @@ pub fn extract_inventory_mutations(
             }
         },
         Err(e) => {
-            warn!(error = %e, "inventory.extraction_failed — skipping this turn");
+            warn!(
+                error = %e,
+                otel_event = OTEL_MUTATION_MISSED,
+                reason = "extraction_timeout_or_error",
+                "inventory.extraction_failed — skipping this turn"
+            );
             vec![]
         }
     }
@@ -131,7 +151,11 @@ pub async fn extract_inventory_mutations_async(
     }
 }
 
-fn build_extraction_prompt(action: &str, narration: &str, carried_items: &[String]) -> String {
+/// Builds the Haiku extraction prompt for detecting inventory mutations from narration.
+///
+/// `action` is the raw player input, `narration` is the narrator response, and
+/// `carried_items` is the current inventory. Returns a prompt string for `claude -p`.
+pub fn build_extraction_prompt(action: &str, narration: &str, carried_items: &[String]) -> String {
     let inventory_section = if carried_items.is_empty() {
         "(empty)".to_string()
     } else {
@@ -159,7 +183,7 @@ Report TWO kinds of changes:
 - **destroyed**: broken, burned, shattered, disintegrated
 
 2. **New items acquired** (NOT in the inventory list):
-- **acquired**: found, looted, received, bought, picked up, taken from a body
+- **acquired**: found, looted, received, bought, picked up, taken from a body, picks up, grabs, takes, pockets it, tucks it away, stows it, adds it to their pack
 
 Respond with a JSON array. Each entry:
 {{"item_name": "<item name>", "action": "<consumed|sold|given|lost|destroyed|acquired>", "detail": "<who/what/why>", "category": "<weapon|armor|tool|consumable|treasure|misc>", "gold": <number or null>}}
@@ -182,7 +206,11 @@ RULES:
     )
 }
 
-fn parse_extraction_response(response: &str) -> Option<Vec<InventoryMutation>> {
+/// Parses a Haiku extraction response into inventory mutations.
+///
+/// Handles both raw JSON arrays and markdown-fenced ```json blocks.
+/// Returns `None` if the response contains no mutations or cannot be parsed.
+pub fn parse_extraction_response(response: &str) -> Option<Vec<InventoryMutation>> {
     // Try direct parse
     if let Ok(entries) = serde_json::from_str::<Vec<InventoryMutation>>(response) {
         if entries.is_empty() {
