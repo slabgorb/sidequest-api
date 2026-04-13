@@ -2328,9 +2328,11 @@ async fn dispatch_message(
                 player_id: player_id.to_string(),
             }]
         }
-        // Dice throw — rolling player submits gesture after DiceRequest (story 34-8).
-        // Resolve immediately, broadcast DiceResult to all clients.
-        // The throw_params control animation only — outcome is seed-determined.
+        // Dice throw — rolling player submits their client-side physics result
+        // after local Rapier settles. Server treats `payload.face` as the
+        // authoritative roll result (physics-is-the-roll, story 34-12). The
+        // full dispatch logic lives in `dice_dispatch::handle_dice_throw` so
+        // it can be driven directly from integration tests.
         GameMessage::DiceThrow { payload, .. } => {
             if !session.is_playing() {
                 return vec![error_response(
@@ -2338,147 +2340,13 @@ async fn dispatch_message(
                     "Cannot process dice throw before game starts",
                 )];
             }
-
-            // Look up pending DiceRequest by request_id
-            let pending = {
-                let holder_guard = shared_session_holder.lock().await;
-                if let Some(ref ss_arc) = *holder_guard {
-                    let mut ss = ss_arc.lock().await;
-                    ss.pending_dice_requests.remove(&payload.request_id)
-                } else {
-                    None
-                }
-            };
-
-            let Some(pending_request) = pending else {
-                tracing::warn!(
-                    request_id = %payload.request_id,
-                    player_id = %player_id,
-                    "dice.throw_no_pending — no pending DiceRequest for this request_id"
-                );
-                return vec![error_response(
-                    player_id,
-                    &format!(
-                        "No pending dice request for request_id '{}'",
-                        payload.request_id
-                    ),
-                )];
-            };
-
-            // Validate inputs at dispatch boundary
-            if let Err(e) = dice_dispatch::validate_dice_inputs(
-                &pending_request.dice,
-                pending_request.modifier,
-                pending_request.difficulty,
-            ) {
-                tracing::error!(
-                    request_id = %payload.request_id,
-                    error = %e,
-                    "dice.validation_failed"
-                );
-                return vec![error_response(
-                    player_id,
-                    &format!("Dice validation failed: {e}"),
-                )];
-            }
-
-            // Generate deterministic seed and resolve
-            let session_id = {
-                let holder_guard = shared_session_holder.lock().await;
-                match holder_guard.as_ref() {
-                    Some(ss_arc) => {
-                        let ss = ss_arc.lock().await;
-                        ss.session_id.clone()
-                    }
-                    None => {
-                        tracing::error!(
-                            request_id = %payload.request_id,
-                            "dice.no_shared_session — session holder is empty during DiceThrow"
-                        );
-                        return vec![error_response(
-                            player_id,
-                            "No active game session for dice resolution",
-                        )];
-                    }
-                }
-            };
-            // Seed is still generated — it drives deterministic rotation for
-            // spectator replay animation. It no longer drives the face value;
-            // that comes from the client's physics (story 34-12).
-            let seed = dice_dispatch::generate_dice_seed(&session_id, turn_manager.round());
-
-            tracing::info!(
-                request_id = %payload.request_id,
-                rolling_player = %player_id,
-                face = ?payload.face,
-                "dice.face_reported"
-            );
-
-            let resolved = match sidequest_game::dice::resolve_dice_with_faces(
-                &pending_request.dice,
-                &payload.face,
-                pending_request.modifier,
-                pending_request.difficulty,
-            ) {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::error!(
-                        request_id = %payload.request_id,
-                        error = %e,
-                        "dice.resolution_failed"
-                    );
-                    return vec![error_response(
-                        player_id,
-                        &format!("Dice resolution failed: {e}"),
-                    )];
-                }
-            };
-
-            // Compose DiceResult and broadcast to all players
-            let result_payload = dice_dispatch::compose_dice_result(
-                &pending_request.request_id,
-                &pending_request.rolling_player_id,
-                &pending_request.character_name,
-                &resolved,
-                pending_request.modifier,
-                pending_request.difficulty,
-                seed,
-                &payload.throw_params,
-            );
-
-            tracing::info!(
-                request_id = %payload.request_id,
-                rolling_player = %pending_request.rolling_player_id,
-                total = resolved.total,
-                outcome = ?resolved.outcome,
-                seed = seed,
-                "dice.result_resolved"
-            );
-
-            // Broadcast via shared session to all connected players, and store
-            // the resolved outcome for the next narration turn (story 34-9).
-            // The outcome persists in SharedGameSession across dispatch_message()
-            // calls — the local var `pending_roll_outcome` can't survive past
-            // this return, so shared state is the only viable persistence layer.
-            {
-                let holder_guard = shared_session_holder.lock().await;
-                if let Some(ref ss_arc) = *holder_guard {
-                    let mut ss = ss_arc.lock().await;
-                    // Story 34-9: persist outcome for next PlayerAction narration
-                    ss.pending_roll_outcome = Some(resolved.outcome);
-                    ss.broadcast(GameMessage::DiceResult {
-                        player_id: "server".to_string(),
-                        payload: result_payload.clone(),
-                    });
-                }
-            }
-
-            // Also return DiceResult as a direct response (for the acting player's
-            // non-broadcast path, in case they're not subscribed to session broadcast)
-            vec![GameMessage::DiceResult {
-                player_id: "server".to_string(),
-                payload: result_payload,
-            }]
+            dice_dispatch::handle_dice_throw(
+                payload.clone(),
+                player_id,
+                shared_session_holder,
+                turn_manager.round(),
+            )
+            .await
         }
         // All other valid message types in wrong state
         _ => {
