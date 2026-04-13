@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use sidequest_game::tactical::layout::layout_tree;
+use sidequest_game::tactical::layout::layout_dungeon;
 use sidequest_game::tactical::{TacticalCell, TacticalGrid};
 use sidequest_genre::models::world::RoomDef;
 
@@ -286,7 +286,8 @@ fn check_unused_legend(room: &RoomDef, grid: &TacticalGrid, errors: &mut Vec<Val
 
 /// Validate that rooms with tactical grids can be composed into a dungeon
 /// layout without overlap. Parses each room's grid field and runs the
-/// tree-topology layout engine.
+/// dungeon layout engine, which handles both tree and cyclic (jaquayed)
+/// topologies.
 ///
 /// Rooms without a `grid` field are silently skipped (they use the
 /// schematic Automapper instead of tactical grids).
@@ -313,7 +314,7 @@ pub fn validate_layout(rooms: &[RoomDef]) -> Vec<ValidationError> {
         return Vec::new(); // No tactical grids to lay out
     }
 
-    match layout_tree(rooms, &grids) {
+    match layout_dungeon(rooms, &grids) {
         Ok(_) => Vec::new(),
         Err(err) => vec![ValidationError::LayoutFailed {
             message: err.to_string(),
