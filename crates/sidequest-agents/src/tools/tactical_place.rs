@@ -126,12 +126,25 @@ pub fn validate_tactical_place(
         return Err(reason);
     }
 
+    // Duplicate entity_id detection
+    if existing.iter().any(|e| e.entity_id == entity_id) {
+        let reason = format!("entity '{}' is already placed on the grid", entity_id);
+        tracing::Span::current().record("valid", false);
+        tracing::Span::current().record("error_reason", reason.as_str());
+        warn!(%reason, "tactical_place validation failed");
+        return Err(reason);
+    }
+
     // Overlap detection: check if any cell in the new entity's footprint
     // is occupied by an existing entity's footprint
     for existing_entity in existing {
         if footprints_overlap(
-            x, y, size,
-            existing_entity.x, existing_entity.y, existing_entity.size,
+            x,
+            y,
+            size,
+            existing_entity.x,
+            existing_entity.y,
+            existing_entity.size,
         ) {
             let reason = format!(
                 "placement overlaps with existing entity '{}' — cells occupied",
@@ -157,10 +170,7 @@ pub fn validate_tactical_place(
 }
 
 /// Check if two axis-aligned square footprints overlap.
-fn footprints_overlap(
-    x1: u32, y1: u32, size1: u32,
-    x2: u32, y2: u32, size2: u32,
-) -> bool {
+fn footprints_overlap(x1: u32, y1: u32, size1: u32, x2: u32, y2: u32, size2: u32) -> bool {
     // Two squares overlap if they overlap on both axes
     let x_overlap = x1 < x2 + size2 && x2 < x1 + size1;
     let y_overlap = y1 < y2 + size2 && y2 < y1 + size1;

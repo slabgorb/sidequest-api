@@ -101,6 +101,9 @@ pub struct ActionResult {
     /// (which handles fixed per-beat costs) with narrator-determined outcomes
     /// (e.g., poker winnings, quest rewards, bribes, fines).
     pub gold_change: Option<i64>,
+    /// Tactical entity placements from narrator tool calls (story 29-11).
+    /// Consumed by dispatch to update TacticalStatePayload and send TACTICAL_STATE to UI.
+    pub tactical_placements: Option<Vec<crate::tools::tactical_place::TacticalPlaceResult>>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -1184,6 +1187,7 @@ impl GameService for Orchestrator {
                     raw_response_text: None,
                     affinity_progress: vec![],
                     gold_change: None,
+                    tactical_placements: None,
                 }
             }
         }

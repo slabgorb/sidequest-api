@@ -164,6 +164,17 @@ pub fn assemble_turn(
         .items_acquired
         .unwrap_or(extraction.items_gained);
 
+    // Tactical placements: pass through from tool results (story 29-11)
+    if let Some(placements) = &tool_results.tactical_placements {
+        tracing::info!(
+            source = "tool_call",
+            count = placements.len(),
+            "assemble.override.tactical_placements"
+        );
+        override_count += 1;
+    }
+    let tactical_placements = tool_results.tactical_placements;
+
     tracing::info!(
         tool_overrides = override_count,
         narration_len = extraction.prose.len(),
@@ -207,5 +218,6 @@ pub fn assemble_turn(
         raw_response_text: None,
         affinity_progress: extraction.affinity_progress,
         gold_change: extraction.gold_change,
+        tactical_placements,
     }
 }

@@ -4,7 +4,6 @@
 /// the narrator to place entities on the tactical grid via tool calls.
 /// Tests cover: tool validation, bounds checking, overlap detection,
 /// grid summary generation, OTEL spans, and sidecar parsing.
-
 use serde_json::json;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -17,14 +16,20 @@ fn validate_tactical_place_accepts_valid_params() {
 
     let result = validate_tactical_place(
         "goblin-01",
-        3, 4,    // x, y
-        "medium", // size
+        3,
+        4,         // x, y
+        "medium",  // size
         "hostile", // faction
-        8, 8,    // grid width, height
-        &[],     // existing entities (none)
+        8,
+        8,   // grid width, height
+        &[], // existing entities (none)
     );
 
-    assert!(result.is_ok(), "valid params should succeed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "valid params should succeed: {:?}",
+        result.err()
+    );
     let place = result.unwrap();
     assert_eq!(place.entity_id, "goblin-01");
     assert_eq!(place.x, 3);
@@ -37,14 +42,7 @@ fn validate_tactical_place_accepts_valid_params() {
 fn validate_tactical_place_returns_entity_name_fields() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
-    let result = validate_tactical_place(
-        "pc-tormund",
-        2, 2,
-        "medium",
-        "player",
-        5, 5,
-        &[],
-    );
+    let result = validate_tactical_place("pc-tormund", 2, 2, "medium", "player", 5, 5, &[]);
 
     let place = result.unwrap();
     assert_eq!(place.entity_id, "pc-tormund");
@@ -59,9 +57,7 @@ fn validate_tactical_place_returns_entity_name_fields() {
 fn rejects_x_out_of_bounds() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
-    let result = validate_tactical_place(
-        "npc-01", 10, 3, "medium", "hostile", 8, 8, &[],
-    );
+    let result = validate_tactical_place("npc-01", 10, 3, "medium", "hostile", 8, 8, &[]);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.contains("bounds"), "error should mention bounds: {err}");
@@ -71,9 +67,7 @@ fn rejects_x_out_of_bounds() {
 fn rejects_y_out_of_bounds() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
-    let result = validate_tactical_place(
-        "npc-01", 3, 10, "medium", "hostile", 8, 8, &[],
-    );
+    let result = validate_tactical_place("npc-01", 3, 10, "medium", "hostile", 8, 8, &[]);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.contains("bounds"), "error should mention bounds: {err}");
@@ -83,9 +77,7 @@ fn rejects_y_out_of_bounds() {
 fn rejects_invalid_size_string() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
-    let result = validate_tactical_place(
-        "npc-01", 3, 3, "gargantuan", "hostile", 8, 8, &[],
-    );
+    let result = validate_tactical_place("npc-01", 3, 3, "gargantuan", "hostile", 8, 8, &[]);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.contains("size"), "error should mention size: {err}");
@@ -95,12 +87,13 @@ fn rejects_invalid_size_string() {
 fn rejects_invalid_faction_string() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
-    let result = validate_tactical_place(
-        "npc-01", 3, 3, "medium", "chaotic", 8, 8, &[],
-    );
+    let result = validate_tactical_place("npc-01", 3, 3, "medium", "chaotic", 8, 8, &[]);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.contains("faction"), "error should mention faction: {err}");
+    assert!(
+        err.contains("faction"),
+        "error should mention faction: {err}"
+    );
 }
 
 #[test]
@@ -108,9 +101,7 @@ fn accepts_all_valid_sizes() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
     for (size_str, expected_span) in [("medium", 1u32), ("large", 2), ("huge", 3)] {
-        let result = validate_tactical_place(
-            "entity", 0, 0, size_str, "neutral", 10, 10, &[],
-        );
+        let result = validate_tactical_place("entity", 0, 0, size_str, "neutral", 10, 10, &[]);
         assert!(result.is_ok(), "size '{size_str}' should be valid");
         assert_eq!(result.unwrap().size, expected_span);
     }
@@ -121,9 +112,7 @@ fn accepts_all_valid_factions() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
     for faction in ["player", "hostile", "neutral", "ally"] {
-        let result = validate_tactical_place(
-            "entity", 0, 0, "medium", faction, 10, 10, &[],
-        );
+        let result = validate_tactical_place("entity", 0, 0, "medium", faction, 10, 10, &[]);
         assert!(result.is_ok(), "faction '{faction}' should be valid");
         assert_eq!(result.unwrap().faction, faction);
     }
@@ -134,43 +123,51 @@ fn rejects_large_entity_extending_past_grid_edge() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
     // Large (2x2) at position (7,7) on 8x8 grid extends to (8,8) — out of bounds
-    let result = validate_tactical_place(
-        "ogre", 7, 7, "large", "hostile", 8, 8, &[],
+    let result = validate_tactical_place("ogre", 7, 7, "large", "hostile", 8, 8, &[]);
+    assert!(
+        result.is_err(),
+        "large entity at edge should fail bounds check"
     );
-    assert!(result.is_err(), "large entity at edge should fail bounds check");
 }
 
 #[test]
 fn rejects_overlapping_entities() {
     use sidequest_agents::tools::tactical_place::{validate_tactical_place, PlacedEntity};
 
-    let existing = vec![
-        PlacedEntity { entity_id: "goblin-01".into(), x: 3, y: 4, size: 1 },
-    ];
+    let existing = vec![PlacedEntity {
+        entity_id: "goblin-01".into(),
+        x: 3,
+        y: 4,
+        size: 1,
+    }];
 
     // Try to place another entity at the same position
-    let result = validate_tactical_place(
-        "goblin-02", 3, 4, "medium", "hostile", 8, 8, &existing,
-    );
+    let result = validate_tactical_place("goblin-02", 3, 4, "medium", "hostile", 8, 8, &existing);
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.contains("overlap") || err.contains("occupied"),
-        "error should mention overlap: {err}");
+    assert!(
+        err.contains("overlap") || err.contains("occupied"),
+        "error should mention overlap: {err}"
+    );
 }
 
 #[test]
 fn rejects_large_entity_overlapping_medium() {
     use sidequest_agents::tools::tactical_place::{validate_tactical_place, PlacedEntity};
 
-    let existing = vec![
-        PlacedEntity { entity_id: "guard".into(), x: 4, y: 4, size: 1 },
-    ];
+    let existing = vec![PlacedEntity {
+        entity_id: "guard".into(),
+        x: 4,
+        y: 4,
+        size: 1,
+    }];
 
     // Large (2x2) at (3,3) occupies cells (3,3), (4,3), (3,4), (4,4) — overlaps guard at (4,4)
-    let result = validate_tactical_place(
-        "ogre", 3, 3, "large", "hostile", 8, 8, &existing,
+    let result = validate_tactical_place("ogre", 3, 3, "large", "hostile", 8, 8, &existing);
+    assert!(
+        result.is_err(),
+        "large entity should overlap with existing medium at (4,4)"
     );
-    assert!(result.is_err(), "large entity should overlap with existing medium at (4,4)");
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -182,9 +179,8 @@ fn tactical_place_result_converts_to_entity_payload() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
     use sidequest_protocol::TacticalEntityPayload;
 
-    let result = validate_tactical_place(
-        "npc-wizard", 5, 2, "medium", "ally", 10, 10, &[],
-    ).unwrap();
+    let result =
+        validate_tactical_place("npc-wizard", 5, 2, "medium", "ally", 10, 10, &[]).unwrap();
 
     let payload: TacticalEntityPayload = result.to_entity_payload("Wizard Gandara");
     assert_eq!(payload.id, "npc-wizard");
@@ -208,14 +204,16 @@ fn grid_summary_includes_entity_positions() {
         TacticalEntityPayload {
             id: "pc-01".into(),
             name: "Tormund".into(),
-            x: 4, y: 3,
+            x: 4,
+            y: 3,
             size: 1,
             faction: "player".into(),
         },
         TacticalEntityPayload {
             id: "goblin-01".into(),
             name: "Grik".into(),
-            x: 2, y: 5,
+            x: 2,
+            y: 5,
             size: 2,
             faction: "hostile".into(),
         },
@@ -223,11 +221,22 @@ fn grid_summary_includes_entity_positions() {
 
     let summary = format_grid_summary(8, 8, &entities);
 
-    assert!(summary.contains("Tormund"), "summary should include entity names");
-    assert!(summary.contains("4,3") || summary.contains("[4, 3]") || summary.contains("(4,3)"),
-        "summary should include positions: {summary}");
-    assert!(summary.contains("player"), "summary should include factions: {summary}");
-    assert!(summary.contains("hostile"), "summary should include hostile faction: {summary}");
+    assert!(
+        summary.contains("Tormund"),
+        "summary should include entity names"
+    );
+    assert!(
+        summary.contains("4,3") || summary.contains("[4, 3]") || summary.contains("(4,3)"),
+        "summary should include positions: {summary}"
+    );
+    assert!(
+        summary.contains("player"),
+        "summary should include factions: {summary}"
+    );
+    assert!(
+        summary.contains("hostile"),
+        "summary should include hostile faction: {summary}"
+    );
 }
 
 #[test]
@@ -247,20 +256,21 @@ fn grid_summary_shows_size_labels() {
     use sidequest_agents::tools::tactical_place::format_grid_summary;
     use sidequest_protocol::TacticalEntityPayload;
 
-    let entities = vec![
-        TacticalEntityPayload {
-            id: "dragon".into(),
-            name: "Red Dragon".into(),
-            x: 1, y: 1,
-            size: 3,
-            faction: "hostile".into(),
-        },
-    ];
+    let entities = vec![TacticalEntityPayload {
+        id: "dragon".into(),
+        name: "Red Dragon".into(),
+        x: 1,
+        y: 1,
+        size: 3,
+        faction: "hostile".into(),
+    }];
 
     let summary = format_grid_summary(10, 10, &entities);
     // Should indicate size — "Huge" or "3x3" or similar
-    assert!(summary.to_lowercase().contains("huge") || summary.contains("3"),
-        "summary should indicate entity size: {summary}");
+    assert!(
+        summary.to_lowercase().contains("huge") || summary.contains("3"),
+        "summary should indicate entity size: {summary}"
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -358,9 +368,8 @@ fn sidecar_parser_skips_invalid_tactical_place_record() {
 fn invalid_placement_carries_error_reason() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
-    let err = validate_tactical_place(
-        "otel-test", 99, 99, "medium", "player", 5, 5, &[],
-    ).unwrap_err();
+    let err =
+        validate_tactical_place("otel-test", 99, 99, "medium", "player", 5, 5, &[]).unwrap_err();
 
     // Error reason should be non-empty (appears in OTEL span as error_reason)
     assert!(!err.is_empty(), "error reason must be non-empty for OTEL");
@@ -372,11 +381,9 @@ fn invalid_placement_carries_error_reason() {
 
 #[test]
 fn assemble_turn_includes_tactical_placements_in_action_result() {
+    use sidequest_agents::orchestrator::{ActionFlags, ActionRewrite, NarratorExtraction};
     use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
     use sidequest_agents::tools::tactical_place::TacticalPlaceResult;
-    use sidequest_agents::orchestrator::{
-        ActionFlags, ActionRewrite, NarratorExtraction,
-    };
     use std::collections::HashMap;
 
     // Build a ToolCallResults with one tactical placement
@@ -437,10 +444,11 @@ fn size_validation_is_case_insensitive() {
 
     // Tool calls from Claude may have varying case
     for size in ["Medium", "MEDIUM", "medium", "Large", "HUGE"] {
-        let result = validate_tactical_place(
-            "entity", 0, 0, size, "neutral", 10, 10, &[],
+        let result = validate_tactical_place("entity", 0, 0, size, "neutral", 10, 10, &[]);
+        assert!(
+            result.is_ok(),
+            "size '{size}' should be accepted (case-insensitive)"
         );
-        assert!(result.is_ok(), "size '{size}' should be accepted (case-insensitive)");
     }
 }
 
@@ -449,10 +457,11 @@ fn faction_validation_is_case_insensitive() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
     for faction in ["Player", "HOSTILE", "neutral", "Ally"] {
-        let result = validate_tactical_place(
-            "entity", 0, 0, "medium", faction, 10, 10, &[],
+        let result = validate_tactical_place("entity", 0, 0, "medium", faction, 10, 10, &[]);
+        assert!(
+            result.is_ok(),
+            "faction '{faction}' should be accepted (case-insensitive)"
         );
-        assert!(result.is_ok(), "faction '{faction}' should be accepted (case-insensitive)");
     }
 }
 
@@ -534,5 +543,8 @@ fn sidecar_parser_handles_multiple_tactical_place_records() {
     assert_eq!(placements.len(), 2, "should have 2 placements");
     assert_eq!(placements[0].entity_id, "goblin-01");
     assert_eq!(placements[1].entity_id, "goblin-02");
-    assert_eq!(placements[1].size, 2, "second entity should be large (size=2)");
+    assert_eq!(
+        placements[1].size, 2,
+        "second entity should be large (size=2)"
+    );
 }

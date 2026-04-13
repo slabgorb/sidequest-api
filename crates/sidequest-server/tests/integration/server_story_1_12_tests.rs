@@ -286,6 +286,7 @@ async fn server_accepts_mock_game_service() {
                 prompt_tier: String::new(),
                 affinity_progress: vec![],
                 gold_change: None,
+                tactical_placements: None,
             }
         }
 
