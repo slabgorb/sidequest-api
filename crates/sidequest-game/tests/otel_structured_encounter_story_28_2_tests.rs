@@ -15,6 +15,8 @@
 //!   creature.hp_delta        — from apply_hp_delta(), with name, old_hp, new_hp,
 //!                              delta, max_hp, clamped
 
+use std::collections::HashMap;
+
 use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::encounter::{EncounterActor, StructuredEncounter};
 use sidequest_game::inventory::Inventory;
@@ -487,6 +489,7 @@ fn escalate_to_combat_emits_escalated_event() {
     encounter.actors = vec![EncounterActor {
         name: "Blondie".to_string(),
         role: "duelist".to_string(),
+        per_actor_state: HashMap::new(),
     }];
 
     // Must resolve first
@@ -514,6 +517,7 @@ fn escalated_event_has_from_and_to_type() {
     encounter.actors = vec![EncounterActor {
         name: "Blondie".to_string(),
         role: "duelist".to_string(),
+        per_actor_state: HashMap::new(),
     }];
 
     let _ = encounter.apply_beat("draw", &def);

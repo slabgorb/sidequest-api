@@ -182,12 +182,19 @@ pub struct RenderResult {
 }
 
 /// Result from a `warm_up` / `status` request.
+///
+/// The daemon's warm_up handler returns `workers` as a dict of per-worker
+/// status objects (e.g. `{"flux": {"status": "warm", ...}, "embed": {...}}`),
+/// not a count. We accept `serde_json::Value` to handle both the warm_up
+/// response (dict) and the status response (may vary). Story 37-5.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct StatusResult {
-    /// Current daemon status (e.g. "ready", "warming_up").
+    /// Current daemon status (e.g. "ready", "warm").
     pub status: String,
-    /// Number of active workers.
-    pub workers: u32,
+    /// Worker details — dict of per-worker status objects from warm_up,
+    /// or other shapes from status. Accepts any JSON value.
+    #[serde(default)]
+    pub workers: serde_json::Value,
 }
 
 // ---------------------------------------------------------------------------

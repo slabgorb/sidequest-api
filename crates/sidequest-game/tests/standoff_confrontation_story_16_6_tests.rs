@@ -21,6 +21,8 @@
 //!   AC-Context:   Full standoff context injected into narrator prompt
 //!   AC-Integration: Complete standoff sequence from start to combat escalation
 
+use std::collections::HashMap;
+
 use sidequest_game::encounter::{
     EncounterActor, EncounterPhase, MetricDirection, StructuredEncounter,
 };
@@ -550,10 +552,12 @@ fn resolved_standoff_produces_combat_escalation() {
         EncounterActor {
             name: "The Man with No Name".to_string(),
             role: "duelist".to_string(),
+            per_actor_state: HashMap::new(),
         },
         EncounterActor {
             name: "Angel Eyes".to_string(),
             role: "duelist".to_string(),
+            per_actor_state: HashMap::new(),
         },
     ];
 
@@ -692,14 +696,17 @@ fn full_standoff_sequence_to_combat_escalation() {
         EncounterActor {
             name: "Blondie".to_string(),
             role: "duelist".to_string(),
+            per_actor_state: HashMap::new(),
         },
         EncounterActor {
             name: "Tuco".to_string(),
             role: "duelist".to_string(),
+            per_actor_state: HashMap::new(),
         },
         EncounterActor {
             name: "Angel Eyes".to_string(),
             role: "duelist".to_string(),
+            per_actor_state: HashMap::new(),
         },
     ];
 
@@ -782,6 +789,7 @@ fn game_snapshot_standoff_serde_roundtrip() {
     encounter.actors = vec![EncounterActor {
         name: "Clint".to_string(),
         role: "duelist".to_string(),
+        per_actor_state: HashMap::new(),
     }];
     snapshot.encounter = Some(encounter);
 
