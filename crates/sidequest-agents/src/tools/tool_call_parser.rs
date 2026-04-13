@@ -303,11 +303,27 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
             }
             "tactical_place" => {
                 let entity_id = record.result.get("entity_id").and_then(|v| v.as_str());
-                let x = record.result.get("x").and_then(|v| v.as_u64()).map(|v| v as u32);
-                let y = record.result.get("y").and_then(|v| v.as_u64()).map(|v| v as u32);
-                let size = record.result.get("size").and_then(|v| v.as_u64()).map(|v| v as u32);
+                let x = record
+                    .result
+                    .get("x")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                let y = record
+                    .result
+                    .get("y")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                let size = record
+                    .result
+                    .get("size")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
                 let faction = record.result.get("faction").and_then(|v| v.as_str());
-                let valid = record.result.get("valid").and_then(|v| v.as_bool()).unwrap_or(false);
+                let valid = record
+                    .result
+                    .get("valid")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
 
                 if valid {
                     if let (Some(entity_id), Some(x), Some(y), Some(size), Some(faction)) =
@@ -337,7 +353,10 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                         skipped_count += 1;
                     }
                 } else {
-                    info!(tool = "tactical_place", "placement was invalid — not adding to results");
+                    info!(
+                        tool = "tactical_place",
+                        "placement was invalid — not adding to results"
+                    );
                     skipped_count += 1;
                 }
             }

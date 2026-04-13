@@ -174,19 +174,13 @@ fn per_actor_state_handles_null_values() {
         role: "pilot".to_string(),
         per_actor_state: state,
     };
-    assert_eq!(
-        actor.per_actor_state["damage_log"],
-        serde_json::Value::Null
-    );
+    assert_eq!(actor.per_actor_state["damage_log"], serde_json::Value::Null);
 }
 
 #[test]
 fn per_actor_state_handles_float_values() {
     let mut state = HashMap::new();
-    state.insert(
-        "closure_speed".to_string(),
-        serde_json::json!(3.5),
-    );
+    state.insert("closure_speed".to_string(), serde_json::json!(3.5));
     let actor = EncounterActor {
         name: "Jester".to_string(),
         role: "pilot".to_string(),
