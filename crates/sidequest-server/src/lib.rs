@@ -2256,8 +2256,16 @@ async fn dispatch_message(
                         }
                     }
 
-                    // Story 34-11: OTEL — dice request sent (wires the dead function)
-                    emit_dice_request_sent(&dice_req);
+                    // Story 34-11: OTEL — dice request sent
+                    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
+                        .field("event", "dice.request_sent")
+                        .field("request_id", &dice_req.request_id)
+                        .field("rolling_player_id", &dice_req.rolling_player_id)
+                        .field("stat", &dice_req.stat)
+                        .field("difficulty", dice_req.difficulty.get())
+                        .field("modifier", dice_req.modifier)
+                        .field("dice_count", dice_req.dice.len())
+                        .send();
 
                     tracing::info!(
                         request_id = %dice_req.request_id,
