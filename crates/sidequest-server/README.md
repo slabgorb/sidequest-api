@@ -39,4 +39,8 @@ Middleware:
 - **WatcherEvent** — structured telemetry for GM panel (agent spans, state transitions, coverage gaps)
 - **Render integration** — async image broadcaster with path rewriting and tier mapping
 
-See [`docs/api-contract.md`](../../../docs/api-contract.md) for the full protocol spec.
+The authoritative protocol definition lives in the `sidequest-protocol`
+crate (`crates/sidequest-protocol/src/`) — `GameMessage` and its typed payloads
+are the contract. A higher-level cross-repo protocol reference lives in the
+orchestrator repo at `orc-quest/docs/api-contract.md` (not checked into this
+repo).
