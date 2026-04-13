@@ -1,10 +1,12 @@
-//! Dungeon layout engine — shared-wall tree topology placement (ADR-071).
+//! Dungeon layout engine — shared-wall placement (ADR-071).
 //!
 //! Composes individually parsed room grids into a dungeon map. Adjacent rooms
 //! share wall segments at exit gaps — one wall, not two. BFS from the entrance
 //! room places rooms in global coordinates.
 //!
-//! Cycle handling (jaquayed layouts) is deferred to story 29-7.
+//! `layout_tree` handles acyclic (tree) room graphs; `layout_dungeon` (added
+//! in story 29-7) adds cycle detection, ring placement, and closure validation
+//! for jaquayed topologies per ADR-071 §5.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -634,8 +636,8 @@ pub fn layout_cycle(
                 detail: format!("cycle member '{}' has no tactical grid", curr_id),
             })?;
 
-        let prev_used = used_gaps.entry(prev_id.clone()).or_default().clone();
-        let curr_used = used_gaps.entry(curr_id.clone()).or_default().clone();
+        let prev_used = used_gaps.get(prev_id).cloned().unwrap_or_default();
+        let curr_used = used_gaps.get(curr_id).cloned().unwrap_or_default();
 
         let mut placement: Option<(usize, usize, PlacedRoom)> = None;
         'pair: for (gi_a, gap_a) in prev_grid.exits().iter().enumerate() {
@@ -683,8 +685,8 @@ pub fn layout_cycle(
         let first_grid_again = grids.get(first_id_again).expect("first grid checked above");
         let first_offset = (placed[0].offset_x, placed[0].offset_y);
 
-        let last_used = used_gaps.entry(last_id.clone()).or_default().clone();
-        let first_used = used_gaps.entry(first_id_again.clone()).or_default().clone();
+        let last_used = used_gaps.get(last_id).cloned().unwrap_or_default();
+        let first_used = used_gaps.get(first_id_again).cloned().unwrap_or_default();
 
         let mut closure_valid = false;
         for (gi_last, gap_last) in last_grid.exits().iter().enumerate() {
@@ -788,8 +790,8 @@ pub fn layout_dungeon(
                 None => continue,
             };
 
-            let current_used = used_gaps.entry(current_id.clone()).or_default().clone();
-            let target_used = used_gaps.entry(target_id.to_string()).or_default().clone();
+            let current_used = used_gaps.get(&current_id).cloned().unwrap_or_default();
+            let target_used = used_gaps.get(target_id).cloned().unwrap_or_default();
 
             let mut placement_found = false;
             'pair: for (gi_a, gap_a) in current_grid.exits().iter().enumerate() {

@@ -286,7 +286,8 @@ fn check_unused_legend(room: &RoomDef, grid: &TacticalGrid, errors: &mut Vec<Val
 
 /// Validate that rooms with tactical grids can be composed into a dungeon
 /// layout without overlap. Parses each room's grid field and runs the
-/// tree-topology layout engine.
+/// dungeon layout engine, which handles both tree and cyclic (jaquayed)
+/// topologies.
 ///
 /// Rooms without a `grid` field are silently skipped (they use the
 /// schematic Automapper instead of tactical grids).
