@@ -17,12 +17,8 @@
 use std::num::NonZeroU8;
 
 use sidequest_game::dice::resolve_dice;
-use sidequest_protocol::{
-    DiceRequestPayload, DieSides, DieSpec, ThrowParams,
-};
-use sidequest_telemetry::{
-    init_global_channel, subscribe_global, WatcherEvent, WatcherEventType,
-};
+use sidequest_protocol::{DiceRequestPayload, DieSides, DieSpec, ThrowParams};
+use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
 
 use crate::dice_dispatch::{compose_dice_result, generate_dice_seed, validate_dice_inputs};
 
@@ -62,10 +58,7 @@ fn find_dice_events(events: &[WatcherEvent], event_name: &str) -> Vec<WatcherEve
         .iter()
         .filter(|e| {
             e.component == "dice"
-                && e.fields
-                    .get("event")
-                    .and_then(serde_json::Value::as_str)
-                    == Some(event_name)
+                && e.fields.get("event").and_then(serde_json::Value::as_str) == Some(event_name)
         })
         .cloned()
         .collect()
@@ -84,6 +77,7 @@ fn test_dice_request() -> DiceRequestPayload {
             sides: DieSides::D20,
             count: NonZeroU8::new(1).unwrap(),
         }],
+        context: "Strength check to break down the door".to_string(),
     }
 }
 
@@ -151,9 +145,11 @@ fn dice_request_sent_uses_correct_event_type() {
     let dice_events = find_dice_events(&events, "dice.request_sent");
 
     assert_eq!(dice_events.len(), 1);
-    assert_eq!(
-        dice_events[0].event_type,
-        WatcherEventType::SubsystemExerciseSummary,
+    assert!(
+        matches!(
+            dice_events[0].event_type,
+            WatcherEventType::SubsystemExerciseSummary
+        ),
         "dice.request_sent must use SubsystemExerciseSummary type"
     );
 }
@@ -214,9 +210,11 @@ fn dice_throw_received_uses_correct_event_type() {
     let dice_events = find_dice_events(&events, "dice.throw_received");
 
     assert_eq!(dice_events.len(), 1);
-    assert_eq!(
-        dice_events[0].event_type,
-        WatcherEventType::SubsystemExerciseSummary,
+    assert!(
+        matches!(
+            dice_events[0].event_type,
+            WatcherEventType::SubsystemExerciseSummary
+        ),
         "dice.throw_received must use SubsystemExerciseSummary type"
     );
 }
@@ -246,7 +244,7 @@ fn dice_result_broadcast_emits_watcher_event() {
         &ThrowParams {
             velocity: [1.0, 0.0, 0.0],
             angular: [0.0, 0.0, 0.0],
-            position: [0.0, 0.0, 0.0],
+            position: [0.0, 0.0],
         },
     );
 
@@ -314,9 +312,8 @@ fn dice_result_broadcast_uses_state_transition_type() {
     let dice_events = find_dice_events(&events, "dice.result_broadcast");
 
     assert_eq!(dice_events.len(), 1);
-    assert_eq!(
-        dice_events[0].event_type,
-        WatcherEventType::StateTransition,
+    assert!(
+        matches!(dice_events[0].event_type, WatcherEventType::StateTransition),
         "dice.result_broadcast must use StateTransition type (outcome changes narrator context)"
     );
 }

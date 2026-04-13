@@ -4,14 +4,14 @@
 //! The server depends on the `GameService` trait facade — never on game internals.
 
 pub(crate) mod debug_api;
-pub mod dice_dispatch;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
-#[cfg(test)]
-mod otel_dice_spans_34_11_tests;
+pub mod dice_dispatch;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
+#[cfg(test)]
+mod otel_dice_spans_34_11_tests;
 pub mod render_integration;
 pub(crate) mod session;
 pub mod shared_session;
@@ -60,6 +60,59 @@ pub use sidequest_telemetry::{
 
 // Tracing / Telemetry — extracted to tracing_setup.rs
 pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subscriber_for_test};
+
+// ---------------------------------------------------------------------------
+// Story 34-11: OTEL dice span emitters — GM panel visibility for dice dispatch
+// ---------------------------------------------------------------------------
+
+/// Emit a `dice.request_sent` WatcherEvent when a DiceRequest is broadcast.
+pub fn emit_dice_request_sent(request: &sidequest_protocol::DiceRequestPayload) {
+    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "dice.request_sent")
+        .field("request_id", &request.request_id)
+        .field("rolling_player", &request.rolling_player_id)
+        .field("stat", &request.stat)
+        .field("difficulty", request.difficulty.get())
+        .field("dice_count", request.dice.len())
+        .send();
+}
+
+/// Emit a `dice.throw_received` WatcherEvent when a DiceThrow arrives.
+pub fn emit_dice_throw_received(
+    request_id: &str,
+    rolling_player: &str,
+    throw_params: &sidequest_protocol::ThrowParams,
+) {
+    let has_params = throw_params.velocity != [0.0; 3] || throw_params.angular != [0.0; 3];
+    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "dice.throw_received")
+        .field("request_id", request_id)
+        .field("rolling_player", rolling_player)
+        .field("has_throw_params", has_params)
+        .send();
+}
+
+/// Emit a `dice.result_broadcast` WatcherEvent when a DiceResult is resolved.
+pub fn emit_dice_result_broadcast(
+    result: &sidequest_protocol::DiceResultPayload,
+    resolved: &sidequest_game::dice::ResolvedRoll,
+) {
+    let outcome_name = match resolved.outcome {
+        sidequest_protocol::RollOutcome::CritSuccess => "CritSuccess",
+        sidequest_protocol::RollOutcome::Success => "Success",
+        sidequest_protocol::RollOutcome::Fail => "Fail",
+        sidequest_protocol::RollOutcome::CritFail => "CritFail",
+        _ => "Unknown",
+    };
+    WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+        .field("event", "dice.result_broadcast")
+        .field("request_id", &result.request_id)
+        .field("rolling_player", &result.rolling_player_id)
+        .field("total", resolved.total)
+        .field("outcome", outcome_name)
+        .field("seed", result.seed)
+        .send();
+}
 
 // ---------------------------------------------------------------------------
 // Confrontation Defs — lookup helper (Story 28-1)
@@ -849,7 +902,11 @@ pub fn build_router(state: AppState) -> Router {
                                 description: String::new(),
                                 handout: false,
                                 render_id: Some(job_id.to_string()),
-                                tier: if tier.is_empty() { None } else { Some(tier.clone()) },
+                                tier: if tier.is_empty() {
+                                    None
+                                } else {
+                                    Some(tier.clone())
+                                },
                                 scene_type: if scene_type.is_empty() {
                                     None
                                 } else {
@@ -873,8 +930,7 @@ pub fn build_router(state: AppState) -> Router {
                         };
                         if let Some(ref key) = session_key {
                             let session_arc = {
-                                let sessions =
-                                    state_for_broadcaster.inner.sessions.lock().unwrap();
+                                let sessions = state_for_broadcaster.inner.sessions.lock().unwrap();
                                 sessions.get(key).cloned()
                             };
                             if let Some(ss_arc) = session_arc {
@@ -915,14 +971,11 @@ pub fn build_router(state: AppState) -> Router {
                                 job_id = %job_id,
                                 "render_broadcast — no session mapping for job, dropping IMAGE (no silent fallback)"
                             );
-                            WatcherEventBuilder::new(
-                                "render",
-                                WatcherEventType::ValidationWarning,
-                            )
-                            .severity(Severity::Error)
-                            .field("action", "image_no_session_mapping")
-                            .field("job_id", &job_id.to_string())
-                            .send();
+                            WatcherEventBuilder::new("render", WatcherEventType::ValidationWarning)
+                                .severity(Severity::Error)
+                                .field("action", "image_no_session_mapping")
+                                .field("job_id", &job_id.to_string())
+                                .send();
                         }
                         // Consume the mapping after delivery (or drop).
                         state_for_broadcaster.take_render_session(&job_id);
@@ -2258,9 +2311,19 @@ async fn dispatch_message(
                 );
                 return vec![error_response(
                     player_id,
-                    &format!("No pending dice request for request_id '{}'", payload.request_id),
+                    &format!(
+                        "No pending dice request for request_id '{}'",
+                        payload.request_id
+                    ),
                 )];
             };
+
+            // Story 34-11: OTEL — dice throw received
+            emit_dice_throw_received(
+                &payload.request_id,
+                &pending_request.rolling_player_id,
+                &payload.throw_params,
+            );
 
             // Validate inputs at dispatch boundary
             if let Err(e) = dice_dispatch::validate_dice_inputs(
@@ -2273,7 +2336,10 @@ async fn dispatch_message(
                     error = %e,
                     "dice.validation_failed"
                 );
-                return vec![error_response(player_id, &format!("Dice validation failed: {e}"))];
+                return vec![error_response(
+                    player_id,
+                    &format!("Dice validation failed: {e}"),
+                )];
             }
 
             // Generate deterministic seed and resolve
@@ -2296,10 +2362,7 @@ async fn dispatch_message(
                     }
                 }
             };
-            let seed = dice_dispatch::generate_dice_seed(
-                &session_id,
-                turn_manager.round(),
-            );
+            let seed = dice_dispatch::generate_dice_seed(&session_id, turn_manager.round());
 
             let resolved = match sidequest_game::dice::resolve_dice(
                 &pending_request.dice,
@@ -2332,6 +2395,9 @@ async fn dispatch_message(
                 seed,
                 &payload.throw_params,
             );
+
+            // Story 34-11: OTEL — dice result broadcast
+            emit_dice_result_broadcast(&result_payload, &resolved);
 
             tracing::info!(
                 request_id = %payload.request_id,
