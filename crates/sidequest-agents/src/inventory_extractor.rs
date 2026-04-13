@@ -23,8 +23,7 @@ const EXTRACT_TIMEOUT: Duration = Duration::from_secs(20);
 /// OTEL event name emitted when a mutation is successfully extracted.
 pub const OTEL_MUTATION_EXTRACTED: &str = "inventory.mutation_extracted";
 
-/// OTEL event name emitted when extraction fails to detect a mutation
-/// that the narration suggests should exist.
+/// OTEL event name emitted on extraction failure (timeout or parse error).
 pub const OTEL_MUTATION_MISSED: &str = "inventory.mutation_missed";
 
 /// A single inventory mutation extracted from narration.
@@ -120,8 +119,9 @@ pub fn extract_inventory_mutations(
         Err(e) => {
             warn!(
                 error = %e,
+                otel_event = OTEL_MUTATION_MISSED,
                 reason = "extraction_timeout_or_error",
-                "{OTEL_MUTATION_MISSED} — skipping this turn"
+                "inventory.extraction_failed — skipping this turn"
             );
             vec![]
         }
@@ -151,6 +151,10 @@ pub async fn extract_inventory_mutations_async(
     }
 }
 
+/// Builds the Haiku extraction prompt for detecting inventory mutations from narration.
+///
+/// `action` is the raw player input, `narration` is the narrator response, and
+/// `carried_items` is the current inventory. Returns a prompt string for `claude -p`.
 pub fn build_extraction_prompt(action: &str, narration: &str, carried_items: &[String]) -> String {
     let inventory_section = if carried_items.is_empty() {
         "(empty)".to_string()
@@ -202,6 +206,10 @@ RULES:
     )
 }
 
+/// Parses a Haiku extraction response into inventory mutations.
+///
+/// Handles both raw JSON arrays and markdown-fenced ```json blocks.
+/// Returns `None` if the response contains no mutations or cannot be parsed.
 pub fn parse_extraction_response(response: &str) -> Option<Vec<InventoryMutation>> {
     // Try direct parse
     if let Ok(entries) = serde_json::from_str::<Vec<InventoryMutation>>(response) {

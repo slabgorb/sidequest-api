@@ -180,7 +180,8 @@ If nothing mechanical happened AND no new knowledge was revealed, emit:\n\
 ```\n\
 ALWAYS emit the game_patch block. It is mandatory.";
 
-/// Returns the narrator output format text for testing and inspection.
+/// Returns the `NARRATOR_OUTPUT_ONLY` prompt section text for integration tests
+/// and CLI prompt inspection tools.
 pub fn narrator_output_format_text() -> &'static str {
     NARRATOR_OUTPUT_ONLY
 }
