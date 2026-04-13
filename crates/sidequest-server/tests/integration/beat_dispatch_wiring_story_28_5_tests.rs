@@ -448,10 +448,12 @@ fn escalate_to_combat_creates_new_encounter() {
     encounter.actors.push(sidequest_game::EncounterActor {
         name: "Player".to_string(),
         role: "duelist".to_string(),
+        per_actor_state: std::collections::HashMap::new(),
     });
     encounter.actors.push(sidequest_game::EncounterActor {
         name: "NPC".to_string(),
         role: "opponent".to_string(),
+        per_actor_state: std::collections::HashMap::new(),
     });
 
     // Resolve

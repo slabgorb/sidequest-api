@@ -44,3 +44,4 @@ mod turn_complete_telemetry_playtest_2026_04_11;
 mod turn_reminder_wiring_story_35_5_tests;
 mod watcher_story_3_6_tests;
 mod world_materialization_wiring_story_15_18_tests;
+mod embed_endpoint_story_37_5_tests;
