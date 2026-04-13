@@ -1,6 +1,6 @@
 # sidequest-protocol — Feature Inventory
 
-WebSocket protocol types. **~3,500 LOC, fully complete.** Defines all message types
+WebSocket protocol types. **~6,300 LOC, fully complete.** Defines all message types
 between server and client.
 
 ## COMPLETE — Do Not Rewrite

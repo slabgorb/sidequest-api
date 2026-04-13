@@ -4,7 +4,8 @@
 //! receive narration filtered through their perception state. The rewriter takes
 //! base narration and produces per-character variants.
 //!
-//! **Stub module** — types compile but methods are unimplemented (RED phase).
+//! Wired into dispatch via `session_sync.rs` (ClaudeRewriteStrategy from resonator)
+//! and `dispatch/mod.rs` (PerceptionFilter construction from game state).
 
 use std::collections::HashMap;
 
