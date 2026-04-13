@@ -2209,6 +2209,8 @@ async fn dispatch_message(
                             None
                         }
                     },
+                    // Story 29-11: tactical grid summary (populated below when grid is active)
+                    tactical_grid_summary: None,
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {

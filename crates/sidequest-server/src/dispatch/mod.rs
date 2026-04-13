@@ -155,6 +155,9 @@ pub(crate) struct DispatchContext<'a> {
     /// Consumed (taken) when building TurnContext for the narrator.
     /// Populated by the DiceThrow handler when dice resolve before narration.
     pub pending_roll_outcome: Option<sidequest_protocol::RollOutcome>,
+    /// Tactical grid summary for narrator prompt injection (story 29-11).
+    /// Populated from current tactical state entities when a grid is active.
+    pub tactical_grid_summary: Option<String>,
 }
 
 impl<'a> DispatchContext<'a> {
@@ -960,6 +963,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         },
         // Story 34-9: dice outcome injection — populated from pending dice result
         roll_outcome: ctx.pending_roll_outcome.take(),
+        // Story 29-11: tactical grid summary for narrator spatial awareness
+        tactical_grid_summary: ctx.tactical_grid_summary.clone(),
     };
     // For barrier turns, pass the combined multi-player action to the narrator
     // instead of the single-player preprocessed action. The sealed prompt is

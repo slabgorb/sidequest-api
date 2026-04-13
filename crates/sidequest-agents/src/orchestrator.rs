@@ -101,6 +101,9 @@ pub struct ActionResult {
     /// (which handles fixed per-beat costs) with narrator-determined outcomes
     /// (e.g., poker winnings, quest rewards, bribes, fines).
     pub gold_change: Option<i64>,
+    /// Tactical entity placements from narrator tool calls (story 29-11).
+    /// Consumed by dispatch to update TacticalStatePayload and send TACTICAL_STATE to UI.
+    pub tactical_placements: Option<Vec<crate::tools::tactical_place::TacticalPlaceResult>>,
 }
 
 /// A single beat selection from the narrator's output (story 28-6).
@@ -599,6 +602,21 @@ impl Orchestrator {
         // Standoffs, negotiations, and other ConfrontationDef types also need encounter context.
         if context.in_combat || context.in_chase || context.in_encounter {
             self.narrator.build_encounter_context(&mut builder);
+        }
+
+        // Story 29-11: Tactical grid summary (Primacy zone — narrator needs spatial awareness)
+        if let Some(ref grid_summary) = context.tactical_grid_summary {
+            let _tactical_span = tracing::info_span!(
+                "orchestrator.tactical_grid_injection",
+                summary_len = grid_summary.len(),
+            )
+            .entered();
+            builder.add_section(PromptSection::new(
+                "tactical_grid_summary",
+                format!("<tactical-grid>\n{}\n</tactical-grid>", grid_summary),
+                AttentionZone::Primacy,
+                SectionCategory::State,
+            ));
         }
 
         // Trope beat directives (Early zone)
@@ -1169,6 +1187,7 @@ impl GameService for Orchestrator {
                     raw_response_text: None,
                     affinity_progress: vec![],
                     gold_change: None,
+                    tactical_placements: None,
                 }
             }
         }
@@ -1672,6 +1691,10 @@ pub struct TurnContext {
     /// When Some, injected as a [DICE_OUTCOME: X] tag in the Valley zone
     /// so the narrator shapes prose tone to match the mechanical result.
     pub roll_outcome: Option<sidequest_protocol::RollOutcome>,
+    /// Tactical grid summary for narrator spatial awareness (story 29-11).
+    /// When Some, injected into Primacy zone so narrator knows entity positions
+    /// before deciding tactical_place calls.
+    pub tactical_grid_summary: Option<String>,
 }
 
 /// Result of processing a player action through the full turn loop.
