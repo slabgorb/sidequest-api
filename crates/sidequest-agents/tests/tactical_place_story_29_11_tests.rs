@@ -13,7 +13,7 @@ use serde_json::json;
 
 #[test]
 fn validate_tactical_place_accepts_valid_params() {
-    use sidequest_agents::tools::tactical_place::{validate_tactical_place, TacticalPlaceResult};
+    use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
     let result = validate_tactical_place(
         "goblin-01",
@@ -35,7 +35,7 @@ fn validate_tactical_place_accepts_valid_params() {
 
 #[test]
 fn validate_tactical_place_returns_entity_name_fields() {
-    use sidequest_agents::tools::tactical_place::{validate_tactical_place, TacticalPlaceResult};
+    use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
     let result = validate_tactical_place(
         "pc-tormund",
@@ -179,7 +179,7 @@ fn rejects_large_entity_overlapping_medium() {
 
 #[test]
 fn tactical_place_result_converts_to_entity_payload() {
-    use sidequest_agents::tools::tactical_place::{validate_tactical_place, TacticalPlaceResult};
+    use sidequest_agents::tools::tactical_place::validate_tactical_place;
     use sidequest_protocol::TacticalEntityPayload;
 
     let result = validate_tactical_place(
@@ -235,9 +235,11 @@ fn grid_summary_empty_when_no_entities() {
     use sidequest_agents::tools::tactical_place::format_grid_summary;
 
     let summary = format_grid_summary(8, 8, &[]);
-    // Should indicate the grid exists but is empty, or return a minimal representation
-    assert!(summary.contains("8") || summary.contains("empty") || summary.is_empty(),
-        "empty grid summary should indicate dimensions or emptiness: {summary}");
+    // Must indicate the grid dimensions and emptiness — not silently return ""
+    assert!(
+        summary.contains("8") && summary.contains("empty"),
+        "empty grid summary must show dimensions AND emptiness indicator: {summary}"
+    );
 }
 
 #[test]
@@ -266,60 +268,91 @@ fn grid_summary_shows_size_labels() {
 // ══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn tool_call_parser_recognizes_tactical_place() {
-    use sidequest_agents::tools::tool_call_parser::ToolCallRecord;
-    use sidequest_agents::tools::assemble_turn::ToolCallResults;
+fn sidecar_parser_populates_tactical_placements_from_valid_record() {
+    use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
 
-    // Verify ToolCallResults has a tactical_placements field
-    let results = ToolCallResults::default();
-    assert!(results.tactical_placements.is_none() || results.tactical_placements.as_ref().map_or(true, |v| v.is_empty()),
-        "default ToolCallResults should have no tactical placements");
-}
-
-#[test]
-fn tool_call_parser_parses_tactical_place_record() {
-    use sidequest_agents::tools::tool_call_parser::ToolCallRecord;
-
-    let record = ToolCallRecord {
-        tool: "tactical_place".to_string(),
-        result: json!({
+    // Write a valid tactical_place record to a temp sidecar file
+    let session_id = "test-tactical-place-valid-29-11";
+    let path = sidecar_path(session_id);
+    // Ensure the sidecar directory exists
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("failed to create sidecar dir");
+    }
+    let record = json!({
+        "tool": "tactical_place",
+        "result": {
             "entity_id": "goblin-01",
             "x": 3,
             "y": 4,
             "size": 1,
             "faction": "hostile",
             "valid": true
-        }),
-    };
+        }
+    });
+    std::fs::write(&path, format!("{}\n", record)).expect("failed to write sidecar file");
 
-    assert_eq!(record.tool, "tactical_place");
-    // The actual parsing into ToolCallResults.tactical_placements is tested
-    // via the integration test below.
+    let results = parse_tool_results(session_id);
+
+    // Cleanup
+    let _ = std::fs::remove_file(&path);
+
+    // The sidecar parser must populate tactical_placements with the parsed record
+    assert!(
+        results.tactical_placements.is_some(),
+        "tactical_placements should be Some after parsing a valid tactical_place record"
+    );
+    let placements = results.tactical_placements.unwrap();
+    assert_eq!(placements.len(), 1, "should have exactly 1 placement");
+    assert_eq!(placements[0].entity_id, "goblin-01");
+    assert_eq!(placements[0].x, 3);
+    assert_eq!(placements[0].y, 4);
+    assert_eq!(placements[0].size, 1);
+    assert_eq!(placements[0].faction, "hostile");
+}
+
+#[test]
+fn sidecar_parser_skips_invalid_tactical_place_record() {
+    use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
+
+    // Write a tactical_place record with valid: false
+    let session_id = "test-tactical-place-invalid-29-11";
+    let path = sidecar_path(session_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("failed to create sidecar dir");
+    }
+    let record = json!({
+        "tool": "tactical_place",
+        "result": {
+            "entity_id": "goblin-01",
+            "x": 99,
+            "y": 99,
+            "size": 1,
+            "faction": "hostile",
+            "valid": false
+        }
+    });
+    std::fs::write(&path, format!("{}\n", record)).expect("failed to write sidecar file");
+
+    let results = parse_tool_results(session_id);
+
+    // Cleanup
+    let _ = std::fs::remove_file(&path);
+
+    // Invalid placements should NOT be added to tactical_placements
+    assert!(
+        results.tactical_placements.is_none(),
+        "tactical_placements should be None when all records are invalid"
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
 // AC-6: OTEL span — tool.tactical_place
 // ══════════════════════════════════════════════════════════════════════════════
 
-#[test]
-fn validate_function_has_tracing_instrument() {
-    // This is a structural test — we verify the function name pattern
-    // matches what the OTEL span should be. The actual #[instrument] attribute
-    // is verified at compile time. We verify the function produces the
-    // expected span fields by checking the result carries all required data.
-    use sidequest_agents::tools::tactical_place::validate_tactical_place;
-
-    let result = validate_tactical_place(
-        "otel-test", 1, 1, "medium", "player", 5, 5, &[],
-    );
-    let place = result.unwrap();
-    // All fields that should appear in the OTEL span are present
-    assert_eq!(place.entity_id, "otel-test");
-    assert_eq!(place.x, 1);
-    assert_eq!(place.y, 1);
-    assert_eq!(place.size, 1);
-    assert_eq!(place.faction, "player");
-}
+// Removed: validate_function_has_tracing_instrument was vacuous (duplicated AC-1,
+// didn't test OTEL). The #[instrument] attribute is verified by source inspection:
+// tactical_place.rs:58-62 has #[tracing::instrument(name = "tool.tactical_place", ...)]
+// with all 7 fields. Compile-time presence is sufficient.
 
 #[test]
 fn invalid_placement_carries_error_reason() {
@@ -334,21 +367,64 @@ fn invalid_placement_carries_error_reason() {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// AC-5 (continued): Wiring test — module exports
+// AC-3/AC-5: Wiring — tactical_placements flows through assemble_turn to ActionResult
 // ══════════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn tactical_place_module_exported_from_tools() {
-    // Verifies the module is publicly accessible. If this compiles, the
-    // module is properly exported from tools/mod.rs.
-    use sidequest_agents::tools::tactical_place::validate_tactical_place;
+fn assemble_turn_includes_tactical_placements_in_action_result() {
+    use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
     use sidequest_agents::tools::tactical_place::TacticalPlaceResult;
-    use sidequest_agents::tools::tactical_place::PlacedEntity;
-    use sidequest_agents::tools::tactical_place::format_grid_summary;
+    use sidequest_agents::orchestrator::{
+        ActionFlags, ActionRewrite, NarratorExtraction,
+    };
+    use std::collections::HashMap;
 
-    // Not vacuous — compilation is the assertion, but add a meaningful check:
-    let result = validate_tactical_place("wire-check", 0, 0, "medium", "player", 5, 5, &[]);
-    assert!(result.is_ok());
+    // Build a ToolCallResults with one tactical placement
+    let mut tool_results = ToolCallResults::default();
+    tool_results.tactical_placements = Some(vec![TacticalPlaceResult {
+        entity_id: "goblin-01".to_string(),
+        x: 3,
+        y: 4,
+        size: 1,
+        faction: "hostile".to_string(),
+    }]);
+
+    let extraction = NarratorExtraction {
+        prose: "A goblin charges from the shadows.".to_string(),
+        footnotes: vec![],
+        items_gained: vec![],
+        npcs_present: vec![],
+        quest_updates: HashMap::new(),
+        visual_scene: None,
+        scene_mood: None,
+        personality_events: vec![],
+        scene_intent: None,
+        resource_deltas: HashMap::new(),
+        lore_established: None,
+        merchant_transactions: vec![],
+        sfx_triggers: vec![],
+        action_rewrite: None,
+        action_flags: None,
+        beat_selections: vec![],
+        confrontation: None,
+        location: None,
+        affinity_progress: vec![],
+        gold_change: None,
+    };
+    let rewrite = ActionRewrite::default();
+    let flags = ActionFlags::default();
+
+    let result = assemble_turn(extraction, rewrite, flags, tool_results);
+
+    // ActionResult must carry tactical_placements through — this is the wiring test.
+    // If ActionResult doesn't have a tactical_placements field, this won't compile.
+    assert!(
+        result.tactical_placements.is_some(),
+        "ActionResult must carry tactical_placements from ToolCallResults"
+    );
+    let placements = result.tactical_placements.unwrap();
+    assert_eq!(placements.len(), 1);
+    assert_eq!(placements[0].entity_id, "goblin-01");
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -384,8 +460,79 @@ fn faction_validation_is_case_insensitive() {
 fn empty_entity_id_rejected() {
     use sidequest_agents::tools::tactical_place::validate_tactical_place;
 
-    let result = validate_tactical_place(
-        "", 3, 3, "medium", "hostile", 8, 8, &[],
-    );
+    let result = validate_tactical_place("", 3, 3, "medium", "hostile", 8, 8, &[]);
     assert!(result.is_err(), "empty entity_id should be rejected");
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Reviewer rework: duplicate entity_id guard
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn rejects_duplicate_entity_id() {
+    use sidequest_agents::tools::tactical_place::{validate_tactical_place, PlacedEntity};
+
+    let existing = vec![PlacedEntity {
+        entity_id: "goblin-01".into(),
+        x: 3,
+        y: 4,
+        size: 1,
+    }];
+
+    // Place the SAME entity_id at a different, non-overlapping position.
+    // This should be rejected — same entity cannot exist in two places.
+    let result = validate_tactical_place("goblin-01", 0, 0, "medium", "hostile", 8, 8, &existing);
+    assert!(
+        result.is_err(),
+        "duplicate entity_id should be rejected even at non-overlapping position"
+    );
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("already") || err.contains("duplicate") || err.contains("exists"),
+        "error should mention entity already placed: {err}"
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Reviewer rework: sidecar parser with multiple records
+// ══════════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn sidecar_parser_handles_multiple_tactical_place_records() {
+    use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
+
+    let session_id = "test-tactical-place-multi-29-11";
+    let path = sidecar_path(session_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).expect("failed to create sidecar dir");
+    }
+    let record1 = json!({
+        "tool": "tactical_place",
+        "result": {
+            "entity_id": "goblin-01", "x": 3, "y": 4, "size": 1,
+            "faction": "hostile", "valid": true
+        }
+    });
+    let record2 = json!({
+        "tool": "tactical_place",
+        "result": {
+            "entity_id": "goblin-02", "x": 5, "y": 6, "size": 2,
+            "faction": "hostile", "valid": true
+        }
+    });
+    std::fs::write(&path, format!("{}\n{}\n", record1, record2))
+        .expect("failed to write sidecar file");
+
+    let results = parse_tool_results(session_id);
+
+    // Cleanup
+    let _ = std::fs::remove_file(&path);
+
+    let placements = results
+        .tactical_placements
+        .expect("should have tactical_placements after parsing 2 valid records");
+    assert_eq!(placements.len(), 2, "should have 2 placements");
+    assert_eq!(placements[0].entity_id, "goblin-01");
+    assert_eq!(placements[1].entity_id, "goblin-02");
+    assert_eq!(placements[1].size, 2, "second entity should be large (size=2)");
 }
