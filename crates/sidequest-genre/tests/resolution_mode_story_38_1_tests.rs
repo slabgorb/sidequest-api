@@ -117,7 +117,7 @@ fn resolution_mode_is_copy() {
 #[test]
 fn resolution_mode_is_clone() {
     let mode = ResolutionMode::SealedLetterLookup;
-    let cloned = mode.clone();
+    let cloned = mode;
     assert_eq!(mode, cloned);
 }
 

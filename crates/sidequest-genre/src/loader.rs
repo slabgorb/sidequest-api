@@ -362,6 +362,12 @@ fn resolve_confrontation_from_pointers(
     Ok(())
 }
 
+/// Build the `_from` key value used to probe `serde_yaml::Mapping`s. Single
+/// source of truth so the string literal never drifts between call sites.
+fn from_key() -> serde_yaml::Value {
+    serde_yaml::Value::String("_from".to_string())
+}
+
 /// If `value` is a mapping of shape `{ _from: "relpath" }` (single key),
 /// return the string. Otherwise return `None`.
 fn extract_from_pointer(value: &serde_yaml::Value) -> Option<String> {
@@ -369,8 +375,7 @@ fn extract_from_pointer(value: &serde_yaml::Value) -> Option<String> {
     if mapping.len() != 1 {
         return None;
     }
-    let from_key = serde_yaml::Value::String("_from".to_string());
-    let from_val = mapping.get(&from_key)?;
+    let from_val = mapping.get(from_key())?;
     from_val.as_str().map(|s| s.to_string())
 }
 
@@ -419,8 +424,7 @@ fn resolve_from_pointer(
     // Reject nested `_from` chains — the sub-file must be a concrete body,
     // not another pointer. Keeps the resolver non-recursive (Rule #15).
     if let Some(mapping) = value.as_mapping() {
-        let from_key = serde_yaml::Value::String("_from".to_string());
-        if mapping.contains_key(&from_key) {
+        if mapping.contains_key(from_key()) {
             return Err(GenreError::LoadError {
                 path: full.display().to_string(),
                 detail: "nested _from pointers are not allowed".to_string(),

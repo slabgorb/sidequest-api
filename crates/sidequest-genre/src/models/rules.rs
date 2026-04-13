@@ -328,15 +328,12 @@ impl TryFrom<RawInteractionCell> for InteractionCell {
     type Error = String;
 
     fn try_from(raw: RawInteractionCell) -> Result<Self, Self::Error> {
-        if raw.pair.len() != 2 {
-            return Err(format!(
+        let [red, blue]: [String; 2] = raw.pair.try_into().map_err(|v: Vec<String>| {
+            format!(
                 "interaction cell pair must have exactly 2 elements, got {}",
-                raw.pair.len()
-            ));
-        }
-        let mut iter = raw.pair.into_iter();
-        let red = iter.next().unwrap();
-        let blue = iter.next().unwrap();
+                v.len()
+            )
+        })?;
         Ok(Self {
             pair: (red, blue),
             name: raw.name,

@@ -16,11 +16,11 @@
 //!
 //! Acceptance criteria (from session file):
 //!   - AC-1: Genre pack loader sources confrontation sub-files from
-//!           adjacent YAML via `_from` pointers.
+//!     adjacent YAML via `_from` pointers.
 //!   - AC-2: Unit tests on the real `space_opera/dogfight/` fixtures verify
-//!           loading behaviour end-to-end.
+//!     loading behaviour end-to-end.
 //!   - AC-3: The pattern supports genre pack organisation of complex
-//!           encounter data (generic enough to reuse beyond dogfights).
+//!     encounter data (generic enough to reuse beyond dogfights).
 //!
 //! Project principles under test:
 //!   - No silent fallbacks: missing `_from` targets must fail loudly.
