@@ -48,6 +48,10 @@ pub struct ToolCallResults {
     /// `None` means no item_acquire tools fired (use narrator fallback).
     /// `Some(vec)` means tools fired — use this vec even if empty.
     pub items_acquired: Option<Vec<sidequest_protocol::ItemGained>>,
+    /// Tactical entity placements from `tactical_place` tool calls.
+    /// `None` means no tactical_place tools fired.
+    /// `Some(vec)` means tools fired — entities to add to TacticalStatePayload.
+    pub tactical_placements: Option<Vec<crate::tools::tactical_place::TacticalPlaceResult>>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,

@@ -17,4 +17,5 @@ pub mod resource_change;
 pub mod scene_render;
 pub mod set_intent;
 pub mod set_mood;
+pub mod tactical_place;
 pub mod tool_call_parser;
