@@ -274,9 +274,13 @@ fn rooms_square_ring_with_branch() -> Vec<RoomDef> {
                             ....#\n\
                             #....\n\
                             #####";
+    // branch_e has a single-cell west exit at row 3 to match ring_d_with_east's
+    // 1-cell east exit at row 3. Mismatched exit cell counts would produce a
+    // wall/floor collision at the shared boundary, so the cell widths must
+    // agree.
     let branch_e = "#####\n\
                     #...#\n\
-                    ....#\n\
+                    #...#\n\
                     ....#\n\
                     #####";
 
@@ -605,10 +609,7 @@ fn layout_cycle_closure_error_names_participating_rooms() {
                 );
             }
         }
-        other => panic!(
-            "expected LayoutError::CycleClosureFailed, got {:?}",
-            other
-        ),
+        other => panic!("expected LayoutError::CycleClosureFailed, got {:?}", other),
     }
 }
 
@@ -684,28 +685,29 @@ fn layout_dungeon_branch_shares_wall_with_cycle_node() {
 
 #[test]
 fn layout_dungeon_reports_overlap_between_branch_and_cycle() {
-    // Construct a pathological graph: a square ring where a branch room is
-    // forced to overlap with an opposite-side ring room because of its
-    // grid dimensions. The engine must detect the overlap and fail loudly.
+    // Construct a pathological graph: a square ring where the branch room has
+    // no exit gaps in its grid. BFS cannot find any opposite-wall exit pair
+    // to place it, so the engine must fail loudly with LayoutError::Overlap
+    // (fail-loud semantics — no silent drop).
     //
-    // Branch room F is 100×100 — guaranteed to overlap the ring regardless of
-    // which side it's attached to.
-    let oversize_grid: String = {
-        let row: String = "#".repeat(100);
-        let mut s = String::new();
-        for _ in 0..100 {
-            s.push_str(&row);
-            s.push('\n');
+    // Room E is 20×20, bordered entirely by walls, interior all floor. No
+    // exits means no way to attach it to D — the placement step must error.
+    let no_exit_grid: String = {
+        let mut lines: Vec<String> = Vec::new();
+        lines.push("#".repeat(20));
+        for _ in 0..18 {
+            let mut row = String::from("#");
+            row.push_str(&".".repeat(18));
+            row.push('#');
+            lines.push(row);
         }
-        s.pop();
-        s
+        lines.push("#".repeat(20));
+        lines.join("\n")
     };
 
     let mut rooms = rooms_square_ring_with_branch();
-    // Replace room E with the oversize F.
-    rooms[4] = room_def("e", "normal", vec![corridor("d")], &oversize_grid);
-    // Note: the 100×100 grid has no exit gaps, so alignment will fail first.
-    // This still exercises the error path — the layout must return Err.
+    // Replace room E with a no-exit version so BFS cannot place it.
+    rooms[4] = room_def("e", "normal", vec![corridor("d")], &no_exit_grid);
 
     let grids = parse_grids(&rooms);
     let result = layout_dungeon(&rooms, &grids);
@@ -957,20 +959,16 @@ fn square_ring_fixture_grids_all_parse_with_expected_exits() {
     assert_eq!(grids.len(), 4, "all 4 fixture grids must parse");
 
     // Each ring room must have exactly the two exits its geometry expects.
-    let a_walls: HashSet<CardinalDirection> =
-        grids["a"].exits().iter().map(|e| e.wall).collect();
+    let a_walls: HashSet<CardinalDirection> = grids["a"].exits().iter().map(|e| e.wall).collect();
     assert!(
-        a_walls.contains(&CardinalDirection::East)
-            && a_walls.contains(&CardinalDirection::South),
+        a_walls.contains(&CardinalDirection::East) && a_walls.contains(&CardinalDirection::South),
         "ring A must have east + south exits, got {:?}",
         a_walls
     );
 
-    let d_walls: HashSet<CardinalDirection> =
-        grids["d"].exits().iter().map(|e| e.wall).collect();
+    let d_walls: HashSet<CardinalDirection> = grids["d"].exits().iter().map(|e| e.wall).collect();
     assert!(
-        d_walls.contains(&CardinalDirection::North)
-            && d_walls.contains(&CardinalDirection::West),
+        d_walls.contains(&CardinalDirection::North) && d_walls.contains(&CardinalDirection::West),
         "ring D must have north + west exits, got {:?}",
         d_walls
     );
