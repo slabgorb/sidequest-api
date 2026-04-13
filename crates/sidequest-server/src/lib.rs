@@ -7,6 +7,8 @@ pub(crate) mod debug_api;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
 pub mod dice_dispatch;
+#[cfg(test)]
+mod otel_dice_spans_34_11_tests;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -58,6 +60,60 @@ pub use sidequest_telemetry::{
 
 // Tracing / Telemetry — extracted to tracing_setup.rs
 pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subscriber_for_test};
+
+// ---------------------------------------------------------------------------
+// Story 34-11: OTEL dice span emitters — GM panel visibility for dice dispatch
+// ---------------------------------------------------------------------------
+
+/// Emit a `dice.request_sent` WatcherEvent when a DiceRequest is broadcast.
+pub fn emit_dice_request_sent(request: &sidequest_protocol::DiceRequestPayload) {
+    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "dice.request_sent")
+        .field("request_id", &request.request_id)
+        .field("rolling_player", &request.rolling_player_id)
+        .field("stat", &request.stat)
+        .field("difficulty", request.difficulty.get())
+        .field("modifier", request.modifier)
+        .field("dice_count", request.dice.len())
+        .send();
+}
+
+/// Emit a `dice.throw_received` WatcherEvent when a DiceThrow arrives.
+pub fn emit_dice_throw_received(
+    request_id: &str,
+    rolling_player: &str,
+    throw_params: &sidequest_protocol::ThrowParams,
+) {
+    let has_params = throw_params.velocity != [0.0; 3] || throw_params.angular != [0.0; 3];
+    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "dice.throw_received")
+        .field("request_id", request_id)
+        .field("rolling_player", rolling_player)
+        .field("has_throw_params", has_params)
+        .send();
+}
+
+/// Emit a `dice.result_broadcast` WatcherEvent when a DiceResult is resolved.
+pub fn emit_dice_result_broadcast(
+    result: &sidequest_protocol::DiceResultPayload,
+    resolved: &sidequest_game::dice::ResolvedRoll,
+) {
+    let outcome_name = match resolved.outcome {
+        sidequest_protocol::RollOutcome::CritSuccess => "CritSuccess",
+        sidequest_protocol::RollOutcome::Success => "Success",
+        sidequest_protocol::RollOutcome::Fail => "Fail",
+        sidequest_protocol::RollOutcome::CritFail => "CritFail",
+        _ => "Unknown",
+    };
+    WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+        .field("event", "dice.result_broadcast")
+        .field("request_id", &result.request_id)
+        .field("rolling_player", &result.rolling_player_id)
+        .field("total", resolved.total)
+        .field("outcome", outcome_name)
+        .field("seed", result.seed)
+        .send();
+}
 
 // ---------------------------------------------------------------------------
 // Confrontation Defs — lookup helper (Story 28-1)
@@ -2251,15 +2307,7 @@ async fn dispatch_message(
                     }
 
                     // Story 34-11: OTEL — dice request sent
-                    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
-                        .field("event", "dice.request_sent")
-                        .field("request_id", &dice_req.request_id)
-                        .field("rolling_player_id", &dice_req.rolling_player_id)
-                        .field("stat", &dice_req.stat)
-                        .field("difficulty", dice_req.difficulty.get())
-                        .field("modifier", dice_req.modifier)
-                        .field("dice_count", dice_req.dice.len())
-                        .send();
+                    emit_dice_request_sent(&dice_req);
 
                     tracing::info!(
                         request_id = %dice_req.request_id,
@@ -2359,6 +2407,13 @@ async fn dispatch_message(
                 )];
             };
 
+            // Story 34-11: OTEL — dice throw received
+            emit_dice_throw_received(
+                &payload.request_id,
+                &pending_request.rolling_player_id,
+                &payload.throw_params,
+            );
+
             // Validate inputs at dispatch boundary
             if let Err(e) = dice_dispatch::validate_dice_inputs(
                 &pending_request.dice,
@@ -2438,6 +2493,9 @@ async fn dispatch_message(
                 seed = seed,
                 "dice.result_resolved"
             );
+
+            // Story 34-11: OTEL — dice result broadcast
+            emit_dice_result_broadcast(&result_payload, &resolved);
 
             // Broadcast via shared session to all connected players, and store
             // the resolved outcome for the next narration turn (story 34-9).
