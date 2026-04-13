@@ -112,9 +112,7 @@ impl TacticalEntity {
         };
 
         // Find the exit gap on the specified wall
-        let exit_gap = direction.and_then(|dir| {
-            grid.exits().iter().find(|gap| gap.wall == dir)
-        });
+        let exit_gap = direction.and_then(|dir| grid.exits().iter().find(|gap| gap.wall == dir));
 
         let position = if let Some(gap) = exit_gap {
             find_walkable_near_gap(grid, gap)
@@ -122,7 +120,14 @@ impl TacticalEntity {
             find_first_walkable(grid)
         };
 
-        Self::new(id, name, position, EntitySize::Medium, Faction::Player, None)
+        Self::new(
+            id,
+            name,
+            position,
+            EntitySize::Medium,
+            Faction::Player,
+            None,
+        )
     }
 
     /// Unique entity identifier.

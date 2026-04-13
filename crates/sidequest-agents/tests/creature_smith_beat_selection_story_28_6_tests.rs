@@ -258,33 +258,49 @@ fn narrator_no_build_chase_context() {
 // AC-IntentRouter: Checks in_encounter, not in_combat/in_chase
 // =========================================================================
 
-/// IntentRouter must no longer branch on in_combat and in_chase separately.
-/// The unified encounter engine routes all encounter types the same way.
+/// intent_router.rs must no longer branch on in_combat and in_chase
+/// separately. Per ADR-067 + the 2026-04-12 confrontation wiring repair,
+/// the `IntentRouter` / `IntentClassifier` / `NoOpClassifier` trio was
+/// deleted — they were dead stubs unconditionally returning Exploration.
+/// Callers now use `IntentRoute::exploration()` directly.
+///
+/// This test is the regression guard for that repair. It scans the entire
+/// file (not just one function, since the function was deleted) for the
+/// anti-patterns we specifically want to keep out:
+///   1. Any branching on `ctx.in_combat` or `ctx.in_chase` as classifier
+///      inputs (the pre-ADR-067 pattern).
+///   2. Re-introduction of the deleted `IntentClassifier` trait or its
+///      `classify_with_classifier` dispatch helper.
 #[test]
 fn intent_router_no_separate_combat_chase_branches() {
     let router_src = include_str!("../src/agents/intent_router.rs");
 
-    // Find the classify_with_classifier function body
-    let classify_start = router_src
-        .find("fn classify_with_classifier")
-        .expect("classify_with_classifier must exist");
-    let classify_body = &router_src[classify_start..];
-    // Find the end of this function (next fn or end of impl)
-    let fn_end = classify_body
-        .find("\n    /// ")
-        .or_else(|| classify_body.find("\n    fn "))
-        .unwrap_or(classify_body.len().min(2000));
-    let fn_text = &classify_body[..fn_end];
-
     assert!(
-        !fn_text.contains("ctx.in_combat"),
-        "classify_with_classifier must not check ctx.in_combat — \
-         unified encounter engine replaces separate combat/chase routing"
+        !router_src.contains("ctx.in_combat"),
+        "intent_router.rs must not branch on ctx.in_combat — \
+         unified narrator (ADR-067) routes all intents via the encounter \
+         engine, not separate state fields"
     );
     assert!(
-        !fn_text.contains("ctx.in_chase"),
-        "classify_with_classifier must not check ctx.in_chase — \
-         unified encounter engine replaces separate combat/chase routing"
+        !router_src.contains("ctx.in_chase"),
+        "intent_router.rs must not branch on ctx.in_chase — \
+         unified narrator (ADR-067) routes all intents via the encounter \
+         engine, not separate state fields"
+    );
+    assert!(
+        !router_src.contains("fn classify_with_classifier"),
+        "fn classify_with_classifier was deleted in the 2026-04-12 \
+         confrontation wiring repair (dead stub). Do not re-introduce it."
+    );
+    assert!(
+        !router_src.contains("trait IntentClassifier"),
+        "trait IntentClassifier was deleted in the 2026-04-12 \
+         confrontation wiring repair (dead stub). Do not re-introduce it."
+    );
+    assert!(
+        !router_src.contains("struct NoOpClassifier"),
+        "struct NoOpClassifier was deleted in the 2026-04-12 \
+         confrontation wiring repair (dead stub). Do not re-introduce it."
     );
 }
 

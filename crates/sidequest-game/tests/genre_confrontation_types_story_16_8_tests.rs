@@ -11,7 +11,9 @@
 //!   AC5: Each type has correct metric direction, beats with stat checks, and secondary stats
 //!   AC6: Confrontation types have mood declarations for music routing
 
-use sidequest_genre::{BeatDef, ConfrontationDef, RulesConfig, SecondaryStatDef};
+use sidequest_genre::{
+    load_rules_config, BeatDef, ConfrontationDef, RulesConfig, SecondaryStatDef,
+};
 use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════
@@ -32,11 +34,13 @@ fn genre_pack_path(genre: &str) -> PathBuf {
         .join(genre)
 }
 
+/// Load rules.yaml for a genre pack via the production `load_rules_config`
+/// loader so that `_from` pointers (story 38-4) on fields like
+/// `interaction_table` are resolved before deserialization.
 fn load_rules_yaml(genre: &str) -> RulesConfig {
-    let path = genre_pack_path(genre).join("rules.yaml");
-    let content = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()));
-    serde_yaml::from_str::<RulesConfig>(&content)
+    let pack = genre_pack_path(genre);
+    let path = pack.join("rules.yaml");
+    load_rules_config(&path, &pack)
         .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", path.display()))
 }
 

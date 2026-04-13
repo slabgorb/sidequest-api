@@ -30,7 +30,8 @@ fn parse_acquired_with_pickup_detail() {
     assert_eq!(mutations[0].item_name, "rusty key");
     assert_eq!(mutations[0].action, MutationAction::Acquired);
     assert_eq!(
-        mutations[0].detail, "picked up from the ground and pocketed"
+        mutations[0].detail,
+        "picked up from the ground and pocketed"
     );
     assert_eq!(mutations[0].category.as_deref(), Some("quest"));
 }
@@ -188,7 +189,10 @@ fn game_patch_items_gained_default_description() {
     let json = r#"{"name": "rusty key", "category": "quest"}"#;
     let item: sidequest_protocol::ItemGained = serde_json::from_str(json).unwrap();
     assert_eq!(item.name, "rusty key");
-    assert!(!item.description.is_empty(), "Default description must be non-empty");
+    assert!(
+        !item.description.is_empty(),
+        "Default description must be non-empty"
+    );
 }
 
 /// ItemGained should handle missing category with a default.
@@ -197,7 +201,10 @@ fn game_patch_items_gained_default_category() {
     let json = r#"{"name": "mysterious orb"}"#;
     let item: sidequest_protocol::ItemGained = serde_json::from_str(json).unwrap();
     assert_eq!(item.name, "mysterious orb");
-    assert!(!item.category.is_empty(), "Default category must be non-empty");
+    assert!(
+        !item.category.is_empty(),
+        "Default category must be non-empty"
+    );
 }
 
 /// A full game_patch with items_gained array should parse.
@@ -273,9 +280,8 @@ fn parse_response_explicit_pickup_narration() {
 fn parse_response_fenced_pickup() {
     let response = "Based on the narration, the player acquired an item:\n```json\n[{\"item_name\": \"old compass\", \"action\": \"acquired\", \"detail\": \"found and pocketed\", \"category\": \"tool\", \"gold\": null}]\n```";
 
-    let mutations =
-        sidequest_agents::inventory_extractor::parse_extraction_response(response)
-            .expect("Fenced pickup response must parse");
+    let mutations = sidequest_agents::inventory_extractor::parse_extraction_response(response)
+        .expect("Fenced pickup response must parse");
     assert_eq!(mutations.len(), 1);
     assert_eq!(mutations[0].action, MutationAction::Acquired);
 }
@@ -285,9 +291,8 @@ fn parse_response_fenced_pickup() {
 fn parse_response_finds_pattern() {
     let response = r#"[{"item_name": "silver ring", "action": "acquired", "detail": "finds it in the dust", "category": "treasure", "gold": null}]"#;
 
-    let mutations =
-        sidequest_agents::inventory_extractor::parse_extraction_response(response)
-            .expect("'finds' pattern must parse as acquisition");
+    let mutations = sidequest_agents::inventory_extractor::parse_extraction_response(response)
+        .expect("'finds' pattern must parse as acquisition");
     assert_eq!(mutations.len(), 1);
     assert_eq!(mutations[0].action, MutationAction::Acquired);
 }
@@ -297,9 +302,8 @@ fn parse_response_finds_pattern() {
 fn parse_response_loots_from_corpse() {
     let response = r#"[{"item_name": "iron sword", "action": "acquired", "detail": "loots from the fallen bandit's corpse", "category": "weapon", "gold": null}]"#;
 
-    let mutations =
-        sidequest_agents::inventory_extractor::parse_extraction_response(response)
-            .expect("'loots from corpse' must parse as acquisition");
+    let mutations = sidequest_agents::inventory_extractor::parse_extraction_response(response)
+        .expect("'loots from corpse' must parse as acquisition");
     assert_eq!(mutations.len(), 1);
     assert_eq!(mutations[0].action, MutationAction::Acquired);
     assert_eq!(mutations[0].category.as_deref(), Some("weapon"));

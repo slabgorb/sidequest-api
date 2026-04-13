@@ -14,7 +14,7 @@
 
 use sidequest_game::lore::LoreStore;
 use sidequest_game::state::{GameSnapshot, ResourcePatchOp, ResourcePool};
-use sidequest_genre::{load_genre_pack, ResourceDeclaration, RulesConfig};
+use sidequest_genre::{load_genre_pack, load_rules_config, ResourceDeclaration, RulesConfig};
 use std::path::PathBuf;
 
 // ═══════════════════════════════════════════════════════════
@@ -38,10 +38,12 @@ fn genre_pack_path(genre: &str) -> PathBuf {
 }
 
 fn load_rules_yaml(genre: &str) -> RulesConfig {
-    let path = genre_pack_path(genre).join("rules.yaml");
-    let content = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()));
-    serde_yaml::from_str(&content)
+    // Route through the production `load_rules_config` loader so that
+    // story 38-4 `_from` pointers (e.g., interaction_table) are resolved
+    // before deserialization.
+    let pack = genre_pack_path(genre);
+    let path = pack.join("rules.yaml");
+    load_rules_config(&path, &pack)
         .unwrap_or_else(|e| panic!("Failed to parse {}: {e}", path.display()))
 }
 

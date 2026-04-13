@@ -1652,15 +1652,11 @@ async fn dispatch_message(
                     .unwrap_or(0);
 
                 // DC scales with metric_delta impact: base 10 + 2 per abs(delta), clamped 10..30
-                let raw_dc =
-                    (10u32 + beat.metric_delta.unsigned_abs() * 2).clamp(10, 30);
+                let raw_dc = (10u32 + beat.metric_delta.unsigned_abs() * 2).clamp(10, 30);
                 let difficulty = std::num::NonZeroU32::new(raw_dc)
                     .expect("raw_dc is clamped >= 10, always nonzero");
 
-                let char_display_name = character_name
-                    .as_deref()
-                    .unwrap_or("Unknown")
-                    .to_string();
+                let char_display_name = character_name.as_deref().unwrap_or("Unknown").to_string();
 
                 pending_dice_request = Some(DiceRequestPayload {
                     request_id: uuid::Uuid::new_v4().to_string(),
@@ -1668,16 +1664,12 @@ async fn dispatch_message(
                     character_name: char_display_name,
                     dice: vec![DieSpec {
                         sides: DieSides::D20,
-                        count: std::num::NonZeroU8::new(1)
-                            .expect("1 is nonzero"),
+                        count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
                     }],
                     modifier: char_stat_modifier,
                     stat: stat_check.clone(),
                     difficulty,
-                    context: format!(
-                        "{} — {} check",
-                        beat_label, stat_check
-                    ),
+                    context: format!("{} — {} check", beat_label, stat_check),
                 });
             }
 
