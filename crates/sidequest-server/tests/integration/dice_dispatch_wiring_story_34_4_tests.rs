@@ -7,9 +7,7 @@
 use std::num::{NonZeroU32, NonZeroU8};
 
 use sidequest_game::dice::resolve_dice;
-use sidequest_protocol::{
-    DiceRequestPayload, DiceResultPayload, DieSides, DieSpec, RollOutcome, ThrowParams,
-};
+use sidequest_protocol::{DiceResultPayload, DieSides, DieSpec, RollOutcome, ThrowParams};
 
 // ---- Imports for dispatch-layer functions (will fail until implemented) ----
 use sidequest_server::dice_dispatch::{

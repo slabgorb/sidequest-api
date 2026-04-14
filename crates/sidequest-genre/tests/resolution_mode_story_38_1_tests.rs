@@ -117,7 +117,7 @@ fn resolution_mode_is_copy() {
 #[test]
 fn resolution_mode_is_clone() {
     let mode = ResolutionMode::SealedLetterLookup;
-    let cloned = mode.clone();
+    let cloned = mode;
     assert_eq!(mode, cloned);
 }
 
@@ -499,14 +499,19 @@ fn all_genre_packs_load_after_resolution_mode_addition() {
             )
         });
 
-        // Every existing confrontation should default to BeatSelection
+        // Most confrontations should default to BeatSelection, except those
+        // explicitly configured with sealed_letter_lookup (story 38-4)
         for conf in &pack.rules.confrontations {
+            let expected =
+                if pack_name.as_ref() == "space_opera" && conf.confrontation_type == "dogfight" {
+                    ResolutionMode::SealedLetterLookup
+                } else {
+                    ResolutionMode::BeatSelection
+                };
             assert_eq!(
-                conf.resolution_mode,
-                ResolutionMode::BeatSelection,
-                "genre pack '{}' confrontation '{}' should default to BeatSelection",
-                pack_name,
-                conf.confrontation_type
+                conf.resolution_mode, expected,
+                "genre pack '{}' confrontation '{}' has unexpected resolution_mode",
+                pack_name, conf.confrontation_type
             );
         }
     }

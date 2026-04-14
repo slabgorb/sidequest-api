@@ -309,12 +309,24 @@ mod tests {
 
     #[test]
     fn dice_broadcast_uses_existing_protocol_types_only() {
-        // Verify all required types exist in sidequest_protocol (from 34-2)
-        let _request = GameMessage::DiceRequest {
+        // AC-8 regression guard: confirm the three dice protocol variants
+        // round-trip through construction with the expected payload shape.
+        // Proves (a) the variants still exist on GameMessage and (b) the
+        // helper constructors still produce payloads with the fields
+        // downstream code depends on.
+        let request = GameMessage::DiceRequest {
             player_id: "server".to_string(),
             payload: test_dice_request(),
         };
-        let _throw = GameMessage::DiceThrow {
+        match request {
+            GameMessage::DiceRequest { player_id, payload } => {
+                assert_eq!(player_id, "server");
+                assert!(!payload.request_id.is_empty());
+            }
+            other => panic!("expected DiceRequest variant, got {:?}", other),
+        }
+
+        let throw = GameMessage::DiceThrow {
             player_id: "player-1".to_string(),
             payload: sidequest_protocol::DiceThrowPayload {
                 request_id: "req-test-001".to_string(),
@@ -322,7 +334,14 @@ mod tests {
                 face: vec![15],
             },
         };
-        // DiceResult requires a full resolution — just verify the variant exists
+        match throw {
+            GameMessage::DiceThrow { player_id, payload } => {
+                assert_eq!(player_id, "player-1");
+                assert_eq!(payload.request_id, "req-test-001");
+            }
+            other => panic!("expected DiceThrow variant, got {:?}", other),
+        }
+
         let seed = generate_dice_seed("test", 1);
         let resolved = resolve_dice(
             &[DieSpec {
@@ -334,7 +353,7 @@ mod tests {
             seed,
         )
         .unwrap();
-        let _result = GameMessage::DiceResult {
+        let result = GameMessage::DiceResult {
             player_id: "server".to_string(),
             payload: compose_dice_result(
                 "req-test-001",
@@ -347,7 +366,14 @@ mod tests {
                 &test_throw_params(),
             ),
         };
-        // If this compiles and runs, all 3 dice message types exist
-        assert!(true, "All dice protocol types exist from 34-2");
+        match result {
+            GameMessage::DiceResult { player_id, payload } => {
+                assert_eq!(player_id, "server");
+                assert_eq!(payload.request_id, "req-test-001");
+                assert_eq!(payload.character_name, "Kira");
+                assert_eq!(payload.seed, seed);
+            }
+            other => panic!("expected DiceResult variant, got {:?}", other),
+        }
     }
 }

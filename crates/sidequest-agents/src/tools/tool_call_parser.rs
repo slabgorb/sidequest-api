@@ -301,6 +301,65 @@ pub fn parse_tool_results(session_id: &str) -> ToolCallResults {
                     skipped_count += 1;
                 }
             }
+            "tactical_place" => {
+                let entity_id = record.result.get("entity_id").and_then(|v| v.as_str());
+                let x = record
+                    .result
+                    .get("x")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                let y = record
+                    .result
+                    .get("y")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                let size = record
+                    .result
+                    .get("size")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32);
+                let faction = record.result.get("faction").and_then(|v| v.as_str());
+                let valid = record
+                    .result
+                    .get("valid")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                if valid {
+                    if let (Some(entity_id), Some(x), Some(y), Some(size), Some(faction)) =
+                        (entity_id, x, y, size, faction)
+                    {
+                        info!(
+                            tool = "tactical_place",
+                            entity_id = entity_id,
+                            x = x,
+                            y = y,
+                            "tool result parsed"
+                        );
+                        let placements = results.tactical_placements.get_or_insert_with(Vec::new);
+                        placements.push(crate::tools::tactical_place::TacticalPlaceResult {
+                            entity_id: entity_id.to_string(),
+                            x,
+                            y,
+                            size,
+                            faction: faction.to_string(),
+                        });
+                        parsed_count += 1;
+                    } else {
+                        warn!(
+                            tool = "tactical_place",
+                            "missing required fields in result — skipping"
+                        );
+                        skipped_count += 1;
+                    }
+                } else {
+                    info!(
+                        tool = "tactical_place",
+                        "placement was invalid — not adding to results"
+                    );
+                    skipped_count += 1;
+                }
+            }
             other => {
                 warn!(tool = other, "unknown tool name — skipping");
                 skipped_count += 1;

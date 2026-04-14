@@ -10,7 +10,7 @@ use crate::models::*;
 use crate::resolve::resolve_trope_inheritance;
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Load a complete genre pack from a directory.
 ///
@@ -26,7 +26,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
 
     // Load required files
     let meta: PackMeta = load_yaml(&path.join("pack.yaml"))?;
-    let rules: RulesConfig = load_yaml(&path.join("rules.yaml"))?;
+    let rules: RulesConfig = load_rules_config(&path.join("rules.yaml"), path)?;
     let lore: Lore = load_yaml(&path.join("lore.yaml"))?;
     let theme: GenreTheme = load_yaml(&path.join("theme.yaml"))?;
     let archetypes: Vec<NpcArchetype> = load_yaml(&path.join("archetypes.yaml"))?;
@@ -276,6 +276,158 @@ impl GenreLoader {
         let path = self.find(code)?;
         load_genre_pack(&path)
     }
+}
+
+// ───────────────────────────────────────────────────────────
+// Story 38-4 — Interaction table loader + `_from` pointer
+// ───────────────────────────────────────────────────────────
+
+/// Load a standalone interaction table YAML file.
+///
+/// Thin wrapper around [`load_yaml`] that enforces the "no silent fallbacks"
+/// rule — a missing file surfaces as [`GenreError::LoadError`] rather than an
+/// empty/default table. Validation (non-empty cells, unique pair keys) runs
+/// through the `InteractionTable` `TryFrom` impl.
+pub fn load_interaction_table(path: &Path) -> Result<InteractionTable, GenreError> {
+    load_yaml(path)
+}
+
+/// Load and resolve `rules.yaml`, honoring `_from:` pointers on
+/// confrontation `interaction_table` fields.
+///
+/// A confrontation may carry its interaction table inline:
+///
+/// ```yaml
+/// confrontations:
+///   - type: dogfight
+///     interaction_table:
+///       version: "0.1.0"
+///       cells: [ ... ]
+/// ```
+///
+/// …or reference a sibling file pack-relative:
+///
+/// ```yaml
+/// confrontations:
+///   - type: dogfight
+///     interaction_table:
+///       _from: dogfight/interactions_mvp.yaml
+/// ```
+///
+/// The resolver:
+/// - reads `rules.yaml` as a raw `serde_yaml::Value`,
+/// - walks `confrontations[].interaction_table` entries, substituting any
+///   `{ _from: <relpath> }` mapping with the content of the referenced file,
+/// - rejects absolute paths and parent-directory traversal (no sandbox escape),
+/// - rejects nested `_from` chains (no unbounded recursive input — Rule #15),
+/// - then deserializes the resolved tree into [`RulesConfig`], running all
+///   the existing `TryFrom` validators on the merged data.
+pub fn load_rules_config(rules_path: &Path, pack_dir: &Path) -> Result<RulesConfig, GenreError> {
+    let content = std::fs::read_to_string(rules_path).map_err(|e| load_error(rules_path, e))?;
+    let mut value: serde_yaml::Value =
+        serde_yaml::from_str(&content).map_err(|e| load_error(rules_path, e))?;
+
+    if let Some(mapping) = value.as_mapping_mut() {
+        let confrontations_key = serde_yaml::Value::String("confrontations".to_string());
+        if let Some(confrontations) = mapping.get_mut(&confrontations_key) {
+            if let Some(seq) = confrontations.as_sequence_mut() {
+                for conf in seq.iter_mut() {
+                    resolve_confrontation_from_pointers(conf, pack_dir)?;
+                }
+            }
+        }
+    }
+
+    serde_yaml::from_value(value).map_err(|e| load_error(rules_path, e))
+}
+
+/// Walk a single confrontation YAML value and resolve any `_from` pointers on
+/// its `interaction_table` field.
+fn resolve_confrontation_from_pointers(
+    conf: &mut serde_yaml::Value,
+    pack_dir: &Path,
+) -> Result<(), GenreError> {
+    let Some(mapping) = conf.as_mapping_mut() else {
+        return Ok(());
+    };
+    let interaction_key = serde_yaml::Value::String("interaction_table".to_string());
+    let Some(it_value) = mapping.get_mut(&interaction_key) else {
+        return Ok(());
+    };
+    let Some(from_rel) = extract_from_pointer(it_value) else {
+        return Ok(());
+    };
+    let resolved = resolve_from_pointer(&from_rel, pack_dir)?;
+    *it_value = resolved;
+    Ok(())
+}
+
+/// Build the `_from` key value used to probe `serde_yaml::Mapping`s. Single
+/// source of truth so the string literal never drifts between call sites.
+fn from_key() -> serde_yaml::Value {
+    serde_yaml::Value::String("_from".to_string())
+}
+
+/// If `value` is a mapping of shape `{ _from: "relpath" }` (single key),
+/// return the string. Otherwise return `None`.
+fn extract_from_pointer(value: &serde_yaml::Value) -> Option<String> {
+    let mapping = value.as_mapping()?;
+    if mapping.len() != 1 {
+        return None;
+    }
+    let from_val = mapping.get(from_key())?;
+    from_val.as_str().map(|s| s.to_string())
+}
+
+/// Read a `_from`-referenced sub-file, enforcing pack-relative path safety
+/// and rejecting nested `_from` chains.
+fn resolve_from_pointer(rel: &str, pack_dir: &Path) -> Result<serde_yaml::Value, GenreError> {
+    let rel_path = Path::new(rel);
+
+    if rel_path.is_absolute() {
+        return Err(GenreError::LoadError {
+            path: rel.to_string(),
+            detail: format!("_from path must be pack-relative (got absolute path: {rel})"),
+        });
+    }
+
+    for component in rel_path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir => {
+                return Err(GenreError::LoadError {
+                    path: rel.to_string(),
+                    detail: format!(
+                        "_from path must not contain parent-directory traversal: {rel}"
+                    ),
+                });
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(GenreError::LoadError {
+                    path: rel.to_string(),
+                    detail: format!("_from path must be pack-relative: {rel}"),
+                });
+            }
+        }
+    }
+
+    let full = pack_dir.join(rel_path);
+    let content = std::fs::read_to_string(&full).map_err(|e| load_error(&full, e))?;
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(&content).map_err(|e| load_error(&full, e))?;
+
+    // Reject nested `_from` chains — the sub-file must be a concrete body,
+    // not another pointer. Keeps the resolver non-recursive (Rule #15).
+    if let Some(mapping) = value.as_mapping() {
+        if mapping.contains_key(from_key()) {
+            return Err(GenreError::LoadError {
+                path: full.display().to_string(),
+                detail: "nested _from pointers are not allowed".to_string(),
+            });
+        }
+    }
+
+    Ok(value)
 }
 
 /// Load a single scenario from its directory.

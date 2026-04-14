@@ -7,6 +7,8 @@ pub(crate) mod debug_api;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
 pub mod dice_dispatch;
+#[cfg(test)]
+mod otel_dice_spans_34_11_tests;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
@@ -58,6 +60,60 @@ pub use sidequest_telemetry::{
 
 // Tracing / Telemetry — extracted to tracing_setup.rs
 pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subscriber_for_test};
+
+// ---------------------------------------------------------------------------
+// Story 34-11: OTEL dice span emitters — GM panel visibility for dice dispatch
+// ---------------------------------------------------------------------------
+
+/// Emit a `dice.request_sent` WatcherEvent when a DiceRequest is broadcast.
+pub fn emit_dice_request_sent(request: &sidequest_protocol::DiceRequestPayload) {
+    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "dice.request_sent")
+        .field("request_id", &request.request_id)
+        .field("rolling_player", &request.rolling_player_id)
+        .field("stat", &request.stat)
+        .field("difficulty", request.difficulty.get())
+        .field("modifier", request.modifier)
+        .field("dice_count", request.dice.len())
+        .send();
+}
+
+/// Emit a `dice.throw_received` WatcherEvent when a DiceThrow arrives.
+pub fn emit_dice_throw_received(
+    request_id: &str,
+    rolling_player: &str,
+    throw_params: &sidequest_protocol::ThrowParams,
+) {
+    let has_params = throw_params.velocity != [0.0; 3] || throw_params.angular != [0.0; 3];
+    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "dice.throw_received")
+        .field("request_id", request_id)
+        .field("rolling_player", rolling_player)
+        .field("has_throw_params", has_params)
+        .send();
+}
+
+/// Emit a `dice.result_broadcast` WatcherEvent when a DiceResult is resolved.
+pub fn emit_dice_result_broadcast(
+    result: &sidequest_protocol::DiceResultPayload,
+    resolved: &sidequest_game::dice::ResolvedRoll,
+) {
+    let outcome_name = match resolved.outcome {
+        sidequest_protocol::RollOutcome::CritSuccess => "CritSuccess",
+        sidequest_protocol::RollOutcome::Success => "Success",
+        sidequest_protocol::RollOutcome::Fail => "Fail",
+        sidequest_protocol::RollOutcome::CritFail => "CritFail",
+        _ => "Unknown",
+    };
+    WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+        .field("event", "dice.result_broadcast")
+        .field("request_id", &result.request_id)
+        .field("rolling_player", &result.rolling_player_id)
+        .field("total", resolved.total)
+        .field("outcome", outcome_name)
+        .field("seed", result.seed)
+        .send();
+}
 
 // ---------------------------------------------------------------------------
 // Confrontation Defs — lookup helper (Story 28-1)
@@ -1652,15 +1708,11 @@ async fn dispatch_message(
                     .unwrap_or(0);
 
                 // DC scales with metric_delta impact: base 10 + 2 per abs(delta), clamped 10..30
-                let raw_dc =
-                    (10u32 + beat.metric_delta.unsigned_abs() * 2).clamp(10, 30);
+                let raw_dc = (10u32 + beat.metric_delta.unsigned_abs() * 2).clamp(10, 30);
                 let difficulty = std::num::NonZeroU32::new(raw_dc)
                     .expect("raw_dc is clamped >= 10, always nonzero");
 
-                let char_display_name = character_name
-                    .as_deref()
-                    .unwrap_or("Unknown")
-                    .to_string();
+                let char_display_name = character_name.as_deref().unwrap_or("Unknown").to_string();
 
                 pending_dice_request = Some(DiceRequestPayload {
                     request_id: uuid::Uuid::new_v4().to_string(),
@@ -1668,16 +1720,12 @@ async fn dispatch_message(
                     character_name: char_display_name,
                     dice: vec![DieSpec {
                         sides: DieSides::D20,
-                        count: std::num::NonZeroU8::new(1)
-                            .expect("1 is nonzero"),
+                        count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
                     }],
                     modifier: char_stat_modifier,
                     stat: stat_check.clone(),
                     difficulty,
-                    context: format!(
-                        "{} — {} check",
-                        beat_label, stat_check
-                    ),
+                    context: format!("{} — {} check", beat_label, stat_check),
                 });
             }
 
@@ -2217,6 +2265,8 @@ async fn dispatch_message(
                             None
                         }
                     },
+                    // Story 29-11: tactical grid summary (populated below when grid is active)
+                    tactical_grid_summary: None,
                 };
                 // OTEL: log loaded confrontation defs (story 28-1)
                 if !ctx.confrontation_defs.is_empty() {
@@ -2257,15 +2307,7 @@ async fn dispatch_message(
                     }
 
                     // Story 34-11: OTEL — dice request sent
-                    WatcherEventBuilder::new("dice", WatcherEventType::SubsystemExerciseSummary)
-                        .field("event", "dice.request_sent")
-                        .field("request_id", &dice_req.request_id)
-                        .field("rolling_player_id", &dice_req.rolling_player_id)
-                        .field("stat", &dice_req.stat)
-                        .field("difficulty", dice_req.difficulty.get())
-                        .field("modifier", dice_req.modifier)
-                        .field("dice_count", dice_req.dice.len())
-                        .send();
+                    emit_dice_request_sent(&dice_req);
 
                     tracing::info!(
                         request_id = %dice_req.request_id,
@@ -2340,6 +2382,10 @@ async fn dispatch_message(
                     "Cannot process dice throw before game starts",
                 )];
             }
+            // 34-11 OTEL emissions (dice.throw_received + dice.result_broadcast)
+            // are wired inside `handle_dice_throw_inner` as part of the 34-12
+            // extraction. Keeping them in the helper — not here — so integration
+            // tests that drive the helper directly also exercise the OTEL path.
             dice_dispatch::handle_dice_throw(
                 payload.clone(),
                 player_id,

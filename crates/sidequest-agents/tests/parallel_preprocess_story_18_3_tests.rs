@@ -15,6 +15,15 @@
 use sidequest_agents::preprocessor::preprocess_action;
 use sidequest_agents::preprocessor::preprocess_action_async;
 
+// Serializes Claude CLI subprocess calls within this test binary. Each
+// `preprocess_action*` call spawns `claude -p` under a 30s timeout. When
+// nine `#[tokio::test]` functions run in parallel they collectively swamp
+// the Claude CLI's per-session queue and one or more will occasionally
+// time out — not because the feature is broken, but because the tests
+// race on a shared external resource. Holding this mutex around every
+// LLM call eliminates the race without weakening any assertion.
+static CLAUDE_CLI_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 // ============================================================================
 // AC-2: Async preprocessor produces identical output to sync fallback
 // ============================================================================
@@ -24,6 +33,7 @@ use sidequest_agents::preprocessor::preprocess_action_async;
 /// Note: LLM output is non-deterministic, so we compare structure not exact strings.
 #[tokio::test]
 async fn async_preprocess_matches_sync_structure() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     let raw = "I draw my sword and look around";
     let char_name = "Kael";
 
@@ -73,6 +83,7 @@ async fn async_preprocess_matches_sync_structure() {
 
 #[tokio::test]
 async fn async_preprocess_returns_preprocessed_action() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     let result = preprocess_action_async("I look around the room", "Thorn")
         .await
         .expect("Preprocess failed — Haiku unavailable");
@@ -88,6 +99,7 @@ async fn async_preprocess_returns_preprocessed_action() {
 
 #[tokio::test]
 async fn async_preprocess_handles_empty_input() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     // Empty input should produce an error or a valid result — no silent garbage
     let result = preprocess_action_async("", "Kael").await;
     let sync_result = preprocess_action("", "Kael");
@@ -111,6 +123,7 @@ async fn async_preprocess_handles_empty_input() {
 
 #[tokio::test]
 async fn async_preprocess_strips_first_person_prefix() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     let result = preprocess_action_async("I search the chest for traps", "Kael")
         .await
         .expect("Preprocess failed — Haiku unavailable");
@@ -138,6 +151,7 @@ async fn async_preprocess_strips_first_person_prefix() {
 
 #[tokio::test]
 async fn async_preprocess_power_grab_matches_sync() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     // Async wrapper must produce same power-grab classification as sync version
     let raw = "I wish for unlimited gold";
     let char_name = "Kael";
@@ -177,6 +191,7 @@ fn assert_send<T: Send>(t: T) -> T {
 
 #[tokio::test]
 async fn async_preprocess_works_with_tokio_join() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     // Simulate the tokio::join! pattern from dispatch/mod.rs
     let (result_a, result_b) = tokio::join!(
         preprocess_action_async("I attack the goblin", "Kael"),
@@ -201,6 +216,7 @@ async fn async_preprocess_works_with_tokio_join() {
 
 #[tokio::test]
 async fn async_preprocess_produces_structurally_valid_output() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     let input = "I pick up the ancient tome";
     let char_name = "Kael";
 
@@ -232,6 +248,7 @@ async fn async_preprocess_produces_structurally_valid_output() {
 
 #[tokio::test]
 async fn async_preprocess_completes_within_timeout() {
+    let _lock = CLAUDE_CLI_LOCK.lock().await;
     let start = std::time::Instant::now();
     let _result = preprocess_action_async("I draw my sword", "Kael")
         .await

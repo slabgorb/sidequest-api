@@ -161,6 +161,7 @@ mod agent_types_tests {
             prompt_tier: String::new(),
             affinity_progress: vec![],
             gold_change: None,
+            tactical_placements: None,
         };
         assert!(!result.narration.is_empty());
         assert!(!result.is_degraded);
@@ -315,6 +316,7 @@ mod game_service_tests {
             prompt_tier: String::new(),
             affinity_progress: vec![],
             gold_change: None,
+            tactical_placements: None,
         };
         assert_eq!(result.narration, "test");
         assert!(!result.is_degraded);
@@ -372,6 +374,7 @@ mod error_handling_tests {
             prompt_tier: String::new(),
             affinity_progress: vec![],
             gold_change: None,
+            tactical_placements: None,
         };
         assert!(result.is_degraded);
         assert!(!result.narration.is_empty());

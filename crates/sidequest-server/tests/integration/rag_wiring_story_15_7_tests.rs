@@ -51,6 +51,7 @@ fn action_result_has_lore_established_field() {
         raw_response_text: None,
         affinity_progress: vec![],
         gold_change: None,
+        tactical_placements: None,
     };
 
     let lore = result.lore_established.as_ref().unwrap();
@@ -93,6 +94,7 @@ fn action_result_lore_established_defaults_to_none() {
         raw_response_text: None,
         affinity_progress: vec![],
         gold_change: None,
+        tactical_placements: None,
     };
 
     assert!(result.lore_established.is_none());

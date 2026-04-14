@@ -4,7 +4,7 @@
 //! Tests cover: entity struct, size enum, faction enum, conversion
 //! to protocol payload, PC entrance placement, and lang-review rules.
 
-use sidequest_game::tactical::{GridPos, TacticalEntity, EntitySize, Faction};
+use sidequest_game::tactical::{EntitySize, Faction, GridPos, TacticalEntity};
 
 // ══════════════════════════════════════════════════════════════════════════════
 // AC-1: TacticalEntity struct with id, name, position, size, faction
@@ -114,7 +114,11 @@ fn faction_all_variants_have_distinct_wire_names() {
     let mut deduped = names.clone();
     deduped.sort();
     deduped.dedup();
-    assert_eq!(names.len(), deduped.len(), "Faction wire names must be unique");
+    assert_eq!(
+        names.len(),
+        deduped.len(),
+        "Faction wire names must be unique"
+    );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -239,7 +243,12 @@ fn entity_size_serializes_and_deserializes() {
 
 #[test]
 fn faction_serializes_and_deserializes() {
-    let factions = [Faction::Player, Faction::Hostile, Faction::Neutral, Faction::Ally];
+    let factions = [
+        Faction::Player,
+        Faction::Hostile,
+        Faction::Neutral,
+        Faction::Ally,
+    ];
     for faction in &factions {
         let json = serde_json::to_string(faction).expect("serialize");
         let back: Faction = serde_json::from_str(&json).expect("deserialize");

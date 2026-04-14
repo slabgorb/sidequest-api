@@ -222,6 +222,15 @@ async fn handle_dice_throw_inner(
         return Err(DiceThrowError::NoPendingRequest(payload.request_id));
     };
 
+    // Story 34-11: OTEL — dice throw received. Fired on the hot path after
+    // the pending request is confirmed, so the GM panel can see every
+    // DiceThrow that made it past the correlation-id guard.
+    crate::emit_dice_throw_received(
+        &payload.request_id,
+        &pending_request.rolling_player_id,
+        &payload.throw_params,
+    );
+
     // Validate inputs at dispatch boundary. Client-submitted invalid input is
     // a 4xx-class error — `warn!` (not `error!`) per the log-level convention
     // (`error!` is reserved for 5xx-class server faults to avoid alert fatigue).
@@ -292,6 +301,12 @@ async fn handle_dice_throw_inner(
         seed = seed,
         "dice.result_resolved"
     );
+
+    // Story 34-11: OTEL — dice result broadcast. The GM panel's lie-detector
+    // span fires once per resolved roll with the final total, outcome, and
+    // seed so we can verify physics-is-the-roll end-to-end without relying
+    // on narrator self-reporting.
+    crate::emit_dice_result_broadcast(&result_payload, &resolved);
 
     // Broadcast via shared session, and persist the outcome for the next
     // narration turn (story 34-9).

@@ -48,6 +48,10 @@ pub struct ToolCallResults {
     /// `None` means no item_acquire tools fired (use narrator fallback).
     /// `Some(vec)` means tools fired — use this vec even if empty.
     pub items_acquired: Option<Vec<sidequest_protocol::ItemGained>>,
+    /// Tactical entity placements from `tactical_place` tool calls.
+    /// `None` means no tactical_place tools fired.
+    /// `Some(vec)` means tools fired — entities to add to TacticalStatePayload.
+    pub tactical_placements: Option<Vec<crate::tools::tactical_place::TacticalPlaceResult>>,
 }
 
 /// Assemble a complete `ActionResult` from narrator extraction, preprocessor outputs,
@@ -160,6 +164,17 @@ pub fn assemble_turn(
         .items_acquired
         .unwrap_or(extraction.items_gained);
 
+    // Tactical placements: pass through from tool results (story 29-11)
+    if let Some(placements) = &tool_results.tactical_placements {
+        tracing::info!(
+            source = "tool_call",
+            count = placements.len(),
+            "assemble.override.tactical_placements"
+        );
+        override_count += 1;
+    }
+    let tactical_placements = tool_results.tactical_placements;
+
     tracing::info!(
         tool_overrides = override_count,
         narration_len = extraction.prose.len(),
@@ -203,5 +218,6 @@ pub fn assemble_turn(
         raw_response_text: None,
         affinity_progress: extraction.affinity_progress,
         gold_change: extraction.gold_change,
+        tactical_placements,
     }
 }

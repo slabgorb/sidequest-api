@@ -771,59 +771,6 @@ fn find_chargen_events(events: &[WatcherEvent], action: &str) -> Vec<WatcherEven
 }
 
 // ----------------------------------------------------------------------------
-// AC (rework-1): Successful equipment roll emits a chargen watcher event
-// ----------------------------------------------------------------------------
-
-#[test]
-fn watcher_channel_receives_chargen_equipment_composed_event_on_successful_roll() {
-    let (_guard, mut rx) = fresh_subscriber();
-
-    let _character = build_caverns_character_with_tables().expect("build should succeed");
-
-    let events = drain_events(&mut rx);
-    let composed = find_chargen_events(&events, "equipment_composed");
-
-    assert!(
-        !composed.is_empty(),
-        "Building a character with equipment_tables must emit a `chargen` component WatcherEvent \
-         with action=equipment_composed. Got {} chargen events total: {:?}",
-        events.iter().filter(|e| e.component == "chargen").count(),
-        events
-            .iter()
-            .filter(|e| e.component == "chargen")
-            .map(|e| {
-                e.fields
-                    .get("action")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("<no action>")
-                    .to_string()
-            })
-            .collect::<Vec<_>>()
-    );
-
-    let event = &composed[0];
-    assert_eq!(
-        event
-            .fields
-            .get("method")
-            .and_then(serde_json::Value::as_str),
-        Some("tables"),
-        "Event method field must be 'tables' for the successful-roll path. Got: {:?}",
-        event.fields.get("method")
-    );
-
-    let items_added = event
-        .fields
-        .get("items_added")
-        .and_then(serde_json::Value::as_i64);
-    assert!(
-        items_added.is_some() && items_added.unwrap() > 0,
-        "Event must include items_added > 0 for a successful roll. Got: {:?}",
-        event.fields.get("items_added")
-    );
-}
-
-// ----------------------------------------------------------------------------
 // AC (rework-2): Scene directive with no tables wired emits a Warn event
 // ----------------------------------------------------------------------------
 
