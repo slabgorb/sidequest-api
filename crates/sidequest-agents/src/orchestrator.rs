@@ -12,7 +12,8 @@ use crate::agent::Agent;
 use crate::lore_filter::LoreFilter;
 use crate::tools::assemble_turn::assemble_turn;
 // ADR-059: parse_tool_results removed — Monster Manual replaces sidecar mechanism
-// ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into unified narrator
+// ADR-067: CreatureSmith, Dialectician, Ensemble absorbed into the unified Narrator.
+//          The only runtime agents are Narrator, IntentRouter, WorldBuilder, Troper, Resonator.
 use crate::agents::intent_router::{Intent, IntentRoute};
 use crate::agents::narrator::NarratorAgent;
 use crate::agents::troper::TroperAgent;
@@ -1715,24 +1716,22 @@ pub struct TurnResult {
 }
 
 /// Typed agent selection — replaces string-based agent keys.
+///
+/// Post ADR-067: the narrator is the unified agent for exploration, combat,
+/// chase, and dialogue. Former `CreatureSmith`, `Ensemble`, and `Dialectician`
+/// variants were absorbed into `Narrator` via conditional prompt sections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum AgentKind {
-    /// Primary narrator for exploration and general narration.
+    /// Unified narrator for exploration, combat, chase, and dialogue (ADR-067).
     Narrator,
-    /// Combat specialist — generates encounters, manages combat flow.
-    CreatureSmith,
-    /// NPC dialogue and ensemble scenes.
-    Ensemble,
-    /// Chase sequence orchestrator.
-    Dialectician,
     /// Post-turn world state updates.
     WorldBuilder,
     /// Trope lifecycle management.
     Troper,
-    /// Theme and atmosphere resonance.
+    /// Theme and atmosphere resonance — hook refinement and perception rewriting.
     Resonator,
-    /// Intent classification (LLM-based).
+    /// State-based intent classification (no LLM per ADR-067).
     IntentRouter,
 }
 

@@ -87,27 +87,17 @@ fn verbosity_section_has_guardrail_category() {
 }
 
 // =========================================================================
-// AC4: Applies to both narrator and creature_smith agents
+// AC4: Applies only to the unified narrator (post ADR-067)
+// Originally applied to both narrator and creature_smith, but
+// creature_smith was absorbed into the unified narrator.
 // =========================================================================
-
-#[test]
-fn verbosity_applies_to_creature_smith() {
-    let mut registry = PromptRegistry::new();
-    registry.register_verbosity_section("creature_smith", NarratorVerbosity::Concise);
-
-    let composed = registry.compose("creature_smith");
-    assert!(
-        composed.contains("400 characters"),
-        "creature_smith should also receive verbosity instruction"
-    );
-}
 
 #[test]
 fn verbosity_skips_non_narrating_agents() {
     let mut registry = PromptRegistry::new();
-    registry.register_verbosity_section("ensemble", NarratorVerbosity::Concise);
+    registry.register_verbosity_section("troper", NarratorVerbosity::Concise);
 
-    let composed = registry.compose("ensemble");
+    let composed = registry.compose("troper");
     assert!(
         composed.is_empty(),
         "non-narrating agents should not receive verbosity section"

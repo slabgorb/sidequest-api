@@ -75,15 +75,16 @@ impl Default for PromptRegistry {
 }
 
 /// Agents that receive pacing guidance in their prompts.
-const PACING_AGENTS: &[&str] = &["narrator", "creature_smith"];
+/// Post ADR-067: only the unified narrator produces narrative prose.
+const PACING_AGENTS: &[&str] = &["narrator"];
 
 /// Agents that receive narrator verbosity instructions.
 /// Same set as pacing — only agents that produce narrative prose.
-const NARRATING_AGENTS: &[&str] = &["narrator", "creature_smith"];
+const NARRATING_AGENTS: &[&str] = &["narrator"];
 
 impl PromptRegistry {
     /// Inject pacing guidance into the prompt for narrating agents.
-    /// Non-narrating agents (ensemble, dialectician, etc.) are silently skipped.
+    /// Non-narrating agents (troper, world_builder, etc.) are silently skipped.
     pub fn register_pacing_section(
         &mut self,
         agent_name: &str,

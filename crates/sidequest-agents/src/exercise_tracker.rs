@@ -8,17 +8,16 @@
 
 use std::collections::HashMap;
 
-/// The 8 expected agent types in SideQuest.
+/// The 5 expected agent types in SideQuest (post ADR-067).
 ///
 /// These are pre-seeded into the histogram at tracker creation so that
 /// coverage gap detection can identify agents with zero invocations.
+/// Former `creature_smith`, `ensemble`, and `dialectician` were absorbed
+/// into the unified `narrator` via conditional prompt sections.
 pub const EXPECTED_AGENTS: &[&str] = &[
     "narrator",
-    "creature_smith",
-    "ensemble",
     "troper",
     "world_builder",
-    "dialectician",
     "resonator",
     "intent_router",
 ];

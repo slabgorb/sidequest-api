@@ -87,27 +87,17 @@ fn vocabulary_section_has_format_category() {
 }
 
 // =========================================================================
-// AC4: Applies to both narrator and creature_smith agents
+// AC4: Applies only to the unified narrator (post ADR-067)
+// Originally applied to both narrator and creature_smith, but
+// creature_smith was absorbed into the unified narrator.
 // =========================================================================
-
-#[test]
-fn vocabulary_applies_to_creature_smith() {
-    let mut registry = PromptRegistry::new();
-    registry.register_vocabulary_section("creature_smith", NarratorVocabulary::Accessible);
-
-    let composed = registry.compose("creature_smith");
-    assert!(
-        composed.contains("simple") || composed.contains("direct") || composed.contains("plain"),
-        "creature_smith should also receive vocabulary instruction"
-    );
-}
 
 #[test]
 fn vocabulary_skips_non_narrating_agents() {
     let mut registry = PromptRegistry::new();
-    registry.register_vocabulary_section("ensemble", NarratorVocabulary::Accessible);
+    registry.register_vocabulary_section("troper", NarratorVocabulary::Accessible);
 
-    let composed = registry.compose("ensemble");
+    let composed = registry.compose("troper");
     assert!(
         composed.is_empty(),
         "non-narrating agents should not receive vocabulary section"

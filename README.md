@@ -95,8 +95,9 @@ Claude CLI subprocess orchestration. All LLM calls go through
 `claude -p` as a Tokio subprocess, never through the Anthropic SDK
 ([ADR-001](../docs/adr/001-claude-cli-only.md)).
 
-**7 agents:** Narrator, WorldBuilder, CreatureSmith, Ensemble, Dialectician,
-IntentRouter, Troper.
+**5 agents** (post ADR-067): Narrator (unified — exploration/combat/chase/dialogue),
+WorldBuilder, Troper, Resonator, IntentRouter. CreatureSmith, Ensemble, and
+Dialectician were absorbed into Narrator via conditional prompt sections.
 
 **Infrastructure:**
 - Orchestrator -- `GameService` trait, agent state machine

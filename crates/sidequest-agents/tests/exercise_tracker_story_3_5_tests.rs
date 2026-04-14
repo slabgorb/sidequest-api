@@ -540,11 +540,12 @@ fn uncovered_agents_returns_zero_invocation_agents() {
 
     let uncovered = tracker.uncovered_agents();
 
-    // 6 agents should be uncovered (all except narrator and intent_router)
+    // 3 agents should be uncovered (all except narrator and intent_router,
+    // out of the 5 post-ADR-067 agents).
     assert_eq!(
         uncovered.len(),
-        6,
-        "expected 6 uncovered agents, got {} — {:?}",
+        3,
+        "expected 3 uncovered agents, got {} — {:?}",
         uncovered.len(),
         uncovered
     );
@@ -559,10 +560,10 @@ fn uncovered_agents_returns_zero_invocation_agents() {
         "intent_router was invoked, should not be uncovered"
     );
 
-    // creature_smith should be uncovered
+    // troper should be uncovered (real agent, never invoked in this test)
     assert!(
-        uncovered.contains(&"creature_smith"),
-        "creature_smith was never invoked, should be uncovered"
+        uncovered.contains(&"troper"),
+        "troper was never invoked, should be uncovered"
     );
 }
 
