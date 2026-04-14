@@ -1773,12 +1773,11 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // signal through `apply_confrontation_gate`, which covers every case of
     // (current_encounter_state, incoming_type) with a distinct WatcherEvent.
     // Replaces the previous inline block that silently dropped new types
-    // whenever an unresolved encounter was already active.
-    //
-    // The outcome is bound (not dropped with a bare call) to document that the
-    // observable contract is the side effects — WatcherEvent on every branch,
-    // snapshot mutation on Created/ReplacedPreBeat. A future story can match
-    // on `_gate_outcome` to surface RejectedMidEncounter to the session layer.
+    // whenever an unresolved encounter was already active. The observable
+    // contract is the side effects — WatcherEvent on every branch, snapshot
+    // mutation on Created/ReplacedPreBeat. The `_gate_outcome` binding is a
+    // named placeholder so the outcome can be consumed without altering this
+    // call site.
     if let Some(ref confrontation_type) = result.confrontation {
         let _gate_outcome = apply_confrontation_gate(
             ctx.snapshot,

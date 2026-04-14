@@ -30,10 +30,17 @@ use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 /// Outcome of the confrontation gate. One variant per observable branch.
 ///
-/// Marked `#[non_exhaustive]` because the gate's case matrix is expected to
-/// grow as new encounter lifecycle stories land (e.g., rate-limited redeclares,
-/// superseded-by-scenario transitions). Every match site inside the crate must
-/// use a wildcard arm so adding a variant is a pure additive change.
+/// Marked `#[non_exhaustive]` to signal that the variant set is open-ended —
+/// the gate's case matrix is expected to grow as new encounter lifecycle
+/// stories land (e.g., rate-limited redeclares, superseded-by-scenario
+/// transitions).
+///
+/// **Note:** Because this type is `pub(crate)`, the compiler does NOT force
+/// wildcard arms on match sites within `sidequest-server` — intra-crate
+/// matches can still be exhaustive without an `_ =>` arm. The attribute only
+/// has compiler bite if this type is ever promoted to `pub` or moved into
+/// `sidequest-protocol`. Until then, add a wildcard arm by convention at
+/// every new match site so a future variant is a pure additive change.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConfrontationGateOutcome {

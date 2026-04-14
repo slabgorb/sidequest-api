@@ -266,6 +266,7 @@ fn case_b_resolved_current_encounter_creates_new() {
     let events = drain_events(&mut rx);
     let created = find_encounter_events(&events, "encounter.created");
     assert_eq!(created.len(), 1);
+    assert_source_is_narrator(&created[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -619,12 +620,28 @@ fn case_f_unknown_type_with_existing_encounter_preserves_state() {
     assert_eq!(after.encounter_type, before.encounter_type);
     assert_eq!(after.beat, before.beat);
     assert_eq!(after.metric.current, before.metric.current);
+    assert!(
+        !after.resolved,
+        "resolved flag must be preserved when Case F rejects"
+    );
+    assert_eq!(
+        after.actors.len(),
+        before.actors.len(),
+        "actor list length must be preserved when Case F rejects"
+    );
+    assert_eq!(
+        after.actors[0].name, before.actors[0].name,
+        "actor identities must be preserved when Case F rejects"
+    );
+    assert_eq!(
+        after.actors[0].per_actor_state, before.actors[0].per_actor_state,
+        "per_actor_state must be preserved when Case F rejects"
+    );
 
     let events = drain_events(&mut rx);
-    assert_eq!(
-        find_encounter_events(&events, "encounter.creation_failed_unknown_type").len(),
-        1
-    );
+    let failed = find_encounter_events(&events, "encounter.creation_failed_unknown_type");
+    assert_eq!(failed.len(), 1);
+    assert_source_is_narrator(&failed[0]);
 }
 
 /// The `build_encounter` helper populates actors from BOTH
@@ -678,18 +695,23 @@ fn wiring_dispatch_mod_calls_apply_confrontation_gate() {
          logic cannot live as an inline block any longer"
     );
 
-    // Negative side: the old silent-drop shape combined `encounter.is_none()`
-    // and `is_some_and(|e| e.resolved)` in a single boolean without an `else`
-    // branch. Scan for the semantic token pair rather than a whitespace-exact
-    // multiline match — the latter is silently broken by `cargo fmt` line wraps.
+    // Negative side: the old silent-drop shape combined two tokens in a single
+    // boolean guard without an `else` branch. Fail if EITHER token appears in
+    // dispatch/mod.rs — the helper owns that logic now, so neither should
+    // ever appear at the dispatch layer. Using OR (not AND) closes the hole
+    // where a partial regression reintroducing just one of the two conditions
+    // would slip past an AND-only check.
     let has_is_none_token = source.contains("ctx.snapshot.encounter.is_none()");
     let has_is_some_and_resolved_token =
         source.contains("ctx.snapshot.encounter.as_ref().is_some_and(|e| e.resolved)");
     assert!(
-        !(has_is_none_token && has_is_some_and_resolved_token),
-        "dispatch/mod.rs still contains the old inline silent-drop branch \
-         (both `ctx.snapshot.encounter.is_none()` and \
-         `is_some_and(|e| e.resolved)` present) — delegate to \
-         apply_confrontation_gate instead"
+        !has_is_none_token,
+        "dispatch/mod.rs contains `ctx.snapshot.encounter.is_none()` — that \
+         check belongs inside apply_confrontation_gate, not at the call site"
+    );
+    assert!(
+        !has_is_some_and_resolved_token,
+        "dispatch/mod.rs contains `ctx.snapshot.encounter.as_ref().is_some_and(|e| e.resolved)` \
+         — that check belongs inside apply_confrontation_gate, not at the call site"
     );
 }
