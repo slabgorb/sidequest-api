@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{Method, Request, StatusCode};
 use clap::Parser;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -184,6 +184,95 @@ async fn genres_endpoint_returns_enriched_world_objects() {
             );
         }
     }
+}
+
+// =========================================================================
+// Lobby: GET /api/sessions returns active multiplayer sessions
+// =========================================================================
+//
+// Lobby story B (social presence). The endpoint enumerates non-empty
+// `SharedGameSession`s in `AppState.sessions` so the picker can render
+// "Currently in this world" and per-world "X here" annotations. These
+// tests cover the empty case and the query-filter contract; the populated
+// case is exercised by the lobby playtest with real WebSocket clients.
+
+#[tokio::test]
+async fn sessions_endpoint_returns_empty_list_when_no_sessions() {
+    let state = test_app_state();
+    let app = build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    let sessions = json["sessions"]
+        .as_array()
+        .expect("response must have 'sessions' array");
+    assert!(
+        sessions.is_empty(),
+        "fresh AppState should have no sessions, got {} entries",
+        sessions.len()
+    );
+}
+
+#[tokio::test]
+async fn sessions_endpoint_accepts_genre_and_world_filters() {
+    let state = test_app_state();
+    let app = build_router(state);
+
+    // Filter params on an empty store must not error — the filter is
+    // a substring narrowing, not a required match.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions?genre=spaghetti_western&world=dust_and_lead")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["sessions"].is_array(),
+        "filtered response must still have 'sessions' array"
+    );
+}
+
+#[tokio::test]
+async fn sessions_endpoint_rejects_post() {
+    let state = test_app_state();
+    let app = build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/sessions")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
 // =========================================================================

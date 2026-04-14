@@ -1021,6 +1021,7 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/genres", get(list_genres))
+        .route("/api/sessions", get(list_sessions))
         .route("/api/debug/state", get(debug_api::debug_state))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
@@ -1261,6 +1262,145 @@ async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, Genr
     }
 
     Json(genres)
+}
+
+/// One connected player in a `SessionResponse`. Mirrors what the lobby
+/// needs to display "Keith and Marcus are here" — name only, plus the
+/// stable session-scoped player id for client-side dedup.
+#[derive(serde::Serialize)]
+struct SessionPlayerResponse {
+    player_id: String,
+    display_name: String,
+}
+
+/// One active multiplayer session as exposed to the lobby.
+///
+/// Read-only snapshot of `SharedGameSession` state. Empty sessions
+/// (player_count == 0) are excluded from the response by the handler.
+#[derive(serde::Serialize)]
+struct SessionResponse {
+    /// "{genre}:{world}" — matches `game_session_key()`.
+    session_key: String,
+    genre: String,
+    world: String,
+    /// Per-session UUID. Distinguishes sequential games on the same
+    /// genre:world (e.g., after everyone disconnects and reconnects).
+    session_id: String,
+    players: Vec<SessionPlayerResponse>,
+    /// 1-based turn number from `MultiplayerSession::turn_number()`.
+    current_turn: u32,
+    /// Display string from `SharedGameSession.current_location`. May be
+    /// empty during early connect before the world materializes.
+    current_location: String,
+    /// Stable string label for `TurnMode`: "free_play", "structured", or
+    /// "cinematic". Lets the UI tell the player what kind of round is in
+    /// progress without coupling to the Rust enum shape.
+    turn_mode: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct SessionsResponse {
+    sessions: Vec<SessionResponse>,
+}
+
+/// Optional query string filter for `GET /api/sessions`.
+///
+/// When both `genre` and `world` are present, the response is narrowed
+/// to a single matching session (or an empty list). Either alone is also
+/// accepted and acts as a substring-of-key filter.
+#[derive(Debug, serde::Deserialize, Default)]
+struct SessionsQuery {
+    genre: Option<String>,
+    world: Option<String>,
+}
+
+/// Stable display label for a `TurnMode` variant.
+fn turn_mode_label(mode: &sidequest_game::turn_mode::TurnMode) -> &'static str {
+    match mode {
+        sidequest_game::turn_mode::TurnMode::FreePlay => "free_play",
+        sidequest_game::turn_mode::TurnMode::Structured => "structured",
+        sidequest_game::turn_mode::TurnMode::Cinematic { .. } => "cinematic",
+        // Catch-all for non_exhaustive enum — future variants degrade to
+        // a generic label rather than failing serialization.
+        _ => "unknown",
+    }
+}
+
+/// GET /api/sessions — enumerate active multiplayer sessions for the lobby.
+///
+/// Returns one `SessionResponse` per non-empty `SharedGameSession` in
+/// `AppState.sessions`. The lobby uses this to render the "Currently in
+/// this world" presence panel and per-world "X here" annotations.
+///
+/// **Concurrency**: clones `Arc<Mutex<SharedGameSession>>` handles out of
+/// the std mutex synchronously, then locks each tokio mutex one at a time.
+/// This avoids holding a `std::sync::Mutex` guard across an await point.
+#[tracing::instrument(skip(state))]
+async fn list_sessions(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<SessionsQuery>,
+) -> Json<SessionsResponse> {
+    // Snapshot the (key, Arc) pairs while holding the std mutex briefly.
+    let session_arcs: Vec<(
+        String,
+        Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>,
+    )> = {
+        let sessions = state.inner.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .filter(|(key, _)| {
+                // Apply optional substring filters before locking each
+                // session — a cheap pre-filter avoids per-session work.
+                let genre_ok = query
+                    .genre
+                    .as_deref()
+                    .is_none_or(|g| key.starts_with(&format!("{}:", g)));
+                let world_ok = query
+                    .world
+                    .as_deref()
+                    .is_none_or(|w| key.ends_with(&format!(":{}", w)));
+                genre_ok && world_ok
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    };
+
+    let mut sessions: Vec<SessionResponse> = Vec::with_capacity(session_arcs.len());
+    for (session_key, arc) in session_arcs {
+        let guard = arc.lock().await;
+
+        // Skip empty sessions — leftover entries with zero players are
+        // noise the lobby shouldn't render.
+        if guard.players.is_empty() {
+            continue;
+        }
+
+        let players: Vec<SessionPlayerResponse> = guard
+            .players
+            .iter()
+            .map(|(player_id, state)| SessionPlayerResponse {
+                player_id: player_id.clone(),
+                display_name: state.player_name.clone(),
+            })
+            .collect();
+
+        sessions.push(SessionResponse {
+            session_key,
+            genre: guard.genre_slug.clone(),
+            world: guard.world_slug.clone(),
+            session_id: guard.session_id.clone(),
+            players,
+            current_turn: guard.multiplayer.turn_number(),
+            current_location: guard.current_location.clone(),
+            turn_mode: turn_mode_label(&guard.turn_mode),
+        });
+    }
+
+    // Stable ordering by session_key so consecutive polls don't reshuffle
+    // rows in the UI.
+    sessions.sort_by(|a, b| a.session_key.cmp(&b.session_key));
+
+    Json(SessionsResponse { sessions })
 }
 
 /// GET /ws — WebSocket upgrade handler.
