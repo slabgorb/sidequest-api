@@ -113,13 +113,13 @@ fn turn_result_has_required_fields() {
         state_delta: Some(HashMap::new()),
         combat_events: vec!["damage: 5".to_string()],
         is_degraded: false,
-        agent_used: AgentKind::CreatureSmith,
+        agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Instant,
     };
 
     assert_eq!(result.narration, "The goblin falls.");
     assert!(!result.is_degraded);
-    assert_eq!(result.agent_used, AgentKind::CreatureSmith);
+    assert_eq!(result.agent_used, AgentKind::Narrator);
 }
 
 // ============================================================================
@@ -147,11 +147,9 @@ fn degraded_turn_result_marked() {
 
 #[test]
 fn agent_kind_variants_exist() {
+    // ADR-067: CreatureSmith, Ensemble, Dialectician absorbed into Narrator.
     let _variants = [
         AgentKind::Narrator,
-        AgentKind::CreatureSmith,
-        AgentKind::Ensemble,
-        AgentKind::Dialectician,
         AgentKind::WorldBuilder,
         AgentKind::Troper,
         AgentKind::Resonator,
@@ -233,7 +231,7 @@ fn turn_context_default_is_peaceful() {
 #[test]
 fn agent_kind_enum_is_non_exhaustive() {
     let _n = AgentKind::Narrator;
-    let _c = AgentKind::CreatureSmith;
+    let _w = AgentKind::WorldBuilder;
 }
 
 #[test]

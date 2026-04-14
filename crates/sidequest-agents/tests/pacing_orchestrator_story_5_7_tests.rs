@@ -46,7 +46,7 @@ fn turn_result_carries_delivery_mode() {
         state_delta: None,
         combat_events: vec!["crit".to_string()],
         is_degraded: false,
-        agent_used: AgentKind::CreatureSmith,
+        agent_used: AgentKind::Narrator,
         delivery_mode: DeliveryMode::Streaming,
     };
     assert_eq!(
@@ -147,46 +147,10 @@ fn pacing_section_injected_for_narrator_agent() {
     );
 }
 
-#[test]
-fn pacing_section_injected_for_creature_smith() {
-    use sidequest_agents::prompt_framework::{
-        AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
-    };
-
-    let mut registry = PromptRegistry::new();
-    registry.register_section(
-        "creature_smith",
-        PromptSection::new(
-            "base",
-            "You manage combat.",
-            AttentionZone::Primacy,
-            SectionCategory::Identity,
-        ),
-    );
-
-    let hint = PacingHint {
-        drama_weight: 0.8,
-        target_sentences: 5,
-        delivery_mode: DeliveryMode::Streaming,
-        escalation_beat: Some("A crack of thunder splits the sky.".to_string()),
-    };
-
-    registry.register_pacing_section("creature_smith", &hint);
-
-    let prompt = registry.compose("creature_smith");
-    assert!(
-        prompt.contains("Pacing"),
-        "creature_smith prompt should contain pacing section",
-    );
-    assert!(
-        prompt.contains("Escalation"),
-        "prompt should contain escalation beat section when present",
-    );
-    assert!(
-        prompt.contains("thunder"),
-        "escalation beat text should appear in prompt",
-    );
-}
+// Post ADR-067: creature_smith was absorbed into the unified narrator.
+// The standalone "pacing_section_injected_for_creature_smith" test was
+// removed because it enforced the pre-067 two-narrating-agent split.
+// The narrator case is still covered by `pacing_section_injected_for_narrator_agent`.
 
 #[test]
 fn no_pacing_section_for_non_narrating_agents() {
@@ -196,10 +160,10 @@ fn no_pacing_section_for_non_narrating_agents() {
 
     let mut registry = PromptRegistry::new();
     registry.register_section(
-        "ensemble",
+        "troper",
         PromptSection::new(
             "base",
-            "You are the ensemble agent.",
+            "You are the troper agent.",
             AttentionZone::Primacy,
             SectionCategory::Identity,
         ),
@@ -212,14 +176,14 @@ fn no_pacing_section_for_non_narrating_agents() {
         escalation_beat: None,
     };
 
-    // Pacing should NOT be injected for ensemble (dialogue) agent
-    // The story context says pacing applies to Narrator and CreatureSmith only
-    registry.register_pacing_section("ensemble", &hint);
+    // Pacing should NOT be injected for troper (non-narrating) agent.
+    // Post ADR-067, narrator is the only agent that produces narrative prose.
+    registry.register_pacing_section("troper", &hint);
 
-    let prompt = registry.compose("ensemble");
+    let prompt = registry.compose("troper");
     assert!(
         !prompt.contains("Pacing"),
-        "ensemble agent should NOT get pacing section — only narrator/creature_smith",
+        "troper agent should NOT get pacing section — only narrator",
     );
 }
 
