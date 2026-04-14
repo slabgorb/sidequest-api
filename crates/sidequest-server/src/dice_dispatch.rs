@@ -1,8 +1,13 @@
-//! Dice dispatch integration layer (story 34-4).
+//! Dice dispatch integration layer.
 //!
-//! Pure functions for dispatch boundary validation, seed generation, and
-//! DiceResult composition. Intended for use from the dispatch pipeline
-//! (`lib.rs` and `dispatch/beat.rs`) — wiring pending story 34-4 completion.
+//! Hosts the end-to-end `handle_dice_throw` async orchestrator (story 34-12,
+//! physics-is-the-roll) plus the supporting pure helpers it composes:
+//! dispatch-boundary validation (`validate_dice_inputs`), deterministic seed
+//! generation for spectator replay (`generate_dice_seed`), and
+//! `DiceResultPayload` composition from a `ResolvedRoll`. `lib.rs` delegates
+//! the `DiceThrow` arm of `dispatch_message` here; integration tests can
+//! drive `handle_dice_throw` directly against a real `SharedGameSession`
+//! without rebuilding the full per-connection dispatch parameter set.
 
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -217,13 +222,15 @@ async fn handle_dice_throw_inner(
         return Err(DiceThrowError::NoPendingRequest(payload.request_id));
     };
 
-    // Validate inputs at dispatch boundary.
+    // Validate inputs at dispatch boundary. Client-submitted invalid input is
+    // a 4xx-class error — `warn!` (not `error!`) per the log-level convention
+    // (`error!` is reserved for 5xx-class server faults to avoid alert fatigue).
     if let Err(e) = validate_dice_inputs(
         &pending_request.dice,
         pending_request.modifier,
         pending_request.difficulty,
     ) {
-        tracing::error!(
+        tracing::warn!(
             request_id = %payload.request_id,
             error = %e,
             "dice.validation_failed"

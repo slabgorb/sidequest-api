@@ -366,8 +366,8 @@ async fn face_count_mismatch_returns_wire_error_and_does_not_broadcast() {
 
     let err = extract_error(handle_dice_throw(payload, "test-player", &holder, 1).await);
     assert!(
-        err.contains("face count") || err.contains("Dice resolution failed"),
-        "count mismatch should surface as a dice-resolution failure, got: {err}"
+        err.contains("face count"),
+        "FaceCountMismatch Display substring must reach the wire message, got: {err}"
     );
     assert!(
         rx.try_recv().is_err(),
@@ -388,8 +388,8 @@ async fn face_out_of_range_returns_wire_error() {
 
     let err = extract_error(handle_dice_throw(payload, "test-player", &holder, 1).await);
     assert!(
-        err.contains("out of range") || err.contains("Dice resolution failed"),
-        "out-of-range face should surface as a dice-resolution failure, got: {err}"
+        err.contains("out of range"),
+        "FaceOutOfRange Display substring must reach the wire message, got: {err}"
     );
 }
 
@@ -406,8 +406,8 @@ async fn zero_face_returns_wire_error() {
 
     let err = extract_error(handle_dice_throw(payload, "test-player", &holder, 1).await);
     assert!(
-        err.contains("Dice resolution failed") || err.contains("out of range"),
-        "zero face should surface as a dice-resolution failure, got: {err}"
+        err.contains("out of range"),
+        "zero face must surface as FaceOutOfRange (out-of-range Display substring), got: {err}"
     );
 }
 

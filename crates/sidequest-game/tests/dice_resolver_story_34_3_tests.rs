@@ -572,20 +572,27 @@ fn resolve_with_faces_rejects_face_count_mismatch() {
 #[test]
 fn resolve_with_faces_rejects_out_of_range_face() {
     let err = resolve_dice_with_faces(&[d20_spec()], &[21], 0, dc(10)).unwrap_err();
-    assert!(matches!(
+    assert_eq!(
         err,
         ResolveError::FaceOutOfRange {
             die_index: 0,
             face: 21,
-            sides: 20
+            sides: 20,
         }
-    ));
+    );
 }
 
 #[test]
 fn resolve_with_faces_rejects_zero_face() {
     let err = resolve_dice_with_faces(&[d20_spec()], &[0], 0, dc(10)).unwrap_err();
-    assert!(matches!(err, ResolveError::FaceOutOfRange { face: 0, .. }));
+    assert_eq!(
+        err,
+        ResolveError::FaceOutOfRange {
+            die_index: 0,
+            face: 0,
+            sides: 20,
+        }
+    );
 }
 
 #[test]
