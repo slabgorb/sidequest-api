@@ -1,13 +1,24 @@
-//! Dice dispatch integration layer (story 34-4).
+//! Dice dispatch integration layer.
 //!
-//! Pure functions for dispatch boundary validation, seed generation, and
-//! DiceResult composition. Intended for use from the dispatch pipeline
-//! (`lib.rs` and `dispatch/beat.rs`) — wiring pending story 34-4 completion.
+//! Hosts the end-to-end `handle_dice_throw` async orchestrator (story 34-12,
+//! physics-is-the-roll) plus the supporting pure helpers it composes:
+//! dispatch-boundary validation (`validate_dice_inputs`), deterministic seed
+//! generation for spectator replay (`generate_dice_seed`), and
+//! `DiceResultPayload` composition from a `ResolvedRoll`. `lib.rs` delegates
+//! the `DiceThrow` arm of `dispatch_message` here; integration tests can
+//! drive `handle_dice_throw` directly against a real `SharedGameSession`
+//! without rebuilding the full per-connection dispatch parameter set.
 
 use std::num::NonZeroU32;
+use std::sync::Arc;
 
 use sidequest_game::dice::ResolvedRoll;
-use sidequest_protocol::{DiceResultPayload, DieSides, DieSpec, ThrowParams};
+use sidequest_protocol::{
+    DiceResultPayload, DiceThrowPayload, DieSides, DieSpec, GameMessage, ThrowParams,
+};
+use tokio::sync::Mutex;
+
+use crate::shared_session::SharedGameSession;
 
 /// Maximum DC value the dispatch layer accepts.
 const MAX_DC: u32 = 100;
@@ -124,6 +135,197 @@ pub fn generate_dice_seed(session_id: &str, turn: u32) -> u64 {
     } else {
         h
     }
+}
+
+/// Type alias for the holder of a shared game session (double-Mutex wrapping
+/// to match the dispatch layer's ownership model).
+pub type SharedSessionHolder = Arc<Mutex<Option<Arc<Mutex<SharedGameSession>>>>>;
+
+/// Error cases that bubble out of `handle_dice_throw` as wire ERROR messages.
+#[derive(Debug)]
+enum DiceThrowError {
+    NoSharedSession,
+    NoPendingRequest(String),
+    ValidationFailed(String),
+    ResolutionFailed(String),
+}
+
+impl DiceThrowError {
+    fn into_wire_message(self, player_id: &str) -> GameMessage {
+        let text = match self {
+            Self::NoSharedSession => "No active game session for dice resolution".to_string(),
+            Self::NoPendingRequest(req_id) => {
+                format!("No pending dice request for request_id '{req_id}'")
+            }
+            Self::ValidationFailed(e) => format!("Dice validation failed: {e}"),
+            Self::ResolutionFailed(e) => format!("Dice resolution failed: {e}"),
+        };
+        GameMessage::Error {
+            payload: sidequest_protocol::ErrorPayload {
+                message: text,
+                reconnect_required: None,
+            },
+            player_id: player_id.to_string(),
+        }
+    }
+}
+
+/// Dispatch a `DiceThrow` wire message end-to-end: look up the pending
+/// `DiceRequest`, validate inputs, resolve via client-reported faces
+/// (physics-is-the-roll — story 34-12), broadcast the `DiceResult`, persist
+/// the outcome into `pending_roll_outcome` for the next narration turn
+/// (story 34-9), and return the direct response message.
+///
+/// This function is extracted from `dispatch_message`'s `DiceThrow` arm so
+/// it can be driven directly from integration tests without rebuilding the
+/// entire per-connection dispatch parameter set. The real dispatch arm
+/// checks `session.is_playing()` before calling this; callers in tests
+/// should replicate that precondition if they want to exercise it.
+///
+/// On success returns a single-element Vec containing the `DiceResult`
+/// message. On failure returns a single-element Vec containing an `Error`
+/// message matching the original dispatch behaviour.
+pub async fn handle_dice_throw(
+    payload: DiceThrowPayload,
+    player_id: &str,
+    shared_session_holder: &SharedSessionHolder,
+    round: u32,
+) -> Vec<GameMessage> {
+    match handle_dice_throw_inner(payload, player_id, shared_session_holder, round).await {
+        Ok(msg) => vec![msg],
+        Err(e) => vec![e.into_wire_message(player_id)],
+    }
+}
+
+async fn handle_dice_throw_inner(
+    payload: DiceThrowPayload,
+    player_id: &str,
+    shared_session_holder: &SharedSessionHolder,
+    round: u32,
+) -> Result<GameMessage, DiceThrowError> {
+    // Look up and remove the pending DiceRequest.
+    let pending = {
+        let holder_guard = shared_session_holder.lock().await;
+        let Some(ref ss_arc) = *holder_guard else {
+            return Err(DiceThrowError::NoSharedSession);
+        };
+        let mut ss = ss_arc.lock().await;
+        ss.pending_dice_requests.remove(&payload.request_id)
+    };
+
+    let Some(pending_request) = pending else {
+        tracing::warn!(
+            request_id = %payload.request_id,
+            player_id = %player_id,
+            "dice.throw_no_pending — no pending DiceRequest for this request_id"
+        );
+        return Err(DiceThrowError::NoPendingRequest(payload.request_id));
+    };
+
+    // Story 34-11: OTEL — dice throw received. Fired on the hot path after
+    // the pending request is confirmed, so the GM panel can see every
+    // DiceThrow that made it past the correlation-id guard.
+    crate::emit_dice_throw_received(
+        &payload.request_id,
+        &pending_request.rolling_player_id,
+        &payload.throw_params,
+    );
+
+    // Validate inputs at dispatch boundary. Client-submitted invalid input is
+    // a 4xx-class error — `warn!` (not `error!`) per the log-level convention
+    // (`error!` is reserved for 5xx-class server faults to avoid alert fatigue).
+    if let Err(e) = validate_dice_inputs(
+        &pending_request.dice,
+        pending_request.modifier,
+        pending_request.difficulty,
+    ) {
+        tracing::warn!(
+            request_id = %payload.request_id,
+            error = %e,
+            "dice.validation_failed"
+        );
+        return Err(DiceThrowError::ValidationFailed(e.to_string()));
+    }
+
+    // Generate the deterministic seed. It drives rotation for spectator
+    // replay animation only — it does NOT drive the face value on this
+    // path (physics-is-the-roll, story 34-12).
+    let session_id = {
+        let holder_guard = shared_session_holder.lock().await;
+        let Some(ref ss_arc) = *holder_guard else {
+            return Err(DiceThrowError::NoSharedSession);
+        };
+        let ss = ss_arc.lock().await;
+        ss.session_id.clone()
+    };
+    let seed = generate_dice_seed(&session_id, round);
+
+    tracing::info!(
+        request_id = %payload.request_id,
+        rolling_player = %player_id,
+        face = ?payload.face,
+        "dice.face_reported"
+    );
+
+    let resolved = sidequest_game::dice::resolve_dice_with_faces(
+        &pending_request.dice,
+        &payload.face,
+        pending_request.modifier,
+        pending_request.difficulty,
+    )
+    .map_err(|e| {
+        tracing::error!(
+            request_id = %payload.request_id,
+            error = %e,
+            "dice.resolution_failed"
+        );
+        DiceThrowError::ResolutionFailed(e.to_string())
+    })?;
+
+    let result_payload = compose_dice_result(
+        &pending_request.request_id,
+        &pending_request.rolling_player_id,
+        &pending_request.character_name,
+        &resolved,
+        pending_request.modifier,
+        pending_request.difficulty,
+        seed,
+        &payload.throw_params,
+    );
+
+    tracing::info!(
+        request_id = %payload.request_id,
+        rolling_player = %pending_request.rolling_player_id,
+        total = resolved.total,
+        outcome = ?resolved.outcome,
+        seed = seed,
+        "dice.result_resolved"
+    );
+
+    // Story 34-11: OTEL — dice result broadcast. The GM panel's lie-detector
+    // span fires once per resolved roll with the final total, outcome, and
+    // seed so we can verify physics-is-the-roll end-to-end without relying
+    // on narrator self-reporting.
+    crate::emit_dice_result_broadcast(&result_payload, &resolved);
+
+    // Broadcast via shared session, and persist the outcome for the next
+    // narration turn (story 34-9).
+    {
+        let holder_guard = shared_session_holder.lock().await;
+        if let Some(ref ss_arc) = *holder_guard {
+            let mut ss = ss_arc.lock().await;
+            ss.pending_roll_outcome = Some(resolved.outcome);
+            ss.broadcast(GameMessage::DiceResult {
+                player_id: "server".to_string(),
+                payload: result_payload.clone(),
+            });
+        }
+    }
+
+    Ok(GameMessage::DiceResult {
+        player_id: "server".to_string(),
+        payload: result_payload,
+    })
 }
 
 /// Compose a `DiceResultPayload` from a `ResolvedRoll` and echo fields.

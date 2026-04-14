@@ -1965,18 +1965,30 @@ impl<'de> Deserialize<'de> for DiceResultPayload {
     }
 }
 
-/// Client -> server: rolling player submits a throw gesture (story 34-2).
+/// Client -> server: rolling player submits a throw after local physics settles
+/// (story 34-12, physics-is-the-roll).
 ///
-/// Matched to the original `DiceRequest` via `request_id`. The server uses the
-/// `throw_params` for animation replay parameters but determines the outcome
-/// independently from an RNG seed.
+/// Matched to the original `DiceRequest` via `request_id`. The client runs
+/// Rapier physics locally to visual completion, reads the settled face from
+/// each die, and submits the face values alongside the throw parameters.
+/// The server uses `face` as the authoritative roll result (no server-side
+/// RNG on this path) and echoes `throw_params` so spectators can replay the
+/// same physics deterministically.
+///
+/// `face` carries one entry per physical die in the pool, in flat iteration
+/// order matching the `DieSpec`s in the triggering `DiceRequest` — e.g. a
+/// `[{sides:20, count:1}, {sides:6, count:3}]` pool yields `face.len() == 4`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DiceThrowPayload {
     /// Correlation ID matching the triggering `DiceRequest`.
     pub request_id: String,
-    /// Physics parameters captured from the drag-and-flick gesture.
+    /// Physics parameters captured from the drag-and-flick gesture, echoed
+    /// to spectators for deterministic animation replay.
     pub throw_params: ThrowParams,
+    /// Client-reported settled face values (physics-is-the-roll).
+    /// One per die, flat order matching the pool's `DieSpec` iteration.
+    pub face: Vec<u32>,
 }
 
 /// Server -> all clients: resolved dice roll outcome (story 34-2).
@@ -2026,11 +2038,16 @@ pub struct DiceResultPayload {
     pub difficulty: std::num::NonZeroU32,
     /// Outcome classification — feeds the narrator prompt for tone shaping.
     pub outcome: RollOutcome,
-    /// Cryptographically-generated deterministic physics seed. Produced by
-    /// the server *independently* of the client's `throw_params`, so a client
-    /// cannot influence the outcome by crafting its gesture — the seed alone
-    /// drives the Rapier simulation. All clients run identical physics from
-    /// this seed + `throw_params` to produce the same visual animation.
+    /// Deterministic physics seed derived from `(session_id, round)`. Under
+    /// story 34-12 (physics-is-the-roll) this seed no longer drives the roll
+    /// outcome — the rolling player's client-reported `face` values from
+    /// `DiceThrowPayload` are authoritative, and the server echoes them in
+    /// `rolls[].faces`. This seed now drives spectator replay animation only:
+    /// every non-rolling client runs Rapier locally with this seed +
+    /// `throw_params` so the visual playout is consistent across clients.
+    /// Producing the same final face from a different client physics engine
+    /// is NOT guaranteed — visual consistency is the goal, not re-verification
+    /// of the face value.
     pub seed: u64,
     /// Throw gesture parameters echoed back for client-side replay.
     pub throw_params: ThrowParams,

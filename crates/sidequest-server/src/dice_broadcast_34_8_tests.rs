@@ -331,6 +331,7 @@ mod tests {
             payload: sidequest_protocol::DiceThrowPayload {
                 request_id: "req-test-001".to_string(),
                 throw_params: test_throw_params(),
+                face: vec![15],
             },
         };
         match throw {
