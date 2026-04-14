@@ -26,6 +26,7 @@ mod lore_retrieval_story_18_4_tests;
 mod map_telemetry_wiring_tests;
 mod narration_single_send_wiring_tests;
 mod narrative_persist_story_15_29_tests;
+mod narrator_confrontation_redef_story_37_12_tests;
 mod npc_registry_chargen_isolation_playtest_2026_04_11;
 mod npc_turns_beat_system_story_28_8_tests;
 mod ocean_shift_wiring_story_15_25_tests;
