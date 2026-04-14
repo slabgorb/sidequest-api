@@ -221,10 +221,10 @@ fn otel_transition_event_carries_alternative_count_field() {
 /// appears somewhere after the `fn build_prompt_context` declaration.
 #[test]
 fn transition_guidance_is_below_build_prompt_context_declaration() {
-    let build_fn_start = PROMPT_SRC
-        .find("fn build_prompt_context")
-        .expect("build_prompt_context declaration not found — narrator prompt \
-                 entry point has moved; update this test");
+    let build_fn_start = PROMPT_SRC.find("fn build_prompt_context").expect(
+        "build_prompt_context declaration not found — narrator prompt \
+                 entry point has moved; update this test",
+    );
 
     let tail = &PROMPT_SRC[build_fn_start..];
     assert!(

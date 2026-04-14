@@ -404,6 +404,45 @@ pub(crate) async fn build_prompt_context(
                 .field("available_defs", ctx.confrontation_defs.len())
                 .send();
         }
+
+        // Story 37-12: Transition guidance. The encounter gate
+        // (dispatch/encounter_gate.rs) is built to route narrator re-emits of
+        // `confrontation` on every case (Redeclared / ReplacedPreBeat /
+        // RejectedMidEncounter), but without this section the narrator is
+        // never told the option exists. List the other types so the narrator
+        // has a concrete menu of transition targets. The current type is
+        // excluded because Case C (redeclare) is a no-op and there is no
+        // reason to invite redundant re-declarations.
+        if !ctx.confrontation_defs.is_empty() {
+            let alternatives: Vec<&sidequest_genre::ConfrontationDef> = ctx
+                .confrontation_defs
+                .iter()
+                .filter(|d| d.confrontation_type != enc.encounter_type)
+                .collect();
+            state_summary.push_str("\n\n=== TRANSITION CONFRONTATION ===\n");
+            state_summary.push_str(
+                "If the scene shifts to a different confrontation type \
+                 (e.g., a poker game erupts into a standoff, or a chase breaks \
+                 into combat), re-emit the `confrontation` field in your \
+                 game_patch with the new type. The encounter gate will replace \
+                 the current encounter with the new one when it is safe to do \
+                 so, or surface a mid-encounter divergence warning when it is \
+                 not. Available transition targets:\n",
+            );
+            for alt in alternatives.iter() {
+                state_summary.push_str(&format!(
+                    "- \"{}\" ({}, {})\n",
+                    alt.confrontation_type, alt.label, alt.category
+                ));
+            }
+            state_summary.push_str("=== END TRANSITION CONFRONTATION ===\n");
+
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("event", "encounter.transition_guidance_injected")
+                .field("current_encounter_type", &enc.encounter_type)
+                .field("alternative_count", alternatives.len())
+                .send();
+        }
     }
 
     // Inject available confrontation types so the narrator knows what encounters
@@ -418,7 +457,6 @@ pub(crate) async fn build_prompt_context(
                 def.confrontation_type, def.label, def.category
             ));
         }
-        state_summary.push_str("Only emit confrontation on the turn the encounter STARTS.\n");
 
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("action", "available_types_injected")
