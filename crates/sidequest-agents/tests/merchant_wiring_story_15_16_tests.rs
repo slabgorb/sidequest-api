@@ -393,4 +393,3 @@ fn empty_merchant_inventory_still_injected() {
         "Empty merchant inventory should show 'nothing for sale'"
     );
 }
-
