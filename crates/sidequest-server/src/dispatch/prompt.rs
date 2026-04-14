@@ -414,11 +414,6 @@ pub(crate) async fn build_prompt_context(
         // excluded because Case C (redeclare) is a no-op and there is no
         // reason to invite redundant re-declarations.
         if !ctx.confrontation_defs.is_empty() {
-            let alternatives: Vec<&sidequest_genre::ConfrontationDef> = ctx
-                .confrontation_defs
-                .iter()
-                .filter(|d| d.confrontation_type != enc.encounter_type)
-                .collect();
             state_summary.push_str("\n\n=== TRANSITION CONFRONTATION ===\n");
             state_summary.push_str(
                 "If the scene shifts to a different confrontation type \
@@ -429,18 +424,24 @@ pub(crate) async fn build_prompt_context(
                  so, or surface a mid-encounter divergence warning when it is \
                  not. Available transition targets:\n",
             );
-            for alt in alternatives.iter() {
+            let mut alternative_count: usize = 0;
+            for alt in ctx
+                .confrontation_defs
+                .iter()
+                .filter(|d| d.confrontation_type != enc.encounter_type)
+            {
                 state_summary.push_str(&format!(
                     "- \"{}\" ({}, {})\n",
                     alt.confrontation_type, alt.label, alt.category
                 ));
+                alternative_count += 1;
             }
             state_summary.push_str("=== END TRANSITION CONFRONTATION ===\n");
 
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                 .field("event", "encounter.transition_guidance_injected")
                 .field("current_encounter_type", &enc.encounter_type)
-                .field("alternative_count", alternatives.len())
+                .field("alternative_count", alternative_count)
                 .send();
         }
     }
