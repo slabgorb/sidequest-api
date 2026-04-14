@@ -18,39 +18,10 @@ use std::num::NonZeroU8;
 
 use sidequest_game::dice::resolve_dice;
 use sidequest_protocol::{DiceRequestPayload, DieSides, DieSpec, ThrowParams};
-use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
+use sidequest_telemetry::{WatcherEvent, WatcherEventType};
 
 use crate::dice_dispatch::{compose_dice_result, generate_dice_seed, validate_dice_inputs};
-
-// ---------------------------------------------------------------------------
-// Test infrastructure
-// ---------------------------------------------------------------------------
-
-/// Serialize telemetry tests — the global broadcast channel is shared state.
-static TELEMETRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Initialize channel, acquire lock, drain stale events, return clean receiver.
-fn fresh_subscriber() -> (
-    std::sync::MutexGuard<'static, ()>,
-    tokio::sync::broadcast::Receiver<WatcherEvent>,
-) {
-    let guard = TELEMETRY_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _ = init_global_channel();
-    let mut rx = subscribe_global().expect("channel must be initialized");
-    while rx.try_recv().is_ok() {}
-    (guard, rx)
-}
-
-/// Drain all currently-buffered events from the receiver.
-fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
-    let mut events = Vec::new();
-    while let Ok(event) = rx.try_recv() {
-        events.push(event);
-    }
-    events
-}
+use crate::test_support::telemetry::{drain_events, fresh_subscriber};
 
 /// Find events by component and event field value.
 fn find_dice_events(events: &[WatcherEvent], event_name: &str) -> Vec<WatcherEvent> {

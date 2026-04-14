@@ -8,6 +8,8 @@ pub(crate) mod debug_api;
 mod dice_broadcast_34_8_tests;
 pub mod dice_dispatch;
 mod dispatch;
+#[cfg(test)]
+mod encounter_gate_story_37_13_tests;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
 #[cfg(test)]
@@ -15,6 +17,8 @@ mod otel_dice_spans_34_11_tests;
 pub mod render_integration;
 pub(crate) mod session;
 pub mod shared_session;
+#[cfg(test)]
+mod test_support;
 pub mod tracing_setup;
 pub(crate) mod watcher;
 
