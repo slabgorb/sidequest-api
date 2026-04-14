@@ -407,12 +407,18 @@ pub(crate) async fn build_prompt_context(
 
         // Story 37-12: Transition guidance. The encounter gate
         // (dispatch/encounter_gate.rs) is built to route narrator re-emits of
-        // `confrontation` on every case (Redeclared / ReplacedPreBeat /
-        // RejectedMidEncounter), but without this section the narrator is
-        // never told the option exists. List the other types so the narrator
-        // has a concrete menu of transition targets. The current type is
-        // excluded because Case C (redeclare) is a no-op and there is no
-        // reason to invite redundant re-declarations.
+        // `confrontation` through Cases C (Redeclared, no-op), D
+        // (ReplacedPreBeat), and E (RejectedMidEncounter), but without this
+        // section the narrator is never told the option exists. (Cases A and B
+        // create from None or a resolved encounter and are reached via the
+        // is_none() block below, not this one.) List the other types so the
+        // narrator has a concrete menu of transition targets. The current type
+        // is excluded because Case C (redeclare) is a no-op and there is no
+        // reason to invite redundant re-declarations. The block sits outside
+        // the inner find_confrontation_def() guard so it still fires when the
+        // current encounter's def is missing — in that state the narrator
+        // also needs a transition menu to recover, and the broken-def case is
+        // independently signalled by the existing ValidationWarning above.
         if !ctx.confrontation_defs.is_empty() {
             state_summary.push_str("\n\n=== TRANSITION CONFRONTATION ===\n");
             state_summary.push_str(

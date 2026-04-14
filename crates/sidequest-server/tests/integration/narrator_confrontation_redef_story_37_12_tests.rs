@@ -3,11 +3,11 @@
 //! # Background
 //!
 //! Story 37-13 built the encounter creation gate (`dispatch/encounter_gate.rs`),
-//! which covers six observable cases for how to route a narrator-emitted
-//! `"confrontation": <type>` signal against the current `snapshot.encounter`
-//! state (Created, Redeclared, ReplacedPreBeat, RejectedMidEncounter,
-//! UnknownType). The dispatch side is READY to receive re-emits from the
-//! narrator.
+//! which covers six cases (A–F) that collapse to five distinct outcome names:
+//! `Created` (Cases A+B — create from None or from a resolved encounter),
+//! `Redeclared` (Case C), `ReplacedPreBeat` (Case D), `RejectedMidEncounter`
+//! (Case E), and `UnknownType` (Case F). The dispatch side is READY to
+//! receive re-emits from the narrator.
 //!
 //! 37-12 is the prompt-side half: the narrator is never ASKED to re-emit.
 //! Three concrete regressions in `dispatch/prompt.rs`:
@@ -117,29 +117,20 @@ fn prompt_includes_transition_confrontation_section_marker() {
 // ---------------------------------------------------------------------------
 
 /// Section headers are not enough; the guidance must name the action.
-/// Accept any of several phrasings so Dev has room to pick wording that
-/// reads naturally alongside the rest of the prompt, but at least one must
-/// be present.
+/// Dev's RED-phase brief allowed several phrasings; after GREEN the canonical
+/// wording settled on `re-emit`, which is the word the rest of the prompt
+/// uses for `game_patch` fields. Lock it in as the contract: a future refactor
+/// that swaps the verb (e.g. to `"re-declare"`) must update this test in the
+/// same commit, so the change surfaces in code review instead of silently
+/// preserving multi-candidate flexibility that is no longer load-bearing.
 #[test]
 fn prompt_instructs_narrator_to_reemit_on_scene_shift() {
-    let candidates = [
-        "re-emit",
-        "re-declare",
-        "emit a new confrontation",
-        "emit the new confrontation",
-        "emit a different confrontation",
-        "emit the transition",
-    ];
-    let matched: Vec<&&str> = candidates
-        .iter()
-        .filter(|c| PROMPT_SRC.contains(**c))
-        .collect();
     assert!(
-        !matched.is_empty(),
-        "dispatch/prompt.rs must instruct the narrator to re-emit `confrontation` \
-         when the scene transitions to a different type. None of the accepted \
-         phrasings were found: {:?}",
-        candidates
+        PROMPT_SRC.contains("re-emit the `confrontation`"),
+        "dispatch/prompt.rs must instruct the narrator to `re-emit the \
+         `confrontation`` field when the scene transitions to a different \
+         type. The canonical phrasing is pinned — any reword must update \
+         this test in the same commit."
     );
 }
 
@@ -150,23 +141,31 @@ fn prompt_instructs_narrator_to_reemit_on_scene_shift() {
 /// Telling the narrator it MAY transition is useless if the prompt also
 /// hides every other confrontation type. The `TRANSITION CONFRONTATION`
 /// block must iterate `ctx.confrontation_defs` so the narrator sees the
-/// alternatives by name. We verify by locating the marker and checking for
-/// a `confrontation_defs` reference within a reasonable window below it.
+/// alternatives by name. We verify by bounding the scan between the
+/// section's own start and end markers — a fixed byte offset would creep
+/// into neighbouring sections when the block grows, and a raw `contains`
+/// check could match the iteration in the pre-existing AVAILABLE
+/// CONFRONTATIONS block a few hundred lines above.
 #[test]
 fn transition_block_iterates_confrontation_defs() {
     let trans_idx = PROMPT_SRC
-        .find("TRANSITION CONFRONTATION")
+        .find("=== TRANSITION CONFRONTATION ===")
         .expect("TRANSITION CONFRONTATION marker missing — see AC-TransitionMarker test");
+    let end_idx = PROMPT_SRC[trans_idx..]
+        .find("=== END TRANSITION CONFRONTATION ===")
+        .map(|i| trans_idx + i)
+        .expect(
+            "END TRANSITION CONFRONTATION footer missing — the block must be \
+             explicitly closed so this test can bound its scan",
+        );
 
-    let window_end = (trans_idx + 2000).min(PROMPT_SRC.len());
-    let window = &PROMPT_SRC[trans_idx..window_end];
-
+    let block = &PROMPT_SRC[trans_idx..end_idx];
     assert!(
-        window.contains("confrontation_defs"),
-        "The TRANSITION CONFRONTATION block must iterate `ctx.confrontation_defs` \
-         so the narrator sees the list of other types it could transition to. \
-         Without this, the narrator knows it MAY transition but not WHAT IT CAN \
-         transition TO."
+        block.contains("confrontation_defs"),
+        "The TRANSITION CONFRONTATION block (bounded by its start and end \
+         markers) must iterate `ctx.confrontation_defs` so the narrator sees \
+         the list of other types it could transition to. Without this, the \
+         narrator knows it MAY transition but not WHAT IT CAN transition TO."
     );
 }
 
