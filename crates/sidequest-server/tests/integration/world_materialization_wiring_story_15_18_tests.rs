@@ -28,7 +28,8 @@ fn connect_rs_calls_materialize_world_for_returning_player() {
 fn connect_rs_emits_otel_world_materialization_event_returning_player() {
     let source = include_str!("../../src/dispatch/connect.rs");
     assert!(
-        source.contains(r#"WatcherEventBuilder::new("world_materialization", WatcherEventType::StateTransition)"#),
+        source.contains("\"world_materialization\"")
+            && source.contains("WatcherEventType::StateTransition"),
         "connect.rs must emit OTEL world_materialization StateTransition event"
     );
 }

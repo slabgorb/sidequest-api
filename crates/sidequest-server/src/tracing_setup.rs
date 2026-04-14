@@ -43,14 +43,19 @@ pub fn init_tracing(enable_chrome_trace: bool) {
         None
     };
 
-    Registry::default()
+    // Use try_init so the function is idempotent — calling it a second
+    // time (notably from integration tests that share one process binary
+    // post-c662c65 consolidation) returns Err instead of panicking.
+    // Real applications only call this once at startup; the no-op-on-
+    // second-call behavior is safe for tests and never affects production.
+    let init_result = Registry::default()
         .with(env_filter)
         .with(json_layer)
         .with(pretty_layer)
         .with(chrome_layer)
-        .init();
+        .try_init();
 
-    if enable_chrome_trace {
+    if init_result.is_ok() && enable_chrome_trace {
         tracing::info!("Chrome trace → trace-{}.json", std::process::id());
     }
 }

@@ -7,11 +7,11 @@ pub(crate) mod debug_api;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
 pub mod dice_dispatch;
-#[cfg(test)]
-mod otel_dice_spans_34_11_tests;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
+#[cfg(test)]
+mod otel_dice_spans_34_11_tests;
 pub mod render_integration;
 pub(crate) mod session;
 pub mod shared_session;

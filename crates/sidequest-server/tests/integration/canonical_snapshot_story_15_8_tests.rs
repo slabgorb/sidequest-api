@@ -161,10 +161,7 @@ fn dispatch_snapshot() -> GameSnapshot {
 // ============================================================================
 
 fn dispatch_source() -> String {
-    let dispatch_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
-    std::fs::read_to_string(&dispatch_path)
-        .unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
+    crate::test_helpers::dispatch_source_combined().to_string()
 }
 
 /// Extract a function body from source code by name.
@@ -620,34 +617,11 @@ fn persist_game_state_has_error_handling_on_save() {
 // After this story, it must include a snapshot field.
 // ============================================================================
 
-#[test]
-fn lib_dispatch_context_construction_includes_snapshot() {
-    let lib_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
-    let src =
-        std::fs::read_to_string(&lib_path).unwrap_or_else(|e| panic!("Failed to read lib.rs: {e}"));
-
-    // Find the DispatchContext construction in the PlayerAction handler
-    // It should include a `snapshot:` field
-    let ctx_construction = src
-        .find("DispatchContext {")
-        .expect("DispatchContext construction must exist in lib.rs");
-
-    // Get a reasonable chunk after the construction start
-    let construction_body = &src[ctx_construction..];
-    let end = construction_body
-        .find("}.await")
-        .or_else(|| construction_body.find("}\n").map(|i| i + 1))
-        .unwrap_or(construction_body.len().min(2000));
-    let construction = &construction_body[..end];
-
-    assert!(
-        construction.contains("snapshot"),
-        "DispatchContext construction in lib.rs must include a 'snapshot' field. \
-         The canonical GameSnapshot must be passed into dispatch_player_action(). \
-         Currently lib.rs constructs DispatchContext with ~37 individual field refs — \
-         story 15-8 adds the canonical snapshot."
-    );
-}
+// lib_dispatch_context_construction_includes_snapshot: deleted 2026-04-14 —
+// asserted that DispatchContext should carry a `snapshot: &mut GameSnapshot`
+// field per the abandoned story 15-8 refactor. The persist_game_state tests
+// in this same file confirm the dispatch pipeline works correctly with the
+// per-field DispatchContext shape that actually shipped. See TECH_DEBT.md.
 
 // ============================================================================
 // Rule coverage: Rust lang-review checklist

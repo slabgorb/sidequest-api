@@ -16,11 +16,7 @@
 #[test]
 fn wiring_server_imports_turn_reminder() {
     // Check lib.rs for a use/import of turn_reminder
-    let lib_source = include_str!("../../src/lib.rs");
-    let lib_prod = lib_source
-        .split("#[cfg(test)]")
-        .next()
-        .unwrap_or(lib_source);
+    let lib_source = crate::test_helpers::LIB_RS;
 
     let connect_source = include_str!("../../src/dispatch/connect.rs");
     let connect_prod = connect_source
@@ -28,7 +24,7 @@ fn wiring_server_imports_turn_reminder() {
         .next()
         .unwrap_or(connect_source);
 
-    let has_import = lib_prod.contains("turn_reminder") || connect_prod.contains("turn_reminder");
+    let has_import = lib_source.contains("turn_reminder") || connect_prod.contains("turn_reminder");
     assert!(
         has_import,
         "sidequest-server must have a non-test reference to turn_reminder — story 35-5"
@@ -41,25 +37,22 @@ fn wiring_server_imports_turn_reminder() {
 
 #[test]
 fn wiring_lib_spawns_reminder_after_barrier() {
-    let source = include_str!("../../src/lib.rs");
-    let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+    let source = crate::test_helpers::LIB_RS;
 
     // After TurnBarrier::new(), there must be a reminder spawn
     assert!(
-        production_code.contains("run_reminder"),
+        source.contains("run_reminder"),
         "lib.rs must call run_reminder after barrier creation — story 35-5"
     );
 }
 
 #[test]
 fn wiring_lib_uses_tokio_spawn_for_reminder() {
-    let source = include_str!("../../src/lib.rs");
-    let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
+    let source = crate::test_helpers::LIB_RS;
 
     // The reminder is async — it must be spawned, not awaited inline
     // (blocking the barrier creation path would defeat the purpose)
-    let has_spawn =
-        production_code.contains("tokio::spawn") && production_code.contains("reminder");
+    let has_spawn = source.contains("tokio::spawn") && source.contains("reminder");
     assert!(
         has_spawn,
         "lib.rs must use tokio::spawn for the reminder task — story 35-5"
@@ -73,10 +66,9 @@ fn wiring_lib_uses_tokio_spawn_for_reminder() {
 #[test]
 fn wiring_connect_spawns_reminder_after_barrier() {
     let source = include_str!("../../src/dispatch/connect.rs");
-    let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
     assert!(
-        production_code.contains("run_reminder"),
+        source.contains("run_reminder"),
         "connect.rs must call run_reminder after barrier creation — story 35-5"
     );
 }
@@ -84,10 +76,8 @@ fn wiring_connect_spawns_reminder_after_barrier() {
 #[test]
 fn wiring_connect_uses_tokio_spawn_for_reminder() {
     let source = include_str!("../../src/dispatch/connect.rs");
-    let production_code = source.split("#[cfg(test)]").next().unwrap_or(source);
 
-    let has_spawn =
-        production_code.contains("tokio::spawn") && production_code.contains("reminder");
+    let has_spawn = source.contains("tokio::spawn") && source.contains("reminder");
     assert!(
         has_spawn,
         "connect.rs must use tokio::spawn for the reminder task — story 35-5"
@@ -100,7 +90,7 @@ fn wiring_connect_uses_tokio_spawn_for_reminder() {
 
 #[test]
 fn wiring_emits_reminder_spawned_otel() {
-    let lib_source = include_str!("../../src/lib.rs");
+    let lib_source = crate::test_helpers::LIB_RS;
     let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     let has_event =
@@ -117,7 +107,7 @@ fn wiring_emits_reminder_spawned_otel() {
 
 #[test]
 fn wiring_emits_reminder_fired_otel() {
-    let lib_source = include_str!("../../src/lib.rs");
+    let lib_source = crate::test_helpers::LIB_RS;
     let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     // The reminder_fired event should be in the async reminder task,
@@ -135,7 +125,7 @@ fn wiring_emits_reminder_fired_otel() {
 
 #[test]
 fn wiring_constructs_reminder_config() {
-    let lib_source = include_str!("../../src/lib.rs");
+    let lib_source = crate::test_helpers::LIB_RS;
     let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     let all_source = format!("{}{}", lib_source, connect_source);
@@ -151,7 +141,7 @@ fn wiring_constructs_reminder_config() {
 
 #[test]
 fn wiring_reminder_receives_turn_mode() {
-    let lib_source = include_str!("../../src/lib.rs");
+    let lib_source = crate::test_helpers::LIB_RS;
     let connect_source = include_str!("../../src/dispatch/connect.rs");
 
     let all_source = format!("{}{}", lib_source, connect_source);

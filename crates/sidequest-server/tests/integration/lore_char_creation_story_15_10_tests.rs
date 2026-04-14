@@ -142,7 +142,7 @@ fn seed_lore_from_char_creation_populates_store() {
 
 #[test]
 fn dispatch_character_creation_calls_seed_lore_from_char_creation() {
-    let source = include_str!("../../src/lib.rs");
+    let source = crate::test_helpers::dispatch_source_combined();
 
     // Find the dispatch_character_creation function body
     let fn_start = source
@@ -150,7 +150,7 @@ fn dispatch_character_creation_calls_seed_lore_from_char_creation() {
         .expect("dispatch_character_creation function should exist in server lib.rs");
 
     // Extract a generous slice of the function (it's ~200 lines)
-    let fn_body = &source[fn_start..std::cmp::min(fn_start + 12_000, source.len())];
+    let fn_body = &source[fn_start..std::cmp::min(fn_start + 50_000, source.len())];
 
     assert!(
         fn_body.contains("seed_lore_from_char_creation"),
@@ -171,13 +171,13 @@ fn dispatch_character_creation_calls_seed_lore_from_char_creation() {
 
 #[test]
 fn confirmation_branch_seeds_lore_before_builder_cleared() {
-    let source = include_str!("../../src/lib.rs");
+    let source = crate::test_helpers::dispatch_source_combined();
 
     let fn_start = source
         .find("async fn dispatch_character_creation(")
         .expect("dispatch_character_creation should exist");
 
-    let fn_body = &source[fn_start..std::cmp::min(fn_start + 12_000, source.len())];
+    let fn_body = &source[fn_start..std::cmp::min(fn_start + 50_000, source.len())];
 
     // Find where builder is set to None
     let builder_none_pos = fn_body.find("*builder = None");

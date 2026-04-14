@@ -1,0 +1,59 @@
+name: CI
+
+# Why this exists: until 2026-04-14 there was no automated check on this
+# repository. Every "this passes locally" claim was unverified, and broken
+# tests landed and stayed landed (see TECH_DEBT.md for the 39 wiring tests
+# that accumulated). This workflow is the structural fix — it refuses to
+# merge anything that doesn't pass fmt + clippy + the integration suite,
+# so the next 39 broken tests cannot land the same way.
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+# Cancel superseded runs on the same branch so a flurry of pushes doesn't
+# pile up jobs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    name: fmt + clippy + test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (workspace, all targets)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build (workspace)
+        run: cargo build --workspace
+
+      # The integration suite has 43 currently-ignored tests tracked in
+      # TECH_DEBT.md. CI runs the default profile (skips ignored tests) so
+      # the green signal is honest. To make CI fail when previously-ignored
+      # tests start passing again — which would let us delete the ignore —
+      # add `--include-ignored` here once a triage pass has fixed them.
+      - name: Test (workspace)
+        run: cargo test --workspace

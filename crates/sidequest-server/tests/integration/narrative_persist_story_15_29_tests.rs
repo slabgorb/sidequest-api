@@ -12,10 +12,8 @@
 
 use std::fs;
 
-/// Read the dispatch module source code for structural verification.
 fn dispatch_source() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
-    fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
+    crate::test_helpers::dispatch_source_combined().to_string()
 }
 
 /// Extract a function body from source code by name.

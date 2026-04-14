@@ -19,7 +19,7 @@
 /// This is already wired — test confirms it stays wired.
 #[test]
 fn dispatch_calls_apply_ocean_shifts() {
-    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_source = crate::test_helpers::dispatch_source_combined();
     assert!(
         dispatch_source.contains("apply_ocean_shifts"),
         "dispatch/mod.rs must call apply_ocean_shifts() \
@@ -32,7 +32,7 @@ fn dispatch_calls_apply_ocean_shifts() {
 /// Currently only tracing::info is used — the GM panel cannot see OCEAN shifts.
 #[test]
 fn dispatch_emits_ocean_watcher_event() {
-    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_source = crate::test_helpers::dispatch_source_combined();
     // The GM panel reads WatcherEvents, not tracing spans.
     // Must use WatcherEventBuilder with component "ocean".
     assert!(
@@ -48,7 +48,7 @@ fn dispatch_emits_ocean_watcher_event() {
 /// Each individual OCEAN shift proposal should be logged with npc_name, dimension, delta.
 #[test]
 fn dispatch_emits_ocean_shift_proposed_event() {
-    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_source = crate::test_helpers::dispatch_source_combined();
     assert!(
         dispatch_source.contains("ocean.shift_proposed")
             || dispatch_source.contains("ocean_shift_proposed"),
@@ -62,7 +62,7 @@ fn dispatch_emits_ocean_shift_proposed_event() {
 /// AC-3 continued: per-proposal event must include dimension field.
 #[test]
 fn dispatch_ocean_shift_includes_dimension_field() {
-    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_source = crate::test_helpers::dispatch_source_combined();
     // Check that WatcherEvent for ocean includes dimension in its fields
     // (not just tracing::debug which doesn't reach GM panel)
     let has_ocean_watcher = dispatch_source.contains("WatcherEventBuilder::new(\"ocean\"");
@@ -78,7 +78,7 @@ fn dispatch_ocean_shift_includes_dimension_field() {
 /// AC-4: dispatch must emit a summary ocean.shift_applied event with counts.
 #[test]
 fn dispatch_emits_ocean_shift_applied_summary() {
-    let dispatch_source = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_source = crate::test_helpers::dispatch_source_combined();
     assert!(
         dispatch_source.contains(".field(\"shifts_applied\"")
             || dispatch_source.contains(".field(\"shifts_count\""),
