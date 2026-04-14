@@ -30,7 +30,8 @@ use sidequest_game::state::GameSnapshot;
 use sidequest_genre::ConfrontationDef;
 use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
 
-use crate::dispatch::{apply_confrontation_gate, ConfrontationGateOutcome};
+use crate::dispatch::apply_confrontation_gate;
+use crate::dispatch::encounter_gate::ConfrontationGateOutcome;
 
 // ---------------------------------------------------------------------------
 // Test infrastructure — global broadcast channel is shared state, so each
@@ -142,6 +143,17 @@ fn npc(name: &str) -> NpcMention {
     }
 }
 
+fn empty_snapshot() -> GameSnapshot {
+    GameSnapshot::default()
+}
+
+fn snapshot_with(encounter: StructuredEncounter) -> GameSnapshot {
+    GameSnapshot {
+        encounter: Some(encounter),
+        ..GameSnapshot::default()
+    }
+}
+
 /// Build a `StructuredEncounter` of the given type with a specific beat counter.
 /// Used to pre-populate `snapshot.encounter` for gate tests. Not a production
 /// builder — a test-local shortcut so we don't need the full narrator pipeline.
@@ -183,7 +195,7 @@ fn existing_encounter(encounter_type: &str, beat: u32, resolved: bool) -> Struct
 fn case_a_no_current_encounter_creates_new() {
     let (_guard, mut rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
+    let mut snapshot = empty_snapshot();
 
     let outcome = apply_confrontation_gate(&mut snapshot, "combat", &defs, &[]);
 
@@ -211,7 +223,10 @@ fn case_a_no_current_encounter_creates_new() {
         "encounter.created must be a StateTransition event"
     );
     assert_eq!(
-        created[0].fields.get("encounter_type").and_then(|v| v.as_str()),
+        created[0]
+            .fields
+            .get("encounter_type")
+            .and_then(|v| v.as_str()),
         Some("combat")
     );
 }
@@ -224,8 +239,7 @@ fn case_a_no_current_encounter_creates_new() {
 fn case_b_resolved_current_encounter_creates_new() {
     let (_guard, mut rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(existing_encounter("standoff", 3, true));
+    let mut snapshot = snapshot_with(existing_encounter("standoff", 3, true));
 
     let outcome = apply_confrontation_gate(&mut snapshot, "combat", &defs, &[]);
 
@@ -250,8 +264,7 @@ fn case_b_resolved_current_encounter_creates_new() {
 fn case_c_same_type_redeclare_is_noop() {
     let (_guard, mut rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(existing_encounter("combat", 2, false));
+    let mut snapshot = snapshot_with(existing_encounter("combat", 2, false));
     let before_metric = snapshot.encounter.as_ref().unwrap().metric.current;
     let before_actors = snapshot.encounter.as_ref().unwrap().actors.clone();
     let before_beat = snapshot.encounter.as_ref().unwrap().beat;
@@ -293,8 +306,7 @@ fn case_c_same_type_redeclare_is_noop() {
 fn case_d_different_type_pre_beat_replaces() {
     let (_guard, mut rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(existing_encounter("standoff", 0, false));
+    let mut snapshot = snapshot_with(existing_encounter("standoff", 0, false));
 
     let outcome = apply_confrontation_gate(&mut snapshot, "combat", &defs, &[]);
 
@@ -335,8 +347,7 @@ fn case_d_different_type_pre_beat_replaces() {
 fn case_d_replacement_repopulates_actors_from_snapshot_and_npcs() {
     let (_guard, _rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(existing_encounter("standoff", 0, false));
+    let mut snapshot = snapshot_with(existing_encounter("standoff", 0, false));
     let npcs = vec![npc("Toggler Copperjaw"), npc("Nub")];
 
     let outcome = apply_confrontation_gate(&mut snapshot, "combat", &defs, &npcs);
@@ -372,9 +383,8 @@ fn case_d_replacement_repopulates_actors_from_snapshot_and_npcs() {
 fn case_d_replacement_drops_old_per_actor_state() {
     let (_guard, _rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
     // Old encounter had an actor with populated per_actor_state.
-    snapshot.encounter = Some(existing_encounter("standoff", 0, false));
+    let mut snapshot = snapshot_with(existing_encounter("standoff", 0, false));
 
     let _ = apply_confrontation_gate(&mut snapshot, "combat", &defs, &[npc("Toggler Copperjaw")]);
 
@@ -398,8 +408,7 @@ fn case_d_replacement_drops_old_per_actor_state() {
 fn case_e_different_type_mid_encounter_rejects_with_validation_warning() {
     let (_guard, mut rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
-    snapshot.encounter = Some(existing_encounter("standoff", 3, false));
+    let mut snapshot = snapshot_with(existing_encounter("standoff", 3, false));
     let before = snapshot.encounter.clone().unwrap();
 
     let outcome = apply_confrontation_gate(&mut snapshot, "combat", &defs, &[]);
@@ -451,7 +460,10 @@ fn case_e_different_type_mid_encounter_rejects_with_validation_warning() {
         "rejection event must record the incoming (rejected) type"
     );
     assert_eq!(
-        rejected[0].fields.get("beat_count").and_then(|v| v.as_u64()),
+        rejected[0]
+            .fields
+            .get("beat_count")
+            .and_then(|v| v.as_u64()),
         Some(3),
         "rejection event must record the current beat count for the GM panel"
     );
@@ -465,7 +477,7 @@ fn case_e_different_type_mid_encounter_rejects_with_validation_warning() {
 fn case_f_unknown_confrontation_type_emits_validation_warning() {
     let (_guard, mut rx) = fresh_subscriber();
     let defs = load_defs();
-    let mut snapshot = GameSnapshot::default();
+    let mut snapshot = empty_snapshot();
 
     let outcome = apply_confrontation_gate(&mut snapshot, "interpretive_dance", &defs, &[]);
 
