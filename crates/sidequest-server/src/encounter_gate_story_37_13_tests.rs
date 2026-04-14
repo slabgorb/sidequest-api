@@ -1,26 +1,19 @@
-//! Story 37-13: Encounter creation gate silent-drop fix — RED phase tests.
+//! Tests for `dispatch::apply_confrontation_gate` — every branch observable.
 //!
-//! The existing gate in `dispatch/mod.rs:1773-1819` silently discards a new
-//! `confrontation_type` when `ctx.snapshot.encounter` is `Some(unresolved)`.
-//! No OTEL event, no state transition, no warning. This is the root cause for
-//! 37-12 and a direct CLAUDE.md "No Silent Fallbacks" violation.
+//! The gate routes the narrator's `"confrontation": <type>` signal given the
+//! current `snapshot.encounter` state. Each of the six cases (A-F) emits a
+//! distinct `WatcherEvent` so the GM panel can verify the decision.
 //!
-//! These tests spec a pure helper
-//! `crate::dispatch::apply_confrontation_gate(...)` that encapsulates every
-//! decision branch and emits a distinct `WatcherEvent` for each. Dev (GREEN)
-//! will extract the inline gate code into that helper and update
-//! `dispatch_player_action` to call it.
+//! Test matrix — one case per letter in the module doc of `encounter_gate.rs`:
+//!   A. None                          → Created
+//!   B. Some(resolved)                → Created
+//!   C. Some(unresolved, same type)   → Redeclared (no-op)
+//!   D. Some(unresolved, diff, b==0)  → ReplacedPreBeat
+//!   E. Some(unresolved, diff, b>0)   → RejectedMidEncounter
+//!   F. Unknown type (def missing)    → UnknownType
 //!
-//! Test matrix — one case per Case letter in context-story-37-13.md:
-//!   A. None → create
-//!   B. Some(resolved) → create
-//!   C. Some(unresolved, same type) → no-op redeclare
-//!   D. Some(unresolved, different, beat == 0) → replace
-//!   E. Some(unresolved, different, beat > 0) → reject
-//!   F. Unknown type (def missing) → validation warning
-//!
-//! Plus one source-scanning wiring test that verifies `dispatch/mod.rs` no
-//! longer contains the silent inline branch and actually calls the helper.
+//! Plus a source-scanning wiring test asserting `dispatch/mod.rs` calls the
+//! helper and does not contain the old inline branch.
 
 use sidequest_agents::orchestrator::NpcMention;
 use sidequest_game::encounter::{
@@ -28,39 +21,11 @@ use sidequest_game::encounter::{
 };
 use sidequest_game::state::GameSnapshot;
 use sidequest_genre::ConfrontationDef;
-use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
+use sidequest_telemetry::{WatcherEvent, WatcherEventType};
 
 use crate::dispatch::apply_confrontation_gate;
 use crate::dispatch::encounter_gate::ConfrontationGateOutcome;
-
-// ---------------------------------------------------------------------------
-// Test infrastructure — global broadcast channel is shared state, so each
-// test serializes on TELEMETRY_LOCK and drains stale events before exercising.
-// Mirrors otel_dice_spans_34_11_tests.rs.
-// ---------------------------------------------------------------------------
-
-static TELEMETRY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn fresh_subscriber() -> (
-    std::sync::MutexGuard<'static, ()>,
-    tokio::sync::broadcast::Receiver<WatcherEvent>,
-) {
-    let guard = TELEMETRY_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let _ = init_global_channel();
-    let mut rx = subscribe_global().expect("telemetry channel must be initialized");
-    while rx.try_recv().is_ok() {}
-    (guard, rx)
-}
-
-fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
-    let mut events = Vec::new();
-    while let Ok(event) = rx.try_recv() {
-        events.push(event);
-    }
-    events
-}
+use crate::test_support::telemetry::{drain_events, fresh_subscriber};
 
 fn find_encounter_events(events: &[WatcherEvent], event_name: &str) -> Vec<WatcherEvent> {
     events
@@ -71,6 +36,18 @@ fn find_encounter_events(events: &[WatcherEvent], event_name: &str) -> Vec<Watch
         })
         .cloned()
         .collect()
+}
+
+/// Every event the gate emits must carry `source = "narrator_confrontation"` so
+/// the GM panel can attribute it to the narrator subsystem. Centralising this
+/// check keeps per-case tests focused on their own invariants while guaranteeing
+/// the attribution field never silently drops.
+fn assert_source_is_narrator(event: &WatcherEvent) {
+    assert_eq!(
+        event.fields.get("source").and_then(|v| v.as_str()),
+        Some("narrator_confrontation"),
+        "encounter events must carry source=narrator_confrontation"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +117,40 @@ fn npc(name: &str) -> NpcMention {
         role: String::new(),
         appearance: String::new(),
         is_new: false,
+    }
+}
+
+fn test_character(name: &str) -> sidequest_game::Character {
+    use sidequest_game::creature_core::CreatureCore;
+    use sidequest_game::{Character, Inventory};
+    use sidequest_protocol::NonBlankString;
+    Character {
+        core: CreatureCore {
+            name: NonBlankString::new(name).unwrap(),
+            description: NonBlankString::new("Test character for gate tests").unwrap(),
+            personality: NonBlankString::new("Brave").unwrap(),
+            level: 1,
+            hp: 10,
+            max_hp: 10,
+            ac: 10,
+            xp: 0,
+            inventory: Inventory {
+                items: vec![],
+                gold: 0,
+            },
+            statuses: vec![],
+        },
+        backstory: NonBlankString::new("Test backstory").unwrap(),
+        narrative_state: "exploring".to_string(),
+        hooks: vec![],
+        char_class: NonBlankString::new("Fighter").unwrap(),
+        race: NonBlankString::new("Human").unwrap(),
+        pronouns: String::new(),
+        stats: std::collections::HashMap::new(),
+        abilities: vec![],
+        known_facts: vec![],
+        affinities: vec![],
+        is_friendly: true,
     }
 }
 
@@ -229,6 +240,7 @@ fn case_a_no_current_encounter_creates_new() {
             .and_then(|v| v.as_str()),
         Some("combat")
     );
+    assert_source_is_narrator(&created[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +300,7 @@ fn case_c_same_type_redeclare_is_noop() {
         1,
         "Case C must emit exactly one encounter.redeclare_noop"
     );
+    assert_source_is_narrator(&redeclare[0]);
     assert!(
         find_encounter_events(&events, "encounter.created").is_empty(),
         "Case C must NOT emit encounter.created"
@@ -341,6 +354,7 @@ fn case_d_different_type_pre_beat_replaces() {
             .and_then(|v| v.as_str()),
         Some("combat")
     );
+    assert_source_is_narrator(&replaced[0]);
 }
 
 #[test]
@@ -386,7 +400,14 @@ fn case_d_replacement_drops_old_per_actor_state() {
     // Old encounter had an actor with populated per_actor_state.
     let mut snapshot = snapshot_with(existing_encounter("standoff", 0, false));
 
-    let _ = apply_confrontation_gate(&mut snapshot, "combat", &defs, &[npc("Toggler Copperjaw")]);
+    let outcome =
+        apply_confrontation_gate(&mut snapshot, "combat", &defs, &[npc("Toggler Copperjaw")]);
+    assert_eq!(
+        outcome,
+        ConfrontationGateOutcome::ReplacedPreBeat,
+        "Case D must return ReplacedPreBeat — without this assertion the leak \
+         check below would pass even if the gate silently no-opped"
+    );
 
     let actors = &snapshot.encounter.as_ref().unwrap().actors;
     for actor in actors {
@@ -467,6 +488,7 @@ fn case_e_different_type_mid_encounter_rejects_with_validation_warning() {
         Some(3),
         "rejection event must record the current beat count for the GM panel"
     );
+    assert_source_is_narrator(&rejected[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +527,136 @@ fn case_f_unknown_confrontation_type_emits_validation_warning() {
             .and_then(|v| v.as_str()),
         Some("interpretive_dance")
     );
+    assert_source_is_narrator(&failed[0]);
+}
+
+// ---------------------------------------------------------------------------
+// Regression guards — edge cases that the Case A-F matrix leaves implicit.
+// ---------------------------------------------------------------------------
+
+/// The match arms put Case C (same type) before Case D (beat == 0). Both
+/// conditions can be true simultaneously — same type AND beat zero — and the
+/// gate must treat that intersection as a redeclare, not a replace. This test
+/// locks in the arm ordering so a future reorder can't silently change
+/// semantics by promoting the `beat == 0` guard above the same-type check.
+#[test]
+fn case_c_same_type_with_beat_zero_still_redeclare() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = snapshot_with(existing_encounter("combat", 0, false));
+
+    let outcome = apply_confrontation_gate(&mut snapshot, "combat", &defs, &[]);
+
+    assert_eq!(
+        outcome,
+        ConfrontationGateOutcome::Redeclared,
+        "same-type redeclare at beat 0 must NOT fall through to ReplacedPreBeat"
+    );
+    assert_eq!(
+        snapshot.encounter.as_ref().unwrap().encounter_type,
+        "combat",
+        "redeclare must leave the old encounter in place"
+    );
+
+    let events = drain_events(&mut rx);
+    assert_eq!(
+        find_encounter_events(&events, "encounter.redeclare_noop").len(),
+        1
+    );
+    assert!(
+        find_encounter_events(&events, "encounter.replaced_pre_beat").is_empty(),
+        "must NOT emit encounter.replaced_pre_beat when types match"
+    );
+}
+
+/// An empty incoming type goes through `find_confrontation_def`, which cannot
+/// match any def (no def has an empty type), and therefore routes to Case F.
+/// Lock that in so a future refactor doesn't accidentally create a bypass for
+/// the empty string — the gate should always route to `UnknownType` with a
+/// `ValidationWarning` event, not silently no-op.
+#[test]
+fn case_f_empty_incoming_type_routes_to_unknown() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = empty_snapshot();
+
+    let outcome = apply_confrontation_gate(&mut snapshot, "", &defs, &[]);
+
+    assert_eq!(outcome, ConfrontationGateOutcome::UnknownType);
+    assert!(snapshot.encounter.is_none());
+
+    let events = drain_events(&mut rx);
+    let failed = find_encounter_events(&events, "encounter.creation_failed_unknown_type");
+    assert_eq!(
+        failed.len(),
+        1,
+        "empty incoming type must still emit a validation warning"
+    );
+    assert_eq!(
+        failed[0]
+            .fields
+            .get("encounter_type")
+            .and_then(|v| v.as_str()),
+        Some("")
+    );
+    assert_source_is_narrator(&failed[0]);
+}
+
+/// Case F must also fire cleanly when an existing encounter is present — the
+/// def-missing check happens before the match on `snapshot.encounter`, so the
+/// current encounter must remain untouched.
+#[test]
+fn case_f_unknown_type_with_existing_encounter_preserves_state() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = snapshot_with(existing_encounter("combat", 2, false));
+    let before = snapshot.encounter.clone().unwrap();
+
+    let outcome = apply_confrontation_gate(&mut snapshot, "interpretive_dance", &defs, &[]);
+
+    assert_eq!(outcome, ConfrontationGateOutcome::UnknownType);
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert_eq!(after.encounter_type, before.encounter_type);
+    assert_eq!(after.beat, before.beat);
+    assert_eq!(after.metric.current, before.metric.current);
+
+    let events = drain_events(&mut rx);
+    assert_eq!(
+        find_encounter_events(&events, "encounter.creation_failed_unknown_type").len(),
+        1
+    );
+}
+
+/// The `build_encounter` helper populates actors from BOTH
+/// `snapshot.characters` (role = "player") AND `narrator_npcs` (role = "npc").
+/// Every other test exercises one path at a time; this one exercises both so
+/// the player-actor loop is never silently untested.
+#[test]
+fn case_a_populates_both_player_and_npc_actors() {
+    let (_guard, _rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = empty_snapshot();
+    snapshot.characters.push(test_character("Aragorn"));
+    let npcs = vec![npc("Strider the Second")];
+
+    let outcome = apply_confrontation_gate(&mut snapshot, "combat", &defs, &npcs);
+
+    assert_eq!(outcome, ConfrontationGateOutcome::Created);
+    let actors = &snapshot.encounter.as_ref().unwrap().actors;
+
+    let player_names: Vec<&str> = actors
+        .iter()
+        .filter(|a| a.role == "player")
+        .map(|a| a.name.as_str())
+        .collect();
+    let npc_names: Vec<&str> = actors
+        .iter()
+        .filter(|a| a.role == "npc")
+        .map(|a| a.name.as_str())
+        .collect();
+
+    assert_eq!(player_names, vec!["Aragorn"]);
+    assert_eq!(npc_names, vec!["Strider the Second"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -517,27 +669,27 @@ fn case_f_unknown_confrontation_type_emits_validation_warning() {
 fn wiring_dispatch_mod_calls_apply_confrontation_gate() {
     let source = include_str!("dispatch/mod.rs");
 
+    // Positive side: scan for an actual call expression, not a bare identifier.
+    // A comment that merely mentions the function name would be fooled by a
+    // plain substring scan — the opening paren forces a real invocation.
     assert!(
-        source.contains("apply_confrontation_gate"),
-        "dispatch/mod.rs must call apply_confrontation_gate — the gate logic \
-         cannot live as an inline block any longer"
+        source.contains("apply_confrontation_gate("),
+        "dispatch/mod.rs must call apply_confrontation_gate(...) — the gate \
+         logic cannot live as an inline block any longer"
     );
 
-    // The old silent-drop shape was:
-    //   if let Some(ref confrontation_type) = result.confrontation {
-    //       if ctx.snapshot.encounter.is_none()
-    //           || ctx.snapshot.encounter.as_ref().is_some_and(|e| e.resolved)
-    //       { ... } // <-- no else
-    //   }
-    //
-    // If Dev leaves this pattern in place without delegating to the helper,
-    // the bug is unfixed regardless of what the unit tests say.
-    let has_inline_is_none_or_resolved = source.contains(
-        "ctx.snapshot.encounter.is_none()\n            || ctx.snapshot.encounter.as_ref().is_some_and(|e| e.resolved)",
-    );
+    // Negative side: the old silent-drop shape combined `encounter.is_none()`
+    // and `is_some_and(|e| e.resolved)` in a single boolean without an `else`
+    // branch. Scan for the semantic token pair rather than a whitespace-exact
+    // multiline match — the latter is silently broken by `cargo fmt` line wraps.
+    let has_is_none_token = source.contains("ctx.snapshot.encounter.is_none()");
+    let has_is_some_and_resolved_token =
+        source.contains("ctx.snapshot.encounter.as_ref().is_some_and(|e| e.resolved)");
     assert!(
-        !has_inline_is_none_or_resolved,
-        "dispatch/mod.rs still contains the old inline silent-drop branch — \
-         delegate to apply_confrontation_gate instead"
+        !(has_is_none_token && has_is_some_and_resolved_token),
+        "dispatch/mod.rs still contains the old inline silent-drop branch \
+         (both `ctx.snapshot.encounter.is_none()` and \
+         `is_some_and(|e| e.resolved)` present) — delegate to \
+         apply_confrontation_gate instead"
     );
 }

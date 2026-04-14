@@ -17,6 +17,8 @@ mod otel_dice_spans_34_11_tests;
 pub mod render_integration;
 pub(crate) mod session;
 pub mod shared_session;
+#[cfg(test)]
+mod test_support;
 pub mod tracing_setup;
 pub(crate) mod watcher;
 

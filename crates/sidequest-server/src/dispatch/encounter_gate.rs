@@ -29,6 +29,12 @@ use sidequest_genre::ConfrontationDef;
 use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
 
 /// Outcome of the confrontation gate. One variant per observable branch.
+///
+/// Marked `#[non_exhaustive]` because the gate's case matrix is expected to
+/// grow as new encounter lifecycle stories land (e.g., rate-limited redeclares,
+/// superseded-by-scenario transitions). Every match site inside the crate must
+/// use a wildcard arm so adding a variant is a pure additive change.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConfrontationGateOutcome {
     /// Case A or B — new encounter created on empty or resolved state.
@@ -47,8 +53,13 @@ pub(crate) enum ConfrontationGateOutcome {
 /// Apply the confrontation gate to the current snapshot.
 ///
 /// Mutates `snapshot.encounter` only for `Created` and `ReplacedPreBeat`
-/// outcomes. Every branch emits exactly one `WatcherEvent` so the GM panel
-/// can verify the gate's decision.
+/// outcomes. **Always emits exactly one `WatcherEvent`** on the `encounter`
+/// channel so every gate decision is visible on the GM panel — this is the
+/// primary side-effect contract of the function.
+///
+/// `narrator_npcs` is the narrator's `result.npcs_present` list for the
+/// current turn — a live, per-turn view, not a persistent registry. These
+/// are appended as actors with role `"npc"` on newly-built encounters.
 pub(crate) fn apply_confrontation_gate(
     snapshot: &mut GameSnapshot,
     incoming_type: &str,
@@ -118,7 +129,10 @@ pub(crate) fn apply_confrontation_gate(
 
         // Case E — different type, beats already fired. Mid-encounter state
         // is sacred; we keep the old encounter and surface the divergence.
-        Some(old) => {
+        // The explicit `old.beat > 0` guard is redundant with the match arm
+        // ordering above (Cases A-D have exhausted the alternatives) but keeps
+        // the code honest to the doc table's case definition.
+        Some(old) if old.beat > 0 => {
             WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
                 .field("event", "encounter.new_type_rejected_mid_encounter")
                 .field("encounter_type", incoming_type)
@@ -128,6 +142,14 @@ pub(crate) fn apply_confrontation_gate(
                 .send();
             ConfrontationGateOutcome::RejectedMidEncounter
         }
+
+        // Unreachable — Cases A through E above exhaust every (None, resolved,
+        // same-type, beat==0, beat>0) combination. Left as a compiler-verified
+        // safety net so adding a new variant to the match requires a conscious
+        // choice about how to route uncovered states.
+        Some(_) => unreachable!(
+            "encounter gate: match arms A-E should cover every (encounter, incoming) state"
+        ),
     }
 }
 
