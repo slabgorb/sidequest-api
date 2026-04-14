@@ -29,6 +29,13 @@ pub struct WorldConfig {
     /// Tonal description for AI narration.
     #[serde(default)]
     pub tone: Option<String>,
+    /// POI slug (filename without extension) used as the lobby cover image.
+    ///
+    /// The lobby resolves this to `assets/poi/{cover_poi}.{jpg,png,webp}`
+    /// under the world's directory. Optional — worlds without this field
+    /// render the literary placeholder state in the picker preview.
+    #[serde(default)]
+    pub cover_poi: Option<String>,
     /// Genre-specific extensions (factions, faction_count, etc.).
     /// Captured for AI prompt injection without engine-level typing.
     #[serde(flatten)]

@@ -1025,6 +1025,7 @@ pub fn build_router(state: AppState) -> Router {
 
     Router::new()
         .route("/api/genres", get(list_genres))
+        .route("/api/sessions", get(list_sessions))
         .route("/api/debug/state", get(debug_api::debug_state))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
@@ -1038,12 +1039,53 @@ pub fn build_router(state: AppState) -> Router {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/genres — scan genre_packs_path for genre directories with worlds.
+/// Lobby-facing metadata for a single genre pack.
 ///
-/// Returns: `{ "genre_slug": { "worlds": ["world1", "world2"] } }`
+/// Derived from `pack.yaml` + each `worlds/*/world.yaml`. The lobby picker
+/// renders this directly — the fields are chosen to populate a rich
+/// two-column preview without requiring a second fetch.
+#[derive(serde::Serialize)]
+struct GenreResponse {
+    /// Pretty display name from `pack.yaml`.
+    name: String,
+    /// Multi-paragraph pack description.
+    description: String,
+    /// Worlds in this genre, fully populated (not just slugs).
+    worlds: Vec<WorldResponse>,
+}
+
+/// Lobby-facing metadata for a single world within a genre pack.
+#[derive(serde::Serialize)]
+struct WorldResponse {
+    /// World directory slug (stable identifier).
+    slug: String,
+    /// Pretty display name.
+    name: String,
+    /// Long-form description used in the preview panel.
+    description: String,
+    /// Era string (e.g., "1878") — optional.
+    era: Option<String>,
+    /// Setting subtitle (e.g., "Sangre Territory — Texas-Mexico borderlands").
+    setting: Option<String>,
+    /// Inspirations list, verbatim from world.yaml.
+    inspirations: Vec<String>,
+    /// Narrative axis values (comedy, gravity, outlook, mythic, loyalty).
+    axis_snapshot: HashMap<String, f64>,
+    /// Resolved URL of the cover POI image, or `None` if `cover_poi` is
+    /// missing from world.yaml or the file cannot be found on disk. The
+    /// frontend handles `None` with a literary placeholder.
+    hero_image: Option<String>,
+}
+
+/// GET /api/genres — enumerate genre packs with rich metadata for the lobby picker.
+///
+/// Returns a map of `{ genre_slug: GenreResponse }` built from on-disk
+/// `pack.yaml` + `worlds/*/world.yaml` files. Packs with malformed YAML are
+/// logged and skipped — the endpoint is best-effort so one broken pack
+/// cannot break the entire lobby.
 #[tracing::instrument(skip(state))]
-async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serde_json::Value>> {
-    let mut genres: HashMap<String, serde_json::Value> = HashMap::new();
+async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, GenreResponse>> {
+    let mut genres: HashMap<String, GenreResponse> = HashMap::new();
 
     let packs_path = state.genre_packs_path();
     if !packs_path.exists() {
@@ -1070,30 +1112,299 @@ async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serd
             None => continue,
         };
 
-        // Check for pack.yaml to confirm this is a genre pack
-        if !path.join("pack.yaml").exists() {
+        let pack_yaml_path = path.join("pack.yaml");
+        if !pack_yaml_path.exists() {
             continue;
         }
 
-        // Scan worlds/ subdirectory
-        let mut worlds = Vec::new();
+        // Parse pack.yaml for name + description. Failure → log and skip.
+        let pack_meta = match std::fs::read_to_string(&pack_yaml_path)
+            .map_err(|e| format!("read: {}", e))
+            .and_then(|s| {
+                serde_yaml::from_str::<sidequest_genre::PackMeta>(&s)
+                    .map_err(|e| format!("parse: {}", e))
+            }) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(
+                    genre = %genre_slug,
+                    error = %e,
+                    "Skipping genre pack — failed to load pack.yaml"
+                );
+                continue;
+            }
+        };
+
+        // Walk worlds/ subdirectory and build a WorldResponse for each.
+        let mut worlds: Vec<WorldResponse> = Vec::new();
         let worlds_dir = path.join("worlds");
         if worlds_dir.exists() {
             if let Ok(world_entries) = std::fs::read_dir(&worlds_dir) {
                 for world_entry in world_entries.flatten() {
-                    if world_entry.path().is_dir() {
-                        if let Some(name) = world_entry.file_name().to_str() {
-                            worlds.push(name.to_string());
-                        }
+                    let world_path = world_entry.path();
+                    if !world_path.is_dir() {
+                        continue;
                     }
+                    let world_slug = match world_path.file_name().and_then(|n| n.to_str()) {
+                        Some(name) => name.to_string(),
+                        None => continue,
+                    };
+
+                    let world_yaml_path = world_path.join("world.yaml");
+                    if !world_yaml_path.exists() {
+                        tracing::warn!(
+                            genre = %genre_slug,
+                            world = %world_slug,
+                            "Skipping world — world.yaml missing"
+                        );
+                        continue;
+                    }
+
+                    let world_cfg = match std::fs::read_to_string(&world_yaml_path)
+                        .map_err(|e| format!("read: {}", e))
+                        .and_then(|s| {
+                            serde_yaml::from_str::<sidequest_genre::WorldConfig>(&s)
+                                .map_err(|e| format!("parse: {}", e))
+                        }) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::warn!(
+                                genre = %genre_slug,
+                                world = %world_slug,
+                                error = %e,
+                                "Skipping world — failed to load world.yaml"
+                            );
+                            continue;
+                        }
+                    };
+
+                    // Pull untyped extras (setting, inspirations) from the
+                    // flattened bag — these aren't promoted to explicit
+                    // WorldConfig fields, so we read them as serde_json::Value.
+                    let setting = world_cfg
+                        .extras
+                        .get("setting")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    let inspirations: Vec<String> = world_cfg
+                        .extras
+                        .get("inspirations")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v: &serde_json::Value| {
+                                    v.as_str().map(|s| s.to_string())
+                                })
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default();
+
+                    // Resolve cover_poi slug → URL via the /genre ServeDir mount.
+                    // Probes jpg, png, webp in order. Missing file is a loud
+                    // warning, not a silent fallback — the frontend renders
+                    // the literary placeholder instead of any substitute.
+                    let hero_image = match world_cfg.cover_poi.as_deref() {
+                        None => {
+                            tracing::warn!(
+                                genre = %genre_slug,
+                                world = %world_slug,
+                                "world.yaml missing cover_poi — lobby preview will show placeholder"
+                            );
+                            None
+                        }
+                        Some(poi_slug) => {
+                            let poi_dir = world_path.join("assets").join("poi");
+                            let mut found: Option<String> = None;
+                            for ext in &["jpg", "png", "webp"] {
+                                let candidate = poi_dir.join(format!("{}.{}", poi_slug, ext));
+                                if candidate.exists() {
+                                    found = Some(format!(
+                                        "/genre/{}/worlds/{}/assets/poi/{}.{}",
+                                        genre_slug, world_slug, poi_slug, ext
+                                    ));
+                                    break;
+                                }
+                            }
+                            if found.is_none() {
+                                tracing::warn!(
+                                    genre = %genre_slug,
+                                    world = %world_slug,
+                                    cover_poi = %poi_slug,
+                                    "cover_poi file not found in assets/poi (tried jpg, png, webp)"
+                                );
+                            }
+                            found
+                        }
+                    };
+
+                    worlds.push(WorldResponse {
+                        slug: world_slug,
+                        name: world_cfg.name,
+                        description: world_cfg.description,
+                        era: world_cfg.era,
+                        setting,
+                        inspirations,
+                        axis_snapshot: world_cfg.axis_snapshot,
+                        hero_image,
+                    });
                 }
             }
         }
 
-        genres.insert(genre_slug, serde_json::json!({ "worlds": worlds }));
+        // Sort worlds alphabetically by slug for stable ordering.
+        worlds.sort_by(|a, b| a.slug.cmp(&b.slug));
+
+        genres.insert(
+            genre_slug,
+            GenreResponse {
+                name: pack_meta.name.to_string(),
+                description: pack_meta.description,
+                worlds,
+            },
+        );
     }
 
     Json(genres)
+}
+
+/// One connected player in a `SessionResponse`. Mirrors what the lobby
+/// needs to display "Keith and Marcus are here" — name only, plus the
+/// stable session-scoped player id for client-side dedup.
+#[derive(serde::Serialize)]
+struct SessionPlayerResponse {
+    player_id: String,
+    display_name: String,
+}
+
+/// One active multiplayer session as exposed to the lobby.
+///
+/// Read-only snapshot of `SharedGameSession` state. Empty sessions
+/// (player_count == 0) are excluded from the response by the handler.
+#[derive(serde::Serialize)]
+struct SessionResponse {
+    /// "{genre}:{world}" — matches `game_session_key()`.
+    session_key: String,
+    genre: String,
+    world: String,
+    /// Per-session UUID. Distinguishes sequential games on the same
+    /// genre:world (e.g., after everyone disconnects and reconnects).
+    session_id: String,
+    players: Vec<SessionPlayerResponse>,
+    /// 1-based turn number from `MultiplayerSession::turn_number()`.
+    current_turn: u32,
+    /// Display string from `SharedGameSession.current_location`. May be
+    /// empty during early connect before the world materializes.
+    current_location: String,
+    /// Stable string label for `TurnMode`: "free_play", "structured", or
+    /// "cinematic". Lets the UI tell the player what kind of round is in
+    /// progress without coupling to the Rust enum shape.
+    turn_mode: &'static str,
+}
+
+#[derive(serde::Serialize)]
+struct SessionsResponse {
+    sessions: Vec<SessionResponse>,
+}
+
+/// Optional query string filter for `GET /api/sessions`.
+///
+/// When both `genre` and `world` are present, the response is narrowed
+/// to a single matching session (or an empty list). Either alone is also
+/// accepted and acts as a substring-of-key filter.
+#[derive(Debug, serde::Deserialize, Default)]
+struct SessionsQuery {
+    genre: Option<String>,
+    world: Option<String>,
+}
+
+/// Stable display label for a `TurnMode` variant.
+fn turn_mode_label(mode: &sidequest_game::turn_mode::TurnMode) -> &'static str {
+    match mode {
+        sidequest_game::turn_mode::TurnMode::FreePlay => "free_play",
+        sidequest_game::turn_mode::TurnMode::Structured => "structured",
+        sidequest_game::turn_mode::TurnMode::Cinematic { .. } => "cinematic",
+        // Catch-all for non_exhaustive enum — future variants degrade to
+        // a generic label rather than failing serialization.
+        _ => "unknown",
+    }
+}
+
+/// GET /api/sessions — enumerate active multiplayer sessions for the lobby.
+///
+/// Returns one `SessionResponse` per non-empty `SharedGameSession` in
+/// `AppState.sessions`. The lobby uses this to render the "Currently in
+/// this world" presence panel and per-world "X here" annotations.
+///
+/// **Concurrency**: clones `Arc<Mutex<SharedGameSession>>` handles out of
+/// the std mutex synchronously, then locks each tokio mutex one at a time.
+/// This avoids holding a `std::sync::Mutex` guard across an await point.
+#[tracing::instrument(skip(state))]
+async fn list_sessions(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<SessionsQuery>,
+) -> Json<SessionsResponse> {
+    // Snapshot the (key, Arc) pairs while holding the std mutex briefly.
+    let session_arcs: Vec<(
+        String,
+        Arc<tokio::sync::Mutex<shared_session::SharedGameSession>>,
+    )> = {
+        let sessions = state.inner.sessions.lock().unwrap();
+        sessions
+            .iter()
+            .filter(|(key, _)| {
+                // Apply optional substring filters before locking each
+                // session — a cheap pre-filter avoids per-session work.
+                let genre_ok = query
+                    .genre
+                    .as_deref()
+                    .is_none_or(|g| key.starts_with(&format!("{}:", g)));
+                let world_ok = query
+                    .world
+                    .as_deref()
+                    .is_none_or(|w| key.ends_with(&format!(":{}", w)));
+                genre_ok && world_ok
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    };
+
+    let mut sessions: Vec<SessionResponse> = Vec::with_capacity(session_arcs.len());
+    for (session_key, arc) in session_arcs {
+        let guard = arc.lock().await;
+
+        // Skip empty sessions — leftover entries with zero players are
+        // noise the lobby shouldn't render.
+        if guard.players.is_empty() {
+            continue;
+        }
+
+        let players: Vec<SessionPlayerResponse> = guard
+            .players
+            .iter()
+            .map(|(player_id, state)| SessionPlayerResponse {
+                player_id: player_id.clone(),
+                display_name: state.player_name.clone(),
+            })
+            .collect();
+
+        sessions.push(SessionResponse {
+            session_key,
+            genre: guard.genre_slug.clone(),
+            world: guard.world_slug.clone(),
+            session_id: guard.session_id.clone(),
+            players,
+            current_turn: guard.multiplayer.turn_number(),
+            current_location: guard.current_location.clone(),
+            turn_mode: turn_mode_label(&guard.turn_mode),
+        });
+    }
+
+    // Stable ordering by session_key so consecutive polls don't reshuffle
+    // rows in the UI.
+    sessions.sort_by(|a, b| a.session_key.cmp(&b.session_key));
+
+    Json(SessionsResponse { sessions })
 }
 
 /// GET /ws — WebSocket upgrade handler.

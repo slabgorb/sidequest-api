@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::http::Request;
+use axum::http::{Method, Request, StatusCode};
 use clap::Parser;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -76,12 +76,18 @@ fn cli_args_parse_save_dir() {
 }
 
 // =========================================================================
-// AC2: REST endpoint — GET /api/genres returns structured data
+// AC2: REST endpoint — GET /api/genres returns enriched lobby metadata
 // =========================================================================
 // Note: Basic 200 + JSON tests are in 1-12. These extend with structure checks.
+//
+// Contract evolved for the lobby redesign: `/api/genres` now returns rich
+// per-world metadata (name, description, era, inspirations, axis_snapshot,
+// hero_image) so the picker can render a WorldPreview panel without a
+// second fetch. World entries are objects keyed by `slug`, no longer bare
+// slug strings.
 
 #[tokio::test]
-async fn genres_endpoint_returns_worlds_as_string_array() {
+async fn genres_endpoint_returns_enriched_world_objects() {
     let state = test_app_state();
     let app = build_router(state);
 
@@ -100,20 +106,173 @@ async fn genres_endpoint_returns_worlds_as_string_array() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
-    // Each genre's worlds must be an array of strings, not objects
-    for (slug, genre_data) in json.as_object().unwrap() {
+    let genres = json
+        .as_object()
+        .expect("response must be a JSON object of genre slugs");
+
+    for (slug, genre_data) in genres {
+        // Pack-level metadata: display name and description from pack.yaml.
+        assert!(
+            genre_data["name"].is_string(),
+            "Genre '{}' must have a string 'name' field",
+            slug
+        );
+        assert!(
+            genre_data["description"].is_string(),
+            "Genre '{}' must have a string 'description' field",
+            slug
+        );
+
         let worlds = genre_data["worlds"]
             .as_array()
             .unwrap_or_else(|| panic!("Genre '{}' worlds must be an array", slug));
+
+        // Each world is a structured object, not a bare slug string.
         for world in worlds {
+            let world_obj = world
+                .as_object()
+                .unwrap_or_else(|| panic!("World entries in '{}' must be objects", slug));
+
+            // Required world fields.
             assert!(
-                world.is_string(),
-                "World entries in '{}' must be strings, got: {}",
-                slug,
-                world
+                world_obj.get("slug").and_then(|v| v.as_str()).is_some(),
+                "World in '{}' must have a string 'slug'",
+                slug
+            );
+            assert!(
+                world_obj.get("name").and_then(|v| v.as_str()).is_some(),
+                "World in '{}' must have a string 'name'",
+                slug
+            );
+            assert!(
+                world_obj
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .is_some(),
+                "World in '{}' must have a string 'description'",
+                slug
+            );
+
+            // Optional but always-present keys with defaults. `inspirations`
+            // is always an array (may be empty), `axis_snapshot` is always
+            // an object (may be empty). `era`, `setting`, `hero_image` are
+            // all nullable — they must exist as keys but may be null.
+            assert!(
+                world_obj["inspirations"].is_array(),
+                "World in '{}' must have an 'inspirations' array",
+                slug
+            );
+            assert!(
+                world_obj["axis_snapshot"].is_object(),
+                "World in '{}' must have an 'axis_snapshot' object",
+                slug
+            );
+            assert!(
+                world_obj.contains_key("era"),
+                "World in '{}' must have an 'era' key (may be null)",
+                slug
+            );
+            assert!(
+                world_obj.contains_key("setting"),
+                "World in '{}' must have a 'setting' key (may be null)",
+                slug
+            );
+            assert!(
+                world_obj.contains_key("hero_image"),
+                "World in '{}' must have a 'hero_image' key (may be null)",
+                slug
             );
         }
     }
+}
+
+// =========================================================================
+// Lobby: GET /api/sessions returns active multiplayer sessions
+// =========================================================================
+//
+// Lobby story B (social presence). The endpoint enumerates non-empty
+// `SharedGameSession`s in `AppState.sessions` so the picker can render
+// "Currently in this world" and per-world "X here" annotations. These
+// tests cover the empty case and the query-filter contract; the populated
+// case is exercised by the lobby playtest with real WebSocket clients.
+
+#[tokio::test]
+async fn sessions_endpoint_returns_empty_list_when_no_sessions() {
+    let state = test_app_state();
+    let app = build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+
+    let sessions = json["sessions"]
+        .as_array()
+        .expect("response must have 'sessions' array");
+    assert!(
+        sessions.is_empty(),
+        "fresh AppState should have no sessions, got {} entries",
+        sessions.len()
+    );
+}
+
+#[tokio::test]
+async fn sessions_endpoint_accepts_genre_and_world_filters() {
+    let state = test_app_state();
+    let app = build_router(state);
+
+    // Filter params on an empty store must not error — the filter is
+    // a substring narrowing, not a required match.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/sessions?genre=spaghetti_western&world=dust_and_lead")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let json: Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        json["sessions"].is_array(),
+        "filtered response must still have 'sessions' array"
+    );
+}
+
+#[tokio::test]
+async fn sessions_endpoint_rejects_post() {
+    let state = test_app_state();
+    let app = build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/sessions")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
 // =========================================================================
