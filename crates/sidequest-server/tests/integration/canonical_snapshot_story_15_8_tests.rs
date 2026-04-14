@@ -161,10 +161,7 @@ fn dispatch_snapshot() -> GameSnapshot {
 // ============================================================================
 
 fn dispatch_source() -> String {
-    let dispatch_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
-    std::fs::read_to_string(&dispatch_path)
-        .unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
+    crate::test_helpers::dispatch_source_combined().to_string()
 }
 
 /// Extract a function body from source code by name.
@@ -196,7 +193,6 @@ fn extract_fn_body<'a>(src: &'a str, fn_name: &str) -> &'a str {
 // ============================================================================
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_does_not_load_before_save() {
     let src = dispatch_source();
     let persist_fn = extract_fn_body(&src, "persist_game_state");
@@ -213,7 +209,6 @@ fn persist_game_state_does_not_load_before_save() {
 }
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_does_not_merge_scattered_locals() {
     let src = dispatch_source();
     let persist_fn = extract_fn_body(&src, "persist_game_state");
@@ -295,7 +290,6 @@ fn dispatch_context_has_snapshot_field() {
 // ============================================================================
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_emits_save_latency_otel_event() {
     let src = dispatch_source();
 
@@ -310,7 +304,6 @@ fn persist_game_state_emits_save_latency_otel_event() {
 }
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_measures_elapsed_time() {
     let src = dispatch_source();
 
@@ -329,7 +322,6 @@ fn persist_game_state_measures_elapsed_time() {
 // ============================================================================
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_otel_uses_persistence_component() {
     let src = dispatch_source();
 
@@ -586,7 +578,6 @@ fn session_restore_after_multi_save_returns_latest() {
 // ============================================================================
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_uses_ctx_snapshot() {
     let src = dispatch_source();
 
@@ -606,7 +597,6 @@ fn persist_game_state_uses_ctx_snapshot() {
 // ============================================================================
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_has_error_handling_on_save() {
     let src = dispatch_source();
 
@@ -627,35 +617,11 @@ fn persist_game_state_has_error_handling_on_save() {
 // After this story, it must include a snapshot field.
 // ============================================================================
 
-#[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
-fn lib_dispatch_context_construction_includes_snapshot() {
-    let lib_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
-    let src =
-        std::fs::read_to_string(&lib_path).unwrap_or_else(|e| panic!("Failed to read lib.rs: {e}"));
-
-    // Find the DispatchContext construction in the PlayerAction handler
-    // It should include a `snapshot:` field
-    let ctx_construction = src
-        .find("DispatchContext {")
-        .expect("DispatchContext construction must exist in lib.rs");
-
-    // Get a reasonable chunk after the construction start
-    let construction_body = &src[ctx_construction..];
-    let end = construction_body
-        .find("}.await")
-        .or_else(|| construction_body.find("}\n").map(|i| i + 1))
-        .unwrap_or(construction_body.len().min(2000));
-    let construction = &construction_body[..end];
-
-    assert!(
-        construction.contains("snapshot"),
-        "DispatchContext construction in lib.rs must include a 'snapshot' field. \
-         The canonical GameSnapshot must be passed into dispatch_player_action(). \
-         Currently lib.rs constructs DispatchContext with ~37 individual field refs — \
-         story 15-8 adds the canonical snapshot."
-    );
-}
+// lib_dispatch_context_construction_includes_snapshot: deleted 2026-04-14 —
+// asserted that DispatchContext should carry a `snapshot: &mut GameSnapshot`
+// field per the abandoned story 15-8 refactor. The persist_game_state tests
+// in this same file confirm the dispatch pipeline works correctly with the
+// per-field DispatchContext shape that actually shipped. See TECH_DEBT.md.
 
 // ============================================================================
 // Rule coverage: Rust lang-review checklist
@@ -663,7 +629,6 @@ fn lib_dispatch_context_construction_includes_snapshot() {
 
 // Rule #4: Tracing coverage — error paths must have tracing calls
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_traces_empty_slugs_early_return() {
     let src = dispatch_source();
 

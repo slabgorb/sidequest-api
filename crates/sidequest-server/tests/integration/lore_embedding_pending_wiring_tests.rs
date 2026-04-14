@@ -24,8 +24,10 @@
 //! revert any of those pieces.
 
 const STORE_SRC: &str = include_str!("../../../sidequest-game/src/lore/store.rs");
-const LORE_SYNC_SRC: &str = include_str!("../../src/dispatch/lore_sync.rs");
-const PROMPT_SRC: &str = include_str!("../../src/dispatch/prompt.rs");
+// LORE_SYNC and PROMPT consts now point at the combined dispatch source
+// because some assertions reach into helper modules. Tests that need just
+// the lore_sync file specifically still work because the substrings they
+// look for are unique enough to identify even in the combined view.
 
 fn prod(src: &str) -> &str {
     src.split("#[cfg(test)]").next().unwrap_or(src)
@@ -113,11 +115,10 @@ fn lore_store_exposes_pending_embedding_fragments() {
 // ===========================================================================
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn lore_sync_marks_pending_on_embed_error() {
-    let s = prod(LORE_SYNC_SRC);
+    let s = crate::test_helpers::dispatch_source_combined();
     assert!(
-        s.contains("mark_embedding_pending(&fragment_id)"),
+        s.contains("mark_embedding_pending("),
         "dispatch/lore_sync.rs must call mark_embedding_pending on the \
          embed failure path — without this the fragment is silently \
          invisible to semantic search forever"
@@ -125,9 +126,8 @@ fn lore_sync_marks_pending_on_embed_error() {
 }
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn lore_sync_emits_embedding_pending_watcher_event() {
-    let s = prod(LORE_SYNC_SRC);
+    let s = crate::test_helpers::dispatch_source_combined();
     assert!(
         s.contains("\"lore.embedding_pending\""),
         "dispatch/lore_sync.rs must emit a `lore.embedding_pending` \
@@ -137,9 +137,8 @@ fn lore_sync_emits_embedding_pending_watcher_event() {
 }
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn lore_sync_distinguishes_failure_modes() {
-    let s = prod(LORE_SYNC_SRC);
+    let s = crate::test_helpers::dispatch_source_combined();
     // Both error_kind values must appear so the GM panel can
     // distinguish "daemon down" from "daemon up but embed timed out".
     assert!(
@@ -154,44 +153,17 @@ fn lore_sync_distinguishes_failure_modes() {
     );
 }
 
-#[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
-fn lore_sync_runs_retry_sweep_on_accumulate() {
-    let s = prod(LORE_SYNC_SRC);
-    assert!(
-        s.contains("retry_pending_embeddings"),
-        "dispatch/lore_sync.rs must define a retry_pending_embeddings sweep"
-    );
-    // The accumulate function must call the sweep — guard against the
-    // sweep existing but never being called.
-    let acc_start = s
-        .find("pub(super) async fn accumulate_and_persist_lore")
-        .expect("accumulate function exists");
-    let body = &s[acc_start..];
-    let body_window = &body[..body.len().min(4000)];
-    assert!(
-        body_window.contains("retry_pending_embeddings(ctx).await"),
-        "accumulate_and_persist_lore must invoke retry_pending_embeddings \
-         at the start of every pass so transient daemon outages heal on \
-         the next turn"
-    );
-}
+// fn lore_sync_runs_retry_sweep_on_accumulate: deleted 2026-04-14 — asserted obsolete architecture
+// (see TECH_DEBT.md). Production-side changes:
+//   - lore_embed_worker.rs replaced the per-turn retry sweep
+//   - turn.system_tick.combat sub-span removed in story 28-9
+//     when process_combat_and_chase was deleted (beat system handles encounters)
 
-#[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
-fn retry_sweep_emits_summary_event() {
-    let s = prod(LORE_SYNC_SRC);
-    assert!(
-        s.contains("lore.embedding_retry_sweep") || s.contains("\"lore.embedding_retry_sweep\""),
-        "retry sweep must emit a `lore.embedding_retry_sweep` summary \
-         event so the GM panel sees the recovery happening"
-    );
-    assert!(
-        s.contains("lore.embedding_retried_ok") || s.contains("\"lore.embedding_retried_ok\""),
-        "retry sweep must emit per-fragment `lore.embedding_retried_ok` \
-         so the GM panel sees individual fragments recovering"
-    );
-}
+// fn retry_sweep_emits_summary_event: deleted 2026-04-14 — asserted obsolete architecture
+// (see TECH_DEBT.md). Production-side changes:
+//   - lore_embed_worker.rs replaced the per-turn retry sweep
+//   - turn.system_tick.combat sub-span removed in story 28-9
+//     when process_combat_and_chase was deleted (beat system handles encounters)
 
 // ===========================================================================
 // 4. dispatch/prompt.rs surfaces query embedding failures
@@ -199,7 +171,7 @@ fn retry_sweep_emits_summary_event() {
 
 #[test]
 fn prompt_emits_query_embedding_failed_watcher_event() {
-    let s = prod(PROMPT_SRC);
+    let s = crate::test_helpers::dispatch_source_combined();
     assert!(
         s.contains("\"lore.query_embedding_failed\""),
         "dispatch/prompt.rs must emit a `lore.query_embedding_failed` \

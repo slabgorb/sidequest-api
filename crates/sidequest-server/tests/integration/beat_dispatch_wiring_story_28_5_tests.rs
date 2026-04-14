@@ -106,7 +106,7 @@ beats:
 /// selection actions — routing beat_id to apply_beat on the encounter.
 #[test]
 fn dispatch_has_beat_selection_handler() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -130,7 +130,7 @@ fn dispatch_has_beat_selection_handler() {
 /// code references resolve_attack or apply_hp_delta for attack beats.
 #[test]
 fn dispatch_routes_attack_stat_check() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -151,7 +151,7 @@ fn dispatch_routes_attack_stat_check() {
 /// escape resolution logic — separation metric or escape threshold check.
 #[test]
 fn dispatch_routes_escape_stat_check() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -176,7 +176,7 @@ fn dispatch_routes_escape_stat_check() {
 /// has been resolved and handle the outcome accordingly.
 #[test]
 fn dispatch_checks_resolution_after_apply_beat() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -196,9 +196,8 @@ fn dispatch_checks_resolution_after_apply_beat() {
 /// When an encounter resolves and escalates_to is set (e.g., standoff → combat),
 /// dispatch must create the escalation encounter.
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn dispatch_handles_escalation() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -220,9 +219,8 @@ fn dispatch_handles_escalation() {
 /// Dispatch must emit an encounter.beat_dispatched OTEL event containing
 /// beat_id, stat_check, and the resolver used.
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn dispatch_emits_beat_dispatched_otel() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -238,7 +236,7 @@ fn dispatch_emits_beat_dispatched_otel() {
 /// The beat_dispatched OTEL event must include the beat_id field.
 #[test]
 fn beat_dispatched_otel_includes_beat_id() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -255,7 +253,7 @@ fn beat_dispatched_otel_includes_beat_id() {
 /// The beat_dispatched OTEL event must include the stat_check field.
 #[test]
 fn beat_dispatched_otel_includes_stat_check() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -275,9 +273,8 @@ fn beat_dispatched_otel_includes_stat_check() {
 /// Dispatch must emit an encounter.stat_check_resolved OTEL event after
 /// resolving the stat check (attack damage, escape roll, metric delta).
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn dispatch_emits_stat_check_resolved_otel() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -298,7 +295,7 @@ fn dispatch_emits_stat_check_resolved_otel() {
 /// This is the core wiring guarantee.
 #[test]
 fn apply_beat_has_non_test_consumer_in_dispatch() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -320,7 +317,7 @@ fn apply_beat_has_non_test_consumer_in_dispatch() {
 /// exists in the dispatch module.
 #[test]
 fn beat_dispatch_reachable_from_dispatch_player_action() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()
@@ -568,7 +565,7 @@ fn apply_beat_transitions_phases_by_beat_number() {
 /// pass the def to apply_beat.
 #[test]
 fn dispatch_uses_find_confrontation_def_for_beat_dispatch() {
-    let dispatch_src = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_src = crate::test_helpers::dispatch_source_combined();
     let production_code = dispatch_src
         .split("#[cfg(test)]")
         .next()

@@ -1721,6 +1721,18 @@ pub(crate) async fn dispatch_character_creation(
                             &format!("Session transition failed: {e}"),
                         )];
                     }
+
+                    // Story 15-10: seed CharacterCreation lore from the builder's
+                    // scenes BEFORE clearing the builder. The builder owns the
+                    // scenes data, so this must happen first or the lore is lost.
+                    // Without this call, character backstory chosen during chargen
+                    // is invisible to the lore retrieval pipeline.
+                    if let Some(b) = builder.as_ref() {
+                        let mut store = lore_store.lock().await;
+                        let count =
+                            sidequest_game::seed_lore_from_char_creation(&mut store, b.scenes());
+                        tracing::info!(count = count, "rag.character_creation_lore_seeded");
+                    }
                     *builder = None;
 
                     let complete = GameMessage::CharacterCreation {

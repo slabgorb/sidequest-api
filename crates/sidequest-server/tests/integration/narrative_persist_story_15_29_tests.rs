@@ -12,10 +12,8 @@
 
 use std::fs;
 
-/// Read the dispatch module source code for structural verification.
 fn dispatch_source() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
-    fs::read_to_string(&path).unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
+    crate::test_helpers::dispatch_source_combined().to_string()
 }
 
 /// Extract a function body from source code by name.
@@ -64,7 +62,6 @@ fn persistence_source() -> String {
 // ═��═══════════════���═══════════════════════════════════��═════════
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_calls_append_narrative() {
     let src = dispatch_source();
     let persist_fn = extract_fn_body(&src, "persist_game_state");
@@ -79,7 +76,6 @@ fn persist_game_state_calls_append_narrative() {
 }
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn append_narrative_called_before_save() {
     let src = dispatch_source();
     let persist_fn = extract_fn_body(&src, "persist_game_state");
@@ -111,7 +107,6 @@ fn append_narrative_called_before_save() {
 // ════════════════════════════��══════════════════════════════════
 
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn persist_game_state_emits_narrative_appended_otel() {
     let src = dispatch_source();
     let persist_fn = extract_fn_body(&src, "persist_game_state");

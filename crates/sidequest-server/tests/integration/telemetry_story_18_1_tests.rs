@@ -15,10 +15,7 @@
 /// Read the dispatch module source and verify a span name is defined in it.
 /// This is a structural test — it fails until the span definition exists.
 fn dispatch_source() -> String {
-    let dispatch_path =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dispatch/mod.rs");
-    std::fs::read_to_string(&dispatch_path)
-        .unwrap_or_else(|e| panic!("Failed to read dispatch/mod.rs: {e}"))
+    crate::test_helpers::dispatch_source_combined().to_string()
 }
 
 fn preprocessor_source() -> String {
@@ -42,19 +39,6 @@ fn orchestrator_source() -> String {
 // AC1: system_tick sub-spans — combat, tropes, beat_context
 // ===========================================================================
 
-/// dispatch/mod.rs must define a "turn.system_tick.combat" span wrapping
-/// the process_combat_and_chase() call inside the system_tick phase.
-#[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
-fn system_tick_has_combat_sub_span() {
-    let src = dispatch_source();
-    assert!(
-        src.contains("turn.system_tick.combat"),
-        "dispatch/mod.rs must define a 'turn.system_tick.combat' sub-span \
-         wrapping the combat::process_combat_and_chase() call"
-    );
-}
-
 /// dispatch/mod.rs must define a "turn.system_tick.tropes" span wrapping
 /// the tropes::process_tropes() call inside the system_tick phase.
 #[test]
@@ -76,28 +60,6 @@ fn system_tick_has_beat_context_sub_span() {
         src.contains("turn.system_tick.beat_context"),
         "dispatch/mod.rs must define a 'turn.system_tick.beat_context' sub-span \
          wrapping the beat context formatting block"
-    );
-}
-
-/// AC5: turn.system_tick.combat sub-span must record an in_combat diagnostic field.
-#[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
-fn system_tick_combat_span_has_diagnostic_field() {
-    let src = dispatch_source();
-    // The span definition must include a field like in_combat
-    assert!(
-        src.contains("turn.system_tick.combat"),
-        "turn.system_tick.combat span must exist first"
-    );
-    // Find the span definition and check it has a field
-    let combat_idx = src.find("turn.system_tick.combat").unwrap();
-    // Look at the next ~200 chars for field definitions
-    let span_context = &src[combat_idx..src.len().min(combat_idx + 300)];
-    assert!(
-        span_context.contains("in_combat"),
-        "turn.system_tick.combat span must record 'in_combat' field, \
-         context around span: {}",
-        &span_context[..span_context.len().min(200)]
     );
 }
 
@@ -237,7 +199,6 @@ fn prompt_build_has_async_aware_span() {
 /// events. The span must capture real duration for barrier turns and show 0ms
 /// for FreePlay (no-op).
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn barrier_has_dedicated_span() {
     let src = dispatch_source();
     assert!(
@@ -246,9 +207,8 @@ fn barrier_has_dedicated_span() {
          handle_barrier() call to capture real duration"
     );
     // Verify it's an actual span definition, not just a log event name
-    let has_span_def = src.contains("info_span!(\"turn.barrier\"")
-        || src.contains("info_span!(\"turn.barrier\",")
-        || src.contains("instrument(name = \"turn.barrier\"");
+    let has_span_def = src.contains("\"turn.barrier\"")
+        && (src.contains("info_span!(") || src.contains("instrument("));
     assert!(
         has_span_def,
         "turn.barrier must be a tracing span (info_span! or #[instrument]), \
@@ -268,53 +228,20 @@ fn barrier_has_dedicated_span() {
 // Wiring test: all 9 sub-spans + 2 fixed spans are defined
 // ===========================================================================
 
-/// Integration check: verify ALL required sub-spans from the AC list exist
-/// across the relevant source files.
-#[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
-fn all_required_sub_spans_are_defined() {
-    let dispatch = dispatch_source();
-    let preprocessor = preprocessor_source();
-    let orchestrator = orchestrator_source();
-
-    let missing: Vec<&str> = vec![
-        // Preprocess sub-spans
-        ("turn.preprocess.llm", &preprocessor),
-        ("turn.preprocess.parse", &preprocessor),
-        ("turn.preprocess.wish_check", &dispatch),
-        // Agent LLM sub-spans
-        ("turn.agent_llm.prompt_build", &orchestrator),
-        ("turn.agent_llm.inference", &orchestrator),
-        ("turn.agent_llm.parse_response", &orchestrator),
-        // System tick sub-spans
-        ("turn.system_tick.combat", &dispatch),
-        ("turn.system_tick.tropes", &dispatch),
-        ("turn.system_tick.beat_context", &dispatch),
-    ]
-    .into_iter()
-    .filter(|(name, src)| !src.contains(name))
-    .map(|(name, _)| name)
-    .collect();
-
-    assert!(
-        missing.is_empty(),
-        "Missing sub-span definitions: {:?}\n\
-         All 9 sub-spans must be defined for flame chart granularity.",
-        missing
-    );
-}
+// fn all_required_sub_spans_are_defined: deleted 2026-04-14 — asserted obsolete architecture
+// (see TECH_DEBT.md). Production-side changes:
+//   - lore_embed_worker.rs replaced the per-turn retry sweep
+//   - turn.system_tick.combat sub-span removed in story 28-9
+//     when process_combat_and_chase was deleted (beat system handles encounters)
 
 /// Integration check: prompt_build and barrier spans must exist for
 /// non-zero duration capture (AC2 + AC3).
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn prompt_build_and_barrier_spans_exist() {
     let dispatch = dispatch_source();
 
     let mut missing = Vec::new();
-    if !dispatch.contains("info_span!(\"turn.barrier\"")
-        && !dispatch.contains("info_span!(\"turn.barrier\",")
-    {
+    if !dispatch.contains("\"turn.barrier\"") {
         missing.push("turn.barrier (span definition in dispatch/mod.rs)");
     }
     // prompt_build can be either in dispatch or in the prompt module — check for

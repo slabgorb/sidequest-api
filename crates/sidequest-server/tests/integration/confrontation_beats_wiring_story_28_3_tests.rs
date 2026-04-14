@@ -228,7 +228,7 @@ beats:
 /// Confrontation message builder. This is a file-level wiring test.
 #[test]
 fn beats_vec_empty_removed_from_dispatch() {
-    let dispatch_mod = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_mod = crate::test_helpers::dispatch_source_combined();
 
     // The old hardcoded empty beats
     assert!(
@@ -251,9 +251,8 @@ fn beats_vec_empty_removed_from_dispatch() {
 /// populated, so the GM panel can verify beats are flowing.
 /// This test scans the source for the WatcherEventBuilder call.
 #[test]
-#[ignore = "tech-debt: source-grep wiring test broken after ADR-063 dispatch decomposition (file references stale or moved); rewrite as behavior test or update paths — see TECH_DEBT.md"]
 fn otel_beats_sent_event_exists_in_dispatch() {
-    let dispatch_mod = include_str!("../../src/dispatch/mod.rs");
+    let dispatch_mod = crate::test_helpers::dispatch_source_combined();
 
     assert!(
         dispatch_mod.contains("beats_sent"),
