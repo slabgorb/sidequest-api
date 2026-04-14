@@ -7,11 +7,11 @@ pub(crate) mod debug_api;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
 pub mod dice_dispatch;
-#[cfg(test)]
-mod otel_dice_spans_34_11_tests;
 mod dispatch;
 pub(crate) mod extraction;
 pub(crate) mod npc_context;
+#[cfg(test)]
+mod otel_dice_spans_34_11_tests;
 pub mod render_integration;
 pub(crate) mod session;
 pub mod shared_session;
@@ -1034,12 +1034,53 @@ pub fn build_router(state: AppState) -> Router {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// GET /api/genres — scan genre_packs_path for genre directories with worlds.
+/// Lobby-facing metadata for a single genre pack.
 ///
-/// Returns: `{ "genre_slug": { "worlds": ["world1", "world2"] } }`
+/// Derived from `pack.yaml` + each `worlds/*/world.yaml`. The lobby picker
+/// renders this directly — the fields are chosen to populate a rich
+/// two-column preview without requiring a second fetch.
+#[derive(serde::Serialize)]
+struct GenreResponse {
+    /// Pretty display name from `pack.yaml`.
+    name: String,
+    /// Multi-paragraph pack description.
+    description: String,
+    /// Worlds in this genre, fully populated (not just slugs).
+    worlds: Vec<WorldResponse>,
+}
+
+/// Lobby-facing metadata for a single world within a genre pack.
+#[derive(serde::Serialize)]
+struct WorldResponse {
+    /// World directory slug (stable identifier).
+    slug: String,
+    /// Pretty display name.
+    name: String,
+    /// Long-form description used in the preview panel.
+    description: String,
+    /// Era string (e.g., "1878") — optional.
+    era: Option<String>,
+    /// Setting subtitle (e.g., "Sangre Territory — Texas-Mexico borderlands").
+    setting: Option<String>,
+    /// Inspirations list, verbatim from world.yaml.
+    inspirations: Vec<String>,
+    /// Narrative axis values (comedy, gravity, outlook, mythic, loyalty).
+    axis_snapshot: HashMap<String, f64>,
+    /// Resolved URL of the cover POI image, or `None` if `cover_poi` is
+    /// missing from world.yaml or the file cannot be found on disk. The
+    /// frontend handles `None` with a literary placeholder.
+    hero_image: Option<String>,
+}
+
+/// GET /api/genres — enumerate genre packs with rich metadata for the lobby picker.
+///
+/// Returns a map of `{ genre_slug: GenreResponse }` built from on-disk
+/// `pack.yaml` + `worlds/*/world.yaml` files. Packs with malformed YAML are
+/// logged and skipped — the endpoint is best-effort so one broken pack
+/// cannot break the entire lobby.
 #[tracing::instrument(skip(state))]
-async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serde_json::Value>> {
-    let mut genres: HashMap<String, serde_json::Value> = HashMap::new();
+async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, GenreResponse>> {
+    let mut genres: HashMap<String, GenreResponse> = HashMap::new();
 
     let packs_path = state.genre_packs_path();
     if !packs_path.exists() {
@@ -1066,27 +1107,157 @@ async fn list_genres(State(state): State<AppState>) -> Json<HashMap<String, serd
             None => continue,
         };
 
-        // Check for pack.yaml to confirm this is a genre pack
-        if !path.join("pack.yaml").exists() {
+        let pack_yaml_path = path.join("pack.yaml");
+        if !pack_yaml_path.exists() {
             continue;
         }
 
-        // Scan worlds/ subdirectory
-        let mut worlds = Vec::new();
+        // Parse pack.yaml for name + description. Failure → log and skip.
+        let pack_meta = match std::fs::read_to_string(&pack_yaml_path)
+            .map_err(|e| format!("read: {}", e))
+            .and_then(|s| {
+                serde_yaml::from_str::<sidequest_genre::PackMeta>(&s)
+                    .map_err(|e| format!("parse: {}", e))
+            }) {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::warn!(
+                    genre = %genre_slug,
+                    error = %e,
+                    "Skipping genre pack — failed to load pack.yaml"
+                );
+                continue;
+            }
+        };
+
+        // Walk worlds/ subdirectory and build a WorldResponse for each.
+        let mut worlds: Vec<WorldResponse> = Vec::new();
         let worlds_dir = path.join("worlds");
         if worlds_dir.exists() {
             if let Ok(world_entries) = std::fs::read_dir(&worlds_dir) {
                 for world_entry in world_entries.flatten() {
-                    if world_entry.path().is_dir() {
-                        if let Some(name) = world_entry.file_name().to_str() {
-                            worlds.push(name.to_string());
-                        }
+                    let world_path = world_entry.path();
+                    if !world_path.is_dir() {
+                        continue;
                     }
+                    let world_slug = match world_path.file_name().and_then(|n| n.to_str()) {
+                        Some(name) => name.to_string(),
+                        None => continue,
+                    };
+
+                    let world_yaml_path = world_path.join("world.yaml");
+                    if !world_yaml_path.exists() {
+                        tracing::warn!(
+                            genre = %genre_slug,
+                            world = %world_slug,
+                            "Skipping world — world.yaml missing"
+                        );
+                        continue;
+                    }
+
+                    let world_cfg = match std::fs::read_to_string(&world_yaml_path)
+                        .map_err(|e| format!("read: {}", e))
+                        .and_then(|s| {
+                            serde_yaml::from_str::<sidequest_genre::WorldConfig>(&s)
+                                .map_err(|e| format!("parse: {}", e))
+                        }) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::warn!(
+                                genre = %genre_slug,
+                                world = %world_slug,
+                                error = %e,
+                                "Skipping world — failed to load world.yaml"
+                            );
+                            continue;
+                        }
+                    };
+
+                    // Pull untyped extras (setting, inspirations) from the
+                    // flattened bag — these aren't promoted to explicit
+                    // WorldConfig fields, so we read them as serde_json::Value.
+                    let setting = world_cfg
+                        .extras
+                        .get("setting")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    let inspirations: Vec<String> = world_cfg
+                        .extras
+                        .get("inspirations")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v: &serde_json::Value| {
+                                    v.as_str().map(|s| s.to_string())
+                                })
+                                .collect::<Vec<String>>()
+                        })
+                        .unwrap_or_default();
+
+                    // Resolve cover_poi slug → URL via the /genre ServeDir mount.
+                    // Probes jpg, png, webp in order. Missing file is a loud
+                    // warning, not a silent fallback — the frontend renders
+                    // the literary placeholder instead of any substitute.
+                    let hero_image = match world_cfg.cover_poi.as_deref() {
+                        None => {
+                            tracing::warn!(
+                                genre = %genre_slug,
+                                world = %world_slug,
+                                "world.yaml missing cover_poi — lobby preview will show placeholder"
+                            );
+                            None
+                        }
+                        Some(poi_slug) => {
+                            let poi_dir = world_path.join("assets").join("poi");
+                            let mut found: Option<String> = None;
+                            for ext in &["jpg", "png", "webp"] {
+                                let candidate = poi_dir.join(format!("{}.{}", poi_slug, ext));
+                                if candidate.exists() {
+                                    found = Some(format!(
+                                        "/genre/{}/worlds/{}/assets/poi/{}.{}",
+                                        genre_slug, world_slug, poi_slug, ext
+                                    ));
+                                    break;
+                                }
+                            }
+                            if found.is_none() {
+                                tracing::warn!(
+                                    genre = %genre_slug,
+                                    world = %world_slug,
+                                    cover_poi = %poi_slug,
+                                    "cover_poi file not found in assets/poi (tried jpg, png, webp)"
+                                );
+                            }
+                            found
+                        }
+                    };
+
+                    worlds.push(WorldResponse {
+                        slug: world_slug,
+                        name: world_cfg.name,
+                        description: world_cfg.description,
+                        era: world_cfg.era,
+                        setting,
+                        inspirations,
+                        axis_snapshot: world_cfg.axis_snapshot,
+                        hero_image,
+                    });
                 }
             }
         }
 
-        genres.insert(genre_slug, serde_json::json!({ "worlds": worlds }));
+        // Sort worlds alphabetically by slug for stable ordering.
+        worlds.sort_by(|a, b| a.slug.cmp(&b.slug));
+
+        genres.insert(
+            genre_slug,
+            GenreResponse {
+                name: pack_meta.name.to_string(),
+                description: pack_meta.description,
+                worlds,
+            },
+        );
     }
 
     Json(genres)

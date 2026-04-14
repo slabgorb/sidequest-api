@@ -76,12 +76,18 @@ fn cli_args_parse_save_dir() {
 }
 
 // =========================================================================
-// AC2: REST endpoint — GET /api/genres returns structured data
+// AC2: REST endpoint — GET /api/genres returns enriched lobby metadata
 // =========================================================================
 // Note: Basic 200 + JSON tests are in 1-12. These extend with structure checks.
+//
+// Contract evolved for the lobby redesign: `/api/genres` now returns rich
+// per-world metadata (name, description, era, inspirations, axis_snapshot,
+// hero_image) so the picker can render a WorldPreview panel without a
+// second fetch. World entries are objects keyed by `slug`, no longer bare
+// slug strings.
 
 #[tokio::test]
-async fn genres_endpoint_returns_worlds_as_string_array() {
+async fn genres_endpoint_returns_enriched_world_objects() {
     let state = test_app_state();
     let app = build_router(state);
 
@@ -100,17 +106,81 @@ async fn genres_endpoint_returns_worlds_as_string_array() {
         .unwrap();
     let json: Value = serde_json::from_slice(&body).unwrap();
 
-    // Each genre's worlds must be an array of strings, not objects
-    for (slug, genre_data) in json.as_object().unwrap() {
+    let genres = json
+        .as_object()
+        .expect("response must be a JSON object of genre slugs");
+
+    for (slug, genre_data) in genres {
+        // Pack-level metadata: display name and description from pack.yaml.
+        assert!(
+            genre_data["name"].is_string(),
+            "Genre '{}' must have a string 'name' field",
+            slug
+        );
+        assert!(
+            genre_data["description"].is_string(),
+            "Genre '{}' must have a string 'description' field",
+            slug
+        );
+
         let worlds = genre_data["worlds"]
             .as_array()
             .unwrap_or_else(|| panic!("Genre '{}' worlds must be an array", slug));
+
+        // Each world is a structured object, not a bare slug string.
         for world in worlds {
+            let world_obj = world
+                .as_object()
+                .unwrap_or_else(|| panic!("World entries in '{}' must be objects", slug));
+
+            // Required world fields.
             assert!(
-                world.is_string(),
-                "World entries in '{}' must be strings, got: {}",
-                slug,
-                world
+                world_obj.get("slug").and_then(|v| v.as_str()).is_some(),
+                "World in '{}' must have a string 'slug'",
+                slug
+            );
+            assert!(
+                world_obj.get("name").and_then(|v| v.as_str()).is_some(),
+                "World in '{}' must have a string 'name'",
+                slug
+            );
+            assert!(
+                world_obj
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .is_some(),
+                "World in '{}' must have a string 'description'",
+                slug
+            );
+
+            // Optional but always-present keys with defaults. `inspirations`
+            // is always an array (may be empty), `axis_snapshot` is always
+            // an object (may be empty). `era`, `setting`, `hero_image` are
+            // all nullable — they must exist as keys but may be null.
+            assert!(
+                world_obj["inspirations"].is_array(),
+                "World in '{}' must have an 'inspirations' array",
+                slug
+            );
+            assert!(
+                world_obj["axis_snapshot"].is_object(),
+                "World in '{}' must have an 'axis_snapshot' object",
+                slug
+            );
+            assert!(
+                world_obj.contains_key("era"),
+                "World in '{}' must have an 'era' key (may be null)",
+                slug
+            );
+            assert!(
+                world_obj.contains_key("setting"),
+                "World in '{}' must have a 'setting' key (may be null)",
+                slug
+            );
+            assert!(
+                world_obj.contains_key("hero_image"),
+                "World in '{}' must have a 'hero_image' key (may be null)",
+                slug
             );
         }
     }
