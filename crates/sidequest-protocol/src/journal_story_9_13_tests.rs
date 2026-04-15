@@ -13,6 +13,13 @@
 
 use super::*;
 
+/// Story 33-18: JournalEntry.fact_id / .content are `NonBlankString`.
+macro_rules! nbs {
+    ($s:expr) => {
+        crate::types::NonBlankString::new($s).expect("test literal must be non-blank")
+    };
+}
+
 // ============================================================================
 // AC1: JournalRequest / JournalResponse GameMessage variants exist
 // ============================================================================
@@ -77,15 +84,15 @@ fn journal_request_sort_by_category() {
 #[test]
 fn journal_entry_has_all_fields() {
     let entry = JournalEntry {
-        fact_id: "f1".to_string(),
-        content: "The grove's oldest tree radiates corruption".to_string(),
+        fact_id: nbs!("f1"),
+        content: nbs!("The grove's oldest tree radiates corruption"),
         category: FactCategory::Place,
         source: "Observation".to_string(),
         confidence: "Certain".to_string(),
         learned_turn: 3,
     };
-    assert_eq!(entry.fact_id, "f1");
-    assert_eq!(entry.content, "The grove's oldest tree radiates corruption");
+    assert_eq!(entry.fact_id.as_str(), "f1");
+    assert_eq!(entry.content.as_str(), "The grove's oldest tree radiates corruption");
     assert_eq!(entry.category, FactCategory::Place);
     assert_eq!(entry.source, "Observation");
     assert_eq!(entry.confidence, "Certain");
@@ -101,16 +108,16 @@ fn journal_response_carries_entries() {
     let payload = JournalResponsePayload {
         entries: vec![
             JournalEntry {
-                fact_id: "f1".to_string(),
-                content: "Corruption in the grove".to_string(),
+                fact_id: nbs!("f1"),
+                content: nbs!("Corruption in the grove"),
                 category: FactCategory::Place,
                 source: "Observation".to_string(),
                 confidence: "Certain".to_string(),
                 learned_turn: 3,
             },
             JournalEntry {
-                fact_id: "f2".to_string(),
-                content: "Elder Mirova guards a secret".to_string(),
+                fact_id: nbs!("f2"),
+                content: nbs!("Elder Mirova guards a secret"),
                 category: FactCategory::Person,
                 source: "Dialogue".to_string(),
                 confidence: "Suspected".to_string(),
@@ -190,8 +197,8 @@ fn journal_response_serde_round_trip_with_entries() {
     let msg = GameMessage::JournalResponse {
         payload: JournalResponsePayload {
             entries: vec![JournalEntry {
-                fact_id: "f1".to_string(),
-                content: "The runes pulse with ward magic".to_string(),
+                fact_id: nbs!("f1"),
+                content: nbs!("The runes pulse with ward magic"),
                 category: FactCategory::Lore,
                 source: "Discovery".to_string(),
                 confidence: "Certain".to_string(),
@@ -206,7 +213,7 @@ fn journal_response_serde_round_trip_with_entries() {
         GameMessage::JournalResponse { payload, player_id } => {
             assert_eq!(player_id, "server");
             assert_eq!(payload.entries.len(), 1);
-            assert_eq!(payload.entries[0].fact_id, "f1");
+            assert_eq!(payload.entries[0].fact_id.as_str(), "f1");
             assert_eq!(payload.entries[0].learned_turn, 7);
             assert_eq!(payload.entries[0].category, FactCategory::Lore);
         }
@@ -259,8 +266,8 @@ fn journal_entry_accepts_all_fact_categories() {
         FactCategory::Ability,
     ] {
         let entry = JournalEntry {
-            fact_id: "test".to_string(),
-            content: "test content".to_string(),
+            fact_id: nbs!("test"),
+            content: nbs!("test content"),
             category,
             source: "Observation".to_string(),
             confidence: "Certain".to_string(),

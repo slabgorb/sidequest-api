@@ -16,11 +16,18 @@
 use std::collections::HashSet;
 
 use sidequest_genre::{RoomDef, RoomExit};
-use sidequest_protocol::{ExploredLocation, RoomExitInfo};
+use sidequest_protocol::{ExploredLocation, NonBlankString, RoomExitInfo};
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════
+
+/// Test-only shorthand for `NonBlankString::new(s).expect(...)` so tests
+/// can still use string-literal fluency after the protocol sweep (story
+/// 33-19) converted display-bound fields to `NonBlankString`.
+fn nbs(s: &str) -> NonBlankString {
+    NonBlankString::new(s).expect("test literal must be non-blank")
+}
 
 /// Build a 3-room dungeon: entrance → corridor → chamber.
 fn three_room_graph() -> Vec<RoomDef> {
@@ -87,13 +94,13 @@ fn three_room_graph() -> Vec<RoomDef> {
 fn explored_location_has_room_exits_field() {
     let loc = ExploredLocation {
         id: "entrance".into(),
-        name: "Entrance Hall".into(),
+        name: nbs("Entrance Hall"),
         x: 0,
         y: 0,
         location_type: "entrance".into(),
         connections: vec!["corridor".into()],
         room_exits: vec![RoomExitInfo {
-            target: "corridor".into(),
+            target: nbs("corridor"),
             exit_type: "corridor".into(),
         }],
         room_type: "entrance".into(),
@@ -102,7 +109,7 @@ fn explored_location_has_room_exits_field() {
         tactical_grid: None,
     };
     assert_eq!(loc.room_exits.len(), 1);
-    assert_eq!(loc.room_exits[0].target, "corridor");
+    assert_eq!(loc.room_exits[0].target.as_str(), "corridor");
     assert_eq!(loc.room_exits[0].exit_type, "corridor");
 }
 
@@ -111,7 +118,7 @@ fn explored_location_has_room_exits_field() {
 fn explored_location_has_room_type_field() {
     let loc = ExploredLocation {
         id: "chamber".into(),
-        name: "Treasure Chamber".into(),
+        name: nbs("Treasure Chamber"),
         x: 0,
         y: 0,
         location_type: "treasure".into(),
@@ -130,7 +137,7 @@ fn explored_location_has_room_type_field() {
 fn explored_location_has_size_field() {
     let loc = ExploredLocation {
         id: "entrance".into(),
-        name: "Entrance Hall".into(),
+        name: nbs("Entrance Hall"),
         x: 0,
         y: 0,
         location_type: "entrance".into(),
@@ -149,7 +156,7 @@ fn explored_location_has_size_field() {
 fn explored_location_has_is_current_room_flag() {
     let current = ExploredLocation {
         id: "entrance".into(),
-        name: "Entrance Hall".into(),
+        name: nbs("Entrance Hall"),
         x: 0,
         y: 0,
         location_type: "entrance".into(),
@@ -162,7 +169,7 @@ fn explored_location_has_is_current_room_flag() {
     };
     let not_current = ExploredLocation {
         id: "corridor".into(),
-        name: "corridor".into(),
+        name: nbs("corridor"),
         x: 0,
         y: 0,
         location_type: "normal".into(),
@@ -217,13 +224,13 @@ fn build_room_graph_explored_flags_current_room() {
     let explored = build_room_graph_explored(&rooms, &discovered, "corridor");
 
     for loc in &explored {
-        if loc.name == "Dark Corridor" {
+        if loc.name.as_str() == "Dark Corridor" {
             assert!(loc.is_current_room, "corridor should be flagged as current");
         } else {
             assert!(
                 !loc.is_current_room,
                 "{} should NOT be flagged as current",
-                loc.name
+                loc.name.as_str()
             );
         }
     }
@@ -240,7 +247,7 @@ fn build_room_graph_explored_populates_exits() {
 
     let explored = build_room_graph_explored(&rooms, &discovered, "entrance");
 
-    let corridor = explored.iter().find(|e| e.name == "Dark Corridor").unwrap();
+    let corridor = explored.iter().find(|e| e.name.as_str() == "Dark Corridor").unwrap();
     assert_eq!(corridor.room_exits.len(), 2, "corridor has 2 exits");
 
     let exit_targets: HashSet<&str> = corridor
@@ -263,13 +270,13 @@ fn build_room_graph_explored_populates_room_metadata() {
 
     let explored = build_room_graph_explored(&rooms, &discovered, "entrance");
 
-    let entrance = explored.iter().find(|e| e.name == "Entrance Hall").unwrap();
+    let entrance = explored.iter().find(|e| e.name.as_str() == "Entrance Hall").unwrap();
     assert_eq!(entrance.room_type, "entrance");
     assert_eq!(entrance.size, Some((3, 3)));
 
     let chamber = explored
         .iter()
-        .find(|e| e.name == "Treasure Chamber")
+        .find(|e| e.name.as_str() == "Treasure Chamber")
         .unwrap();
     assert_eq!(chamber.room_type, "treasure");
     assert_eq!(chamber.size, Some((5, 5)));
@@ -295,13 +302,13 @@ fn build_room_graph_explored_empty_discovered_returns_empty() {
 fn explored_location_serde_round_trip_with_room_graph_fields() {
     let loc = ExploredLocation {
         id: "entrance".into(),
-        name: "Entrance Hall".into(),
+        name: nbs("Entrance Hall"),
         x: 0,
         y: 0,
         location_type: "entrance".into(),
         connections: vec!["corridor".into()],
         room_exits: vec![RoomExitInfo {
-            target: "corridor".into(),
+            target: nbs("corridor"),
             exit_type: "corridor".into(),
         }],
         room_type: "entrance".into(),
@@ -313,7 +320,7 @@ fn explored_location_serde_round_trip_with_room_graph_fields() {
     let deser: ExploredLocation = serde_json::from_str(&json).expect("deserialize");
 
     assert_eq!(deser.room_exits.len(), 1);
-    assert_eq!(deser.room_exits[0].target, "corridor");
+    assert_eq!(deser.room_exits[0].target.as_str(), "corridor");
     assert_eq!(deser.room_type, "entrance");
     assert_eq!(deser.size, Some((3, 3)));
     assert!(deser.is_current_room);
@@ -326,7 +333,7 @@ fn explored_location_backward_compat_without_room_graph_fields() {
     let json = r#"{"name":"Town Square","x":10,"y":20,"type":"town","connections":["market"]}"#;
     let loc: ExploredLocation = serde_json::from_str(json).expect("deserialize");
 
-    assert_eq!(loc.name, "Town Square");
+    assert_eq!(loc.name.as_str(), "Town Square");
     assert_eq!(loc.location_type, "town");
     // New fields should default to empty/false when absent
     assert!(
@@ -358,7 +365,7 @@ fn integration_three_room_discovery_sequence() {
     let discovered_1: HashSet<String> = ["entrance"].iter().map(|s| s.to_string()).collect();
     let explored_1 = build_room_graph_explored(&rooms, &discovered_1, "entrance");
     assert_eq!(explored_1.len(), 1);
-    assert_eq!(explored_1[0].name, "Entrance Hall");
+    assert_eq!(explored_1[0].name.as_str(), "Entrance Hall");
     assert!(explored_1[0].is_current_room);
     assert_eq!(explored_1[0].room_exits.len(), 1);
 
@@ -372,7 +379,7 @@ fn integration_three_room_discovery_sequence() {
     let current_2: Vec<&ExploredLocation> =
         explored_2.iter().filter(|e| e.is_current_room).collect();
     assert_eq!(current_2.len(), 1, "exactly one room should be current");
-    assert_eq!(current_2[0].name, "Dark Corridor");
+    assert_eq!(current_2[0].name.as_str(), "Dark Corridor");
 
     // Step 3: discover chamber
     let discovered_3: HashSet<String> = ["entrance", "corridor", "chamber"]
@@ -384,7 +391,7 @@ fn integration_three_room_discovery_sequence() {
     let current_3: Vec<&ExploredLocation> =
         explored_3.iter().filter(|e| e.is_current_room).collect();
     assert_eq!(current_3.len(), 1);
-    assert_eq!(current_3[0].name, "Treasure Chamber");
+    assert_eq!(current_3[0].name.as_str(), "Treasure Chamber");
     assert_eq!(current_3[0].room_type, "treasure");
     assert_eq!(current_3[0].size, Some((5, 5)));
 }
@@ -454,14 +461,14 @@ fn secret_exits_hidden_when_undiscovered() {
     let discovered: HashSet<String> = ["hall", "closet"].iter().map(|s| s.to_string()).collect();
     let explored = build_room_graph_explored(&rooms, &discovered, "hall");
 
-    let hall = explored.iter().find(|e| e.name == "Great Hall").unwrap();
+    let hall = explored.iter().find(|e| e.name.as_str() == "Great Hall").unwrap();
     // Hall has 2 exits in RoomDef but the secret one is undiscovered
     assert_eq!(
         hall.room_exits.len(),
         1,
         "undiscovered secret exit should be hidden"
     );
-    assert_eq!(hall.room_exits[0].target, "closet");
+    assert_eq!(hall.room_exits[0].target.as_str(), "closet");
 }
 
 /// When secret exit IS discovered, it appears in room_exits.
@@ -492,7 +499,7 @@ fn secret_exits_visible_when_discovered() {
     let discovered: HashSet<String> = ["hall"].iter().map(|s| s.to_string()).collect();
     let explored = build_room_graph_explored(&rooms, &discovered, "hall");
 
-    let hall = explored.iter().find(|e| e.name == "Great Hall").unwrap();
+    let hall = explored.iter().find(|e| e.name.as_str() == "Great Hall").unwrap();
     assert_eq!(
         hall.room_exits.len(),
         2,
@@ -527,7 +534,7 @@ fn locked_doors_appear_in_exits() {
     let discovered: HashSet<String> = ["hall"].iter().map(|s| s.to_string()).collect();
     let explored = build_room_graph_explored(&rooms, &discovered, "hall");
 
-    let hall = explored.iter().find(|e| e.name == "Hall").unwrap();
+    let hall = explored.iter().find(|e| e.name.as_str() == "Hall").unwrap();
     assert_eq!(hall.room_exits.len(), 1, "locked door should still appear");
-    assert_eq!(hall.room_exits[0].target, "locked_room");
+    assert_eq!(hall.room_exits[0].target.as_str(), "locked_room");
 }

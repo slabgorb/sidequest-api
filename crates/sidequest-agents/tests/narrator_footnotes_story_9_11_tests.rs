@@ -25,11 +25,15 @@ use sidequest_protocol::{FactCategory, Footnote, NarrationPayload};
 // Helpers
 // =========================================================================
 
+fn nbs(s: &str) -> sidequest_protocol::NonBlankString {
+    sidequest_protocol::NonBlankString::new(s).expect("test literal must be non-blank")
+}
+
 fn sample_footnote_new(marker: u32, summary: &str, category: FactCategory) -> Footnote {
     Footnote {
         marker: Some(marker),
         fact_id: None,
-        summary: summary.to_string(),
+        summary: nbs(summary),
         category,
         is_new: true,
     }
@@ -44,7 +48,7 @@ fn sample_footnote_callback(
     Footnote {
         marker: Some(marker),
         fact_id: Some(fact_id.to_string()),
-        summary: summary.to_string(),
+        summary: nbs(summary),
         category,
         is_new: false,
     }
@@ -52,9 +56,10 @@ fn sample_footnote_callback(
 
 fn sample_payload_with_footnotes() -> NarrationPayload {
     NarrationPayload {
-        text: "As you enter the grove, Reva feels a deep wrongness [1]. \
-               The old well [2] sits at the center, just as the innkeeper described [3]."
-            .to_string(),
+        text: nbs(
+            "As you enter the grove, Reva feels a deep wrongness [1]. \
+               The old well [2] sits at the center, just as the innkeeper described [3].",
+        ),
         state_delta: None,
         footnotes: vec![
             sample_footnote_new(
@@ -86,7 +91,7 @@ fn narration_payload_contains_prose_and_footnotes() {
     let payload = sample_payload_with_footnotes();
 
     assert!(
-        !payload.text.is_empty(),
+        !payload.text.as_str().is_empty(),
         "Narration payload should contain prose text",
     );
     assert_eq!(
@@ -126,7 +131,8 @@ fn narration_payload_roundtrips_through_json() {
         "Footnote count should round-trip",
     );
     assert_eq!(
-        restored.footnotes[0].summary, "Corruption detected in the grove's oldest tree",
+        restored.footnotes[0].summary.as_str(),
+        "Corruption detected in the grove's oldest tree",
         "First footnote summary should round-trip",
     );
 }

@@ -22,6 +22,10 @@ use sidequest_agents::tools::assemble_turn::{assemble_turn, ToolCallResults};
 use sidequest_agents::tools::item_acquire::{validate_item_acquire, ItemAcquireResult};
 use sidequest_agents::tools::tool_call_parser::{parse_tool_results, sidecar_path};
 
+fn nbs(s: &str) -> sidequest_protocol::NonBlankString {
+    sidequest_protocol::NonBlankString::new(s).expect("test literal must be non-blank")
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -49,8 +53,8 @@ fn extraction_with_items() -> NarratorExtraction {
         prose: "You pick up the rusty sword from the ground.".to_string(),
         footnotes: vec![],
         items_gained: vec![sidequest_protocol::ItemGained {
-            name: "narrator fallback sword".to_string(),
-            description: "A sword from the narrator's extraction".to_string(),
+            name: nbs("narrator fallback sword"),
+            description: nbs("A sword from the narrator's extraction"),
             category: "weapon".to_string(),
         }],
         npcs_present: vec![],
@@ -235,8 +239,8 @@ fn item_acquire_result_serializes_to_json() {
 #[test]
 fn tool_call_results_has_items_acquired_field() {
     let items = vec![sidequest_protocol::ItemGained {
-        name: "Iron Sword".to_string(),
-        description: "A sturdy iron blade.".to_string(),
+        name: nbs("Iron Sword"),
+        description: nbs("A sturdy iron blade."),
         category: "weapon".to_string(),
     }];
 
@@ -268,11 +272,11 @@ fn tool_call_results_default_items_acquired_is_none() {
 fn validate_item_acquire_produces_item_gained() {
     let result = validate_item_acquire("iron_sword", "Iron Sword", "weapon").unwrap();
     let item_gained = result.to_item_gained();
-    assert_eq!(item_gained.name, "Iron Sword");
+    assert_eq!(item_gained.name.as_str(), "Iron Sword");
     assert_eq!(item_gained.category, "weapon");
     // description should be non-empty (either from catalog or generated)
     assert!(
-        !item_gained.description.is_empty(),
+        !item_gained.description.as_str().is_empty(),
         "description must not be empty"
     );
 }
@@ -288,7 +292,7 @@ fn validate_item_acquire_narrator_described_to_item_gained() {
     )
     .unwrap();
     let item_gained = result.to_item_gained();
-    assert_eq!(item_gained.name, "Rusty Runed Sword");
+    assert_eq!(item_gained.name.as_str(), "Rusty Runed Sword");
     assert_eq!(item_gained.category, "weapon");
 }
 
@@ -355,7 +359,7 @@ fn parser_extracts_item_acquire_from_sidecar() {
         .items_acquired
         .expect("item_acquire tool result should populate items_acquired");
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].name, "Iron Sword");
+    assert_eq!(items[0].name.as_str(), "Iron Sword");
     assert_eq!(items[0].category, "weapon");
 
     cleanup_sidecar(&sid);
@@ -380,8 +384,8 @@ fn parser_accumulates_multiple_item_acquires() {
     assert_eq!(items.len(), 2);
 
     // Verify both items present (order preserved from sidecar)
-    assert_eq!(items[0].name, "Iron Sword");
-    assert_eq!(items[1].name, "Health Potion");
+    assert_eq!(items[0].name.as_str(), "Iron Sword");
+    assert_eq!(items[1].name.as_str(), "Health Potion");
 
     cleanup_sidecar(&sid);
 }
@@ -490,7 +494,7 @@ fn parser_item_acquire_coexists_with_other_tools() {
         .items_acquired
         .expect("item_acquire should be parsed");
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].name, "Iron Sword");
+    assert_eq!(items[0].name.as_str(), "Iron Sword");
 
     // Other tools also populated
     assert_eq!(results.scene_mood.as_deref(), Some("triumph"));
@@ -508,8 +512,8 @@ fn parser_item_acquire_coexists_with_other_tools() {
 fn assemble_turn_tool_items_override_narrator() {
     let extraction = extraction_with_items(); // has fallback narrator item
     let tool_items = vec![sidequest_protocol::ItemGained {
-        name: "Tool Iron Sword".to_string(),
-        description: "A sword from the tool call.".to_string(),
+        name: nbs("Tool Iron Sword"),
+        description: nbs("A sword from the tool call."),
         category: "weapon".to_string(),
     }];
 
@@ -526,7 +530,7 @@ fn assemble_turn_tool_items_override_narrator() {
         1,
         "tool items must replace narrator items"
     );
-    assert_eq!(result.items_gained[0].name, "Tool Iron Sword");
+    assert_eq!(result.items_gained[0].name.as_str(), "Tool Iron Sword");
 }
 
 /// Multiple item_acquire tool calls in one turn produce multiple items_gained.
@@ -535,13 +539,13 @@ fn assemble_turn_multiple_item_tools() {
     let extraction = extraction_no_items();
     let tool_items = vec![
         sidequest_protocol::ItemGained {
-            name: "Iron Sword".to_string(),
-            description: "A sturdy blade.".to_string(),
+            name: nbs("Iron Sword"),
+            description: nbs("A sturdy blade."),
             category: "weapon".to_string(),
         },
         sidequest_protocol::ItemGained {
-            name: "Health Potion".to_string(),
-            description: "Restores health.".to_string(),
+            name: nbs("Health Potion"),
+            description: nbs("Restores health."),
             category: "consumable".to_string(),
         },
     ];

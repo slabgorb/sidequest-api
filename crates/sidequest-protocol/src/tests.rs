@@ -6,6 +6,26 @@
 
 use super::*;
 
+/// Test-only constructor macro for `NonBlankString` literals.
+///
+/// Story 33-18 converted many payload fields from `String` to `NonBlankString`.
+/// This macro keeps call sites in tests terse while still routing through the
+/// validating constructor (no silent-fallback, no `unwrap_or_default`). A panic
+/// here means the test author typed a blank literal — which is itself a bug.
+macro_rules! nbs {
+    ($s:expr) => {
+        crate::types::NonBlankString::new($s).expect("test literal must be non-blank")
+    };
+}
+
+/// Test-only constructor macro for `Option<NonBlankString>` from a non-blank literal.
+/// Use `None` directly for the "no value" case — this helper is only for Some(…).
+macro_rules! some_nbs {
+    ($s:expr) => {
+        Some(crate::types::NonBlankString::new($s).expect("test literal must be non-blank"))
+    };
+}
+
 // ==========================================================================
 // AC: Newtypes — validated construction
 // Rust review rule #5 (validated constructors), #8 (serde bypass),
@@ -88,7 +108,7 @@ mod message_type_tests {
     fn player_action_round_trip() {
         let msg = GameMessage::PlayerAction {
             payload: PlayerActionPayload {
-                action: "attack the goblin".into(),
+                action: nbs!("attack the goblin"),
                 aside: false,
             },
             player_id: "player1".into(),
@@ -107,7 +127,7 @@ mod message_type_tests {
     fn narration_round_trip() {
         let msg = GameMessage::Narration {
             payload: NarrationPayload {
-                text: "The orc lunges...".into(),
+                text: nbs!("The orc lunges..."),
                 state_delta: None,
                 footnotes: vec![],
             },
@@ -124,12 +144,12 @@ mod message_type_tests {
     fn narration_with_state_delta_round_trip() {
         let msg = GameMessage::Narration {
             payload: NarrationPayload {
-                text: "You arrive.".into(),
+                text: nbs!("You arrive."),
                 footnotes: vec![],
                 state_delta: Some(StateDelta {
                     location: Some("Dark Cave".into()),
                     characters: Some(vec![CharacterState {
-                        name: "Grok".into(),
+                        name: nbs!("Grok"),
                         hp: 15,
                         max_hp: 20,
                         level: 3,
@@ -214,7 +234,7 @@ mod message_type_tests {
                 has_character: None,
                 initial_state: Some(InitialState {
                     characters: vec![CharacterState {
-                        name: "Hero".into(),
+                        name: nbs!("Hero"),
                         hp: 20,
                         max_hp: 20,
                         level: 1,
@@ -222,7 +242,7 @@ mod message_type_tests {
                         statuses: vec![],
                         inventory: vec!["map".into()],
                     }],
-                    location: "Town Square".into(),
+                    location: nbs!("Town Square"),
                     quests: std::collections::HashMap::new(),
                     turn_count: 0,
                 }),
@@ -249,8 +269,8 @@ mod message_type_tests {
                 summary: None,
                 message: None,
                 choices: Some(vec![CreationChoice {
-                    label: "Warrior".into(),
-                    description: "Strong fighter".into(),
+                    label: nbs!("Warrior"),
+                    description: nbs!("Strong fighter"),
                 }]),
                 allows_freeform: Some(true),
                 input_type: Some("text".into()),
@@ -272,7 +292,7 @@ mod message_type_tests {
     fn turn_status_round_trip() {
         let msg = GameMessage::TurnStatus {
             payload: TurnStatusPayload {
-                player_name: "Kael".into(),
+                player_name: nbs!("Kael"),
                 status: "active".into(),
                 state_delta: None,
             },
@@ -292,35 +312,35 @@ mod message_type_tests {
         let msg = GameMessage::PartyStatus {
             payload: PartyStatusPayload {
                 members: vec![PartyMember {
-                    player_id: "p1".into(),
-                    name: "Player1".into(),
-                    character_name: "Grok".into(),
+                    player_id: nbs!("p1"),
+                    name: nbs!("Player1"),
+                    character_name: some_nbs!("Grok"),
                     current_hp: 20,
                     max_hp: 20,
                     statuses: vec!["blessed".into()],
-                    class: "Warrior".into(),
+                    class: nbs!("Warrior"),
                     level: 3,
                     portrait_url: None,
-                    current_location: String::new(),
+                    current_location: None,
                     sheet: Some(CharacterSheetDetails {
-                        race: "Orc".into(),
+                        race: nbs!("Orc"),
                         stats: std::collections::HashMap::from([
                             ("strength".into(), 16),
                             ("dexterity".into(), 12),
                         ]),
                         abilities: vec!["Power Strike".into()],
-                        backstory: "A wandering fighter.".into(),
-                        personality: "Gruff".into(),
-                        pronouns: "he/him".into(),
+                        backstory: nbs!("A wandering fighter."),
+                        personality: nbs!("Gruff"),
+                        pronouns: nbs!("he/him"),
                         equipment: vec!["Iron Sword [equipped]".into()],
                     }),
                     inventory: Some(InventoryPayload {
                         items: vec![InventoryItem {
-                            name: "Iron Sword".into(),
+                            name: nbs!("Iron Sword"),
                             item_type: "weapon".into(),
                             equipped: true,
                             quantity: 1,
-                            description: "A sturdy blade".into(),
+                            description: nbs!("A sturdy blade"),
                         }],
                         gold: 150,
                     }),
@@ -334,17 +354,19 @@ mod message_type_tests {
         assert_eq!(msg, decoded);
 
         // Sheet/inventory optionality: a pre-chargen member has None on both.
+        // Story 33-18 contract: `class` is `NonBlankString`; pre-chargen members
+        // use a placeholder like "Adventurer" until chargen assigns a real class.
         let pre_chargen = PartyMember {
-            player_id: "p2".into(),
-            name: "Player2".into(),
-            character_name: String::new(),
+            player_id: nbs!("p2"),
+            name: nbs!("Player2"),
+            character_name: None,
             current_hp: 0,
             max_hp: 0,
             statuses: vec![],
-            class: String::new(),
+            class: nbs!("Adventurer"),
             level: 0,
             portrait_url: None,
-            current_location: String::new(),
+            current_location: None,
             sheet: None,
             inventory: None,
         };
@@ -360,11 +382,11 @@ mod message_type_tests {
     fn map_update_round_trip() {
         let msg = GameMessage::MapUpdate {
             payload: MapUpdatePayload {
-                current_location: "Dark Cave".into(),
-                region: "Shadowlands".into(),
+                current_location: nbs!("Dark Cave"),
+                region: nbs!("Shadowlands"),
                 explored: vec![ExploredLocation {
                     id: "dark_cave".into(),
-                    name: "Dark Cave".into(),
+                    name: nbs!("Dark Cave"),
                     x: 100,
                     y: 200,
                     location_type: "dungeon".into(),
@@ -396,8 +418,8 @@ mod message_type_tests {
     fn image_round_trip() {
         let msg = GameMessage::Image {
             payload: ImagePayload {
-                url: "https://example.com/img.png".into(),
-                description: "A crumbling tower".into(),
+                url: nbs!("https://example.com/img.png"),
+                description: nbs!("A crumbling tower"),
                 handout: true,
                 render_id: Some("render-123".into()),
                 tier: Some("scene".into()),
@@ -496,7 +518,7 @@ mod message_type_tests {
     fn error_round_trip() {
         let msg = GameMessage::Error {
             payload: ErrorPayload {
-                message: "something went wrong".into(),
+                message: nbs!("something went wrong"),
                 reconnect_required: None,
             },
             player_id: String::new(),
@@ -526,7 +548,7 @@ mod wire_compatibility_tests {
         let msg: GameMessage = serde_json::from_str(json).unwrap();
         match &msg {
             GameMessage::PlayerAction { payload, player_id } => {
-                assert_eq!(payload.action, "attack the goblin");
+                assert_eq!(payload.action.as_str(), "attack the goblin");
                 assert!(!payload.aside);
                 assert_eq!(player_id, "");
             }
@@ -576,10 +598,10 @@ mod wire_compatibility_tests {
         let msg: GameMessage = serde_json::from_str(json).unwrap();
         match &msg {
             GameMessage::Narration { payload, .. } => {
-                assert_eq!(payload.text, "The orc lunges...");
+                assert_eq!(payload.text.as_str(), "The orc lunges...");
                 let delta = payload.state_delta.as_ref().unwrap();
                 assert_eq!(delta.location.as_deref(), Some("Dark Cave"));
-                assert_eq!(delta.characters.as_ref().unwrap()[0].name, "Grok");
+                assert_eq!(delta.characters.as_ref().unwrap()[0].name.as_str(), "Grok");
                 assert_eq!(delta.characters.as_ref().unwrap()[0].hp, 15);
             }
             other => panic!("expected Narration, got {:?}", other),
@@ -595,7 +617,7 @@ mod wire_compatibility_tests {
         let msg: GameMessage = serde_json::from_str(json).unwrap();
         match &msg {
             GameMessage::Error { payload, .. } => {
-                assert_eq!(payload.message, "something broke");
+                assert_eq!(payload.message.as_str(), "something broke");
             }
             other => panic!("expected Error, got {:?}", other),
         }
@@ -766,16 +788,19 @@ mod player_location_tests {
     /// bodies focused on what they're actually asserting.
     fn member_at(location: &str) -> PartyMember {
         PartyMember {
-            player_id: "p1".into(),
-            name: "Alice".into(),
-            character_name: "Kael".into(),
+            player_id: nbs!("p1"),
+            name: nbs!("Alice"),
+            character_name: some_nbs!("Kael"),
             current_hp: 20,
             max_hp: 20,
             statuses: vec![],
-            class: "Ranger".into(),
+            class: nbs!("Ranger"),
             level: 3,
             portrait_url: None,
-            current_location: location.into(),
+            current_location: Some(
+                crate::types::NonBlankString::new(location)
+                    .expect("member_at caller must pass a non-blank location"),
+            ),
             sheet: None,
             inventory: None,
         }
@@ -786,7 +811,10 @@ mod player_location_tests {
         // PartyMember must carry current_location so the UI can display
         // where each player is without needing a separate MAP_UPDATE.
         let member = member_at("The Rusty Cantina");
-        assert_eq!(member.current_location, "The Rusty Cantina");
+        assert_eq!(
+            member.current_location.as_ref().map(|s| s.as_str()),
+            Some("The Rusty Cantina")
+        );
     }
 
     #[test]
@@ -804,7 +832,10 @@ mod player_location_tests {
         let member = member_at("The Wastes");
         let json = serde_json::to_string(&member).unwrap();
         let decoded: PartyMember = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded.current_location, "The Wastes");
+        assert_eq!(
+            decoded.current_location.as_ref().map(|s| s.as_str()),
+            Some("The Wastes")
+        );
     }
 
     #[test]
@@ -814,30 +845,30 @@ mod player_location_tests {
             payload: PartyStatusPayload {
                 members: vec![
                     PartyMember {
-                        player_id: "p1".into(),
-                        name: "Alice".into(),
-                        character_name: "Kael".into(),
+                        player_id: nbs!("p1"),
+                        name: nbs!("Alice"),
+                        character_name: some_nbs!("Kael"),
                         current_hp: 20,
                         max_hp: 20,
                         statuses: vec![],
-                        class: "Ranger".into(),
+                        class: nbs!("Ranger"),
                         level: 3,
                         portrait_url: None,
-                        current_location: "The Rusty Cantina".into(),
+                        current_location: some_nbs!("The Rusty Cantina"),
                         sheet: None,
                         inventory: None,
                     },
                     PartyMember {
-                        player_id: "p2".into(),
-                        name: "Bob".into(),
-                        character_name: "Lyra".into(),
+                        player_id: nbs!("p2"),
+                        name: nbs!("Bob"),
+                        character_name: some_nbs!("Lyra"),
                         current_hp: 35,
                         max_hp: 40,
                         statuses: vec![],
-                        class: "Cleric".into(),
+                        class: nbs!("Cleric"),
                         level: 5,
                         portrait_url: None,
-                        current_location: "Scrapyard Gate".into(),
+                        current_location: some_nbs!("Scrapyard Gate"),
                         sheet: None,
                         inventory: None,
                     },
@@ -852,8 +883,14 @@ mod player_location_tests {
         // Verify both locations survive the round trip
         match &decoded {
             GameMessage::PartyStatus { payload, .. } => {
-                assert_eq!(payload.members[0].current_location, "The Rusty Cantina");
-                assert_eq!(payload.members[1].current_location, "Scrapyard Gate");
+                assert_eq!(
+                    payload.members[0].current_location.as_ref().map(|s| s.as_str()),
+                    Some("The Rusty Cantina")
+                );
+                assert_eq!(
+                    payload.members[1].current_location.as_ref().map(|s| s.as_str()),
+                    Some("Scrapyard Gate")
+                );
             }
             other => panic!("expected PartyStatus, got {:?}", other),
         }
@@ -865,23 +902,23 @@ mod player_location_tests {
         // The current_location field still lives on PartyMember itself; the
         // nested sheet carries the per-character detail facets.
         let member = PartyMember {
-            player_id: "p1".into(),
-            name: "Alice".into(),
-            character_name: "Kael".into(),
+            player_id: nbs!("p1"),
+            name: nbs!("Alice"),
+            character_name: some_nbs!("Kael"),
             current_hp: 20,
             max_hp: 20,
             statuses: vec![],
-            class: "Ranger".into(),
+            class: nbs!("Ranger"),
             level: 3,
             portrait_url: None,
-            current_location: "The Rusty Cantina".into(),
+            current_location: some_nbs!("The Rusty Cantina"),
             sheet: Some(CharacterSheetDetails {
-                race: "Human".into(),
+                race: nbs!("Human"),
                 stats: std::collections::HashMap::from([("strength".into(), 14)]),
                 abilities: vec!["Tracker".into()],
-                backstory: "Born in the Ashwood.".into(),
-                personality: "Stoic".into(),
-                pronouns: "he/him".into(),
+                backstory: nbs!("Born in the Ashwood."),
+                personality: nbs!("Stoic"),
+                pronouns: nbs!("he/him"),
                 equipment: vec!["Longbow".into()],
             }),
             inventory: None,
@@ -916,7 +953,10 @@ mod player_location_tests {
         let msg: GameMessage = serde_json::from_str(json).unwrap();
         match &msg {
             GameMessage::PartyStatus { payload, .. } => {
-                assert_eq!(payload.members[0].current_location, "Market Square");
+                assert_eq!(
+                    payload.members[0].current_location.as_ref().map(|s| s.as_str()),
+                    Some("Market Square")
+                );
             }
             other => panic!("expected PartyStatus, got {:?}", other),
         }

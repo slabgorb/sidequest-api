@@ -8,7 +8,7 @@ use std::collections::HashSet;
 
 use sidequest_genre::{RoomDef, RoomExit};
 use sidequest_protocol::{
-    ExploredLocation, RoomExitInfo, TacticalFeaturePayload, TacticalGridPayload,
+    ExploredLocation, NonBlankString, RoomExitInfo, TacticalFeaturePayload, TacticalGridPayload,
 };
 
 use crate::tactical::{TacticalCell, TacticalGrid};
@@ -180,24 +180,48 @@ pub fn build_room_graph_explored(
     rooms
         .iter()
         .filter(|room| discovered.contains(&room.id))
-        .map(|room| {
+        .filter_map(|room| {
             let visible_exits: Vec<RoomExitInfo> = room
                 .exits
                 .iter()
                 .filter(|exit| is_exit_visible(exit))
-                .map(|exit| RoomExitInfo {
-                    target: exit.target().to_string(),
-                    exit_type: exit_type_slug(exit),
+                .filter_map(|exit| {
+                    // Drop exits with blank targets — those are room graph
+                    // authoring bugs, not legitimate navigable edges.
+                    let target = NonBlankString::new(exit.target()).ok()?;
+                    Some(RoomExitInfo {
+                        target,
+                        exit_type: exit_type_slug(exit),
+                    })
                 })
                 .collect();
 
-            let connections: Vec<String> = visible_exits.iter().map(|e| e.target.clone()).collect();
+            let connections: Vec<String> = visible_exits
+                .iter()
+                .map(|e| e.target.as_str().to_string())
+                .collect();
 
             let tactical_grid = parse_room_grid(room);
 
-            ExploredLocation {
+            // Skip rooms with a blank name — same rationale as the exit
+            // targets above. Room graph validation should catch this
+            // earlier, but this is the protocol boundary and must fail
+            // loud rather than ship a blank map marker.
+            let name = match NonBlankString::new(&room.name) {
+                Ok(n) => n,
+                Err(_) => {
+                    tracing::warn!(
+                        room_id = %room.id,
+                        "explored_location_skipped — RoomDef.name is blank; \
+                         check room graph pack"
+                    );
+                    return None;
+                }
+            };
+
+            Some(ExploredLocation {
                 id: room.id.clone(),
-                name: room.name.clone(),
+                name,
                 x: 0,
                 y: 0,
                 location_type: room.room_type.clone(),
@@ -207,7 +231,7 @@ pub fn build_room_graph_explored(
                 size: Some(room.size),
                 is_current_room: room.id == current_room_id,
                 tactical_grid,
-            }
+            })
         })
         .collect()
 }
@@ -253,10 +277,24 @@ fn tactical_grid_to_payload(grid: &TacticalGrid) -> TacticalGridPayload {
             }
         }
         if !positions.is_empty() {
+            // Skip features with blank labels — those are legend-authoring
+            // bugs in the room YAML. Emit a warning so the pack author
+            // sees it rather than silently dropping a tooltip.
+            let label = match NonBlankString::new(&def.label) {
+                Ok(l) => l,
+                Err(_) => {
+                    tracing::warn!(
+                        glyph = ?glyph,
+                        feature_type = ?def.feature_type,
+                        "tactical_feature_skipped — legend label is blank"
+                    );
+                    continue;
+                }
+            };
             features.push(TacticalFeaturePayload {
                 glyph,
                 feature_type: def.feature_type.to_string(),
-                label: def.label.clone(),
+                label,
                 positions,
             });
         }
