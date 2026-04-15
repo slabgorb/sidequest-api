@@ -363,7 +363,25 @@ impl TurnBarrier {
     /// Multiple concurrent callers are supported: exactly one claims
     /// resolution (runs the narrator), others return with
     /// `claimed_resolution: false` and retrieve the shared narration.
-    pub async fn wait_for_turn(&self) -> TurnBarrierResult {
+    pub fn wait_for_turn(&self) -> impl std::future::Future<Output = TurnBarrierResult> + '_ {
+        // Capture `initial_turn` SYNCHRONOUSLY at call time, before any async
+        // polling begins.
+        //
+        // Concurrent `wait_for_turn` callers race: the first to win the
+        // resolution lock calls `force_resolve_turn_for_mode`, which advances
+        // `session.turn` from N to N+1 before its sibling callers are polled.
+        // If we read `session.turn_number()` inside the async body (on first
+        // poll), sibling tasks 2..K see `initial_turn = N+1`, the
+        // `just_resolved` short-circuit below (`last_resolved_turn >=
+        // initial_turn`, N >= N+1) fails, and they fall through to
+        // `notify.notified().await` forever — no new submits will ever
+        // arrive to wake them.
+        //
+        // Capturing `initial_turn` at the synchronous call site (before
+        // `tokio::join!` starts polling any of its branches) guarantees all
+        // sibling callers for the same turn agree on the turn number they
+        // are resolving, regardless of which one wins the race to advance
+        // `session.turn`.
         let initial_turn = self.inner.session.lock().unwrap().turn_number();
         // Store this as the current resolution turn (if this is the first task for this turn)
         {
@@ -372,6 +390,10 @@ impl TurnBarrier {
                 *current = initial_turn;
             }
         }
+        async move { self.wait_for_turn_inner(initial_turn).await }
+    }
+
+    async fn wait_for_turn_inner(&self, initial_turn: u32) -> TurnBarrierResult {
 
         let (deadline, enabled) = {
             let config = self.inner.config.lock().unwrap();
