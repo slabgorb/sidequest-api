@@ -37,6 +37,7 @@ mod reconnect_narration_fallback_tests;
 mod render_lora_wiring_story_35_15_tests;
 mod render_queue_eviction_wiring_tests;
 mod scenario_integration_story_7_9_tests;
+mod scrapbook_entry_story_33_18_tests;
 mod scenario_scoring_wiring_story_35_3_tests;
 mod server_story_1_12_tests;
 mod server_story_2_1_tests;
