@@ -3,13 +3,13 @@
 //! Exposes `build_router()`, `AppState`, and server lifecycle functions for the binary and tests.
 //! The server depends on the `GameService` trait facade — never on game internals.
 
+#[cfg(test)]
+mod beat_dispatch_story_37_14_tests;
 pub(crate) mod debug_api;
 #[cfg(test)]
 mod dice_broadcast_34_8_tests;
 pub mod dice_dispatch;
 mod dispatch;
-#[cfg(test)]
-mod beat_dispatch_story_37_14_tests;
 #[cfg(test)]
 mod encounter_gate_story_37_13_tests;
 pub(crate) mod extraction;
@@ -1034,16 +1034,24 @@ pub fn build_router(state: AppState) -> Router {
         });
     let renders_assets = ServeDir::new(&renders_dir);
 
-    Router::new()
+    let mut app: Router<AppState> = Router::new()
         .route("/api/genres", get(list_genres))
         .route("/api/sessions", get(list_sessions))
         .route("/api/debug/state", get(debug_api::debug_state))
         .route("/ws", get(ws_handler))
         .route("/ws/watcher", get(watcher::ws_watcher_handler))
         .nest_service("/genre", genre_assets)
-        .nest_service("/api/renders", renders_assets)
-        .layer(cors)
-        .with_state(state)
+        .nest_service("/api/renders", renders_assets);
+
+    // Dev scene harness — only mounted when DEV_SCENES=1 is set. Without the
+    // env var, /dev/scene/:name returns 404 (route not registered). Do NOT
+    // enable in production — the route writes arbitrary save files.
+    if std::env::var("DEV_SCENES").ok().as_deref() == Some("1") {
+        tracing::warn!("DEV_SCENES=1 — /dev/scene/* routes are LIVE. Do NOT enable in production.");
+        app = app.nest("/dev", crate::dispatch::dev_scenes::router());
+    }
+
+    app.layer(cors).with_state(state)
 }
 
 // ---------------------------------------------------------------------------

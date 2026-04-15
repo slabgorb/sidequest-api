@@ -45,9 +45,7 @@ use sidequest_game::encounter::{
 };
 use sidequest_game::state::GameSnapshot;
 use sidequest_genre::ConfrontationDef;
-use sidequest_telemetry::{
-    init_global_channel, subscribe_global, WatcherEvent, WatcherEventType,
-};
+use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
 
 // The public-path import. This must resolve for the integration test to
 // compile — proving the helper is reachable from outside the src/ tree.
@@ -118,9 +116,7 @@ fn find_encounter_events(events: &[WatcherEvent], event_name: &str) -> Vec<Watch
 }
 
 /// Drain every currently-buffered event from the receiver.
-fn drain_events(
-    rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>,
-) -> Vec<WatcherEvent> {
+fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<WatcherEvent> {
     let mut events = Vec::new();
     while let Ok(event) = rx.try_recv() {
         events.push(event);
@@ -190,7 +186,10 @@ fn integration_applied_beat_reaches_global_telemetry_channel() {
         after.metric.current,
         hp_before
     );
-    assert_eq!(after.beat, 1, "Integration: beat counter must advance on Applied");
+    assert_eq!(
+        after.beat, 1,
+        "Integration: beat counter must advance on Applied"
+    );
 
     // Verify the canonical event reached the real global telemetry channel.
     let events = drain_events(&mut rx);
@@ -208,19 +207,13 @@ fn integration_applied_beat_reaches_global_telemetry_channel() {
         "Integration: encounter.beat_applied must be a StateTransition event"
     );
     assert_eq!(
-        applied[0]
-            .fields
-            .get("source")
-            .and_then(|v| v.as_str()),
+        applied[0].fields.get("source").and_then(|v| v.as_str()),
         Some("narrator_beat_selection"),
         "Integration: the GM-panel-facing event must carry \
          source=narrator_beat_selection for attribution"
     );
     assert_eq!(
-        applied[0]
-            .fields
-            .get("beat_id")
-            .and_then(|v| v.as_str()),
+        applied[0].fields.get("beat_id").and_then(|v| v.as_str()),
         Some("attack"),
         "Integration: the event must record the real beat_id"
     );

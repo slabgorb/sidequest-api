@@ -236,7 +236,10 @@ fn case_a_happy_path_emits_encounter_beat_applied() {
          helper could emit encounter.beat_applied without actually applying \
          the beat (vacuous success path)"
     );
-    assert_eq!(after.beat, 1, "beat counter must advance on a successful apply");
+    assert_eq!(
+        after.beat, 1,
+        "beat counter must advance on a successful apply"
+    );
 
     let events = drain_events(&mut rx);
     let applied = find_encounter_events(&events, "encounter.beat_applied");
@@ -256,10 +259,7 @@ fn case_a_happy_path_emits_encounter_beat_applied() {
         "encounter.beat_applied must be a StateTransition event"
     );
     assert_eq!(
-        applied[0]
-            .fields
-            .get("beat_id")
-            .and_then(|v| v.as_str()),
+        applied[0].fields.get("beat_id").and_then(|v| v.as_str()),
         Some("attack"),
         "event must record the beat_id that was applied"
     );
@@ -792,13 +792,15 @@ fn wiring_per_actor_breadcrumb_gated_on_applied_outcome() {
     // in byte terms. Fixed here with a balanced-brace scan to find the
     // actual closing brace of the `if let Applied { .. } = &outcome {` block.
 
-    let applied_anchor = source.find("BeatDispatchOutcome::Applied {").unwrap_or_else(|| {
-        panic!(
-            "dispatch/mod.rs must pattern-match BeatDispatchOutcome::Applied \
+    let applied_anchor = source
+        .find("BeatDispatchOutcome::Applied {")
+        .unwrap_or_else(|| {
+            panic!(
+                "dispatch/mod.rs must pattern-match BeatDispatchOutcome::Applied \
              with its struct-variant fields — the shape cannot regress to the \
              pass-1 unit-variant form"
-        )
-    });
+            )
+        });
 
     // From the Applied anchor, scan forward for the opening `{` that begins
     // the block body. The pattern is:
@@ -938,8 +940,8 @@ fn wiring_no_silent_defaults_in_handle_applied_side_effects() {
             _ => {}
         }
     }
-    let body_close = body_close
-        .expect("could not find closing brace of handle_applied_side_effects");
+    let body_close =
+        body_close.expect("could not find closing brace of handle_applied_side_effects");
 
     let raw_body = &source[body_open..body_close];
 
@@ -961,11 +963,7 @@ fn wiring_no_silent_defaults_in_handle_applied_side_effects() {
 
     // The pass-2 regression patterns. Either of these anywhere in the
     // function body (non-comment) is a silent-default revert.
-    let forbidden_patterns = [
-        ".unwrap_or(0)",
-        ".unwrap_or(false)",
-        ".unwrap_or_default()",
-    ];
+    let forbidden_patterns = [".unwrap_or(0)", ".unwrap_or(false)", ".unwrap_or_default()"];
 
     for pat in forbidden_patterns {
         assert!(

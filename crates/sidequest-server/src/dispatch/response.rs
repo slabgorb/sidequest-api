@@ -347,76 +347,18 @@ pub(super) async fn build_response_messages(
         player_id: ctx.player_id.to_string(),
     });
 
-    // Confrontation overlay
+    // Confrontation overlay — uses the shared builder so the session-restore
+    // path in `dispatch/connect.rs` emits an identical wire payload.
     if let Some(ref enc) = ctx.snapshot.encounter {
-        let actors: Vec<sidequest_protocol::ConfrontationActor> = enc
-            .actors
-            .iter()
-            .map(|a| {
-                let portrait = ctx
-                    .npc_registry
-                    .iter()
-                    .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
-                    .and_then(|e| e.portrait_url.clone());
-                sidequest_protocol::ConfrontationActor {
-                    name: a.name.clone(),
-                    role: a.role.clone(),
-                    portrait_url: portrait,
-                }
-            })
-            .collect();
-        let metric = &enc.metric;
-        let direction_str = match metric.direction {
-            sidequest_game::MetricDirection::Ascending => "ascending",
-            sidequest_game::MetricDirection::Descending => "descending",
-            sidequest_game::MetricDirection::Bidirectional => "bidirectional",
-            _ => "ascending",
-        };
-        let def = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type);
-        messages.push(GameMessage::Confrontation {
-            payload: sidequest_protocol::ConfrontationPayload {
-                encounter_type: enc.encounter_type.clone(),
-                label: def
-                    .map(|d| d.label.clone())
-                    .unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
-                category: def
-                    .map(|d| d.category.clone())
-                    .unwrap_or_else(|| enc.encounter_type.clone()),
-                actors,
-                metric: sidequest_protocol::ConfrontationMetric {
-                    name: metric.name.clone(),
-                    current: metric.current,
-                    starting: metric.starting,
-                    direction: direction_str.to_string(),
-                    threshold_high: metric.threshold_high,
-                    threshold_low: metric.threshold_low,
-                },
-                beats: def
-                    .map(|d| {
-                        d.beats
-                            .iter()
-                            .map(|b| sidequest_protocol::ConfrontationBeat {
-                                id: b.id.clone(),
-                                label: b.label.clone(),
-                                metric_delta: b.metric_delta,
-                                stat_check: b.stat_check.clone(),
-                                risk: b.risk.clone(),
-                                resolution: b.resolution.unwrap_or(false),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                secondary_stats: enc
-                    .secondary_stats
-                    .as_ref()
-                    .and_then(|ss| serde_json::to_value(ss).ok()),
-                genre_slug: ctx.genre_slug.to_string(),
-                mood: enc.mood_override.clone().unwrap_or_default(),
-                active: !enc.resolved,
-            },
-            player_id: ctx.player_id.to_string(),
-        });
-        if let Some(d) = def {
+        messages.push(build_confrontation_message(
+            enc,
+            ctx.npc_registry,
+            &ctx.confrontation_defs,
+            ctx.genre_slug,
+            ctx.player_id,
+        ));
+        if let Some(d) = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type)
+        {
             if !d.beats.is_empty() {
                 WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                     .field("action", "beats_sent")
@@ -432,4 +374,89 @@ pub(super) async fn build_response_messages(
     }
 
     merged_footnotes
+}
+
+/// Build a `CONFRONTATION` message from a live `StructuredEncounter`.
+///
+/// Single source of truth for the confrontation wire payload. Callers:
+/// - `build_response_messages` — normal turn response
+/// - `dispatch_connect` — session restore (so a reloaded save with an active
+///   encounter shows the overlay immediately, not after the first turn)
+///
+/// `confrontation_defs` supplies the full beat library / labels; if the
+/// encounter type is unknown (defensive — should never happen for a saved
+/// snapshot), the payload falls back to empty beats and a humanized label.
+pub(super) fn build_confrontation_message(
+    enc: &sidequest_game::encounter::StructuredEncounter,
+    npc_registry: &[crate::NpcRegistryEntry],
+    confrontation_defs: &[sidequest_genre::ConfrontationDef],
+    genre_slug: &str,
+    player_id: &str,
+) -> GameMessage {
+    let actors: Vec<sidequest_protocol::ConfrontationActor> = enc
+        .actors
+        .iter()
+        .map(|a| {
+            let portrait = npc_registry
+                .iter()
+                .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
+                .and_then(|e| e.portrait_url.clone());
+            sidequest_protocol::ConfrontationActor {
+                name: a.name.clone(),
+                role: a.role.clone(),
+                portrait_url: portrait,
+            }
+        })
+        .collect();
+    let metric = &enc.metric;
+    let direction_str = match metric.direction {
+        sidequest_game::MetricDirection::Ascending => "ascending",
+        sidequest_game::MetricDirection::Descending => "descending",
+        sidequest_game::MetricDirection::Bidirectional => "bidirectional",
+        _ => "ascending",
+    };
+    let def = crate::find_confrontation_def(confrontation_defs, &enc.encounter_type);
+    GameMessage::Confrontation {
+        payload: sidequest_protocol::ConfrontationPayload {
+            encounter_type: enc.encounter_type.clone(),
+            label: def
+                .map(|d| d.label.clone())
+                .unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
+            category: def
+                .map(|d| d.category.clone())
+                .unwrap_or_else(|| enc.encounter_type.clone()),
+            actors,
+            metric: sidequest_protocol::ConfrontationMetric {
+                name: metric.name.clone(),
+                current: metric.current,
+                starting: metric.starting,
+                direction: direction_str.to_string(),
+                threshold_high: metric.threshold_high,
+                threshold_low: metric.threshold_low,
+            },
+            beats: def
+                .map(|d| {
+                    d.beats
+                        .iter()
+                        .map(|b| sidequest_protocol::ConfrontationBeat {
+                            id: b.id.clone(),
+                            label: b.label.clone(),
+                            metric_delta: b.metric_delta,
+                            stat_check: b.stat_check.clone(),
+                            risk: b.risk.clone(),
+                            resolution: b.resolution.unwrap_or(false),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            secondary_stats: enc
+                .secondary_stats
+                .as_ref()
+                .and_then(|ss| serde_json::to_value(ss).ok()),
+            genre_slug: genre_slug.to_string(),
+            mood: enc.mood_override.clone().unwrap_or_default(),
+            active: !enc.resolved,
+        },
+        player_id: player_id.to_string(),
+    }
 }

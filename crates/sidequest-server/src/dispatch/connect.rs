@@ -654,6 +654,40 @@ pub(crate) async fn dispatch_connect(
                                     Some(sidequest_game::PrerenderScheduler::new(
                                         sidequest_game::PrerenderConfig::default(),
                                     ));
+
+                                // Emit CONFRONTATION on session restore if the
+                                // saved snapshot has an active encounter.
+                                // Without this, a reload lands the player in an
+                                // encounter that the UI doesn't know about until
+                                // the next turn completes — every save with an
+                                // active encounter is effectively broken on
+                                // reload. See docs/plans/scene-harness.md
+                                // "RED FIX #1".
+                                if let Some(ref enc) = snapshot.encounter {
+                                    let msg = super::response::build_confrontation_message(
+                                        enc,
+                                        npc_registry,
+                                        &pack.rules.confrontations,
+                                        genre,
+                                        player_id,
+                                    );
+                                    responses.push(msg);
+                                    WatcherEventBuilder::new(
+                                        "encounter",
+                                        WatcherEventType::StateTransition,
+                                    )
+                                    .field("event", "confrontation.restored")
+                                    .field("encounter_type", enc.encounter_type.as_str())
+                                    .field("beat", enc.beat as i64)
+                                    .field("actor_count", enc.actors.len())
+                                    .send();
+                                    tracing::info!(
+                                        encounter_type = %enc.encounter_type,
+                                        actors = enc.actors.len(),
+                                        "confrontation.restored — emitted CONFRONTATION on session restore"
+                                    );
+                                }
+
                                 // Load trope definitions for returning player (same logic as start_character_creation)
                                 let mut all_tropes = pack.tropes.clone();
                                 if let Some(w) = pack.worlds.get(world) {

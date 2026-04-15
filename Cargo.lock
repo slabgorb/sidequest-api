@@ -1362,6 +1362,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidequest-fixture"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "dirs",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sidequest-game",
+ "sidequest-genre",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "sidequest-game"
 version = "0.1.0"
 dependencies = [
@@ -1460,6 +1475,7 @@ dependencies = [
  "serde_yaml",
  "sidequest-agents",
  "sidequest-daemon-client",
+ "sidequest-fixture",
  "sidequest-game",
  "sidequest-genre",
  "sidequest-protocol",

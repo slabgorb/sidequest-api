@@ -394,7 +394,6 @@ impl TurnBarrier {
     }
 
     async fn wait_for_turn_inner(&self, initial_turn: u32) -> TurnBarrierResult {
-
         let (deadline, enabled) = {
             let config = self.inner.config.lock().unwrap();
             if config.enabled {
