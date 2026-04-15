@@ -88,14 +88,15 @@ fn dispatch_filters_or_handles_npc_actors() {
 fn apply_beat_called_per_npc_actor() {
     let dispatch_src = include_str!("../../src/dispatch/mod.rs");
 
-    // apply_beat_dispatch (or equivalent) must be called inside the NPC loop.
-    // Post-37-14 the canonical name is `beat::apply_beat_dispatch`; the older
-    // `dispatch_beat_selection` and `dispatch_npc_beat` names are retained in
-    // the OR chain so this guard survives historical refactors either way.
-    let calls_beat_dispatch_in_loop = dispatch_src.contains("apply_beat_dispatch")
-        || dispatch_src.contains("dispatch_beat_selection")
-        || dispatch_src.contains("dispatch_npc_beat")
-        || dispatch_src.contains("apply_beat");
+    // Post-37-14: the canonical call site is `beat::apply_beat_dispatch(`.
+    // The `beat::` module prefix and the opening paren force a real qualified
+    // call expression — a comment mentioning `apply_beat()` elsewhere in the
+    // file cannot satisfy this pattern. Reviewer pass-2 finding #7: the
+    // previous OR chain contained a bare `contains("apply_beat")` substring
+    // that was tautologically true because dispatch/mod.rs has `apply_beat()`
+    // fragments in multiple comments (every comment would satisfy it and the
+    // regression guard became a rubber stamp).
+    let calls_beat_dispatch_in_loop = dispatch_src.contains("beat::apply_beat_dispatch(");
 
     assert!(
         calls_beat_dispatch_in_loop,

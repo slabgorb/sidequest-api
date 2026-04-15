@@ -608,3 +608,228 @@ fn wiring_no_bare_is_some_guard_on_beat_selection_loop() {
          outer is_some() guard was the root cause of the 37-14 silent drop."
     );
 }
+
+// ---------------------------------------------------------------------------
+// Case F — resolved encounter + unknown beat_id → SkippedResolved (pass-3 RED)
+// ---------------------------------------------------------------------------
+//
+// Reviewer pass-2 finding: the `UnknownBeatId` check at beat.rs:143 fires
+// BEFORE the `SkippedResolved` check at beat.rs:175. For the exact multi-actor
+// post-resolution scenario this story exists to fix — player's crit resolves
+// the goblin encounter, narrator emits an NPC beat with a hallucinated beat_id
+// label against the (now-resolved) encounter — the current ordering returns
+// `UnknownBeatId` with `Severity::Error` instead of `SkippedResolved` with
+// `Severity::Warn`. The GM panel fires a false error on a legitimate end-of-
+// encounter condition, exactly the class of pass-1 regression pass-2 closed
+// for one case but not the intersection of both.
+//
+// Fix: Dev must move the `if is_resolved` short-circuit to fire immediately
+// after the `NoEncounter` match arm — before `NoDef`, before `UnknownBeatId`.
+// Once an encounter is resolved, every incoming beat is skipped regardless
+// of beat_id validity or def existence.
+//
+// This test drives the intersection: encounter alive, encounter resolved,
+// beat_id NOT in def.beats. It must return SkippedResolved, not UnknownBeatId.
+
+#[test]
+fn case_f_resolved_encounter_with_unknown_beat_id_emits_skipped_resolved() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    // Already-resolved encounter AND a beat_id not in def.beats ("riposte"
+    // is not in the combat fixture — combat only has attack + finisher).
+    let mut snapshot = snapshot_with(live_encounter("combat", 2, true));
+    let metric_before = snapshot.encounter.as_ref().unwrap().metric.current;
+    let beat_before = snapshot.encounter.as_ref().unwrap().beat;
+
+    let outcome = apply_beat_dispatch(&mut snapshot, "riposte", &defs);
+
+    assert_eq!(
+        outcome,
+        BeatDispatchOutcome::SkippedResolved,
+        "Resolved encounter MUST short-circuit to SkippedResolved regardless \
+         of beat_id validity. The current ordering (UnknownBeatId before \
+         SkippedResolved) fires a false Severity::Error on the exact multi- \
+         actor post-resolution scenario this story exists to fix."
+    );
+
+    // No state mutation — the resolved short-circuit must land before any
+    // apply_beat or metric change.
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert_eq!(after.metric.current, metric_before);
+    assert_eq!(after.beat, beat_before);
+    assert!(after.resolved);
+
+    let events = drain_events(&mut rx);
+
+    // Must emit SkippedResolved (Severity::Warn), not UnknownBeatId
+    // (Severity::Error). A false error-severity event on a legitimate
+    // end-of-encounter condition is what this story exists to prevent.
+    let skipped = find_encounter_events(&events, "encounter.beat_skipped_resolved");
+    assert_eq!(
+        skipped.len(),
+        1,
+        "Case F must emit exactly one encounter.beat_skipped_resolved event \
+         — a resolved encounter receiving any beat (known or unknown) is a \
+         normal end-of-encounter condition, NOT a narrator error"
+    );
+    assert!(
+        matches!(skipped[0].event_type, WatcherEventType::ValidationWarning),
+        "beat_skipped_resolved must be a ValidationWarning"
+    );
+    assert_source_is_narrator_beat(&skipped[0]);
+
+    // Must NOT emit UnknownBeatId — that's the wrong severity (Error vs Warn)
+    // and the wrong semantic class (narrator error vs normal post-resolution).
+    assert!(
+        find_encounter_events(&events, "encounter.beat_id.unknown").is_empty(),
+        "Case F must NOT emit encounter.beat_id.unknown on a resolved \
+         encounter. The resolved short-circuit has higher priority than \
+         beat_id validation — once the encounter is done, the beat is \
+         skipped regardless of whether its id was valid."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Wiring — source field on player_beat_from_narrator_ignored (pass-3 RED)
+// ---------------------------------------------------------------------------
+//
+// Reviewer pass-2 finding #3: the `encounter.player_beat_from_narrator_ignored`
+// emission in `dispatch/mod.rs:1823-1831` lacks the `.field("source",
+// "narrator_beat_selection")` attribution that every other event in the beat
+// selection loop carries. The GM panel's attribution contract is broken on
+// the one branch where the narrator and structured BEAT_SELECTION collide.
+//
+// Building a runtime DispatchContext fixture for a single field assertion
+// would require dozens of lines of scaffolding (see the struct definition in
+// dispatch/mod.rs:90-164 — 30+ fields pulled from half the crate). Instead
+// this test anchors a tight source-scan on the specific event identifier and
+// verifies the source field chain appears within a small token window after
+// the event name. A comment fragment cannot satisfy this pattern — the
+// `.field(` method call syntax requires a real emit chain.
+
+#[test]
+fn wiring_player_beat_from_narrator_ignored_carries_source_field() {
+    let source = include_str!("dispatch/mod.rs");
+
+    // Anchor: find the event identifier literal.
+    let anchor = "encounter.player_beat_from_narrator_ignored";
+    let idx = source.find(anchor).unwrap_or_else(|| {
+        panic!(
+            "dispatch/mod.rs must emit `{}` — the event identifier is missing \
+             from the production dispatch loop",
+            anchor
+        )
+    });
+
+    // Scan the 400 characters immediately after the anchor for the source
+    // field chain. The current WatcherEventBuilder chain at mod.rs:1823 is
+    // roughly 200 characters; 400 gives headroom for chain reformatting
+    // without becoming so wide it catches unrelated emissions below.
+    let window_end = (idx + 400).min(source.len());
+    let window = &source[idx..window_end];
+
+    assert!(
+        window.contains(".field(\"source\", \"narrator_beat_selection\")"),
+        "The `encounter.player_beat_from_narrator_ignored` emission in \
+         dispatch/mod.rs must carry `.field(\"source\", \
+         \"narrator_beat_selection\")` — every other event in the beat \
+         dispatch loop carries this attribution so the GM panel can \
+         distinguish narrator-driven beat events from the structured \
+         BEAT_SELECTION protocol preprocessing. This branch is the one \
+         place where the narrator and structured input collide, so the \
+         attribution matters most. Reviewer pass-2 finding #3."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Wiring — per-actor breadcrumb must be gated on Applied outcome (pass-3 RED)
+// ---------------------------------------------------------------------------
+//
+// Reviewer pass-2 finding #11: Case E (and siblings B/C/D) assert absence of
+// `beat_apply_failed` but do NOT assert absence of the per-actor breadcrumb
+// events `encounter.npc_beat` / `encounter.player_beat`. The pass-1 regression
+// being fixed is specifically that the breadcrumb fired on non-Applied
+// outcomes — if a future refactor accidentally re-breaks the `if let Applied
+// { .. }` guard in dispatch/mod.rs, no test catches it.
+//
+// Again, a runtime test would require a DispatchContext fixture. This source-
+// scan locks in the structural invariant: the breadcrumb emission tokens
+// `"encounter.npc_beat"` and `"encounter.player_beat"` must only appear
+// inside the `if let BeatDispatchOutcome::Applied` block. The test finds the
+// Applied pattern match anchor, finds the closing brace of that block by
+// balanced-brace counting from a known token, and asserts the breadcrumb
+// tokens live inside that range and NOT after it.
+
+#[test]
+fn wiring_per_actor_breadcrumb_gated_on_applied_outcome() {
+    let source = include_str!("dispatch/mod.rs");
+
+    // Reviewer's fix #1 for per-actor breadcrumb: gate emissions on Applied
+    // outcome. The production code at dispatch/mod.rs:1839 matches the shape
+    //     if let beat::BeatDispatchOutcome::Applied { .. } = &outcome { ... }
+    // The breadcrumb emissions for encounter.npc_beat / encounter.player_beat
+    // live INSIDE that block. This test locks the invariant in place.
+
+    // Anchor: find the Applied pattern-match keyword. Flexible on formatting
+    // (the `&outcome` vs `outcome` and whitespace are tolerated by looking
+    // for the variant name only).
+    let applied_anchor = source.find("BeatDispatchOutcome::Applied {").unwrap_or_else(|| {
+        panic!(
+            "dispatch/mod.rs must pattern-match BeatDispatchOutcome::Applied \
+             with its struct-variant fields — the shape cannot regress to the \
+             pass-1 unit-variant form"
+        )
+    });
+
+    // The production code at mod.rs:1872-1880 emits the breadcrumb via a
+    // conditional event-name selector:
+    //     .field("event", if is_player { "encounter.player_beat" } else { "encounter.npc_beat" })
+    // So we search for the literal string-quoted forms with BOTH quotes.
+    // The `_from_narrator_ignored` sibling emission uses the full identifier
+    // `"encounter.player_beat_from_narrator_ignored"` — different token with
+    // no `player_beat"` (quoted) substring match because the quote lands
+    // after `ignored`, not after `player_beat`.
+    for (breadcrumb_literal, label) in &[
+        ("\"encounter.npc_beat\"", "encounter.npc_beat"),
+        ("\"encounter.player_beat\"", "encounter.player_beat"),
+    ] {
+        let mut occurrences: Vec<usize> = Vec::new();
+        let mut cursor = 0;
+        while let Some(found) = source[cursor..].find(*breadcrumb_literal) {
+            let abs = cursor + found;
+            occurrences.push(abs);
+            cursor = abs + breadcrumb_literal.len();
+        }
+
+        assert!(
+            !occurrences.is_empty(),
+            "dispatch/mod.rs must contain the exact string literal `{}` — \
+             the per-actor breadcrumb emission for `{}` must exist. The GM \
+             panel's lie-detector coverage depends on it.",
+            breadcrumb_literal,
+            label
+        );
+
+        // Every occurrence of the literal must live AFTER the Applied
+        // pattern-match anchor. The pass-1 regression shape had the emission
+        // in the main loop scope, before any Applied gating — its byte
+        // offset would be LESS than applied_anchor. Conditional compilation
+        // of the breadcrumb into a non-Applied branch would also trip this.
+        for off in &occurrences {
+            assert!(
+                *off > applied_anchor,
+                "dispatch/mod.rs contains `{}` at byte {} — BEFORE the \
+                 `BeatDispatchOutcome::Applied {{` pattern-match at byte \
+                 {}. This is the pass-1 regression shape: per-actor \
+                 breadcrumb firing on non-Applied outcomes (silent-drop \
+                 paths), sending a success-flavored StateTransition to the \
+                 GM panel after a ValidationWarning. The emission MUST \
+                 live inside the `if let BeatDispatchOutcome::Applied \
+                 {{ .. }}` block. Reviewer pass-2 finding #11.",
+                breadcrumb_literal,
+                off,
+                applied_anchor
+            );
+        }
+    }
+}
