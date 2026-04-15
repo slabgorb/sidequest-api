@@ -28,14 +28,38 @@
 //! key and `source: "narrator_beat_selection"` for attribution.
 //!
 //! Test matrix — one case per variant in `BeatDispatchOutcome`:
-//!   A. Encounter live, def found, beat found, apply_beat OK → Applied
+//!   A. Encounter live, def found, beat found, apply_beat OK → Applied { encounter_type, beat_id }
 //!   B. `snapshot.encounter` is None                         → NoEncounter
 //!   C. Encounter live but its type has no ConfrontationDef  → NoDef
 //!   D. Encounter live, def found, beat_id not in def.beats  → UnknownBeatId
-//!   E. Encounter live, def found, beat found, apply_beat Err → ApplyFailed
+//!   E. Encounter live but already resolved                  → SkippedResolved
 //!
 //! Plus a multi-call regression guard (the 2-3-per-turn playtest symptom)
-//! and two source-scanning wiring tests against `dispatch/mod.rs`.
+//! and two source-scanning wiring tests against `dispatch/mod.rs`. A true
+//! integration test (proving `apply_beat_dispatch` is reachable from
+//! outside the `src/` tree) lives at
+//! `tests/integration/beat_dispatch_wiring_story_37_14_tests.rs`.
+//!
+//! Rework pass (pass 2) changes reflecting Reviewer's required fixes:
+//!  - Case A destructures `Applied { encounter_type, beat_id }` rather than
+//!    asserting the unit variant. The new shape eliminates the triple-
+//!    `expect()` lookup chain in `handle_applied_side_effects`.
+//!  - Case E is renamed from "apply_beat_on_resolved returns ApplyFailed"
+//!    to "pre_resolved encounter emits SkippedResolved". The previous
+//!    behaviour (emit `beat_apply_failed` ValidationWarning on a legitimate
+//!    multi-actor turn where an earlier beat resolved the encounter) was a
+//!    regression introduced by the first 37-14 pass — the removed
+//!    `is_none_or(|e| e.resolved)` skip-continue is now replaced by an
+//!    explicit pre-check in `apply_beat_dispatch` that returns a new
+//!    `SkippedResolved` outcome with its own `encounter.beat_skipped_resolved`
+//!    event (ValidationWarning, severity Warn — this is a normal end-of-
+//!    encounter condition, not a narrator error).
+//!  - `ApplyFailed` has been removed from `BeatDispatchOutcome` — the
+//!    pre-resolved path now returns `SkippedResolved`, and the beat lookup
+//!    check before `apply_beat` means there is currently no live code path
+//!    that reaches apply_beat's Err branch. If apply_beat gains a second
+//!    Err cause in the future, add the variant back (#[non_exhaustive]
+//!    makes the addition non-breaking).
 
 use sidequest_game::encounter::{
     EncounterActor, EncounterMetric, MetricDirection, StructuredEncounter,
@@ -166,7 +190,30 @@ fn case_a_happy_path_emits_encounter_beat_applied() {
 
     let outcome = apply_beat_dispatch(&mut snapshot, "attack", &defs);
 
-    assert_eq!(outcome, BeatDispatchOutcome::Applied);
+    // Applied is now a struct variant carrying the resolved encounter_type
+    // and beat_id so `handle_applied_side_effects` can consume them without
+    // a second lookup chain. Destructure and verify the fields.
+    match &outcome {
+        BeatDispatchOutcome::Applied {
+            encounter_type,
+            beat_id,
+        } => {
+            assert_eq!(
+                encounter_type, "combat",
+                "Applied must carry the resolved encounter_type so the \
+                 post-apply side-effects wrapper does not re-look it up"
+            );
+            assert_eq!(
+                beat_id, "attack",
+                "Applied must carry the resolved beat_id so the post-apply \
+                 side-effects wrapper does not re-look it up"
+            );
+        }
+        other => panic!(
+            "Case A must return Applied {{ encounter_type, beat_id }}, got {:?}",
+            other
+        ),
+    }
 
     let after = snapshot.encounter.as_ref().unwrap();
     assert!(
@@ -183,7 +230,12 @@ fn case_a_happy_path_emits_encounter_beat_applied() {
         applied.len(),
         1,
         "Case A must emit exactly one encounter.beat_applied event (event= field, \
-         not action= field — the GM panel filters on event=)"
+         not action= field — the GM panel filters on event=). If the fix for \
+         Reviewer item #5 (rename action=beat_applied to event= in \
+         StructuredEncounter::apply_beat) creates a duplicate, the inner \
+         emission MUST use a distinct event name — e.g., \
+         `encounter.beat_state_applied` — so the dispatch-layer canonical \
+         event retains its one-per-outcome contract."
     );
     assert!(
         matches!(applied[0].event_type, WatcherEventType::StateTransition),
@@ -379,53 +431,97 @@ fn case_d_unknown_beat_id_emits_warning_with_available_ids() {
 }
 
 // ---------------------------------------------------------------------------
-// Case E — apply_beat returns Err (already resolved) → ApplyFailed
+// Case E — already-resolved encounter → SkippedResolved (not ApplyFailed)
 // ---------------------------------------------------------------------------
+//
+// Rework pass: this test used to assert `ApplyFailed` with an
+// `encounter.beat_apply_failed` event. That was a regression the first 37-14
+// pass introduced by removing the old `is_none_or(|e| e.resolved)` skip-
+// continue from the dispatch loop. The problem: for legitimate multi-actor
+// turns where a player beat resolves the encounter and the narrator then
+// emits an NPC beat against the same (now-resolved) encounter, the old
+// behaviour raised a misleading "apply_beat_failed" ValidationWarning —
+// semantically an error, but the sequence itself is normal.
+//
+// The fix: `apply_beat_dispatch` now checks `encounter.resolved` BEFORE
+// calling `apply_beat`. When the encounter is already resolved, it emits a
+// dedicated `encounter.beat_skipped_resolved` ValidationWarning (severity
+// Warn, not Error — this is a normal condition, not a narrator error) and
+// returns the new `BeatDispatchOutcome::SkippedResolved` variant.
 
 #[test]
-fn case_e_apply_beat_on_resolved_encounter_emits_apply_failed() {
+fn case_e_pre_resolved_encounter_emits_skipped_resolved() {
     let (_guard, mut rx) = fresh_subscriber();
     let defs = load_defs();
-    // Resolved encounter: apply_beat() returns Err("encounter is already resolved").
-    // This is distinct from Case D (unknown beat_id) — here the beat exists
-    // in the def but the encounter state rejects the apply. The current code
-    // silently tracing::warn!'s this branch.
+    // Already-resolved encounter. The helper must short-circuit before
+    // calling apply_beat and emit the skipped_resolved event instead.
     let mut snapshot = snapshot_with(live_encounter("combat", 2, true));
+    let metric_before = snapshot.encounter.as_ref().unwrap().metric.current;
+    let beat_before = snapshot.encounter.as_ref().unwrap().beat;
 
     let outcome = apply_beat_dispatch(&mut snapshot, "attack", &defs);
 
-    assert_eq!(outcome, BeatDispatchOutcome::ApplyFailed);
+    assert_eq!(outcome, BeatDispatchOutcome::SkippedResolved);
+
+    // The short-circuit must not mutate the encounter — no metric change,
+    // no beat counter advance, no apply_beat call.
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert_eq!(
+        after.metric.current, metric_before,
+        "SkippedResolved must NOT advance the metric — apply_beat must not \
+         have been called"
+    );
+    assert_eq!(
+        after.beat, beat_before,
+        "SkippedResolved must NOT advance the beat counter"
+    );
+    assert!(
+        after.resolved,
+        "SkippedResolved must preserve the resolved flag"
+    );
 
     let events = drain_events(&mut rx);
-    let failed = find_encounter_events(&events, "encounter.beat_apply_failed");
+    let skipped = find_encounter_events(&events, "encounter.beat_skipped_resolved");
     assert_eq!(
-        failed.len(),
+        skipped.len(),
         1,
-        "Case E must emit exactly one encounter.beat_apply_failed event — \
-         apply_beat returning Err after the lookup succeeded is a state \
-         invariant violation that must reach the GM panel"
+        "Case E must emit exactly one encounter.beat_skipped_resolved event \
+         — legitimate multi-actor turn beats after encounter resolution are \
+         NOT errors"
     );
     assert!(
-        matches!(failed[0].event_type, WatcherEventType::ValidationWarning),
-        "beat_apply_failed must be a ValidationWarning"
+        matches!(skipped[0].event_type, WatcherEventType::ValidationWarning),
+        "beat_skipped_resolved must be a ValidationWarning (not a \
+         StateTransition — nothing changed state) but with severity Warn, \
+         not Error — this is a normal end-of-encounter condition"
     );
     assert_eq!(
-        failed[0].fields.get("beat_id").and_then(|v| v.as_str()),
+        skipped[0].fields.get("beat_id").and_then(|v| v.as_str()),
         Some("attack"),
-        "event must record the beat_id that failed to apply"
+        "event must record the beat_id that was skipped"
     );
-    // The error string from apply_beat must be preserved so the GM panel
-    // shows WHY it failed, not just that it failed.
-    let err = failed[0]
-        .fields
-        .get("error")
-        .and_then(|v| v.as_str())
-        .expect("beat_apply_failed must carry the apply_beat() error string");
+    assert_eq!(
+        skipped[0]
+            .fields
+            .get("encounter_type")
+            .and_then(|v| v.as_str()),
+        Some("combat")
+    );
+    assert_source_is_narrator_beat(&skipped[0]);
+
+    // No beat_apply_failed event must fire — the Reviewer-pass-1 rework
+    // introduced that regression and this test locks in its removal.
     assert!(
-        err.contains("resolved"),
-        "error must preserve apply_beat's 'already resolved' message, got: {err}"
+        find_encounter_events(&events, "encounter.beat_apply_failed").is_empty(),
+        "Case E must NOT emit encounter.beat_apply_failed — legitimate \
+         post-resolution beats are not apply failures"
     );
-    assert_source_is_narrator_beat(&failed[0]);
+    // Similarly no beat_applied event — nothing was actually applied.
+    assert!(
+        find_encounter_events(&events, "encounter.beat_applied").is_empty(),
+        "Case E must NOT emit encounter.beat_applied — the beat was skipped, \
+         not applied"
+    );
 }
 
 // ---------------------------------------------------------------------------
