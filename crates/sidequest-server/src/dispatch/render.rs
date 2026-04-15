@@ -360,6 +360,11 @@ pub(crate) async fn process_render(
                     let session_key =
                         crate::shared_session::game_session_key(ctx.genre_slug, ctx.world_slug);
                     ctx.state.register_render_session(job_id, session_key);
+                    // Story 33-18 follow-up: capture the turn id so the
+                    // broadcaster can reunite the finished render with the
+                    // scrapbook entry emitted at NarrationEnd time.
+                    ctx.state
+                        .register_render_turn(job_id, ctx.turn_manager.interaction());
 
                     // Notify UI to show placeholder shimmer while Flux generates
                     let dims = sidequest_game::tier_to_dimensions(subject.tier());

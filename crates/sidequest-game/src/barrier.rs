@@ -394,7 +394,6 @@ impl TurnBarrier {
     }
 
     async fn wait_for_turn_inner(&self, initial_turn: u32) -> TurnBarrierResult {
-
         let (deadline, enabled) = {
             let config = self.inner.config.lock().unwrap();
             if config.enabled {
@@ -469,6 +468,14 @@ impl TurnBarrier {
     /// own `MultiplayerSession`, NOT from any external shared session.
     pub fn named_actions(&self) -> HashMap<String, String> {
         self.inner.session.lock().unwrap().named_actions()
+    }
+
+    /// Expose `identified_actions()` from the barrier's internal session.
+    ///
+    /// Returns `(player_id, character_name, action)` triples so the caller
+    /// can build a `PlayerActionEntry` without inventing a blank player_id.
+    pub fn identified_actions(&self) -> Vec<(String, String, String)> {
+        self.inner.session.lock().unwrap().identified_actions()
     }
 
     /// Store the narration result after the claiming handler runs the narrator.

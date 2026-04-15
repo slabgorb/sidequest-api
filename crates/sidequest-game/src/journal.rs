@@ -3,7 +3,7 @@
 //! Story 9-13: Converts a character's accumulated KnownFacts into
 //! wire-format JournalEntry structs for the React browse view.
 
-use sidequest_protocol::{FactCategory, JournalEntry, JournalSortOrder};
+use sidequest_protocol::{FactCategory, JournalEntry, JournalSortOrder, NonBlankString};
 
 use crate::known_fact::KnownFact;
 
@@ -37,13 +37,32 @@ pub fn build_journal_entries(facts: &[KnownFact], filter: &JournalFilter) -> Vec
             Some(cat) => fact.category == cat,
             None => true,
         })
-        .map(|(idx, fact)| JournalEntry {
-            fact_id: format!("kf-{}", idx),
-            content: fact.content.clone(),
-            category: fact.category,
-            source: fact.source.to_string(),
-            confidence: fact.confidence.to_string(),
-            learned_turn: fact.learned_turn,
+        .filter_map(|(idx, fact)| {
+            // A blank KnownFact.content is a narrator extraction bug
+            // upstream. Drop it from the journal rather than surfacing a
+            // blank row; telemetry on the drop surfaces the upstream bug.
+            let content = match NonBlankString::new(&fact.content) {
+                Ok(c) => c,
+                Err(_) => {
+                    tracing::warn!(
+                        idx = idx,
+                        category = ?fact.category,
+                        "journal_entry_dropped — KnownFact.content is blank; \
+                         check narrator footnote extraction"
+                    );
+                    return None;
+                }
+            };
+            let fact_id = NonBlankString::new(&format!("kf-{}", idx))
+                .expect("kf-{idx} format is always non-blank");
+            Some(JournalEntry {
+                fact_id,
+                content,
+                category: fact.category,
+                source: fact.source.to_string(),
+                confidence: fact.confidence.to_string(),
+                learned_turn: fact.learned_turn,
+            })
         })
         .collect();
 

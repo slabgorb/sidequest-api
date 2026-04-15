@@ -816,9 +816,12 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .field("result", "success")
                         .field("attempts", attempt + 1)
                         .send();
+                    let narration_nbs =
+                        sidequest_protocol::NonBlankString::new(&narration)
+                            .expect("shared barrier narration is non-empty when retrieved by non-claimer");
                     let msg = GameMessage::Narration {
                         payload: NarrationPayload {
-                            text: narration,
+                            text: narration_nbs,
                             state_delta: None,
                             footnotes: vec![],
                         },
@@ -1338,13 +1341,17 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                             .field("item_name", &item_name)
                             .field("remaining_before", remaining_before.to_string())
                             .send();
-                        messages.push(GameMessage::ItemDepleted {
-                            payload: ItemDepletedPayload {
-                                item_name,
-                                remaining_before,
-                            },
-                            player_id: ctx.player_id.to_string(),
-                        });
+                        if let Ok(item_name_nbs) =
+                            sidequest_protocol::NonBlankString::new(&item_name)
+                        {
+                            messages.push(GameMessage::ItemDepleted {
+                                payload: ItemDepletedPayload {
+                                    item_name: item_name_nbs,
+                                    remaining_before,
+                                },
+                                player_id: ctx.player_id.to_string(),
+                            });
+                        }
                     }
 
                     true
@@ -1433,18 +1440,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         url = %served_url,
                         "poi_image.served — pre-rendered landscape on first discovery"
                     );
-                    messages.push(GameMessage::Image {
-                        payload: sidequest_protocol::ImagePayload {
-                            url: served_url.clone(),
-                            description: location.to_string(),
-                            handout: true,
-                            render_id: None,
-                            tier: Some("landscape".to_string()),
-                            scene_type: Some("discovery".to_string()),
-                            generation_ms: Some(0),
-                        },
-                        player_id: ctx.player_id.to_string(),
-                    });
+                    if let (Ok(url_nbs), Ok(desc_nbs)) = (
+                        sidequest_protocol::NonBlankString::new(&served_url),
+                        sidequest_protocol::NonBlankString::new(&location),
+                    ) {
+                        messages.push(GameMessage::Image {
+                            payload: sidequest_protocol::ImagePayload {
+                                url: url_nbs,
+                                description: desc_nbs,
+                                handout: true,
+                                render_id: None,
+                                tier: Some("landscape".to_string()),
+                                scene_type: Some("discovery".to_string()),
+                                generation_ms: Some(0),
+                            },
+                            player_id: ctx.player_id.to_string(),
+                        });
+                    }
                     WatcherEventBuilder::new("poi_image", WatcherEventType::StateTransition)
                         .field("action", "poi_image_served")
                         .field("location", &location)
@@ -1482,19 +1494,23 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 // Region mode: simple location list without room metadata
                 ctx.discovered_regions
                     .iter()
-                    .map(|name| sidequest_protocol::ExploredLocation {
-                        // Region mode has no separate slug — id mirrors name.
-                        id: name.clone(),
-                        name: name.clone(),
-                        x: 0,
-                        y: 0,
-                        location_type: String::new(),
-                        connections: vec![],
-                        room_exits: vec![],
-                        room_type: String::new(),
-                        size: None,
-                        is_current_room: false,
-                        tactical_grid: None,
+                    .filter_map(|name| {
+                        sidequest_protocol::NonBlankString::new(name).ok().map(
+                            |nbs_name| sidequest_protocol::ExploredLocation {
+                                // Region mode has no separate slug — id mirrors name.
+                                id: name.clone(),
+                                name: nbs_name,
+                                x: 0,
+                                y: 0,
+                                location_type: String::new(),
+                                connections: vec![],
+                                room_exits: vec![],
+                                room_type: String::new(),
+                                size: None,
+                                is_current_room: false,
+                                tactical_grid: None,
+                            },
+                        )
                     })
                     .collect()
             };
@@ -1517,10 +1533,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 &explored_locs,
                 ctx.cartography_metadata.as_ref(),
             );
+            let loc_nbs = sidequest_protocol::NonBlankString::new(&location)
+                .expect("location change carries non-empty location");
+            let region_nbs = sidequest_protocol::NonBlankString::new(ctx.current_location)
+                .unwrap_or_else(|_| loc_nbs.clone());
             messages.push(GameMessage::MapUpdate {
                 payload: MapUpdatePayload {
-                    current_location: location,
-                    region: ctx.current_location.clone(),
+                    current_location: loc_nbs,
+                    region: region_nbs,
                     explored: explored_locs,
                     fog_bounds: None,
                     cartography: ctx.cartography_metadata.clone(),
@@ -1568,10 +1588,19 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // NPC registry + OCEAN personality shifts + creature image detection
     let creature_images = npc_registry::update_npc_registry(ctx, &result, &clean_narration);
     for (creature_name, served_url) in &creature_images {
+        let url_nbs = match sidequest_protocol::NonBlankString::new(served_url) {
+            Ok(u) => u,
+            Err(_) => continue,
+        };
+        let description_text = format!("A {} appears", creature_name);
+        let desc_nbs = match sidequest_protocol::NonBlankString::new(&description_text) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
         let msg = GameMessage::Image {
             payload: sidequest_protocol::ImagePayload {
-                url: served_url.clone(),
-                description: format!("A {} appears", creature_name),
+                url: url_nbs,
+                description: desc_nbs,
                 handout: true,
                 render_id: None,
                 tier: Some("portrait".to_string()),

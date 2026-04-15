@@ -180,8 +180,8 @@ fn map_update_without_cartography_still_deserializes() {
         serde_json::from_value(json_val).expect("MAP_UPDATE without cartography should still work");
     match msg {
         crate::GameMessage::MapUpdate { payload, .. } => {
-            assert_eq!(payload.current_location, "Dark Cave");
-            assert_eq!(payload.region, "Shadowlands");
+            assert_eq!(payload.current_location.as_str(), "Dark Cave");
+            assert_eq!(payload.region.as_str(), "Shadowlands");
             // Cartography should be None when not provided
             let payload_json = serde_json::to_value(&payload).unwrap();
             assert!(
@@ -245,8 +245,8 @@ fn map_update_with_cartography_round_trips() {
 fn map_update_payload_accessible_from_crate_root() {
     // If this compiles, the type is properly re-exported.
     let _payload = crate::MapUpdatePayload {
-        current_location: "test".into(),
-        region: "test".into(),
+        current_location: crate::types::NonBlankString::new("test").expect("literal"),
+        region: crate::types::NonBlankString::new("test").expect("literal"),
         explored: vec![],
         fog_bounds: None,
         cartography: None,

@@ -167,7 +167,7 @@ fn build_journal_entries_preserves_category() {
     let entries = build_journal_entries(&facts, &JournalFilter::default());
     let lore_entry = entries
         .iter()
-        .find(|e| e.content.contains("ancient runes"))
+        .find(|e| e.content.as_str().contains("ancient runes"))
         .unwrap();
     assert_eq!(lore_entry.category, FactCategory::Lore);
 }
@@ -178,7 +178,7 @@ fn build_journal_entries_preserves_source() {
     let entries = build_journal_entries(&facts, &JournalFilter::default());
     let grove_entry = entries
         .iter()
-        .find(|e| e.content.contains("grove"))
+        .find(|e| e.content.as_str().contains("grove"))
         .unwrap();
     assert_eq!(grove_entry.source, "Observation");
 }
@@ -189,7 +189,7 @@ fn build_journal_entries_preserves_confidence() {
     let entries = build_journal_entries(&facts, &JournalFilter::default());
     let mirova_entry = entries
         .iter()
-        .find(|e| e.content.contains("Mirova"))
+        .find(|e| e.content.as_str().contains("Mirova"))
         .unwrap();
     assert_eq!(mirova_entry.confidence, "Suspected");
 }
@@ -200,7 +200,7 @@ fn build_journal_entries_preserves_learned_turn() {
     let entries = build_journal_entries(&facts, &JournalFilter::default());
     let quest_entry = entries
         .iter()
-        .find(|e| e.content.contains("harvest moon"))
+        .find(|e| e.content.as_str().contains("harvest moon"))
         .unwrap();
     assert_eq!(quest_entry.learned_turn, 2);
 }
@@ -209,9 +209,14 @@ fn build_journal_entries_preserves_learned_turn() {
 fn build_journal_entries_assigns_fact_ids() {
     let facts = sample_facts();
     let entries = build_journal_entries(&facts, &JournalFilter::default());
-    // Every entry should have a non-empty fact_id
+    // Every entry should have a non-empty fact_id. Trivially true after the
+    // NonBlankString protocol sweep — the type system enforces it — but
+    // kept as a regression guard in case the field type ever relaxes.
     for entry in &entries {
-        assert!(!entry.fact_id.is_empty(), "fact_id must not be empty");
+        assert!(
+            !entry.fact_id.as_str().is_empty(),
+            "fact_id must not be empty"
+        );
     }
     // fact_ids should be unique
     let ids: Vec<&str> = entries.iter().map(|e| e.fact_id.as_str()).collect();
@@ -232,7 +237,7 @@ fn filter_by_category_lore() {
     };
     let entries = build_journal_entries(&facts, &filter);
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("ancient runes"));
+    assert!(entries[0].content.as_str().contains("ancient runes"));
 }
 
 #[test]
@@ -244,7 +249,7 @@ fn filter_by_category_person() {
     };
     let entries = build_journal_entries(&facts, &filter);
     assert_eq!(entries.len(), 1);
-    assert!(entries[0].content.contains("Mirova"));
+    assert!(entries[0].content.as_str().contains("Mirova"));
 }
 
 #[test]

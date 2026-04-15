@@ -244,6 +244,27 @@ impl MultiplayerSession {
             .collect()
     }
 
+    /// Actions with full identity: `(player_id, character_name, action)`.
+    ///
+    /// Same source selection as [`named_actions`], but preserves the player
+    /// id so that downstream `PlayerActionEntry` construction can populate
+    /// `player_id` without falling back to empty-string sentinels.
+    pub fn identified_actions(&self) -> Vec<(String, String, String)> {
+        let source = if self.actions.is_empty() {
+            &self.last_resolved_actions
+        } else {
+            &self.actions
+        };
+        source
+            .iter()
+            .filter_map(|(pid, action)| {
+                self.players
+                    .get(pid)
+                    .map(|ch| (pid.clone(), ch.name().to_string(), action.clone()))
+            })
+            .collect()
+    }
+
     /// Generate a catch-up snapshot string for a player (e.g., late joiner).
     pub fn generate_snapshot(&self, player_id: &str) -> Result<String, MultiplayerError> {
         let character = self

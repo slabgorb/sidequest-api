@@ -27,26 +27,35 @@
 
 use super::*;
 
+/// Story 33-18 sweep: NpcRef / ScrapbookEntryPayload string fields are now
+/// `NonBlankString`. Local macro keeps literal construction terse while
+/// routing through the validating constructor.
+macro_rules! nbs {
+    ($s:expr) => {
+        crate::types::NonBlankString::new($s).expect("test literal must be non-blank")
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
 fn sample_npc_ref() -> NpcRef {
     NpcRef {
-        name: "Toggler Copperjaw".to_string(),
-        role: "blacksmith".to_string(),
-        disposition: "gruff but fair".to_string(),
+        name: nbs!("Toggler Copperjaw"),
+        role: nbs!("blacksmith"),
+        disposition: nbs!("gruff but fair"),
     }
 }
 
 fn sample_payload() -> ScrapbookEntryPayload {
     ScrapbookEntryPayload {
         turn_id: 7,
-        scene_title: Some("The Forge of Broken Oaths".to_string()),
+        scene_title: Some(nbs!("The Forge of Broken Oaths")),
         scene_type: Some("exploration".to_string()),
-        location: "Ironhold Market".to_string(),
-        image_url: Some("/renders/turn-7.png".to_string()),
-        narrative_excerpt: "The hammer rang once against cold iron.".to_string(),
+        location: nbs!("Ironhold Market"),
+        image_url: Some(nbs!("/renders/turn-7.png")),
+        narrative_excerpt: nbs!("The hammer rang once against cold iron."),
         world_facts: vec![
             "The forge has been cold for six days.".to_string(),
             "Ironhold's smith guild disbanded last winter.".to_string(),
@@ -71,19 +80,22 @@ fn scrapbook_entry_variant_constructs_and_matches() {
             assert_eq!(player_id, "server");
             assert_eq!(payload.turn_id, 7);
             assert_eq!(
-                payload.scene_title.as_deref(),
+                payload.scene_title.as_ref().map(|s| s.as_str()),
                 Some("The Forge of Broken Oaths")
             );
             assert_eq!(payload.scene_type.as_deref(), Some("exploration"));
-            assert_eq!(payload.location, "Ironhold Market");
-            assert_eq!(payload.image_url.as_deref(), Some("/renders/turn-7.png"));
+            assert_eq!(payload.location.as_str(), "Ironhold Market");
             assert_eq!(
-                payload.narrative_excerpt,
+                payload.image_url.as_ref().map(|s| s.as_str()),
+                Some("/renders/turn-7.png")
+            );
+            assert_eq!(
+                payload.narrative_excerpt.as_str(),
                 "The hammer rang once against cold iron."
             );
             assert_eq!(payload.world_facts.len(), 2);
             assert_eq!(payload.npcs_present.len(), 1);
-            assert_eq!(payload.npcs_present[0].name, "Toggler Copperjaw");
+            assert_eq!(payload.npcs_present[0].name.as_str(), "Toggler Copperjaw");
         }
         _ => panic!("Expected ScrapbookEntry variant"),
     }
@@ -130,9 +142,9 @@ fn scrapbook_entry_payload_round_trip_preserves_world_facts_order() {
         turn_id: 3,
         scene_title: None,
         scene_type: None,
-        location: "Whispering Reach".to_string(),
+        location: nbs!("Whispering Reach"),
         image_url: None,
-        narrative_excerpt: "A single candle burned.".to_string(),
+        narrative_excerpt: nbs!("A single candle burned."),
         world_facts: vec![
             "Fact A".to_string(),
             "Fact B".to_string(),
@@ -189,9 +201,9 @@ fn npc_ref_rejects_unknown_fields() {
 #[test]
 fn npc_ref_has_name_role_disposition_fields() {
     let npc = sample_npc_ref();
-    assert_eq!(npc.name, "Toggler Copperjaw");
-    assert_eq!(npc.role, "blacksmith");
-    assert_eq!(npc.disposition, "gruff but fair");
+    assert_eq!(npc.name.as_str(), "Toggler Copperjaw");
+    assert_eq!(npc.role.as_str(), "blacksmith");
+    assert_eq!(npc.disposition.as_str(), "gruff but fair");
 }
 
 #[test]
@@ -259,7 +271,7 @@ fn scrapbook_entry_payload_image_url_is_optional() {
     let decoded: ScrapbookEntryPayload = serde_json::from_str(json).expect("deserialize");
     assert!(
         decoded.image_url.is_none(),
-        "image_url must be Option<String> — ScrapbookEntry is emitted at narration-end \
+        "image_url must be Option<NonBlankString> — ScrapbookEntry is emitted at narration-end \
          time but images arrive on an async render channel and may not yet exist"
     );
     assert!(decoded.scene_title.is_none());
@@ -274,9 +286,9 @@ fn scrapbook_entry_payload_skips_none_on_serialize() {
         turn_id: 11,
         scene_title: None,
         scene_type: None,
-        location: "Empty".to_string(),
+        location: nbs!("Empty"),
         image_url: None,
-        narrative_excerpt: "Silence.".to_string(),
+        narrative_excerpt: nbs!("Silence."),
         world_facts: vec![],
         npcs_present: vec![],
     };

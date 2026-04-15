@@ -11,6 +11,15 @@
 
 use super::*;
 
+/// Story 33-18 sweep: PlayerActionEntry fields are now `NonBlankString`.
+/// Local macro keeps literal construction terse while routing through the
+/// validating constructor.
+macro_rules! nbs {
+    ($s:expr) => {
+        crate::types::NonBlankString::new($s).expect("test literal must be non-blank")
+    };
+}
+
 // ===========================================================================
 // AC-5: Protocol defines ActionReveal message shape (serde)
 // ===========================================================================
@@ -24,14 +33,14 @@ mod action_reveal_type_tests {
         let payload = ActionRevealPayload {
             actions: vec![
                 PlayerActionEntry {
-                    character_name: "Thorn".into(),
-                    player_id: "player-1".into(),
-                    action: "I search the room for traps".into(),
+                    character_name: nbs!("Thorn"),
+                    player_id: nbs!("player-1"),
+                    action: nbs!("I search the room for traps"),
                 },
                 PlayerActionEntry {
-                    character_name: "Elara".into(),
-                    player_id: "player-2".into(),
-                    action: "I guard the door".into(),
+                    character_name: nbs!("Elara"),
+                    player_id: nbs!("player-2"),
+                    action: nbs!("I guard the door"),
                 },
             ],
             turn_number: 3,
@@ -44,13 +53,13 @@ mod action_reveal_type_tests {
     #[test]
     fn player_action_entry_has_required_fields() {
         let entry = PlayerActionEntry {
-            character_name: "Kael".into(),
-            player_id: "p1".into(),
-            action: "I cast fireball".into(),
+            character_name: nbs!("Kael"),
+            player_id: nbs!("p1"),
+            action: nbs!("I cast fireball"),
         };
-        assert_eq!(entry.character_name, "Kael");
-        assert_eq!(entry.player_id, "p1");
-        assert_eq!(entry.action, "I cast fireball");
+        assert_eq!(entry.character_name.as_str(), "Kael");
+        assert_eq!(entry.player_id.as_str(), "p1");
+        assert_eq!(entry.action.as_str(), "I cast fireball");
     }
 
     #[test]
@@ -58,9 +67,9 @@ mod action_reveal_type_tests {
         // When a player times out, their name appears in auto_resolved
         let payload = ActionRevealPayload {
             actions: vec![PlayerActionEntry {
-                character_name: "Thorn".into(),
-                player_id: "player-1".into(),
-                action: "I search the room".into(),
+                character_name: nbs!("Thorn"),
+                player_id: nbs!("player-1"),
+                action: nbs!("I search the room"),
             }],
             turn_number: 5,
             auto_resolved: vec!["Elara".into()],
@@ -73,9 +82,9 @@ mod action_reveal_type_tests {
     fn action_reveal_empty_auto_resolved() {
         let payload = ActionRevealPayload {
             actions: vec![PlayerActionEntry {
-                character_name: "Thorn".into(),
-                player_id: "player-1".into(),
-                action: "I attack".into(),
+                character_name: nbs!("Thorn"),
+                player_id: nbs!("player-1"),
+                action: nbs!("I attack"),
             }],
             turn_number: 1,
             auto_resolved: vec![],
@@ -97,14 +106,14 @@ mod action_reveal_serde_tests {
             payload: ActionRevealPayload {
                 actions: vec![
                     PlayerActionEntry {
-                        character_name: "Thorn".into(),
-                        player_id: "player-1".into(),
-                        action: "I search the room".into(),
+                        character_name: nbs!("Thorn"),
+                        player_id: nbs!("player-1"),
+                        action: nbs!("I search the room"),
                     },
                     PlayerActionEntry {
-                        character_name: "Elara".into(),
-                        player_id: "player-2".into(),
-                        action: "I guard the door".into(),
+                        character_name: nbs!("Elara"),
+                        player_id: nbs!("player-2"),
+                        action: nbs!("I guard the door"),
                     },
                 ],
                 turn_number: 3,
@@ -124,9 +133,9 @@ mod action_reveal_serde_tests {
         let msg = GameMessage::ActionReveal {
             payload: ActionRevealPayload {
                 actions: vec![PlayerActionEntry {
-                    character_name: "Thorn".into(),
-                    player_id: "player-1".into(),
-                    action: "I search the room".into(),
+                    character_name: nbs!("Thorn"),
+                    player_id: nbs!("player-1"),
+                    action: nbs!("I search the room"),
                 }],
                 turn_number: 5,
                 auto_resolved: vec!["Elara".into()],
@@ -143,9 +152,9 @@ mod action_reveal_serde_tests {
         let msg = GameMessage::ActionReveal {
             payload: ActionRevealPayload {
                 actions: vec![PlayerActionEntry {
-                    character_name: "Lyra Dawnforge".into(),
-                    player_id: "p2".into(),
-                    action: "I heal the wounded".into(),
+                    character_name: nbs!("Lyra Dawnforge"),
+                    player_id: nbs!("p2"),
+                    action: nbs!("I heal the wounded"),
                 }],
                 turn_number: 1,
                 auto_resolved: vec![],
@@ -191,9 +200,9 @@ mod action_reveal_wire_tests {
         match &msg {
             GameMessage::ActionReveal { payload, player_id } => {
                 assert_eq!(payload.actions.len(), 2);
-                assert_eq!(payload.actions[0].character_name, "Thorn");
-                assert_eq!(payload.actions[0].action, "I search the room");
-                assert_eq!(payload.actions[1].character_name, "Elara");
+                assert_eq!(payload.actions[0].character_name.as_str(), "Thorn");
+                assert_eq!(payload.actions[0].action.as_str(), "I search the room");
+                assert_eq!(payload.actions[1].character_name.as_str(), "Elara");
                 assert_eq!(payload.turn_number, 3);
                 assert!(payload.auto_resolved.is_empty());
                 assert_eq!(player_id, "server");
@@ -292,9 +301,9 @@ mod action_reveal_edge_tests {
         let msg = GameMessage::ActionReveal {
             payload: ActionRevealPayload {
                 actions: vec![PlayerActionEntry {
-                    character_name: "Solo".into(),
-                    player_id: "player-1".into(),
-                    action: "I open the chest".into(),
+                    character_name: nbs!("Solo"),
+                    player_id: nbs!("player-1"),
+                    action: nbs!("I open the chest"),
                 }],
                 turn_number: 1,
                 auto_resolved: vec![],
@@ -327,9 +336,9 @@ mod action_reveal_edge_tests {
         let msg = GameMessage::ActionReveal {
             payload: ActionRevealPayload {
                 actions: vec![PlayerActionEntry {
-                    character_name: "Thorn".into(),
-                    player_id: "player-1".into(),
-                    action: r#"I shout "For glory!" and charge the dragon"#.into(),
+                    character_name: nbs!("Thorn"),
+                    player_id: nbs!("player-1"),
+                    action: nbs!(r#"I shout "For glory!" and charge the dragon"#),
                 }],
                 turn_number: 1,
                 auto_resolved: vec![],

@@ -84,9 +84,12 @@ pub(crate) async fn sync_back_to_shared_session(
             // Send the acting player's action to observers FIRST. This
             // creates a turn boundary in NarrativeView (PLAYER_ACTION
             // triggers flushChunks on the client side).
+            let observer_action_text = format!("{} — {}", ctx.char_name, effective_action);
+            let observer_action_nbs = sidequest_protocol::NonBlankString::new(&observer_action_text)
+                .expect("observer action text composes non-empty char_name + effective_action");
             let observer_action = GameMessage::PlayerAction {
                 payload: sidequest_protocol::PlayerActionPayload {
-                    action: format!("{} — {}", ctx.char_name, effective_action),
+                    action: observer_action_nbs,
                     aside: false,
                 },
                 player_id: ctx.player_id.to_string(),
@@ -141,9 +144,11 @@ pub(crate) async fn sync_back_to_shared_session(
                 } else {
                     clean_narration.to_string()
                 };
+                let narration_text_nbs = sidequest_protocol::NonBlankString::new(&text)
+                    .expect("observer narration text is either clean_narration (non-empty) or a perception rewrite (non-empty)");
                 let narration_msg = GameMessage::Narration {
                     payload: sidequest_protocol::NarrationPayload {
-                        text,
+                        text: narration_text_nbs,
                         state_delta: None,
                         footnotes: footnotes.to_vec(),
                     },
@@ -179,7 +184,8 @@ pub(crate) async fn sync_back_to_shared_session(
         if ss.players.len() > 1 {
             let resolved_msg = GameMessage::TurnStatus {
                 payload: TurnStatusPayload {
-                    player_name: ctx.player_name_for_save.to_string(),
+                    player_name: sidequest_protocol::NonBlankString::new(ctx.player_name_for_save)
+                        .expect("player_name_for_save is non-empty post-session-init"),
                     status: "resolved".into(),
                     state_delta: None,
                 },

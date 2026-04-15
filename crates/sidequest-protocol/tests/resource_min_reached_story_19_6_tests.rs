@@ -6,14 +6,14 @@
 //! AC coverage:
 //! - AC3: GameMessage when resource hits min
 
-use sidequest_protocol::GameMessage;
+use sidequest_protocol::{GameMessage, NonBlankString};
 
 /// ResourceMinReached variant exists and can be constructed.
 #[test]
 fn resource_min_reached_constructible() {
     let msg = GameMessage::ResourceMinReached {
         payload: sidequest_protocol::ResourceMinReachedPayload {
-            resource_name: "heat".to_string(),
+            resource_name: NonBlankString::new("heat").expect("heat is non-blank"),
             min_value: 0.0,
         },
         player_id: "server".to_string(),
@@ -21,7 +21,7 @@ fn resource_min_reached_constructible() {
 
     match &msg {
         GameMessage::ResourceMinReached { payload, player_id } => {
-            assert_eq!(payload.resource_name, "heat");
+            assert_eq!(payload.resource_name.as_str(), "heat");
             assert!((payload.min_value - 0.0).abs() < 1e-9);
             assert_eq!(player_id, "server");
         }
@@ -34,7 +34,7 @@ fn resource_min_reached_constructible() {
 fn resource_min_reached_serializes_with_correct_type_tag() {
     let msg = GameMessage::ResourceMinReached {
         payload: sidequest_protocol::ResourceMinReachedPayload {
-            resource_name: "luck".to_string(),
+            resource_name: NonBlankString::new("luck").expect("luck is non-blank"),
             min_value: 0.0,
         },
         player_id: "server".to_string(),
@@ -53,7 +53,7 @@ fn resource_min_reached_serializes_with_correct_type_tag() {
 fn resource_min_reached_json_roundtrip() {
     let msg = GameMessage::ResourceMinReached {
         payload: sidequest_protocol::ResourceMinReachedPayload {
-            resource_name: "humanity".to_string(),
+            resource_name: NonBlankString::new("humanity").expect("humanity is non-blank"),
             min_value: -5.0,
         },
         player_id: "server".to_string(),
@@ -83,7 +83,7 @@ fn resource_min_reached_deserializes_from_raw_json() {
     let msg: GameMessage = serde_json::from_str(json).unwrap();
     match msg {
         GameMessage::ResourceMinReached { payload, .. } => {
-            assert_eq!(payload.resource_name, "heat");
+            assert_eq!(payload.resource_name.as_str(), "heat");
             assert!((payload.min_value - 0.0).abs() < 1e-9);
         }
         _ => panic!("Expected ResourceMinReached"),

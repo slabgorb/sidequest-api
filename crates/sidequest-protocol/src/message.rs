@@ -21,6 +21,7 @@
 //! This is different from a tuple variant (`PlayerAction(PayloadType)`).
 //! Struct variants serialize each field into the JSON object alongside `type`.
 
+use crate::types::NonBlankString;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -449,8 +450,11 @@ pub enum GameMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerActionPayload {
-    /// The action text the player typed.
-    pub action: String,
+    /// The action text the player typed. Non-blank — enforced at construction
+    /// and at deserialization via `NonBlankString`. Empty player actions are
+    /// rejected by `sanitize_player_text` at the trust boundary; this type
+    /// makes that contract compiler-enforced everywhere the payload travels.
+    pub action: NonBlankString,
     /// True if this is an out-of-character aside.
     #[serde(default)]
     pub aside: bool,
@@ -462,8 +466,10 @@ pub struct PlayerActionPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NarrationPayload {
-    /// The narrative text from the AI.
-    pub text: String,
+    /// The narrative text from the AI. Non-blank — empty narration is a
+    /// narrator schema violation that must fail loud at the protocol boundary
+    /// rather than silently render as a blank card on the client.
+    pub text: NonBlankString,
     /// Optional state changes resulting from this narration.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub state_delta: Option<StateDelta>,
@@ -500,8 +506,9 @@ pub struct Footnote {
     /// Links to existing KnownFact if this is a callback (is_new: false).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fact_id: Option<String>,
-    /// One-sentence description of the fact.
-    pub summary: String,
+    /// One-sentence description of the fact. Non-blank — a footnote without
+    /// content is a narrator extraction failure, not a legitimate state.
+    pub summary: NonBlankString,
     /// Classification category for the footnote.
     pub category: FactCategory,
     /// True if this is a new revelation, false if referencing prior knowledge.
@@ -654,9 +661,13 @@ pub struct RolledStat {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TurnStatusPayload {
-    /// Which player this turn status is about.
-    pub player_name: String,
+    /// Which player this turn status is about. Non-blank — the UI uses this
+    /// to attribute the active-turn indicator; a blank name produces ghost
+    /// turn markers.
+    pub player_name: NonBlankString,
     /// "active" = this player's turn, "resolved" = turn complete.
+    /// Literal dispatch token — kept as raw String because it is pattern-matched,
+    /// not display-rendered.
     pub status: String,
     /// Optional state delta.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -688,10 +699,11 @@ pub struct InventoryPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MapUpdatePayload {
-    /// Current player location.
-    pub current_location: String,
-    /// Current region name.
-    pub region: String,
+    /// Current player location. Non-blank — a blank location means the player
+    /// is nowhere, which is never a legitimate game state.
+    pub current_location: NonBlankString,
+    /// Current region name. Non-blank for the same reason as `current_location`.
+    pub region: NonBlankString,
     /// Explored locations.
     pub explored: Vec<ExploredLocation>,
     /// Fog of war bounds.
@@ -724,8 +736,8 @@ pub struct CartographyMetadata {
 /// A region in the cartography metadata (wire format for UI).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CartographyRegion {
-    /// Display name.
-    pub name: String,
+    /// Display name. Non-blank — regions without names cannot be rendered.
+    pub name: NonBlankString,
     /// Description.
     #[serde(default)]
     pub description: String,
@@ -737,8 +749,8 @@ pub struct CartographyRegion {
 /// A route between regions in the cartography metadata (wire format for UI).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CartographyRoute {
-    /// Route name.
-    pub name: String,
+    /// Route name. Non-blank — the UI uses this as the route label.
+    pub name: NonBlankString,
     /// Description.
     #[serde(default)]
     pub description: String,
@@ -774,12 +786,14 @@ pub struct RenderQueuedPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationPayload {
     /// Encounter type key (e.g., "chase", "standoff", "negotiation").
+    /// Literal dispatch token — pattern-matched on the client to pick the
+    /// confrontation overlay shape, kept as raw String.
     #[serde(rename = "type")]
     pub encounter_type: String,
-    /// Display label (e.g., "High-Speed Chase").
-    pub label: String,
-    /// Category (e.g., "combat", "social", "pursuit").
-    pub category: String,
+    /// Display label (e.g., "High-Speed Chase"). Non-blank.
+    pub label: NonBlankString,
+    /// Category (e.g., "combat", "social", "pursuit"). Non-blank.
+    pub category: NonBlankString,
     /// Participants and their roles.
     pub actors: Vec<ConfrontationActor>,
     /// Primary metric being tracked.
@@ -807,11 +821,11 @@ fn default_true() -> bool {
 /// A participant in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationActor {
-    /// Display name of the actor (e.g., "Sheriff Reyes").
-    pub name: String,
+    /// Display name of the actor (e.g., "Sheriff Reyes"). Non-blank.
+    pub name: NonBlankString,
     /// Narrative role this actor plays in the confrontation
-    /// (e.g., "antagonist", "witness", "ally").
-    pub role: String,
+    /// (e.g., "antagonist", "witness", "ally"). Non-blank.
+    pub role: NonBlankString,
     /// Optional URL to a portrait image for the actor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
@@ -820,8 +834,8 @@ pub struct ConfrontationActor {
 /// Primary metric being tracked in a confrontation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationMetric {
-    /// Display name of the metric (e.g., "Suspicion", "Distance").
-    pub name: String,
+    /// Display name of the metric (e.g., "Suspicion", "Distance"). Non-blank.
+    pub name: NonBlankString,
     /// Current value of the metric.
     pub current: i32,
     /// Starting value of the metric at the beginning of the confrontation.
@@ -842,9 +856,12 @@ pub struct ConfrontationMetric {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConfrontationBeat {
     /// Stable identifier for the beat (used in `BeatSelected` messages).
-    pub id: String,
+    /// Non-blank — `dispatch_beat_selection` does strict id matching and a
+    /// blank id cannot match any beat in the confrontation def.
+    pub id: NonBlankString,
     /// Player-facing label describing the beat (e.g., "Stand your ground").
-    pub label: String,
+    /// Non-blank — rendered directly as a button label.
+    pub label: NonBlankString,
     /// Amount the metric changes when this beat is selected.
     #[serde(default)]
     pub metric_delta: i32,
@@ -863,10 +880,12 @@ pub struct ConfrontationBeat {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImagePayload {
-    /// Image URL.
-    pub url: String,
-    /// Alt text / description.
-    pub description: String,
+    /// Image URL. Non-blank — `render_integration.rs` already refuses to
+    /// broadcast IMAGE messages with empty URLs; this type makes that
+    /// invariant compiler-enforced so future call sites can't drift.
+    pub url: NonBlankString,
+    /// Alt text / description. Non-blank for accessibility.
+    pub description: NonBlankString,
     /// Whether this is a journal handout.
     pub handout: bool,
     /// Unique render identifier.
@@ -967,8 +986,9 @@ pub struct ChapterMarkerPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ErrorPayload {
-    /// Human-readable error message.
-    pub message: String,
+    /// Human-readable error message. Non-blank — a blank error message is
+    /// itself an error (the UI has nothing to show the user).
+    pub message: NonBlankString,
     /// When true, the client must re-send a SESSION_EVENT{connect} before
     /// retrying.  Set when the server has no session for this connection
     /// (e.g. after a server restart).
@@ -984,8 +1004,9 @@ pub struct ErrorPayload {
 pub struct ActionRevealPayload {
     /// Individual player actions submitted during the turn.
     pub actions: Vec<PlayerActionEntry>,
-    /// Turn number this reveal belongs to.
-    pub turn_number: u32,
+    /// Turn number this reveal belongs to. u64 to match
+    /// `TurnManager::interaction()` with no casting shim.
+    pub turn_number: u64,
     /// Character names of players who were auto-resolved (timed out).
     #[serde(default)]
     pub auto_resolved: Vec<String>,
@@ -995,12 +1016,15 @@ pub struct ActionRevealPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlayerActionEntry {
-    /// Character name (display name, not player ID).
-    pub character_name: String,
-    /// Player identifier.
-    pub player_id: String,
-    /// The action text the player submitted.
-    pub action: String,
+    /// Character name (display name, not player ID). Non-blank — used as the
+    /// reveal card header in the sealed-letter turn UI.
+    pub character_name: NonBlankString,
+    /// Player identifier. Non-blank — a blank player id cannot be matched
+    /// against connection state.
+    pub player_id: NonBlankString,
+    /// The action text the player submitted. Non-blank — same contract as
+    /// `PlayerActionPayload.action`.
+    pub action: NonBlankString,
 }
 
 // ---------------------------------------------------------------------------
@@ -1031,18 +1055,21 @@ pub struct StateDelta {
 /// An item the player gained during narration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ItemGained {
-    /// Short item name (e.g., "sealed matte-black case").
-    pub name: String,
-    /// One-sentence description.
+    /// Short item name (e.g., "sealed matte-black case"). Non-blank.
+    pub name: NonBlankString,
+    /// One-sentence description. Non-blank — defaults to a sentinel fallback
+    /// via `default_item_description` so the UI never renders a bare name.
     #[serde(default = "default_item_description")]
-    pub description: String,
+    pub description: NonBlankString,
     /// Category (weapon, armor, tool, consumable, quest, misc).
+    /// Literal dispatch token — kept as raw String.
     #[serde(default = "default_item_category")]
     pub category: String,
 }
 
-fn default_item_description() -> String {
-    "An item found during adventure.".to_string()
+fn default_item_description() -> NonBlankString {
+    NonBlankString::new("An item found during adventure.")
+        .expect("literal default description is non-blank")
 }
 
 fn default_item_category() -> String {
@@ -1053,8 +1080,10 @@ fn default_item_category() -> String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CharacterState {
-    /// Character name (merge key).
-    pub name: String,
+    /// Character name (merge key). Non-blank — this is the key the client
+    /// uses to merge incoming state deltas; a blank name collapses all
+    /// characters onto the same entry.
+    pub name: NonBlankString,
     /// Current hit points.
     pub hp: i32,
     /// Maximum hit points.
@@ -1077,23 +1106,24 @@ pub struct CharacterState {
 pub struct InitialState {
     /// Party characters.
     pub characters: Vec<CharacterState>,
-    /// Current location.
-    pub location: String,
+    /// Current location. Non-blank — same reason as `MapUpdatePayload.current_location`.
+    pub location: NonBlankString,
     /// Quest log.
     pub quests: HashMap<String, String>,
-    /// Current turn count (persisted across sessions).
+    /// Current turn count (persisted across sessions). u64 to match
+    /// `TurnManager::interaction()`.
     #[serde(default)]
-    pub turn_count: u32,
+    pub turn_count: u64,
 }
 
 /// A choice in the character creation flow.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreationChoice {
-    /// Display label.
-    pub label: String,
-    /// Description text.
-    pub description: String,
+    /// Display label. Non-blank — rendered as the button text.
+    pub label: NonBlankString,
+    /// Description text. Non-blank — rendered below the label.
+    pub description: NonBlankString,
 }
 
 /// A party member in PARTY_STATUS.
@@ -1107,29 +1137,34 @@ pub struct CreationChoice {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartyMember {
-    /// Player identifier.
-    pub player_id: String,
-    /// Player lobby name (what the user typed at connect — used for identity matching).
-    pub name: String,
-    /// In-game character name (for display in party panel).
-    #[serde(default)]
-    pub character_name: String,
+    /// Player identifier. Non-blank — identity key.
+    pub player_id: NonBlankString,
+    /// Player lobby name (what the user typed at connect — used for identity
+    /// matching). Non-blank.
+    pub name: NonBlankString,
+    /// In-game character name (for display in party panel). Optional because
+    /// the player may not have completed chargen yet; `None` means "still in
+    /// chargen" rather than "has no name".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character_name: Option<NonBlankString>,
     /// Current HP.
     pub current_hp: i32,
     /// Maximum HP.
     pub max_hp: i32,
     /// Active statuses.
     pub statuses: Vec<String>,
-    /// Character class.
-    pub class: String,
+    /// Character class. Non-blank — defaults to "Adventurer" at the call site
+    /// before chargen completes.
+    pub class: NonBlankString,
     /// Character level.
     pub level: u32,
     /// Portrait URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub portrait_url: Option<String>,
-    /// Current location name (for party panel display).
-    #[serde(default)]
-    pub current_location: String,
+    /// Current location name (for party panel display). Optional because a
+    /// pre-chargen observer has no location.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_location: Option<NonBlankString>,
     /// Full character sheet — `None` until the member completes chargen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sheet: Option<CharacterSheetDetails>,
@@ -1146,22 +1181,23 @@ pub struct PartyMember {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CharacterSheetDetails {
-    /// Character race/origin.
-    #[serde(default)]
-    pub race: String,
+    /// Character race/origin. Non-blank post-chargen — the parent
+    /// `PartyMember.sheet` is `None` pre-chargen, so a sheet that exists at
+    /// all has these fields populated.
+    pub race: NonBlankString,
     /// Ability scores / stats.
     pub stats: HashMap<String, i32>,
     /// Known abilities.
     pub abilities: Vec<String>,
-    /// Character backstory.
-    #[serde(default)]
-    pub backstory: String,
-    /// Personality trait.
-    #[serde(default)]
-    pub personality: String,
-    /// Pronouns.
-    #[serde(default)]
-    pub pronouns: String,
+    /// Character backstory. Non-blank post-chargen.
+    pub backstory: NonBlankString,
+    /// Personality trait. Non-blank post-chargen.
+    pub personality: NonBlankString,
+    /// Pronouns. Optional — may be absent when player skips or when the
+    /// character was created before chargen collected pronouns. Non-blank
+    /// when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pronouns: Option<NonBlankString>,
     /// Equipped/carried items as display strings.
     #[serde(default)]
     pub equipment: Vec<String>,
@@ -1171,17 +1207,18 @@ pub struct CharacterSheetDetails {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InventoryItem {
-    /// Item name.
-    pub name: String,
-    /// Item category (weapon, armor, consumable, etc.).
+    /// Item name. Non-blank — rendered as the inventory row header.
+    pub name: NonBlankString,
+    /// Item category (weapon, armor, consumable, etc.). Literal dispatch
+    /// token — kept as raw String.
     #[serde(rename = "type")]
     pub item_type: String,
     /// Whether the item is equipped.
     pub equipped: bool,
     /// Stack count.
     pub quantity: u32,
-    /// Item description.
-    pub description: String,
+    /// Item description. Non-blank — rendered below the name.
+    pub description: NonBlankString,
 }
 
 /// A location on the explored map.
@@ -1191,12 +1228,17 @@ pub struct ExploredLocation {
     /// Stable location identifier. In room-graph mode this is the `RoomDef`
     /// slug that `room_exits[].target` references — the UI joins exits back
     /// to rooms by this id. In region/cartography mode this equals `name`
-    /// (no distinct slug exists). Always populated; `#[serde(default)]`
-    /// allows older saves to deserialize cleanly.
+    /// (no distinct slug exists).
+    ///
+    /// Kept as raw `String` with `#[serde(default)]` for SQLite save
+    /// migration: saves from before `id` existed deserialize with an empty
+    /// `id`. Tightening this to `NonBlankString` would break old playtest
+    /// saves. The server always writes a non-empty `id` on new writes; the
+    /// empty-string case is exclusively a legacy-save migration shim.
     #[serde(default)]
     pub id: String,
-    /// Display name (human-readable).
-    pub name: String,
+    /// Display name (human-readable). Non-blank.
+    pub name: NonBlankString,
     /// X coordinate on map (0 when no coordinate data available).
     #[serde(default)]
     pub x: i32,
@@ -1230,9 +1272,11 @@ pub struct ExploredLocation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RoomExitInfo {
-    /// Target room ID this exit leads to.
-    pub target: String,
+    /// Target room ID this exit leads to. Non-blank — an exit with no target
+    /// is not navigable.
+    pub target: NonBlankString,
     /// Exit type: "door", "corridor", "chute_down", "chute_up", "secret".
+    /// Literal dispatch token — kept as raw String.
     pub exit_type: String,
 }
 
@@ -1259,8 +1303,8 @@ pub struct StatusEffectInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CombatEnemy {
-    /// Enemy name.
-    pub name: String,
+    /// Enemy name. Non-blank — rendered as the enemy chip label.
+    pub name: NonBlankString,
     /// Current HP.
     pub hp: i32,
     /// Maximum HP.
@@ -1284,9 +1328,10 @@ pub struct CombatEnemy {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ScenarioEventPayload {
     /// The type of scenario event.
+    /// Literal dispatch token — kept as raw String.
     pub event_type: String,
-    /// Human-readable description for display or narrator context.
-    pub description: String,
+    /// Human-readable description for display or narrator context. Non-blank.
+    pub description: NonBlankString,
     /// Structured event details (varies by event_type).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
@@ -1298,15 +1343,18 @@ pub struct ScenarioEventPayload {
 /// triggers an achievement. The UI can display a toast or achievement panel.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AchievementEarnedPayload {
-    /// Unique achievement identifier.
-    pub achievement_id: String,
-    /// Display name of the achievement.
-    pub name: String,
-    /// Flavor text shown on unlock.
-    pub description: String,
-    /// The trope that triggered this achievement.
-    pub trope_id: String,
+    /// Unique achievement identifier. Non-blank — this is the key the client
+    /// uses to dedupe toast pops.
+    pub achievement_id: NonBlankString,
+    /// Display name of the achievement. Non-blank.
+    pub name: NonBlankString,
+    /// Flavor text shown on unlock. Non-blank.
+    pub description: NonBlankString,
+    /// The trope that triggered this achievement. Non-blank — the trope id is
+    /// required to navigate to the trope detail view from the toast.
+    pub trope_id: NonBlankString,
     /// What triggered it: "activated", "progressing", "resolved", "subverted".
+    /// Literal dispatch token — kept as raw String.
     pub trigger: String,
     /// Optional emoji for UI display.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1360,15 +1408,17 @@ pub struct JournalResponsePayload {
 /// for UI simplicity.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JournalEntry {
-    /// Unique identifier for this fact.
-    pub fact_id: String,
-    /// The fact content in genre voice.
-    pub content: String,
+    /// Unique identifier for this fact. Non-blank — the dedupe key for the
+    /// journal UI.
+    pub fact_id: NonBlankString,
+    /// The fact content in genre voice. Non-blank.
+    pub content: NonBlankString,
     /// Classification category.
     pub category: FactCategory,
     /// How the fact was acquired (e.g., "Observation", "Dialogue", "Discovery").
+    /// Enum-like — kept as raw String because the client pattern-matches on it.
     pub source: String,
-    /// Confidence level (e.g., "Certain", "Suspected", "Rumored").
+    /// Confidence level (e.g., "Certain", "Suspected", "Rumored"). Enum-like.
     pub confidence: String,
     /// Turn number when this fact was learned.
     pub learned_turn: u64,
@@ -1381,8 +1431,8 @@ pub struct JournalEntry {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ItemDepletedPayload {
-    /// Display name of the depleted item.
-    pub item_name: String,
+    /// Display name of the depleted item. Non-blank.
+    pub item_name: NonBlankString,
     /// How many uses the item had before this final depletion (typically 1).
     pub remaining_before: u32,
 }
@@ -1394,8 +1444,8 @@ pub struct ItemDepletedPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceMinReachedPayload {
-    /// Name of the resource that reached its minimum.
-    pub resource_name: String,
+    /// Name of the resource that reached its minimum. Non-blank.
+    pub resource_name: NonBlankString,
     /// The minimum value the resource reached.
     pub min_value: f64,
 }
@@ -1409,8 +1459,9 @@ pub struct ResourceMinReachedPayload {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TacticalStatePayload {
-    /// Room ID this tactical state belongs to.
-    pub room_id: String,
+    /// Room ID this tactical state belongs to. Non-blank — used as the
+    /// client's dedupe key for tactical state updates.
+    pub room_id: NonBlankString,
     /// The parsed grid layout.
     pub grid: TacticalGridPayload,
     /// Entities positioned on the grid (players, NPCs, creatures).
@@ -1440,9 +1491,10 @@ pub struct TacticalFeaturePayload {
     /// The uppercase letter glyph (A-Z) from the ASCII grid.
     pub glyph: char,
     /// Feature type (cover, hazard, difficult_terrain, atmosphere, interactable, door).
+    /// Enum-like — kept as raw String.
     pub feature_type: String,
-    /// Human-readable label for UI tooltip.
-    pub label: String,
+    /// Human-readable label for UI tooltip. Non-blank.
+    pub label: NonBlankString,
     /// Grid positions where this feature appears ([x, y] pairs).
     pub positions: Vec<[u32; 2]>,
 }
@@ -2119,14 +2171,14 @@ fn default_player_actor() -> String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NpcRef {
-    /// Full canonical NPC name (e.g., "Toggler Copperjaw").
-    pub name: String,
-    /// One- or two-word role (e.g., "blacksmith", "guard captain").
-    pub role: String,
+    /// Full canonical NPC name (e.g., "Toggler Copperjaw"). Non-blank.
+    pub name: NonBlankString,
+    /// One- or two-word role (e.g., "blacksmith", "guard captain"). Non-blank.
+    pub role: NonBlankString,
     /// Behavioral descriptor (e.g., "gruff but fair", "watchful and quiet").
     /// Sourced from `NpcRegistryEntry.ocean_summary`, with the role as a
-    /// fallback when the summary is empty.
-    pub disposition: String,
+    /// fallback when the summary is empty. Non-blank.
+    pub disposition: NonBlankString,
 }
 
 /// Scrapbook entry payload — one per narration turn.
@@ -2144,25 +2196,29 @@ pub struct NpcRef {
 #[serde(deny_unknown_fields)]
 pub struct ScrapbookEntryPayload {
     /// Turn number this entry represents (matches `TurnManager::interaction()`).
-    pub turn_id: u32,
+    /// u64 to match `TurnManager::interaction()` exactly — no casting shim.
+    pub turn_id: u64,
     /// Scene title from the render subject (e.g., "The Forge of Broken Oaths").
     /// `None` when no image has been generated yet for this turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scene_title: Option<String>,
+    pub scene_title: Option<NonBlankString>,
     /// Scene type from the render subject (e.g., "exploration", "combat").
     /// `None` when no image has been generated yet for this turn.
+    /// Kept as `Option<String>` (not `NonBlankString`) because this is a
+    /// literal dispatch token matched by the client renderer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scene_type: Option<String>,
-    /// Current location at the time this turn resolved.
-    pub location: String,
+    /// Current location at the time this turn resolved. Non-blank.
+    pub location: NonBlankString,
     /// URL of the scene image for this turn.
     /// `None` when the render pipeline has not yet produced an image;
     /// the client merges a later `GameMessage::Image` by `turn_id`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub image_url: Option<String>,
+    pub image_url: Option<NonBlankString>,
     /// First complete sentence of the narration for this turn.
     /// Extracted server-side via `scrapbook::extract_first_sentence`.
-    pub narrative_excerpt: String,
+    /// Non-blank — empty excerpt would render as a blank gallery card.
+    pub narrative_excerpt: NonBlankString,
     /// New world facts discovered this turn, sourced from the narrator
     /// footnotes where `is_new == true`. Each entry is the footnote summary.
     #[serde(

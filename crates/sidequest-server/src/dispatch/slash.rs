@@ -1,10 +1,33 @@
 //! Slash command interception — route /commands to mechanical handlers, not the LLM.
 
-use sidequest_protocol::{GameMessage, NarrationEndPayload, NarrationPayload};
+use sidequest_protocol::{GameMessage, NarrationEndPayload, NarrationPayload, NonBlankString};
 
 use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
+
+/// Build a `Narration` message from a non-empty literal-or-format text string.
+/// Panics if the input is blank — every call site in this file builds text
+/// from fixed prose plus user-supplied tokens that have already been
+/// validated upstream.
+fn slash_narration(text: &str, player_id: &str) -> (GameMessage, GameMessage) {
+    let nbs = NonBlankString::new(text)
+        .expect("slash command text is constructed non-empty from literal prose");
+    (
+        GameMessage::Narration {
+            payload: NarrationPayload {
+                text: nbs,
+                state_delta: None,
+                footnotes: vec![],
+            },
+            player_id: player_id.to_string(),
+        },
+        GameMessage::NarrationEnd {
+            payload: NarrationEndPayload { state_delta: None },
+            player_id: player_id.to_string(),
+        },
+    )
+}
 
 /// Slash command interception — route /commands to mechanical handlers, not the LLM.
 /// Returns `Some(messages)` for early return, `None` to continue normal dispatch.
@@ -66,20 +89,9 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
         let _span = tracing::info_span!("scenario.accusation", command = %ctx.action).entered();
         let parts: Vec<&str> = ctx.action.splitn(3, ' ').collect();
         if parts.len() < 2 {
-            return Some(vec![
-                GameMessage::Narration {
-                    payload: NarrationPayload {
-                        text: "Usage: /accuse <npc_name> [reason]".to_string(),
-                        state_delta: None,
-                        footnotes: vec![],
-                    },
-                    player_id: ctx.player_id.to_string(),
-                },
-                GameMessage::NarrationEnd {
-                    payload: NarrationEndPayload { state_delta: None },
-                    player_id: ctx.player_id.to_string(),
-                },
-            ]);
+            let (n, e) =
+                slash_narration("Usage: /accuse <npc_name> [reason]", ctx.player_id);
+            return Some(vec![n, e]);
         }
 
         let accused_npc_name = parts[1].to_string();
@@ -103,43 +115,23 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
                 .iter()
                 .map(|n| n.core.name.to_string())
                 .collect();
-            return Some(vec![
-                GameMessage::Narration {
-                    payload: NarrationPayload {
-                        text: format!(
-                            "No NPC named '{}' found. Known NPCs: {}",
-                            accused_npc_name,
-                            valid_names.join(", ")
-                        ),
-                        state_delta: None,
-                        footnotes: vec![],
-                    },
-                    player_id: ctx.player_id.to_string(),
-                },
-                GameMessage::NarrationEnd {
-                    payload: NarrationEndPayload { state_delta: None },
-                    player_id: ctx.player_id.to_string(),
-                },
-            ]);
+            let msg = format!(
+                "No NPC named '{}' found. Known NPCs: {}",
+                accused_npc_name,
+                valid_names.join(", ")
+            );
+            let (n, e) = slash_narration(&msg, ctx.player_id);
+            return Some(vec![n, e]);
         }
 
         // Guard: prevent re-accusation after scenario is already resolved.
         if let Some(ref scenario) = ctx.snapshot.scenario_state {
             if scenario.is_resolved() {
-                return Some(vec![
-                    GameMessage::Narration {
-                        payload: NarrationPayload {
-                            text: "The scenario has already been resolved. No further accusations possible.".to_string(),
-                            state_delta: None,
-                            footnotes: vec![],
-                        },
-                        player_id: ctx.player_id.to_string(),
-                    },
-                    GameMessage::NarrationEnd {
-                        payload: NarrationEndPayload { state_delta: None },
-                        player_id: ctx.player_id.to_string(),
-                    },
-                ]);
+                let (n, e) = slash_narration(
+                    "The scenario has already been resolved. No further accusations possible.",
+                    ctx.player_id,
+                );
+                return Some(vec![n, e]);
             }
         }
 
@@ -212,37 +204,14 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
                 )
             };
 
-            return Some(vec![
-                GameMessage::Narration {
-                    payload: NarrationPayload {
-                        text,
-                        state_delta: None,
-                        footnotes: vec![],
-                    },
-                    player_id: ctx.player_id.to_string(),
-                },
-                GameMessage::NarrationEnd {
-                    payload: NarrationEndPayload { state_delta: None },
-                    player_id: ctx.player_id.to_string(),
-                },
-            ]);
+            let (n, e) = slash_narration(&text, ctx.player_id);
+            return Some(vec![n, e]);
         } else {
-            return Some(vec![
-                GameMessage::Narration {
-                    payload: NarrationPayload {
-                        text:
-                            "No active scenario — /accuse is only available during scenario play."
-                                .to_string(),
-                        state_delta: None,
-                        footnotes: vec![],
-                    },
-                    player_id: ctx.player_id.to_string(),
-                },
-                GameMessage::NarrationEnd {
-                    payload: NarrationEndPayload { state_delta: None },
-                    player_id: ctx.player_id.to_string(),
-                },
-            ]);
+            let (n, e) = slash_narration(
+                "No active scenario — /accuse is only available during scenario play.",
+                ctx.player_id,
+            );
+            return Some(vec![n, e]);
         }
     }
 
@@ -276,20 +245,8 @@ pub(crate) fn handle_slash_command(ctx: &mut DispatchContext<'_>) -> Option<Vec<
             .field("result_len", text.len())
             .send();
 
-        return Some(vec![
-            GameMessage::Narration {
-                payload: NarrationPayload {
-                    text,
-                    state_delta: None,
-                    footnotes: vec![],
-                },
-                player_id: ctx.player_id.to_string(),
-            },
-            GameMessage::NarrationEnd {
-                payload: NarrationEndPayload { state_delta: None },
-                player_id: ctx.player_id.to_string(),
-            },
-        ]);
+        let (n, e) = slash_narration(&text, ctx.player_id);
+        return Some(vec![n, e]);
     }
 
     None
