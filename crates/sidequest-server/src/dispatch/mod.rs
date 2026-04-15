@@ -13,7 +13,7 @@
 mod aside;
 mod audio;
 mod barrier;
-mod beat;
+pub(crate) mod beat;
 pub(crate) mod catch_up;
 pub(crate) mod chargen_summary;
 pub(crate) mod connect;
@@ -1799,70 +1799,72 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // Story 28-6 (original): narrator emits beat_selections for all actors.
     // Confrontation wiring repair: when chosen_player_beat is set, the player's
     // beat was already applied by the BEAT_SELECTION preprocessing in lib.rs.
-    // Only dispatch NPC beat_selections from the narrator. Player beat_selections
-    // from the narrator are IGNORED (emit OTEL warning) because the structured
-    // BEAT_SELECTION protocol message is the authoritative source for player beats.
-    if ctx.snapshot.encounter.is_some() {
-        for bs in result.beat_selections.iter() {
-            let actor = &bs.actor;
-            let beat_id = &bs.beat_id;
-            let target = bs.target.as_deref().unwrap_or("none");
-            let is_player = actor.to_lowercase() == "player";
+    // Player beat_selections from the narrator are IGNORED (emit OTEL warning)
+    // because the structured BEAT_SELECTION protocol message is the authoritative
+    // source for player beats.
+    //
+    // Story 37-14: NO outer is_some() guard and NO inner resolved-skip. Every
+    // beat_selection passes through beat::dispatch_beat_selection, which calls
+    // apply_beat_dispatch() — the helper emits exactly one canonical encounter
+    // event per beat (beat_applied / beat_no_encounter / beat_no_def /
+    // beat_id.unknown / beat_apply_failed) so the GM panel sees every decision.
+    for bs in result.beat_selections.iter() {
+        let actor = &bs.actor;
+        let beat_id = &bs.beat_id;
+        let target = bs.target.as_deref().unwrap_or("none");
+        let is_player = actor.to_lowercase() == "player";
 
-            if is_player && ctx.chosen_player_beat.is_some() {
-                // Player beat already resolved via structured BEAT_SELECTION.
-                // Narrator tried to pick one too — log and ignore.
-                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
-                    .field("event", "encounter.player_beat_from_narrator_ignored")
-                    .field("narrator_beat_id", beat_id)
-                    .field(
-                        "authoritative_beat_id",
-                        ctx.chosen_player_beat.as_deref().unwrap_or("none"),
-                    )
-                    .severity(Severity::Warn)
-                    .send();
-                continue;
-            }
-
-            // If a previous beat in this loop already resolved the encounter,
-            // skip remaining beats — they'd fail with "already resolved" and
-            // emit spurious OTEL warnings.
-            if ctx.snapshot.encounter.as_ref().is_none_or(|e| e.resolved) {
-                tracing::info!(
-                    skipped_beat_id = %beat_id,
-                    actor = %actor,
-                    "encounter.beat_skipped — encounter already resolved by earlier beat in this turn"
-                );
-                continue;
-            }
-
-            // NPC beats (or player beats when no structured selection was made,
-            // e.g., the narrator auto-resolved a player hesitation) dispatch normally.
-            beat::dispatch_beat_selection(ctx, beat_id);
-
-            // OTEL: encounter.beat dispatched — GM panel lie detector
-            let stat_check_result = ctx
-                .snapshot
-                .encounter
-                .as_ref()
-                .map(|e| format!("metric={}", e.metric.current))
-                .unwrap_or_else(|| "no_encounter".to_string());
-
-            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        if is_player && ctx.chosen_player_beat.is_some() {
+            // Player beat already resolved via structured BEAT_SELECTION.
+            // Narrator tried to pick one too — log and ignore.
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "encounter.player_beat_from_narrator_ignored")
+                .field("narrator_beat_id", beat_id)
                 .field(
-                    "event",
-                    if is_player {
-                        "encounter.player_beat"
-                    } else {
-                        "encounter.npc_beat"
-                    },
+                    "authoritative_beat_id",
+                    ctx.chosen_player_beat.as_deref().unwrap_or("none"),
                 )
-                .field("actor", actor)
-                .field("beat_id", beat_id)
-                .field("target", target)
-                .field("stat_check", &stat_check_result)
+                .severity(Severity::Warn)
                 .send();
+            continue;
         }
+
+        // NPC beats (or player beats when no structured selection was made)
+        // dispatch normally. apply_beat_dispatch owns every silent-drop path —
+        // each outcome emits exactly one canonical encounter.* event. On the
+        // Applied outcome we run gold-delta / resolver / escalation side
+        // effects via handle_applied_side_effects.
+        let outcome = beat::apply_beat_dispatch(
+            ctx.snapshot,
+            beat_id,
+            &ctx.confrontation_defs,
+        );
+        if outcome == beat::BeatDispatchOutcome::Applied {
+            beat::handle_applied_side_effects(ctx, beat_id);
+        }
+
+        // OTEL: per-actor breadcrumb — GM panel lie detector
+        let stat_check_result = ctx
+            .snapshot
+            .encounter
+            .as_ref()
+            .map(|e| format!("metric={}", e.metric.current))
+            .unwrap_or_else(|| "no_encounter".to_string());
+
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field(
+                "event",
+                if is_player {
+                    "encounter.player_beat"
+                } else {
+                    "encounter.npc_beat"
+                },
+            )
+            .field("actor", actor)
+            .field("beat_id", beat_id)
+            .field("target", target)
+            .field("stat_check", &stat_check_result)
+            .send();
     }
 
     // DELETED: scene_intent silent fallback. Legacy backward-compat from before

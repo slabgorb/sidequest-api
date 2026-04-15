@@ -44,8 +44,7 @@ use sidequest_game::state::GameSnapshot;
 use sidequest_genre::ConfrontationDef;
 use sidequest_telemetry::{WatcherEvent, WatcherEventType};
 
-use crate::dispatch::apply_beat_dispatch;
-use crate::dispatch::beat::BeatDispatchOutcome;
+use crate::dispatch::beat::{apply_beat_dispatch, BeatDispatchOutcome};
 use crate::test_support::telemetry::{drain_events, fresh_subscriber};
 
 // ---------------------------------------------------------------------------
