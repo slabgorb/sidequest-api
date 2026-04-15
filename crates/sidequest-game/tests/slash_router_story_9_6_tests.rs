@@ -243,8 +243,16 @@ fn parse_slash_only_returns_error_for_unknown() {
     let result = router.try_dispatch("/", &state);
     assert!(result.is_some(), "Bare slash should still be intercepted");
     match result.unwrap() {
-        CommandResult::Error(_) => {} // correct — empty command name is unknown
-        other => panic!("Expected Error for bare slash, got {:?}", other),
+        // Current impl returns a helpful Display with "Unknown command" text
+        // and the available-commands list — friendlier than a raw Error.
+        CommandResult::Display(text) => {
+            assert!(
+                text.contains("Unknown command"),
+                "Bare slash should produce 'Unknown command' text, got: {}",
+                text
+            );
+        }
+        other => panic!("Expected Display for bare slash, got {:?}", other),
     }
 }
 
@@ -297,9 +305,16 @@ fn command_lookup_is_case_sensitive() {
     let result = router.try_dispatch("/ECHO hello", &state);
     assert!(result.is_some(), "Slash input is still intercepted");
     match result.unwrap() {
-        CommandResult::Error(_) => {} // correct — case mismatch means unknown
+        // Case mismatch → unknown command → friendly Display with help text
+        CommandResult::Display(text) => {
+            assert!(
+                text.contains("Unknown command") && text.contains("/ECHO"),
+                "Case-mismatched command should produce 'Unknown command: /ECHO' text, got: {}",
+                text
+            );
+        }
         other => panic!(
-            "Expected Error for case-mismatched command, got {:?}",
+            "Expected Display for case-mismatched command, got {:?}",
             other
         ),
     }
@@ -310,7 +325,7 @@ fn command_lookup_is_case_sensitive() {
 // ============================================================================
 
 #[test]
-fn unknown_command_returns_error() {
+fn unknown_command_returns_friendly_display() {
     let router = SlashRouter::new();
     let state = test_snapshot();
 
@@ -320,14 +335,16 @@ fn unknown_command_returns_error() {
         "Unknown slash commands should still be intercepted"
     );
     match result.unwrap() {
-        CommandResult::Error(msg) => {
+        // Unknown commands render as a friendly Display with the command name
+        // and the available-commands list, not as a raw Error.
+        CommandResult::Display(msg) => {
             assert!(
-                msg.contains("nonexistent") || msg.to_lowercase().contains("unknown"),
-                "Error message should reference the unknown command, got: {}",
+                msg.contains("nonexistent") && msg.to_lowercase().contains("unknown"),
+                "Display should reference the unknown command, got: {}",
                 msg
             );
         }
-        other => panic!("Expected Error for unknown command, got {:?}", other),
+        other => panic!("Expected Display for unknown command, got {:?}", other),
     }
 }
 
@@ -339,15 +356,15 @@ fn unknown_command_error_does_not_leak_internal_state() {
     let result = router.try_dispatch("/secret", &state);
     assert!(result.is_some());
     match result.unwrap() {
-        CommandResult::Error(msg) => {
-            // Error should not contain stack traces or internal details
+        CommandResult::Display(msg) => {
+            // Display should not contain stack traces or internal details
             assert!(
                 !msg.contains("HashMap") && !msg.contains("panic"),
-                "Error message must not leak internals, got: {}",
+                "Display message must not leak internals, got: {}",
                 msg
             );
         }
-        other => panic!("Expected Error, got {:?}", other),
+        other => panic!("Expected Display, got {:?}", other),
     }
 }
 
