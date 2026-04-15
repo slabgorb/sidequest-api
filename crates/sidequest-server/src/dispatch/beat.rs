@@ -160,6 +160,7 @@ pub fn apply_beat_dispatch(
             .field("event", "encounter.beat_skipped_resolved")
             .field("beat_id", beat_id)
             .field("encounter_type", &encounter_type)
+            .field("resolved", true)
             .field("source", "narrator_beat_selection")
             .severity(Severity::Warn)
             .send();
@@ -222,16 +223,32 @@ pub fn apply_beat_dispatch(
 
     // Case Applied: all pre-conditions satisfied. Apply the beat.
     //
-    // After the NoEncounter / SkippedResolved / NoDef / UnknownBeatId
-    // short-circuits, the two Err causes known to
-    // `StructuredEncounter::apply_beat` (unresolved + beat-present-in-def)
-    // are exhausted. If a future `apply_beat()` grows a new Err cause,
-    // `apply_beat_dispatch`'s match below will fail to compile (we use a
-    // non-exhaustive `match` with no wildcard on the Result). That
-    // compile-time failure IS the signal to add a new `BeatDispatchOutcome`
-    // variant — per `#[non_exhaustive]`, that addition is non-breaking for
-    // downstream consumers. No dead defensive variant is carried in the
-    // enum (Reviewer pass-2 finding #4).
+    // `StructuredEncounter::apply_beat` currently has exactly two `Err`
+    // causes, both exhausted by the short-circuits above:
+    //   1. `if self.resolved { return Err(...) }` — exhausted by
+    //      `SkippedResolved` (fires before we reach this match).
+    //   2. `def.beats.find(b.id == beat_id).ok_or_else(...)` — exhausted
+    //      by the `UnknownBeatId` check above (same predicate).
+    //
+    // The `.expect()` here is therefore a contract assertion, not a silent
+    // fallback. **This is a runtime panic, not a compile-time exhaustiveness
+    // check** — if a future `apply_beat()` grows a third `Err` cause, this
+    // `.expect()` will panic in production on the first hit. The signal to
+    // add a new `BeatDispatchOutcome` variant is (a) this panic landing in
+    // logs, or (b) the regression-guard test
+    // `wiring_apply_beat_err_causes_exhausted_by_short_circuits` below
+    // failing — whichever the developer sees first. `#[non_exhaustive]` on
+    // `BeatDispatchOutcome` keeps the variant addition non-breaking for
+    // downstream consumers.
+    //
+    // A stronger design would convert `apply_beat`'s error to a
+    // `#[non_exhaustive]` `thiserror`-derived enum and `match` on it with
+    // no wildcard arm, making the "new cause requires new variant" rule a
+    // compile-time error rather than a runtime panic. That is tracked as a
+    // non-blocking delivery finding from Reviewer pass 2 (EncounterApplyError
+    // conversion) — the current shape is acceptable because the regression
+    // guard test below mechanically verifies the two known causes remain
+    // the only two causes.
     let encounter = snapshot
         .encounter
         .as_mut()
@@ -240,9 +257,10 @@ pub fn apply_beat_dispatch(
         .apply_beat(beat_id, &def)
         .expect(
             "apply_beat: all preconditions validated above \
-             (NoEncounter / SkippedResolved / NoDef / UnknownBeatId \
-             short-circuits). A new Err cause requires a new \
-             BeatDispatchOutcome variant.",
+             (SkippedResolved exhausts `self.resolved`; \
+             UnknownBeatId exhausts `def.beats` lookup). \
+             A new Err cause requires a new BeatDispatchOutcome variant \
+             AND a corresponding short-circuit above this match.",
         );
     let metric_current = encounter.metric.current;
     let resolved = encounter.resolved;
@@ -387,7 +405,18 @@ pub(super) fn handle_applied_side_effects(
             "encounter.resolved — checking escalation"
         );
 
-        if let Some(ref encounter) = ctx.snapshot.encounter {
+        // The encounter was proven present at the top of this function via
+        // `.expect()` — reuse that invariant rather than a redundant
+        // `if let Some` guard that could silently drop the escalation check
+        // if a future refactor nulls `ctx.snapshot.encounter` between the
+        // .expect() at the top and here. Structurally consistent with the
+        // pass-2 finding #2 fix at the top of this function — panic loudly
+        // on contract violation, never silently skip observability.
+        let encounter = ctx.snapshot.encounter.as_ref().expect(
+            "handle_applied_side_effects: encounter still present at escalation check \
+             (invariant established by the .expect() at the top of this function)",
+        );
+        {
             if let Some(escalation_target) = encounter.escalation_target(&def) {
                 tracing::info!(
                     escalates_to = %escalation_target,

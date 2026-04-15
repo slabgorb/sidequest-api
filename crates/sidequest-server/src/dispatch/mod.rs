@@ -1863,11 +1863,18 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             // function and emitting the breadcrumb.
             let encounter_type = encounter_type.clone();
             let applied_beat_id = applied_beat_id.clone();
-            beat::handle_applied_side_effects(ctx, &encounter_type, &applied_beat_id);
 
-            // OTEL: per-actor breadcrumb — GM panel lie detector
-            // (only emitted on Applied; the helper's canonical event is
-            // the sole signal for non-Applied outcomes)
+            // Capture the resolved-beat metric value BEFORE calling
+            // `handle_applied_side_effects` — the side-effects function may
+            // replace `ctx.snapshot.encounter` entirely when escalation
+            // fires (the new combat encounter has its own starting metric,
+            // which is NOT the metric the beat just resolved against).
+            // Reading the metric after the helper would land the breadcrumb
+            // on the post-escalation encounter's starting value instead of
+            // the actual resolved value, lying to the GM panel on the one
+            // path where the metric matters most. Reviewer pass-3 finding
+            // (edge-hunter) — the pre-existing shape was a subtle
+            // observability lie discovered during pass-3 review.
             let stat_check_result = ctx
                 .snapshot
                 .encounter
@@ -1875,6 +1882,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .map(|e| format!("metric={}", e.metric.current))
                 .unwrap_or_else(|| "no_encounter".to_string());
 
+            beat::handle_applied_side_effects(ctx, &encounter_type, &applied_beat_id);
+
+            // OTEL: per-actor breadcrumb — GM panel lie detector
+            // (only emitted on Applied; the helper's canonical event is
+            // the sole signal for non-Applied outcomes). `stat_check_result`
+            // was captured ABOVE, pre-escalation, so this carries the
+            // metric of the beat that just resolved, not the starting
+            // metric of any escalated follow-on encounter.
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                 .field(
                     "event",

@@ -27,17 +27,31 @@
 //! every branch emitting exactly one canonical event using the `event` field
 //! key and `source: "narrator_beat_selection"` for attribution.
 //!
-//! Test matrix — one case per variant in `BeatDispatchOutcome`:
+//! Test matrix — one case per variant in `BeatDispatchOutcome`, plus an
+//! ordering intersection case:
 //!   A. Encounter live, def found, beat found, apply_beat OK → Applied { encounter_type, beat_id }
 //!   B. `snapshot.encounter` is None                         → NoEncounter
 //!   C. Encounter live but its type has no ConfrontationDef  → NoDef
 //!   D. Encounter live, def found, beat_id not in def.beats  → UnknownBeatId
-//!   E. Encounter live but already resolved                  → SkippedResolved
+//!   E. Encounter live but already resolved (known beat_id)  → SkippedResolved
+//!   F. Encounter live + resolved AND beat_id not in def     → SkippedResolved
+//!      (ordering: SkippedResolved wins over UnknownBeatId — a resolved
+//!      encounter short-circuits validation regardless of beat_id validity.
+//!      Drives Reviewer pass-2 finding #1.)
 //!
 //! Plus a multi-call regression guard (the 2-3-per-turn playtest symptom)
-//! and two source-scanning wiring tests against `dispatch/mod.rs`. A true
-//! integration test (proving `apply_beat_dispatch` is reachable from
-//! outside the `src/` tree) lives at
+//! and **four** source-scanning wiring tests against `dispatch/mod.rs`:
+//!   - `wiring_dispatch_mod_calls_apply_beat_dispatch` (positive call)
+//!   - `wiring_no_bare_is_some_guard_on_beat_selection_loop` (outer-guard regression)
+//!   - `wiring_player_beat_from_narrator_ignored_carries_source_field` (Reviewer pass-2 #3)
+//!   - `wiring_per_actor_breadcrumb_gated_on_applied_outcome` (Reviewer pass-2 #11)
+//!
+//! Plus the silent-default regression guard for
+//! `handle_applied_side_effects` at the end of the file (pass-3 Reviewer
+//! finding — locks in the `.expect()` vs `.unwrap_or` fix #2 so a future
+//! refactor reverting the pattern fails loud). A true runtime integration
+//! test (proving `apply_beat_dispatch` is reachable from outside the
+//! `src/` tree via the public crate API) lives at
 //! `tests/integration/beat_dispatch_wiring_story_37_14_tests.rs`.
 //!
 //! Rework pass (pass 2) changes reflecting Reviewer's required fixes:
@@ -765,14 +779,19 @@ fn wiring_per_actor_breadcrumb_gated_on_applied_outcome() {
     let source = include_str!("dispatch/mod.rs");
 
     // Reviewer's fix #1 for per-actor breadcrumb: gate emissions on Applied
-    // outcome. The production code at dispatch/mod.rs:1839 matches the shape
+    // outcome. The production code matches the shape
     //     if let beat::BeatDispatchOutcome::Applied { .. } = &outcome { ... }
-    // The breadcrumb emissions for encounter.npc_beat / encounter.player_beat
-    // live INSIDE that block. This test locks the invariant in place.
+    // and the breadcrumb emissions for encounter.npc_beat /
+    // encounter.player_beat live INSIDE that block. This test locks the
+    // invariant in place.
+    //
+    // The pass-3 version of this test used only a byte-offset "after the
+    // Applied anchor" check. Reviewer pass-3 test-analyzer finding: that
+    // shape fails to catch a refactor that moves the breadcrumb BELOW the
+    // closing brace of the Applied block while keeping it below the anchor
+    // in byte terms. Fixed here with a balanced-brace scan to find the
+    // actual closing brace of the `if let Applied { .. } = &outcome {` block.
 
-    // Anchor: find the Applied pattern-match keyword. Flexible on formatting
-    // (the `&outcome` vs `outcome` and whitespace are tolerated by looking
-    // for the variant name only).
     let applied_anchor = source.find("BeatDispatchOutcome::Applied {").unwrap_or_else(|| {
         panic!(
             "dispatch/mod.rs must pattern-match BeatDispatchOutcome::Applied \
@@ -781,14 +800,52 @@ fn wiring_per_actor_breadcrumb_gated_on_applied_outcome() {
         )
     });
 
-    // The production code at mod.rs:1872-1880 emits the breadcrumb via a
-    // conditional event-name selector:
+    // From the Applied anchor, scan forward for the opening `{` that begins
+    // the block body. The pattern is:
+    //   if let beat::BeatDispatchOutcome::Applied { .. } = &outcome {
+    //       ^^^ anchor                                ^^^ body_open
+    // We find the first `{` that is NOT the struct-variant field destructure
+    // brace by finding the `= &outcome {` token (or, more permissively, the
+    // next `{` after the closing `}` of the variant destructure). The
+    // simplest robust approach: find the first `= ` after the anchor and
+    // then the first `{` after that.
+    let eq_rel = source[applied_anchor..]
+        .find("= ")
+        .expect("Applied pattern must be followed by `= <expr>`");
+    let body_open_rel = source[applied_anchor + eq_rel..]
+        .find('{')
+        .expect("`= <expr>` must be followed by `{` opening the if-let body");
+    let body_open = applied_anchor + eq_rel + body_open_rel;
+
+    // Walk the source from body_open counting braces until we return to
+    // depth 0 — that's the closing brace of the Applied block.
+    let mut depth = 0usize;
+    let mut body_close = None;
+    for (offset, ch) in source[body_open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    body_close = Some(body_open + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body_close = body_close.expect(
+        "dispatch/mod.rs: could not find the closing brace of the \
+         `if let BeatDispatchOutcome::Applied { .. } = &outcome { .. }` block",
+    );
+
+    // The production code emits the breadcrumb via a conditional
+    // event-name selector:
     //     .field("event", if is_player { "encounter.player_beat" } else { "encounter.npc_beat" })
-    // So we search for the literal string-quoted forms with BOTH quotes.
-    // The `_from_narrator_ignored` sibling emission uses the full identifier
-    // `"encounter.player_beat_from_narrator_ignored"` — different token with
-    // no `player_beat"` (quoted) substring match because the quote lands
-    // after `ignored`, not after `player_beat`.
+    // So we search for the quoted literals. `encounter.player_beat` cannot
+    // collide with `encounter.player_beat_from_narrator_ignored` because the
+    // closing quote in the latter lands after `ignored`, not after
+    // `player_beat`.
     for (breadcrumb_literal, label) in &[
         ("\"encounter.npc_beat\"", "encounter.npc_beat"),
         ("\"encounter.player_beat\"", "encounter.player_beat"),
@@ -810,26 +867,133 @@ fn wiring_per_actor_breadcrumb_gated_on_applied_outcome() {
             label
         );
 
-        // Every occurrence of the literal must live AFTER the Applied
-        // pattern-match anchor. The pass-1 regression shape had the emission
-        // in the main loop scope, before any Applied gating — its byte
-        // offset would be LESS than applied_anchor. Conditional compilation
-        // of the breadcrumb into a non-Applied branch would also trip this.
+        // Every occurrence must live STRICTLY between body_open and
+        // body_close — i.e., inside the `if let Applied { .. } = &outcome
+        // { .. }` block body. "After the anchor" was the pass-3 version;
+        // this tightened version also requires "before the closing brace."
         for off in &occurrences {
             assert!(
-                *off > applied_anchor,
-                "dispatch/mod.rs contains `{}` at byte {} — BEFORE the \
-                 `BeatDispatchOutcome::Applied {{` pattern-match at byte \
-                 {}. This is the pass-1 regression shape: per-actor \
-                 breadcrumb firing on non-Applied outcomes (silent-drop \
-                 paths), sending a success-flavored StateTransition to the \
-                 GM panel after a ValidationWarning. The emission MUST \
-                 live inside the `if let BeatDispatchOutcome::Applied \
-                 {{ .. }}` block. Reviewer pass-2 finding #11.",
+                *off > body_open && *off < body_close,
+                "dispatch/mod.rs contains `{}` at byte {} — NOT inside the \
+                 Applied block body (byte range [{}, {}]). This is either \
+                 the pass-1 regression shape (emission before the Applied \
+                 gate) OR a refactor that moved the emission below the \
+                 Applied block's closing brace. In either case the GM \
+                 panel receives a success-flavored StateTransition on a \
+                 non-Applied outcome. Reviewer pass-2 finding #11.",
                 breadcrumb_literal,
                 off,
-                applied_anchor
+                body_open,
+                body_close
             );
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Regression guard — handle_applied_side_effects must not revert to silent
+// .unwrap_or defaults (Reviewer pass-2 finding #2, pass-3 test-analyzer
+// follow-up)
+// ---------------------------------------------------------------------------
+//
+// Pass 2 had `.unwrap_or(0)` / `.unwrap_or(false)` on
+// `ctx.snapshot.encounter` reads inside `handle_applied_side_effects` —
+// silent defaults that violated the no-silent-fallbacks rule. Pass 3 fixed
+// them to a `.expect()` binding. Pass-3 Reviewer test-analyzer flagged that
+// no test locked in the fix: a future refactor reverting the pattern would
+// pass every test, because exercising the function through a direct runtime
+// test requires a full `DispatchContext` fixture (30+ fields pulling from
+// half the crate). This source-scan locks the structural invariant instead.
+
+#[test]
+fn wiring_no_silent_defaults_in_handle_applied_side_effects() {
+    let source = include_str!("dispatch/beat.rs");
+
+    // Anchor on the function signature so we only scan the function body,
+    // not unrelated code elsewhere in the module.
+    let fn_anchor = source
+        .find("fn handle_applied_side_effects")
+        .expect("beat.rs must declare handle_applied_side_effects");
+
+    // Find the function body open brace — first `{` after the signature.
+    // The signature spans multiple lines ending with `) {`.
+    let body_open_rel = source[fn_anchor..]
+        .find(") {")
+        .expect("handle_applied_side_effects signature must end with `) {`");
+    let body_open = fn_anchor + body_open_rel + 2; // skip past `) ` to the `{`
+
+    // Balanced-brace scan to find the function body close.
+    let mut depth = 0usize;
+    let mut body_close = None;
+    for (offset, ch) in source[body_open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    body_close = Some(body_open + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body_close = body_close
+        .expect("could not find closing brace of handle_applied_side_effects");
+
+    let raw_body = &source[body_open..body_close];
+
+    // Strip `//` line comments before scanning — the file deliberately
+    // documents the forbidden pattern in comments describing the fix, and
+    // we don't want to match against documentation. Block comments (/* */)
+    // are not used in this function.
+    let body: String = raw_body
+        .lines()
+        .map(|line| {
+            if let Some(idx) = line.find("//") {
+                &line[..idx]
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // The pass-2 regression patterns. Either of these anywhere in the
+    // function body (non-comment) is a silent-default revert.
+    let forbidden_patterns = [
+        ".unwrap_or(0)",
+        ".unwrap_or(false)",
+        ".unwrap_or_default()",
+    ];
+
+    for pat in forbidden_patterns {
+        assert!(
+            !body.contains(pat),
+            "handle_applied_side_effects contains forbidden silent-default \
+             pattern `{}`. Reviewer pass-2 finding #2: silent defaults on \
+             `ctx.snapshot.encounter` reads emit misleading `metric_current=0 \
+             resolved=false` telemetry if the encounter is somehow absent \
+             after the Applied outcome. Use `.expect()` to turn contract \
+             violations into loud crashes instead — matches the precedent \
+             set by the def/beat `.expect()` calls at the top of the \
+             function.",
+            pat
+        );
+    }
+
+    // Positive assertion: the function MUST contain at least one
+    // `.expect()` on `ctx.snapshot.encounter.as_ref()` — the pattern Dev
+    // replaced the silent defaults with. If this disappears, either the
+    // function no longer reads the encounter (refactor changed the shape)
+    // or the fix was reverted.
+    assert!(
+        body.contains(".as_ref().expect(")
+            || body.contains(".as_ref()\n        .expect(")
+            || body.contains("encounter.as_ref().expect("),
+        "handle_applied_side_effects must read `ctx.snapshot.encounter` \
+         via `.as_ref().expect(...)` — the contract-loud pattern from \
+         Reviewer pass-2 fix #2. If this assertion fails, either the fix \
+         was reverted or the function was refactored; verify manually."
+    );
 }
