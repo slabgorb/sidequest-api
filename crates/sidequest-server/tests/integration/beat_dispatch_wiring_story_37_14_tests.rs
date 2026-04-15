@@ -134,10 +134,15 @@ fn drain_events(
 /// on the real global telemetry channel with correct attribution.
 ///
 /// This is the integration-test counterpart to the src-level case_a unit
-/// test. The unit test drives the helper with a test-support telemetry
-/// subscriber inside `crate::test_support`; this test drives it with the
-/// same `sidequest_telemetry::subscribe_global` that the real GM panel
-/// uses, proving the event reaches the production telemetry channel.
+/// test. **Both sets of tests subscribe to the same `subscribe_global`
+/// telemetry channel** (the unit test path goes through
+/// `crate::test_support::telemetry::fresh_subscriber`, which itself wraps
+/// `init_global_channel` + `subscribe_global`). The real distinction is the
+/// import path: this integration test calls `apply_beat_dispatch` via
+/// `use sidequest_server::apply_beat_dispatch` — the crate's public API —
+/// which proves the symbol is reachable from outside the `src/` tree, not
+/// just via the in-tree `crate::dispatch::beat::` path the unit tests use.
+/// Reviewer pass-2 finding #12 corrected the previous misleading contrast.
 #[test]
 fn integration_applied_beat_reaches_global_telemetry_channel() {
     // Subscribe to the real global telemetry channel — the same one the

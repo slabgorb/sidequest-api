@@ -1809,8 +1809,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // post-apply side effects now live in beat::handle_applied_side_effects,
     // which is called only on the Applied outcome. The helper emits exactly
     // one canonical encounter event per beat (beat_applied / beat_no_encounter
-    // / beat_no_def / beat_id.unknown / beat_apply_failed) so the GM panel
-    // sees every decision.
+    // / beat_no_def / beat_id.unknown / beat_skipped_resolved) so the GM
+    // panel sees every decision. `ApplyFailed` was removed in pass 3 —
+    // `#[non_exhaustive]` on BeatDispatchOutcome provides forward-compat if
+    // a future apply_beat Err cause needs its own variant.
     for bs in result.beat_selections.iter() {
         let actor = &bs.actor;
         let beat_id = &bs.beat_id;
@@ -1819,7 +1821,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
         if is_player && ctx.chosen_player_beat.is_some() {
             // Player beat already resolved via structured BEAT_SELECTION.
-            // Narrator tried to pick one too — log and ignore.
+            // Narrator tried to pick one too — log and ignore. The source
+            // field matches every other beat dispatch event so the GM panel
+            // can attribute this collision to the narrator-driven beat
+            // subsystem (Reviewer pass-2 finding #3).
             WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
                 .field("event", "encounter.player_beat_from_narrator_ignored")
                 .field("narrator_beat_id", beat_id)
@@ -1827,6 +1832,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                     "authoritative_beat_id",
                     ctx.chosen_player_beat.as_deref().unwrap_or("none"),
                 )
+                .field("source", "narrator_beat_selection")
                 .severity(Severity::Warn)
                 .send();
             continue;
