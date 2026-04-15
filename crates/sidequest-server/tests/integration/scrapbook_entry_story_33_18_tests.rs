@@ -13,7 +13,7 @@
 //!    registry, unicode-heavy narration).
 //!
 //! 2. **Sentence extraction** — `scrapbook::extract_first_sentence()` handles
-//!    the narrative_excerpt edge cases Camina flagged in her assessment:
+//!    the narrative_excerpt edge cases called out in the story risk notes:
 //!    ellipses, abbreviations, quoted dialogue, missing terminators.
 //!
 //! 3. **Wiring** — `build_response_messages` in `dispatch/response.rs` MUST
@@ -79,7 +79,8 @@ fn npc(name: &str, role: &str, ocean: &str) -> NpcRegistryEntry {
 }
 
 // ===========================================================================
-// extract_first_sentence — edge cases Camina flagged
+// extract_first_sentence — edge cases (ellipses, abbreviations, dialogue,
+// quoted terminators, missing terminators, CRLF line endings)
 // ===========================================================================
 
 #[test]
@@ -173,6 +174,38 @@ fn extract_first_sentence_trims_leading_whitespace() {
         extract_first_sentence("\n\t  The tavern was loud. Ale flowed."),
         "The tavern was loud."
     );
+}
+
+#[test]
+fn extract_first_sentence_handles_closing_quote_dialogue() {
+    // Period inside closing quotes is followed by `"` then space — the
+    // byte-after-terminator check correctly skips it (because `"` is not
+    // whitespace) and finds the NEXT terminator after the dialogue tag.
+    // The narrator uses this shape constantly — regression guard.
+    assert_eq!(
+        extract_first_sentence("\"Come here,\" she said. The door slammed shut."),
+        "\"Come here,\" she said."
+    );
+}
+
+#[test]
+fn extract_first_sentence_handles_crlf_line_endings() {
+    // `\r` is ASCII whitespace so the byte check after the terminator
+    // matches on CRLF just as on LF or space. Narrator output may arrive
+    // with mixed line endings depending on platform.
+    assert_eq!(
+        extract_first_sentence("First sentence.\r\nSecond sentence."),
+        "First sentence."
+    );
+}
+
+#[test]
+fn extract_first_sentence_does_not_consume_period_inside_quotes_alone() {
+    // A period inside quotes WITHOUT a trailing space must be skipped
+    // (the `"` blocks it), so the extractor keeps scanning into the
+    // dialogue tag. Guards against future byte-check drift.
+    let input = "\"Done.\" He walked away. The rain continued.";
+    assert_eq!(extract_first_sentence(input), "\"Done.\" He walked away.");
 }
 
 // ===========================================================================
@@ -339,12 +372,8 @@ fn build_with_all_nones_leaves_optional_fields_none() {
 // ===========================================================================
 
 fn read_response_rs_source() -> String {
-    let path = format!(
-        "{}/src/dispatch/response.rs",
-        env!("CARGO_MANIFEST_DIR")
-    );
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", path, e))
+    let path = format!("{}/src/dispatch/response.rs", env!("CARGO_MANIFEST_DIR"));
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {}", path, e))
 }
 
 #[test]
@@ -383,19 +412,22 @@ fn response_rs_pushes_scrapbook_entry_game_message() {
 
 #[test]
 fn response_rs_emits_scrapbook_after_narration_end_send() {
+    // Anchor on the literal send expression rather than the bare token
+    // "NarrationEnd" — the token also appears in doc comments, which would
+    // make a bare-token anchor ambiguous under future refactors.
     let source = read_response_rs_source();
-    let end_idx = source
-        .find("NarrationEnd")
-        .expect("response.rs must reference NarrationEnd");
+    let send_idx = source
+        .find("ctx.tx.send(narration_end)")
+        .expect("response.rs must send narration_end via ctx.tx.send(narration_end)");
     let scrapbook_idx = source
-        .find("GameMessage::ScrapbookEntry")
-        .expect("response.rs must push GameMessage::ScrapbookEntry");
+        .find("messages.push(GameMessage::ScrapbookEntry")
+        .expect("response.rs must push GameMessage::ScrapbookEntry onto the messages Vec");
     assert!(
-        scrapbook_idx > end_idx,
-        "ScrapbookEntry must be emitted AFTER NarrationEnd (AC: \"world_facts must be \
-         settled\"). Found NarrationEnd at byte offset {} but ScrapbookEntry at {} — \
-         the ScrapbookEntry push must appear later in the file than the NarrationEnd send.",
-        end_idx,
+        scrapbook_idx > send_idx,
+        "ScrapbookEntry push must appear textually AFTER the `ctx.tx.send(narration_end)` \
+         call so `world_facts` and `npcs_present` are settled before the entry ships \
+         (AC: \"emit after NarrationEnd\"). Found send at byte offset {} but push at {}.",
+        send_idx,
         scrapbook_idx
     );
 }

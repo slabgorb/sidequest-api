@@ -133,7 +133,11 @@ fn scrapbook_entry_payload_round_trip_preserves_world_facts_order() {
         location: "Whispering Reach".to_string(),
         image_url: None,
         narrative_excerpt: "A single candle burned.".to_string(),
-        world_facts: vec!["Fact A".to_string(), "Fact B".to_string(), "Fact C".to_string()],
+        world_facts: vec![
+            "Fact A".to_string(),
+            "Fact B".to_string(),
+            "Fact C".to_string(),
+        ],
         npcs_present: vec![],
     };
     let encoded = serde_json::to_string(&payload).expect("serialize");
@@ -219,6 +223,25 @@ fn scrapbook_entry_payload_world_facts_defaults_to_empty() {
         decoded.npcs_present.is_empty(),
         "npcs_present must default to an empty Vec when absent from JSON"
     );
+}
+
+#[test]
+fn scrapbook_entry_payload_world_facts_accepts_json_null() {
+    // The `deserialize_null_as_empty_vec` custom deserializer exists
+    // precisely to accept `null` as equivalent to an absent field. Without
+    // this test, a future refactor that removes the helper would break
+    // null-tolerance silently.
+    let json = r#"{
+        "turn_id": 2,
+        "location": "Hollow Rise",
+        "narrative_excerpt": "Nothing stirred.",
+        "world_facts": null,
+        "npcs_present": null
+    }"#;
+    let decoded: ScrapbookEntryPayload = serde_json::from_str(json)
+        .expect("null Vec fields must deserialize to empty Vec via deserialize_null_as_empty_vec");
+    assert!(decoded.world_facts.is_empty());
+    assert!(decoded.npcs_present.is_empty());
 }
 
 // ===========================================================================

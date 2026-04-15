@@ -191,6 +191,19 @@ pub(super) async fn build_response_messages(
         &merged_footnotes,
         &turn_npcs,
     );
+    // Degraded-path visibility (per OTEL rule — the GM panel is the lie
+    // detector): record when the narrator produced text without a sentence
+    // terminator (the extractor returns the entire trimmed narration as the
+    // excerpt in that case), and count how many NPCs fell back from
+    // `ocean_summary` to `role` because their OCEAN summary was empty. A
+    // non-zero fallback count surfaces an upstream OCEAN pipeline gap in
+    // the GM panel without changing the observable message shape.
+    let excerpt_fallback_full_narration = !scrapbook_payload.narrative_excerpt.is_empty()
+        && scrapbook_payload.narrative_excerpt == clean_narration.trim();
+    let npcs_disposition_fallback_count = turn_npcs
+        .iter()
+        .filter(|e| e.ocean_summary.is_empty())
+        .count();
     WatcherEventBuilder::new("scrapbook", WatcherEventType::SubsystemExerciseSummary)
         .field("event", "scrapbook.entry_emitted")
         .field("turn_id", turn_id)
@@ -199,6 +212,14 @@ pub(super) async fn build_response_messages(
         .field(
             "excerpt_chars",
             scrapbook_payload.narrative_excerpt.chars().count(),
+        )
+        .field(
+            "excerpt_fallback_full_narration",
+            excerpt_fallback_full_narration,
+        )
+        .field(
+            "npcs_disposition_fallback_count",
+            npcs_disposition_fallback_count,
         )
         .send();
     messages.push(GameMessage::ScrapbookEntry {

@@ -433,7 +433,10 @@ pub enum GameMessage {
     ScrapbookEntry {
         /// The typed payload for this message.
         payload: ScrapbookEntryPayload,
-        /// The player who sent this message (typically "server").
+        /// The acting player whose turn this scrapbook entry represents.
+        /// Set by the server dispatcher to the player_id of the turn that
+        /// just ended — NOT "server" — so observer clients can attribute
+        /// gallery cards to a specific player.
         player_id: String,
     },
 }

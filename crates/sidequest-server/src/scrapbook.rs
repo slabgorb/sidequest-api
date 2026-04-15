@@ -106,6 +106,14 @@ fn is_abbreviation_terminator(text: &str, period_idx: usize) -> bool {
 ///   behavioral summary as the disposition, with `role` as a non-empty
 ///   fallback so the UI never shows a blank disposition string.
 /// - `narrative_excerpt` is the first complete sentence of `narration`.
+/// - `scene_title`, `scene_type`, and `image_url` are passed through
+///   as-is. Callers pass `None` when the render pipeline has not yet
+///   completed for this turn — images arrive on an async broadcast
+///   channel (see `render_integration::spawn_image_broadcaster_with_throttle`)
+///   and the UI merges a later `GameMessage::Image` by `turn_id`. Threading
+///   the latest completed `RenderSubject` through `DispatchContext` is a
+///   follow-up; for now this story emits `None` and accepts the deferred
+///   image join on the client side.
 #[allow(clippy::too_many_arguments)]
 pub fn build_scrapbook_entry(
     turn_id: u32,
