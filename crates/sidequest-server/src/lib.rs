@@ -15,6 +15,7 @@ pub(crate) mod npc_context;
 #[cfg(test)]
 mod otel_dice_spans_34_11_tests;
 pub mod render_integration;
+pub mod scrapbook;
 pub(crate) mod session;
 pub mod shared_session;
 #[cfg(test)]

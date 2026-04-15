@@ -5,6 +5,7 @@ use sidequest_protocol::{
     PartyStatusPayload,
 };
 
+use crate::scrapbook;
 use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
@@ -160,6 +161,71 @@ pub(super) async fn build_response_messages(
         player_id: ctx.player_id.to_string(),
     };
     let _ = ctx.tx.send(narration_end).await;
+
+    // ScrapbookEntry (story 33-18) — bundle the turn's narration excerpt,
+    // new world facts, and present NPCs into a single atomic message so the
+    // Scrapbook widget (story 33-17) can render a gallery card from one
+    // payload instead of stitching together Narration + Image + registry
+    // observer state. Emitted AFTER NarrationEnd per AC: world_facts and
+    // npc_registry must be settled before the entry ships.
+    //
+    // Image metadata (scene_title/scene_type/image_url) is left None —
+    // renders arrive on an async broadcast channel (render_integration.rs)
+    // and are not guaranteed complete at narration-end time. The client
+    // merges a later GameMessage::Image by turn_id. Threading the latest
+    // completed render subject through DispatchContext is a follow-up.
+    let turn_id = ctx.turn_manager.interaction() as u32;
+    let turn_npcs: Vec<crate::NpcRegistryEntry> = ctx
+        .npc_registry
+        .iter()
+        .filter(|e| e.last_seen_turn == turn_id)
+        .cloned()
+        .collect();
+    let scrapbook_payload = scrapbook::build_scrapbook_entry(
+        turn_id,
+        ctx.current_location.clone(),
+        None,
+        None,
+        None,
+        clean_narration,
+        &merged_footnotes,
+        &turn_npcs,
+    );
+    // Degraded-path visibility (per OTEL rule — the GM panel is the lie
+    // detector): record when the narrator produced text without a sentence
+    // terminator (the extractor returns the entire trimmed narration as the
+    // excerpt in that case), and count how many NPCs fell back from
+    // `ocean_summary` to `role` because their OCEAN summary was empty. A
+    // non-zero fallback count surfaces an upstream OCEAN pipeline gap in
+    // the GM panel without changing the observable message shape.
+    let excerpt_fallback_full_narration = !scrapbook_payload.narrative_excerpt.is_empty()
+        && scrapbook_payload.narrative_excerpt == clean_narration.trim();
+    let npcs_disposition_fallback_count = turn_npcs
+        .iter()
+        .filter(|e| e.ocean_summary.is_empty())
+        .count();
+    WatcherEventBuilder::new("scrapbook", WatcherEventType::SubsystemExerciseSummary)
+        .field("event", "scrapbook.entry_emitted")
+        .field("turn_id", turn_id)
+        .field("world_facts_count", scrapbook_payload.world_facts.len())
+        .field("npcs_count", scrapbook_payload.npcs_present.len())
+        .field(
+            "excerpt_chars",
+            scrapbook_payload.narrative_excerpt.chars().count(),
+        )
+        .field(
+            "excerpt_fallback_full_narration",
+            excerpt_fallback_full_narration,
+        )
+        .field(
+            "npcs_disposition_fallback_count",
+            npcs_disposition_fallback_count,
+        )
+        .send();
+    messages.push(GameMessage::ScrapbookEntry {
+        payload: scrapbook_payload,
+        player_id: ctx.player_id.to_string(),
+    });
 
     // Party status — now carries the per-member sheet and inventory facets
     // (CHARACTER_SHEET and INVENTORY message types were collapsed into

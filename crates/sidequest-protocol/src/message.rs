@@ -416,6 +416,29 @@ pub enum GameMessage {
         /// The player who selected this beat.
         player_id: String,
     },
+
+    /// Per-turn scrapbook entry (story 33-18).
+    ///
+    /// Bundles image metadata, world facts, NPCs present, and a narration
+    /// excerpt for a single turn into one atomic payload keyed by `turn_id`.
+    /// Emitted by the server after `NarrationEnd` so `world_facts` and
+    /// `npcs_present` are settled before delivery.
+    ///
+    /// Consumed by the Scrapbook widget (story 33-17) which merges it with
+    /// later `GameMessage::Image` messages by `turn_id` — images are
+    /// generated on an async render channel and are not guaranteed to be
+    /// complete at narration-end time, so `image_url` / `scene_title` /
+    /// `scene_type` are optional on initial delivery.
+    #[serde(rename = "SCRAPBOOK_ENTRY")]
+    ScrapbookEntry {
+        /// The typed payload for this message.
+        payload: ScrapbookEntryPayload,
+        /// The acting player whose turn this scrapbook entry represents.
+        /// Set by the server dispatcher to the player_id of the turn that
+        /// just ended — NOT "server" — so observer clients can attribute
+        /// gallery cards to a specific player.
+        player_id: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -2081,4 +2104,78 @@ pub struct BeatSelectionPayload {
 
 fn default_player_actor() -> String {
     "player".to_string()
+}
+
+// ---------------------------------------------------------------------------
+// Story 33-18: ScrapbookEntry — per-turn metadata bundle
+// ---------------------------------------------------------------------------
+
+/// A single NPC reference embedded in a `ScrapbookEntryPayload`.
+///
+/// This is a lightweight projection of `NpcRegistryEntry` — it carries only
+/// what the Scrapbook widget needs to render a named NPC chip on a gallery
+/// entry. `disposition` is sourced from the NPC's behavioral summary
+/// (ADR-020 / OCEAN profile rendering) on the server side.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NpcRef {
+    /// Full canonical NPC name (e.g., "Toggler Copperjaw").
+    pub name: String,
+    /// One- or two-word role (e.g., "blacksmith", "guard captain").
+    pub role: String,
+    /// Behavioral descriptor (e.g., "gruff but fair", "watchful and quiet").
+    /// Sourced from `NpcRegistryEntry.ocean_summary`, with the role as a
+    /// fallback when the summary is empty.
+    pub disposition: String,
+}
+
+/// Scrapbook entry payload — one per narration turn.
+///
+/// Assembled by `sidequest-server::scrapbook::build_scrapbook_entry` after
+/// `NarrationEnd` fires. Story 33-17 (Scrapbook widget) consumes this
+/// message and merges it with later `GameMessage::Image` messages by
+/// `turn_id` to render a rich gallery card.
+///
+/// `scene_title`, `scene_type`, and `image_url` are optional because image
+/// rendering runs on an async broadcast channel (see
+/// `render_integration::spawn_image_broadcaster_with_throttle`) and is not
+/// guaranteed to be complete by narration-end time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScrapbookEntryPayload {
+    /// Turn number this entry represents (matches `TurnManager::interaction()`).
+    pub turn_id: u32,
+    /// Scene title from the render subject (e.g., "The Forge of Broken Oaths").
+    /// `None` when no image has been generated yet for this turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_title: Option<String>,
+    /// Scene type from the render subject (e.g., "exploration", "combat").
+    /// `None` when no image has been generated yet for this turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene_type: Option<String>,
+    /// Current location at the time this turn resolved.
+    pub location: String,
+    /// URL of the scene image for this turn.
+    /// `None` when the render pipeline has not yet produced an image;
+    /// the client merges a later `GameMessage::Image` by `turn_id`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
+    /// First complete sentence of the narration for this turn.
+    /// Extracted server-side via `scrapbook::extract_first_sentence`.
+    pub narrative_excerpt: String,
+    /// New world facts discovered this turn, sourced from the narrator
+    /// footnotes where `is_new == true`. Each entry is the footnote summary.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_null_as_empty_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub world_facts: Vec<String>,
+    /// NPCs present during this turn, projected from `NpcRegistryEntry`.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_null_as_empty_vec",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub npcs_present: Vec<NpcRef>,
 }
