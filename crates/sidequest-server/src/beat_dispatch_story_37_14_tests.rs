@@ -1,0 +1,999 @@
+//! Tests for `dispatch::apply_beat_dispatch` — every branch observable.
+//!
+//! Story 37-14 sibling to 37-13. The encounter creation gate (37-13) made
+//! every narrator-declared confrontation transition emit a WatcherEvent.
+//! This story does the same thing one layer down: every narrator-emitted
+//! `beat_selection` must produce exactly one canonical `WatcherEvent` on
+//! the `encounter` component, keyed by the `event` field so the GM panel's
+//! standard filter picks it up.
+//!
+//! Playtest 2 symptom: narrator emitted 2–3 beat_selections per turn for
+//! roughly twenty minutes, and zero `encounter.beat_applied` events fired.
+//! Root causes found during RED design:
+//!
+//! 1. `dispatch/mod.rs` wrapped the beat-selection loop in
+//!    `if ctx.snapshot.encounter.is_some()`, silently skipping every beat
+//!    when no encounter was live. No OTEL.
+//! 2. `dispatch/beat.rs` only emitted a WatcherEvent on the
+//!    `encounter.beat_id.unknown` branch. The "no active encounter",
+//!    "missing confrontation def", and "apply_beat returned Err" branches
+//!    were `tracing::warn!`-only — invisible to the GM panel.
+//! 3. `StructuredEncounter::apply_beat` emitted its OTEL event using the
+//!    field key `action: "beat_applied"` (not `event: "encounter.beat_applied"`),
+//!    so any filter scanning the `event` key silently missed it.
+//!
+//! The fix is to mirror 37-13's `apply_confrontation_gate` pattern:
+//! a typed `BeatDispatchOutcome` returned by a single helper function, with
+//! every branch emitting exactly one canonical event using the `event` field
+//! key and `source: "narrator_beat_selection"` for attribution.
+//!
+//! Test matrix — one case per variant in `BeatDispatchOutcome`, plus an
+//! ordering intersection case:
+//!   A. Encounter live, def found, beat found, apply_beat OK → Applied { encounter_type, beat_id }
+//!   B. `snapshot.encounter` is None                         → NoEncounter
+//!   C. Encounter live but its type has no ConfrontationDef  → NoDef
+//!   D. Encounter live, def found, beat_id not in def.beats  → UnknownBeatId
+//!   E. Encounter live but already resolved (known beat_id)  → SkippedResolved
+//!   F. Encounter live + resolved AND beat_id not in def     → SkippedResolved
+//!      (ordering: SkippedResolved wins over UnknownBeatId — a resolved
+//!      encounter short-circuits validation regardless of beat_id validity.
+//!      Drives Reviewer pass-2 finding #1.)
+//!
+//! Plus a multi-call regression guard (the 2-3-per-turn playtest symptom)
+//! and **four** source-scanning wiring tests against `dispatch/mod.rs`:
+//!   - `wiring_dispatch_mod_calls_apply_beat_dispatch` (positive call)
+//!   - `wiring_no_bare_is_some_guard_on_beat_selection_loop` (outer-guard regression)
+//!   - `wiring_player_beat_from_narrator_ignored_carries_source_field` (Reviewer pass-2 #3)
+//!   - `wiring_per_actor_breadcrumb_gated_on_applied_outcome` (Reviewer pass-2 #11)
+//!
+//! Plus the silent-default regression guard for
+//! `handle_applied_side_effects` at the end of the file (pass-3 Reviewer
+//! finding — locks in the `.expect()` vs `.unwrap_or` fix #2 so a future
+//! refactor reverting the pattern fails loud). A true runtime integration
+//! test (proving `apply_beat_dispatch` is reachable from outside the
+//! `src/` tree via the public crate API) lives at
+//! `tests/integration/beat_dispatch_wiring_story_37_14_tests.rs`.
+//!
+//! Rework pass (pass 2) changes reflecting Reviewer's required fixes:
+//!  - Case A destructures `Applied { encounter_type, beat_id }` rather than
+//!    asserting the unit variant. The new shape eliminates the triple-
+//!    `expect()` lookup chain in `handle_applied_side_effects`.
+//!  - Case E is renamed from "apply_beat_on_resolved returns ApplyFailed"
+//!    to "pre_resolved encounter emits SkippedResolved". The previous
+//!    behaviour (emit `beat_apply_failed` ValidationWarning on a legitimate
+//!    multi-actor turn where an earlier beat resolved the encounter) was a
+//!    regression introduced by the first 37-14 pass — the removed
+//!    `is_none_or(|e| e.resolved)` skip-continue is now replaced by an
+//!    explicit pre-check in `apply_beat_dispatch` that returns a new
+//!    `SkippedResolved` outcome with its own `encounter.beat_skipped_resolved`
+//!    event (ValidationWarning, severity Warn — this is a normal end-of-
+//!    encounter condition, not a narrator error).
+//!  - `ApplyFailed` has been removed from `BeatDispatchOutcome` — the
+//!    pre-resolved path now returns `SkippedResolved`, and the beat lookup
+//!    check before `apply_beat` means there is currently no live code path
+//!    that reaches apply_beat's Err branch. If apply_beat gains a second
+//!    Err cause in the future, add the variant back (#[non_exhaustive]
+//!    makes the addition non-breaking).
+
+use sidequest_game::encounter::{
+    EncounterActor, EncounterMetric, MetricDirection, StructuredEncounter,
+};
+use sidequest_game::state::GameSnapshot;
+use sidequest_genre::ConfrontationDef;
+use sidequest_telemetry::{WatcherEvent, WatcherEventType};
+
+use crate::dispatch::beat::{apply_beat_dispatch, BeatDispatchOutcome};
+use crate::test_support::telemetry::{drain_events, fresh_subscriber};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn find_encounter_events(events: &[WatcherEvent], event_name: &str) -> Vec<WatcherEvent> {
+    events
+        .iter()
+        .filter(|e| {
+            e.component == "encounter"
+                && e.fields.get("event").and_then(serde_json::Value::as_str) == Some(event_name)
+        })
+        .cloned()
+        .collect()
+}
+
+/// Every event the beat dispatch helper emits must carry
+/// `source = "narrator_beat_selection"` so the GM panel can attribute it to
+/// the narrator-driven beat subsystem (as distinct from the structured
+/// `BeatSelection` protocol preprocessing in `lib.rs`, which is a different
+/// attribution string). Centralising this check keeps per-case tests focused
+/// on their own invariants while guaranteeing the attribution field never
+/// silently drops.
+fn assert_source_is_narrator_beat(event: &WatcherEvent) {
+    assert_eq!(
+        event.fields.get("source").and_then(|v| v.as_str()),
+        Some("narrator_beat_selection"),
+        "beat dispatch events must carry source=narrator_beat_selection"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Fixtures
+// ---------------------------------------------------------------------------
+
+/// A combat ConfrontationDef with two beats: `attack` (damage, non-terminal)
+/// and `finisher` (flagged `resolution: true`). `attack` is the canonical
+/// happy-path beat for Case A. `finisher` only exists so tests that need a
+/// resolution-capable beat have one available — tests that don't use it can
+/// ignore it.
+fn combat_yaml() -> &'static str {
+    r#"
+type: combat
+label: "Combat"
+category: combat
+metric:
+  name: hp
+  direction: descending
+  starting: 20
+  threshold_low: 0
+beats:
+  - id: attack
+    label: "Attack"
+    metric_delta: -3
+    stat_check: STRENGTH
+  - id: finisher
+    label: "Finisher"
+    metric_delta: -20
+    stat_check: STRENGTH
+    resolution: true
+"#
+}
+
+fn load_defs() -> Vec<ConfrontationDef> {
+    vec![serde_yaml::from_str(combat_yaml()).expect("combat yaml parses")]
+}
+
+/// Build a live `StructuredEncounter` of the given type sitting at beat `beat`.
+/// Descending HP metric so the "already resolved" case E can be built by
+/// flipping `resolved = true` without having to drain HP to the threshold.
+fn live_encounter(encounter_type: &str, beat: u32, resolved: bool) -> StructuredEncounter {
+    StructuredEncounter {
+        encounter_type: encounter_type.to_string(),
+        metric: EncounterMetric {
+            name: "hp".to_string(),
+            current: 20,
+            starting: 20,
+            direction: MetricDirection::Descending,
+            threshold_high: None,
+            threshold_low: Some(0),
+        },
+        beat,
+        structured_phase: None,
+        secondary_stats: None,
+        actors: vec![EncounterActor {
+            name: "Combatant".to_string(),
+            role: "npc".to_string(),
+            per_actor_state: std::collections::HashMap::new(),
+        }],
+        outcome: None,
+        resolved,
+        mood_override: None,
+        narrator_hints: vec![],
+    }
+}
+
+fn empty_snapshot() -> GameSnapshot {
+    GameSnapshot::default()
+}
+
+fn snapshot_with(encounter: StructuredEncounter) -> GameSnapshot {
+    GameSnapshot {
+        encounter: Some(encounter),
+        ..GameSnapshot::default()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Case A — live encounter + def + known beat_id → Applied
+// ---------------------------------------------------------------------------
+
+#[test]
+fn case_a_happy_path_emits_encounter_beat_applied() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = snapshot_with(live_encounter("combat", 0, false));
+    let hp_before = snapshot.encounter.as_ref().unwrap().metric.current;
+
+    let outcome = apply_beat_dispatch(&mut snapshot, "attack", &defs);
+
+    // Applied is now a struct variant carrying the resolved encounter_type
+    // and beat_id so `handle_applied_side_effects` can consume them without
+    // a second lookup chain. Destructure and verify the fields.
+    match &outcome {
+        BeatDispatchOutcome::Applied {
+            encounter_type,
+            beat_id,
+        } => {
+            assert_eq!(
+                encounter_type, "combat",
+                "Applied must carry the resolved encounter_type so the \
+                 post-apply side-effects wrapper does not re-look it up"
+            );
+            assert_eq!(
+                beat_id, "attack",
+                "Applied must carry the resolved beat_id so the post-apply \
+                 side-effects wrapper does not re-look it up"
+            );
+        }
+        other => panic!(
+            "Case A must return Applied {{ encounter_type, beat_id }}, got {:?}",
+            other
+        ),
+    }
+
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert!(
+        after.metric.current < hp_before,
+        "apply_beat must have reduced the HP metric — without this check the \
+         helper could emit encounter.beat_applied without actually applying \
+         the beat (vacuous success path)"
+    );
+    assert_eq!(after.beat, 1, "beat counter must advance on a successful apply");
+
+    let events = drain_events(&mut rx);
+    let applied = find_encounter_events(&events, "encounter.beat_applied");
+    assert_eq!(
+        applied.len(),
+        1,
+        "Case A must emit exactly one encounter.beat_applied event (event= field, \
+         not action= field — the GM panel filters on event=). If the fix for \
+         Reviewer item #5 (rename action=beat_applied to event= in \
+         StructuredEncounter::apply_beat) creates a duplicate, the inner \
+         emission MUST use a distinct event name — e.g., \
+         `encounter.beat_state_applied` — so the dispatch-layer canonical \
+         event retains its one-per-outcome contract."
+    );
+    assert!(
+        matches!(applied[0].event_type, WatcherEventType::StateTransition),
+        "encounter.beat_applied must be a StateTransition event"
+    );
+    assert_eq!(
+        applied[0]
+            .fields
+            .get("beat_id")
+            .and_then(|v| v.as_str()),
+        Some("attack"),
+        "event must record the beat_id that was applied"
+    );
+    assert_eq!(
+        applied[0]
+            .fields
+            .get("encounter_type")
+            .and_then(|v| v.as_str()),
+        Some("combat"),
+        "event must record the encounter type for GM panel grouping"
+    );
+    assert_source_is_narrator_beat(&applied[0]);
+}
+
+// ---------------------------------------------------------------------------
+// Case B — no active encounter → NoEncounter (the primary playtest bug)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn case_b_no_active_encounter_emits_warning_not_silent_drop() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = empty_snapshot();
+
+    let outcome = apply_beat_dispatch(&mut snapshot, "attack", &defs);
+
+    assert_eq!(outcome, BeatDispatchOutcome::NoEncounter);
+    assert!(
+        snapshot.encounter.is_none(),
+        "Case B must NOT fabricate an encounter just to have something to apply the beat to"
+    );
+
+    let events = drain_events(&mut rx);
+    let warn = find_encounter_events(&events, "encounter.beat_no_encounter");
+    assert_eq!(
+        warn.len(),
+        1,
+        "Case B must emit exactly one encounter.beat_no_encounter event — this \
+         is the silent-drop path that caused 2-3 beat_selections per turn to \
+         vanish for 20 minutes in playtest 2"
+    );
+    assert!(
+        matches!(warn[0].event_type, WatcherEventType::ValidationWarning),
+        "beat_no_encounter must be a ValidationWarning — the narrator picked a \
+         beat with nothing to apply it to, which is a narrator/state divergence"
+    );
+    assert_eq!(
+        warn[0].fields.get("beat_id").and_then(|v| v.as_str()),
+        Some("attack"),
+        "event must record the dropped beat_id for post-mortem"
+    );
+    assert_source_is_narrator_beat(&warn[0]);
+
+    assert!(
+        find_encounter_events(&events, "encounter.beat_applied").is_empty(),
+        "Case B must NOT emit encounter.beat_applied — there is no encounter \
+         to apply against"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Case C — encounter live but no ConfrontationDef matches its type → NoDef
+// ---------------------------------------------------------------------------
+
+#[test]
+fn case_c_missing_confrontation_def_emits_warning() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    // Encounter claims to be type "interpretive_dance", but the only loaded
+    // def is "combat". This is a state/def mismatch — the dispatch layer
+    // cannot resolve the beat without a def, but the current code silently
+    // tracing::warn!'s and returns.
+    let mut snapshot = snapshot_with(live_encounter("interpretive_dance", 2, false));
+    let before = snapshot.encounter.clone().unwrap();
+
+    let outcome = apply_beat_dispatch(&mut snapshot, "attack", &defs);
+
+    assert_eq!(outcome, BeatDispatchOutcome::NoDef);
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert_eq!(
+        after.beat, before.beat,
+        "no-def path must NOT advance the beat counter"
+    );
+    assert_eq!(
+        after.metric.current, before.metric.current,
+        "no-def path must NOT mutate the metric"
+    );
+
+    let events = drain_events(&mut rx);
+    let warn = find_encounter_events(&events, "encounter.beat_no_def");
+    assert_eq!(
+        warn.len(),
+        1,
+        "Case C must emit exactly one encounter.beat_no_def event — a live \
+         encounter whose type has no def is a configuration bug that must be \
+         visible on the GM panel, not buried in stdout"
+    );
+    assert!(
+        matches!(warn[0].event_type, WatcherEventType::ValidationWarning),
+        "beat_no_def must be a ValidationWarning"
+    );
+    assert_eq!(
+        warn[0]
+            .fields
+            .get("encounter_type")
+            .and_then(|v| v.as_str()),
+        Some("interpretive_dance"),
+        "event must record the unresolvable encounter type"
+    );
+    assert_eq!(
+        warn[0].fields.get("beat_id").and_then(|v| v.as_str()),
+        Some("attack")
+    );
+    assert_source_is_narrator_beat(&warn[0]);
+}
+
+// ---------------------------------------------------------------------------
+// Case D — beat_id not in def.beats → UnknownBeatId
+// ---------------------------------------------------------------------------
+
+#[test]
+fn case_d_unknown_beat_id_emits_warning_with_available_ids() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = snapshot_with(live_encounter("combat", 0, false));
+    let before = snapshot.encounter.clone().unwrap();
+
+    // "parry" is not in the fixture — combat only has attack + finisher.
+    let outcome = apply_beat_dispatch(&mut snapshot, "parry", &defs);
+
+    assert_eq!(outcome, BeatDispatchOutcome::UnknownBeatId);
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert_eq!(
+        after.beat, before.beat,
+        "unknown-beat path must NOT advance the beat counter"
+    );
+    assert_eq!(
+        after.metric.current, before.metric.current,
+        "unknown-beat path must NOT mutate the metric"
+    );
+
+    let events = drain_events(&mut rx);
+    let warn = find_encounter_events(&events, "encounter.beat_id.unknown");
+    assert_eq!(
+        warn.len(),
+        1,
+        "Case D must emit exactly one encounter.beat_id.unknown event"
+    );
+    assert!(
+        matches!(warn[0].event_type, WatcherEventType::ValidationWarning),
+        "beat_id.unknown must be a ValidationWarning"
+    );
+    assert_eq!(
+        warn[0].fields.get("beat_id").and_then(|v| v.as_str()),
+        Some("parry"),
+        "event must record the unknown beat_id the narrator submitted"
+    );
+    assert_eq!(
+        warn[0]
+            .fields
+            .get("encounter_type")
+            .and_then(|v| v.as_str()),
+        Some("combat")
+    );
+    // The available_ids field exists in the current code — preserve it so
+    // the GM panel can show the user what was actually valid at the moment
+    // of the drop. This is a diagnostic affordance, not cosmetic.
+    let available = warn[0]
+        .fields
+        .get("available_ids")
+        .and_then(|v| v.as_str())
+        .expect("available_ids must be populated for unknown-beat diagnostics");
+    assert!(
+        available.contains("attack"),
+        "available_ids must list the real beat ids so the GM can see what the \
+         narrator should have picked, got: {available}"
+    );
+    assert!(
+        available.contains("finisher"),
+        "available_ids must list every beat, not just the first one, got: {available}"
+    );
+    assert_source_is_narrator_beat(&warn[0]);
+}
+
+// ---------------------------------------------------------------------------
+// Case E — already-resolved encounter → SkippedResolved (not ApplyFailed)
+// ---------------------------------------------------------------------------
+//
+// Rework pass: this test used to assert `ApplyFailed` with an
+// `encounter.beat_apply_failed` event. That was a regression the first 37-14
+// pass introduced by removing the old `is_none_or(|e| e.resolved)` skip-
+// continue from the dispatch loop. The problem: for legitimate multi-actor
+// turns where a player beat resolves the encounter and the narrator then
+// emits an NPC beat against the same (now-resolved) encounter, the old
+// behaviour raised a misleading "apply_beat_failed" ValidationWarning —
+// semantically an error, but the sequence itself is normal.
+//
+// The fix: `apply_beat_dispatch` now checks `encounter.resolved` BEFORE
+// calling `apply_beat`. When the encounter is already resolved, it emits a
+// dedicated `encounter.beat_skipped_resolved` ValidationWarning (severity
+// Warn, not Error — this is a normal condition, not a narrator error) and
+// returns the new `BeatDispatchOutcome::SkippedResolved` variant.
+
+#[test]
+fn case_e_pre_resolved_encounter_emits_skipped_resolved() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    // Already-resolved encounter. The helper must short-circuit before
+    // calling apply_beat and emit the skipped_resolved event instead.
+    let mut snapshot = snapshot_with(live_encounter("combat", 2, true));
+    let metric_before = snapshot.encounter.as_ref().unwrap().metric.current;
+    let beat_before = snapshot.encounter.as_ref().unwrap().beat;
+
+    let outcome = apply_beat_dispatch(&mut snapshot, "attack", &defs);
+
+    assert_eq!(outcome, BeatDispatchOutcome::SkippedResolved);
+
+    // The short-circuit must not mutate the encounter — no metric change,
+    // no beat counter advance, no apply_beat call.
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert_eq!(
+        after.metric.current, metric_before,
+        "SkippedResolved must NOT advance the metric — apply_beat must not \
+         have been called"
+    );
+    assert_eq!(
+        after.beat, beat_before,
+        "SkippedResolved must NOT advance the beat counter"
+    );
+    assert!(
+        after.resolved,
+        "SkippedResolved must preserve the resolved flag"
+    );
+
+    let events = drain_events(&mut rx);
+    let skipped = find_encounter_events(&events, "encounter.beat_skipped_resolved");
+    assert_eq!(
+        skipped.len(),
+        1,
+        "Case E must emit exactly one encounter.beat_skipped_resolved event \
+         — legitimate multi-actor turn beats after encounter resolution are \
+         NOT errors"
+    );
+    assert!(
+        matches!(skipped[0].event_type, WatcherEventType::ValidationWarning),
+        "beat_skipped_resolved must be a ValidationWarning (not a \
+         StateTransition — nothing changed state) but with severity Warn, \
+         not Error — this is a normal end-of-encounter condition"
+    );
+    assert_eq!(
+        skipped[0].fields.get("beat_id").and_then(|v| v.as_str()),
+        Some("attack"),
+        "event must record the beat_id that was skipped"
+    );
+    assert_eq!(
+        skipped[0]
+            .fields
+            .get("encounter_type")
+            .and_then(|v| v.as_str()),
+        Some("combat")
+    );
+    assert_source_is_narrator_beat(&skipped[0]);
+
+    // No beat_apply_failed event must fire — the Reviewer-pass-1 rework
+    // introduced that regression and this test locks in its removal.
+    assert!(
+        find_encounter_events(&events, "encounter.beat_apply_failed").is_empty(),
+        "Case E must NOT emit encounter.beat_apply_failed — legitimate \
+         post-resolution beats are not apply failures"
+    );
+    // Similarly no beat_applied event — nothing was actually applied.
+    assert!(
+        find_encounter_events(&events, "encounter.beat_applied").is_empty(),
+        "Case E must NOT emit encounter.beat_applied — the beat was skipped, \
+         not applied"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Regression — multiple beat_selections in one turn must each emit an event
+// ---------------------------------------------------------------------------
+
+/// The playtest 2 symptom was "2-3 beat_selections per turn for 20 minutes,
+/// zero events". That shape implies the loop dropped every beat silently,
+/// not just one. This test locks in that every invocation of the helper
+/// produces exactly one event — a future refactor that accidentally
+/// deduplicates events per-turn would re-open the silent-drop hole.
+#[test]
+fn multiple_calls_without_encounter_emit_one_warning_per_call() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    let mut snapshot = empty_snapshot();
+
+    let o1 = apply_beat_dispatch(&mut snapshot, "attack", &defs);
+    let o2 = apply_beat_dispatch(&mut snapshot, "finisher", &defs);
+    let o3 = apply_beat_dispatch(&mut snapshot, "attack", &defs);
+
+    assert_eq!(o1, BeatDispatchOutcome::NoEncounter);
+    assert_eq!(o2, BeatDispatchOutcome::NoEncounter);
+    assert_eq!(o3, BeatDispatchOutcome::NoEncounter);
+
+    let events = drain_events(&mut rx);
+    let warns = find_encounter_events(&events, "encounter.beat_no_encounter");
+    assert_eq!(
+        warns.len(),
+        3,
+        "three beat_selection inputs must produce three warning events, not \
+         one deduplicated event and not zero — the 20-minute silent window \
+         in playtest 2 came from dropping the whole loop, not from coalescing"
+    );
+    // Each event must carry the beat_id it was triggered by, so the GM panel
+    // can show the full sequence of drops rather than collapsing them.
+    let beat_ids: Vec<&str> = warns
+        .iter()
+        .filter_map(|e| e.fields.get("beat_id").and_then(|v| v.as_str()))
+        .collect();
+    assert_eq!(
+        beat_ids,
+        vec!["attack", "finisher", "attack"],
+        "each warning must carry its own beat_id in the order the helper was called"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Wiring — the production dispatch path must call the helper, and the old
+// silent-drop `is_some()` outer guard must be gone. Per CLAUDE.md every test
+// suite needs at least one wiring test so we don't ship unwired green tests.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn wiring_dispatch_mod_calls_apply_beat_dispatch() {
+    let source = include_str!("dispatch/mod.rs");
+
+    // Positive side: scan for an actual call expression, not a bare identifier.
+    // A comment that merely mentions the function name would be fooled by a
+    // plain substring scan — the opening paren forces a real invocation.
+    assert!(
+        source.contains("apply_beat_dispatch("),
+        "dispatch/mod.rs must call apply_beat_dispatch(...) — the per-branch \
+         beat dispatch logic cannot live as an inline match any longer"
+    );
+}
+
+#[test]
+fn wiring_no_bare_is_some_guard_on_beat_selection_loop() {
+    let source = include_str!("dispatch/mod.rs");
+
+    // Regression guard: the original silent-drop shape was
+    //     if ctx.snapshot.encounter.is_some() {
+    //         for bs in result.beat_selections.iter() { ... }
+    //     }
+    // That outer guard is exactly what vanished the 2-3 beats per turn for
+    // 20 minutes — when the encounter was None the loop was skipped with
+    // zero OTEL. The helper owns the None check now, so this token must not
+    // reappear in dispatch/mod.rs.
+    assert!(
+        !source.contains("ctx.snapshot.encounter.is_some()"),
+        "dispatch/mod.rs contains `ctx.snapshot.encounter.is_some()` — that \
+         check belongs inside apply_beat_dispatch, not at the call site. The \
+         outer is_some() guard was the root cause of the 37-14 silent drop."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Case F — resolved encounter + unknown beat_id → SkippedResolved (pass-3 RED)
+// ---------------------------------------------------------------------------
+//
+// Reviewer pass-2 finding: the `UnknownBeatId` check at beat.rs:143 fires
+// BEFORE the `SkippedResolved` check at beat.rs:175. For the exact multi-actor
+// post-resolution scenario this story exists to fix — player's crit resolves
+// the goblin encounter, narrator emits an NPC beat with a hallucinated beat_id
+// label against the (now-resolved) encounter — the current ordering returns
+// `UnknownBeatId` with `Severity::Error` instead of `SkippedResolved` with
+// `Severity::Warn`. The GM panel fires a false error on a legitimate end-of-
+// encounter condition, exactly the class of pass-1 regression pass-2 closed
+// for one case but not the intersection of both.
+//
+// Fix: Dev must move the `if is_resolved` short-circuit to fire immediately
+// after the `NoEncounter` match arm — before `NoDef`, before `UnknownBeatId`.
+// Once an encounter is resolved, every incoming beat is skipped regardless
+// of beat_id validity or def existence.
+//
+// This test drives the intersection: encounter alive, encounter resolved,
+// beat_id NOT in def.beats. It must return SkippedResolved, not UnknownBeatId.
+
+#[test]
+fn case_f_resolved_encounter_with_unknown_beat_id_emits_skipped_resolved() {
+    let (_guard, mut rx) = fresh_subscriber();
+    let defs = load_defs();
+    // Already-resolved encounter AND a beat_id not in def.beats ("riposte"
+    // is not in the combat fixture — combat only has attack + finisher).
+    let mut snapshot = snapshot_with(live_encounter("combat", 2, true));
+    let metric_before = snapshot.encounter.as_ref().unwrap().metric.current;
+    let beat_before = snapshot.encounter.as_ref().unwrap().beat;
+
+    let outcome = apply_beat_dispatch(&mut snapshot, "riposte", &defs);
+
+    assert_eq!(
+        outcome,
+        BeatDispatchOutcome::SkippedResolved,
+        "Resolved encounter MUST short-circuit to SkippedResolved regardless \
+         of beat_id validity. The current ordering (UnknownBeatId before \
+         SkippedResolved) fires a false Severity::Error on the exact multi- \
+         actor post-resolution scenario this story exists to fix."
+    );
+
+    // No state mutation — the resolved short-circuit must land before any
+    // apply_beat or metric change.
+    let after = snapshot.encounter.as_ref().unwrap();
+    assert_eq!(after.metric.current, metric_before);
+    assert_eq!(after.beat, beat_before);
+    assert!(after.resolved);
+
+    let events = drain_events(&mut rx);
+
+    // Must emit SkippedResolved (Severity::Warn), not UnknownBeatId
+    // (Severity::Error). A false error-severity event on a legitimate
+    // end-of-encounter condition is what this story exists to prevent.
+    let skipped = find_encounter_events(&events, "encounter.beat_skipped_resolved");
+    assert_eq!(
+        skipped.len(),
+        1,
+        "Case F must emit exactly one encounter.beat_skipped_resolved event \
+         — a resolved encounter receiving any beat (known or unknown) is a \
+         normal end-of-encounter condition, NOT a narrator error"
+    );
+    assert!(
+        matches!(skipped[0].event_type, WatcherEventType::ValidationWarning),
+        "beat_skipped_resolved must be a ValidationWarning"
+    );
+    assert_source_is_narrator_beat(&skipped[0]);
+
+    // Must NOT emit UnknownBeatId — that's the wrong severity (Error vs Warn)
+    // and the wrong semantic class (narrator error vs normal post-resolution).
+    assert!(
+        find_encounter_events(&events, "encounter.beat_id.unknown").is_empty(),
+        "Case F must NOT emit encounter.beat_id.unknown on a resolved \
+         encounter. The resolved short-circuit has higher priority than \
+         beat_id validation — once the encounter is done, the beat is \
+         skipped regardless of whether its id was valid."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Wiring — source field on player_beat_from_narrator_ignored (pass-3 RED)
+// ---------------------------------------------------------------------------
+//
+// Reviewer pass-2 finding #3: the `encounter.player_beat_from_narrator_ignored`
+// emission in `dispatch/mod.rs:1823-1831` lacks the `.field("source",
+// "narrator_beat_selection")` attribution that every other event in the beat
+// selection loop carries. The GM panel's attribution contract is broken on
+// the one branch where the narrator and structured BEAT_SELECTION collide.
+//
+// Building a runtime DispatchContext fixture for a single field assertion
+// would require dozens of lines of scaffolding (see the struct definition in
+// dispatch/mod.rs:90-164 — 30+ fields pulled from half the crate). Instead
+// this test anchors a tight source-scan on the specific event identifier and
+// verifies the source field chain appears within a small token window after
+// the event name. A comment fragment cannot satisfy this pattern — the
+// `.field(` method call syntax requires a real emit chain.
+
+#[test]
+fn wiring_player_beat_from_narrator_ignored_carries_source_field() {
+    let source = include_str!("dispatch/mod.rs");
+
+    // Anchor: find the event identifier literal.
+    let anchor = "encounter.player_beat_from_narrator_ignored";
+    let idx = source.find(anchor).unwrap_or_else(|| {
+        panic!(
+            "dispatch/mod.rs must emit `{}` — the event identifier is missing \
+             from the production dispatch loop",
+            anchor
+        )
+    });
+
+    // Scan the 400 characters immediately after the anchor for the source
+    // field chain. The current WatcherEventBuilder chain at mod.rs:1823 is
+    // roughly 200 characters; 400 gives headroom for chain reformatting
+    // without becoming so wide it catches unrelated emissions below.
+    let window_end = (idx + 400).min(source.len());
+    let window = &source[idx..window_end];
+
+    assert!(
+        window.contains(".field(\"source\", \"narrator_beat_selection\")"),
+        "The `encounter.player_beat_from_narrator_ignored` emission in \
+         dispatch/mod.rs must carry `.field(\"source\", \
+         \"narrator_beat_selection\")` — every other event in the beat \
+         dispatch loop carries this attribution so the GM panel can \
+         distinguish narrator-driven beat events from the structured \
+         BEAT_SELECTION protocol preprocessing. This branch is the one \
+         place where the narrator and structured input collide, so the \
+         attribution matters most. Reviewer pass-2 finding #3."
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Wiring — per-actor breadcrumb must be gated on Applied outcome (pass-3 RED)
+// ---------------------------------------------------------------------------
+//
+// Reviewer pass-2 finding #11: Case E (and siblings B/C/D) assert absence of
+// `beat_apply_failed` but do NOT assert absence of the per-actor breadcrumb
+// events `encounter.npc_beat` / `encounter.player_beat`. The pass-1 regression
+// being fixed is specifically that the breadcrumb fired on non-Applied
+// outcomes — if a future refactor accidentally re-breaks the `if let Applied
+// { .. }` guard in dispatch/mod.rs, no test catches it.
+//
+// Again, a runtime test would require a DispatchContext fixture. This source-
+// scan locks in the structural invariant: the breadcrumb emission tokens
+// `"encounter.npc_beat"` and `"encounter.player_beat"` must only appear
+// inside the `if let BeatDispatchOutcome::Applied` block. The test finds the
+// Applied pattern match anchor, finds the closing brace of that block by
+// balanced-brace counting from a known token, and asserts the breadcrumb
+// tokens live inside that range and NOT after it.
+
+#[test]
+fn wiring_per_actor_breadcrumb_gated_on_applied_outcome() {
+    let source = include_str!("dispatch/mod.rs");
+
+    // Reviewer's fix #1 for per-actor breadcrumb: gate emissions on Applied
+    // outcome. The production code matches the shape
+    //     if let beat::BeatDispatchOutcome::Applied { .. } = &outcome { ... }
+    // and the breadcrumb emissions for encounter.npc_beat /
+    // encounter.player_beat live INSIDE that block. This test locks the
+    // invariant in place.
+    //
+    // The pass-3 version of this test used only a byte-offset "after the
+    // Applied anchor" check. Reviewer pass-3 test-analyzer finding: that
+    // shape fails to catch a refactor that moves the breadcrumb BELOW the
+    // closing brace of the Applied block while keeping it below the anchor
+    // in byte terms. Fixed here with a balanced-brace scan to find the
+    // actual closing brace of the `if let Applied { .. } = &outcome {` block.
+
+    let applied_anchor = source.find("BeatDispatchOutcome::Applied {").unwrap_or_else(|| {
+        panic!(
+            "dispatch/mod.rs must pattern-match BeatDispatchOutcome::Applied \
+             with its struct-variant fields — the shape cannot regress to the \
+             pass-1 unit-variant form"
+        )
+    });
+
+    // From the Applied anchor, scan forward for the opening `{` that begins
+    // the block body. The pattern is:
+    //   if let beat::BeatDispatchOutcome::Applied { .. } = &outcome {
+    //       ^^^ anchor                                ^^^ body_open
+    // We find the first `{` that is NOT the struct-variant field destructure
+    // brace by finding the `= &outcome {` token (or, more permissively, the
+    // next `{` after the closing `}` of the variant destructure). The
+    // simplest robust approach: find the first `= ` after the anchor and
+    // then the first `{` after that.
+    let eq_rel = source[applied_anchor..]
+        .find("= ")
+        .expect("Applied pattern must be followed by `= <expr>`");
+    let body_open_rel = source[applied_anchor + eq_rel..]
+        .find('{')
+        .expect("`= <expr>` must be followed by `{` opening the if-let body");
+    let body_open = applied_anchor + eq_rel + body_open_rel;
+
+    // Walk the source from body_open counting braces until we return to
+    // depth 0 — that's the closing brace of the Applied block.
+    let mut depth = 0usize;
+    let mut body_close = None;
+    for (offset, ch) in source[body_open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    body_close = Some(body_open + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body_close = body_close.expect(
+        "dispatch/mod.rs: could not find the closing brace of the \
+         `if let BeatDispatchOutcome::Applied { .. } = &outcome { .. }` block",
+    );
+
+    // The production code emits the breadcrumb via a conditional
+    // event-name selector:
+    //     .field("event", if is_player { "encounter.player_beat" } else { "encounter.npc_beat" })
+    // So we search for the quoted literals. `encounter.player_beat` cannot
+    // collide with `encounter.player_beat_from_narrator_ignored` because the
+    // closing quote in the latter lands after `ignored`, not after
+    // `player_beat`.
+    for (breadcrumb_literal, label) in &[
+        ("\"encounter.npc_beat\"", "encounter.npc_beat"),
+        ("\"encounter.player_beat\"", "encounter.player_beat"),
+    ] {
+        let mut occurrences: Vec<usize> = Vec::new();
+        let mut cursor = 0;
+        while let Some(found) = source[cursor..].find(*breadcrumb_literal) {
+            let abs = cursor + found;
+            occurrences.push(abs);
+            cursor = abs + breadcrumb_literal.len();
+        }
+
+        assert!(
+            !occurrences.is_empty(),
+            "dispatch/mod.rs must contain the exact string literal `{}` — \
+             the per-actor breadcrumb emission for `{}` must exist. The GM \
+             panel's lie-detector coverage depends on it.",
+            breadcrumb_literal,
+            label
+        );
+
+        // Every occurrence must live STRICTLY between body_open and
+        // body_close — i.e., inside the `if let Applied { .. } = &outcome
+        // { .. }` block body. "After the anchor" was the pass-3 version;
+        // this tightened version also requires "before the closing brace."
+        for off in &occurrences {
+            assert!(
+                *off > body_open && *off < body_close,
+                "dispatch/mod.rs contains `{}` at byte {} — NOT inside the \
+                 Applied block body (byte range [{}, {}]). This is either \
+                 the pass-1 regression shape (emission before the Applied \
+                 gate) OR a refactor that moved the emission below the \
+                 Applied block's closing brace. In either case the GM \
+                 panel receives a success-flavored StateTransition on a \
+                 non-Applied outcome. Reviewer pass-2 finding #11.",
+                breadcrumb_literal,
+                off,
+                body_open,
+                body_close
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Regression guard — handle_applied_side_effects must not revert to silent
+// .unwrap_or defaults (Reviewer pass-2 finding #2, pass-3 test-analyzer
+// follow-up)
+// ---------------------------------------------------------------------------
+//
+// Pass 2 had `.unwrap_or(0)` / `.unwrap_or(false)` on
+// `ctx.snapshot.encounter` reads inside `handle_applied_side_effects` —
+// silent defaults that violated the no-silent-fallbacks rule. Pass 3 fixed
+// them to a `.expect()` binding. Pass-3 Reviewer test-analyzer flagged that
+// no test locked in the fix: a future refactor reverting the pattern would
+// pass every test, because exercising the function through a direct runtime
+// test requires a full `DispatchContext` fixture (30+ fields pulling from
+// half the crate). This source-scan locks the structural invariant instead.
+
+#[test]
+fn wiring_no_silent_defaults_in_handle_applied_side_effects() {
+    let source = include_str!("dispatch/beat.rs");
+
+    // Anchor on the function signature so we only scan the function body,
+    // not unrelated code elsewhere in the module.
+    let fn_anchor = source
+        .find("fn handle_applied_side_effects")
+        .expect("beat.rs must declare handle_applied_side_effects");
+
+    // Find the function body open brace — first `{` after the signature.
+    // The signature spans multiple lines ending with `) {`.
+    let body_open_rel = source[fn_anchor..]
+        .find(") {")
+        .expect("handle_applied_side_effects signature must end with `) {`");
+    let body_open = fn_anchor + body_open_rel + 2; // skip past `) ` to the `{`
+
+    // Balanced-brace scan to find the function body close.
+    let mut depth = 0usize;
+    let mut body_close = None;
+    for (offset, ch) in source[body_open..].char_indices() {
+        match ch {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    body_close = Some(body_open + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let body_close = body_close
+        .expect("could not find closing brace of handle_applied_side_effects");
+
+    let raw_body = &source[body_open..body_close];
+
+    // Strip `//` line comments before scanning — the file deliberately
+    // documents the forbidden pattern in comments describing the fix, and
+    // we don't want to match against documentation. Block comments (/* */)
+    // are not used in this function.
+    let body: String = raw_body
+        .lines()
+        .map(|line| {
+            if let Some(idx) = line.find("//") {
+                &line[..idx]
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // The pass-2 regression patterns. Either of these anywhere in the
+    // function body (non-comment) is a silent-default revert.
+    let forbidden_patterns = [
+        ".unwrap_or(0)",
+        ".unwrap_or(false)",
+        ".unwrap_or_default()",
+    ];
+
+    for pat in forbidden_patterns {
+        assert!(
+            !body.contains(pat),
+            "handle_applied_side_effects contains forbidden silent-default \
+             pattern `{}`. Reviewer pass-2 finding #2: silent defaults on \
+             `ctx.snapshot.encounter` reads emit misleading `metric_current=0 \
+             resolved=false` telemetry if the encounter is somehow absent \
+             after the Applied outcome. Use `.expect()` to turn contract \
+             violations into loud crashes instead — matches the precedent \
+             set by the def/beat `.expect()` calls at the top of the \
+             function.",
+            pat
+        );
+    }
+
+    // Positive assertion: the function MUST contain at least one
+    // `.expect()` on `ctx.snapshot.encounter.as_ref()` — the pattern Dev
+    // replaced the silent defaults with. If this disappears, either the
+    // function no longer reads the encounter (refactor changed the shape)
+    // or the fix was reverted.
+    assert!(
+        body.contains(".as_ref().expect(")
+            || body.contains(".as_ref()\n        .expect(")
+            || body.contains("encounter.as_ref().expect("),
+        "handle_applied_side_effects must read `ctx.snapshot.encounter` \
+         via `.as_ref().expect(...)` — the contract-loud pattern from \
+         Reviewer pass-2 fix #2. If this assertion fails, either the fix \
+         was reverted or the function was refactored; verify manually."
+    );
+}

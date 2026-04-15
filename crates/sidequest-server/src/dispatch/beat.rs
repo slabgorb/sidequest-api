@@ -1,27 +1,175 @@
-//! Encounter beat selection dispatch (story 28-5).
+//! Encounter beat selection dispatch.
+//!
+//! Story 28-5 introduced beat dispatch. Story 37-14 extracted the per-branch
+//! decision into [`apply_beat_dispatch`] so every outcome is observable on
+//! the GM panel via a single canonical `event=` field, mirroring 37-13's
+//! `apply_confrontation_gate`.
+//!
+//! The outcomes:
+//!
+//! | Variant            | Trigger                                              | Event                                 |
+//! |--------------------|------------------------------------------------------|---------------------------------------|
+//! | `Applied { .. }`   | def + beat found, encounter unresolved, apply OK     | `encounter.beat_applied`              |
+//! | `NoEncounter`      | `snapshot.encounter` is `None`                       | `encounter.beat_no_encounter`         |
+//! | `NoDef`            | encounter live, no `ConfrontationDef` for its type   | `encounter.beat_no_def`                |
+//! | `UnknownBeatId`    | def found, `beat_id` not in `def.beats`              | `encounter.beat_id.unknown`           |
+//! | `SkippedResolved`  | encounter already resolved, beat is a legitimate \   | `encounter.beat_skipped_resolved`     |
+//! |                    | multi-actor post-resolution emission (not an error)  |                                       |
+//!
+//! Every non-Applied outcome emits exactly one `WatcherEvent` on the
+//! `encounter` component, keyed by `event=` (not `action=`), carrying
+//! `source: "narrator_beat_selection"` so the GM panel can attribute it to
+//! the narrator-driven beat subsystem (distinct from the structured
+//! `BeatSelection` protocol preprocessing in `lib.rs`). On the Applied
+//! outcome, `apply_beat_dispatch` emits the dispatch-layer
+//! `encounter.beat_applied` AND additionally triggers
+//! `StructuredEncounter::apply_beat` inside the game crate, which emits its
+//! own state-machine-layer events (`encounter.state.beat_applied`, and
+//! conditionally `encounter.state.resolved` /
+//! `encounter.state.phase_transition`) on the same component. Operators
+//! reading the GM panel see BOTH layers — the `state.` prefix
+//! disambiguates.
+//!
+//! The `DispatchContext`-flavoured wrapper that adds gold-delta,
+//! resolver-specific tracing, and escalation handling lives in this module
+//! as [`handle_applied_side_effects`]. `dispatch/mod.rs` calls
+//! `apply_beat_dispatch` directly in its beat-selection loop, then invokes
+//! `handle_applied_side_effects` only on the `Applied` outcome. The direct
+//! call in `dispatch/mod.rs` also satisfies the story 37-14 wiring test,
+//! which scans for `apply_beat_dispatch(` at the dispatch layer.
+
+use sidequest_game::state::GameSnapshot;
+use sidequest_genre::ConfrontationDef;
 
 use crate::{Severity, WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
-/// Dispatch a beat selection to the encounter engine.
+/// Outcome of `apply_beat_dispatch`. One variant per observable branch.
 ///
-/// Routes beat_id through apply_beat() on the live StructuredEncounter,
-/// then resolves stat_check-specific mechanics (attack → apply_hp_delta,
-/// escape → separation metric, others → metric_delta only via apply_beat).
-/// Checks resolution after apply_beat and handles escalation if needed.
+/// `#[non_exhaustive]` matches the convention of `ConfrontationGateOutcome`
+/// — the case matrix is expected to grow (e.g., per-actor cooldowns,
+/// resource-gated beats) and downstream callers should pattern-match with a
+/// wildcard arm so a new variant is a pure additive change.
+#[non_exhaustive]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BeatDispatchOutcome {
+    /// def + beat found, encounter unresolved, `apply_beat()` returned `Ok`.
+    ///
+    /// Carries the already-resolved `encounter_type` and `beat_id` so the
+    /// post-apply wrapper (`handle_applied_side_effects`) can consume them
+    /// without re-deriving the same data from `DispatchContext`. Together
+    /// with the short-circuit for pre-resolved encounters, this collapses
+    /// the old triple-`.expect()` lookup chain.
+    Applied {
+        /// The encounter_type the beat was applied to.
+        encounter_type: String,
+        /// The beat_id that was applied.
+        beat_id: String,
+    },
+    /// `snapshot.encounter` is `None`. The narrator emitted a beat with no
+    /// active encounter to apply it to — the playtest 2 silent-drop case.
+    NoEncounter,
+    /// Encounter live, but `find_confrontation_def` returned `None` for its
+    /// `encounter_type`. A configuration drift between game state and the
+    /// loaded confrontation defs.
+    NoDef,
+    /// Def found, but `beat_id` is not present in `def.beats`. The narrator
+    /// invented a beat or used a label instead of an id.
+    UnknownBeatId,
+    /// Encounter is already resolved. This is a legitimate multi-actor
+    /// post-resolution emission — e.g., the narrator emits a player beat
+    /// that resolves combat, then emits an NPC beat against the now-resolved
+    /// encounter in the same turn. Short-circuits before `NoDef` and
+    /// `UnknownBeatId` because the encounter is done — no further validation
+    /// of the incoming beat is meaningful, and firing a Severity::Error
+    /// `UnknownBeatId` on a resolved encounter would be the same class of
+    /// false alarm the pass-1 `beat_apply_failed` regression produced.
+    SkippedResolved,
+}
+
+/// Apply a narrator-emitted beat selection to the live encounter.
 ///
-/// Emits OTEL events: encounter.beat_dispatched, encounter.stat_check_resolved.
-pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &str) {
-    let encounter_type = match ctx.snapshot.encounter {
-        Some(ref enc) => enc.encounter_type.clone(),
+/// Mutates `snapshot.encounter` only on the `Applied` outcome (via
+/// `StructuredEncounter::apply_beat`).
+///
+/// **Emits exactly one `WatcherEvent` on the `encounter` component for
+/// every non-Applied outcome**, keyed by `event=` so the GM panel's
+/// standard filter picks it up. On the `Applied` outcome, this function
+/// emits the dispatch-layer `encounter.beat_applied` AND additionally
+/// triggers `StructuredEncounter::apply_beat` inside the game crate, which
+/// emits its own state-machine-layer events
+/// (`encounter.state.beat_applied`, plus conditionally
+/// `encounter.state.resolved` / `encounter.state.phase_transition`) on the
+/// same `encounter` component. The `state.` prefix disambiguates the two
+/// layers on the GM panel — a single Applied beat produces at least two
+/// `encounter` WatcherEvents, one from each layer.
+///
+/// **Outcome ordering (higher priority → lower):**
+/// 1. `NoEncounter` — `snapshot.encounter` is `None`.
+/// 2. `SkippedResolved` — encounter live AND already resolved. Highest-priority
+///    short-circuit among the encounter-live branches: once an encounter is
+///    done, every incoming beat is skipped regardless of beat_id or def
+///    validity. This ordering closes the Reviewer pass-2 finding #1: if
+///    `UnknownBeatId` fired before `SkippedResolved`, a narrator beat with
+///    a hallucinated beat_id against a resolved encounter would produce a
+///    false `Severity::Error` on a normal end-of-encounter condition.
+/// 3. `NoDef` — encounter live, unresolved, but no `ConfrontationDef` for
+///    its type (config drift).
+/// 4. `UnknownBeatId` — def found, unresolved, but `beat_id` not in
+///    `def.beats`.
+/// 5. `Applied` — all preconditions satisfied, `apply_beat()` returned `Ok`.
+pub fn apply_beat_dispatch(
+    snapshot: &mut GameSnapshot,
+    beat_id: &str,
+    confrontation_defs: &[ConfrontationDef],
+) -> BeatDispatchOutcome {
+    // Case NoEncounter: no active encounter. Primary 37-14 silent-drop path.
+    let (encounter_type, is_resolved) = match snapshot.encounter.as_ref() {
+        Some(e) => (e.encounter_type.clone(), e.resolved),
         None => {
             tracing::warn!(beat_id = %beat_id, "beat_selection with no active encounter");
-            return;
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "encounter.beat_no_encounter")
+                .field("beat_id", beat_id)
+                .field("source", "narrator_beat_selection")
+                .severity(Severity::Warn)
+                .send();
+            return BeatDispatchOutcome::NoEncounter;
         }
     };
 
-    let def = match crate::find_confrontation_def(&ctx.confrontation_defs, &encounter_type) {
+    // Case SkippedResolved: encounter is already resolved. HIGHEST PRIORITY
+    // short-circuit among the encounter-live branches. This must fire BEFORE
+    // NoDef and UnknownBeatId — if either of those fired first on a resolved
+    // encounter, the GM panel would get a false-alarm error on a legitimate
+    // multi-actor post-resolution turn (Reviewer pass-2 finding #1). A
+    // resolved encounter means every incoming beat is skipped regardless of
+    // further validation; the beat_id and def lookups are moot.
+    //
+    // Severity::Warn (not Error) + tracing::warn! (not info!) — normal
+    // end-of-encounter condition, but still anomalous enough the operator
+    // should see it on both the log stream and the GM panel.
+    if is_resolved {
+        tracing::warn!(
+            beat_id = %beat_id,
+            encounter_type = %encounter_type,
+            "beat_selection on already-resolved encounter — skipping"
+        );
+        WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+            .field("event", "encounter.beat_skipped_resolved")
+            .field("beat_id", beat_id)
+            .field("encounter_type", &encounter_type)
+            .field("resolved", true)
+            .field("source", "narrator_beat_selection")
+            .severity(Severity::Warn)
+            .send();
+        return BeatDispatchOutcome::SkippedResolved;
+    }
+
+    // Case NoDef: encounter live (unresolved), but no confrontation def for
+    // its type. Config drift.
+    let def = match crate::find_confrontation_def(confrontation_defs, &encounter_type) {
         Some(d) => d.clone(),
         None => {
             tracing::warn!(
@@ -29,47 +177,151 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
                 encounter_type = %encounter_type,
                 "beat_selection: no confrontation def found"
             );
-            return;
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "encounter.beat_no_def")
+                .field("beat_id", beat_id)
+                .field("encounter_type", &encounter_type)
+                .field("source", "narrator_beat_selection")
+                .severity(Severity::Warn)
+                .send();
+            return BeatDispatchOutcome::NoDef;
         }
     };
 
-    // Strict match — NO label fallback, NO snake_case normalization.
-    // The label_fallback was a silent fallback that fuzzy-matched narrator-emitted
-    // beat labels back to IDs via `b.label.to_lowercase().replace(' ', "_")`.
-    // This violated: no keyword matching (Zork Problem, ADR-010/032), no silent
-    // fallbacks (CLAUDE.md × 4 repos). Deleted in confrontation wiring repair.
-    // If the narrator emits an unknown beat_id, it fails loud with an OTEL warning.
-    let beat = match def.beats.iter().find(|b| b.id == beat_id) {
-        Some(b) => b,
-        None => {
-            tracing::warn!(
-                beat_id = %beat_id,
-                encounter_type = %encounter_type,
-                available_ids = ?def.beats.iter().map(|b| &b.id).collect::<Vec<_>>(),
-                "beat_selection: beat_id not found — NO FALLBACK"
-            );
-            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
-                .field("event", "beat_id.unknown")
-                .field("submitted", beat_id)
-                .field("encounter_type", &encounter_type)
-                .field(
-                    "available_ids",
-                    def.beats
-                        .iter()
-                        .map(|b| b.id.as_str())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                )
-                .severity(Severity::Error)
-                .send();
-            return;
-        }
-    };
+    // Case UnknownBeatId: beat_id not in def.beats. Strict match — NO label
+    // fallback, NO snake_case normalization (deleted in confrontation wiring
+    // repair).
+    //
+    // Severity::Warn + tracing::warn! — narrator bad input is 4xx-class
+    // (client error), not a 5xx-class server error. Reviewer pass-2 finding
+    // #6: the previous Severity::Error + tracing::warn! split lied to the
+    // log-stream consumer about the severity class.
+    if !def.beats.iter().any(|b| b.id == beat_id) {
+        tracing::warn!(
+            beat_id = %beat_id,
+            encounter_type = %encounter_type,
+            available_ids = ?def.beats.iter().map(|b| &b.id).collect::<Vec<_>>(),
+            "beat_selection: beat_id not found — NO FALLBACK"
+        );
+        WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+            .field("event", "encounter.beat_id.unknown")
+            .field("beat_id", beat_id)
+            .field("encounter_type", &encounter_type)
+            .field(
+                "available_ids",
+                def.beats
+                    .iter()
+                    .map(|b| b.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            )
+            .field("source", "narrator_beat_selection")
+            .severity(Severity::Warn)
+            .send();
+        return BeatDispatchOutcome::UnknownBeatId;
+    }
+
+    // Case Applied: all pre-conditions satisfied. Apply the beat.
+    //
+    // `StructuredEncounter::apply_beat` currently has exactly two `Err`
+    // causes, both exhausted by the short-circuits above:
+    //   1. `if self.resolved { return Err(...) }` — exhausted by
+    //      `SkippedResolved` (fires before we reach this match).
+    //   2. `def.beats.find(b.id == beat_id).ok_or_else(...)` — exhausted
+    //      by the `UnknownBeatId` check above (same predicate).
+    //
+    // The `.expect()` here is therefore a contract assertion, not a silent
+    // fallback. **This is a runtime panic, not a compile-time exhaustiveness
+    // check** — if a future `apply_beat()` grows a third `Err` cause, this
+    // `.expect()` will panic in production on the first hit. The signal to
+    // add a new `BeatDispatchOutcome` variant is (a) this panic landing in
+    // logs, or (b) the regression-guard test
+    // `wiring_apply_beat_err_causes_exhausted_by_short_circuits` below
+    // failing — whichever the developer sees first. `#[non_exhaustive]` on
+    // `BeatDispatchOutcome` keeps the variant addition non-breaking for
+    // downstream consumers.
+    //
+    // A stronger design would convert `apply_beat`'s error to a
+    // `#[non_exhaustive]` `thiserror`-derived enum and `match` on it with
+    // no wildcard arm, making the "new cause requires new variant" rule a
+    // compile-time error rather than a runtime panic. That is tracked as a
+    // non-blocking delivery finding from Reviewer pass 2 (EncounterApplyError
+    // conversion) — the current shape is acceptable because the regression
+    // guard test below mechanically verifies the two known causes remain
+    // the only two causes.
+    let encounter = snapshot
+        .encounter
+        .as_mut()
+        .expect("encounter presence checked above");
+    encounter
+        .apply_beat(beat_id, &def)
+        .expect(
+            "apply_beat: all preconditions validated above \
+             (SkippedResolved exhausts `self.resolved`; \
+             UnknownBeatId exhausts `def.beats` lookup). \
+             A new Err cause requires a new BeatDispatchOutcome variant \
+             AND a corresponding short-circuit above this match.",
+        );
+    let metric_current = encounter.metric.current;
+    let resolved = encounter.resolved;
+    tracing::info!(
+        beat_id = %beat_id,
+        encounter_type = %encounter_type,
+        metric_current = metric_current,
+        resolved = resolved,
+        "encounter.beat_applied"
+    );
+    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        .field("event", "encounter.beat_applied")
+        .field("beat_id", beat_id)
+        .field("encounter_type", &encounter_type)
+        .field("metric_current", metric_current)
+        .field("resolved", resolved)
+        .field("source", "narrator_beat_selection")
+        .send();
+    BeatDispatchOutcome::Applied {
+        encounter_type,
+        beat_id: beat_id.to_string(),
+    }
+}
+
+/// Post-apply side effects that fire only when `apply_beat_dispatch` returned
+/// `Applied`: gold-delta inventory mutation, resolver classification, the
+/// legacy `encounter.beat_dispatched` / `encounter.stat_check_resolved`
+/// breadcrumbs, and escalation handling. Split from `apply_beat_dispatch`
+/// because these touch the broader `DispatchContext` (inventory, characters)
+/// while the helper stays narrow enough to unit-test with a minimal fixture.
+///
+/// Caller contract: only invoke when `apply_beat_dispatch` returned
+/// `BeatDispatchOutcome::Applied { encounter_type, beat_id }`, and pass
+/// both carried fields through. `encounter_type` and `beat_id` are the
+/// already-resolved values from that variant, so this function does NOT
+/// re-derive them from `DispatchContext`. The def and beat lookups below
+/// are guaranteed to succeed because `apply_beat_dispatch` already
+/// validated both on the Applied path.
+pub(super) fn handle_applied_side_effects(
+    ctx: &mut DispatchContext<'_>,
+    encounter_type: &str,
+    beat_id: &str,
+) {
+    let def = crate::find_confrontation_def(&ctx.confrontation_defs, encounter_type)
+        .expect(
+            "handle_applied_side_effects: def must exist (guaranteed by Applied outcome)",
+        )
+        .clone();
+    let beat = def
+        .beats
+        .iter()
+        .find(|b| b.id == beat_id)
+        .expect(
+            "handle_applied_side_effects: beat must exist (guaranteed by Applied outcome)",
+        );
     let stat_check = beat.stat_check.clone();
     let metric_delta = beat.metric_delta;
     let gold_delta = beat.gold_delta;
     let resolved_beat_id = beat.id.clone();
 
+    // Gold delta: mutate inventory and emit a ledger event.
     if let Some(gd) = gold_delta {
         ctx.inventory.gold = (ctx.inventory.gold + gd as i64).max(0);
         if let Some(ch) = ctx.snapshot.characters.first_mut() {
@@ -80,7 +332,7 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
             .field("beat_id", &resolved_beat_id)
             .field("gold_delta", gd)
             .field("gold_after", ctx.inventory.gold)
-            .field("encounter_type", &encounter_type)
+            .field("encounter_type", encounter_type)
             .send();
         tracing::info!(
             beat_id = %resolved_beat_id,
@@ -96,31 +348,17 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
         _ => "metric_delta",
     };
 
+    // Legacy pre-37-14 breadcrumb event. Order is different now — the
+    // canonical `encounter.beat_applied` event fires first inside the helper
+    // — but downstream tooling may still key on this name for "dispatch was
+    // attempted" telemetry, so it's preserved.
     WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
         .field("event", "encounter.beat_dispatched")
         .field("beat_id", beat_id)
         .field("stat_check", &stat_check)
         .field("resolver", resolver)
-        .field("encounter_type", &encounter_type)
+        .field("encounter_type", encounter_type)
         .send();
-
-    if let Some(ref mut encounter) = ctx.snapshot.encounter {
-        match encounter.apply_beat(beat_id, &def) {
-            Ok(()) => {
-                tracing::info!(
-                    beat_id = %beat_id,
-                    stat_check = %stat_check,
-                    metric_current = encounter.metric.current,
-                    resolved = encounter.resolved,
-                    "encounter.beat_applied"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(beat_id = %beat_id, error = %e, "encounter.beat_apply_failed");
-                return;
-            }
-        }
-    }
 
     match resolver {
         "resolve_attack" => {
@@ -142,18 +380,17 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
         _ => {}
     }
 
-    let metric_current = ctx
-        .snapshot
-        .encounter
-        .as_ref()
-        .map(|e| e.metric.current)
-        .unwrap_or(0);
-    let is_resolved = ctx
-        .snapshot
-        .encounter
-        .as_ref()
-        .map(|e| e.resolved)
-        .unwrap_or(false);
+    // Caller contract: only invoked on Applied outcome, so the encounter
+    // is guaranteed present. Use `.expect()` to make contract violations a
+    // loud crash rather than silent zero-default telemetry (Reviewer pass-2
+    // finding #2 — `.unwrap_or(0)` / `.unwrap_or(false)` here would silently
+    // skip the escalation branch below and emit a misleading
+    // `metric_current=0 resolved=false` event if the contract ever broke).
+    let encounter_after = ctx.snapshot.encounter.as_ref().expect(
+        "handle_applied_side_effects: encounter must be present (guaranteed by Applied outcome)",
+    );
+    let metric_current = encounter_after.metric.current;
+    let is_resolved = encounter_after.resolved;
     WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
         .field("event", "encounter.stat_check_resolved")
         .field("stat_check", &stat_check)
@@ -168,7 +405,18 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
             "encounter.resolved — checking escalation"
         );
 
-        if let Some(ref encounter) = ctx.snapshot.encounter {
+        // The encounter was proven present at the top of this function via
+        // `.expect()` — reuse that invariant rather than a redundant
+        // `if let Some` guard that could silently drop the escalation check
+        // if a future refactor nulls `ctx.snapshot.encounter` between the
+        // .expect() at the top and here. Structurally consistent with the
+        // pass-2 finding #2 fix at the top of this function — panic loudly
+        // on contract violation, never silently skip observability.
+        let encounter = ctx.snapshot.encounter.as_ref().expect(
+            "handle_applied_side_effects: encounter still present at escalation check \
+             (invariant established by the .expect() at the top of this function)",
+        );
+        {
             if let Some(escalation_target) = encounter.escalation_target(&def) {
                 tracing::info!(
                     escalates_to = %escalation_target,
@@ -178,8 +426,9 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
                     ctx.snapshot.encounter = Some(escalated);
                     WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                         .field("event", "encounter.escalation_started")
-                        .field("from_type", &encounter_type)
+                        .field("from_type", encounter_type)
                         .field("to_type", &escalation_target)
+                        .field("source", "narrator_beat_selection")
                         .send();
                 } else {
                     tracing::warn!(
@@ -187,6 +436,18 @@ pub(super) fn dispatch_beat_selection(ctx: &mut DispatchContext<'_>, beat_id: &s
                         encounter_type = %encounter_type,
                         "encounter.escalation_failed — escalate_to_combat returned None"
                     );
+                    // Fix #2: the failure path used to be tracing-only —
+                    // a silent drop on the GM panel, which is exactly the
+                    // anti-pattern this story exists to eliminate. This
+                    // emission mirrors the escalation_started success
+                    // event so the panel can diff the two cases.
+                    WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                        .field("event", "encounter.escalation_failed")
+                        .field("from_type", encounter_type)
+                        .field("to_type", &escalation_target)
+                        .field("source", "narrator_beat_selection")
+                        .severity(Severity::Error)
+                        .send();
                 }
             }
         }

@@ -13,7 +13,7 @@
 mod aside;
 mod audio;
 mod barrier;
-mod beat;
+pub(crate) mod beat;
 pub(crate) mod catch_up;
 pub(crate) mod chargen_summary;
 pub(crate) mod connect;
@@ -1792,55 +1792,89 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
     //
     // Story 28-9: encounter_just_resolved is computed here (after beat dispatch),
-    // not inside apply_state_mutations, because dispatch_beat_selection is what
-    // actually sets encounter.resolved = true via apply_beat().
+    // not inside apply_state_mutations, because apply_beat_dispatch is what
+    // actually sets encounter.resolved = true (via StructuredEncounter::apply_beat).
     let encounter_active_before_beat = ctx.in_encounter();
 
     // Story 28-6 (original): narrator emits beat_selections for all actors.
     // Confrontation wiring repair: when chosen_player_beat is set, the player's
     // beat was already applied by the BEAT_SELECTION preprocessing in lib.rs.
-    // Only dispatch NPC beat_selections from the narrator. Player beat_selections
-    // from the narrator are IGNORED (emit OTEL warning) because the structured
-    // BEAT_SELECTION protocol message is the authoritative source for player beats.
-    if ctx.snapshot.encounter.is_some() {
-        for bs in result.beat_selections.iter() {
-            let actor = &bs.actor;
-            let beat_id = &bs.beat_id;
-            let target = bs.target.as_deref().unwrap_or("none");
-            let is_player = actor.to_lowercase() == "player";
+    // Player beat_selections from the narrator are IGNORED (emit OTEL warning)
+    // because the structured BEAT_SELECTION protocol message is the authoritative
+    // source for player beats.
+    //
+    // Story 37-14: NO outer is_some() guard and NO inner resolved-skip. Every
+    // beat_selection passes through beat::apply_beat_dispatch directly — the
+    // old dispatch_beat_selection wrapper was deleted during the refactor, and
+    // post-apply side effects now live in beat::handle_applied_side_effects,
+    // which is called only on the Applied outcome. The helper emits exactly
+    // one canonical encounter event per beat (beat_applied / beat_no_encounter
+    // / beat_no_def / beat_id.unknown / beat_skipped_resolved) so the GM
+    // panel sees every decision. `ApplyFailed` was removed in pass 3 —
+    // `#[non_exhaustive]` on BeatDispatchOutcome provides forward-compat if
+    // a future apply_beat Err cause needs its own variant.
+    for bs in result.beat_selections.iter() {
+        let actor = &bs.actor;
+        let beat_id = &bs.beat_id;
+        let target = bs.target.as_deref().unwrap_or("none");
+        let is_player = actor.to_lowercase() == "player";
 
-            if is_player && ctx.chosen_player_beat.is_some() {
-                // Player beat already resolved via structured BEAT_SELECTION.
-                // Narrator tried to pick one too — log and ignore.
-                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
-                    .field("event", "encounter.player_beat_from_narrator_ignored")
-                    .field("narrator_beat_id", beat_id)
-                    .field(
-                        "authoritative_beat_id",
-                        ctx.chosen_player_beat.as_deref().unwrap_or("none"),
-                    )
-                    .severity(Severity::Warn)
-                    .send();
-                continue;
-            }
+        if is_player && ctx.chosen_player_beat.is_some() {
+            // Player beat already resolved via structured BEAT_SELECTION.
+            // Narrator tried to pick one too — log and ignore. The source
+            // field matches every other beat dispatch event so the GM panel
+            // can attribute this collision to the narrator-driven beat
+            // subsystem (Reviewer pass-2 finding #3).
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "encounter.player_beat_from_narrator_ignored")
+                .field("narrator_beat_id", beat_id)
+                .field(
+                    "authoritative_beat_id",
+                    ctx.chosen_player_beat.as_deref().unwrap_or("none"),
+                )
+                .field("source", "narrator_beat_selection")
+                .severity(Severity::Warn)
+                .send();
+            continue;
+        }
 
-            // If a previous beat in this loop already resolved the encounter,
-            // skip remaining beats — they'd fail with "already resolved" and
-            // emit spurious OTEL warnings.
-            if ctx.snapshot.encounter.as_ref().is_none_or(|e| e.resolved) {
-                tracing::info!(
-                    skipped_beat_id = %beat_id,
-                    actor = %actor,
-                    "encounter.beat_skipped — encounter already resolved by earlier beat in this turn"
-                );
-                continue;
-            }
+        // NPC beats (or player beats when no structured selection was made)
+        // dispatch normally. apply_beat_dispatch owns every silent-drop path —
+        // each outcome emits exactly one canonical encounter.* event. On the
+        // Applied outcome we run gold-delta / resolver / escalation side
+        // effects AND emit the per-actor breadcrumb. On non-Applied outcomes
+        // we do NEITHER — the canonical ValidationWarning from the helper is
+        // the GM-panel's sole signal, and firing a success-flavored
+        // StateTransition breadcrumb after a silent-drop warning was a
+        // pass-1 regression (misleading the panel operator into thinking
+        // the beat was applied when it was skipped).
+        let outcome = beat::apply_beat_dispatch(
+            ctx.snapshot,
+            beat_id,
+            &ctx.confrontation_defs,
+        );
+        if let beat::BeatDispatchOutcome::Applied {
+            encounter_type,
+            beat_id: applied_beat_id,
+        } = &outcome
+        {
+            // Clone the carried data so we can drop the immutable borrow on
+            // `outcome` before calling the mutable-borrow side-effects
+            // function and emitting the breadcrumb.
+            let encounter_type = encounter_type.clone();
+            let applied_beat_id = applied_beat_id.clone();
 
-            // NPC beats (or player beats when no structured selection was made,
-            // e.g., the narrator auto-resolved a player hesitation) dispatch normally.
-            beat::dispatch_beat_selection(ctx, beat_id);
-
-            // OTEL: encounter.beat dispatched — GM panel lie detector
+            // Capture the resolved-beat metric value BEFORE calling
+            // `handle_applied_side_effects` — the side-effects function may
+            // replace `ctx.snapshot.encounter` entirely when escalation
+            // fires (the new combat encounter has its own starting metric,
+            // which is NOT the metric the beat just resolved against).
+            // Reading the metric after the helper would land the breadcrumb
+            // on the post-escalation encounter's starting value instead of
+            // the actual resolved value, lying to the GM panel on the one
+            // path where the metric matters most. Reviewer pass-3 finding
+            // (edge-hunter) — the pre-existing shape was a subtle
+            // observability lie discovered during pass-3 review.
             let stat_check_result = ctx
                 .snapshot
                 .encounter
@@ -1848,6 +1882,14 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                 .map(|e| format!("metric={}", e.metric.current))
                 .unwrap_or_else(|| "no_encounter".to_string());
 
+            beat::handle_applied_side_effects(ctx, &encounter_type, &applied_beat_id);
+
+            // OTEL: per-actor breadcrumb — GM panel lie detector
+            // (only emitted on Applied; the helper's canonical event is
+            // the sole signal for non-Applied outcomes). `stat_check_result`
+            // was captured ABOVE, pre-escalation, so this carries the
+            // metric of the beat that just resolved, not the starting
+            // metric of any escalated follow-on encounter.
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                 .field(
                     "event",
@@ -1867,7 +1909,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // DELETED: scene_intent silent fallback. Legacy backward-compat from before
     // story 28-6 added beat_selections. This was a silent fallback that routed
-    // free-text through dispatch_beat_selection when beat_selections was empty.
+    // free-text through beat::apply_beat_dispatch when beat_selections was empty.
     // Violates "no silent fallbacks" (CLAUDE.md × 4 repos). If the narrator
     // emits no beat_selections, no beat is dispatched — that's correct behavior.
 

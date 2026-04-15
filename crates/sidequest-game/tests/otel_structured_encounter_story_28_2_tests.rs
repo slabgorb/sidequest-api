@@ -122,20 +122,123 @@ fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<
     events
 }
 
-/// Find events matching a component and action field value.
+/// Find events matching a component and "action" name (backwards-compat shim).
+///
+/// Story 37-14 fix #5 renamed the four `StructuredEncounter::apply_beat`
+/// and `escalate_to_combat` OTEL emissions from the `action=X` field key
+/// to the project-wide `event="encounter.state.X"` key (where `state.`
+/// disambiguates inner state-machine events from outer dispatch-layer
+/// events on the same component). Other emissions in this crate (e.g.,
+/// `creature.hp_delta` in `creature_core.rs`) still use the `action=X`
+/// field key and are out of scope for 37-14.
+///
+/// This helper shields the existing 28-2 test assertions from the
+/// encounter rename by checking BOTH field keys:
+///  1. For `component == "encounter"`, look for `event="encounter.state.X"`.
+///  2. For every other component, fall back to the legacy `action=X` key.
+///
+/// Callers pass short names like "beat_applied" / "hp_delta" unchanged.
+/// Update the mapping here if a future story renames more components.
 fn find_events_by_action(
     events: &[WatcherEvent],
     component: &str,
     action: &str,
 ) -> Vec<WatcherEvent> {
+    let expected_encounter_event = format!("encounter.state.{action}");
     events
         .iter()
         .filter(|e| {
-            e.component == component
-                && (e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action))
+            if e.component != component {
+                return false;
+            }
+            if component == "encounter" {
+                // 37-14 fix #5 rename: filter on the new event= key.
+                e.fields.get("event").and_then(serde_json::Value::as_str)
+                    == Some(expected_encounter_event.as_str())
+            } else {
+                // Legacy action= key for components outside the 37-14 rename scope.
+                e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action)
+            }
         })
         .cloned()
         .collect()
+}
+
+// =========================================================================
+// 37-14 pass-3 RED: shim self-tests for find_events_by_action
+// =========================================================================
+//
+// Reviewer pass-2 finding #10: the `find_events_by_action` shim is load-
+// bearing for ~18 call sites in this file but has no self-test. A silently
+// wrong shim (e.g., typo in the format string, or an inverted component
+// branch) would silently pass every assertion that uses `.is_empty()` as
+// a negative check and every `.len() == 1` assertion that happens to have
+// exactly one matching event for the wrong reason. These two tests
+// construct synthetic WatcherEvents at known field shapes and verify the
+// shim routes each component to the correct field key lookup.
+
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
+
+/// For component="encounter", the shim must filter on `event="encounter.state.X"`
+/// (the 37-14 fix #5 rename). Legacy `action=X` keys on encounter events
+/// must NOT be matched.
+#[test]
+fn shim_routes_encounter_component_to_state_event_key() {
+    // Synthetic event emitted using the NEW encounter field-key convention.
+    // A WatcherEventBuilder.send() broadcasts globally, but for a shim
+    // self-test we want an isolated event buffer — so build the WatcherEvent
+    // via the public builder and drain our own subscriber.
+    let (_guard, mut rx) = fresh_subscriber();
+    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+        .field("event", "encounter.state.beat_applied")
+        .field("beat_id", "size_up")
+        .send();
+    let events = drain_events(&mut rx);
+
+    let found = find_events_by_action(&events, "encounter", "beat_applied");
+    assert_eq!(
+        found.len(),
+        1,
+        "shim must find encounter events by `event=encounter.state.{{action}}` \
+         key. If this fails, the 37-14 fix #5 rename broke the shim's \
+         component-scoped routing."
+    );
+    assert_eq!(
+        found[0]
+            .fields
+            .get("event")
+            .and_then(|v| v.as_str()),
+        Some("encounter.state.beat_applied"),
+        "the shim must return the exact event it matched, not a stale one"
+    );
+}
+
+/// For components OTHER than "encounter", the shim must fall back to the
+/// legacy `action=X` field key. The 37-14 fix #5 rename was scoped to
+/// `StructuredEncounter` emissions only — `creature.hp_delta`,
+/// `music_director`, `render_queue`, and other components still use the
+/// `action=X` shape.
+#[test]
+fn shim_routes_non_encounter_component_to_legacy_action_key() {
+    let (_guard, mut rx) = fresh_subscriber();
+    // Synthetic creature.hp_delta — still uses `action=` key per the 37-14
+    // fix scoping (out of scope for the encounter rename).
+    WatcherEventBuilder::new("creature", WatcherEventType::StateTransition)
+        .field("action", "hp_delta")
+        .field("name", "goblin")
+        .field("delta", -3)
+        .send();
+    let events = drain_events(&mut rx);
+
+    let found = find_events_by_action(&events, "creature", "hp_delta");
+    assert_eq!(
+        found.len(),
+        1,
+        "shim must find non-encounter components by their legacy `action=X` \
+         field key. If this fails, the shim's else-branch is broken and \
+         every creature.hp_delta / music_director / render_queue test in \
+         this file is silently passing false-negatives."
+    );
 }
 
 // =========================================================================
