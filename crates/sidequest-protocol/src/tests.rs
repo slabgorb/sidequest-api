@@ -331,7 +331,7 @@ mod message_type_tests {
                         abilities: vec!["Power Strike".into()],
                         backstory: nbs!("A wandering fighter."),
                         personality: nbs!("Gruff"),
-                        pronouns: nbs!("he/him"),
+                        pronouns: Some(nbs!("he/him")),
                         equipment: vec!["Iron Sword [equipped]".into()],
                     }),
                     inventory: Some(InventoryPayload {
@@ -918,7 +918,7 @@ mod player_location_tests {
                 abilities: vec!["Tracker".into()],
                 backstory: nbs!("Born in the Ashwood."),
                 personality: nbs!("Stoic"),
-                pronouns: nbs!("he/him"),
+                pronouns: Some(nbs!("he/him")),
                 equipment: vec!["Longbow".into()],
             }),
             inventory: None,

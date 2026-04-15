@@ -350,7 +350,7 @@ fn deserialize_player_action_from_json() {
     let msg: GameMessage = serde_json::from_str(json).unwrap();
     match msg {
         GameMessage::PlayerAction { payload, player_id } => {
-            assert_eq!(payload.action, "I look around the tavern");
+            assert_eq!(payload.action.as_str(), "I look around the tavern");
             assert_eq!(player_id, "");
         }
         other => panic!("Expected PlayerAction, got: {:?}", other),
@@ -430,7 +430,7 @@ fn error_message_constructed_from_deser_failure() {
         GameMessage::Error { payload, player_id } => {
             assert_eq!(player_id, "player-123");
             assert!(
-                payload.message.contains("Invalid JSON"),
+                payload.message.as_str().contains("Invalid JSON"),
                 "Error message should describe the problem: {}",
                 payload.message
             );
@@ -613,7 +613,7 @@ async fn broadcast_channel_delivers_to_subscribers() {
     // Broadcast a message
     let msg = GameMessage::Error {
         payload: sidequest_protocol::ErrorPayload {
-            message: "test broadcast".to_string(),
+            message: sidequest_protocol::NonBlankString::new("test broadcast").unwrap(),
             reconnect_required: None,
         },
         player_id: "server".to_string(),
@@ -642,7 +642,7 @@ async fn broadcast_with_no_subscribers_does_not_panic() {
     // It's OK to return an error (no receivers), but it must not crash.
     let msg = GameMessage::Error {
         payload: sidequest_protocol::ErrorPayload {
-            message: "nobody listening".to_string(),
+            message: sidequest_protocol::NonBlankString::new("nobody listening").unwrap(),
             reconnect_required: None,
         },
         player_id: "server".to_string(),
@@ -830,7 +830,7 @@ async fn websocket_broadcast_reaches_both_clients() {
     // Broadcast a message via the server's broadcast channel
     let msg = GameMessage::Error {
         payload: sidequest_protocol::ErrorPayload {
-            message: "broadcast test".to_string(),
+            message: sidequest_protocol::NonBlankString::new("broadcast test").unwrap(),
             reconnect_required: None,
         },
         player_id: "server".to_string(),

@@ -1193,8 +1193,11 @@ pub struct CharacterSheetDetails {
     pub backstory: NonBlankString,
     /// Personality trait. Non-blank post-chargen.
     pub personality: NonBlankString,
-    /// Pronouns. Non-blank post-chargen.
-    pub pronouns: NonBlankString,
+    /// Pronouns. Optional — may be absent when player skips or when the
+    /// character was created before chargen collected pronouns. Non-blank
+    /// when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pronouns: Option<NonBlankString>,
     /// Equipped/carried items as display strings.
     #[serde(default)]
     pub equipment: Vec<String>,

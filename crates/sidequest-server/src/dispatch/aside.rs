@@ -96,10 +96,12 @@ pub(super) async fn handle_aside(ctx: &mut DispatchContext<'_>) -> Vec<GameMessa
         &strip_location_header(&result.narration),
     )));
 
+    let narration_nbs = sidequest_protocol::NonBlankString::new(&narration_text)
+        .expect("aside narration_text is stripped from narrator result which is non-empty by contract");
     vec![
         GameMessage::Narration {
             payload: NarrationPayload {
-                text: narration_text.to_string(),
+                text: narration_nbs,
                 state_delta: None,
                 footnotes: vec![],
             },

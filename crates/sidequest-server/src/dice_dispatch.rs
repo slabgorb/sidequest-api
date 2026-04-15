@@ -160,9 +160,11 @@ impl DiceThrowError {
             Self::ValidationFailed(e) => format!("Dice validation failed: {e}"),
             Self::ResolutionFailed(e) => format!("Dice resolution failed: {e}"),
         };
+        let message = sidequest_protocol::NonBlankString::new(&text)
+            .expect("DiceThrowError wire message is built from non-empty match arms");
         GameMessage::Error {
             payload: sidequest_protocol::ErrorPayload {
-                message: text,
+                message,
                 reconnect_required: None,
             },
             player_id: player_id.to_string(),

@@ -224,7 +224,7 @@ pub(crate) async fn apply_state_mutations(
         "misc",
     ];
     for item_def in &result.items_gained {
-        let name_trimmed = item_def.name.trim();
+        let name_trimmed = item_def.name.as_str().trim();
         let word_count = name_trimmed.split_whitespace().count();
         if name_trimmed.len() > 60 || word_count > 8 {
             tracing::warn!(
@@ -256,7 +256,7 @@ pub(crate) async fn apply_state_mutations(
         if let (Ok(id), Ok(name), Ok(desc), Ok(cat), Ok(rarity)) = (
             sidequest_protocol::NonBlankString::new(&item_id),
             sidequest_protocol::NonBlankString::new(name_trimmed),
-            sidequest_protocol::NonBlankString::new(&item_def.description),
+            sidequest_protocol::NonBlankString::new(item_def.description.as_str()),
             sidequest_protocol::NonBlankString::new(&valid_cat),
             sidequest_protocol::NonBlankString::new("common"),
         ) {

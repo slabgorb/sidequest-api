@@ -12,7 +12,12 @@
 //!   AC-Wiring:          beats: vec![] removed from dispatch/mod.rs
 
 use sidequest_genre::ConfrontationDef;
+use sidequest_protocol::NonBlankString;
 use sidequest_server::find_confrontation_def;
+
+fn nbs(s: &str) -> NonBlankString {
+    NonBlankString::new(s).expect("test literal must be non-blank")
+}
 
 // =========================================================================
 // AC-Beats-Populated: Beats field is non-empty when def exists
@@ -84,16 +89,16 @@ beats:
 
     // Map exactly as dispatch/mod.rs does
     let protocol_beat = sidequest_protocol::ConfrontationBeat {
-        id: beat.id.clone(),
-        label: beat.label.clone(),
+        id: nbs(&beat.id),
+        label: nbs(&beat.label),
         metric_delta: beat.metric_delta,
         stat_check: beat.stat_check.clone(),
         risk: beat.risk.clone(),
         resolution: beat.resolution.unwrap_or(false),
     };
 
-    assert_eq!(protocol_beat.id, "draw");
-    assert_eq!(protocol_beat.label, "Draw");
+    assert_eq!(protocol_beat.id.as_str(), "draw");
+    assert_eq!(protocol_beat.label.as_str(), "Draw");
     assert_eq!(protocol_beat.metric_delta, 5);
     assert_eq!(protocol_beat.stat_check, "REFLEX");
     assert_eq!(protocol_beat.risk, Some("Miss and take damage".to_string()));
@@ -123,8 +128,8 @@ beats:
     assert!(beat.resolution.is_none(), "No resolution field set in YAML");
 
     let protocol_beat = sidequest_protocol::ConfrontationBeat {
-        id: beat.id.clone(),
-        label: beat.label.clone(),
+        id: nbs(&beat.id),
+        label: nbs(&beat.label),
         metric_delta: beat.metric_delta,
         stat_check: beat.stat_check.clone(),
         risk: beat.risk.clone(),
@@ -159,8 +164,8 @@ beats:
     assert!(beat.risk.is_none(), "No risk field set in YAML");
 
     let protocol_beat = sidequest_protocol::ConfrontationBeat {
-        id: beat.id.clone(),
-        label: beat.label.clone(),
+        id: nbs(&beat.id),
+        label: nbs(&beat.label),
         metric_delta: beat.metric_delta,
         stat_check: beat.stat_check.clone(),
         risk: beat.risk.clone(),
@@ -204,8 +209,8 @@ beats:
             d.beats
                 .iter()
                 .map(|b| sidequest_protocol::ConfrontationBeat {
-                    id: b.id.clone(),
-                    label: b.label.clone(),
+                    id: nbs(&b.id),
+                    label: nbs(&b.label),
                     metric_delta: b.metric_delta,
                     stat_check: b.stat_check.clone(),
                     risk: b.risk.clone(),
@@ -344,8 +349,8 @@ fn spaghetti_western_standoff_beats_map_to_protocol() {
         .beats
         .iter()
         .map(|b| sidequest_protocol::ConfrontationBeat {
-            id: b.id.clone(),
-            label: b.label.clone(),
+            id: nbs(&b.id),
+            label: nbs(&b.label),
             metric_delta: b.metric_delta,
             stat_check: b.stat_check.clone(),
             risk: b.risk.clone(),
@@ -358,10 +363,13 @@ fn spaghetti_western_standoff_beats_map_to_protocol() {
         "Mapped protocol beats must be non-empty"
     );
 
-    // Every beat must have a non-empty id and label
+    // Every beat must have a non-empty id and label — now enforced by the
+    // NonBlankString type at construction (see nbs() helper and the protocol
+    // crate's NonBlankString newtype). A blank literal would panic inside
+    // nbs() before reaching these assertions.
     for beat in &protocol_beats {
-        assert!(!beat.id.is_empty(), "Beat id must not be empty");
-        assert!(!beat.label.is_empty(), "Beat label must not be empty");
+        assert!(!beat.id.as_str().is_empty(), "Beat id must not be empty");
+        assert!(!beat.label.as_str().is_empty(), "Beat label must not be empty");
         assert!(
             !beat.stat_check.is_empty(),
             "Beat stat_check must not be empty"

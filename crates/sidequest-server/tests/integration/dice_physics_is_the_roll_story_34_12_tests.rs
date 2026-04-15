@@ -115,7 +115,7 @@ fn extract_dice_result(msgs: Vec<GameMessage>) -> sidequest_protocol::DiceResult
 fn extract_error(msgs: Vec<GameMessage>) -> String {
     assert_eq!(msgs.len(), 1, "handler should return exactly one message");
     match msgs.into_iter().next().unwrap() {
-        GameMessage::Error { payload, .. } => payload.message,
+        GameMessage::Error { payload, .. } => payload.message.as_str().to_string(),
         other => panic!("expected Error, got {other:?}"),
     }
 }

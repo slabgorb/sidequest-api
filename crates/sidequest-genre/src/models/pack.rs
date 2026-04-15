@@ -150,6 +150,11 @@ pub struct PackMeta {
     /// What differentiates this genre.
     #[serde(default)]
     pub differentiation: Option<String>,
+    /// One-sentence blurb shown in the lobby genre picker (feature added by
+    /// PR #453 — `feat(lobby): sessions + rich genre metadata endpoints`).
+    /// Optional so older packs without a lobby_blurb still deserialize.
+    #[serde(default)]
+    pub lobby_blurb: Option<String>,
 }
 
 /// A creative inspiration reference.

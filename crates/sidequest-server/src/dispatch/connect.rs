@@ -245,7 +245,7 @@ pub(crate) async fn dispatch_connect(
                                         .characters
                                         .iter()
                                         .map(|c| CharacterState {
-                                            name: c.core.name.as_str().to_string(),
+                                            name: c.core.name.clone(),
                                             hp: c.core.hp,
                                             max_hp: c.core.max_hp,
                                             level: c.core.level,
@@ -260,9 +260,12 @@ pub(crate) async fn dispatch_connect(
                                                 .collect(),
                                         })
                                         .collect(),
-                                    location: saved.snapshot.location.clone(),
+                                    location: sidequest_protocol::NonBlankString::new(
+                                        &saved.snapshot.location,
+                                    )
+                                    .expect("saved snapshot location is non-empty by load invariant"),
                                     quests: saved.snapshot.quest_log.clone(),
-                                    turn_count: saved.snapshot.turn_manager.round(),
+                                    turn_count: saved.snapshot.turn_manager.round().into(),
                                 }),
                                 css: None,
                                 image_cooldown_seconds: None,
@@ -282,7 +285,7 @@ pub(crate) async fn dispatch_connect(
                             let member = saved.snapshot.characters.first().map(|c| {
                                 // Build the sheet facet from the saved character.
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
-                                    race: c.race.as_str().to_string(),
+                                    race: c.race.clone(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
                                         .hooks
@@ -290,9 +293,12 @@ pub(crate) async fn dispatch_connect(
                                         .filter(|s| !s.contains("auto-filled"))
                                         .cloned()
                                         .collect(),
-                                    backstory: c.backstory.as_str().to_string(),
-                                    personality: c.core.personality.as_str().to_string(),
-                                    pronouns: c.pronouns.clone(),
+                                    backstory: c.backstory.clone(),
+                                    personality: c.core.personality.clone(),
+                                    pronouns: sidequest_protocol::NonBlankString::new(
+                                        &c.pronouns,
+                                    )
+                                    .ok(),
                                     equipment: c
                                         .core
                                         .inventory
@@ -311,19 +317,23 @@ pub(crate) async fn dispatch_connect(
                                 let inventory_payload =
                                     crate::shared_session::inventory_payload_from(inventory);
                                 PartyMember {
-                                    player_id: player_id.to_string(),
-                                    name: player_name_store
-                                        .as_deref()
-                                        .unwrap_or("Player")
-                                        .to_string(),
-                                    character_name: c.core.name.as_str().to_string(),
+                                    player_id: sidequest_protocol::NonBlankString::new(player_id)
+                                        .expect("player_id is non-empty at connect time"),
+                                    name: sidequest_protocol::NonBlankString::new(
+                                        player_name_store.as_deref().unwrap_or("Player"),
+                                    )
+                                    .expect("player name falls back to literal \"Player\""),
+                                    character_name: Some(c.core.name.clone()),
                                     current_hp: c.core.hp,
                                     max_hp: c.core.max_hp,
                                     statuses: c.core.statuses.clone(),
-                                    class: c.char_class.as_str().to_string(),
+                                    class: c.char_class.clone(),
                                     level: c.core.level,
                                     portrait_url: None,
-                                    current_location: current_location.clone(),
+                                    current_location: sidequest_protocol::NonBlankString::new(
+                                        current_location,
+                                    )
+                                    .ok(),
                                     sheet: Some(sheet),
                                     inventory: Some(inventory_payload),
                                 }
@@ -429,9 +439,11 @@ pub(crate) async fn dispatch_connect(
                             .field("player_id", player_id)
                             .send();
                         if let Some(text) = recap_text {
+                            let text_nbs = sidequest_protocol::NonBlankString::new(&text)
+                                .expect("reconnect recap text is non-empty when Some(...)");
                             responses.push(GameMessage::Narration {
                                 payload: NarrationPayload {
-                                    text,
+                                    text: text_nbs,
                                     state_delta: None,
                                     footnotes: vec![],
                                 },
@@ -452,7 +464,7 @@ pub(crate) async fn dispatch_connect(
                             let member = saved.snapshot.characters.first().map(|c| {
                                 // Build the sheet facet from the saved character.
                                 let sheet = sidequest_protocol::CharacterSheetDetails {
-                                    race: c.race.as_str().to_string(),
+                                    race: c.race.clone(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
                                         .hooks
@@ -460,9 +472,12 @@ pub(crate) async fn dispatch_connect(
                                         .filter(|s| !s.contains("auto-filled"))
                                         .cloned()
                                         .collect(),
-                                    backstory: c.backstory.as_str().to_string(),
-                                    personality: c.core.personality.as_str().to_string(),
-                                    pronouns: c.pronouns.clone(),
+                                    backstory: c.backstory.clone(),
+                                    personality: c.core.personality.clone(),
+                                    pronouns: sidequest_protocol::NonBlankString::new(
+                                        &c.pronouns,
+                                    )
+                                    .ok(),
                                     equipment: c
                                         .core
                                         .inventory
@@ -481,19 +496,23 @@ pub(crate) async fn dispatch_connect(
                                 let inventory_payload =
                                     crate::shared_session::inventory_payload_from(inventory);
                                 PartyMember {
-                                    player_id: player_id.to_string(),
-                                    name: player_name_store
-                                        .as_deref()
-                                        .unwrap_or("Player")
-                                        .to_string(),
-                                    character_name: c.core.name.as_str().to_string(),
+                                    player_id: sidequest_protocol::NonBlankString::new(player_id)
+                                        .expect("player_id is non-empty at connect time"),
+                                    name: sidequest_protocol::NonBlankString::new(
+                                        player_name_store.as_deref().unwrap_or("Player"),
+                                    )
+                                    .expect("player name falls back to literal \"Player\""),
+                                    character_name: Some(c.core.name.clone()),
                                     current_hp: c.core.hp,
                                     max_hp: c.core.max_hp,
                                     statuses: c.core.statuses.clone(),
-                                    class: c.char_class.as_str().to_string(),
+                                    class: c.char_class.clone(),
                                     level: c.core.level,
                                     portrait_url: None,
-                                    current_location: current_location.clone(),
+                                    current_location: sidequest_protocol::NonBlankString::new(
+                                        current_location,
+                                    )
+                                    .ok(),
                                     sheet: Some(sheet),
                                     inventory: Some(inventory_payload),
                                 }
@@ -537,19 +556,23 @@ pub(crate) async fn dispatch_connect(
                                         .snapshot
                                         .discovered_regions
                                         .iter()
-                                        .map(|name| sidequest_protocol::ExploredLocation {
-                                            // Region mode has no separate slug — id mirrors name.
-                                            id: name.clone(),
-                                            name: name.clone(),
-                                            x: 0,
-                                            y: 0,
-                                            location_type: String::new(),
-                                            connections: vec![],
-                                            room_exits: vec![],
-                                            room_type: String::new(),
-                                            size: None,
-                                            is_current_room: name == &saved.snapshot.location,
-                                            tactical_grid: None,
+                                        .filter_map(|name| {
+                                            sidequest_protocol::NonBlankString::new(name)
+                                                .ok()
+                                                .map(|nbs_name| sidequest_protocol::ExploredLocation {
+                                                    // Region mode has no separate slug — id mirrors name.
+                                                    id: name.clone(),
+                                                    name: nbs_name,
+                                                    x: 0,
+                                                    y: 0,
+                                                    location_type: String::new(),
+                                                    connections: vec![],
+                                                    room_exits: vec![],
+                                                    room_type: String::new(),
+                                                    size: None,
+                                                    is_current_room: name == &saved.snapshot.location,
+                                                    tactical_grid: None,
+                                                })
                                         })
                                         .collect()
                                 }
@@ -582,26 +605,30 @@ pub(crate) async fn dispatch_connect(
                                                 .cartography
                                                 .regions
                                                 .iter()
-                                                .map(|(slug, r)| {
-                                                    (
+                                                .filter_map(|(slug, r)| {
+                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    Some((
                                                         slug.clone(),
                                                         sidequest_protocol::CartographyRegion {
-                                                            name: r.name.clone(),
+                                                            name,
                                                             description: r.description.clone(),
                                                             adjacent: r.adjacent.clone(),
                                                         },
-                                                    )
+                                                    ))
                                                 })
                                                 .collect(),
                                             routes: w
                                                 .cartography
                                                 .routes
                                                 .iter()
-                                                .map(|r| sidequest_protocol::CartographyRoute {
-                                                    name: r.name.clone(),
-                                                    description: r.description.clone(),
-                                                    from_id: r.from_id.clone(),
-                                                    to_id: r.to_id.clone(),
+                                                .filter_map(|r| {
+                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    Some(sidequest_protocol::CartographyRoute {
+                                                        name,
+                                                        description: r.description.clone(),
+                                                        from_id: r.from_id.clone(),
+                                                        to_id: r.to_id.clone(),
+                                                    })
                                                 })
                                                 .collect(),
                                         }
@@ -613,10 +640,18 @@ pub(crate) async fn dispatch_connect(
                                 &explored_locs,
                                 cartography_meta.as_ref(),
                             );
+                            let map_location = sidequest_protocol::NonBlankString::new(
+                                &saved.snapshot.location,
+                            )
+                            .expect("saved snapshot location is non-empty by load invariant");
+                            let map_region = sidequest_protocol::NonBlankString::new(
+                                &saved.snapshot.current_region,
+                            )
+                            .unwrap_or_else(|_| map_location.clone());
                             responses.push(GameMessage::MapUpdate {
                                 payload: MapUpdatePayload {
-                                    current_location: saved.snapshot.location.clone(),
-                                    region: saved.snapshot.current_region.clone(),
+                                    current_location: map_location,
+                                    region: map_region,
                                     explored: explored_locs,
                                     fog_bounds: None,
                                     cartography: cartography_meta,
@@ -1764,7 +1799,7 @@ pub(crate) async fn dispatch_character_creation(
                             has_character: Some(true),
                             initial_state: Some(InitialState {
                                 characters: vec![sidequest_protocol::CharacterState {
-                                    name: character.core.name.as_str().to_string(),
+                                    name: character.core.name.clone(),
                                     hp: *character_hp,
                                     max_hp: *character_max_hp,
                                     level: *character_level,
@@ -1775,9 +1810,12 @@ pub(crate) async fn dispatch_character_creation(
                                         .map(|i| i.name.as_str().to_string())
                                         .collect(),
                                 }],
-                                location: current_location.clone(),
+                                location: sidequest_protocol::NonBlankString::new(
+                                    current_location,
+                                )
+                                .expect("current_location is non-empty at session ready"),
                                 quests: quest_log.clone(),
-                                turn_count: turn_manager.interaction() as u32,
+                                turn_count: turn_manager.interaction(),
                             }),
                             css: None,
                             image_cooldown_seconds: None,
@@ -1934,26 +1972,30 @@ pub(crate) async fn dispatch_character_creation(
                                                 .cartography
                                                 .regions
                                                 .iter()
-                                                .map(|(slug, r)| {
-                                                    (
+                                                .filter_map(|(slug, r)| {
+                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    Some((
                                                         slug.clone(),
                                                         sidequest_protocol::CartographyRegion {
-                                                            name: r.name.clone(),
+                                                            name,
                                                             description: r.description.clone(),
                                                             adjacent: r.adjacent.clone(),
                                                         },
-                                                    )
+                                                    ))
                                                 })
                                                 .collect(),
                                             routes: world
                                                 .cartography
                                                 .routes
                                                 .iter()
-                                                .map(|r| sidequest_protocol::CartographyRoute {
-                                                    name: r.name.clone(),
-                                                    description: r.description.clone(),
-                                                    from_id: r.from_id.clone(),
-                                                    to_id: r.to_id.clone(),
+                                                .filter_map(|r| {
+                                                    let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                                    Some(sidequest_protocol::CartographyRoute {
+                                                        name,
+                                                        description: r.description.clone(),
+                                                        from_id: r.from_id.clone(),
+                                                        to_id: r.to_id.clone(),
+                                                    })
                                                 })
                                                 .collect(),
                                         }
@@ -2050,7 +2092,7 @@ pub(crate) async fn dispatch_character_creation(
                     // This used to be emitted as a standalone CHARACTER_SHEET message;
                     // now it's stashed on PlayerState and surfaces via PARTY_STATUS.
                     let built_sheet = sidequest_protocol::CharacterSheetDetails {
-                        race: character.race.as_str().to_string(),
+                        race: character.race.clone(),
                         stats: character
                             .stats
                             .iter()
@@ -2062,9 +2104,12 @@ pub(crate) async fn dispatch_character_creation(
                             .filter(|s| !s.contains("auto-filled"))
                             .cloned()
                             .collect(),
-                        backstory: character.backstory.as_str().to_string(),
-                        personality: character.core.personality.as_str().to_string(),
-                        pronouns: character.pronouns.clone(),
+                        backstory: character.backstory.clone(),
+                        personality: character.core.personality.clone(),
+                        pronouns: sidequest_protocol::NonBlankString::new(
+                            &character.pronouns,
+                        )
+                        .ok(),
                         equipment: inventory
                             .carried()
                             .map(|i| {
@@ -2081,7 +2126,7 @@ pub(crate) async fn dispatch_character_creation(
                     // it appears in the narrative view — not just in the overlay.
                     let backstory_narration = GameMessage::Narration {
                         payload: NarrationPayload {
-                            text: character.backstory.as_str().to_string(),
+                            text: character.backstory.clone(),
                             state_delta: None,
                             footnotes: vec![],
                         },
@@ -2329,11 +2374,14 @@ pub(crate) async fn dispatch_character_creation(
                                     .filter(|pid| pid.as_str() != player_id)
                                     .cloned()
                                     .collect();
+                                let arrival_nbs =
+                                    sidequest_protocol::NonBlankString::new(&arrival_text)
+                                        .expect("arrival_text is constructed non-empty by join flow");
                                 for target_pid in &existing_pids {
                                     ss.send_to_player(
                                         GameMessage::Narration {
                                             payload: NarrationPayload {
-                                                text: arrival_text.clone(),
+                                                text: arrival_nbs.clone(),
                                                 state_delta: None,
                                                 footnotes: vec![],
                                             },
@@ -2404,9 +2452,12 @@ pub(crate) async fn dispatch_character_creation(
                                     }
 
                                     // Broadcast reconciliation narration to all session members
+                                    let narration_nbs =
+                                        sidequest_protocol::NonBlankString::new(narration_text)
+                                            .expect("reconciliation narration_text is non-empty by PartyReconciliation contract");
                                     ss.broadcast(GameMessage::Narration {
                                         payload: NarrationPayload {
-                                            text: narration_text.clone(),
+                                            text: narration_nbs,
                                             state_delta: None,
                                             footnotes: vec![],
                                         },
@@ -2459,7 +2510,11 @@ pub(crate) async fn dispatch_character_creation(
                                         if pid == player_id {
                                             // Force live statuses + location for the acting player.
                                             m.statuses = character.core.statuses.clone();
-                                            m.current_location = current_location.clone();
+                                            m.current_location =
+                                                sidequest_protocol::NonBlankString::new(
+                                                    current_location,
+                                                )
+                                                .ok();
                                         }
                                         m
                                     })
@@ -2637,9 +2692,12 @@ pub(crate) async fn dispatch_character_creation(
                         if let Some(narration) = resolved_narration {
                             // Barrier resolved while player was disconnected —
                             // replay the stored narration so they see it.
+                            let narration_nbs =
+                                sidequest_protocol::NonBlankString::new(&narration)
+                                    .expect("reconnect resolved_narration is non-empty by barrier store contract");
                             msgs.push(GameMessage::Narration {
                                 payload: NarrationPayload {
-                                    text: narration,
+                                    text: narration_nbs,
                                     state_delta: None,
                                     footnotes: vec![],
                                 },
