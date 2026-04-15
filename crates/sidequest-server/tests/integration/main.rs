@@ -50,5 +50,6 @@ mod treasure_xp_wiring_story_35_4_tests;
 mod turn_complete_consolidation_playtest_2026_04_11;
 mod turn_complete_telemetry_playtest_2026_04_11;
 mod turn_reminder_wiring_story_35_5_tests;
+mod two_phase_dice_wiring_tests;
 mod watcher_story_3_6_tests;
 mod world_materialization_wiring_story_15_18_tests;

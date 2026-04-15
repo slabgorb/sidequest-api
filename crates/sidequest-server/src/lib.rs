@@ -1624,106 +1624,175 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                 );
                 match serde_json::from_str::<GameMessage>(&text) {
                     Ok(game_msg) => {
-                        let responses = dispatch_message(
-                            game_msg,
-                            &mut session,
-                            &mut builder,
-                            &mut player_name_for_session,
-                            &mut character_json,
-                            &mut character_name,
-                            &mut character_hp,
-                            &mut character_max_hp,
-                            &mut character_level,
-                            &mut character_xp,
-                            &mut current_location,
-                            &mut inventory,
-                            &mut trope_states,
-                            &mut trope_defs,
-                            &mut world_context,
-                            &mut opening_seed,
-                            &mut opening_directive,
-                            &mut axes_config,
-                            &mut axis_values,
-                            &mut visual_style,
-                            &mut music_director,
-                            &audio_mixer,
-                            &prerender_scheduler,
-                            &mut npc_registry,
-                            &mut narration_history,
-                            &mut discovered_regions,
-                            &mut turn_manager,
-                            &lore_store,
-                            &lore_embed_tx,
-                            &shared_session,
-                            &state,
-                            &player_id_str,
-                            &mut continuity_corrections,
-                            &mut quest_log,
-                            &mut genie_wishes,
-                            &mut achievement_tracker,
-                            &mut snapshot,
-                            narrator_verbosity,
-                            narrator_vocabulary,
-                            &mut pending_trope_context,
-                            &tx,
-                        )
-                        .await;
-                        tracing::info!(
-                            player_id = %player_id_str,
-                            response_count = responses.len(),
-                            "dispatch_message.returned"
-                        );
+                        // Two-phase dice: the reader loop runs a small work
+                        // queue. The first iteration processes the inbound
+                        // wire message as normal. Between iterations we drain
+                        // `shared_session.pending_replay_action` — a deferred
+                        // beat-selection PlayerAction parked by the beat
+                        // preprocessing short-circuit. The replay only fires
+                        // when both `pending_replay_action` AND
+                        // `pending_roll_outcome` are Some, which means the
+                        // DiceThrow round-trip has completed on the previous
+                        // iteration. This turns "beat → narration → dice
+                        // theater" into "beat → dice → narration-with-roll"
+                        // without adding any new protocol messages or
+                        // touching the narrator. See
+                        // `docs/plans/scene-harness.md` "two-phase dice fix
+                        // (next plan)" — this is the implementation.
+                        let mut work_queue: std::collections::VecDeque<GameMessage> =
+                            std::collections::VecDeque::new();
+                        work_queue.push_back(game_msg);
+                        let mut total_responses = 0usize;
 
-                        // Epic 16: Initialize resource pools from genre pack on first
-                        // post-connect message. init_resource_pools is an upsert, so if
-                        // the save already has pools (via backward-compat migration in
-                        // GameSnapshotRaw), their `current` values are preserved and
-                        // only metadata is refreshed from the pack.
-                        if !pools_initialized {
-                            if let (Some(genre), Some(_world)) =
-                                (session.genre_slug(), session.world_slug())
-                            {
-                                if let Ok(genre_code) = GenreCode::new(genre) {
-                                    if let Ok(pack) = state
-                                        .genre_cache()
-                                        .get_or_load(&genre_code, state.genre_loader())
-                                    {
-                                        let declarations = &pack.rules.resources;
-                                        if !declarations.is_empty() {
-                                            snapshot.init_resource_pools(declarations);
-                                            tracing::info!(
-                                                genre = %genre,
-                                                resource_count = declarations.len(),
-                                                pool_names = ?declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
-                                                "resource_pools.initialized — genre resources loaded into snapshot"
-                                            );
-                                            WatcherEventBuilder::new(
-                                                "resource_pool",
-                                                WatcherEventType::StateTransition,
-                                            )
-                                            .field("event", "resource_pools.initialized")
-                                            .field("genre", genre)
-                                            .field("count", declarations.len())
-                                            .field(
-                                                "pools",
-                                                declarations
-                                                    .iter()
-                                                    .map(|r| r.name.clone())
-                                                    .collect::<Vec<_>>(),
-                                            )
-                                            .send();
+                        while let Some(queued_msg) = work_queue.pop_front() {
+                            let responses = dispatch_message(
+                                queued_msg,
+                                &mut session,
+                                &mut builder,
+                                &mut player_name_for_session,
+                                &mut character_json,
+                                &mut character_name,
+                                &mut character_hp,
+                                &mut character_max_hp,
+                                &mut character_level,
+                                &mut character_xp,
+                                &mut current_location,
+                                &mut inventory,
+                                &mut trope_states,
+                                &mut trope_defs,
+                                &mut world_context,
+                                &mut opening_seed,
+                                &mut opening_directive,
+                                &mut axes_config,
+                                &mut axis_values,
+                                &mut visual_style,
+                                &mut music_director,
+                                &audio_mixer,
+                                &prerender_scheduler,
+                                &mut npc_registry,
+                                &mut narration_history,
+                                &mut discovered_regions,
+                                &mut turn_manager,
+                                &lore_store,
+                                &lore_embed_tx,
+                                &shared_session,
+                                &state,
+                                &player_id_str,
+                                &mut continuity_corrections,
+                                &mut quest_log,
+                                &mut genie_wishes,
+                                &mut achievement_tracker,
+                                &mut snapshot,
+                                narrator_verbosity,
+                                narrator_vocabulary,
+                                &mut pending_trope_context,
+                                &tx,
+                            )
+                            .await;
+                            total_responses += responses.len();
+                            tracing::info!(
+                                player_id = %player_id_str,
+                                response_count = responses.len(),
+                                "dispatch_message.returned"
+                            );
+
+                            // Epic 16: Initialize resource pools from genre pack on first
+                            // post-connect message. init_resource_pools is an upsert, so if
+                            // the save already has pools (via backward-compat migration in
+                            // GameSnapshotRaw), their `current` values are preserved and
+                            // only metadata is refreshed from the pack.
+                            if !pools_initialized {
+                                if let (Some(genre), Some(_world)) =
+                                    (session.genre_slug(), session.world_slug())
+                                {
+                                    if let Ok(genre_code) = GenreCode::new(genre) {
+                                        if let Ok(pack) = state
+                                            .genre_cache()
+                                            .get_or_load(&genre_code, state.genre_loader())
+                                        {
+                                            let declarations = &pack.rules.resources;
+                                            if !declarations.is_empty() {
+                                                snapshot.init_resource_pools(declarations);
+                                                tracing::info!(
+                                                    genre = %genre,
+                                                    resource_count = declarations.len(),
+                                                    pool_names = ?declarations.iter().map(|r| &r.name).collect::<Vec<_>>(),
+                                                    "resource_pools.initialized — genre resources loaded into snapshot"
+                                                );
+                                                WatcherEventBuilder::new(
+                                                    "resource_pool",
+                                                    WatcherEventType::StateTransition,
+                                                )
+                                                .field("event", "resource_pools.initialized")
+                                                .field("genre", genre)
+                                                .field("count", declarations.len())
+                                                .field(
+                                                    "pools",
+                                                    declarations
+                                                        .iter()
+                                                        .map(|r| r.name.clone())
+                                                        .collect::<Vec<_>>(),
+                                                )
+                                                .send();
+                                            }
+                                            pools_initialized = true;
                                         }
-                                        pools_initialized = true;
                                     }
                                 }
                             }
-                        }
 
-                        for resp in responses {
-                            if let Err(e) = tx.send(resp).await {
-                                tracing::error!(player_id = %player_id_str, error = %e, "Failed to send response to client");
+                            for resp in responses {
+                                if let Err(e) = tx.send(resp).await {
+                                    tracing::error!(player_id = %player_id_str, error = %e, "Failed to send response to client");
+                                }
                             }
-                        }
+
+                            // Two-phase dice: drain the deferred beat-replay
+                            // PlayerAction if the DiceThrow round-trip just
+                            // completed. `pending_replay_action` is set by the
+                            // beat-selection short-circuit; we only take it when
+                            // `pending_roll_outcome` is ALSO Some, which is the
+                            // signal that the DiceThrow handler populated the
+                            // outcome in this iteration. On the BeatSelection
+                            // iteration itself the outcome is None — we skip the
+                            // replay and wait for the next wire tick.
+                            let replay_payload: Option<sidequest_protocol::PlayerActionPayload> = {
+                                let holder_guard = shared_session.lock().await;
+                                match *holder_guard {
+                                    Some(ref ss_arc) => {
+                                        let mut ss = ss_arc.lock().await;
+                                        if ss.pending_replay_action.is_some()
+                                            && ss.pending_roll_outcome.is_some()
+                                        {
+                                            ss.pending_replay_action.take()
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    None => None,
+                                }
+                            };
+                            if let Some(payload) = replay_payload {
+                                tracing::info!(
+                                    player_id = %player_id_str,
+                                    "dice.two_phase_replay — re-dispatching deferred PlayerAction with fresh roll_outcome"
+                                );
+                                WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+                                    .field("event", "dice.two_phase_replay")
+                                    .field("player_id", player_id_str.as_str())
+                                    .send();
+                                work_queue.push_back(GameMessage::PlayerAction {
+                                    payload,
+                                    player_id: player_id_str.clone(),
+                                });
+                            }
+                        } // close while let Some(queued_msg)
+
+                        tracing::debug!(
+                            player_id = %player_id_str,
+                            total_responses,
+                            "ws.tick_complete — work queue drained"
+                        );
                     }
                     Err(e) => {
                         tracing::error!(player_id = %player_id_str, error = %e, text_preview = %&text[..text.len().min(200)], "Invalid message — deserialization failed");
@@ -1923,169 +1992,221 @@ async fn dispatch_message(
     // narrator receives structured context ("player chose beat X, describe
     // the outcome") through the existing dispatch pipeline. This avoids
     // duplicating the 200-line DispatchContext construction.
-    let mut chosen_player_beat: Option<String> = None;
-    // Story 34-9: dice outcome consumed by the next narration turn.
-    // Stored in SharedGameSession (persists across dispatch_message calls).
-    // Taken from shared state into DispatchContext at narration time.
-    let mut pending_dice_request: Option<DiceRequestPayload> = None;
-    let msg = match msg {
-        GameMessage::BeatSelection { payload, .. } => {
-            if !session.is_playing() {
-                return vec![error_response(
-                    player_id,
-                    "Cannot select beat before game starts",
-                )];
-            }
-            // Load confrontation defs to validate beat_id
-            let conf_defs: Vec<sidequest_genre::ConfrontationDef> = {
-                let gs = session.genre_slug().unwrap_or("");
-                sidequest_genre::GenreCode::new(gs)
-                    .ok()
-                    .and_then(|gc| {
-                        state
-                            .genre_cache()
-                            .get_or_load(&gc, state.genre_loader())
-                            .ok()
-                    })
-                    .map(|pack| pack.rules.confrontations.clone())
-                    .unwrap_or_default()
-            };
-            let Some(ref mut encounter) = snapshot.encounter else {
-                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
-                    .field("event", "beat_selection.no_active_encounter")
-                    .field("beat_id", &payload.beat_id)
-                    .send();
-                return vec![error_response(
-                    player_id,
-                    "No active encounter — beat selection rejected",
-                )];
-            };
-            let Some(def) = crate::find_confrontation_def(&conf_defs, &encounter.encounter_type)
-            else {
-                return vec![error_response(
-                    player_id,
-                    &format!(
-                        "No confrontation def for type '{}'",
-                        encounter.encounter_type
-                    ),
-                )];
-            };
-            let Some(beat) = def.beats.iter().find(|b| b.id == payload.beat_id) else {
-                // FAIL LOUD — no label fallback, no fuzzy match, no silent drop.
-                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
-                    .field("event", "beat_selection.unknown_beat_id")
-                    .field("beat_id", &payload.beat_id)
-                    .field("encounter_type", &encounter.encounter_type)
-                    .field(
-                        "available_ids",
-                        def.beats
-                            .iter()
-                            .map(|b| b.id.as_str())
-                            .collect::<Vec<_>>()
-                            .join(","),
-                    )
-                    .severity(Severity::Error)
-                    .send();
-                return vec![error_response(
-                    player_id,
-                    &format!(
-                        "Unknown beat_id '{}' in {} encounter. Available: [{}]",
-                        payload.beat_id,
-                        encounter.encounter_type,
-                        def.beats
-                            .iter()
-                            .map(|b| b.id.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                    ),
-                )];
-            };
-            let beat_label = beat.label.clone();
-            let stat_check = beat.stat_check.clone();
-            let metric_name = encounter.metric.name.clone();
-            let metric_before = encounter.metric.current;
+    // Legacy locals from the pre-two-phase beat path. The beat preprocessing
+    // short-circuits before writing to either of these, so on any message
+    // that reaches the main match they're always None — kept as a zero-cost
+    // placeholder in case a future natural-language PlayerAction ever needs
+    // to populate `chosen_player_beat` on the same tick as narration.
+    let chosen_player_beat: Option<String> = None;
 
-            // Apply beat deterministically — mechanical state change happens HERE,
-            // before the narrator runs. The narrator only describes the outcome.
-            if let Err(e) = encounter.apply_beat(&payload.beat_id, def) {
-                return vec![error_response(
-                    player_id,
-                    &format!("Beat apply failed: {}", e),
-                )];
-            }
-            let metric_after = encounter.metric.current;
-
-            // OTEL: structured beat received + applied
-            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-                .field("event", "encounter.player_beat_received")
+    // ── BEAT_SELECTION short-circuit (two-phase dice) ────────────────────
+    // Beat selection used to rebind `msg` into a synthetic `PlayerAction`
+    // and fall through to the narrator on the same tick, with the
+    // `DiceRequest` appended *after* the narration. That made the narrator
+    // produce prose before the physical roll ever happened — the 3D dice
+    // system became theater, and the `pending_roll_outcome` wiring fed the
+    // roll into the *next* turn's narration instead of the current one.
+    //
+    // The fix: on BeatSelection, apply `metric_delta`, broadcast a
+    // `DiceRequest`, store the synthesized `PlayerAction` in
+    // `SharedGameSession.pending_replay_action`, and return early. The ws
+    // reader loop drains `pending_replay_action` after every dispatch,
+    // re-dispatching it as a normal `PlayerAction`. By then the `DiceThrow`
+    // handler has populated `pending_roll_outcome`, so the narrator
+    // finally runs *with* the current turn's roll in hand.
+    //
+    // This relies entirely on existing infrastructure: the
+    // `pending_dice_requests` map, `pending_roll_outcome`, the
+    // `dispatch/mod.rs` read of that outcome into `TurnContext.roll_outcome`,
+    // and the physics-is-the-roll contract from story 34-12. The only new
+    // state is `pending_replay_action` + `pending_replay_beat_id`.
+    if let GameMessage::BeatSelection { payload, .. } = &msg {
+        if !session.is_playing() {
+            return vec![error_response(
+                player_id,
+                "Cannot select beat before game starts",
+            )];
+        }
+        // Load confrontation defs to validate beat_id
+        let conf_defs: Vec<sidequest_genre::ConfrontationDef> = {
+            let gs = session.genre_slug().unwrap_or("");
+            sidequest_genre::GenreCode::new(gs)
+                .ok()
+                .and_then(|gc| {
+                    state
+                        .genre_cache()
+                        .get_or_load(&gc, state.genre_loader())
+                        .ok()
+                })
+                .map(|pack| pack.rules.confrontations.clone())
+                .unwrap_or_default()
+        };
+        let Some(ref mut encounter) = snapshot.encounter else {
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "beat_selection.no_active_encounter")
                 .field("beat_id", &payload.beat_id)
-                .field("actor", &payload.actor)
-                .field("source", "structured_beat_selection")
-                .field("metric_before", metric_before)
-                .field("metric_after", metric_after)
-                .field("stat_check", &stat_check)
                 .send();
+            return vec![error_response(
+                player_id,
+                "No active encounter — beat selection rejected",
+            )];
+        };
+        let Some(def) = crate::find_confrontation_def(&conf_defs, &encounter.encounter_type) else {
+            return vec![error_response(
+                player_id,
+                &format!(
+                    "No confrontation def for type '{}'",
+                    encounter.encounter_type
+                ),
+            )];
+        };
+        let Some(beat) = def.beats.iter().find(|b| b.id == payload.beat_id) else {
+            // FAIL LOUD — no label fallback, no fuzzy match, no silent drop.
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "beat_selection.unknown_beat_id")
+                .field("beat_id", &payload.beat_id)
+                .field("encounter_type", &encounter.encounter_type)
+                .field(
+                    "available_ids",
+                    def.beats
+                        .iter()
+                        .map(|b| b.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                )
+                .severity(Severity::Error)
+                .send();
+            return vec![error_response(
+                player_id,
+                &format!(
+                    "Unknown beat_id '{}' in {} encounter. Available: [{}]",
+                    payload.beat_id,
+                    encounter.encounter_type,
+                    def.beats
+                        .iter()
+                        .map(|b| b.id.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                ),
+            )];
+        };
+        let beat_label = beat.label.clone();
+        let stat_check = beat.stat_check.clone();
+        let metric_name = encounter.metric.name.clone();
+        let metric_before = encounter.metric.current;
+        let beat_metric_delta = beat.metric_delta;
+        let beat_id_str = payload.beat_id.clone();
 
-            chosen_player_beat = Some(payload.beat_id.clone());
+        // Apply beat deterministically — mechanical state change happens HERE,
+        // before the narrator runs. The narrator only describes the outcome.
+        if let Err(e) = encounter.apply_beat(&beat_id_str, def) {
+            return vec![error_response(
+                player_id,
+                &format!("Beat apply failed: {}", e),
+            )];
+        }
+        let metric_after = encounter.metric.current;
 
-            // Story 34-4: Construct DiceRequest for the dice overlay.
-            // The beat has a stat_check — look up the character's matching stat
-            // to derive the d20 modifier, and derive DC from metric_delta magnitude.
-            // Dice don't change mechanical outcome (metric_delta is deterministic);
-            // they add ritual and shape the narrator's tone via RollOutcome (34-9).
-            {
-                let char_stat_modifier = snapshot
-                    .characters
-                    .first()
-                    .and_then(|c| c.stats.get(&stat_check))
-                    .map(|&stat_val| (stat_val - 10) / 2)
-                    .unwrap_or(0);
+        // OTEL: structured beat received + applied
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.player_beat_received")
+            .field("beat_id", beat_id_str.as_str())
+            .field("actor", &payload.actor)
+            .field("source", "structured_beat_selection")
+            .field("metric_before", metric_before)
+            .field("metric_after", metric_after)
+            .field("stat_check", &stat_check)
+            .send();
 
-                // DC scales with metric_delta impact: base 10 + 2 per abs(delta), clamped 10..30
-                let raw_dc = (10u32 + beat.metric_delta.unsigned_abs() * 2).clamp(10, 30);
-                let difficulty = std::num::NonZeroU32::new(raw_dc)
-                    .expect("raw_dc is clamped >= 10, always nonzero");
+        // Build DiceRequest (was story 34-4). The beat has a stat_check —
+        // look up the character's matching stat to derive the d20 modifier,
+        // and derive DC from metric_delta magnitude.
+        let char_stat_modifier = snapshot
+            .characters
+            .first()
+            .and_then(|c| c.stats.get(&stat_check))
+            .map(|&stat_val| (stat_val - 10) / 2)
+            .unwrap_or(0);
+        let raw_dc = (10u32 + beat_metric_delta.unsigned_abs() * 2).clamp(10, 30);
+        let difficulty =
+            std::num::NonZeroU32::new(raw_dc).expect("raw_dc is clamped >= 10, always nonzero");
+        let char_display_name = character_name.as_deref().unwrap_or("Unknown").to_string();
+        let dice_req = DiceRequestPayload {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            rolling_player_id: player_id.to_string(),
+            character_name: char_display_name,
+            dice: vec![DieSpec {
+                sides: DieSides::D20,
+                count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
+            }],
+            modifier: char_stat_modifier,
+            stat: stat_check.clone(),
+            difficulty,
+            context: format!("{} — {} check", beat_label, stat_check),
+        };
 
-                let char_display_name = character_name.as_deref().unwrap_or("Unknown").to_string();
+        // Synthesize a structured PlayerAction for the narrator — this is
+        // NOT natural-language text, it's a structured tag that the
+        // narrator prompt will format into context. Stored, not dispatched:
+        // the ws reader loop will replay it after the DiceThrow round-trip
+        // completes.
+        let action_text = format!(
+            "[BEAT_RESOLVED] {label} ({stat_check}): {metric_name} {before} → {after}",
+            label = beat_label,
+            stat_check = stat_check,
+            metric_name = metric_name,
+            before = metric_before,
+            after = metric_after,
+        );
+        let replay_action = sidequest_protocol::PlayerActionPayload {
+            action: action_text,
+            aside: false,
+        };
 
-                pending_dice_request = Some(DiceRequestPayload {
-                    request_id: uuid::Uuid::new_v4().to_string(),
-                    rolling_player_id: player_id.to_string(),
-                    character_name: char_display_name,
-                    dice: vec![DieSpec {
-                        sides: DieSides::D20,
-                        count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
-                    }],
-                    modifier: char_stat_modifier,
-                    stat: stat_check.clone(),
-                    difficulty,
-                    context: format!("{} — {} check", beat_label, stat_check),
+        // Store DiceRequest for DiceThrow correlation, stash the replay
+        // action for the reader loop, and broadcast DiceRequest to all
+        // session members so the rolling player's dice overlay opens.
+        {
+            let holder_guard = shared_session_holder.lock().await;
+            if let Some(ref ss_arc) = *holder_guard {
+                let mut ss = ss_arc.lock().await;
+                ss.pending_dice_requests
+                    .insert(dice_req.request_id.clone(), dice_req.clone());
+                ss.pending_replay_action = Some(replay_action);
+                ss.pending_replay_beat_id = Some(beat_id_str);
+                ss.broadcast(GameMessage::DiceRequest {
+                    player_id: "server".to_string(),
+                    payload: dice_req.clone(),
                 });
             }
-
-            // Synthesize a structured PlayerAction for the narrator.
-            // This is NOT natural-language text — it's a structured tag that the
-            // narrator prompt will format into context. The narrator's job is to
-            // describe the outcome, not to choose the beat.
-            let action_text = format!(
-                "[BEAT_RESOLVED] {label} ({stat_check}): {metric_name} {before} → {after}",
-                label = beat_label,
-                stat_check = stat_check,
-                metric_name = metric_name,
-                before = metric_before,
-                after = metric_after,
-            );
-
-            GameMessage::PlayerAction {
-                payload: sidequest_protocol::PlayerActionPayload {
-                    action: action_text,
-                    aside: false,
-                },
-                player_id: player_id.to_string(),
-            }
         }
-        other => other,
-    };
+
+        // Story 34-11: OTEL — dice request sent. Two-phase marker so the
+        // GM panel can tell the deferred-narrator path from the old path.
+        emit_dice_request_sent(&dice_req);
+        WatcherEventBuilder::new("dice", WatcherEventType::StateTransition)
+            .field("event", "dice.two_phase_defer")
+            .field("request_id", dice_req.request_id.as_str())
+            .field("rolling_player", dice_req.rolling_player_id.as_str())
+            .field("stat", dice_req.stat.as_str())
+            .field("difficulty", dice_req.difficulty.get() as i64)
+            .field("modifier", dice_req.modifier as i64)
+            .send();
+        tracing::info!(
+            request_id = %dice_req.request_id,
+            rolling_player = %dice_req.rolling_player_id,
+            stat = %dice_req.stat,
+            difficulty = dice_req.difficulty.get(),
+            modifier = dice_req.modifier,
+            "dice.two_phase_defer — narrator deferred until DiceThrow arrives"
+        );
+
+        // Return only the DiceRequest — narrator runs on the replay tick.
+        return vec![GameMessage::DiceRequest {
+            player_id: "server".to_string(),
+            payload: dice_req,
+        }];
+    }
 
     match &msg {
         GameMessage::SessionEvent { payload, .. } if payload.event == "connect" => {
@@ -2587,9 +2708,32 @@ async fn dispatch_message(
                                     .and_then(|phil| phil.weight_limit)
                             })
                     },
-                    chosen_player_beat: chosen_player_beat.clone(),
-                    // Story 34-9: take outcome from shared session state (persists
-                    // across dispatch_message calls; set by DiceThrow handler).
+                    chosen_player_beat: {
+                        // Two-phase dice replay: if this PlayerAction is the
+                        // reader-loop replay of a deferred beat selection, the
+                        // local `chosen_player_beat` is None (beat path
+                        // short-circuited without setting it). Fall through to
+                        // the one-shot `pending_replay_beat_id` on the shared
+                        // session so confrontation wiring repair in
+                        // `dispatch/mod.rs` still sees the beat.
+                        if let Some(b) = chosen_player_beat.clone() {
+                            Some(b)
+                        } else {
+                            let holder_guard = shared_session_holder.lock().await;
+                            if let Some(ref ss_arc) = *holder_guard {
+                                let mut ss = ss_arc.lock().await;
+                                ss.pending_replay_beat_id.take()
+                            } else {
+                                None
+                            }
+                        }
+                    },
+                    // Story 34-9 / two-phase dice: take outcome from shared
+                    // session state (persists across dispatch_message calls;
+                    // set by DiceThrow handler). On the replay tick this is
+                    // Some(outcome) from the just-completed round-trip, so
+                    // the narrator finally sees the current turn's roll
+                    // instead of the previous turn's.
                     pending_roll_outcome: {
                         let holder_guard = shared_session_holder.lock().await;
                         if let Some(ref ss_arc) = *holder_guard {
@@ -2618,46 +2762,19 @@ async fn dispatch_message(
                         .send();
                 }
 
-                let mut result = dispatch::dispatch_player_action(&mut ctx).await;
+                let result = dispatch::dispatch_player_action(&mut ctx).await;
 
                 // Save Manual after dispatch (entries may have been marked Active)
                 ctx.monster_manual.save();
 
-                // Story 34-4: If beat selection triggered a dice request, broadcast
-                // it to all clients and store in pending_dice_requests for the
-                // DiceThrow handler to look up.
-                if let Some(dice_req) = pending_dice_request.take() {
-                    {
-                        let holder_guard = shared_session_holder.lock().await;
-                        if let Some(ref ss_arc) = *holder_guard {
-                            let mut ss = ss_arc.lock().await;
-                            ss.pending_dice_requests
-                                .insert(dice_req.request_id.clone(), dice_req.clone());
-                            ss.broadcast(GameMessage::DiceRequest {
-                                player_id: "server".to_string(),
-                                payload: dice_req.clone(),
-                            });
-                        }
-                    }
-
-                    // Story 34-11: OTEL — dice request sent
-                    emit_dice_request_sent(&dice_req);
-
-                    tracing::info!(
-                        request_id = %dice_req.request_id,
-                        rolling_player = %dice_req.rolling_player_id,
-                        stat = %dice_req.stat,
-                        difficulty = dice_req.difficulty.get(),
-                        modifier = dice_req.modifier,
-                        "dice.request_initiated — DiceRequest broadcast after beat selection"
-                    );
-
-                    // Also return as direct response for the acting player
-                    result.push(GameMessage::DiceRequest {
-                        player_id: "server".to_string(),
-                        payload: dice_req,
-                    });
-                }
+                // Two-phase dice: `DiceRequest` broadcast used to live here,
+                // gated on a local `pending_dice_request` populated by the
+                // beat-selection preprocessor. That made the narrator run
+                // BEFORE the roll and bolted `DiceRequest` onto the end of
+                // the response, so the dice became theater. The broadcast
+                // has moved into the BeatSelection short-circuit at the top
+                // of `dispatch_message`, which now fires the `DiceRequest`
+                // first and defers the narrator via `pending_replay_action`.
 
                 result
             }
