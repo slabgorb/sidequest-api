@@ -407,7 +407,7 @@ pub enum GameMessage {
     ///
     /// The server validates `beat_id` against the active encounter's
     /// `ConfrontationDef` and dispatches the beat directly via
-    /// `dispatch_beat_selection()`. The narrator is then called to describe
+    /// `beat::apply_beat_dispatch()`. The narrator is then called to describe
     /// the mechanical outcome in prose — it does NOT choose the beat.
     #[serde(rename = "BEAT_SELECTION")]
     BeatSelection {

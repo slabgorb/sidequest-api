@@ -21,10 +21,12 @@
 //! from the structured `BeatSelection` protocol preprocessing in `lib.rs`).
 //!
 //! The `DispatchContext`-flavoured wrapper that adds gold-delta,
-//! resolver-specific tracing, and escalation handling lives in
-//! `dispatch/mod.rs` as `dispatch_beat_selection` — it must live there so
-//! the story 37-14 wiring test can see a direct `apply_beat_dispatch(` call
-//! at the dispatch layer.
+//! resolver-specific tracing, and escalation handling lives in this module
+//! as [`handle_applied_side_effects`]. `dispatch/mod.rs` calls
+//! `apply_beat_dispatch` directly in its beat-selection loop, then invokes
+//! `handle_applied_side_effects` only on the `Applied` outcome. The direct
+//! call in `dispatch/mod.rs` also satisfies the story 37-14 wiring test,
+//! which scans for `apply_beat_dispatch(` at the dispatch layer.
 
 use sidequest_game::state::GameSnapshot;
 use sidequest_genre::ConfrontationDef;
@@ -145,6 +147,13 @@ pub(crate) fn apply_beat_dispatch(
         Ok(()) => {
             let metric_current = encounter.metric.current;
             let resolved = encounter.resolved;
+            tracing::info!(
+                beat_id = %beat_id,
+                encounter_type = %encounter_type,
+                metric_current = metric_current,
+                resolved = resolved,
+                "encounter.beat_applied"
+            );
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                 .field("event", "encounter.beat_applied")
                 .field("beat_id", beat_id)
@@ -297,6 +306,7 @@ pub(super) fn handle_applied_side_effects(ctx: &mut DispatchContext<'_>, beat_id
                         .field("event", "encounter.escalation_started")
                         .field("from_type", &encounter_type)
                         .field("to_type", &escalation_target)
+                        .field("source", "narrator_beat_selection")
                         .send();
                 } else {
                     tracing::warn!(

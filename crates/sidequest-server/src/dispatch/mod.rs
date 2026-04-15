@@ -1792,8 +1792,8 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // resolution mechanics (attack → resolve_attack, escape → separation, others → metric_delta).
     //
     // Story 28-9: encounter_just_resolved is computed here (after beat dispatch),
-    // not inside apply_state_mutations, because dispatch_beat_selection is what
-    // actually sets encounter.resolved = true via apply_beat().
+    // not inside apply_state_mutations, because apply_beat_dispatch is what
+    // actually sets encounter.resolved = true (via StructuredEncounter::apply_beat).
     let encounter_active_before_beat = ctx.in_encounter();
 
     // Story 28-6 (original): narrator emits beat_selections for all actors.
@@ -1804,10 +1804,13 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // source for player beats.
     //
     // Story 37-14: NO outer is_some() guard and NO inner resolved-skip. Every
-    // beat_selection passes through beat::dispatch_beat_selection, which calls
-    // apply_beat_dispatch() — the helper emits exactly one canonical encounter
-    // event per beat (beat_applied / beat_no_encounter / beat_no_def /
-    // beat_id.unknown / beat_apply_failed) so the GM panel sees every decision.
+    // beat_selection passes through beat::apply_beat_dispatch directly — the
+    // old dispatch_beat_selection wrapper was deleted during the refactor, and
+    // post-apply side effects now live in beat::handle_applied_side_effects,
+    // which is called only on the Applied outcome. The helper emits exactly
+    // one canonical encounter event per beat (beat_applied / beat_no_encounter
+    // / beat_no_def / beat_id.unknown / beat_apply_failed) so the GM panel
+    // sees every decision.
     for bs in result.beat_selections.iter() {
         let actor = &bs.actor;
         let beat_id = &bs.beat_id;
@@ -1869,7 +1872,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // DELETED: scene_intent silent fallback. Legacy backward-compat from before
     // story 28-6 added beat_selections. This was a silent fallback that routed
-    // free-text through dispatch_beat_selection when beat_selections was empty.
+    // free-text through beat::apply_beat_dispatch when beat_selections was empty.
     // Violates "no silent fallbacks" (CLAUDE.md × 4 repos). If the narrator
     // emits no beat_selections, no beat is dispatched — that's correct behavior.
 
