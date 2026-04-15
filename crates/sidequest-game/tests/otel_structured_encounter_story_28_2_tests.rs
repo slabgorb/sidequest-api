@@ -122,17 +122,43 @@ fn drain_events(rx: &mut tokio::sync::broadcast::Receiver<WatcherEvent>) -> Vec<
     events
 }
 
-/// Find events matching a component and action field value.
+/// Find events matching a component and "action" name (backwards-compat shim).
+///
+/// Story 37-14 fix #5 renamed the four `StructuredEncounter::apply_beat`
+/// and `escalate_to_combat` OTEL emissions from the `action=X` field key
+/// to the project-wide `event="encounter.state.X"` key (where `state.`
+/// disambiguates inner state-machine events from outer dispatch-layer
+/// events on the same component). Other emissions in this crate (e.g.,
+/// `creature.hp_delta` in `creature_core.rs`) still use the `action=X`
+/// field key and are out of scope for 37-14.
+///
+/// This helper shields the existing 28-2 test assertions from the
+/// encounter rename by checking BOTH field keys:
+///  1. For `component == "encounter"`, look for `event="encounter.state.X"`.
+///  2. For every other component, fall back to the legacy `action=X` key.
+///
+/// Callers pass short names like "beat_applied" / "hp_delta" unchanged.
+/// Update the mapping here if a future story renames more components.
 fn find_events_by_action(
     events: &[WatcherEvent],
     component: &str,
     action: &str,
 ) -> Vec<WatcherEvent> {
+    let expected_encounter_event = format!("encounter.state.{action}");
     events
         .iter()
         .filter(|e| {
-            e.component == component
-                && (e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action))
+            if e.component != component {
+                return false;
+            }
+            if component == "encounter" {
+                // 37-14 fix #5 rename: filter on the new event= key.
+                e.fields.get("event").and_then(serde_json::Value::as_str)
+                    == Some(expected_encounter_event.as_str())
+            } else {
+                // Legacy action= key for components outside the 37-14 rename scope.
+                e.fields.get("action").and_then(serde_json::Value::as_str) == Some(action)
+            }
         })
         .cloned()
         .collect()

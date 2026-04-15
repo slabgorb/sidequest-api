@@ -1836,38 +1836,54 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         // dispatch normally. apply_beat_dispatch owns every silent-drop path —
         // each outcome emits exactly one canonical encounter.* event. On the
         // Applied outcome we run gold-delta / resolver / escalation side
-        // effects via handle_applied_side_effects.
+        // effects AND emit the per-actor breadcrumb. On non-Applied outcomes
+        // we do NEITHER — the canonical ValidationWarning from the helper is
+        // the GM-panel's sole signal, and firing a success-flavored
+        // StateTransition breadcrumb after a silent-drop warning was a
+        // pass-1 regression (misleading the panel operator into thinking
+        // the beat was applied when it was skipped).
         let outcome = beat::apply_beat_dispatch(
             ctx.snapshot,
             beat_id,
             &ctx.confrontation_defs,
         );
-        if outcome == beat::BeatDispatchOutcome::Applied {
-            beat::handle_applied_side_effects(ctx, beat_id);
+        if let beat::BeatDispatchOutcome::Applied {
+            encounter_type,
+            beat_id: applied_beat_id,
+        } = &outcome
+        {
+            // Clone the carried data so we can drop the immutable borrow on
+            // `outcome` before calling the mutable-borrow side-effects
+            // function and emitting the breadcrumb.
+            let encounter_type = encounter_type.clone();
+            let applied_beat_id = applied_beat_id.clone();
+            beat::handle_applied_side_effects(ctx, &encounter_type, &applied_beat_id);
+
+            // OTEL: per-actor breadcrumb — GM panel lie detector
+            // (only emitted on Applied; the helper's canonical event is
+            // the sole signal for non-Applied outcomes)
+            let stat_check_result = ctx
+                .snapshot
+                .encounter
+                .as_ref()
+                .map(|e| format!("metric={}", e.metric.current))
+                .unwrap_or_else(|| "no_encounter".to_string());
+
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field(
+                    "event",
+                    if is_player {
+                        "encounter.player_beat"
+                    } else {
+                        "encounter.npc_beat"
+                    },
+                )
+                .field("actor", actor)
+                .field("beat_id", beat_id)
+                .field("target", target)
+                .field("stat_check", &stat_check_result)
+                .send();
         }
-
-        // OTEL: per-actor breadcrumb — GM panel lie detector
-        let stat_check_result = ctx
-            .snapshot
-            .encounter
-            .as_ref()
-            .map(|e| format!("metric={}", e.metric.current))
-            .unwrap_or_else(|| "no_encounter".to_string());
-
-        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-            .field(
-                "event",
-                if is_player {
-                    "encounter.player_beat"
-                } else {
-                    "encounter.npc_beat"
-                },
-            )
-            .field("actor", actor)
-            .field("beat_id", beat_id)
-            .field("target", target)
-            .field("stat_check", &stat_check_result)
-            .send();
     }
 
     // DELETED: scene_intent silent fallback. Legacy backward-compat from before

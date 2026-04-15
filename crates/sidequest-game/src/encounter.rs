@@ -396,8 +396,15 @@ impl StructuredEncounter {
             .map(|p| format!("{:?}", p))
             .unwrap_or_else(|| "Unknown".to_string());
 
+        // OTEL: encounter state-machine event — uses the `event=` field key
+        // (not `action=`) so the GM panel's standard filter picks it up.
+        // Story 37-14 fix #5: renamed from `action="beat_applied"` to
+        // `event="encounter.state.beat_applied"` — the `state.` prefix
+        // disambiguates the inner state-machine emission from the
+        // dispatch-layer `encounter.beat_applied` event (which fires from
+        // `apply_beat_dispatch` with different fields and attribution).
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-            .field("action", "beat_applied")
+            .field("event", "encounter.state.beat_applied")
             .field("encounter_type", &self.encounter_type)
             .field("beat_id", beat_id)
             .field("stat_check", &beat.stat_check)
@@ -406,23 +413,28 @@ impl StructuredEncounter {
             .field("phase", &phase_str)
             .send();
 
-        // OTEL: encounter.resolved (if resolution just triggered)
+        // OTEL: encounter.state.resolved (if resolution just triggered).
+        // The `state.` prefix disambiguates from dispatch/mod.rs's
+        // `encounter.resolved` event (which fires from the
+        // `encounter_just_resolved` detection one layer up).
         if self.resolved {
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-                .field("action", "resolved")
+                .field("event", "encounter.state.resolved")
                 .field("encounter_type", &self.encounter_type)
                 .field("beats_total", self.beat)
                 .field("outcome", self.outcome.as_deref().unwrap_or("none"))
                 .send();
         }
 
-        // OTEL: encounter.phase_transition (only if phase actually changed)
+        // OTEL: encounter.state.phase_transition (only if phase actually
+        // changed). No collision at the dispatch layer, but kept under the
+        // `state.` prefix for consistency with its sibling events.
         if self.structured_phase != old_phase {
             let old_str = old_phase
                 .map(|p| format!("{:?}", p))
                 .unwrap_or_else(|| "None".to_string());
             WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-                .field("action", "phase_transition")
+                .field("event", "encounter.state.phase_transition")
                 .field("encounter_type", &self.encounter_type)
                 .field("old_phase", &old_str)
                 .field("new_phase", &phase_str)
@@ -445,9 +457,11 @@ impl StructuredEncounter {
             return None;
         }
 
-        // OTEL: encounter.escalated
+        // OTEL: encounter.state.escalated — the `state.` prefix
+        // disambiguates from dispatch/beat.rs's `encounter.escalation_started`
+        // event (which fires from handle_applied_side_effects one layer up).
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-            .field("action", "escalated")
+            .field("event", "encounter.state.escalated")
             .field("from_type", &self.encounter_type)
             .field("to_type", "combat")
             .send();

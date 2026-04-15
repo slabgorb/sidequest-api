@@ -67,6 +67,14 @@ pub use sidequest_telemetry::{
 // Tracing / Telemetry — extracted to tracing_setup.rs
 pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subscriber_for_test};
 
+// Story 37-14: public re-export of the beat dispatch helper and its outcome
+// enum so integration tests in `tests/integration/` (outside the src/ tree)
+// can reach them. This satisfies CLAUDE.md's wiring-test rule — a real
+// integration test can construct a live `GameSnapshot` and drive the helper
+// through the crate's public API, proving the symbol is reachable rather
+// than just matching a source-string scan in `dispatch/mod.rs`.
+pub use dispatch::beat::{apply_beat_dispatch, BeatDispatchOutcome};
+
 // ---------------------------------------------------------------------------
 // Story 34-11: OTEL dice span emitters — GM panel visibility for dice dispatch
 // ---------------------------------------------------------------------------
