@@ -84,7 +84,7 @@ pub fn extract_first_sentence(text: &str) -> String {
 
 /// Returns true if the period at byte index `period_idx` is the terminator
 /// of a known abbreviation (e.g. the `.` in "Dr."). Matches against
-/// `SENTENCE_ABBREVIATIONS` case-insensitively.
+/// `SENTENCE_ABBREVIATIONS` case-insensitively without allocating.
 fn is_abbreviation_terminator(text: &str, period_idx: usize) -> bool {
     // Walk backward from the period to the previous whitespace or start.
     let bytes = text.as_bytes();
@@ -92,9 +92,10 @@ fn is_abbreviation_terminator(text: &str, period_idx: usize) -> bool {
     while start > 0 && !bytes[start - 1].is_ascii_whitespace() {
         start -= 1;
     }
-    let token = &text[start..=period_idx];
-    let lowered = token.to_ascii_lowercase();
-    SENTENCE_ABBREVIATIONS.contains(&lowered.as_str())
+    let token = &bytes[start..=period_idx];
+    SENTENCE_ABBREVIATIONS
+        .iter()
+        .any(|abbr| abbr.as_bytes().eq_ignore_ascii_case(token))
 }
 
 /// Assembles a `ScrapbookEntryPayload` from pure per-turn inputs.
