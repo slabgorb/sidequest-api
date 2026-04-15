@@ -554,6 +554,7 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
             core_vibe: None,
             emotional_tone: vec![],
             differentiation: None,
+            lobby_blurb: None,
         },
         rules: serde_json::from_value(serde_json::json!({
             "magic_level": "none",
