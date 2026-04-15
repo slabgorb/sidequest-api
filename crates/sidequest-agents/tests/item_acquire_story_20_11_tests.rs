@@ -468,7 +468,7 @@ fn parser_trims_item_acquire_fields() {
         .items_acquired
         .expect("trimmed item_acquire should be accepted");
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].name, "Iron Sword", "name must be trimmed");
+    assert_eq!(items[0].name.as_str(), "Iron Sword", "name must be trimmed");
     assert_eq!(items[0].category, "weapon", "category must be trimmed");
 
     cleanup_sidecar(&sid);
@@ -562,8 +562,8 @@ fn assemble_turn_multiple_item_tools() {
         2,
         "both tool items must be collected"
     );
-    assert_eq!(result.items_gained[0].name, "Iron Sword");
-    assert_eq!(result.items_gained[1].name, "Health Potion");
+    assert_eq!(result.items_gained[0].name.as_str(), "Iron Sword");
+    assert_eq!(result.items_gained[1].name.as_str(), "Health Potion");
 }
 
 /// No item_acquire tools fired — narrator extraction's items_gained pass through.
@@ -579,7 +579,7 @@ fn assemble_turn_no_item_tool_uses_narrator_fallback() {
         1,
         "without tool calls, narrator's items_gained must pass through"
     );
-    assert_eq!(result.items_gained[0].name, "narrator fallback sword");
+    assert_eq!(result.items_gained[0].name.as_str(), "narrator fallback sword");
 }
 
 /// No item_acquire tools AND narrator has no items — result is empty Vec.
@@ -619,8 +619,8 @@ fn assemble_turn_empty_tool_items_overrides_narrator() {
 fn assemble_turn_item_tools_preserve_other_fields() {
     let extraction = extraction_with_items();
     let tool_items = vec![sidequest_protocol::ItemGained {
-        name: "Tool Sword".to_string(),
-        description: "From tool.".to_string(),
+        name: nbs("Tool Sword"),
+        description: nbs("From tool."),
         category: "weapon".to_string(),
     }];
 
@@ -634,7 +634,7 @@ fn assemble_turn_item_tools_preserve_other_fields() {
 
     // Items from tool
     assert_eq!(result.items_gained.len(), 1);
-    assert_eq!(result.items_gained[0].name, "Tool Sword");
+    assert_eq!(result.items_gained[0].name.as_str(), "Tool Sword");
 
     // Other fields still pass through
     assert_eq!(
@@ -706,7 +706,7 @@ fn item_acquire_e2e_sidecar_to_action_result() {
         "e2e: tool items must replace narrator items"
     );
     assert_eq!(
-        result.items_gained[0].name, "Iron Sword",
+        result.items_gained[0].name.as_str(), "Iron Sword",
         "e2e: tool result must override narrator extraction"
     );
     assert_eq!(result.items_gained[0].category, "weapon");
@@ -735,8 +735,8 @@ fn item_acquire_e2e_multiple_items() {
         2,
         "e2e: both items must flow through"
     );
-    assert_eq!(result.items_gained[0].name, "Iron Sword");
-    assert_eq!(result.items_gained[1].name, "Health Potion");
+    assert_eq!(result.items_gained[0].name.as_str(), "Iron Sword");
+    assert_eq!(result.items_gained[1].name.as_str(), "Health Potion");
 
     cleanup_sidecar(&sid);
 }
@@ -760,7 +760,7 @@ fn item_acquire_e2e_mixed_tools() {
 
     // Items from tool
     assert_eq!(result.items_gained.len(), 1);
-    assert_eq!(result.items_gained[0].name, "Iron Sword");
+    assert_eq!(result.items_gained[0].name.as_str(), "Iron Sword");
 
     // Other tools also applied
     assert_eq!(result.scene_mood.as_deref(), Some("triumph"));
