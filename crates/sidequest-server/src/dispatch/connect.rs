@@ -1461,7 +1461,7 @@ pub(crate) async fn dispatch_character_creation(
                 .send();
 
             match b.build(&char_name) {
-                Ok(character) => {
+                Ok(mut character) => {
                     let char_json = serde_json::to_value(&character).unwrap_or_default();
 
                     WatcherEventBuilder::new(
@@ -1474,6 +1474,76 @@ pub(crate) async fn dispatch_character_creation(
                     .field("race", character.race.as_str())
                     .field("hp", character.core.hp)
                     .send();
+
+                    // Resolve archetype through full pipeline (base → constraints → funnels)
+                    // if the builder set axis hints during chargen.
+                    if let Some(ref archetype_raw) = character.resolved_archetype.clone() {
+                        if let Some((jungian, rpg_role)) = archetype_raw.split_once('/') {
+                            let genre_slug = session.genre_slug().unwrap_or("").to_string();
+                            let world_slug = session.world_slug().unwrap_or("").to_string();
+                            if let Ok(gc) = GenreCode::new(&genre_slug) {
+                                if let Ok(pack) =
+                                    state.genre_cache().get_or_load(&gc, state.genre_loader())
+                                {
+                                    if let (Some(ref base), Some(ref constraints)) =
+                                        (&pack.base_archetypes, &pack.archetype_constraints)
+                                    {
+                                        let world_funnels = pack
+                                            .worlds
+                                            .get(&world_slug)
+                                            .and_then(|w| w.archetype_funnels.as_ref());
+
+                                        match sidequest_genre::archetype_resolve::resolve_archetype(
+                                            jungian,
+                                            rpg_role,
+                                            base,
+                                            constraints,
+                                            world_funnels,
+                                        ) {
+                                            Ok(resolved) => {
+                                                character.resolved_archetype =
+                                                    Some(resolved.name.clone());
+
+                                                WatcherEventBuilder::new(
+                                                    "archetype_resolution",
+                                                    WatcherEventType::StateTransition,
+                                                )
+                                                .field("event", "archetype.resolved")
+                                                .field("jungian", jungian)
+                                                .field("rpg_role", rpg_role)
+                                                .field("resolved_name", resolved.name.as_str())
+                                                .field(
+                                                    "source",
+                                                    format!("{:?}", resolved.resolution_source),
+                                                )
+                                                .field(
+                                                    "faction",
+                                                    resolved
+                                                        .faction
+                                                        .as_deref()
+                                                        .unwrap_or("none"),
+                                                )
+                                                .field("genre", genre_slug.as_str())
+                                                .field("world", world_slug.as_str())
+                                                .send();
+                                            }
+                                            Err(e) => {
+                                                WatcherEventBuilder::new(
+                                                    "archetype_resolution",
+                                                    WatcherEventType::ValidationWarning,
+                                                )
+                                                .field("event", "archetype.resolution_failed")
+                                                .field("error", format!("{e}"))
+                                                .field("jungian", jungian)
+                                                .field("rpg_role", rpg_role)
+                                                .send();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     // Store character data — sync ALL mutable fields from the built character
                     *character_name_store = Some(character.core.name.as_str().to_string());
@@ -2460,6 +2530,7 @@ pub(crate) async fn dispatch_character_creation(
                                         known_facts: vec![],
                                         affinities: vec![],
                                         is_friendly: true,
+                                        resolved_archetype: None,
                                     };
                                     let _ =
                                         barrier.add_player(player_id.to_string(), placeholder_char);
@@ -2767,6 +2838,7 @@ pub(crate) async fn dispatch_character_creation(
                                             known_facts: vec![],
                                             affinities: vec![],
                                             is_friendly: true,
+                                            resolved_archetype: None,
                                         }
                                     };
                                     let _ =
