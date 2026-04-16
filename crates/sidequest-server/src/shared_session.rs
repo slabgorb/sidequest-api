@@ -269,6 +269,23 @@ pub struct SharedGameSession {
     /// Set by the DiceThrow handler after resolution; consumed (taken) by the
     /// next PlayerAction dispatch to inject [DICE_OUTCOME: X] into the narrator prompt.
     pub pending_roll_outcome: Option<sidequest_protocol::RollOutcome>,
+    /// Deferred `PlayerAction` waiting for a DiceRequest/DiceThrow round-trip
+    /// to complete before the narrator runs. The beat-selection preprocessing
+    /// stores the synthesized `[BEAT_RESOLVED] ...` action here and
+    /// short-circuits dispatch — the narrator does **not** run on the beat
+    /// tick. The ws reader loop then re-dispatches this action on the next
+    /// tick once `pending_roll_outcome` has been populated by the DiceThrow
+    /// handler, so the narrator sees the current turn's roll outcome rather
+    /// than the previous turn's. See `docs/plans/scene-harness.md` "two-phase
+    /// dice fix (next plan)" — this is the minimum change to make it real.
+    pub pending_replay_action: Option<sidequest_protocol::PlayerActionPayload>,
+    /// Beat id that accompanied the deferred `pending_replay_action`. On the
+    /// replay dispatch tick, `DispatchContext::chosen_player_beat` is
+    /// populated from this so the confrontation wiring repair
+    /// (`dispatch/mod.rs` around the `is_player && chosen_player_beat.is_some`
+    /// guard) still fires for the deferred narrator. One-shot — taken when
+    /// the ctx is built.
+    pub pending_replay_beat_id: Option<String>,
 
     // --- Per-player state ---
     pub players: HashMap<String, PlayerState>,
@@ -307,6 +324,8 @@ impl SharedGameSession {
             region_names: vec![],
             pending_dice_requests: HashMap::new(),
             pending_roll_outcome: None,
+            pending_replay_action: None,
+            pending_replay_beat_id: None,
             players: HashMap::new(),
             session_tx,
         }

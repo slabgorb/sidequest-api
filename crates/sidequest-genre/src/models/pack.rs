@@ -150,11 +150,21 @@ pub struct PackMeta {
     /// What differentiates this genre.
     #[serde(default)]
     pub differentiation: Option<String>,
-    /// One-sentence blurb shown in the lobby genre picker (feature added by
-    /// PR #453 — `feat(lobby): sessions + rich genre metadata endpoints`).
-    /// Optional so older packs without a lobby_blurb still deserialize.
+    /// Short blurb for the lobby genre picker.
     #[serde(default)]
     pub lobby_blurb: Option<String>,
+    /// Recommended player count range.
+    #[serde(default)]
+    pub recommended_players: Option<RecommendedPlayers>,
+}
+
+/// Recommended player count for a genre pack.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RecommendedPlayers {
+    pub min: u8,
+    pub max: u8,
+    #[serde(default)]
+    pub sweet_spot: Option<u8>,
 }
 
 /// A creative inspiration reference.

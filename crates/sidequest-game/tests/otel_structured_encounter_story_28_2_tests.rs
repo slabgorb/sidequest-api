@@ -204,10 +204,7 @@ fn shim_routes_encounter_component_to_state_event_key() {
          component-scoped routing."
     );
     assert_eq!(
-        found[0]
-            .fields
-            .get("event")
-            .and_then(|v| v.as_str()),
+        found[0].fields.get("event").and_then(|v| v.as_str()),
         Some("encounter.state.beat_applied"),
         "the shim must return the exact event it matched, not a stale one"
     );

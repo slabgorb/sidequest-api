@@ -457,13 +457,17 @@ pub(crate) async fn build_prompt_context(
     // Only inject when no encounter is active (active encounter context is above).
     if ctx.snapshot.encounter.is_none() && !ctx.confrontation_defs.is_empty() {
         state_summary.push_str("\n\nAVAILABLE ENCOUNTER TYPES:\n");
-        state_summary.push_str("When combat, a chase, or another confrontation begins, include \"confrontation\": \"<type>\" in your game_patch. Valid types for this genre:\n");
+        state_summary.push_str("When the player's action involves violence, threats, bargaining, trading, persuasion, fleeing, pursuit, or any tense standoff, you MUST include \"confrontation\": \"<type>\" in your game_patch to start the mechanical encounter. Do NOT resolve these actions with pure narration — the confrontation system tracks resource pools, beats, and resolution. Valid types for this genre:\n");
         for def in ctx.confrontation_defs.iter() {
             state_summary.push_str(&format!(
-                "- \"{}\" ({}, {})\n",
-                def.confrontation_type, def.label, def.category
+                "- \"{}\" ({}, {}) — use for {}\n",
+                def.confrontation_type,
+                def.label,
+                def.category,
+                def.category
             ));
         }
+        state_summary.push_str("If the player action fits ANY of these types, emit confrontation. Err on the side of triggering.\n");
 
         WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
             .field("action", "available_types_injected")

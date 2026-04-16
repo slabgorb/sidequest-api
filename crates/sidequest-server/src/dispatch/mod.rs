@@ -17,6 +17,7 @@ pub(crate) mod beat;
 pub(crate) mod catch_up;
 pub(crate) mod chargen_summary;
 pub(crate) mod connect;
+pub(crate) mod dev_scenes;
 pub(crate) mod encounter_gate;
 pub(crate) mod lore_embed_worker;
 
@@ -1397,7 +1398,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             } else {
                 location.clone()
             };
-            let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
+            let is_new = !ctx
+                .discovered_regions
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(&location));
             *ctx.current_location = canonical_location;
             if is_new {
                 ctx.discovered_regions.push(location.clone());
@@ -1877,11 +1881,7 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         // StateTransition breadcrumb after a silent-drop warning was a
         // pass-1 regression (misleading the panel operator into thinking
         // the beat was applied when it was skipped).
-        let outcome = beat::apply_beat_dispatch(
-            ctx.snapshot,
-            beat_id,
-            &ctx.confrontation_defs,
-        );
+        let outcome = beat::apply_beat_dispatch(ctx.snapshot, beat_id, &ctx.confrontation_defs);
         if let beat::BeatDispatchOutcome::Applied {
             encounter_type,
             beat_id: applied_beat_id,

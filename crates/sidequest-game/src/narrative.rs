@@ -51,27 +51,50 @@ pub struct NarrativeEntry {
     pub entry_type: Option<String>,
 }
 
-/// Generate a "Previously On..." recap from narrative entries (story F3).
+/// Generate a "Previously On..." recap from known facts and narrative entries.
 ///
-/// Returns `None` if `entries` is empty.
+/// Prefers known_facts (concise one-sentence summaries from the knowledge
+/// journal) over raw narration. Falls back to narration entries if no facts
+/// exist. Returns `None` if both sources are empty.
 ///
 /// Algorithm:
 /// 1. Header: "Previously On..."
 /// 2. Party intro: "The party — {names} — had been adventuring."
-/// 3. Each entry as a bullet: "- {content}"
+/// 3. Bullets from known_facts (up to 8 most recent, excluding Backstory)
+///    OR truncated narration entries as fallback
 /// 4. Footer: "The party now finds themselves at {location}."
 pub fn generate_recap(
     entries: &[NarrativeEntry],
     character_names: &[String],
     location: &str,
 ) -> Option<String> {
-    if entries.is_empty() {
+    generate_recap_with_facts(entries, character_names, location, &[])
+}
+
+/// Extended recap that uses known_facts as the primary source.
+/// Called from the persistence layer where character facts are available.
+pub fn generate_recap_with_facts(
+    entries: &[NarrativeEntry],
+    character_names: &[String],
+    location: &str,
+    known_facts: &[crate::known_fact::KnownFact],
+) -> Option<String> {
+    // Filter to non-backstory facts, take the 8 most recent
+    let mut play_facts: Vec<&crate::known_fact::KnownFact> = known_facts
+        .iter()
+        .filter(|f| !matches!(f.source, crate::known_fact::FactSource::Backstory))
+        .collect();
+    play_facts.sort_by(|a, b| b.learned_turn.cmp(&a.learned_turn));
+    let fact_bullets: Vec<&str> = play_facts
+        .iter()
+        .take(8)
+        .map(|f| f.content.as_str())
+        .collect();
+
+    if fact_bullets.is_empty() && entries.is_empty() {
         return None;
     }
 
-    // Emit proper markdown so the UI's markdownToHtml() can style
-    // the heading (h2) and location footer (italic) distinctly from
-    // the recap bullets. Fixes "Previously On" rendering as plain text.
     let mut recap = String::from("## Previously On\u{2026}\n\n");
 
     // Party intro
@@ -83,19 +106,25 @@ pub fn generate_recap(
         ));
     }
 
-    // Entry bullets — truncate long entries to keep recap concise
-    for entry in entries {
-        let content = if entry.content.len() > 200 {
-            let truncated = &entry.content[..entry.content.floor_char_boundary(200)];
-            format!("{}...", truncated)
-        } else {
-            entry.content.clone()
-        };
-        recap.push_str(&format!("- {}\n", content));
+    if !fact_bullets.is_empty() {
+        // Use known_facts — already concise one-sentence summaries
+        for fact in &fact_bullets {
+            recap.push_str(&format!("- {}\n", fact));
+        }
+    } else {
+        // Fallback: truncated narration entries (legacy path)
+        for entry in entries {
+            let content = if entry.content.len() > 200 {
+                let truncated = &entry.content[..entry.content.floor_char_boundary(200)];
+                format!("{}...", truncated)
+            } else {
+                entry.content.clone()
+            };
+            recap.push_str(&format!("- {}\n", content));
+        }
     }
 
-    // Location footer — italic to visually separate from action bullets.
-    // Drops the dash prefix so it reads as a location anchor, not a bullet.
+    // Location footer
     if !location.is_empty() {
         recap.push_str(&format!(
             "\n*The party now finds themselves at {}.*\n",

@@ -253,15 +253,13 @@ pub fn apply_beat_dispatch(
         .encounter
         .as_mut()
         .expect("encounter presence checked above");
-    encounter
-        .apply_beat(beat_id, &def)
-        .expect(
-            "apply_beat: all preconditions validated above \
+    encounter.apply_beat(beat_id, &def).expect(
+        "apply_beat: all preconditions validated above \
              (SkippedResolved exhausts `self.resolved`; \
              UnknownBeatId exhausts `def.beats` lookup). \
              A new Err cause requires a new BeatDispatchOutcome variant \
              AND a corresponding short-circuit above this match.",
-        );
+    );
     let metric_current = encounter.metric.current;
     let resolved = encounter.resolved;
     tracing::info!(
@@ -305,17 +303,13 @@ pub(super) fn handle_applied_side_effects(
     beat_id: &str,
 ) {
     let def = crate::find_confrontation_def(&ctx.confrontation_defs, encounter_type)
-        .expect(
-            "handle_applied_side_effects: def must exist (guaranteed by Applied outcome)",
-        )
+        .expect("handle_applied_side_effects: def must exist (guaranteed by Applied outcome)")
         .clone();
     let beat = def
         .beats
         .iter()
         .find(|b| b.id == beat_id)
-        .expect(
-            "handle_applied_side_effects: beat must exist (guaranteed by Applied outcome)",
-        );
+        .expect("handle_applied_side_effects: beat must exist (guaranteed by Applied outcome)");
     let stat_check = beat.stat_check.clone();
     let metric_delta = beat.metric_delta;
     let gold_delta = beat.gold_delta;

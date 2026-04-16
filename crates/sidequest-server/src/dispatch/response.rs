@@ -253,9 +253,31 @@ pub(super) async fn build_response_messages(
         .field("image_populated_at_emission", image_populated_at_emission)
         .send();
     messages.push(GameMessage::ScrapbookEntry {
-        payload: scrapbook_payload,
+        payload: scrapbook_payload.clone(),
         player_id: ctx.player_id.to_string(),
     });
+
+    // Persist scrapbook entry to SQLite for session-resume replay.
+    if !ctx.genre_slug.is_empty() && !ctx.world_slug.is_empty() {
+        match ctx
+            .state
+            .persistence()
+            .append_scrapbook_entry(
+                ctx.genre_slug,
+                ctx.world_slug,
+                ctx.player_name_for_save,
+                &scrapbook_payload,
+            )
+            .await
+        {
+            Ok(()) => {
+                tracing::debug!(turn_id, "scrapbook.entry_persisted");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, turn_id, "scrapbook.entry_persist_failed");
+            }
+        }
+    }
 
     // Party status — now carries the per-member sheet and inventory facets
     // (CHARACTER_SHEET and INVENTORY message types were collapsed into
@@ -383,7 +405,8 @@ pub(super) async fn build_response_messages(
         player_id: ctx.player_id.to_string(),
     });
 
-    // Confrontation overlay
+    // Confrontation overlay — uses the shared builder so the session-restore
+    // path in `dispatch/connect.rs` emits an identical wire payload.
     if let Some(ref enc) = ctx.snapshot.encounter {
         let actors: Vec<sidequest_protocol::ConfrontationActor> = enc
             .actors
@@ -482,4 +505,103 @@ pub(super) async fn build_response_messages(
     }
 
     merged_footnotes
+}
+
+/// Build a `CONFRONTATION` message from a live `StructuredEncounter`.
+///
+/// Single source of truth for the confrontation wire payload. Callers:
+/// - `build_response_messages` — normal turn response
+/// - `dispatch_connect` — session restore (so a reloaded save with an active
+///   encounter shows the overlay immediately, not after the first turn)
+///
+/// `confrontation_defs` supplies the full beat library / labels; if the
+/// encounter type is unknown (defensive — should never happen for a saved
+/// snapshot), the payload falls back to empty beats and a humanized label.
+pub(super) fn build_confrontation_message(
+    enc: &sidequest_game::encounter::StructuredEncounter,
+    npc_registry: &[crate::NpcRegistryEntry],
+    confrontation_defs: &[sidequest_genre::ConfrontationDef],
+    genre_slug: &str,
+    player_id: &str,
+) -> GameMessage {
+    let actors: Vec<sidequest_protocol::ConfrontationActor> = enc
+        .actors
+        .iter()
+        .filter_map(|a| {
+            let name = sidequest_protocol::NonBlankString::new(&a.name).ok()?;
+            let role = sidequest_protocol::NonBlankString::new(&a.role).ok()?;
+            let portrait = npc_registry
+                .iter()
+                .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
+                .and_then(|e| e.portrait_url.clone());
+            Some(sidequest_protocol::ConfrontationActor {
+                name,
+                role,
+                portrait_url: portrait,
+            })
+        })
+        .collect();
+    let metric = &enc.metric;
+    let direction_str = match metric.direction {
+        sidequest_game::MetricDirection::Ascending => "ascending",
+        sidequest_game::MetricDirection::Descending => "descending",
+        sidequest_game::MetricDirection::Bidirectional => "bidirectional",
+        _ => "ascending",
+    };
+    let def = crate::find_confrontation_def(confrontation_defs, &enc.encounter_type);
+    let label_text = def
+        .map(|d| d.label.clone())
+        .unwrap_or_else(|| enc.encounter_type.replace('_', " "));
+    let category_text = def
+        .map(|d| d.category.clone())
+        .unwrap_or_else(|| enc.encounter_type.clone());
+    let metric_name = sidequest_protocol::NonBlankString::new(&metric.name)
+        .expect("EncounterMetric.name is set non-empty at encounter construction");
+    let confrontation_label = sidequest_protocol::NonBlankString::new(&label_text)
+        .expect("confrontation label is either genre-pack-defined or derived from encounter_type");
+    let confrontation_category = sidequest_protocol::NonBlankString::new(&category_text)
+        .expect("confrontation category is either genre-pack-defined or equal to encounter_type");
+    GameMessage::Confrontation {
+        payload: sidequest_protocol::ConfrontationPayload {
+            encounter_type: enc.encounter_type.clone(),
+            label: confrontation_label,
+            category: confrontation_category,
+            actors,
+            metric: sidequest_protocol::ConfrontationMetric {
+                name: metric_name,
+                current: metric.current,
+                starting: metric.starting,
+                direction: direction_str.to_string(),
+                threshold_high: metric.threshold_high,
+                threshold_low: metric.threshold_low,
+            },
+            beats: def
+                .map(|d| {
+                    d.beats
+                        .iter()
+                        .filter_map(|b| {
+                            let id = sidequest_protocol::NonBlankString::new(&b.id).ok()?;
+                            let label = sidequest_protocol::NonBlankString::new(&b.label).ok()?;
+                            Some(sidequest_protocol::ConfrontationBeat {
+                                id,
+                                label,
+                                metric_delta: b.metric_delta,
+                                stat_check: b.stat_check.clone(),
+                                risk: b.risk.clone(),
+                                resolution: b.resolution.unwrap_or(false),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            secondary_stats: enc
+                .secondary_stats
+                .as_ref()
+                .and_then(|ss| serde_json::to_value(ss).ok()),
+            genre_slug: genre_slug.to_string(),
+            mood: enc.mood_override.clone().unwrap_or_default(),
+            active: !enc.resolved,
+        },
+        player_id: player_id.to_string(),
+    }
 }

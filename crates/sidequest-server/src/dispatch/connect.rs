@@ -288,10 +288,9 @@ pub(crate) async fn dispatch_connect(
                                     race: c.race.clone(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
-                                        .hooks
+                                        .abilities
                                         .iter()
-                                        .filter(|s| !s.contains("auto-filled"))
-                                        .cloned()
+                                        .map(|a| a.name.clone())
                                         .collect(),
                                     backstory: c.backstory.clone(),
                                     personality: c.core.personality.clone(),
@@ -354,6 +353,59 @@ pub(crate) async fn dispatch_connect(
                                 },
                                 player_id: player_id.to_string(),
                             });
+                        }
+
+                        // JOURNAL_RESPONSE — backfill knowledge entries on
+                        // reconnect. known_facts are persisted in the snapshot
+                        // but were never re-sent to the UI, causing the
+                        // Knowledge tab to show "empty" after session re-entry.
+                        if let Some(c) = saved.snapshot.characters.first() {
+                            if !c.known_facts.is_empty() {
+                                let filter = sidequest_game::journal::JournalFilter {
+                                    category: None,
+                                    sort_by: sidequest_protocol::JournalSortOrder::Time,
+                                };
+                                let entries =
+                                    sidequest_game::journal::build_journal_entries(
+                                        &c.known_facts,
+                                        &filter,
+                                    );
+                                tracing::info!(
+                                    entry_count = entries.len(),
+                                    "session_restore.journal_backfill"
+                                );
+                                responses.push(GameMessage::JournalResponse {
+                                    payload: sidequest_protocol::JournalResponsePayload {
+                                        entries,
+                                    },
+                                    player_id: player_id.to_string(),
+                                });
+                            }
+                        }
+
+                        // SCRAPBOOK replay — load persisted entries so the
+                        // gallery re-populates on session resume.
+                        match state
+                            .persistence()
+                            .load_scrapbook_entries(genre, world, pname)
+                            .await
+                        {
+                            Ok(entries) if !entries.is_empty() => {
+                                tracing::info!(
+                                    entry_count = entries.len(),
+                                    "session_restore.scrapbook_replay"
+                                );
+                                for entry in entries {
+                                    responses.push(GameMessage::ScrapbookEntry {
+                                        payload: entry,
+                                        player_id: player_id.to_string(),
+                                    });
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::warn!(error = %e, "session_restore.scrapbook_load_failed");
+                            }
                         }
 
                         // Last NARRATION — recap, last narrative log entry, or
@@ -467,10 +519,9 @@ pub(crate) async fn dispatch_connect(
                                     race: c.race.clone(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
-                                        .hooks
+                                        .abilities
                                         .iter()
-                                        .filter(|s| !s.contains("auto-filled"))
-                                        .cloned()
+                                        .map(|a| a.name.clone())
                                         .collect(),
                                     backstory: c.backstory.clone(),
                                     personality: c.core.personality.clone(),
@@ -522,6 +573,32 @@ pub(crate) async fn dispatch_connect(
                                 payload: PartyStatusPayload { members },
                                 player_id: player_id.to_string(),
                             });
+                        }
+
+                        // JOURNAL_RESPONSE — backfill knowledge entries (second
+                        // reconnect path). Same logic as the first reconnect path.
+                        if let Some(c) = saved.snapshot.characters.first() {
+                            if !c.known_facts.is_empty() {
+                                let filter = sidequest_game::journal::JournalFilter {
+                                    category: None,
+                                    sort_by: sidequest_protocol::JournalSortOrder::Time,
+                                };
+                                let entries =
+                                    sidequest_game::journal::build_journal_entries(
+                                        &c.known_facts,
+                                        &filter,
+                                    );
+                                tracing::info!(
+                                    entry_count = entries.len(),
+                                    "session_restore.journal_backfill"
+                                );
+                                responses.push(GameMessage::JournalResponse {
+                                    payload: sidequest_protocol::JournalResponsePayload {
+                                        entries,
+                                    },
+                                    player_id: player_id.to_string(),
+                                });
+                            }
                         }
 
                         // MAP_UPDATE — replay explored map state so the client
@@ -689,6 +766,40 @@ pub(crate) async fn dispatch_connect(
                                     Some(sidequest_game::PrerenderScheduler::new(
                                         sidequest_game::PrerenderConfig::default(),
                                     ));
+
+                                // Emit CONFRONTATION on session restore if the
+                                // saved snapshot has an active encounter.
+                                // Without this, a reload lands the player in an
+                                // encounter that the UI doesn't know about until
+                                // the next turn completes — every save with an
+                                // active encounter is effectively broken on
+                                // reload. See docs/plans/scene-harness.md
+                                // "RED FIX #1".
+                                if let Some(ref enc) = snapshot.encounter {
+                                    let msg = super::response::build_confrontation_message(
+                                        enc,
+                                        npc_registry,
+                                        &pack.rules.confrontations,
+                                        genre,
+                                        player_id,
+                                    );
+                                    responses.push(msg);
+                                    WatcherEventBuilder::new(
+                                        "encounter",
+                                        WatcherEventType::StateTransition,
+                                    )
+                                    .field("event", "confrontation.restored")
+                                    .field("encounter_type", enc.encounter_type.as_str())
+                                    .field("beat", enc.beat as i64)
+                                    .field("actor_count", enc.actors.len())
+                                    .send();
+                                    tracing::info!(
+                                        encounter_type = %enc.encounter_type,
+                                        actors = enc.actors.len(),
+                                        "confrontation.restored — emitted CONFRONTATION on session restore"
+                                    );
+                                }
+
                                 // Load trope definitions for returning player (same logic as start_character_creation)
                                 let mut all_tropes = pack.tropes.clone();
                                 if let Some(w) = pack.worlds.get(world) {
@@ -1677,7 +1788,7 @@ pub(crate) async fn dispatch_character_creation(
                     if !current_location.is_empty()
                         && !discovered_regions
                             .iter()
-                            .any(|r| r == current_location.as_str())
+                            .any(|r| r.eq_ignore_ascii_case(current_location.as_str()))
                     {
                         discovered_regions.push(current_location.clone());
                     }
@@ -2099,10 +2210,9 @@ pub(crate) async fn dispatch_character_creation(
                             .map(|(k, v)| (k.clone(), *v))
                             .collect(),
                         abilities: character
-                            .hooks
+                            .abilities
                             .iter()
-                            .filter(|s| !s.contains("auto-filled"))
-                            .cloned()
+                            .map(|a| a.name.clone())
                             .collect(),
                         backstory: character.backstory.clone(),
                         personality: character.core.personality.clone(),
