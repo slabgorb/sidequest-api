@@ -78,7 +78,10 @@ fn find_confrontation_def<'a>(
 }
 
 /// Build the SQLite save path for a fixture:
-/// `{sidequest_home}/saves/{genre}/{world}/{player_name}.db`.
+/// `{sidequest_home}/saves/{genre}/{world}/{player_name}/save.db`.
+///
+/// Matches the normal persistence layout used by `SqliteStore` — the server
+/// checks for `{player_name}/save.db`, not `{player_name}.db`.
 ///
 /// `sidequest_home` defaults to `~/.sidequest` and can be overridden with
 /// the `SIDEQUEST_HOME` environment variable (used by the integration test).
@@ -93,5 +96,6 @@ pub fn save_path_for(genre: &str, world: &str, player_name: &str) -> PathBuf {
     home.join("saves")
         .join(genre)
         .join(world)
-        .join(format!("{player_name}.db"))
+        .join(player_name)
+        .join("save.db")
 }
