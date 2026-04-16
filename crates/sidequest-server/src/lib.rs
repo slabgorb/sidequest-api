@@ -1762,8 +1762,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
     let mut achievement_tracker = sidequest_game::achievement::AchievementTracker::default();
     // Canonical game snapshot — carried through the dispatch pipeline (story 15-8).
     let mut snapshot = sidequest_game::state::GameSnapshot::default();
-    let narrator_verbosity = sidequest_protocol::NarratorVerbosity::default();
-    let narrator_vocabulary = sidequest_protocol::NarratorVocabulary::default();
+    let mut narrator_verbosity = sidequest_protocol::NarratorVerbosity::default();
+    let mut narrator_vocabulary = sidequest_protocol::NarratorVocabulary::default();
     let mut pending_trope_context: Option<String> = None;
     let audio_mixer: std::sync::Arc<tokio::sync::Mutex<Option<sidequest_game::AudioMixer>>> =
         std::sync::Arc::new(tokio::sync::Mutex::new(None));
@@ -1798,6 +1798,20 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                         // touching the narrator. See
                         // `docs/plans/scene-harness.md` "two-phase dice fix
                         // (next plan)" — this is the implementation.
+                        // Wire client-sent verbosity/vocabulary on connect (story 14-3/14-4).
+                        if let GameMessage::SessionEvent { ref payload, .. } = game_msg {
+                            if payload.event == "connect" {
+                                if let Some(v) = payload.narrator_verbosity {
+                                    narrator_verbosity = v;
+                                    tracing::info!(verbosity = ?v, "narrator.verbosity_from_client");
+                                }
+                                if let Some(v) = payload.narrator_vocabulary {
+                                    narrator_vocabulary = v;
+                                    tracing::info!(vocabulary = ?v, "narrator.vocabulary_from_client");
+                                }
+                            }
+                        }
+
                         let mut work_queue: std::collections::VecDeque<GameMessage> =
                             std::collections::VecDeque::new();
                         work_queue.push_back(game_msg);
@@ -2408,6 +2422,7 @@ async fn dispatch_message(
                 tx,
             )
             .await;
+
             // After connect identifies genre/world, join/create the shared session
             if let (Some(genre), Some(world)) = (session.genre_slug(), session.world_slug()) {
                 let ss = state.get_or_create_session(genre, world);
