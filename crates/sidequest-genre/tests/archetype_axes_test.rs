@@ -1,5 +1,6 @@
 use sidequest_genre::models::archetype_axes::*;
 use sidequest_genre::models::archetype_constraints::*;
+use sidequest_genre::models::archetype_funnels::*;
 
 #[test]
 fn test_deserialize_jungian_archetype() {
@@ -150,4 +151,69 @@ fn test_pairing_weight_lookup() {
         constraints.pairing_weight("hero", "healer"),
         None
     );
+}
+
+#[test]
+fn test_deserialize_funnel() {
+    let yaml = r#"
+        funnels:
+          - name: Thornwall Mender
+            absorbs:
+              - [sage, healer]
+              - [caregiver, healer]
+            faction: Thornwall Convocation
+            lore: "Itinerant healers"
+            cultural_status: respected but watched
+            disposition_toward:
+              Iron Guard: cautious
+          - name: Iron Warden
+            absorbs:
+              - [hero, tank]
+            faction: Iron Guard
+            lore: "Standing shield-wall"
+            cultural_status: feared
+        additional_constraints:
+          forbidden: []
+    "#;
+    let funnels: ArchetypeFunnels = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(funnels.funnels.len(), 2);
+    assert_eq!(funnels.funnels[0].absorbs.len(), 2);
+    assert_eq!(
+        funnels.funnels[0].disposition_toward.get("Iron Guard").unwrap(),
+        "cautious"
+    );
+}
+
+#[test]
+fn test_funnel_resolution() {
+    let yaml = r#"
+        funnels:
+          - name: Thornwall Mender
+            absorbs:
+              - [sage, healer]
+              - [caregiver, healer]
+            faction: Thornwall Convocation
+            lore: "Itinerant healers"
+            cultural_status: respected
+          - name: Iron Warden
+            absorbs:
+              - [hero, tank]
+            faction: Iron Guard
+            lore: "Shield-wall"
+            cultural_status: feared
+        additional_constraints:
+          forbidden: []
+    "#;
+    let funnels: ArchetypeFunnels = serde_yaml::from_str(yaml).unwrap();
+
+    let result = funnels.resolve("sage", "healer");
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().name, "Thornwall Mender");
+
+    let result = funnels.resolve("hero", "tank");
+    assert!(result.is_some());
+    assert_eq!(result.unwrap().name, "Iron Warden");
+
+    // Unmatched falls back
+    assert!(funnels.resolve("jester", "dps").is_none());
 }

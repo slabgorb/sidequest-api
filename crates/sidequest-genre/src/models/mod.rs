@@ -10,6 +10,8 @@ mod axes;
 pub mod archetype_axes;
 /// Genre-level archetype constraints — valid pairings, weights, and genre flavor.
 pub mod archetype_constraints;
+/// World-level archetype funnels — resolves axis pairs to named world archetypes.
+pub mod archetype_funnels;
 mod character;
 mod culture;
 mod inventory;
