@@ -22,17 +22,18 @@ use sidequest_protocol::{NarratorVerbosity, NarratorVocabulary};
 /// Render a `SceneDirective` into its prompt text representation.
 ///
 /// Returns `None` if the directive has no mandatory elements (empty suppression).
-/// The rendered block uses `[SCENE DIRECTIVES — MANDATORY]` header with MUST-weave
-/// language and numbered elements labeled by source (Story 6-2).
+/// The rendered block uses `[SCENE DIRECTIVES — ACTIVE ELEMENTS]` header with
+/// weave-if-possible language, subordinate to `<length-limit>` (Story 6-2).
 pub fn render_scene_directive(directive: &SceneDirective) -> Option<String> {
     if directive.mandatory_elements.is_empty() {
         return None;
     }
 
     let mut block = String::from(
-        "[SCENE DIRECTIVES — MANDATORY]\n\
-         You MUST weave at least one of the following into your response.\n\
-         These are not suggestions — they are active story elements.\n\n",
+        "[SCENE DIRECTIVES — ACTIVE ELEMENTS]\n\
+         Weave at least one of the following into your response — a detail, a line, a sensory cue.\n\
+         These are active story elements, but the <length-limit> overrides expansion.\n\
+         One sentence per directive is enough.\n\n",
     );
 
     for (i, elem) in directive.mandatory_elements.iter().enumerate() {
@@ -124,37 +125,52 @@ impl PromptRegistry {
 
         let content = match verbosity {
             NarratorVerbosity::Concise => {
-                "<length-limit>\n\
-                 Target: 2-4 sentences, around 400 characters of prose. \
-                 Action and consequence first. Brief scene-setting only on arrivals. \
-                 Keep it punchy — this mode prioritizes pace over atmosphere.\n\
-                 </length-limit>"
+                "<critical>\n\
+                 <length-limit>\n\
+                 HARD LIMIT: Maximum 4 sentences of prose. DO NOT EXCEED 400 characters of narrative text.\n\
+                 This overrides all other length guidance. If a trope beat or genre instruction \
+                 would push you past this limit, cut description — never cut the limit.\n\
+                 Action and consequence only. No atmosphere. No sensory detail.\n\
+                 The game_patch JSON does not count toward this limit.\n\
+                 </length-limit>\n\
+                 </critical>"
             }
             NarratorVerbosity::Standard => {
-                "<length-limit>\n\
-                 Target: 2-3 short paragraphs, around 800 characters of prose. \
-                 Describe the scene, the action, and what the player sees next. \
-                 Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
-                 Dialogue gets voice and personality. Vary length by moment.\n\
-                 </length-limit>"
+                "<critical>\n\
+                 <length-limit>\n\
+                 HARD LIMIT: Maximum 6 sentences of prose. DO NOT EXCEED 600 characters of narrative text.\n\
+                 This overrides all other length guidance. If a trope beat, genre voice instruction, \
+                 or MUST-weave directive would push you past this limit, cut description — never cut the limit.\n\
+                 One short paragraph for simple actions. Two short paragraphs for arrivals or reveals.\n\
+                 The game_patch JSON block does not count toward this limit.\n\
+                 Count your sentences before responding. If you have more than 6, cut.\n\
+                 </length-limit>\n\
+                 </critical>"
             }
             NarratorVerbosity::Verbose => {
-                "<length-limit>\n\
-                 Target: 2-4 paragraphs, around 1200 characters of prose. \
-                 Rich atmosphere, sensory detail, NPC personality. Let scenes breathe. \
-                 Big moments (arrivals, reveals, combat starts) get the full treatment. \
-                 Quieter turns can be shorter — vary the rhythm.\n\
-                 </length-limit>"
+                "<critical>\n\
+                 <length-limit>\n\
+                 HARD LIMIT: Maximum 10 sentences of prose. DO NOT EXCEED 1000 characters of narrative text.\n\
+                 This overrides all other length guidance. If a trope beat or genre instruction \
+                 would push you past this limit, cut description — never cut the limit.\n\
+                 Rich atmosphere for arrivals and reveals. Shorter for simple actions.\n\
+                 The game_patch JSON does not count toward this limit.\n\
+                 </length-limit>\n\
+                 </critical>"
             }
             // `NarratorVerbosity` is `#[non_exhaustive]` — unknown values from
             // newer wire versions fall back to Standard prose length.
             _ => {
-                "<length-limit>\n\
-                 Target: 2-3 short paragraphs, around 800 characters of prose. \
-                 Describe the scene, the action, and what the player sees next. \
-                 Room arrivals get atmosphere and exits. Combat gets kinetic beats. \
-                 Dialogue gets voice and personality. Vary length by moment.\n\
-                 </length-limit>"
+                "<critical>\n\
+                 <length-limit>\n\
+                 HARD LIMIT: Maximum 6 sentences of prose. DO NOT EXCEED 600 characters of narrative text.\n\
+                 This overrides all other length guidance. If a trope beat, genre voice instruction, \
+                 or MUST-weave directive would push you past this limit, cut description — never cut the limit.\n\
+                 One short paragraph for simple actions. Two short paragraphs for arrivals or reveals.\n\
+                 The game_patch JSON block does not count toward this limit.\n\
+                 Count your sentences before responding. If you have more than 6, cut.\n\
+                 </length-limit>\n\
+                 </critical>"
             }
         };
 

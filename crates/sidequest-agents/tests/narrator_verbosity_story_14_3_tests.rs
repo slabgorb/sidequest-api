@@ -41,8 +41,8 @@ fn verbosity_standard_injects_standard_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("2-3 short paragraphs") || composed.contains("800 characters"),
-        "standard mode must reference standard prose length targets, got: {composed}"
+        composed.contains("600 characters"),
+        "standard mode must reference 600 char hard limit, got: {composed}"
     );
 }
 
@@ -53,8 +53,8 @@ fn verbosity_verbose_injects_elaborate_instruction() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("sensory detail") || composed.contains("1200 characters"),
-        "verbose mode must instruct elaborate narration with 1200 char target, got: {composed}"
+        composed.contains("1000 characters"),
+        "verbose mode must reference 1000 char hard limit, got: {composed}"
     );
 }
 

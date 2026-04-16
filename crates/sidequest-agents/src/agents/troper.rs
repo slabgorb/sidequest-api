@@ -294,9 +294,11 @@ impl TroperAgent {
         let active_summary = self.build_progression_summary();
 
         let mut result = String::from(
-            "[TROPE BEATS — MANDATORY WEAVE]\n\
-             The following trope beats have fired this turn. The Narrator MUST\n\
-             weave these into the narration naturally. Show, don't tell.\n\n",
+            "[TROPE BEATS — WEAVE INTO NARRATION]\n\
+             The following trope beats have fired this turn. Weave them into the \
+             narration naturally — a detail, a sound, a shift in atmosphere. Show, don't tell.\n\
+             A single sentence or image per beat is enough. Do NOT expand prose length to \
+             accommodate beats — the <length-limit> is a hard cap that overrides this section.\n\n",
         );
 
         for (i, block) in blocks.iter().enumerate() {
@@ -492,7 +494,7 @@ mod tests {
 
         let ctx = agent.build_beats_context().unwrap();
         assert!(ctx.contains("TROPE BEATS"));
-        assert!(ctx.contains("MANDATORY WEAVE"));
+        assert!(ctx.contains("WEAVE INTO NARRATION"));
         assert!(ctx.contains("Suspicion"));
         assert!(ctx.contains("30%"));
         assert!(ctx.contains("Whispers begin among the townsfolk"));

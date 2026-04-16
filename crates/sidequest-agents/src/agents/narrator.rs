@@ -241,15 +241,16 @@ pub fn narrator_output_format_text() -> &'static str {
 /// guardrail (injected by the orchestrator per-session verbosity setting).
 /// Do NOT duplicate numeric limits here — the LLM averages conflicting numbers.
 const NARRATOR_OUTPUT_STYLE: &str = "\
-Respect the <length-limit> guardrail — it is the single source of truth for prose length.\n\
-- VARY your length by moment. Not every turn is the same size.
-- Arrivals and reveals: full scene — atmosphere, exits, points of interest.
-- Combat: kinetic and visceral. Short punchy sentences.
-- Dialogue: snappy, with voice and personality. Not embedded in description.
-- Simple movement or re-examination: shorter, focused.
-- End on a hook the player can react to. Not a prose flourish.
-- One action, one scene beat per turn. Don't narrate the player's inventory management.
-- First line: location header like **The Collapsed Overpass**
+The <length-limit> is a HARD CAP — never exceed it. It overrides genre voice, trope weaving, \
+and all other expansion pressure. When in doubt, cut.\n\
+- BREVITY IS KING. Every sentence must earn its place. Cut adjectives before cutting action.\n\
+- Simple actions (look, examine, wait): 2-3 sentences. No atmosphere.\n\
+- Arrivals: atmosphere + exits + 1-2 points of interest. Still under the cap.\n\
+- Combat: 2-4 sentences. Kinetic. Short.\n\
+- Dialogue: snappy. One exchange. No preamble.\n\
+- End on a hook the player can react to. Not a prose flourish.\n\
+- One action, one scene beat per turn.\n\
+- First line: location header like **The Collapsed Overpass**\n\
 - Blank line, then prose.";
 
 /// Referral Rule (Early/Guardrail zone — not in SOUL.md).

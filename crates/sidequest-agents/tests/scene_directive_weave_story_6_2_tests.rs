@@ -55,7 +55,7 @@ fn empty_directive() -> SceneDirective {
 }
 
 // =========================================================================
-// AC: Prompt section — renders as [SCENE DIRECTIVES — MANDATORY] block
+// AC: Prompt section — renders as [SCENE DIRECTIVES — ACTIVE ELEMENTS] block
 // =========================================================================
 
 #[test]
@@ -67,18 +67,18 @@ fn render_scene_directive_contains_mandatory_header() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("[SCENE DIRECTIVES — MANDATORY]"),
-        "Rendered block must contain the [SCENE DIRECTIVES — MANDATORY] header, got:\n{}",
+        composed.contains("[SCENE DIRECTIVES — ACTIVE ELEMENTS]"),
+        "Rendered block must contain the [SCENE DIRECTIVES — ACTIVE ELEMENTS] header, got:\n{}",
         composed
     );
 }
 
 // =========================================================================
-// AC: MUST-weave language — explicit "you MUST weave" instruction
+// AC: Weave language — explicit weave instruction subordinate to length-limit
 // =========================================================================
 
 #[test]
-fn render_scene_directive_contains_must_weave_language() {
+fn render_scene_directive_contains_weave_language() {
     let mut registry = PromptRegistry::new();
     let directive = sample_directive();
 
@@ -86,8 +86,8 @@ fn render_scene_directive_contains_must_weave_language() {
 
     let composed = registry.compose("narrator");
     assert!(
-        composed.contains("MUST weave"),
-        "Block must contain explicit MUST-weave instruction, got:\n{}",
+        composed.contains("Weave at least one"),
+        "Block must contain weave instruction, got:\n{}",
         composed
     );
 }
@@ -177,7 +177,7 @@ fn narrative_primacy_directive_appears_before_game_state_in_composed_prompt() {
     let prompt = builder.compose();
 
     let directive_pos = prompt
-        .find("[SCENE DIRECTIVES — MANDATORY]")
+        .find("[SCENE DIRECTIVES — ACTIVE ELEMENTS]")
         .expect("Directive header should be in composed prompt");
     let state_pos = prompt
         .find("<game_state>")
@@ -220,7 +220,7 @@ fn narrative_primacy_directive_appears_after_identity_in_composed_prompt() {
         .find("You are the narrator.")
         .expect("Identity should be in composed prompt");
     let directive_pos = prompt
-        .find("[SCENE DIRECTIVES — MANDATORY]")
+        .find("[SCENE DIRECTIVES — ACTIVE ELEMENTS]")
         .expect("Directive header should be in composed prompt");
 
     assert!(
@@ -447,7 +447,7 @@ fn full_pipeline_directive_through_context_builder() {
         .expect("Non-empty directive should produce rendered text");
 
     // Step 3: Verify the rendered text has required structure
-    assert!(rendered.contains("[SCENE DIRECTIVES — MANDATORY]"));
+    assert!(rendered.contains("[SCENE DIRECTIVES — ACTIVE ELEMENTS]"));
     assert!(rendered.contains("MUST weave"));
     assert!(rendered.contains("[Trope Beat]"));
     assert!(rendered.contains("a distant explosion rocks the marketplace"));
@@ -486,7 +486,7 @@ fn full_pipeline_directive_through_context_builder() {
     let prompt = builder.compose();
 
     let identity_pos = prompt.find("You are the narrator").unwrap();
-    let directive_pos = prompt.find("[SCENE DIRECTIVES — MANDATORY]").unwrap();
+    let directive_pos = prompt.find("[SCENE DIRECTIVES — ACTIVE ELEMENTS]").unwrap();
     let state_pos = prompt.find("<game_state>").unwrap();
     let action_pos = prompt.find("The player says:").unwrap();
 
