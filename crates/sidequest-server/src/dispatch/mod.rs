@@ -2057,15 +2057,16 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // `build_response_messages` via `ctx.tx.send` and are NOT pushed into
     // `messages` — the caller only flushes the Vec, so if they were in it
     // they'd be sent twice (the 2026-04-11 regression).
+    let response_ctx = response::ResponseContext {
+        clean_narration: &clean_narration,
+        result: &result,
+        tier_events: &tier_events,
+        narration_state_delta,
+    };
     let merged_footnotes = response::build_response_messages(
         ctx,
-        &clean_narration,
-        narration_text,
-        &result,
-        &tier_events,
-        &effective_action,
+        &response_ctx,
         &mut messages,
-        narration_state_delta,
     )
     .await;
 
@@ -2334,17 +2335,17 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
     // GM Panel snapshot + timing telemetry — single source of truth for
     // the dashboard's TurnComplete event. See emit_telemetry's doc comment.
-    telemetry::emit_telemetry(
-        ctx,
+    let telemetry_ctx = telemetry::TelemetryContext {
         turn_number,
-        &result,
+        result: &result,
         turn_start,
         preprocess_done,
         agent_done,
-        &game_delta,
-        &patches_applied,
-        &turn_beats_for_record,
-    );
+        game_delta: &game_delta,
+        patches_applied: &patches_applied,
+        beats_fired: &turn_beats_for_record,
+    };
+    telemetry::emit_telemetry(ctx, &telemetry_ctx);
 
     // ADR-073: Construct and send TurnRecord for training data capture +
     // SubsystemTracker. The TurnRecord bridge in main.rs persists records to

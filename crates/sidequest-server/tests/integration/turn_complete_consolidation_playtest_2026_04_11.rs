@@ -76,26 +76,25 @@ fn telemetry_emit_carries_patches_beats_delta_narration_fields() {
 fn telemetry_emit_signature_takes_consolidated_args() {
     let src = include_str!("../../src/dispatch/telemetry.rs");
 
-    // The function signature must take game_delta + patches_applied +
-    // beats_fired so the call site can pass dispatch-computed values
-    // without re-deriving them.
+    // After story 36-2, these fields moved from direct function parameters
+    // to the TelemetryContext struct. The intent is the same: emit_telemetry
+    // must receive game_delta, patches_applied, and beats_fired so the
+    // call site can pass dispatch-computed values without re-deriving them.
     assert!(
-        src.contains("game_delta: &sidequest_game::StateDelta"),
-        "telemetry.rs::emit_telemetry must accept `game_delta: &StateDelta` \
+        src.contains("game_delta") && src.contains("sidequest_game::StateDelta"),
+        "telemetry.rs must carry `game_delta: StateDelta` (via TelemetryContext) \
          so the TurnComplete builder can call game_delta.is_empty(). The \
-         delta is computed in dispatch/mod.rs around line 2004 and must be \
-         threaded through, not re-derived inside emit_telemetry."
+         delta is computed in dispatch/mod.rs and threaded through."
     );
     assert!(
-        src.contains("patches_applied: &[sidequest_agents::turn_record::PatchSummary]"),
-        "telemetry.rs::emit_telemetry must accept `patches_applied: \
-         &[PatchSummary]` ported from dispatch::patching::derive_patches_from_delta()."
+        src.contains("patches_applied") && src.contains("PatchSummary"),
+        "telemetry.rs must carry `patches_applied: &[PatchSummary]` \
+         (via TelemetryContext) ported from dispatch::patching::derive_patches_from_delta()."
     );
     assert!(
-        src.contains("beats_fired: &[(String, f32)]"),
-        "telemetry.rs::emit_telemetry must accept `beats_fired: \
-         &[(String, f32)]` matching the turn_beats_for_record vec dispatch \
-         already computes."
+        src.contains("beats_fired"),
+        "telemetry.rs must carry `beats_fired` (via TelemetryContext) \
+         matching the turn_beats_for_record vec dispatch already computes."
     );
 }
 

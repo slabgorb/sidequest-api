@@ -4,6 +4,20 @@ use crate::{Severity, WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
 
+/// Per-turn telemetry data passed to `emit_telemetry` alongside the
+/// long-lived `DispatchContext`. Bundles timing, result, and delta values
+/// that were previously individual parameters (story 36-2).
+pub(super) struct TelemetryContext<'a> {
+    pub turn_number: u64,
+    pub result: &'a sidequest_agents::orchestrator::ActionResult,
+    pub turn_start: std::time::Instant,
+    pub preprocess_done: std::time::Instant,
+    pub agent_done: std::time::Instant,
+    pub game_delta: &'a sidequest_game::StateDelta,
+    pub patches_applied: &'a [sidequest_agents::turn_record::PatchSummary],
+    pub beats_fired: &'a [(String, f32)],
+}
+
 /// Emit GM panel snapshot and turn timing telemetry.
 ///
 /// Playtest 2026-04-11: this function is now the SINGLE SOURCE OF TRUTH for
@@ -24,19 +38,18 @@ use super::DispatchContext;
 /// the duplicate event. The TurnRecord bridge in main.rs is still alive — it
 /// continues to drive ADR-073 JSONL training data persistence and the
 /// SubsystemTracker — but no longer emits a competing WatcherEvent.
-// 9 args — fold into a `TelemetryContext` struct in the dispatch refactor.
-#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_telemetry(
     ctx: &mut DispatchContext<'_>,
-    turn_number: u64,
-    result: &sidequest_agents::orchestrator::ActionResult,
-    turn_start: std::time::Instant,
-    preprocess_done: std::time::Instant,
-    agent_done: std::time::Instant,
-    game_delta: &sidequest_game::StateDelta,
-    patches_applied: &[sidequest_agents::turn_record::PatchSummary],
-    beats_fired: &[(String, f32)],
+    tctx: &TelemetryContext<'_>,
 ) {
+    let turn_number = tctx.turn_number;
+    let result = tctx.result;
+    let turn_start = tctx.turn_start;
+    let preprocess_done = tctx.preprocess_done;
+    let agent_done = tctx.agent_done;
+    let game_delta = tctx.game_delta;
+    let patches_applied = tctx.patches_applied;
+    let beats_fired = tctx.beats_fired;
     // GM Panel: emit full game state snapshot after all mutations
     {
         let turn_approx = ctx.turn_manager.interaction() as u32;
