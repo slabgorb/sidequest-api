@@ -141,6 +141,17 @@ pub enum InventoryError {
         /// Maximum weight limit.
         limit: f64,
     },
+    /// Insufficient gold for the transaction.
+    #[error("insufficient gold: have {have}, need {need}")]
+    InsufficientGold {
+        /// Gold the player currently has.
+        have: i64,
+        /// Gold required for the transaction.
+        need: i64,
+    },
+    /// Invalid gold amount (negative spend).
+    #[error("invalid gold amount: {0}")]
+    InvalidGoldAmount(i64),
 }
 
 /// A character's inventory ledger — append-only item history and gold.
@@ -317,14 +328,23 @@ impl Inventory {
         }
     }
 
-    /// Deduct gold, clamping at zero. Returns the actual amount deducted.
+    /// Deduct gold from inventory. Returns the amount spent on success.
     ///
-    /// If the player has less gold than `amount`, deducts whatever they have
-    /// and returns that (smaller) value. Gold never goes negative.
-    pub fn spend_gold(&mut self, amount: i64) -> i64 {
-        let actual = amount.min(self.gold);
-        self.gold -= actual;
-        actual
+    /// Returns `Err(InsufficientGold)` if `amount` exceeds current balance.
+    /// Returns `Err(InvalidGoldAmount)` if `amount` is negative.
+    /// Balance is unchanged on error.
+    pub fn spend_gold(&mut self, amount: i64) -> Result<i64, InventoryError> {
+        if amount < 0 {
+            return Err(InventoryError::InvalidGoldAmount(amount));
+        }
+        if amount > self.gold {
+            return Err(InventoryError::InsufficientGold {
+                have: self.gold,
+                need: amount,
+            });
+        }
+        self.gold -= amount;
+        Ok(amount)
     }
 
     /// Deplete the first light source on a room transition.
@@ -1068,30 +1088,30 @@ mod tests {
             items: vec![],
             gold: 50,
         };
-        let spent = inv.spend_gold(13);
+        let spent = inv.spend_gold(13).unwrap();
         assert_eq!(spent, 13);
         assert_eq!(inv.gold, 37);
     }
 
     #[test]
-    fn spend_gold_clamps_at_zero() {
+    fn spend_gold_rejects_overspend() {
         let mut inv = Inventory {
             items: vec![],
             gold: 10,
         };
-        let spent = inv.spend_gold(13);
-        assert_eq!(spent, 10, "should only spend what's available");
-        assert_eq!(inv.gold, 0, "gold should be 0, not negative");
+        let result = inv.spend_gold(13);
+        assert!(result.is_err(), "overspend must be rejected");
+        assert_eq!(inv.gold, 10, "balance unchanged on rejected transaction");
     }
 
     #[test]
-    fn spend_gold_from_zero_spends_nothing() {
+    fn spend_gold_from_zero_rejects() {
         let mut inv = Inventory {
             items: vec![],
             gold: 0,
         };
-        let spent = inv.spend_gold(5);
-        assert_eq!(spent, 0);
+        let result = inv.spend_gold(5);
+        assert!(result.is_err());
         assert_eq!(inv.gold, 0);
     }
 
@@ -1101,7 +1121,7 @@ mod tests {
             items: vec![],
             gold: 10,
         };
-        let spent = inv.spend_gold(10);
+        let spent = inv.spend_gold(10).unwrap();
         assert_eq!(spent, 10);
         assert_eq!(inv.gold, 0);
     }

@@ -411,23 +411,66 @@ pub(crate) async fn apply_state_mutations(
     // costs. This path handles narrator-determined variable outcomes.
     if let Some(gold_change) = result.gold_change {
         let gold_before = ctx.inventory.gold;
-        ctx.inventory.gold = (ctx.inventory.gold + gold_change).max(0);
-        if let Some(ch) = ctx.snapshot.characters.first_mut() {
-            ch.core.inventory.gold = ctx.inventory.gold;
+        if gold_change >= 0 {
+            // Gold gain — always valid.
+            ctx.inventory.gold += gold_change;
+            if let Some(ch) = ctx.snapshot.characters.first_mut() {
+                ch.core.inventory.gold = ctx.inventory.gold;
+            }
+            WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                .field("event", "inventory.gold_change")
+                .field("source", "narrator")
+                .field("gold_change", gold_change)
+                .field("gold_before", gold_before)
+                .field("gold_after", ctx.inventory.gold)
+                .send();
+            tracing::info!(
+                gold_change,
+                gold_before,
+                gold_after = ctx.inventory.gold,
+                "inventory.gold_change — narrator-emitted currency gain"
+            );
+        } else {
+            // Gold loss — must not exceed balance.
+            let spend_amount = gold_change.unsigned_abs() as i64;
+            match ctx.inventory.spend_gold(spend_amount) {
+                Ok(spent) => {
+                    if let Some(ch) = ctx.snapshot.characters.first_mut() {
+                        ch.core.inventory.gold = ctx.inventory.gold;
+                    }
+                    WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
+                        .field("event", "inventory.gold_change")
+                        .field("source", "narrator")
+                        .field("gold_change", gold_change)
+                        .field("gold_before", gold_before)
+                        .field("gold_after", ctx.inventory.gold)
+                        .field("spent", spent)
+                        .send();
+                    tracing::info!(
+                        gold_change,
+                        gold_before,
+                        gold_after = ctx.inventory.gold,
+                        "inventory.gold_change — narrator-emitted currency loss"
+                    );
+                }
+                Err(e) => {
+                    WatcherEventBuilder::new("inventory", WatcherEventType::ValidationWarning)
+                        .field("event", "inventory.gold_overspend_rejected")
+                        .field("source", "narrator")
+                        .field("gold_change", gold_change)
+                        .field("gold_before", gold_before)
+                        .field("error", format!("{e}"))
+                        .field("turn", ctx.turn_manager.interaction())
+                        .send();
+                    tracing::warn!(
+                        gold_change,
+                        gold_before,
+                        error = %e,
+                        "inventory.gold_overspend_rejected — narrator requested more gold than available"
+                    );
+                }
+            }
         }
-        WatcherEventBuilder::new("inventory", WatcherEventType::StateTransition)
-            .field("event", "inventory.gold_change")
-            .field("source", "narrator")
-            .field("gold_change", gold_change)
-            .field("gold_before", gold_before)
-            .field("gold_after", ctx.inventory.gold)
-            .send();
-        tracing::info!(
-            gold_change,
-            gold_before,
-            gold_after = ctx.inventory.gold,
-            "inventory.gold_change — narrator-emitted currency mutation"
-        );
     }
 
     MutationResult {
