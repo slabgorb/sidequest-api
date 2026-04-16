@@ -1829,22 +1829,68 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
     // resolver does the cross-product table lookup and per_actor_state delta
     // application. This branch runs BEFORE the beat dispatch loop because
     // sealed-letter encounters don't use narrator-emitted beat_selections.
-    if let Some(ref encounter) = ctx.snapshot.encounter {
-        if let Some(def) = crate::find_confrontation_def(&ctx.confrontation_defs, &encounter.encounter_type) {
-            if def.resolution_mode == sidequest_genre::ResolutionMode::SealedLetterLookup {
-                if let Some(ref interaction_table) = def.interaction_table {
-                    // Commits are gathered from TurnBarrier at the session layer and
-                    // passed as a HashMap. For now, this is the wiring point — the
-                    // actual commit-gathering integration with TurnBarrier will be
-                    // connected when the sealed-letter turn flow is wired end-to-end.
-                    // The synchronous resolve_sealed_letter_lookup() handles lookup +
-                    // delta application + OTEL.
-                    let _ = sealed_letter::resolve_sealed_letter_lookup(
-                        ctx.snapshot.encounter.as_mut().unwrap(),
-                        &std::collections::HashMap::new(), // placeholder until TurnBarrier wiring
-                        interaction_table,
-                    );
+    //
+    // Borrow strategy: extract all data we need from the immutable encounter
+    // ref first, drop that borrow, then take &mut for the resolution call.
+    {
+        let sealed_letter_input: Option<(HashMap<String, String>, sidequest_genre::InteractionTable)> = ctx
+            .snapshot
+            .encounter
+            .as_ref()
+            .and_then(|encounter| {
+                let def = crate::find_confrontation_def(&ctx.confrontation_defs, &encounter.encounter_type)?;
+                if def.resolution_mode != sidequest_genre::ResolutionMode::SealedLetterLookup {
+                    return None;
                 }
+                let interaction_table = def.interaction_table.clone()?;
+
+                // Gather committed maneuvers from the TurnBarrier. named_actions()
+                // returns char_name → action_text. We map through encounter actors
+                // to get role → maneuver (e.g., "red" → "bank", "blue" → "straight").
+                let commits: HashMap<String, String> = if let Some(ref outcome) = barrier_outcome {
+                    let named = outcome.barrier.named_actions();
+                    encounter
+                        .actors
+                        .iter()
+                        .filter_map(|actor| {
+                            named.get(&actor.name).map(|maneuver| {
+                                (actor.role.clone(), maneuver.clone())
+                            })
+                        })
+                        .collect()
+                } else {
+                    // Solo play: single player's action is the maneuver for
+                    // whichever role they occupy. The other actor is NPC and
+                    // gets a default maneuver from the table's starting_state.
+                    let mut solo = HashMap::new();
+                    for actor in &encounter.actors {
+                        if actor.name == ctx.char_name {
+                            solo.insert(actor.role.clone(), ctx.action.to_string());
+                        } else {
+                            // NPC actor: use starting_state as default maneuver
+                            solo.insert(actor.role.clone(), interaction_table.starting_state.clone());
+                        }
+                    }
+                    solo
+                };
+
+                Some((commits, interaction_table))
+            });
+
+        if let Some((commits, interaction_table)) = sealed_letter_input {
+            let encounter_type = ctx.snapshot.encounter.as_ref()
+                .map(|e| e.encounter_type.clone())
+                .unwrap_or_default();
+            if let Err(e) = sealed_letter::resolve_sealed_letter_lookup(
+                ctx.snapshot.encounter.as_mut().unwrap(),
+                &commits,
+                &interaction_table,
+            ) {
+                tracing::warn!(
+                    error = %e,
+                    encounter_type = %encounter_type,
+                    "sealed_letter resolution failed — encounter continues without mechanical resolution"
+                );
             }
         }
     }
