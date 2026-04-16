@@ -20,6 +20,7 @@ use serde::Serialize;
 use sidequest_genre::archetype_resolve::{resolve_archetype, ResolutionSource};
 use sidequest_genre::models::archetype_constraints::ArchetypeConstraints;
 use sidequest_genre::models::archetype_funnels::ArchetypeFunnels;
+use sidequest_genre::models::npc_traits::NpcTrait;
 use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 
 #[derive(Parser)]
@@ -98,6 +99,8 @@ struct NpcBlock {
     npc_role_id: Option<String>,
     resolved_archetype: String,
     resolution_source: String,
+    /// Spawn-tier quirks selected from the NPC traits database.
+    spawn_quirks: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -364,6 +367,38 @@ fn legacy_axis_fallback(
     )
 }
 
+/// Weighted random selection from a trait pool.
+/// Traits with `jungian_affinity` matching the NPC's jungian_id get 3x weight.
+fn select_quirk(traits: &[NpcTrait], jungian_id: Option<&str>, rng: &mut impl Rng) -> Option<String> {
+    if traits.is_empty() {
+        return None;
+    }
+    let weights: Vec<f64> = traits
+        .iter()
+        .map(|t| {
+            if let Some(jungian) = jungian_id {
+                if t.jungian_affinity.iter().any(|a| a == jungian) {
+                    3.0
+                } else {
+                    1.0
+                }
+            } else {
+                1.0
+            }
+        })
+        .collect();
+
+    let total: f64 = weights.iter().sum();
+    let mut roll = rng.random::<f64>() * total;
+    for (i, w) in weights.iter().enumerate() {
+        roll -= w;
+        if roll <= 0.0 {
+            return Some(traits[i].trait_name.clone());
+        }
+    }
+    Some(traits.last()?.trait_name.clone())
+}
+
 fn generate_npc(
     pack: &GenrePack,
     genre_dir: &std::path::Path,
@@ -473,6 +508,33 @@ fn generate_npc(
     // Select a random subset of dialogue quirks (3) so each NPC gets a unique voice
     let dialogue_quirks = select_quirk_subset(&archetype.dialogue_quirks, 3, rng);
 
+    // Select spawn-tier quirks from the NPC traits database (1-2 quirks).
+    let spawn_quirks = if let Some(ref db) = pack.npc_traits {
+        let jungian_ref = if jungian_id.is_empty() {
+            None
+        } else {
+            Some(jungian_id.as_str())
+        };
+        let mut quirks = Vec::new();
+        // 1 personality quirk (weighted by jungian affinity)
+        if let Some(q) = select_quirk(&db.personality, jungian_ref, rng) {
+            quirks.push(q);
+        }
+        // 1 physical or behavioral quirk (50/50, no affinity weighting)
+        let use_physical: bool = rng.random();
+        let pool = if use_physical {
+            &db.physical
+        } else {
+            &db.behavioral
+        };
+        if let Some(q) = select_quirk(pool, None, rng) {
+            quirks.push(q);
+        }
+        quirks
+    } else {
+        vec![]
+    };
+
     NpcBlock {
         name,
         pronouns,
@@ -497,6 +559,7 @@ fn generate_npc(
         npc_role_id,
         resolved_archetype,
         resolution_source,
+        spawn_quirks,
     }
 }
 
