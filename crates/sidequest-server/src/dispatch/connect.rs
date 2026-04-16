@@ -345,6 +345,34 @@ pub(crate) async fn dispatch_connect(
                             });
                         }
 
+                        // JOURNAL_RESPONSE — backfill knowledge entries on
+                        // reconnect. known_facts are persisted in the snapshot
+                        // but were never re-sent to the UI, causing the
+                        // Knowledge tab to show "empty" after session re-entry.
+                        if let Some(c) = saved.snapshot.characters.first() {
+                            if !c.known_facts.is_empty() {
+                                let filter = sidequest_game::journal::JournalFilter {
+                                    category: None,
+                                    sort_by: sidequest_protocol::JournalSortOrder::Time,
+                                };
+                                let entries =
+                                    sidequest_game::journal::build_journal_entries(
+                                        &c.known_facts,
+                                        &filter,
+                                    );
+                                tracing::info!(
+                                    entry_count = entries.len(),
+                                    "session_restore.journal_backfill"
+                                );
+                                responses.push(GameMessage::JournalResponse {
+                                    payload: sidequest_protocol::JournalResponsePayload {
+                                        entries,
+                                    },
+                                    player_id: player_id.to_string(),
+                                });
+                            }
+                        }
+
                         // Last NARRATION — recap, last narrative log entry, or
                         // a location-based fallback built from the current
                         // RoomDef description. The fallback case was added
@@ -501,6 +529,32 @@ pub(crate) async fn dispatch_connect(
                                 payload: PartyStatusPayload { members },
                                 player_id: player_id.to_string(),
                             });
+                        }
+
+                        // JOURNAL_RESPONSE — backfill knowledge entries (second
+                        // reconnect path). Same logic as the first reconnect path.
+                        if let Some(c) = saved.snapshot.characters.first() {
+                            if !c.known_facts.is_empty() {
+                                let filter = sidequest_game::journal::JournalFilter {
+                                    category: None,
+                                    sort_by: sidequest_protocol::JournalSortOrder::Time,
+                                };
+                                let entries =
+                                    sidequest_game::journal::build_journal_entries(
+                                        &c.known_facts,
+                                        &filter,
+                                    );
+                                tracing::info!(
+                                    entry_count = entries.len(),
+                                    "session_restore.journal_backfill"
+                                );
+                                responses.push(GameMessage::JournalResponse {
+                                    payload: sidequest_protocol::JournalResponsePayload {
+                                        entries,
+                                    },
+                                    player_id: player_id.to_string(),
+                                });
+                            }
                         }
 
                         // MAP_UPDATE — replay explored map state so the client
