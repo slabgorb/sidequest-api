@@ -623,6 +623,19 @@ impl StructuredEncounter {
             lines.push("=== END PER-ACTOR STATE ===".to_string());
         }
 
+        // Narrator hints — injected by sealed-letter resolution (narration_hint
+        // from the matched interaction cell). These are the beats the narrator
+        // MUST hit when rendering the turn.
+        if !self.narrator_hints.is_empty() {
+            lines.push(String::new());
+            lines.push("=== NARRATOR BEAT ===".to_string());
+            for hint in &self.narrator_hints {
+                lines.push(hint.clone());
+            }
+            lines.push("Hit this beat in your narration.".to_string());
+            lines.push("=== END NARRATOR BEAT ===".to_string());
+        }
+
         // Available beats
         lines.push("Available:".to_string());
         for (i, beat) in def.beats.iter().enumerate() {
