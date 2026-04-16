@@ -241,13 +241,18 @@ fn assemble_turn_produces_complete_action_result() {
         footnotes: vec![sidequest_protocol::Footnote {
             marker: Some(1),
             fact_id: None,
-            summary: "The market is always busy at noon.".to_string(),
+            summary: sidequest_protocol::NonBlankString::new(
+                "The market is always busy at noon.",
+            )
+            .expect("literal is non-blank"),
             category: FactCategory::Place,
             is_new: true,
         }],
         items_gained: vec![sidequest_protocol::ItemGained {
-            name: "copper coin".to_string(),
-            description: "A worn copper coin.".to_string(),
+            name: sidequest_protocol::NonBlankString::new("copper coin")
+                .expect("literal is non-blank"),
+            description: sidequest_protocol::NonBlankString::new("A worn copper coin.")
+                .expect("literal is non-blank"),
             category: "treasure".to_string(),
         }],
         npcs_present: vec![],

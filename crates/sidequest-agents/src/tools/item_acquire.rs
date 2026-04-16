@@ -36,9 +36,15 @@ impl ItemAcquireResult {
     /// Uses `item_ref` as the description — the narrator's reference text
     /// serves as a reasonable one-line description.
     pub fn to_item_gained(&self) -> sidequest_protocol::ItemGained {
+        // `validate_item_acquire` guarantees `name` and `item_ref` are
+        // non-empty after trimming, so these `NonBlankString::new` calls
+        // are infallible — `.expect` carries the invariant rather than
+        // masking a silent fallback.
         sidequest_protocol::ItemGained {
-            name: self.name.clone(),
-            description: self.item_ref.clone(),
+            name: sidequest_protocol::NonBlankString::new(&self.name)
+                .expect("validate_item_acquire ensures name is non-blank"),
+            description: sidequest_protocol::NonBlankString::new(&self.item_ref)
+                .expect("validate_item_acquire ensures item_ref is non-blank"),
             category: self.category.clone(),
         }
     }

@@ -317,6 +317,34 @@ struct AppStateInner {
     /// Story 37-2: Without this, IMAGE messages go to global broadcast and
     /// leak across sessions on shared servers.
     render_job_sessions: Mutex<HashMap<uuid::Uuid, String>>,
+    /// Per-job turn id captured at enqueue time so the broadcaster can
+    /// associate a completed render back to the turn that requested it
+    /// (story 33-18 follow-up — thread RenderSubject through DispatchContext).
+    render_job_turns: Mutex<HashMap<uuid::Uuid, u64>>,
+    /// Per-session latest completed render, keyed by "genre:world". Written
+    /// by `render_integration::spawn_image_broadcaster_with_throttle` when a
+    /// render completes, consumed by `dispatch/response::build_response_messages`
+    /// when it assembles the scrapbook entry so the ScrapbookEntry payload
+    /// can carry scene_title/scene_type/image_url at emission time instead of
+    /// forcing the client to join a later IMAGE message by turn_id. See
+    /// story 33-18 follow-up — threads the latest render through DispatchContext.
+    latest_scrapbook_render: Mutex<HashMap<String, LatestScrapbookRender>>,
+}
+
+/// Per-session record of the most recently broadcast image, retained just
+/// long enough for `dispatch/response.rs` to fold the render into the
+/// scrapbook entry for the same turn. Dropped as soon as it is taken (the
+/// next turn's render will overwrite stale entries regardless).
+#[derive(Debug, Clone)]
+pub(crate) struct LatestScrapbookRender {
+    /// The turn this render belongs to. Dispatch takes the record only when
+    /// the response builder's turn_id matches, so a stale entry from a prior
+    /// turn simply leaves the scrapbook `None` and the UI merges a later
+    /// IMAGE message as before.
+    pub turn_id: u64,
+    pub scene_title: Option<sidequest_protocol::NonBlankString>,
+    pub scene_type: Option<String>,
+    pub url: sidequest_protocol::NonBlankString,
 }
 
 impl fmt::Debug for AppStateInner {
@@ -495,6 +523,8 @@ impl AppState {
                 turn_id_counter: Mutex::new(sidequest_agents::turn_record::TurnIdCounter::new()),
                 lora_warned_genres: Mutex::new(HashSet::new()),
                 render_job_sessions: Mutex::new(HashMap::new()),
+                render_job_turns: Mutex::new(HashMap::new()),
+                latest_scrapbook_render: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -633,6 +663,25 @@ impl AppState {
             .insert(job_id, session_key);
     }
 
+    /// Record the turn id a render job was enqueued on so the broadcaster
+    /// can fold the completed IMAGE back into the matching scrapbook entry.
+    pub fn register_render_turn(&self, job_id: uuid::Uuid, turn_id: u64) {
+        self.inner
+            .render_job_turns
+            .lock()
+            .unwrap()
+            .insert(job_id, turn_id);
+    }
+
+    /// Take-and-remove the turn id for a completed render job.
+    pub fn take_render_turn(&self, job_id: &uuid::Uuid) -> Option<u64> {
+        self.inner
+            .render_job_turns
+            .lock()
+            .unwrap()
+            .remove(job_id)
+    }
+
     /// Look up and remove a render job's session key (story 37-2).
     /// Returns the session key if found, None otherwise. Removal prevents
     /// unbounded growth of the mapping.
@@ -642,6 +691,43 @@ impl AppState {
             .lock()
             .unwrap()
             .remove(job_id)
+    }
+
+    /// Record the most recent completed render for a session so the next
+    /// `build_response_messages` call can fold it into the scrapbook entry
+    /// (story 33-18 follow-up — thread RenderSubject through DispatchContext).
+    pub(crate) fn record_latest_render(
+        &self,
+        session_key: &str,
+        record: LatestScrapbookRender,
+    ) {
+        self.inner
+            .latest_scrapbook_render
+            .lock()
+            .unwrap()
+            .insert(session_key.to_string(), record);
+    }
+
+    /// Take the latest completed render for a session if it matches the
+    /// given turn. Returns `None` (leaving the map untouched) when the
+    /// stored record is for a different turn — dispatch will emit the
+    /// scrapbook entry without image metadata and the client will merge a
+    /// later `GameMessage::Image` by turn_id, same as before.
+    pub(crate) fn take_latest_render(
+        &self,
+        session_key: &str,
+        turn_id: u64,
+    ) -> Option<LatestScrapbookRender> {
+        let mut map = self.inner.latest_scrapbook_render.lock().unwrap();
+        let matches = map
+            .get(session_key)
+            .map(|r| r.turn_id == turn_id)
+            .unwrap_or(false);
+        if matches {
+            map.remove(session_key)
+        } else {
+            None
+        }
     }
 
     /// Cached genre pack loader — loads from disk once, then returns the same `Arc`.
@@ -827,9 +913,11 @@ pub(crate) use session::Session;
 
 /// Construct a GameMessage::Error from a player id and error description.
 pub fn error_response(player_id: &str, message: &str) -> GameMessage {
+    let message = sidequest_protocol::NonBlankString::new(message)
+        .expect("error_response called with non-empty message by contract");
     GameMessage::Error {
         payload: ErrorPayload {
-            message: message.to_string(),
+            message,
             reconnect_required: None,
         },
         player_id: player_id.to_string(),
@@ -839,9 +927,11 @@ pub fn error_response(player_id: &str, message: &str) -> GameMessage {
 /// Construct a GameMessage::Error that tells the client to re-send its
 /// SESSION_EVENT{connect} handshake before retrying.
 pub fn reconnect_required_response(player_id: &str, message: &str) -> GameMessage {
+    let message = sidequest_protocol::NonBlankString::new(message)
+        .expect("reconnect_required_response called with non-empty message by contract");
     GameMessage::Error {
         payload: ErrorPayload {
-            message: message.to_string(),
+            message,
             reconnect_required: Some(true),
         },
         player_id: player_id.to_string(),
@@ -912,10 +1002,38 @@ pub fn build_router(state: AppState) -> Router {
                             }
                         };
 
+                        let served_url_nbs = match sidequest_protocol::NonBlankString::new(
+                            &served_url,
+                        ) {
+                            Ok(u) => u,
+                            Err(_) => {
+                                tracing::error!(
+                                    job_id = %job_id,
+                                    "render_broadcast_blocked — served_url resolved to blank"
+                                );
+                                state_for_broadcaster.take_render_session(&job_id);
+                                continue;
+                            }
+                        };
+                        // The render pipeline in lib.rs drives IMAGE straight from the
+                        // RenderJobResult without a subject in scope, so description is
+                        // sourced from the tier/scene_type hint. A blank hint means the
+                        // upstream extractor failed — fail loud, don't invent prose.
+                        let description_text = if !scene_type.is_empty() {
+                            format!("{} scene", scene_type)
+                        } else if !tier.is_empty() {
+                            format!("{} render", tier)
+                        } else {
+                            "scene".to_string()
+                        };
+                        let description_nbs = sidequest_protocol::NonBlankString::new(
+                            &description_text,
+                        )
+                        .expect("description_text is constructed from non-empty literal fallback");
                         let msg = GameMessage::Image {
                             payload: sidequest_protocol::ImagePayload {
-                                url: served_url.clone(),
-                                description: String::new(),
+                                url: served_url_nbs.clone(),
+                                description: description_nbs.clone(),
                                 handout: false,
                                 render_id: Some(job_id.to_string()),
                                 tier: if tier.is_empty() {
@@ -944,6 +1062,42 @@ pub fn build_router(state: AppState) -> Router {
                                 .get(&job_id)
                                 .cloned()
                         };
+                        // Story 33-18 follow-up: if this render was enqueued
+                        // for a specific turn, stash it so the next scrapbook
+                        // entry for that turn can carry the image inline
+                        // instead of forcing a client-side join.
+                        if let Some(turn_id) = state_for_broadcaster.take_render_turn(&job_id) {
+                            if let Some(ref key) = session_key {
+                                state_for_broadcaster.record_latest_render(
+                                    key,
+                                    LatestScrapbookRender {
+                                        turn_id,
+                                        // scene_title is derived from prompt_fragment upstream,
+                                        // which isn't available in this broadcaster path; the
+                                        // detail-rich broadcaster (spawn_image_broadcaster_with_throttle
+                                        // in render_integration.rs) is what the dispatch pipeline
+                                        // wires up when the render subject is known. Here we can
+                                        // only fill url + scene_type.
+                                        scene_title: None,
+                                        scene_type: if scene_type.is_empty() {
+                                            None
+                                        } else {
+                                            Some(scene_type.clone())
+                                        },
+                                        url: served_url_nbs.clone(),
+                                    },
+                                );
+                                WatcherEventBuilder::new(
+                                    "scrapbook",
+                                    WatcherEventType::StateTransition,
+                                )
+                                .field("event", "latest_render_recorded")
+                                .field("job_id", job_id.to_string())
+                                .field("turn_id", turn_id)
+                                .field("session_key", key.as_str())
+                                .send();
+                            }
+                        }
                         if let Some(ref key) = session_key {
                             let session_arc = {
                                 let sessions = state_for_broadcaster.inner.sessions.lock().unwrap();
@@ -1832,7 +1986,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState, player_id: Pla
                             .and_then(|ps| ps.character_name.clone())
                             .or_else(|| player_name_for_session.clone())
                             .unwrap_or_else(|| "Unknown".to_string());
-                        let departure_text = format!("{} has left the scene.", departure_name);
+                        let departure_text = sidequest_protocol::NonBlankString::new(&format!(
+                            "{} has left the scene.",
+                            departure_name
+                        ))
+                        .expect("departure_text is non-empty by literal fmt");
                         let remaining_pids: Vec<String> = ss
                             .players
                             .keys()
@@ -2158,8 +2316,10 @@ async fn dispatch_message(
             before = metric_before,
             after = metric_after,
         );
+        let action_nbs = sidequest_protocol::NonBlankString::new(&action_text)
+            .expect("beat-resolved action text is non-empty by literal fmt");
         let replay_action = sidequest_protocol::PlayerActionPayload {
-            action: action_text,
+            action: action_nbs,
             aside: false,
         };
 
@@ -2179,6 +2339,7 @@ async fn dispatch_message(
                     payload: dice_req.clone(),
                 });
             }
+
         }
 
         // Story 34-11: OTEL — dice request sent. Two-phase marker so the
@@ -2446,11 +2607,13 @@ async fn dispatch_message(
                     // is enabled. If it's someone else's turn, the next action will
                     // send a proper TURN_STATUS "active" via global broadcast.
                     if pc > 1 {
+                        let player_name_nbs = sidequest_protocol::NonBlankString::new(
+                            player_name_store.as_deref().unwrap_or("Player"),
+                        )
+                        .expect("player_name falls back to literal \"Player\"");
                         responses.push(GameMessage::TurnStatus {
                             payload: TurnStatusPayload {
-                                player_name: player_name_store
-                                    .clone()
-                                    .unwrap_or_else(|| "Player".to_string()),
+                                player_name: player_name_nbs,
                                 status: "resolved".into(),
                                 state_delta: None,
                             },
@@ -2529,8 +2692,8 @@ async fn dispatch_message(
                 return vec![err];
             }
             {
-                let aside =
-                    payload.action.starts_with("(aside)") || payload.action.starts_with("/aside");
+                let aside = payload.action.as_str().starts_with("(aside)")
+                    || payload.action.as_str().starts_with("/aside");
 
                 // Monster Manual: load from disk, seed if needed (ADR-059)
                 let gs = session.genre_slug().unwrap_or("");
@@ -2542,7 +2705,7 @@ async fn dispatch_message(
                 }
 
                 let mut ctx = dispatch::DispatchContext {
-                    action: &payload.action,
+                    action: payload.action.as_str(),
                     char_name: character_name.as_deref().unwrap_or("Unknown"),
                     player_id,
                     genre_slug: session.genre_slug().unwrap_or(""),
@@ -2659,26 +2822,30 @@ async fn dispatch_message(
                                         .cartography
                                         .regions
                                         .iter()
-                                        .map(|(slug, r)| {
-                                            (
+                                        .filter_map(|(slug, r)| {
+                                            let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                            Some((
                                                 slug.clone(),
                                                 sidequest_protocol::CartographyRegion {
-                                                    name: r.name.clone(),
+                                                    name,
                                                     description: r.description.clone(),
                                                     adjacent: r.adjacent.clone(),
                                                 },
-                                            )
+                                            ))
                                         })
                                         .collect(),
                                     routes: world
                                         .cartography
                                         .routes
                                         .iter()
-                                        .map(|r| sidequest_protocol::CartographyRoute {
-                                            name: r.name.clone(),
-                                            description: r.description.clone(),
-                                            from_id: r.from_id.clone(),
-                                            to_id: r.to_id.clone(),
+                                        .filter_map(|r| {
+                                            let name = sidequest_protocol::NonBlankString::new(&r.name).ok()?;
+                                            Some(sidequest_protocol::CartographyRoute {
+                                                name,
+                                                description: r.description.clone(),
+                                                from_id: r.from_id.clone(),
+                                                to_id: r.to_id.clone(),
+                                            })
                                         })
                                         .collect(),
                                 }
@@ -2970,9 +3137,11 @@ async fn dispatch_message(
                                         dice_req.request_id.clone(),
                                         dice_req,
                                     );
+                                    let action_nbs = sidequest_protocol::NonBlankString::new(&action_text)
+                                        .expect("beat-resolved action text is non-empty by literal fmt");
                                     ss.pending_replay_action =
                                         Some(sidequest_protocol::PlayerActionPayload {
-                                            action: action_text,
+                                            action: action_nbs,
                                             aside: false,
                                         });
                                     ss.pending_replay_beat_id = Some(beat_id.clone());

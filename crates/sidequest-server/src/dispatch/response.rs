@@ -1,14 +1,24 @@
 //! Response message construction — narration, party status, inventory, map, encounters.
 
 use sidequest_protocol::{
-    GameMessage, MapUpdatePayload, NarrationEndPayload, NarrationPayload, PartyMember,
-    PartyStatusPayload,
+    GameMessage, MapUpdatePayload, NarrationEndPayload, NarrationPayload, NonBlankString,
+    PartyMember, PartyStatusPayload,
 };
 
 use crate::scrapbook;
 use crate::{WatcherEventBuilder, WatcherEventType};
 
 use super::DispatchContext;
+
+/// Convert a dispatch-context string (player_id / player_name / location) to a
+/// `NonBlankString`. These call sites all flow from session initialization or
+/// genre-pack binding, where the upstream invariant is that the string is
+/// non-empty — but we still fail loud (not silently fall back) so any future
+/// regression surfaces at the construction site instead of drifting.
+fn nbs_ctx(value: &str, what: &'static str) -> NonBlankString {
+    NonBlankString::new(value)
+        .unwrap_or_else(|_| panic!("{what} must be non-blank at dispatch time"))
+}
 
 /// Build narration, party status, inventory, and RAG messages.
 ///
@@ -36,20 +46,23 @@ pub(super) async fn build_response_messages(
     // Merge narrator footnotes with affinity tier-up events
     let mut footnotes = result.footnotes.clone();
     for event in tier_events {
+        let summary_text = format!(
+            "{}'s {} affinity reached tier {} — {}",
+            event.character_name,
+            event.affinity_name,
+            event.new_tier,
+            if event.narration_hint.is_empty() {
+                "a new level of mastery"
+            } else {
+                &event.narration_hint
+            },
+        );
+        let summary = NonBlankString::new(&summary_text)
+            .expect("tier-up footnote summary is constructed non-empty from fixed format");
         footnotes.push(sidequest_protocol::Footnote {
             marker: None,
             fact_id: None,
-            summary: format!(
-                "{}'s {} affinity reached tier {} — {}",
-                event.character_name,
-                event.affinity_name,
-                event.new_tier,
-                if event.narration_hint.is_empty() {
-                    "a new level of mastery"
-                } else {
-                    &event.narration_hint
-                },
-            ),
+            summary,
             category: sidequest_protocol::FactCategory::Ability,
             is_new: true,
         });
@@ -75,9 +88,10 @@ pub(super) async fn build_response_messages(
     // Observers still see the narration: `sync_back_to_shared_session`
     // builds its own Narration message from the explicit `clean_narration`
     // + `footnotes` parameters and fans it out via the session channel.
+    let narration_text_nbs = nbs_ctx(clean_narration, "clean_narration text");
     let narration_msg = GameMessage::Narration {
         payload: NarrationPayload {
-            text: clean_narration.to_string(),
+            text: narration_text_nbs,
             state_delta: Some(narration_state_delta),
             footnotes,
         },
@@ -174,22 +188,41 @@ pub(super) async fn build_response_messages(
     // and are not guaranteed complete at narration-end time. The client
     // merges a later GameMessage::Image by turn_id. Threading the latest
     // completed render subject through DispatchContext is a follow-up.
-    let turn_id = ctx.turn_manager.interaction() as u32;
-    let turn_npcs: Vec<crate::NpcRegistryEntry> = ctx
+    let turn_id: u64 = ctx.turn_manager.interaction();
+    let turn_id_u32 = u32::try_from(turn_id).unwrap_or(u32::MAX);
+    // Snapshot the OCEAN fallback count before we hand the registry slice to
+    // build_scrapbook_entry (the filter lives inside the pure function now,
+    // story 33-18 refactor — see scrapbook::build_scrapbook_entry).
+    let npcs_disposition_fallback_count = ctx
         .npc_registry
         .iter()
-        .filter(|e| e.last_seen_turn == turn_id)
-        .cloned()
-        .collect();
+        .filter(|e| e.last_seen_turn == turn_id_u32)
+        .filter(|e| e.ocean_summary.is_empty())
+        .count();
+    // Thread the latest completed render into the scrapbook entry when the
+    // async broadcaster has already produced an IMAGE for this turn. The
+    // shared slot lives on AppState, keyed by "genre:world"; see
+    // `AppState::record_latest_render` (populated by the job-routing
+    // broadcaster in `lib.rs`). When no render is ready at emission time we
+    // leave the fields `None` and the client merges a later
+    // `GameMessage::Image` by turn_id, as before.
+    let session_key = format!("{}:{}", ctx.genre_slug, ctx.world_slug);
+    let (scene_title, scene_type, image_url) =
+        match ctx.state.take_latest_render(&session_key, turn_id) {
+            Some(render) => (render.scene_title, render.scene_type, Some(render.url)),
+            None => (None, None, None),
+        };
+    let image_populated_at_emission = image_url.is_some();
+    let location_nbs = nbs_ctx(ctx.current_location.as_str(), "current_location");
     let scrapbook_payload = scrapbook::build_scrapbook_entry(
         turn_id,
-        ctx.current_location.clone(),
-        None,
-        None,
-        None,
+        location_nbs,
+        scene_title,
+        scene_type,
+        image_url,
         clean_narration,
         &merged_footnotes,
-        &turn_npcs,
+        ctx.npc_registry,
     );
     // Degraded-path visibility (per OTEL rule — the GM panel is the lie
     // detector): record when the narrator produced text without a sentence
@@ -198,12 +231,8 @@ pub(super) async fn build_response_messages(
     // `ocean_summary` to `role` because their OCEAN summary was empty. A
     // non-zero fallback count surfaces an upstream OCEAN pipeline gap in
     // the GM panel without changing the observable message shape.
-    let excerpt_fallback_full_narration = !scrapbook_payload.narrative_excerpt.is_empty()
-        && scrapbook_payload.narrative_excerpt == clean_narration.trim();
-    let npcs_disposition_fallback_count = turn_npcs
-        .iter()
-        .filter(|e| e.ocean_summary.is_empty())
-        .count();
+    let excerpt_fallback_full_narration =
+        scrapbook_payload.narrative_excerpt.as_str() == clean_narration.trim();
     WatcherEventBuilder::new("scrapbook", WatcherEventType::SubsystemExerciseSummary)
         .field("event", "scrapbook.entry_emitted")
         .field("turn_id", turn_id)
@@ -211,7 +240,7 @@ pub(super) async fn build_response_messages(
         .field("npcs_count", scrapbook_payload.npcs_present.len())
         .field(
             "excerpt_chars",
-            scrapbook_payload.narrative_excerpt.chars().count(),
+            scrapbook_payload.narrative_excerpt.as_str().chars().count(),
         )
         .field(
             "excerpt_fallback_full_narration",
@@ -221,6 +250,7 @@ pub(super) async fn build_response_messages(
             "npcs_disposition_fallback_count",
             npcs_disposition_fallback_count,
         )
+        .field("image_populated_at_emission", image_populated_at_emission)
         .send();
     messages.push(GameMessage::ScrapbookEntry {
         payload: scrapbook_payload.clone(),
@@ -254,13 +284,14 @@ pub(super) async fn build_response_messages(
     // PARTY_STATUS by 51576be so observers get every teammate's full sheet
     // and we never race against null characterSheet on the client).
     {
-        let char_class: String = ctx
+        let char_class_str: String = ctx
             .character_json
             .as_ref()
             .and_then(|cj| cj.get("char_class"))
             .and_then(|c| c.as_str())
             .unwrap_or("Adventurer")
             .to_string();
+        let char_class = nbs_ctx(&char_class_str, "party_member.class");
 
         // Pull the acting player's cached sheet off PlayerState (populated at
         // chargen completion in dispatch/connect.rs) and use the live
@@ -280,16 +311,16 @@ pub(super) async fn build_response_messages(
         let acting_inventory = Some(crate::shared_session::inventory_payload_from(ctx.inventory));
 
         let mut party_members = vec![PartyMember {
-            player_id: ctx.player_id.to_string(),
-            name: ctx.player_name_for_save.to_string(),
-            character_name: ctx.char_name.to_string(),
+            player_id: nbs_ctx(ctx.player_id, "party_member.player_id"),
+            name: nbs_ctx(ctx.player_name_for_save, "party_member.name"),
+            character_name: NonBlankString::new(ctx.char_name).ok(),
             current_hp: *ctx.hp,
             max_hp: *ctx.max_hp,
             statuses: vec![],
             class: char_class,
             level: *ctx.level,
             portrait_url: None,
-            current_location: ctx.current_location.clone(),
+            current_location: NonBlankString::new(ctx.current_location).ok(),
             sheet: acting_sheet,
             inventory: acting_inventory,
         }];
@@ -335,19 +366,23 @@ pub(super) async fn build_response_messages(
     } else {
         ctx.discovered_regions
             .iter()
-            .map(|name| sidequest_protocol::ExploredLocation {
-                // Region mode has no separate slug — id mirrors name.
-                id: name.clone(),
-                name: name.clone(),
-                x: 0,
-                y: 0,
-                location_type: String::new(),
-                connections: vec![],
-                room_exits: vec![],
-                room_type: String::new(),
-                size: None,
-                is_current_room: name == ctx.current_location.as_str(),
-                tactical_grid: None,
+            .filter_map(|name| {
+                NonBlankString::new(name).ok().map(|nbs| {
+                    sidequest_protocol::ExploredLocation {
+                        // Region mode has no separate slug — id mirrors name.
+                        id: name.clone(),
+                        name: nbs,
+                        x: 0,
+                        y: 0,
+                        location_type: String::new(),
+                        connections: vec![],
+                        room_exits: vec![],
+                        room_type: String::new(),
+                        size: None,
+                        is_current_room: name == ctx.current_location.as_str(),
+                        tactical_grid: None,
+                    }
+                })
             })
             .collect()
     };
@@ -358,10 +393,11 @@ pub(super) async fn build_response_messages(
         &explored_locs,
         ctx.cartography_metadata.as_ref(),
     );
+    let map_location = nbs_ctx(ctx.current_location, "map_update.current_location");
     messages.push(GameMessage::MapUpdate {
         payload: MapUpdatePayload {
-            current_location: ctx.current_location.clone(),
-            region: ctx.current_location.clone(),
+            current_location: map_location.clone(),
+            region: map_location,
             explored: explored_locs,
             fog_bounds: None,
             cartography: ctx.cartography_metadata.clone(),
@@ -372,15 +408,88 @@ pub(super) async fn build_response_messages(
     // Confrontation overlay — uses the shared builder so the session-restore
     // path in `dispatch/connect.rs` emits an identical wire payload.
     if let Some(ref enc) = ctx.snapshot.encounter {
-        messages.push(build_confrontation_message(
-            enc,
-            ctx.npc_registry,
-            &ctx.confrontation_defs,
-            ctx.genre_slug,
-            ctx.player_id,
-        ));
-        if let Some(d) = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type)
-        {
+        let actors: Vec<sidequest_protocol::ConfrontationActor> = enc
+            .actors
+            .iter()
+            .filter_map(|a| {
+                let name = NonBlankString::new(&a.name).ok()?;
+                let role = NonBlankString::new(&a.role).ok()?;
+                let portrait = ctx
+                    .npc_registry
+                    .iter()
+                    .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
+                    .and_then(|e| e.portrait_url.clone());
+                Some(sidequest_protocol::ConfrontationActor {
+                    name,
+                    role,
+                    portrait_url: portrait,
+                })
+            })
+            .collect();
+        let metric = &enc.metric;
+        let direction_str = match metric.direction {
+            sidequest_game::MetricDirection::Ascending => "ascending",
+            sidequest_game::MetricDirection::Descending => "descending",
+            sidequest_game::MetricDirection::Bidirectional => "bidirectional",
+            _ => "ascending",
+        };
+        let def = crate::find_confrontation_def(&ctx.confrontation_defs, &enc.encounter_type);
+        let label_text = def
+            .map(|d| d.label.clone())
+            .unwrap_or_else(|| enc.encounter_type.replace('_', " "));
+        let category_text = def
+            .map(|d| d.category.clone())
+            .unwrap_or_else(|| enc.encounter_type.clone());
+        let metric_name = NonBlankString::new(&metric.name)
+            .expect("EncounterMetric.name is set non-empty at encounter construction (see StructuredEncounter constructors)");
+        let confrontation_label = NonBlankString::new(&label_text)
+            .expect("confrontation label is either genre-pack-defined (non-empty by YAML validation) or derived from encounter_type (non-empty by type dispatch)");
+        let confrontation_category = NonBlankString::new(&category_text)
+            .expect("confrontation category is either genre-pack-defined or equal to encounter_type (non-empty by type dispatch)");
+        messages.push(GameMessage::Confrontation {
+            payload: sidequest_protocol::ConfrontationPayload {
+                encounter_type: enc.encounter_type.clone(),
+                label: confrontation_label,
+                category: confrontation_category,
+                actors,
+                metric: sidequest_protocol::ConfrontationMetric {
+                    name: metric_name,
+                    current: metric.current,
+                    starting: metric.starting,
+                    direction: direction_str.to_string(),
+                    threshold_high: metric.threshold_high,
+                    threshold_low: metric.threshold_low,
+                },
+                beats: def
+                    .map(|d| {
+                        d.beats
+                            .iter()
+                            .filter_map(|b| {
+                                let id = NonBlankString::new(&b.id).ok()?;
+                                let label = NonBlankString::new(&b.label).ok()?;
+                                Some(sidequest_protocol::ConfrontationBeat {
+                                    id,
+                                    label,
+                                    metric_delta: b.metric_delta,
+                                    stat_check: b.stat_check.clone(),
+                                    risk: b.risk.clone(),
+                                    resolution: b.resolution.unwrap_or(false),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                secondary_stats: enc
+                    .secondary_stats
+                    .as_ref()
+                    .and_then(|ss| serde_json::to_value(ss).ok()),
+                genre_slug: ctx.genre_slug.to_string(),
+                mood: enc.mood_override.clone().unwrap_or_default(),
+                active: !enc.resolved,
+            },
+            player_id: ctx.player_id.to_string(),
+        });
+        if let Some(d) = def {
             if !d.beats.is_empty() {
                 WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
                     .field("action", "beats_sent")
@@ -418,16 +527,18 @@ pub(super) fn build_confrontation_message(
     let actors: Vec<sidequest_protocol::ConfrontationActor> = enc
         .actors
         .iter()
-        .map(|a| {
+        .filter_map(|a| {
+            let name = sidequest_protocol::NonBlankString::new(&a.name).ok()?;
+            let role = sidequest_protocol::NonBlankString::new(&a.role).ok()?;
             let portrait = npc_registry
                 .iter()
                 .find(|e| e.name.to_lowercase() == a.name.to_lowercase())
                 .and_then(|e| e.portrait_url.clone());
-            sidequest_protocol::ConfrontationActor {
-                name: a.name.clone(),
-                role: a.role.clone(),
+            Some(sidequest_protocol::ConfrontationActor {
+                name,
+                role,
                 portrait_url: portrait,
-            }
+            })
         })
         .collect();
     let metric = &enc.metric;
@@ -438,18 +549,26 @@ pub(super) fn build_confrontation_message(
         _ => "ascending",
     };
     let def = crate::find_confrontation_def(confrontation_defs, &enc.encounter_type);
+    let label_text = def
+        .map(|d| d.label.clone())
+        .unwrap_or_else(|| enc.encounter_type.replace('_', " "));
+    let category_text = def
+        .map(|d| d.category.clone())
+        .unwrap_or_else(|| enc.encounter_type.clone());
+    let metric_name = sidequest_protocol::NonBlankString::new(&metric.name)
+        .expect("EncounterMetric.name is set non-empty at encounter construction");
+    let confrontation_label = sidequest_protocol::NonBlankString::new(&label_text)
+        .expect("confrontation label is either genre-pack-defined or derived from encounter_type");
+    let confrontation_category = sidequest_protocol::NonBlankString::new(&category_text)
+        .expect("confrontation category is either genre-pack-defined or equal to encounter_type");
     GameMessage::Confrontation {
         payload: sidequest_protocol::ConfrontationPayload {
             encounter_type: enc.encounter_type.clone(),
-            label: def
-                .map(|d| d.label.clone())
-                .unwrap_or_else(|| enc.encounter_type.replace('_', " ")),
-            category: def
-                .map(|d| d.category.clone())
-                .unwrap_or_else(|| enc.encounter_type.clone()),
+            label: confrontation_label,
+            category: confrontation_category,
             actors,
             metric: sidequest_protocol::ConfrontationMetric {
-                name: metric.name.clone(),
+                name: metric_name,
                 current: metric.current,
                 starting: metric.starting,
                 direction: direction_str.to_string(),
@@ -460,13 +579,17 @@ pub(super) fn build_confrontation_message(
                 .map(|d| {
                     d.beats
                         .iter()
-                        .map(|b| sidequest_protocol::ConfrontationBeat {
-                            id: b.id.clone(),
-                            label: b.label.clone(),
-                            metric_delta: b.metric_delta,
-                            stat_check: b.stat_check.clone(),
-                            risk: b.risk.clone(),
-                            resolution: b.resolution.unwrap_or(false),
+                        .filter_map(|b| {
+                            let id = sidequest_protocol::NonBlankString::new(&b.id).ok()?;
+                            let label = sidequest_protocol::NonBlankString::new(&b.label).ok()?;
+                            Some(sidequest_protocol::ConfrontationBeat {
+                                id,
+                                label,
+                                metric_delta: b.metric_delta,
+                                stat_check: b.stat_check.clone(),
+                                risk: b.risk.clone(),
+                                resolution: b.resolution.unwrap_or(false),
+                            })
                         })
                         .collect()
                 })

@@ -76,7 +76,10 @@ pub(super) async fn handle_barrier(
 
                 let turn_submitted = GameMessage::TurnStatus {
                     payload: TurnStatusPayload {
-                        player_name: ctx.player_name_for_save.to_string(),
+                        player_name: sidequest_protocol::NonBlankString::new(
+                            ctx.player_name_for_save,
+                        )
+                        .expect("player_name_for_save is non-empty post-session-init"),
                         status: "submitted".into(),
                         state_delta: None,
                     },
@@ -193,13 +196,16 @@ pub(super) async fn handle_barrier(
 
                 let sealed_prompt = sealed_ctx.to_prompt_section();
 
-                let turn_number = barrier_clone.turn_number().saturating_sub(1);
-                let action_entries: Vec<PlayerActionEntry> = named_actions
-                    .iter()
-                    .map(|(name, action)| PlayerActionEntry {
-                        character_name: name.clone(),
-                        player_id: String::new(),
-                        action: action.clone(),
+                let turn_number: u64 = barrier_clone.turn_number().saturating_sub(1).into();
+                let identified = barrier_clone.identified_actions();
+                let action_entries: Vec<PlayerActionEntry> = identified
+                    .into_iter()
+                    .filter_map(|(pid, name, action)| {
+                        Some(PlayerActionEntry {
+                            character_name: sidequest_protocol::NonBlankString::new(&name).ok()?,
+                            player_id: sidequest_protocol::NonBlankString::new(&pid).ok()?,
+                            action: sidequest_protocol::NonBlankString::new(&action).ok()?,
+                        })
                     })
                     .collect();
                 let reveal = GameMessage::ActionReveal {
@@ -214,15 +220,17 @@ pub(super) async fn handle_barrier(
                 tracing::info!(auto_resolved = ?auto_resolved_names, "barrier.action_reveal — broadcast with auto-resolved");
 
                 for name in &auto_resolved_names {
-                    let turn_auto = GameMessage::TurnStatus {
-                        payload: TurnStatusPayload {
-                            player_name: name.clone(),
-                            status: "auto_resolved".into(),
-                            state_delta: None,
-                        },
-                        player_id: "server".to_string(),
-                    };
-                    let _ = ctx.state.broadcast(turn_auto);
+                    if let Ok(player_name) = sidequest_protocol::NonBlankString::new(name) {
+                        let turn_auto = GameMessage::TurnStatus {
+                            payload: TurnStatusPayload {
+                                player_name,
+                                status: "auto_resolved".into(),
+                                state_delta: None,
+                            },
+                            player_id: "server".to_string(),
+                        };
+                        let _ = ctx.state.broadcast(turn_auto);
+                    }
                 }
 
                 let auto_ctx = if auto_resolved_context.is_empty() {

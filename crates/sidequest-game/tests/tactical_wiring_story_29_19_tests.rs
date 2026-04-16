@@ -14,11 +14,19 @@
 use std::collections::{HashMap, HashSet};
 
 use sidequest_genre::models::world::{LegendEntry, RoomDef, RoomExit};
-use sidequest_protocol::{ExploredLocation, RoomExitInfo, TacticalGridPayload};
+use sidequest_protocol::{ExploredLocation, NonBlankString, RoomExitInfo, TacticalGridPayload};
 
 // ═══════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════
+
+/// Test-only shorthand for `NonBlankString::new(s).expect(...)` — the
+/// protocol sweep (story 33-19) converted `ExploredLocation.name` /
+/// `RoomExitInfo.target` to `NonBlankString`, and this keeps the test
+/// literals readable.
+fn nbs(s: &str) -> NonBlankString {
+    NonBlankString::new(s).expect("test literal must be non-blank")
+}
 
 /// A room WITH a tactical grid (like Mawdeep rooms).
 fn gridded_room() -> RoomDef {
@@ -116,13 +124,13 @@ fn explored_location_has_tactical_grid_field() {
 
     let loc = ExploredLocation {
         id: "vault".into(),
-        name: "Vault of Teeth".into(),
+        name: nbs("Vault of Teeth"),
         x: 0,
         y: 0,
         location_type: "treasure".into(),
         connections: vec!["passage".into()],
         room_exits: vec![RoomExitInfo {
-            target: "passage".into(),
+            target: nbs("passage"),
             exit_type: "corridor".into(),
         }],
         room_type: "treasure".into(),
@@ -145,7 +153,7 @@ fn explored_location_has_tactical_grid_field() {
 fn explored_location_tactical_grid_none_is_valid() {
     let loc = ExploredLocation {
         id: "rusty_mug".into(),
-        name: "The Rusty Mug".into(),
+        name: nbs("The Rusty Mug"),
         x: 0,
         y: 0,
         location_type: "normal".into(),
@@ -235,14 +243,14 @@ fn build_room_graph_explored_mixed_grid_and_gridless() {
 
     let vault = explored
         .iter()
-        .find(|e| e.name == "Vault of Teeth")
+        .find(|e| e.name.as_str() == "Vault of Teeth")
         .unwrap();
     assert!(vault.tactical_grid.is_some(), "vault has a grid");
 
-    let passage = explored.iter().find(|e| e.name == "Stone Passage").unwrap();
+    let passage = explored.iter().find(|e| e.name.as_str() == "Stone Passage").unwrap();
     assert!(passage.tactical_grid.is_none(), "passage has no grid");
 
-    let tavern = explored.iter().find(|e| e.name == "The Rusty Mug").unwrap();
+    let tavern = explored.iter().find(|e| e.name.as_str() == "The Rusty Mug").unwrap();
     assert!(tavern.tactical_grid.is_none(), "tavern has no grid");
 }
 
@@ -277,7 +285,7 @@ fn explored_location_serde_round_trip_with_tactical_grid() {
 
     let loc = ExploredLocation {
         id: "test_room".into(),
-        name: "Test Room".into(),
+        name: nbs("Test Room"),
         x: 0,
         y: 0,
         location_type: "normal".into(),
@@ -307,7 +315,7 @@ fn explored_location_backward_compat_without_tactical_grid() {
     let json = r#"{"name":"Town","x":0,"y":0,"type":"town","connections":["market"]}"#;
     let loc: ExploredLocation = serde_json::from_str(json).expect("deserialize");
 
-    assert_eq!(loc.name, "Town");
+    assert_eq!(loc.name.as_str(), "Town");
     assert!(
         loc.tactical_grid.is_none(),
         "missing tactical_grid should default to None"
@@ -341,13 +349,13 @@ fn integration_discovery_with_tactical_grids() {
 
     let vault_2 = explored_2
         .iter()
-        .find(|e| e.name == "Vault of Teeth")
+        .find(|e| e.name.as_str() == "Vault of Teeth")
         .unwrap();
     assert!(vault_2.tactical_grid.is_some(), "vault still has grid");
 
     let passage_2 = explored_2
         .iter()
-        .find(|e| e.name == "Stone Passage")
+        .find(|e| e.name.as_str() == "Stone Passage")
         .unwrap();
     assert!(passage_2.tactical_grid.is_none(), "passage has no grid");
 }

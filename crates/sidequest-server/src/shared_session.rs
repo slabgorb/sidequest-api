@@ -161,11 +161,11 @@ pub fn inventory_payload_from(
         items: inv
             .carried()
             .map(|item| sidequest_protocol::InventoryItem {
-                name: item.name.as_str().to_string(),
+                name: item.name.clone(),
                 item_type: item.category.as_str().to_string(),
                 equipped: item.equipped,
                 quantity: item.quantity,
-                description: item.description.as_str().to_string(),
+                description: item.description.clone(),
             })
             .collect(),
         gold: inv.gold,
@@ -181,20 +181,31 @@ pub fn inventory_payload_from(
 /// `sync_from_locals` runs — but it uses this same helper to populate the
 /// `sheet` facet from the cached per-player detail.
 pub fn party_member_from(pid: &str, ps: &PlayerState) -> sidequest_protocol::PartyMember {
+    let player_id = sidequest_protocol::NonBlankString::new(pid)
+        .expect("PlayerState key player_id is non-empty by session invariant");
+    let name = sidequest_protocol::NonBlankString::new(&ps.player_name)
+        .expect("PlayerState.player_name is non-empty by session invariant");
+    let character_name = ps
+        .character_name
+        .as_deref()
+        .and_then(|n| sidequest_protocol::NonBlankString::new(n).ok());
+    let class = sidequest_protocol::NonBlankString::new(&ps.character_class)
+        .unwrap_or_else(|_| {
+            sidequest_protocol::NonBlankString::new("Adventurer")
+                .expect("literal \"Adventurer\" is non-blank")
+        });
+    let current_location = sidequest_protocol::NonBlankString::new(&ps.display_location).ok();
     sidequest_protocol::PartyMember {
-        player_id: pid.to_string(),
-        name: ps.player_name.clone(),
-        character_name: ps
-            .character_name
-            .clone()
-            .unwrap_or_else(|| ps.player_name.clone()),
+        player_id,
+        name,
+        character_name,
         current_hp: ps.character_hp,
         max_hp: ps.character_max_hp,
         statuses: vec![],
-        class: ps.character_class.clone(),
+        class,
         level: ps.character_level,
         portrait_url: None,
-        current_location: ps.display_location.clone(),
+        current_location,
         sheet: ps.sheet.clone(),
         inventory: Some(inventory_payload_from(&ps.inventory)),
     }

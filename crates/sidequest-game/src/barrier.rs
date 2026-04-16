@@ -470,6 +470,14 @@ impl TurnBarrier {
         self.inner.session.lock().unwrap().named_actions()
     }
 
+    /// Expose `identified_actions()` from the barrier's internal session.
+    ///
+    /// Returns `(player_id, character_name, action)` triples so the caller
+    /// can build a `PlayerActionEntry` without inventing a blank player_id.
+    pub fn identified_actions(&self) -> Vec<(String, String, String)> {
+        self.inner.session.lock().unwrap().identified_actions()
+    }
+
     /// Store the narration result after the claiming handler runs the narrator.
     /// Non-claiming handlers retrieve this via `get_resolution_narration()`.
     pub fn store_resolution_narration(&self, narration: String) {

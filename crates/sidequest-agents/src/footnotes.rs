@@ -29,7 +29,11 @@ pub fn footnotes_to_discovered_facts(
         .map(|f| DiscoveredFact {
             character_name: character_name.to_string(),
             fact: KnownFact {
-                content: f.summary.clone(),
+                // KnownFact.content is still a raw `String` in the game
+                // crate (saves from before the protocol sweep may carry
+                // empty values); unwrap the validated footnote summary
+                // here at the source→destination boundary.
+                content: f.summary.as_str().to_string(),
                 learned_turn: turn,
                 source: source.clone(),
                 confidence: Confidence::Certain,

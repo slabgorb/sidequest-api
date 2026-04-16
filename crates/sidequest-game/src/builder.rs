@@ -1222,12 +1222,30 @@ impl CharacterBuilder {
         match &self.phase {
             BuilderPhase::InProgress { scene_index } => {
                 let scene = &self.scenes[*scene_index];
+                // CharCreationChoice on the genre side still stores label /
+                // description as raw `String`; construct the protocol
+                // `CreationChoice` with `NonBlankString::new` and fail loud
+                // if a genre pack's YAML has blank labels (a pack-validation
+                // error that deserves to be surfaced at load time, not
+                // silently fallback-rendered).
                 let choices: Vec<CreationChoice> = scene
                     .choices
                     .iter()
                     .map(|c| CreationChoice {
-                        label: c.label.clone(),
-                        description: c.description.clone(),
+                        label: NonBlankString::new(&c.label).unwrap_or_else(|_| {
+                            panic!(
+                                "genre pack CharCreationChoice.label is blank (scene_index={}) — fix the YAML",
+                                scene_index
+                            )
+                        }),
+                        description: NonBlankString::new(&c.description).unwrap_or_else(
+                            |_| {
+                                panic!(
+                                    "genre pack CharCreationChoice.description is blank (scene_index={}) — fix the YAML",
+                                    scene_index
+                                )
+                            },
+                        ),
                     })
                     .collect();
 

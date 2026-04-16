@@ -11,7 +11,7 @@
 //! - serde round-trip: ItemDepleted survives JSON encode/decode
 //! - deny_unknown_fields: extra fields rejected (protocol contract enforcement)
 
-use sidequest_protocol::GameMessage;
+use sidequest_protocol::{GameMessage, NonBlankString};
 
 // ═══════════════════════════════════════════════════════════
 // AC3: GameMessage::ItemDepleted variant with correct fields
@@ -22,7 +22,7 @@ use sidequest_protocol::GameMessage;
 fn item_depleted_variant_constructible() {
     let msg = GameMessage::ItemDepleted {
         payload: sidequest_protocol::ItemDepletedPayload {
-            item_name: "Torch".to_string(),
+            item_name: NonBlankString::new("Torch").expect("Torch is non-blank"),
             remaining_before: 1,
         },
         player_id: "server".to_string(),
@@ -31,7 +31,7 @@ fn item_depleted_variant_constructible() {
     // Verify we can match on the variant and extract fields
     match &msg {
         GameMessage::ItemDepleted { payload, player_id } => {
-            assert_eq!(payload.item_name, "Torch");
+            assert_eq!(payload.item_name.as_str(), "Torch");
             assert_eq!(payload.remaining_before, 1);
             assert_eq!(player_id, "server");
         }
@@ -44,7 +44,7 @@ fn item_depleted_variant_constructible() {
 fn item_depleted_serializes_with_correct_type_tag() {
     let msg = GameMessage::ItemDepleted {
         payload: sidequest_protocol::ItemDepletedPayload {
-            item_name: "Oil Lantern".to_string(),
+            item_name: NonBlankString::new("Oil Lantern").expect("Oil Lantern is non-blank"),
             remaining_before: 3,
         },
         player_id: "server".to_string(),
@@ -71,7 +71,7 @@ fn item_depleted_serializes_with_correct_type_tag() {
 fn item_depleted_json_roundtrip() {
     let msg = GameMessage::ItemDepleted {
         payload: sidequest_protocol::ItemDepletedPayload {
-            item_name: "Torch".to_string(),
+            item_name: NonBlankString::new("Torch").expect("Torch is non-blank"),
             remaining_before: 6,
         },
         player_id: "player_1".to_string(),
@@ -98,7 +98,7 @@ fn item_depleted_deserializes_from_raw_json() {
     let msg: GameMessage = serde_json::from_str(json).unwrap();
     match msg {
         GameMessage::ItemDepleted { payload, player_id } => {
-            assert_eq!(payload.item_name, "Torch");
+            assert_eq!(payload.item_name.as_str(), "Torch");
             assert_eq!(payload.remaining_before, 1);
             assert_eq!(player_id, "server");
         }
@@ -127,10 +127,15 @@ fn item_depleted_zero_remaining_before_valid() {
     }
 }
 
-/// ItemDepleted with empty item_name should still deserialize (server is source of truth).
-/// The UI handles display — protocol doesn't reject empty strings here.
+/// ItemDepleted with empty item_name must be REJECTED at deserialization.
+///
+/// Contract change (story 33-18): `item_name` is now `NonBlankString`, which
+/// rejects empty/whitespace strings at deserialization time. This test used to
+/// assert the opposite (empty accepted) — under the new protocol contract, the
+/// server is responsible for emitting a non-blank item name and the protocol
+/// refuses to relay blank names.
 #[test]
-fn item_depleted_empty_item_name_deserializes() {
+fn item_depleted_empty_item_name_rejected() {
     let json = r#"{
         "type": "ITEM_DEPLETED",
         "payload": {
@@ -140,11 +145,9 @@ fn item_depleted_empty_item_name_deserializes() {
         "player_id": "server"
     }"#;
 
-    let msg: GameMessage = serde_json::from_str(json).unwrap();
-    match msg {
-        GameMessage::ItemDepleted { payload, .. } => {
-            assert_eq!(payload.item_name, "");
-        }
-        _ => panic!("Expected ItemDepleted"),
-    }
+    let result: Result<GameMessage, _> = serde_json::from_str(json);
+    assert!(
+        result.is_err(),
+        "ItemDepleted with empty item_name must be rejected (NonBlankString contract)"
+    );
 }

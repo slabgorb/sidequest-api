@@ -183,9 +183,25 @@ pub fn spawn_image_broadcaster(
                         "render_broadcast — sending IMAGE to WebSocket clients"
                     );
 
+                    let url = match sidequest_protocol::NonBlankString::new(&image_url) {
+                        Ok(u) => u,
+                        Err(_) => continue,
+                    };
+                    let description = match sidequest_protocol::NonBlankString::new(
+                        ctx.subject.prompt_fragment(),
+                    ) {
+                        Ok(d) => d,
+                        Err(_) => {
+                            tracing::error!(
+                                job_id = %job_id,
+                                "render_broadcast_blocked — empty prompt_fragment"
+                            );
+                            continue;
+                        }
+                    };
                     let payload = ImagePayload {
-                        url: image_url,
-                        description: ctx.subject.prompt_fragment().to_string(),
+                        url,
+                        description,
                         handout: is_handout(ctx.subject.tier(), ctx.subject.scene_type()),
                         render_id: Some(job_id.to_string()),
                         tier: Some(tier_str),
@@ -277,9 +293,25 @@ pub fn spawn_image_broadcaster_with_throttle(
                         "render_broadcast — sending IMAGE to WebSocket clients"
                     );
 
+                    let url = match sidequest_protocol::NonBlankString::new(&image_url) {
+                        Ok(u) => u,
+                        Err(_) => continue,
+                    };
+                    let description = match sidequest_protocol::NonBlankString::new(
+                        ctx.subject.prompt_fragment(),
+                    ) {
+                        Ok(d) => d,
+                        Err(_) => {
+                            tracing::error!(
+                                job_id = %job_id,
+                                "render_broadcast_blocked — empty prompt_fragment"
+                            );
+                            continue;
+                        }
+                    };
                     let payload = ImagePayload {
-                        url: image_url,
-                        description: ctx.subject.prompt_fragment().to_string(),
+                        url,
+                        description,
                         handout: is_handout(ctx.subject.tier(), ctx.subject.scene_type()),
                         render_id: Some(job_id.to_string()),
                         tier: Some(tier_str),

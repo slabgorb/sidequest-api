@@ -44,30 +44,34 @@
 //!   ADR-020 treats `ocean_summary` as the canonical disposition descriptor.
 
 use sidequest_game::NpcRegistryEntry;
-use sidequest_protocol::{FactCategory, Footnote};
+use sidequest_protocol::{FactCategory, Footnote, NonBlankString};
 use sidequest_server::scrapbook::{build_scrapbook_entry, extract_first_sentence};
 
 // ===========================================================================
 // Helpers
 // ===========================================================================
 
+fn nbs(s: &str) -> NonBlankString {
+    NonBlankString::new(s).expect("test literal must be non-blank")
+}
+
 fn new_footnote(summary: &str, is_new: bool) -> Footnote {
     Footnote {
         marker: Some(1),
         fact_id: None,
-        summary: summary.to_string(),
+        summary: nbs(summary),
         category: FactCategory::Lore,
         is_new,
     }
 }
 
-fn npc(name: &str, role: &str, ocean: &str) -> NpcRegistryEntry {
+fn npc_at(name: &str, role: &str, ocean: &str, last_seen_turn: u32) -> NpcRegistryEntry {
     NpcRegistryEntry {
         name: name.to_string(),
         pronouns: "they/them".to_string(),
         role: role.to_string(),
         location: "Ironhold".to_string(),
-        last_seen_turn: 0,
+        last_seen_turn,
         age: String::new(),
         appearance: String::new(),
         ocean_summary: ocean.to_string(),
@@ -216,7 +220,7 @@ fn extract_first_sentence_does_not_consume_period_inside_quotes_alone() {
 fn build_sets_turn_id_and_location_verbatim() {
     let payload = build_scrapbook_entry(
         42,
-        "Dustfall Crossing".to_string(),
+        nbs("Dustfall Crossing"),
         None,
         None,
         None,
@@ -224,15 +228,15 @@ fn build_sets_turn_id_and_location_verbatim() {
         &[],
         &[],
     );
-    assert_eq!(payload.turn_id, 42);
-    assert_eq!(payload.location, "Dustfall Crossing");
+    assert_eq!(payload.turn_id, 42u64);
+    assert_eq!(payload.location.as_str(), "Dustfall Crossing");
 }
 
 #[test]
 fn build_narrative_excerpt_is_first_sentence_of_narration() {
     let payload = build_scrapbook_entry(
         1,
-        "Nowhere".to_string(),
+        nbs("Nowhere"),
         None,
         None,
         None,
@@ -240,7 +244,7 @@ fn build_narrative_excerpt_is_first_sentence_of_narration() {
         &[],
         &[],
     );
-    assert_eq!(payload.narrative_excerpt, "The door creaked open.");
+    assert_eq!(payload.narrative_excerpt.as_str(), "The door creaked open.");
 }
 
 #[test]
@@ -252,7 +256,7 @@ fn build_extracts_world_facts_from_is_new_footnotes_only() {
     ];
     let payload = build_scrapbook_entry(
         3,
-        "Ironhold".to_string(),
+        nbs("Ironhold"),
         None,
         None,
         None,
@@ -275,7 +279,7 @@ fn build_extracts_world_facts_from_is_new_footnotes_only() {
 fn build_empty_footnotes_yields_empty_world_facts() {
     let payload = build_scrapbook_entry(
         1,
-        "Void".to_string(),
+        nbs("Void"),
         None,
         None,
         None,
@@ -289,12 +293,12 @@ fn build_empty_footnotes_yields_empty_world_facts() {
 #[test]
 fn build_maps_npc_registry_entries_to_npc_refs() {
     let npcs = vec![
-        npc("Toggler Copperjaw", "blacksmith", "gruff but fair"),
-        npc("Vera Ashmark", "guard captain", "watchful and quiet"),
+        npc_at("Toggler Copperjaw", "blacksmith", "gruff but fair", 5),
+        npc_at("Vera Ashmark", "guard captain", "watchful and quiet", 5),
     ];
     let payload = build_scrapbook_entry(
         5,
-        "Market".to_string(),
+        nbs("Market"),
         None,
         None,
         None,
@@ -303,19 +307,44 @@ fn build_maps_npc_registry_entries_to_npc_refs() {
         &npcs,
     );
     assert_eq!(payload.npcs_present.len(), 2);
-    assert_eq!(payload.npcs_present[0].name, "Toggler Copperjaw");
-    assert_eq!(payload.npcs_present[0].role, "blacksmith");
-    assert_eq!(payload.npcs_present[0].disposition, "gruff but fair");
-    assert_eq!(payload.npcs_present[1].name, "Vera Ashmark");
-    assert_eq!(payload.npcs_present[1].role, "guard captain");
-    assert_eq!(payload.npcs_present[1].disposition, "watchful and quiet");
+    assert_eq!(payload.npcs_present[0].name.as_str(), "Toggler Copperjaw");
+    assert_eq!(payload.npcs_present[0].role.as_str(), "blacksmith");
+    assert_eq!(payload.npcs_present[0].disposition.as_str(), "gruff but fair");
+    assert_eq!(payload.npcs_present[1].name.as_str(), "Vera Ashmark");
+    assert_eq!(payload.npcs_present[1].role.as_str(), "guard captain");
+    assert_eq!(payload.npcs_present[1].disposition.as_str(), "watchful and quiet");
+}
+
+#[test]
+fn build_filters_npc_registry_by_current_turn_id() {
+    // NPC filter moved into build_scrapbook_entry (story 33-18 refactor):
+    // the function now takes the full registry and filters by last_seen_turn
+    // internally, so the caller in dispatch/response.rs doesn't allocate an
+    // intermediate Vec on every turn.
+    let npcs = vec![
+        npc_at("Seen Now", "scribe", "watchful", 7),
+        npc_at("Seen Earlier", "innkeeper", "jovial", 6),
+        npc_at("Seen Next Turn", "guard", "stern", 8),
+    ];
+    let payload = build_scrapbook_entry(
+        7,
+        nbs("Market"),
+        None,
+        None,
+        None,
+        "The crowd parted for the guard.",
+        &[],
+        &npcs,
+    );
+    assert_eq!(payload.npcs_present.len(), 1);
+    assert_eq!(payload.npcs_present[0].name.as_str(), "Seen Now");
 }
 
 #[test]
 fn build_empty_npc_registry_yields_empty_npcs_present() {
     let payload = build_scrapbook_entry(
         1,
-        "Alone".to_string(),
+        nbs("Alone"),
         None,
         None,
         None,
@@ -330,27 +359,30 @@ fn build_empty_npc_registry_yields_empty_npcs_present() {
 fn build_passes_scene_metadata_through() {
     let payload = build_scrapbook_entry(
         9,
-        "The Forge".to_string(),
-        Some("The Forge of Broken Oaths".to_string()),
+        nbs("The Forge"),
+        Some(nbs("The Forge of Broken Oaths")),
         Some("exploration".to_string()),
-        Some("/renders/turn-9.png".to_string()),
+        Some(nbs("/renders/turn-9.png")),
         "Sparks flew as the hammer fell.",
         &[],
         &[],
     );
     assert_eq!(
-        payload.scene_title.as_deref(),
+        payload.scene_title.as_ref().map(|s| s.as_str()),
         Some("The Forge of Broken Oaths")
     );
     assert_eq!(payload.scene_type.as_deref(), Some("exploration"));
-    assert_eq!(payload.image_url.as_deref(), Some("/renders/turn-9.png"));
+    assert_eq!(
+        payload.image_url.as_ref().map(|s| s.as_str()),
+        Some("/renders/turn-9.png")
+    );
 }
 
 #[test]
 fn build_with_all_nones_leaves_optional_fields_none() {
     let payload = build_scrapbook_entry(
         1,
-        "Hollow".to_string(),
+        nbs("Hollow"),
         None,
         None,
         None,

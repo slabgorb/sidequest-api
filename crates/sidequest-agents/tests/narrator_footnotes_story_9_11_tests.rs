@@ -25,11 +25,15 @@ use sidequest_protocol::{FactCategory, Footnote, NarrationPayload};
 // Helpers
 // =========================================================================
 
+fn nbs(s: &str) -> sidequest_protocol::NonBlankString {
+    sidequest_protocol::NonBlankString::new(s).expect("test literal must be non-blank")
+}
+
 fn sample_footnote_new(marker: u32, summary: &str, category: FactCategory) -> Footnote {
     Footnote {
         marker: Some(marker),
         fact_id: None,
-        summary: summary.to_string(),
+        summary: nbs(summary),
         category,
         is_new: true,
     }
@@ -44,7 +48,7 @@ fn sample_footnote_callback(
     Footnote {
         marker: Some(marker),
         fact_id: Some(fact_id.to_string()),
-        summary: summary.to_string(),
+        summary: nbs(summary),
         category,
         is_new: false,
     }
@@ -52,9 +56,10 @@ fn sample_footnote_callback(
 
 fn sample_payload_with_footnotes() -> NarrationPayload {
     NarrationPayload {
-        text: "As you enter the grove, Reva feels a deep wrongness [1]. \
-               The old well [2] sits at the center, just as the innkeeper described [3]."
-            .to_string(),
+        text: nbs(
+            "As you enter the grove, Reva feels a deep wrongness [1]. \
+               The old well [2] sits at the center, just as the innkeeper described [3].",
+        ),
         state_delta: None,
         footnotes: vec![
             sample_footnote_new(
@@ -86,7 +91,7 @@ fn narration_payload_contains_prose_and_footnotes() {
     let payload = sample_payload_with_footnotes();
 
     assert!(
-        !payload.text.is_empty(),
+        !payload.text.as_str().is_empty(),
         "Narration payload should contain prose text",
     );
     assert_eq!(
@@ -126,7 +131,8 @@ fn narration_payload_roundtrips_through_json() {
         "Footnote count should round-trip",
     );
     assert_eq!(
-        restored.footnotes[0].summary, "Corruption detected in the grove's oldest tree",
+        restored.footnotes[0].summary.as_str(),
+        "Corruption detected in the grove's oldest tree",
         "First footnote summary should round-trip",
     );
 }
@@ -144,11 +150,11 @@ fn footnote_markers_match_array_indices() {
         if let Some(marker) = footnote.marker {
             let marker_text = format!("[{}]", marker);
             assert!(
-                payload.text.contains(&marker_text),
+                payload.text.as_str().contains(&marker_text),
                 "Prose should contain marker {} for footnote: {}.\nProse: {}",
                 marker_text,
-                footnote.summary,
-                payload.text,
+                footnote.summary.as_str(),
+                payload.text.as_str(),
             );
         }
     }
@@ -402,7 +408,7 @@ fn footnote_category_appears_in_serialized_output() {
 #[test]
 fn narration_payload_with_empty_footnotes_omits_field() {
     let payload = NarrationPayload {
-        text: "You walk through the quiet forest.".to_string(),
+        text: nbs("You walk through the quiet forest."),
         state_delta: None,
         footnotes: vec![],
     };
@@ -423,7 +429,7 @@ fn narration_payload_deserializes_without_footnotes_field() {
     let json = r#"{"text":"The wind howls through the valley."}"#;
     let payload: NarrationPayload = serde_json::from_str(json).expect("Should deserialize");
 
-    assert_eq!(payload.text, "The wind howls through the valley.");
+    assert_eq!(payload.text.as_str(), "The wind howls through the valley.");
     assert!(
         payload.footnotes.is_empty(),
         "Missing footnotes field should deserialize as empty vec",
@@ -463,7 +469,7 @@ fn narration_without_footnotes_field_is_valid() {
         result.err(),
     );
     let payload = result.unwrap();
-    assert_eq!(payload.text, "The tavern is warm and noisy.");
+    assert_eq!(payload.text.as_str(), "The tavern is warm and noisy.");
     assert!(payload.footnotes.is_empty());
 }
 
@@ -586,7 +592,7 @@ fn footnote_fields_serialize_correctly() {
     let footnote = Footnote {
         marker: Some(3),
         fact_id: Some("fact-abc".to_string()),
-        summary: "The ancient ruins hold a secret".to_string(),
+        summary: nbs("The ancient ruins hold a secret"),
         category: FactCategory::Lore,
         is_new: false,
     };
@@ -638,7 +644,7 @@ fn full_pipeline_narrator_json_to_known_facts() {
         serde_json::from_str(narrator_json).expect("Should parse narrator JSON");
 
     assert_eq!(payload.footnotes.len(), 3, "Should have 3 footnotes");
-    assert!(!payload.text.is_empty(), "Should have prose text");
+    assert!(!payload.text.as_str().is_empty(), "Should have prose text");
 
     // Step 3: Convert new footnotes to DiscoveredFacts
     let discovered = sidequest_agents::footnotes::footnotes_to_discovered_facts(

@@ -9,7 +9,7 @@
 //! filtering the NPC registry to the current turn before calling in.
 
 use sidequest_game::NpcRegistryEntry;
-use sidequest_protocol::{Footnote, NpcRef, ScrapbookEntryPayload};
+use sidequest_protocol::{Footnote, NonBlankString, NpcRef, ScrapbookEntryPayload};
 
 /// Known sentence-boundary abbreviations that must NOT terminate the
 /// first-sentence extraction. Tokens are compared case-insensitively and
@@ -116,33 +116,45 @@ fn is_abbreviation_terminator(text: &str, period_idx: usize) -> bool {
 ///   image join on the client side.
 #[allow(clippy::too_many_arguments)]
 pub fn build_scrapbook_entry(
-    turn_id: u32,
-    location: String,
-    scene_title: Option<String>,
+    turn_id: u64,
+    location: NonBlankString,
+    scene_title: Option<NonBlankString>,
     scene_type: Option<String>,
-    image_url: Option<String>,
+    image_url: Option<NonBlankString>,
     narration: &str,
     footnotes: &[Footnote],
-    npcs: &[NpcRegistryEntry],
+    npc_registry: &[NpcRegistryEntry],
 ) -> ScrapbookEntryPayload {
     let world_facts: Vec<String> = footnotes
         .iter()
         .filter(|f| f.is_new)
-        .map(|f| f.summary.clone())
+        .map(|f| f.summary.as_str().to_string())
         .collect();
 
-    let npcs_present: Vec<NpcRef> = npcs
+    // Filter NPCs to just those seen this turn — keeps the scrapbook
+    // entry focused and avoids an intermediate Vec allocation at the
+    // call site. The u64→u32 cast is safe because last_seen_turn is a
+    // u32 counter bounded by interaction count (see ADR-051).
+    let turn_id_u32 = u32::try_from(turn_id).unwrap_or(u32::MAX);
+    let npcs_present: Vec<NpcRef> = npc_registry
         .iter()
-        .map(|entry| NpcRef {
-            name: entry.name.clone(),
-            role: entry.role.clone(),
-            disposition: if entry.ocean_summary.is_empty() {
-                entry.role.clone()
-            } else {
-                entry.ocean_summary.clone()
-            },
+        .filter(|e| e.last_seen_turn == turn_id_u32)
+        .filter_map(|entry| {
+            let name = NonBlankString::new(&entry.name).ok()?;
+            let role = NonBlankString::new(&entry.role).ok()?;
+            let disposition = NonBlankString::new(&entry.ocean_summary)
+                .unwrap_or_else(|_| role.clone());
+            Some(NpcRef {
+                name,
+                role,
+                disposition,
+            })
         })
         .collect();
+
+    let excerpt = extract_first_sentence(narration);
+    let narrative_excerpt = NonBlankString::new(&excerpt)
+        .expect("narration is non-empty when build_scrapbook_entry is called after NarrationEnd");
 
     ScrapbookEntryPayload {
         turn_id,
@@ -150,7 +162,7 @@ pub fn build_scrapbook_entry(
         scene_type,
         location,
         image_url,
-        narrative_excerpt: extract_first_sentence(narration),
+        narrative_excerpt,
         world_facts,
         npcs_present,
     }

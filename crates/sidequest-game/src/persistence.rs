@@ -456,11 +456,11 @@ impl SessionStore for SqliteStore {
             "INSERT INTO scrapbook_entries (turn_id, scene_title, scene_type, location, image_url, narrative_excerpt, world_facts, npcs_present) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 entry.turn_id,
-                entry.scene_title,
+                entry.scene_title.as_ref().map(|s| s.as_str()),
                 entry.scene_type,
-                entry.location,
-                entry.image_url,
-                entry.narrative_excerpt,
+                entry.location.as_str(),
+                entry.image_url.as_ref().map(|s| s.as_str()),
+                entry.narrative_excerpt.as_str(),
                 world_facts_json,
                 npcs_json,
             ],
@@ -476,7 +476,7 @@ impl SessionStore for SqliteStore {
         )?;
         let entries = stmt
             .query_map([], |row| {
-                let turn_id: u32 = row.get(0)?;
+                let turn_id: u64 = row.get(0)?;
                 let scene_title: Option<String> = row.get(1)?;
                 let scene_type: Option<String> = row.get(2)?;
                 let location: String = row.get(3)?;
@@ -490,11 +490,11 @@ impl SessionStore for SqliteStore {
                     serde_json::from_str(&npcs_json).unwrap_or_default();
                 Ok(sidequest_protocol::ScrapbookEntryPayload {
                     turn_id,
-                    scene_title,
+                    scene_title: scene_title.and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
                     scene_type,
-                    location,
-                    image_url,
-                    narrative_excerpt,
+                    location: sidequest_protocol::NonBlankString::new(&location).unwrap_or_else(|_| sidequest_protocol::NonBlankString::new("unknown").expect("literal")),
+                    image_url: image_url.and_then(|s| sidequest_protocol::NonBlankString::new(&s).ok()),
+                    narrative_excerpt: sidequest_protocol::NonBlankString::new(&narrative_excerpt).unwrap_or_else(|_| sidequest_protocol::NonBlankString::new("…").expect("literal")),
                     world_facts,
                     npcs_present,
                 })

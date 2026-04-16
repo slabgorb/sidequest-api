@@ -78,10 +78,12 @@ pub(crate) fn generate_catch_up_messages(
                 .field("history_turns", narration_history.len())
                 .send();
 
+            let catch_up_text = sidequest_protocol::NonBlankString::new(result.narration())
+                .expect("catch-up narration is non-empty — strategy guarantees non-empty text (see CatchUpResult::Generated)");
             Some(vec![
                 GameMessage::Narration {
                     payload: NarrationPayload {
-                        text: result.narration().to_string(),
+                        text: catch_up_text,
                         state_delta: None,
                         footnotes: vec![],
                     },

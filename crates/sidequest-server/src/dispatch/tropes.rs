@@ -144,12 +144,20 @@ pub(crate) fn process_tropes(
     // --- Phase 4: Broadcast earned achievements + emit watcher events ---
     for achievement in &earned {
         // Broadcast to all session players via GameMessage
+        let achievement_id = sidequest_protocol::NonBlankString::new(&achievement.id)
+            .expect("achievement.id is non-empty by YAML schema");
+        let name = sidequest_protocol::NonBlankString::new(&achievement.name)
+            .expect("achievement.name is non-empty by YAML schema");
+        let description = sidequest_protocol::NonBlankString::new(&achievement.description)
+            .expect("achievement.description is non-empty by YAML schema");
+        let trope_id = sidequest_protocol::NonBlankString::new(&achievement.trope_id)
+            .expect("achievement.trope_id is non-empty by YAML schema");
         messages.push(GameMessage::AchievementEarned {
             payload: sidequest_protocol::AchievementEarnedPayload {
-                achievement_id: achievement.id.clone(),
-                name: achievement.name.clone(),
-                description: achievement.description.clone(),
-                trope_id: achievement.trope_id.clone(),
+                achievement_id,
+                name,
+                description,
+                trope_id,
                 trigger: achievement.trigger_status.clone(),
                 emoji: achievement.emoji.clone(),
             },

@@ -36,7 +36,6 @@ use crate::world_materialization::{CampaignMaturity, HistoryChapter};
 
 use sidequest_protocol::{
     ChapterMarkerPayload, CharacterState, ExploredLocation, GameMessage, MapUpdatePayload,
-    PartyMember, PartyStatusPayload,
 };
 
 /// Room IDs the player has visited in room-graph navigation mode.
@@ -830,76 +829,20 @@ where
 pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<GameMessage> {
     let mut messages = Vec::new();
 
-    // Always send PARTY_STATUS after a turn. PARTY_STATUS is now the single
-    // source of truth for per-character state — sheet + inventory facets are
-    // nested on each PartyMember, collapsing the old CHARACTER_SHEET and
-    // INVENTORY messages.
-    let members: Vec<PartyMember> = state
-        .characters
-        .iter()
-        .map(|c| {
-            let sheet = sidequest_protocol::CharacterSheetDetails {
-                race: c.race.as_str().to_string(),
-                stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
-                abilities: c
-                    .hooks
-                    .iter()
-                    .filter(|s| !s.contains("auto-filled"))
-                    .cloned()
-                    .collect(),
-                backstory: c.backstory.as_str().to_string(),
-                personality: c.core.personality.as_str().to_string(),
-                pronouns: c.pronouns.clone(),
-                equipment: c
-                    .core
-                    .inventory
-                    .items
-                    .iter()
-                    .map(|i| {
-                        if i.equipped {
-                            format!("{} [equipped]", i.name)
-                        } else {
-                            i.name.as_str().to_string()
-                        }
-                    })
-                    .collect(),
-            };
-            let inventory = sidequest_protocol::InventoryPayload {
-                items: c
-                    .core
-                    .inventory
-                    .items
-                    .iter()
-                    .map(|item| sidequest_protocol::InventoryItem {
-                        name: item.name.as_str().to_string(),
-                        item_type: item.category.as_str().to_string(),
-                        equipped: item.equipped,
-                        quantity: item.quantity,
-                        description: item.description.as_str().to_string(),
-                    })
-                    .collect(),
-                gold: c.core.inventory.gold,
-            };
-            PartyMember {
-                player_id: String::new(),
-                name: String::new(),
-                character_name: c.name().to_string(),
-                current_hp: Combatant::hp(c),
-                max_hp: Combatant::max_hp(c),
-                statuses: c.core.statuses.clone(),
-                class: c.char_class.as_str().to_string(),
-                level: Combatant::level(c),
-                portrait_url: None,
-                current_location: state.location.clone(),
-                sheet: Some(sheet),
-                inventory: Some(inventory),
-            }
-        })
-        .collect();
-    messages.push(GameMessage::PartyStatus {
-        payload: PartyStatusPayload { members },
-        player_id: String::new(),
-    });
+    // PARTY_STATUS is built with full player context in
+    // `sidequest-server/src/dispatch/response.rs::build_response_messages`,
+    // which has access to `ctx.player_id`, the lobby name, and the cached
+    // PlayerState sheet/inventory. This function historically ALSO
+    // constructed a PartyStatus with blank placeholders for player_id/name,
+    // producing two competing PartyStatus messages per turn — one with real
+    // values, one with sentinels — which the React reducer coalesced based
+    // on arrival order. The NonBlankString protocol sweep made the
+    // placeholders impossible to construct, which surfaced the duplication.
+    //
+    // Dropping the PartyStatus emission here eliminates the competing
+    // broadcast; the server-side build remains the single source of truth.
+    // This function still owns the bloodied OTEL emission below and the
+    // ChapterMarker / MapUpdate broadcasts, which have no server-side twin.
 
     // OTEL: combatant.bloodied — emitted when this turn mutated character
     // state and any friendly is now below half HP. Transition-site emission
@@ -945,31 +888,53 @@ pub fn broadcast_state_changes(delta: &StateDelta, state: &GameSnapshot) -> Vec<
             .discovered_regions
             .iter()
             .enumerate()
-            .map(|(i, name)| ExploredLocation {
-                // Region mode has no separate slug — id mirrors name.
-                id: name.clone(),
-                name: name.clone(),
-                x: i as i32,
-                y: 0,
-                location_type: "region".to_string(),
-                connections: vec![],
-                room_exits: vec![],
-                room_type: String::new(),
-                size: None,
-                is_current_room: false,
-                tactical_grid: None,
+            .filter_map(|(i, region_name)| {
+                // Drop any blank region names rather than silently emitting
+                // empty map markers — a blank region is a data bug upstream
+                // (cartography registration), not a valid map entry.
+                let name = NonBlankString::new(region_name).ok()?;
+                Some(ExploredLocation {
+                    // Region mode has no separate slug — id mirrors name.
+                    id: region_name.clone(),
+                    name,
+                    x: i as i32,
+                    y: 0,
+                    location_type: "region".to_string(),
+                    connections: vec![],
+                    room_exits: vec![],
+                    room_type: String::new(),
+                    size: None,
+                    is_current_room: false,
+                    tactical_grid: None,
+                })
             })
             .collect();
-        messages.push(GameMessage::MapUpdate {
-            payload: MapUpdatePayload {
-                current_location: state.location.clone(),
-                region: state.current_region.clone(),
-                explored,
-                fog_bounds: None,
-                cartography: None,
-            },
-            player_id: String::new(),
-        });
+        // Likewise require non-blank current_location / region for the
+        // outer MapUpdate — if the game state doesn't have a real location
+        // yet, skip the broadcast entirely. The client's last-known map
+        // state stays on screen.
+        if let (Ok(current_location), Ok(region)) = (
+            NonBlankString::new(&state.location),
+            NonBlankString::new(&state.current_region),
+        ) {
+            messages.push(GameMessage::MapUpdate {
+                payload: MapUpdatePayload {
+                    current_location,
+                    region,
+                    explored,
+                    fog_bounds: None,
+                    cartography: None,
+                },
+                player_id: String::new(),
+            });
+        } else {
+            tracing::warn!(
+                location = %state.location,
+                region = %state.current_region,
+                "map_update_skipped — state.location or state.current_region is blank; \
+                 cannot construct a non-blank MapUpdatePayload"
+            );
+        }
     }
 
     // COMBAT_EVENT removed in story 28-9 — ConfrontationPayload replaces it.
@@ -1008,10 +973,16 @@ pub fn build_protocol_delta(
                     .characters
                     .iter()
                     .map(|c| CharacterState {
-                        name: c.name().to_string(),
+                        // `CreatureCore.name` is already `NonBlankString` —
+                        // clone the validated newtype directly instead of
+                        // round-tripping through `&str` → `String`.
+                        name: c.core.name.clone(),
                         hp: Combatant::hp(c),
                         max_hp: Combatant::max_hp(c),
                         level: Combatant::level(c),
+                        // CharacterState.class is kept as raw String on the
+                        // protocol side (see message.rs comment) — unwrap
+                        // the source NonBlankString for this one field.
                         class: c.char_class.as_str().to_string(),
                         statuses: vec![],
                         inventory: c

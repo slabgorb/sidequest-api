@@ -178,8 +178,8 @@ fn game_patch_items_gained_deserializes() {
     // Test that the protocol ItemGained type handles narrator-style JSON
     let json = r#"{"name": "rusty key", "description": "A small iron key with rust spots", "category": "quest"}"#;
     let item: sidequest_protocol::ItemGained = serde_json::from_str(json).unwrap();
-    assert_eq!(item.name, "rusty key");
-    assert_eq!(item.description, "A small iron key with rust spots");
+    assert_eq!(item.name.as_str(), "rusty key");
+    assert_eq!(item.description.as_str(), "A small iron key with rust spots");
     assert_eq!(item.category, "quest");
 }
 
@@ -188,9 +188,12 @@ fn game_patch_items_gained_deserializes() {
 fn game_patch_items_gained_default_description() {
     let json = r#"{"name": "rusty key", "category": "quest"}"#;
     let item: sidequest_protocol::ItemGained = serde_json::from_str(json).unwrap();
-    assert_eq!(item.name, "rusty key");
+    assert_eq!(item.name.as_str(), "rusty key");
+    // After the NonBlankString sweep the default_item_description helper
+    // returns a non-blank `NonBlankString`, so the field is trivially
+    // non-empty — the assertion remains as a regression guard.
     assert!(
-        !item.description.is_empty(),
+        !item.description.as_str().is_empty(),
         "Default description must be non-empty"
     );
 }
@@ -200,7 +203,7 @@ fn game_patch_items_gained_default_description() {
 fn game_patch_items_gained_default_category() {
     let json = r#"{"name": "mysterious orb"}"#;
     let item: sidequest_protocol::ItemGained = serde_json::from_str(json).unwrap();
-    assert_eq!(item.name, "mysterious orb");
+    assert_eq!(item.name.as_str(), "mysterious orb");
     assert!(
         !item.category.is_empty(),
         "Default category must be non-empty"
@@ -223,11 +226,12 @@ fn game_patch_with_items_gained_array() {
     let items = patch["items_gained"].as_array().unwrap();
     assert_eq!(items.len(), 2);
 
-    // Each item should deserialize to ItemGained
+    // Each item should deserialize to ItemGained — trivially non-empty
+    // post-NonBlankString sweep, but kept as a regression guard.
     for item_val in items {
         let item: sidequest_protocol::ItemGained =
             serde_json::from_value(item_val.clone()).unwrap();
-        assert!(!item.name.is_empty());
+        assert!(!item.name.as_str().is_empty());
     }
 }
 

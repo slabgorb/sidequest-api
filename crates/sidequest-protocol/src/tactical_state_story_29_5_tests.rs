@@ -5,6 +5,14 @@
 
 use super::*;
 
+/// Story 33-18: TacticalStatePayload.room_id and TacticalFeaturePayload.label
+/// are `NonBlankString`.
+macro_rules! nbs {
+    ($s:expr) => {
+        crate::types::NonBlankString::new($s).expect("test literal must be non-blank")
+    };
+}
+
 // ==========================================================================
 // AC-1: TacticalStatePayload serializes/deserializes correctly
 // ==========================================================================
@@ -15,7 +23,7 @@ mod tactical_state_payload_tests {
     #[test]
     fn tactical_state_payload_round_trip() {
         let payload = TacticalStatePayload {
-            room_id: "mawdeep_entrance".to_string(),
+            room_id: nbs!("mawdeep_entrance"),
             grid: TacticalGridPayload {
                 width: 5,
                 height: 3,
@@ -45,7 +53,7 @@ mod tactical_state_payload_tests {
                 features: vec![TacticalFeaturePayload {
                     glyph: 'A',
                     feature_type: "cover".to_string(),
-                    label: "Stalagmite".to_string(),
+                    label: nbs!("Stalagmite"),
                     positions: vec![[1, 1]],
                 }],
             },
@@ -62,7 +70,7 @@ mod tactical_state_payload_tests {
 
         let json = serde_json::to_string(&payload).expect("serialize");
         let deserialized: TacticalStatePayload = serde_json::from_str(&json).expect("deserialize");
-        assert_eq!(deserialized.room_id, "mawdeep_entrance");
+        assert_eq!(deserialized.room_id.as_str(), "mawdeep_entrance");
         assert_eq!(deserialized.grid.width, 5);
         assert_eq!(deserialized.grid.height, 3);
         assert_eq!(deserialized.grid.cells.len(), 3);
@@ -77,7 +85,7 @@ mod tactical_state_payload_tests {
     #[test]
     fn tactical_state_payload_empty_grid() {
         let payload = TacticalStatePayload {
-            room_id: "empty_room".to_string(),
+            room_id: nbs!("empty_room"),
             grid: TacticalGridPayload {
                 width: 0,
                 height: 0,
@@ -119,7 +127,7 @@ mod tactical_state_payload_tests {
         let feature = TacticalFeaturePayload {
             glyph: 'B',
             feature_type: "hazard".to_string(),
-            label: "Spike Trap".to_string(),
+            label: nbs!("Spike Trap"),
             positions: vec![[3, 4], [3, 5]],
         };
 
@@ -218,7 +226,7 @@ mod game_message_variant_tests {
     fn tactical_state_message_serializes_with_correct_type_tag() {
         let msg = GameMessage::TacticalState {
             payload: TacticalStatePayload {
-                room_id: "entrance".to_string(),
+                room_id: nbs!("entrance"),
                 grid: TacticalGridPayload {
                     width: 3,
                     height: 3,
@@ -280,7 +288,7 @@ mod game_message_variant_tests {
         let msg: GameMessage = serde_json::from_str(json).expect("deserialize");
         match msg {
             GameMessage::TacticalState { payload, player_id } => {
-                assert_eq!(payload.room_id, "test_room");
+                assert_eq!(payload.room_id.as_str(), "test_room");
                 assert_eq!(payload.grid.width, 1);
                 assert_eq!(player_id, "p1");
             }
@@ -328,7 +336,7 @@ mod dispatch_wiring_tests {
     #[test]
     fn tactical_state_embeds_in_game_message() {
         let payload = TacticalStatePayload {
-            room_id: "dispatch_test_room".to_string(),
+            room_id: nbs!("dispatch_test_room"),
             grid: TacticalGridPayload {
                 width: 2,
                 height: 2,
@@ -434,7 +442,7 @@ mod rule_enforcement_tests {
     #[test]
     fn payload_structs_derive_clone() {
         let payload = TacticalStatePayload {
-            room_id: "r1".to_string(),
+            room_id: nbs!("r1"),
             grid: TacticalGridPayload {
                 width: 1,
                 height: 1,
@@ -445,6 +453,6 @@ mod rule_enforcement_tests {
             zones: vec![],
         };
         let cloned = payload.clone();
-        assert_eq!(cloned.room_id, "r1");
+        assert_eq!(cloned.room_id.as_str(), "r1");
     }
 }

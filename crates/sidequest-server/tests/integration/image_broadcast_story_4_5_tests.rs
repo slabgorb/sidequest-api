@@ -421,8 +421,8 @@ async fn image_payload_includes_generation_ms() {
 fn game_message_image_variant_exists() {
     // Verify the Image variant can be constructed and pattern-matched
     let payload = ImagePayload {
-        url: "http://example.com/test.png".to_string(),
-        description: "A test image".to_string(),
+        url: sidequest_protocol::NonBlankString::new("http://example.com/test.png").unwrap(),
+        description: sidequest_protocol::NonBlankString::new("A test image").unwrap(),
         handout: false,
         render_id: None,
         tier: None,
@@ -437,8 +437,8 @@ fn game_message_image_variant_exists() {
 
     match msg {
         GameMessage::Image { payload: p, .. } => {
-            assert_eq!(p.url, "http://example.com/test.png");
-            assert_eq!(p.description, "A test image");
+            assert_eq!(p.url.as_str(), "http://example.com/test.png");
+            assert_eq!(p.description.as_str(), "A test image");
         }
         _ => panic!("Expected GameMessage::Image variant"),
     }
