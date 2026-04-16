@@ -76,6 +76,11 @@ pub use tracing_setup::{build_subscriber_with_filter, init_tracing, tracing_subs
 // than just matching a source-string scan in `dispatch/mod.rs`.
 pub use dispatch::beat::{apply_beat_dispatch, BeatDispatchOutcome};
 
+// Story 38-5: public re-export of the sealed-letter resolution handler
+// and its outcome type so integration tests can reach them through the
+// crate's public API (same pattern as the beat dispatch re-export above).
+pub use dispatch::sealed_letter::{resolve_sealed_letter_lookup, SealedLetterOutcome};
+
 // ---------------------------------------------------------------------------
 // Story 34-11: OTEL dice span emitters — GM panel visibility for dice dispatch
 // ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ mod npc_registry;
 mod patching;
 mod persistence;
 pub(crate) mod pregen;
+pub(crate) mod sealed_letter;
 mod prompt;
 mod render;
 mod response;
@@ -1818,6 +1819,96 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             &ctx.confrontation_defs,
             &result.npcs_present,
         );
+    }
+
+    // Story 38-5: Sealed-letter lookup resolution — when the active encounter's
+    // confrontation def uses ResolutionMode::SealedLetterLookup, resolution is
+    // handled by sealed_letter::resolve_sealed_letter_lookup() instead of the
+    // beat_selection dispatch below. The sealed-letter path is commit-reveal:
+    // TurnBarrier gathers maneuvers from both pilots, then the synchronous
+    // resolver does the cross-product table lookup and per_actor_state delta
+    // application. This branch runs BEFORE the beat dispatch loop because
+    // sealed-letter encounters don't use narrator-emitted beat_selections.
+    //
+    // Borrow strategy: extract all data we need from the immutable encounter
+    // ref first, drop that borrow, then take &mut for the resolution call.
+    {
+        let sealed_letter_input: Option<(HashMap<String, String>, sidequest_genre::InteractionTable)> = ctx
+            .snapshot
+            .encounter
+            .as_ref()
+            .and_then(|encounter| {
+                let def = crate::find_confrontation_def(&ctx.confrontation_defs, &encounter.encounter_type)?;
+                if def.resolution_mode != sidequest_genre::ResolutionMode::SealedLetterLookup {
+                    return None;
+                }
+                let interaction_table = def.interaction_table.clone()?;
+
+                // Gather committed maneuvers from the TurnBarrier. named_actions()
+                // returns char_name → action_text. We map through encounter actors
+                // to get role → maneuver (e.g., "red" → "bank", "blue" → "straight").
+                let commits: HashMap<String, String> = if let Some(ref outcome) = barrier_outcome {
+                    let named = outcome.barrier.named_actions();
+                    encounter
+                        .actors
+                        .iter()
+                        .filter_map(|actor| {
+                            named.get(&actor.name).map(|maneuver| {
+                                (actor.role.clone(), maneuver.clone())
+                            })
+                        })
+                        .collect()
+                } else {
+                    // Solo play: single player's action is the maneuver for
+                    // whichever role they occupy. The NPC actor gets the first
+                    // maneuver from maneuvers_consumed as a default. starting_state
+                    // is a descriptor state label ("merge"), NOT a valid maneuver.
+                    let npc_default = interaction_table.maneuvers_consumed
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            tracing::warn!(
+                                "sealed_letter: maneuvers_consumed is empty — no valid NPC default"
+                            );
+                            "unknown".to_string()
+                        });
+                    let mut solo = HashMap::new();
+                    for actor in &encounter.actors {
+                        if actor.name == ctx.char_name {
+                            solo.insert(actor.role.clone(), ctx.action.to_string());
+                        } else {
+                            solo.insert(actor.role.clone(), npc_default.clone());
+                        }
+                    }
+                    solo
+                };
+
+                Some((commits, interaction_table))
+            });
+
+        if let Some((commits, interaction_table)) = sealed_letter_input {
+            let encounter_type = ctx.snapshot.encounter.as_ref()
+                .expect("encounter must be Some — sealed_letter_input only constructed when encounter.as_ref() is Some")
+                .encounter_type.clone();
+            if let Err(e) = sealed_letter::resolve_sealed_letter_lookup(
+                ctx.snapshot.encounter.as_mut()
+                    .expect("encounter must be Some — invariant: sealed_letter_input requires encounter"),
+                &commits,
+                &interaction_table,
+            ) {
+                tracing::warn!(
+                    error = %e,
+                    encounter_type = %encounter_type,
+                    "sealed_letter resolution failed"
+                );
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "encounter.sealed_letter.resolution_failed")
+                    .field("error", format!("{e}"))
+                    .field("encounter_type", &encounter_type)
+                    .severity(Severity::Warn)
+                    .send();
+            }
+        }
     }
 
     // Story 28-5: Beat selection dispatch — route narrator's beat_selection through
