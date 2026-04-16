@@ -1391,7 +1391,10 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             } else {
                 location.clone()
             };
-            let is_new = !ctx.discovered_regions.iter().any(|r| r == &location);
+            let is_new = !ctx
+                .discovered_regions
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(&location));
             *ctx.current_location = canonical_location;
             if is_new {
                 ctx.discovered_regions.push(location.clone());

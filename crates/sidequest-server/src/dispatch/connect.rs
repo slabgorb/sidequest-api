@@ -285,10 +285,9 @@ pub(crate) async fn dispatch_connect(
                                     race: c.race.as_str().to_string(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
-                                        .hooks
+                                        .abilities
                                         .iter()
-                                        .filter(|s| !s.contains("auto-filled"))
-                                        .cloned()
+                                        .map(|a| a.name.clone())
                                         .collect(),
                                     backstory: c.backstory.as_str().to_string(),
                                     personality: c.core.personality.as_str().to_string(),
@@ -455,10 +454,9 @@ pub(crate) async fn dispatch_connect(
                                     race: c.race.as_str().to_string(),
                                     stats: c.stats.iter().map(|(k, v)| (k.clone(), *v)).collect(),
                                     abilities: c
-                                        .hooks
+                                        .abilities
                                         .iter()
-                                        .filter(|s| !s.contains("auto-filled"))
-                                        .cloned()
+                                        .map(|a| a.name.clone())
                                         .collect(),
                                     backstory: c.backstory.as_str().to_string(),
                                     personality: c.core.personality.as_str().to_string(),
@@ -1676,7 +1674,7 @@ pub(crate) async fn dispatch_character_creation(
                     if !current_location.is_empty()
                         && !discovered_regions
                             .iter()
-                            .any(|r| r == current_location.as_str())
+                            .any(|r| r.eq_ignore_ascii_case(current_location.as_str()))
                     {
                         discovered_regions.push(current_location.clone());
                     }
@@ -2091,10 +2089,9 @@ pub(crate) async fn dispatch_character_creation(
                             .map(|(k, v)| (k.clone(), *v))
                             .collect(),
                         abilities: character
-                            .hooks
+                            .abilities
                             .iter()
-                            .filter(|s| !s.contains("auto-filled"))
-                            .cloned()
+                            .map(|a| a.name.clone())
                             .collect(),
                         backstory: character.backstory.as_str().to_string(),
                         personality: character.core.personality.as_str().to_string(),

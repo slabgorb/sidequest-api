@@ -100,12 +100,22 @@ Quest (objectives/tasks), Ability (skills/powers).\n\
 is_new: true if this is the first time this fact appears, false if referencing prior knowledge.\n\
 Include footnotes generously — they feed the player's knowledge journal.\n\
 \n\
-confrontation: When ANY structured encounter BEGINS this turn — combat, chase, \
-card game, standoff, negotiation, or any other type — include confrontation to \
-signal the server to create the encounter. The available encounter types vary \
-by genre — check the AVAILABLE CONFRONTATIONS section in game_state. Only \
-include on the turn the encounter STARTS, not on subsequent rounds. Once the \
-encounter is active, use beat_selections instead.\n\
+confrontation: When ANY structured encounter BEGINS this turn, include \
+confrontation to signal the server to create the encounter. The value must \
+match one of the types listed in AVAILABLE ENCOUNTER TYPES in game_state.\n\
+TRIGGER CRITERIA — you MUST emit confrontation when the player's action \
+involves ANY of these:\n\
+- Physical violence, threats, or intimidation → the combat/brawl type\n\
+- Bargaining, trading, persuasion, or social manipulation → the negotiation type\n\
+- Fleeing, pursuing, or being chased → the chase type\n\
+- Any tense standoff where outcomes should be mechanically resolved\n\
+Do NOT resolve these narratively without confrontation. The mechanical system \
+tracks resource pools, beats, and resolution — without it, the game is just \
+prose with no crunch. If the player takes an action that fits a confrontation \
+type, START the encounter. Err on the side of triggering — the system handles \
+de-escalation gracefully.\n\
+Only include on the turn the encounter STARTS, not on subsequent rounds. Once \
+the encounter is active, use beat_selections instead.\n\
 \n\
 beat_selections: When an encounter is active (the encounter context section will \
 list available beats and actors), include beat_selections — an array of beat \
@@ -173,6 +183,27 @@ Example D — item acquisition (player picks up, finds, or loots):\n\
   ]\n\
 }\n\
 ```\n\
+\n\
+Example E — confrontation start (player initiates combat, negotiation, chase, etc.):\n\
+```game_patch\n\
+{\n\
+  \"confrontation\": \"{{type_from_AVAILABLE_ENCOUNTER_TYPES}}\",\n\
+  \"npcs_present\": [\"{{npc_involved_in_confrontation}}\"],\n\
+  \"visual_scene\": {\n\
+    \"subject\": \"{{confrontation opening moment, max 100 chars}}\",\n\
+    \"tier\": \"scene_illustration\",\n\
+    \"mood\": \"tense\",\n\
+    \"tags\": [\"combat\"]\n\
+  },\n\
+  \"footnotes\": [\n\
+    {\"summary\": \"{{what triggered the confrontation}}\", \"category\": \"Lore\", \"is_new\": true}\n\
+  ]\n\
+}\n\
+```\n\
+Note: the server creates the encounter from confrontation defs. Your narration \
+should describe the opening moment — the tension snapping, weapons drawn, the \
+chase beginning — but the MECHANICAL resolution happens via beat_selections on \
+subsequent turns.\n\
 \n\
 If nothing mechanical happened AND no new knowledge was revealed, emit:\n\
 ```game_patch\n\
