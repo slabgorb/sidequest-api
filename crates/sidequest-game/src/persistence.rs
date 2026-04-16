@@ -312,15 +312,25 @@ impl SessionStore for SqliteStore {
             created_at: Utc::now(),
             last_played: Utc::now(),
         });
-        // Rich recap with character names and location (story F3)
+        // Rich recap with known_facts as primary source (playtest fix 2026-04-16).
+        // Falls back to truncated narration entries if no facts exist.
         let entries = self.recent_narrative(3)?;
         let character_names: Vec<String> = snapshot
             .characters
             .iter()
             .map(|c| Combatant::name(c).to_string())
             .collect();
-        let recap =
-            crate::narrative::generate_recap(&entries, &character_names, &snapshot.location);
+        let known_facts: &[crate::known_fact::KnownFact] = snapshot
+            .characters
+            .first()
+            .map(|c| c.known_facts.as_slice())
+            .unwrap_or(&[]);
+        let recap = crate::narrative::generate_recap_with_facts(
+            &entries,
+            &character_names,
+            &snapshot.location,
+            known_facts,
+        );
         Ok(Some(SavedSession {
             meta,
             snapshot,
