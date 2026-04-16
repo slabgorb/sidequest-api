@@ -647,6 +647,12 @@ impl GameSnapshot {
                             .unwrap_or_default(),
                         ocean: None,
                         belief_state: crate::belief_state::BeliefState::default(),
+                        resolution_tier: crate::npc::ResolutionTier::default(),
+                        non_transactional_interactions: 0,
+                        jungian_id: None,
+                        rpg_role_id: None,
+                        npc_role_id: None,
+                        resolved_archetype: None,
                     };
                     self.npcs.push(new_npc);
                 }

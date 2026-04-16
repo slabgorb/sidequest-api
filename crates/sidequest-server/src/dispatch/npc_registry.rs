@@ -1,6 +1,7 @@
 //! NPC registry updates from structured narrator output + OCEAN personality shifts.
 
 use sidequest_genre::{GenreCode, GenreLoader};
+use sidequest_game::{Npc, ResolutionTier};
 
 use crate::{NpcRegistryEntry, WatcherEventBuilder, WatcherEventType};
 
@@ -284,4 +285,41 @@ pub(super) fn update_npc_registry(
     }
 
     creature_images
+}
+
+/// Evaluate whether an NPC should be promoted based on non-transactional interactions.
+/// Three non-transactional interactions triggers promotion from spawn to engage,
+/// and from engage to promote.
+pub fn evaluate_promotion(npc: &mut Npc) -> Option<ResolutionTier> {
+    let previous = npc.resolution_tier;
+    let new_tier = match npc.non_transactional_interactions {
+        0 => ResolutionTier::Spawn,
+        1..=2 => ResolutionTier::Engage,
+        _ => ResolutionTier::Promote,
+    };
+
+    if new_tier != previous {
+        npc.resolution_tier = new_tier;
+        Some(new_tier)
+    } else {
+        None
+    }
+}
+
+/// Log a promotion event. Call this after evaluate_promotion returns Some.
+pub fn log_promotion_event(
+    npc_name: &str,
+    from_tier: ResolutionTier,
+    to_tier: ResolutionTier,
+    interactions: u32,
+    turn: u32,
+) {
+    WatcherEventBuilder::new("npc_resolution", WatcherEventType::StateTransition)
+        .field("action", "npc_tier_promoted")
+        .field("npc_name", npc_name)
+        .field("from_tier", format!("{:?}", from_tier))
+        .field("to_tier", format!("{:?}", to_tier))
+        .field("non_transactional_interactions", interactions)
+        .field("turn", turn)
+        .send();
 }
