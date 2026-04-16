@@ -16,6 +16,7 @@ use sidequest_protocol::{
 use sidequest_telemetry::{Severity, WatcherEventBuilder, WatcherEventType};
 use tracing::info_span;
 
+use crate::ability::{AbilityDefinition, AbilitySource};
 use crate::character::Character;
 use crate::creature_core::CreatureCore;
 use crate::inventory::{Inventory, Item, ItemState};
@@ -1104,6 +1105,83 @@ impl CharacterBuilder {
             .field("length", backstory_text.len() as i64)
             .send();
 
+        // Resolve starting abilities from chargen hints (mutation, affinity, training).
+        // Each hint type maps to a different AbilitySource. The label and description
+        // come from the scene choice the player selected.
+        let mut abilities: Vec<AbilityDefinition> = Vec::new();
+        for (i, result) in self.results.iter().enumerate() {
+            let eff = &result.effects_applied;
+
+            // Determine which hint type this scene produced, if any.
+            let hint_info: Option<(&str, AbilitySource)> = if let Some(ref hint) = eff.mutation_hint
+            {
+                if hint != "none" {
+                    Some((hint.as_str(), AbilitySource::Race))
+                } else {
+                    None
+                }
+            } else if let Some(ref hint) = eff.affinity_hint {
+                if hint != "none" {
+                    Some((hint.as_str(), AbilitySource::Class))
+                } else {
+                    None
+                }
+            } else if let Some(ref hint) = eff.training_hint {
+                Some((hint.as_str(), AbilitySource::Class))
+            } else {
+                None
+            };
+
+            if let Some((hint_key, source)) = hint_info {
+                // Recover the label from the scene choice. The result index
+                // mirrors the scene index, and Choice(idx) gives the pick.
+                let label = if i < self.scenes.len() {
+                    if let SceneInputType::Choice(choice_idx) = &result.input_type {
+                        self.scenes[i]
+                            .choices
+                            .get(*choice_idx)
+                            .map(|c| c.label.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+                .unwrap_or_else(|| humanize_snake_case(hint_key));
+
+                let description = result
+                    .choice_description
+                    .clone()
+                    .unwrap_or_else(|| format!("Acquired through character creation: {}", label));
+
+                abilities.push(AbilityDefinition {
+                    name: label.clone(),
+                    genre_description: description,
+                    mechanical_effect: hint_key.to_string(),
+                    involuntary: false,
+                    source,
+                });
+            }
+        }
+
+        // OTEL: chargen.abilities_resolved — GM panel can verify abilities
+        // were populated from chargen hints, not left empty.
+        WatcherEventBuilder::new("chargen", WatcherEventType::StateTransition)
+            .field("action", "abilities_resolved")
+            .field(
+                "count",
+                abilities.len() as i64,
+            )
+            .field(
+                "names",
+                &abilities
+                    .iter()
+                    .map(|a| a.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            )
+            .send();
+
         let character = Character {
             core: CreatureCore {
                 name: NonBlankString::new(name).map_err(|_| BuilderError::WrongPhase {
@@ -1130,7 +1208,7 @@ impl CharacterBuilder {
             race: NonBlankString::new(race_str).unwrap(),
             pronouns: acc.pronoun_hint.unwrap_or_default(),
             stats,
-            abilities: vec![],
+            abilities,
             known_facts: vec![],
             affinities: vec![],
             is_friendly: true,
