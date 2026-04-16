@@ -30,9 +30,8 @@
 use sidequest_game::encounter::{
     EncounterActor, EncounterMetric, MetricDirection, StructuredEncounter,
 };
-use sidequest_game::state::GameSnapshot;
 use sidequest_genre::{ConfrontationDef, InteractionTable};
-use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent, WatcherEventType};
+use sidequest_telemetry::{init_global_channel, subscribe_global, WatcherEvent};
 use std::collections::HashMap;
 
 // ═══════════════════════════════════════════════════════════
