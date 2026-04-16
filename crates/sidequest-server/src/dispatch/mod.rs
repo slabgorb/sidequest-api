@@ -1890,23 +1890,34 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
             let encounter_type = ctx.snapshot.encounter.as_ref()
                 .expect("encounter must be Some — sealed_letter_input only constructed when encounter.as_ref() is Some")
                 .encounter_type.clone();
-            if let Err(e) = sealed_letter::resolve_sealed_letter_lookup(
+            match sealed_letter::resolve_sealed_letter_lookup(
                 ctx.snapshot.encounter.as_mut()
                     .expect("encounter must be Some — invariant: sealed_letter_input requires encounter"),
                 &commits,
                 &interaction_table,
             ) {
-                tracing::warn!(
-                    error = %e,
-                    encounter_type = %encounter_type,
-                    "sealed_letter resolution failed"
-                );
-                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
-                    .field("event", "encounter.sealed_letter.resolution_failed")
-                    .field("error", format!("{e}"))
-                    .field("encounter_type", &encounter_type)
-                    .severity(Severity::Warn)
-                    .send();
+                Ok(outcome) => {
+                    // Story 38-6: Wire narration_hint into the encounter so the
+                    // narrator prompt (via format_encounter_context) can surface it.
+                    if !outcome.narration_hint.is_empty() {
+                        if let Some(enc) = ctx.snapshot.encounter.as_mut() {
+                            enc.narrator_hints.push(outcome.narration_hint);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        encounter_type = %encounter_type,
+                        "sealed_letter resolution failed"
+                    );
+                    WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                        .field("event", "encounter.sealed_letter.resolution_failed")
+                        .field("error", format!("{e}"))
+                        .field("encounter_type", &encounter_type)
+                        .severity(Severity::Warn)
+                        .send();
+                }
             }
         }
     }

@@ -28,6 +28,10 @@ pub struct SealedLetterOutcome {
     pub red_maneuver: String,
     /// The maneuver committed by the blue actor.
     pub blue_maneuver: String,
+    /// Narration hint from the matched interaction cell — the beat the
+    /// narrator should hit when rendering cockpit-POV prose. Surfaced
+    /// so downstream consumers (narrator prompt builder) can inject it.
+    pub narration_hint: String,
 }
 
 /// Resolve a sealed-letter lookup turn.
@@ -119,6 +123,7 @@ pub fn resolve_sealed_letter_lookup(
     };
 
     let cell_name = cell.name.clone();
+    let narration_hint = cell.narration_hint.clone();
 
     // Delta application: merge cell views into actors' per_actor_state.
     // red_view → actor with role "red", blue_view → actor with role "blue".
@@ -164,6 +169,7 @@ pub fn resolve_sealed_letter_lookup(
         cell_name,
         red_maneuver,
         blue_maneuver,
+        narration_hint,
     })
 }
 
