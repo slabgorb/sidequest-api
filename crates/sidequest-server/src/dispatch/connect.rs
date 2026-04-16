@@ -1306,7 +1306,15 @@ pub(crate) async fn dispatch_character_creation(
                 return vec![b.to_scene_message(player_id)];
             }
             "edit" => {
-                let target_step = payload.target_step.unwrap_or(0) as usize;
+                let target_step = match payload.target_step {
+                    Some(t) => t as usize,
+                    None => {
+                        return vec![error_response(
+                            player_id,
+                            "action:edit requires target_step field",
+                        )];
+                    }
+                };
                 WatcherEventBuilder::new(
                     "character_creation",
                     WatcherEventType::StateTransition,
