@@ -323,23 +323,69 @@ pub(super) fn handle_applied_side_effects(
 
     // Gold delta: mutate inventory and emit a ledger event.
     if let Some(gd) = gold_delta {
-        ctx.inventory.gold = (ctx.inventory.gold + gd as i64).max(0);
-        if let Some(ch) = ctx.snapshot.characters.first_mut() {
-            ch.core.inventory.gold = ctx.inventory.gold;
+        let gold_before = ctx.inventory.gold;
+        if gd >= 0 {
+            // Gold gain — always valid.
+            ctx.inventory.gold += gd as i64;
+            if let Some(ch) = ctx.snapshot.characters.first_mut() {
+                ch.core.inventory.gold = ctx.inventory.gold;
+            }
+            WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                .field("event", "encounter.gold_delta")
+                .field("beat_id", &resolved_beat_id)
+                .field("gold_delta", gd)
+                .field("gold_before", gold_before)
+                .field("gold_after", ctx.inventory.gold)
+                .field("encounter_type", encounter_type)
+                .send();
+            tracing::info!(
+                beat_id = %resolved_beat_id,
+                gold_delta = gd,
+                gold_after = ctx.inventory.gold,
+                "encounter.gold_delta — gold gained"
+            );
+        } else {
+            // Gold loss — must not exceed balance.
+            let spend_amount = (gd as i64).unsigned_abs() as i64;
+            match ctx.inventory.spend_gold(spend_amount) {
+                Ok(_spent) => {
+                    if let Some(ch) = ctx.snapshot.characters.first_mut() {
+                        ch.core.inventory.gold = ctx.inventory.gold;
+                    }
+                    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+                        .field("event", "encounter.gold_delta")
+                        .field("beat_id", &resolved_beat_id)
+                        .field("gold_delta", gd)
+                        .field("gold_before", gold_before)
+                        .field("gold_after", ctx.inventory.gold)
+                        .field("encounter_type", encounter_type)
+                        .send();
+                    tracing::info!(
+                        beat_id = %resolved_beat_id,
+                        gold_delta = gd,
+                        gold_after = ctx.inventory.gold,
+                        "encounter.gold_delta — gold spent"
+                    );
+                }
+                Err(e) => {
+                    WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                        .field("event", "encounter.gold_overspend_rejected")
+                        .field("beat_id", &resolved_beat_id)
+                        .field("gold_delta", gd)
+                        .field("gold_before", gold_before)
+                        .field("error", format!("{e}"))
+                        .field("encounter_type", encounter_type)
+                        .send();
+                    tracing::warn!(
+                        beat_id = %resolved_beat_id,
+                        gold_delta = gd,
+                        gold_before,
+                        error = %e,
+                        "encounter.gold_overspend_rejected — beat requested more gold than available"
+                    );
+                }
+            }
         }
-        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-            .field("event", "encounter.gold_delta")
-            .field("beat_id", &resolved_beat_id)
-            .field("gold_delta", gd)
-            .field("gold_after", ctx.inventory.gold)
-            .field("encounter_type", encounter_type)
-            .send();
-        tracing::info!(
-            beat_id = %resolved_beat_id,
-            gold_delta = gd,
-            gold_after = ctx.inventory.gold,
-            "encounter.gold_delta — inventory updated"
-        );
     }
 
     let resolver = match stat_check.to_lowercase().as_str() {
