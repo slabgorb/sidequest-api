@@ -2301,6 +2301,42 @@ async fn dispatch_message(
                     }
                     ss_guard.players.insert(player_id.to_string(), ps);
 
+                    // Clear any pending dice state from a prior connection.
+                    // If the player refreshed while the dice overlay was waiting
+                    // for physics to settle, the server has a stashed replay
+                    // action and pending dice request that will never be
+                    // fulfilled. Without this, the game deadlocks — input
+                    // disabled, narrator blocked, no recovery path. The player
+                    // will re-select a beat after reconnect.
+                    {
+                        let had_pending = !ss_guard.pending_dice_requests.is_empty()
+                            || ss_guard.pending_replay_action.is_some();
+                        if had_pending {
+                            let cleared_requests = ss_guard.pending_dice_requests.len();
+                            let cleared_action = ss_guard.pending_replay_action.is_some();
+                            let cleared_beat = ss_guard.pending_replay_beat_id.is_some();
+                            ss_guard.pending_dice_requests.clear();
+                            ss_guard.pending_replay_action = None;
+                            ss_guard.pending_replay_beat_id = None;
+                            ss_guard.pending_roll_outcome = None;
+                            WatcherEventBuilder::new(
+                                "dice",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("event", "dice.pending_cleared_on_reconnect")
+                            .field("cleared_requests", cleared_requests as i64)
+                            .field("cleared_action", cleared_action)
+                            .field("cleared_beat", cleared_beat)
+                            .send();
+                            tracing::warn!(
+                                cleared_requests,
+                                cleared_action,
+                                cleared_beat,
+                                "dice.pending_cleared — abandoned dice state from prior connection"
+                            );
+                        }
+                    }
+
                     // Transition turn mode (PlayerJoined)
                     let pc = ss_guard.player_count();
                     let old_mode = std::mem::take(&mut ss_guard.turn_mode);
