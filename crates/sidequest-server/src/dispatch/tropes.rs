@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use sidequest_agents::agents::troper::TroperAgent;
 use sidequest_game::achievement::Achievement;
 use sidequest_game::engagement::engagement_multiplier;
-use sidequest_game::trope::{FiredBeat, TropeEngine};
+use sidequest_game::trope::{FiredBeat, TropeEngine, TropeStatus};
 use sidequest_protocol::GameMessage;
 
 use crate::{WatcherEventBuilder, WatcherEventType};
@@ -124,6 +124,19 @@ pub(crate) fn process_tropes(
             progression = ts.progression(),
             "Trope post-tick state"
         );
+    }
+
+    // --- Phase 2b: Trope-encounter handshake (story 37-15) ---
+    // If any trope just auto-resolved and there's an active encounter,
+    // signal the encounter to resolve.
+    for ts in ctx.trope_states.iter() {
+        if ts.status() == TropeStatus::Resolved && ts.progression() >= 1.0 {
+            if let Some(encounter) = ctx.snapshot.encounter.as_mut() {
+                if !encounter.resolved {
+                    encounter.resolve_from_trope(ts.trope_definition_id());
+                }
+            }
+        }
     }
 
     // --- Phase 3: Emit watcher events for fired beats ---
