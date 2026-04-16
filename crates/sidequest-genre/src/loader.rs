@@ -9,6 +9,7 @@ use crate::genre_code::GenreCode;
 use crate::models::archetype_axes::BaseArchetypes;
 use crate::models::archetype_constraints::ArchetypeConstraints;
 use crate::models::archetype_funnels::ArchetypeFunnels;
+use crate::models::npc_traits::NpcTraitsDatabase;
 use crate::models::*;
 use crate::resolve::resolve_trope_inheritance;
 use serde::de::DeserializeOwned;
@@ -67,6 +68,13 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         .map(|root| load_yaml_optional(&root.join("archetypes_base.yaml")))
         .transpose()?
         .flatten();
+    let npc_traits: Option<NpcTraitsDatabase> = path
+        .parent()  // genre_packs/
+        .and_then(|p| p.parent())  // content root
+        .map(|root| load_yaml_optional(&root.join("npc_traits.yaml")))
+        .transpose()?
+        .flatten();
+
     let archetype_constraints: Option<ArchetypeConstraints> =
         load_yaml_optional(&path.join("archetype_constraints.yaml"))?;
 
@@ -101,6 +109,7 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         equipment_tables,
         base_archetypes,
         archetype_constraints,
+        npc_traits,
     })
 }
 

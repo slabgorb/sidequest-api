@@ -18,6 +18,8 @@ mod inventory;
 mod legends;
 mod lore;
 mod narrative;
+/// NPC trait database — personality, physical, and behavioral quirks.
+pub mod npc_traits;
 pub mod ocean;
 mod pack;
 mod progression;
@@ -36,6 +38,7 @@ pub use inventory::*;
 pub use legends::*;
 pub use lore::*;
 pub use narrative::*;
+pub use npc_traits::*;
 pub use ocean::*;
 pub use pack::*;
 pub use progression::*;

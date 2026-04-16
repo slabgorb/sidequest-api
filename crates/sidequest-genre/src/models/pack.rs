@@ -68,6 +68,8 @@ pub struct GenrePack {
     pub base_archetypes: Option<BaseArchetypes>,
     /// Genre-level archetype constraints and flavor.
     pub archetype_constraints: Option<ArchetypeConstraints>,
+    /// NPC traits database loaded from content root `npc_traits.yaml`.
+    pub npc_traits: Option<super::npc_traits::NpcTraitsDatabase>,
 }
 
 /// A world within a genre pack, assembled from `worlds/{slug}/`.
