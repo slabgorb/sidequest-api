@@ -123,21 +123,42 @@ pub fn resolve_sealed_letter_lookup(
     // Delta application: merge cell views into actors' per_actor_state.
     // red_view → actor with role "red", blue_view → actor with role "blue".
     // Merge (insert/overwrite keys), do NOT replace the entire HashMap.
-    apply_view_deltas(encounter, "red", &cell.red_view);
-    apply_view_deltas(encounter, "blue", &cell.blue_view);
+    let red_applied = apply_view_deltas(encounter, "red", &cell.red_view);
+    let blue_applied = apply_view_deltas(encounter, "blue", &cell.blue_view);
 
-    // OTEL: deltas applied.
-    WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
-        .field("event", "encounter.sealed_letter.deltas_applied")
-        .field("cell_name", &cell_name)
-        .field("red_maneuver", &red_maneuver)
-        .field("blue_maneuver", &blue_maneuver)
-        .field("encounter_type", &encounter.encounter_type)
-        .send();
-    tracing::info!(
-        cell_name = %cell_name,
-        "encounter.sealed_letter.deltas_applied"
-    );
+    // OTEL: deltas applied — only if at least one side actually applied.
+    // If both views were non-Mapping (content error), the GM panel must NOT
+    // see "deltas_applied" because that would be a lie.
+    if red_applied || blue_applied {
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.sealed_letter.deltas_applied")
+            .field("cell_name", &cell_name)
+            .field("red_maneuver", &red_maneuver)
+            .field("blue_maneuver", &blue_maneuver)
+            .field("red_applied", red_applied)
+            .field("blue_applied", blue_applied)
+            .field("encounter_type", &encounter.encounter_type)
+            .send();
+        tracing::info!(
+            cell_name = %cell_name,
+            red_applied,
+            blue_applied,
+            "encounter.sealed_letter.deltas_applied"
+        );
+    } else {
+        tracing::warn!(
+            cell_name = %cell_name,
+            "encounter.sealed_letter.deltas_not_applied — both views were non-Mapping"
+        );
+        WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+            .field("event", "encounter.sealed_letter.deltas_not_applied")
+            .field("cell_name", &cell_name)
+            .field("red_maneuver", &red_maneuver)
+            .field("blue_maneuver", &blue_maneuver)
+            .field("encounter_type", &encounter.encounter_type)
+            .severity(Severity::Warn)
+            .send();
+    }
 
     Ok(SealedLetterOutcome {
         cell_name,
@@ -149,29 +170,59 @@ pub fn resolve_sealed_letter_lookup(
 /// Merge a `serde_yaml::Value` (expected to be a mapping) into the
 /// specified actor's `per_actor_state`. Keys are inserted/overwritten;
 /// existing keys not in the view are preserved.
+///
+/// Returns `true` if deltas were actually applied, `false` if the view
+/// was not a Mapping or the actor was not found. The caller gates the
+/// `deltas_applied` OTEL event on this return value.
 fn apply_view_deltas(
     encounter: &mut StructuredEncounter,
     role: &str,
     view: &serde_yaml::Value,
-) {
+) -> bool {
     let Some(actor) = encounter.actors.iter_mut().find(|a| a.role == role) else {
         tracing::warn!(
             role = %role,
             "sealed_letter: no actor with role '{}' — skipping delta application",
             role
         );
-        return;
+        return false;
     };
 
-    if let serde_yaml::Value::Mapping(map) = view {
-        for (key, value) in map {
-            if let serde_yaml::Value::String(key_str) = key {
-                // Convert serde_yaml::Value → serde_json::Value.
-                let json_value = yaml_value_to_json(value);
-                actor
-                    .per_actor_state
-                    .insert(key_str.clone(), json_value);
+    match view {
+        serde_yaml::Value::Mapping(map) => {
+            for (key, value) in map {
+                if let serde_yaml::Value::String(key_str) = key {
+                    let json_value = yaml_value_to_json(value);
+                    actor
+                        .per_actor_state
+                        .insert(key_str.clone(), json_value);
+                } else {
+                    tracing::warn!(
+                        role = %role,
+                        key = ?key,
+                        "sealed_letter: non-string key in cell view — dropped"
+                    );
+                }
             }
+            true
+        }
+        serde_yaml::Value::Null => {
+            // Null view = legitimate "no state change for this actor".
+            true
+        }
+        other => {
+            // Non-Mapping, non-Null view is a content authoring error.
+            tracing::warn!(
+                role = %role,
+                view_type = ?other,
+                "sealed_letter: cell view is not a Mapping — content error, no deltas applied"
+            );
+            WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                .field("event", "encounter.sealed_letter.invalid_view_type")
+                .field("role", role)
+                .severity(Severity::Warn)
+                .send();
+            false
         }
     }
 }

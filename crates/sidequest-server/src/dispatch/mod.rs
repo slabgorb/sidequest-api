@@ -1860,15 +1860,24 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
                         .collect()
                 } else {
                     // Solo play: single player's action is the maneuver for
-                    // whichever role they occupy. The other actor is NPC and
-                    // gets a default maneuver from the table's starting_state.
+                    // whichever role they occupy. The NPC actor gets the first
+                    // maneuver from maneuvers_consumed as a default. starting_state
+                    // is a descriptor state label ("merge"), NOT a valid maneuver.
+                    let npc_default = interaction_table.maneuvers_consumed
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            tracing::warn!(
+                                "sealed_letter: maneuvers_consumed is empty — no valid NPC default"
+                            );
+                            "unknown".to_string()
+                        });
                     let mut solo = HashMap::new();
                     for actor in &encounter.actors {
                         if actor.name == ctx.char_name {
                             solo.insert(actor.role.clone(), ctx.action.to_string());
                         } else {
-                            // NPC actor: use starting_state as default maneuver
-                            solo.insert(actor.role.clone(), interaction_table.starting_state.clone());
+                            solo.insert(actor.role.clone(), npc_default.clone());
                         }
                     }
                     solo
@@ -1879,18 +1888,25 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
 
         if let Some((commits, interaction_table)) = sealed_letter_input {
             let encounter_type = ctx.snapshot.encounter.as_ref()
-                .map(|e| e.encounter_type.clone())
-                .unwrap_or_default();
+                .expect("encounter must be Some — sealed_letter_input only constructed when encounter.as_ref() is Some")
+                .encounter_type.clone();
             if let Err(e) = sealed_letter::resolve_sealed_letter_lookup(
-                ctx.snapshot.encounter.as_mut().unwrap(),
+                ctx.snapshot.encounter.as_mut()
+                    .expect("encounter must be Some — invariant: sealed_letter_input requires encounter"),
                 &commits,
                 &interaction_table,
             ) {
                 tracing::warn!(
                     error = %e,
                     encounter_type = %encounter_type,
-                    "sealed_letter resolution failed — encounter continues without mechanical resolution"
+                    "sealed_letter resolution failed"
                 );
+                WatcherEventBuilder::new("encounter", WatcherEventType::ValidationWarning)
+                    .field("event", "encounter.sealed_letter.resolution_failed")
+                    .field("error", format!("{e}"))
+                    .field("encounter_type", &encounter_type)
+                    .severity(Severity::Warn)
+                    .send();
             }
         }
     }
