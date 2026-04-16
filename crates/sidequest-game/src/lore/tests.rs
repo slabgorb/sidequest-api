@@ -555,6 +555,7 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
             emotional_tone: vec![],
             differentiation: None,
             lobby_blurb: None,
+            recommended_players: None,
         },
         rules: serde_json::from_value(serde_json::json!({
             "magic_level": "none",
@@ -631,6 +632,8 @@ fn test_genre_pack(lore: Lore, char_creation: Vec<CharCreationScene>) -> GenrePa
         inventory: None,
         backstory_tables: None,
         equipment_tables: None,
+        base_archetypes: None,
+        archetype_constraints: None,
     }
 }
 
