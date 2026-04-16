@@ -361,6 +361,7 @@ fn sqlite_load_produces_rich_recap() {
             known_facts: vec![],
             affinities: vec![],
             is_friendly: true,
+        resolved_archetype: None,
         }],
         location: "Town Square".to_string(),
         ..GameSnapshot::default()

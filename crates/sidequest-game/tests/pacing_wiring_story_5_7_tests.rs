@@ -527,5 +527,6 @@ fn make_character(name: &str, current_hp: i32, max_hp: i32, is_friendly: bool) -
         known_facts: vec![],
         affinities: vec![],
         is_friendly,
+        resolved_archetype: None,
     }
 }
