@@ -332,6 +332,7 @@ mod tests {
                 request_id: "req-test-001".to_string(),
                 throw_params: test_throw_params(),
                 face: vec![15],
+                beat_id: None,
             },
         };
         match throw {
