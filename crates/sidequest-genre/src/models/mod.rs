@@ -6,6 +6,8 @@
 
 mod audio;
 mod axes;
+/// Base archetype axis definitions — Jungian archetypes, RPG roles, NPC narrative roles.
+pub mod archetype_axes;
 mod character;
 mod culture;
 mod inventory;
