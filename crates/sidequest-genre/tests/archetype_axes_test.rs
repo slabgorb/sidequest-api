@@ -1,6 +1,7 @@
 use sidequest_genre::models::archetype_axes::*;
 use sidequest_genre::models::archetype_constraints::*;
 use sidequest_genre::models::archetype_funnels::*;
+use sidequest_genre::models::MechanicalEffects;
 
 #[test]
 fn test_deserialize_jungian_archetype() {
@@ -216,4 +217,28 @@ fn test_funnel_resolution() {
 
     // Unmatched falls back
     assert!(funnels.resolve("jester", "dps").is_none());
+}
+
+#[test]
+fn test_mechanical_effects_has_axis_fields() {
+    let yaml = r#"
+        jungian_hint: sage
+        rpg_role_hint: healer
+    "#;
+    let effects: MechanicalEffects = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(effects.jungian_hint.as_deref(), Some("sage"));
+    assert_eq!(effects.rpg_role_hint.as_deref(), Some("healer"));
+}
+
+#[test]
+fn test_mechanical_effects_backward_compatible() {
+    let yaml = r#"
+        class_hint: Cleric
+        race_hint: Human
+        background: Farmer
+    "#;
+    let effects: MechanicalEffects = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(effects.class_hint.as_deref(), Some("Cleric"));
+    assert!(effects.jungian_hint.is_none());
+    assert!(effects.rpg_role_hint.is_none());
 }
