@@ -279,6 +279,8 @@ mod message_type_tests {
                 rolled_stats: None,
                 choice: None,
                 character: None,
+                action: None,
+                target_step: None,
             },
             player_id: String::new(),
         };

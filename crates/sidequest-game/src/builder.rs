@@ -499,6 +499,47 @@ impl CharacterBuilder {
         None
     }
 
+    /// Navigate backward to the previous scene, undoing the last scene result.
+    ///
+    /// Pops the most recent `SceneResult` and sets the phase to the previous
+    /// scene index. Returns Ok(()) if successful, Err if already at the first
+    /// scene or in Confirmation with no results.
+    pub fn go_back(&mut self) -> Result<(), BuilderError> {
+        if self.results.is_empty() {
+            return Err(BuilderError::WrongPhase {
+                expected: "InProgress with history".to_string(),
+                actual: "no previous scenes to return to".to_string(),
+            });
+        }
+        // Pop the last result — this undoes the choice for that scene
+        self.results.pop();
+        // Set phase to the scene we're returning to
+        let target = self.results.len();
+        self.phase = BuilderPhase::InProgress {
+            scene_index: target,
+        };
+        Ok(())
+    }
+
+    /// Jump to a specific scene index, discarding all results from that
+    /// scene onward. Used by "edit" from the review screen.
+    ///
+    /// Returns Err if `target` is out of range or there are no results to revert.
+    pub fn go_to_scene(&mut self, target: usize) -> Result<(), BuilderError> {
+        if target >= self.scenes.len() {
+            return Err(BuilderError::WrongPhase {
+                expected: format!("scene index < {}", self.scenes.len()),
+                actual: format!("target scene index {}", target),
+            });
+        }
+        // Truncate results to the target scene — discard everything from target onward
+        self.results.truncate(target);
+        self.phase = BuilderPhase::InProgress {
+            scene_index: target,
+        };
+        Ok(())
+    }
+
     /// Auto-advance through the current scene without client input.
     /// For display-only scenes (no choices, no freeform): applies scene-level
     /// mechanical effects and advances to the next scene.
@@ -1309,6 +1350,8 @@ impl CharacterBuilder {
                         rolled_stats: rolled_stats_payload,
                         choice: None,
                         character: None,
+                        action: None,
+                        target_step: None,
                     },
                     player_id: player_id.to_string(),
                 }
@@ -1329,6 +1372,8 @@ impl CharacterBuilder {
                     rolled_stats: None,
                     choice: None,
                     character: None,
+                    action: None,
+                    target_step: None,
                 },
                 player_id: player_id.to_string(),
             },

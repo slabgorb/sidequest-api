@@ -1282,6 +1282,57 @@ pub(crate) async fn dispatch_character_creation(
                 .ok()
         });
 
+    // Handle navigation actions (back/edit) before phase dispatch.
+    // The UI sends { action: "back" } or { action: "edit", target_step: N }
+    // to navigate within chargen without progressing forward.
+    if let Some(action) = payload.action.as_deref() {
+        match action {
+            "back" => {
+                WatcherEventBuilder::new(
+                    "character_creation",
+                    WatcherEventType::StateTransition,
+                )
+                .field("action", "back")
+                .field("from_scene", b.current_scene_index())
+                .field("player_id", player_id)
+                .send();
+
+                if let Err(e) = b.go_back() {
+                    return vec![error_response(
+                        player_id,
+                        &format!("Cannot go back: {:?}", e),
+                    )];
+                }
+                return vec![b.to_scene_message(player_id)];
+            }
+            "edit" => {
+                let target_step = payload.target_step.unwrap_or(0) as usize;
+                WatcherEventBuilder::new(
+                    "character_creation",
+                    WatcherEventType::StateTransition,
+                )
+                .field("action", "edit")
+                .field("target_step", target_step)
+                .field("player_id", player_id)
+                .send();
+
+                if let Err(e) = b.go_to_scene(target_step) {
+                    return vec![error_response(
+                        player_id,
+                        &format!("Cannot edit scene {}: {:?}", target_step, e),
+                    )];
+                }
+                return vec![b.to_scene_message(player_id)];
+            }
+            other => {
+                return vec![error_response(
+                    player_id,
+                    &format!("Unknown chargen action: {}", other),
+                )];
+            }
+        }
+    }
+
     let phase = payload.phase.as_str();
     tracing::info!(phase = %phase, player_id = %player_id, "Character creation phase");
 
@@ -1897,6 +1948,8 @@ pub(crate) async fn dispatch_character_creation(
                             rolled_stats: None,
                             choice: None,
                             character: Some(char_json),
+                            action: None,
+                            target_step: None,
                         },
                         player_id: player_id.to_string(),
                     };
