@@ -2012,6 +2012,12 @@ pub struct DiceThrowPayload {
     /// Client-reported settled face values (physics-is-the-roll).
     /// One per die, flat order matching the pool's `DieSpec` iteration.
     pub face: Vec<u32>,
+    /// Beat ID from the confrontation system. When present, the server
+    /// applies the beat and runs the narrator in one tick — no two-phase
+    /// round-trip needed. The client computes the DiceRequest locally
+    /// from the beat's stat_check and metric_delta.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub beat_id: Option<String>,
 }
 
 /// Server -> all clients: resolved dice roll outcome (story 34-2).

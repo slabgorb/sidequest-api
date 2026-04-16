@@ -2833,10 +2833,123 @@ async fn dispatch_message(
                     "Cannot process dice throw before game starts",
                 )];
             }
-            // 34-11 OTEL emissions (dice.throw_received + dice.result_broadcast)
-            // are wired inside `handle_dice_throw_inner` as part of the 34-12
-            // extraction. Keeping them in the helper — not here — so integration
-            // tests that drive the helper directly also exercise the OTEL path.
+
+            // Client-side beat+dice: when beat_id is present, the client built
+            // the DiceRequest locally and rolled without a server round-trip.
+            // We apply the beat and register a pending DiceRequest so
+            // handle_dice_throw can resolve the dice + store outcome,
+            // then the ws reader loop drains the replay action → narrator.
+            if let Some(ref beat_id) = payload.beat_id {
+                let conf_defs: Vec<sidequest_genre::ConfrontationDef> = {
+                    let gs = session.genre_slug().unwrap_or("");
+                    sidequest_genre::GenreCode::new(gs)
+                        .ok()
+                        .and_then(|gc| {
+                            state
+                                .genre_cache()
+                                .get_or_load(&gc, state.genre_loader())
+                                .ok()
+                        })
+                        .map(|pack| pack.rules.confrontations.clone())
+                        .unwrap_or_default()
+                };
+                if let Some(ref mut encounter) = snapshot.encounter {
+                    if let Some(def) =
+                        crate::find_confrontation_def(&conf_defs, &encounter.encounter_type)
+                    {
+                        if let Some(beat) = def.beats.iter().find(|b| b.id == *beat_id) {
+                            let stat_check = beat.stat_check.clone();
+                            let beat_label = beat.label.clone();
+                            let metric_name = encounter.metric.name.clone();
+                            let metric_before = encounter.metric.current;
+                            let beat_metric_delta = beat.metric_delta;
+
+                            if let Err(e) = encounter.apply_beat(beat_id, def) {
+                                return vec![error_response(
+                                    player_id,
+                                    &format!("Beat apply failed: {}", e),
+                                )];
+                            }
+                            let metric_after = encounter.metric.current;
+
+                            WatcherEventBuilder::new(
+                                "encounter",
+                                WatcherEventType::StateTransition,
+                            )
+                            .field("event", "encounter.player_beat_received")
+                            .field("beat_id", beat_id.as_str())
+                            .field("source", "client_side_dice_throw")
+                            .field("metric_before", metric_before)
+                            .field("metric_after", metric_after)
+                            .send();
+
+                            // Build DiceRequest for handle_dice_throw correlation
+                            let char_stat_modifier = snapshot
+                                .characters
+                                .first()
+                                .and_then(|c| c.stats.get(&stat_check))
+                                .map(|&stat_val| (stat_val - 10) / 2)
+                                .unwrap_or(0);
+                            let raw_dc = (10u32 + beat_metric_delta.unsigned_abs() * 2)
+                                .clamp(10, 30);
+                            let difficulty = std::num::NonZeroU32::new(raw_dc)
+                                .expect("raw_dc clamped >= 10");
+                            let char_name = character_name
+                                .as_deref()
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            let dice_req = DiceRequestPayload {
+                                request_id: payload.request_id.clone(),
+                                rolling_player_id: player_id.to_string(),
+                                character_name: char_name,
+                                dice: vec![DieSpec {
+                                    sides: DieSides::D20,
+                                    count: std::num::NonZeroU8::new(1).expect("1 is nonzero"),
+                                }],
+                                modifier: char_stat_modifier,
+                                stat: stat_check.clone(),
+                                difficulty,
+                                context: format!(
+                                    "{} — {} check",
+                                    beat_label, stat_check
+                                ),
+                            };
+
+                            // Synthesize replay action for narrator
+                            let action_text = format!(
+                                "[BEAT_RESOLVED] {label} ({stat}): {metric} {before} → {after}",
+                                label = beat_label,
+                                stat = stat_check,
+                                metric = metric_name,
+                                before = metric_before,
+                                after = metric_after,
+                            );
+
+                            // Register pending request + replay action
+                            {
+                                let holder_guard = shared_session_holder.lock().await;
+                                if let Some(ref ss_arc) = *holder_guard {
+                                    let mut ss = ss_arc.lock().await;
+                                    ss.pending_dice_requests.insert(
+                                        dice_req.request_id.clone(),
+                                        dice_req,
+                                    );
+                                    ss.pending_replay_action =
+                                        Some(sidequest_protocol::PlayerActionPayload {
+                                            action: action_text,
+                                            aside: false,
+                                        });
+                                    ss.pending_replay_beat_id = Some(beat_id.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Resolve the dice — whether from server-initiated DiceRequest or
+            // client-side beat+dice, handle_dice_throw finds the pending request
+            // by request_id and resolves the face values.
             dice_dispatch::handle_dice_throw(
                 payload.clone(),
                 player_id,
