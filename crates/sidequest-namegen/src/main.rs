@@ -17,6 +17,9 @@ use std::path::PathBuf;
 use clap::Parser;
 use rand::Rng;
 use serde::Serialize;
+use sidequest_genre::archetype_resolve::{resolve_archetype, ResolutionSource};
+use sidequest_genre::models::archetype_constraints::ArchetypeConstraints;
+use sidequest_genre::models::archetype_funnels::ArchetypeFunnels;
 use sidequest_genre::{load_genre_pack, GenrePack, NpcArchetype};
 
 #[derive(Parser)]
@@ -52,6 +55,22 @@ struct Cli {
     /// Physical description hints to layer on top of archetype.
     #[arg(long)]
     description: Option<String>,
+
+    /// Jungian archetype axis (e.g. sage, hero, outlaw). Random if omitted.
+    #[arg(long)]
+    jungian: Option<String>,
+
+    /// RPG role axis (e.g. healer, tank, stealth). Random if omitted.
+    #[arg(long)]
+    rpg_role: Option<String>,
+
+    /// NPC narrative role (e.g. mentor, mook, authority). Random if omitted.
+    #[arg(long)]
+    npc_role: Option<String>,
+
+    /// World slug for funnel resolution. If omitted, skips world funnels.
+    #[arg(long)]
+    world: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -74,6 +93,11 @@ struct NpcBlock {
     inventory: Vec<String>,
     stat_ranges: HashMap<String, [i32; 2]>,
     trope_connections: Vec<TropeConnection>,
+    jungian_id: String,
+    rpg_role_id: String,
+    npc_role_id: Option<String>,
+    resolved_archetype: String,
+    resolution_source: String,
 }
 
 #[derive(Serialize)]
@@ -153,6 +177,193 @@ fn write_sidecar(npc: &NpcBlock) {
     }
 }
 
+/// Select a [jungian, rpg_role] pair from the constraints file using weighted randomness.
+/// Weights: 60% common, 30% uncommon, 10% rare.
+fn select_weighted_pairing(
+    constraints: &ArchetypeConstraints,
+    rng: &mut impl Rng,
+) -> (String, String) {
+    let roll: f64 = rng.random_range(0.0..1.0);
+    let (pool, fallbacks) = if roll < 0.6 {
+        (
+            &constraints.valid_pairings.common,
+            vec![
+                &constraints.valid_pairings.uncommon,
+                &constraints.valid_pairings.rare,
+            ],
+        )
+    } else if roll < 0.9 {
+        (
+            &constraints.valid_pairings.uncommon,
+            vec![
+                &constraints.valid_pairings.common,
+                &constraints.valid_pairings.rare,
+            ],
+        )
+    } else {
+        (
+            &constraints.valid_pairings.rare,
+            vec![
+                &constraints.valid_pairings.common,
+                &constraints.valid_pairings.uncommon,
+            ],
+        )
+    };
+
+    // Pick from the selected weight tier; fall back if it's empty
+    let chosen_pool = if !pool.is_empty() {
+        pool
+    } else {
+        fallbacks
+            .into_iter()
+            .find(|p| !p.is_empty())
+            .unwrap_or_else(|| {
+                eprintln!("No valid pairings found in archetype_constraints");
+                std::process::exit(1);
+            })
+    };
+
+    let pair = &chosen_pool[rng.random_range(0..chosen_pool.len())];
+    (pair[0].clone(), pair[1].clone())
+}
+
+/// Resolve three-axis archetype selection through the constraint/funnel pipeline.
+/// Returns (jungian_id, rpg_role_id, npc_role_id, resolved_name, resolution_source).
+fn resolve_axes(
+    pack: &GenrePack,
+    cli: &Cli,
+    rng: &mut impl Rng,
+) -> (String, String, Option<String>, String, String) {
+    let base = match &pack.base_archetypes {
+        Some(b) => b,
+        None => {
+            // No base archetypes — fall back to legacy archetype name
+            return legacy_axis_fallback(pack, cli, rng);
+        }
+    };
+    let constraints = match &pack.archetype_constraints {
+        Some(c) => c,
+        None => {
+            return legacy_axis_fallback(pack, cli, rng);
+        }
+    };
+
+    // Determine jungian + rpg_role
+    let (jungian_id, rpg_role_id) = match (&cli.jungian, &cli.rpg_role) {
+        (Some(j), Some(r)) => (j.clone(), r.clone()),
+        (Some(j), None) => {
+            // Jungian specified, pick a valid rpg_role from pairings that include it
+            let candidates: Vec<&[String; 2]> = constraints
+                .valid_pairings
+                .common
+                .iter()
+                .chain(&constraints.valid_pairings.uncommon)
+                .chain(&constraints.valid_pairings.rare)
+                .filter(|p| p[0] == *j)
+                .collect();
+            if candidates.is_empty() {
+                eprintln!("No valid RPG role pairings found for jungian '{j}'");
+                std::process::exit(1);
+            }
+            let pair = candidates[rng.random_range(0..candidates.len())];
+            (j.clone(), pair[1].clone())
+        }
+        (None, Some(r)) => {
+            // RPG role specified, pick a valid jungian from pairings that include it
+            let candidates: Vec<&[String; 2]> = constraints
+                .valid_pairings
+                .common
+                .iter()
+                .chain(&constraints.valid_pairings.uncommon)
+                .chain(&constraints.valid_pairings.rare)
+                .filter(|p| p[1] == *r)
+                .collect();
+            if candidates.is_empty() {
+                eprintln!("No valid Jungian pairings found for rpg_role '{r}'");
+                std::process::exit(1);
+            }
+            let pair = candidates[rng.random_range(0..candidates.len())];
+            (pair[0].clone(), r.clone())
+        }
+        (None, None) => select_weighted_pairing(constraints, rng),
+    };
+
+    // Determine NPC role
+    let npc_role_id = cli.npc_role.clone().or_else(|| {
+        if constraints.npc_roles_available.is_empty() {
+            None
+        } else {
+            let idx = rng.random_range(0..constraints.npc_roles_available.len());
+            Some(constraints.npc_roles_available[idx].clone())
+        }
+    });
+
+    // Look up world funnels if --world was provided
+    let funnels: Option<&ArchetypeFunnels> = cli.world.as_ref().and_then(|world_slug| {
+        pack.worlds
+            .get(world_slug)
+            .and_then(|w| w.archetype_funnels.as_ref())
+    });
+
+    // Resolve through the pipeline
+    match resolve_archetype(&jungian_id, &rpg_role_id, base, constraints, funnels) {
+        Ok(resolved) => {
+            let source = match resolved.resolution_source {
+                ResolutionSource::WorldFunnel => "world_funnel".to_string(),
+                ResolutionSource::GenreFallback => "genre_fallback".to_string(),
+            };
+            (
+                jungian_id,
+                rpg_role_id,
+                npc_role_id,
+                resolved.name,
+                source,
+            )
+        }
+        Err(e) => {
+            eprintln!("Archetype resolution failed: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Legacy fallback when no base_archetypes or archetype_constraints exist.
+/// Populates axis fields from the old-style archetype selection.
+fn legacy_axis_fallback(
+    pack: &GenrePack,
+    cli: &Cli,
+    rng: &mut impl Rng,
+) -> (String, String, Option<String>, String, String) {
+    let archetype = if let Some(ref name) = cli.archetype {
+        pack.archetypes
+            .iter()
+            .find(|a| a.name.as_str().eq_ignore_ascii_case(name))
+            .unwrap_or_else(|| {
+                eprintln!(
+                    "Archetype '{}' not found. Available: {}",
+                    name,
+                    pack.archetypes
+                        .iter()
+                        .map(|a| a.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                std::process::exit(1);
+            })
+    } else {
+        &pack.archetypes[rng.random_range(0..pack.archetypes.len())]
+    };
+
+    let archetype_name = archetype.name.as_str().to_string();
+    (
+        cli.jungian.clone().unwrap_or_default(),
+        cli.rpg_role.clone().unwrap_or_default(),
+        cli.npc_role.clone(),
+        archetype_name.clone(),
+        "genre_fallback".to_string(),
+    )
+}
+
 fn generate_npc(
     pack: &GenrePack,
     genre_dir: &std::path::Path,
@@ -182,26 +393,25 @@ fn generate_npc(
         &pack.cultures[rng.random_range(0..pack.cultures.len())]
     };
 
-    // Select archetype
-    let archetype = if let Some(ref name) = cli.archetype {
-        pack.archetypes
-            .iter()
-            .find(|a| a.name.as_str().eq_ignore_ascii_case(name))
-            .unwrap_or_else(|| {
-                eprintln!(
-                    "Archetype '{}' not found. Available: {}",
-                    name,
-                    pack.archetypes
-                        .iter()
-                        .map(|a| a.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-                std::process::exit(1);
+    // Resolve three-axis archetype
+    let (jungian_id, rpg_role_id, npc_role_id, resolved_archetype, resolution_source) =
+        resolve_axes(pack, cli, rng);
+
+    // Find the genre-pack NpcArchetype for personality/inventory/etc.
+    // If we resolved through the new pipeline, try matching by resolved name first,
+    // then fall back to --archetype flag, then random.
+    let archetype = pack
+        .archetypes
+        .iter()
+        .find(|a| a.name.as_str().eq_ignore_ascii_case(&resolved_archetype))
+        .or_else(|| {
+            cli.archetype.as_ref().and_then(|name| {
+                pack.archetypes
+                    .iter()
+                    .find(|a| a.name.as_str().eq_ignore_ascii_case(name))
             })
-    } else {
-        &pack.archetypes[rng.random_range(0..pack.archetypes.len())]
-    };
+        })
+        .unwrap_or_else(|| &pack.archetypes[rng.random_range(0..pack.archetypes.len())]);
 
     // Generate name
     let result = sidequest_genre::names::build_from_culture(culture, &corpus_dir, rng);
@@ -232,8 +442,12 @@ fn generate_npc(
     }
     .to_string();
 
-    // OCEAN personality (jittered from archetype baseline)
-    let ocean = jitter_ocean(archetype, rng);
+    // OCEAN personality — prefer Jungian axis OCEAN tendencies when available
+    let ocean = if !jungian_id.is_empty() {
+        jitter_ocean_from_axes(&jungian_id, pack, archetype, rng)
+    } else {
+        jitter_ocean(archetype, rng)
+    };
     let ocean_summary = summarize_ocean(&ocean);
 
     // Role
@@ -266,7 +480,7 @@ fn generate_npc(
         culture: culture.name.as_str().to_string(),
         faction: culture.name.as_str().to_string(),
         faction_description: culture.description.clone(),
-        archetype: archetype.name.as_str().to_string(),
+        archetype: resolved_archetype.clone(),
         role,
         appearance,
         personality: archetype.personality_traits.clone(),
@@ -278,6 +492,11 @@ fn generate_npc(
         inventory: archetype.inventory_hints.clone(),
         stat_ranges: archetype.stat_ranges.clone(),
         trope_connections,
+        jungian_id,
+        rpg_role_id,
+        npc_role_id,
+        resolved_archetype,
+        resolution_source,
     }
 }
 
@@ -289,6 +508,40 @@ fn select_quirk_subset(quirks: &[String], count: usize, rng: &mut impl Rng) -> V
     pool.shuffle(rng);
     pool.truncate(count);
     pool
+}
+
+/// OCEAN jitter using the Jungian archetype's OCEAN tendencies (range-based)
+/// instead of the old archetype's single-point baseline.
+fn jitter_ocean_from_axes(
+    jungian_id: &str,
+    pack: &GenrePack,
+    fallback_archetype: &NpcArchetype,
+    rng: &mut impl Rng,
+) -> OceanValues {
+    let tendencies = pack
+        .base_archetypes
+        .as_ref()
+        .and_then(|base| base.jungian.iter().find(|j| j.id == jungian_id))
+        .map(|j| &j.ocean_tendencies);
+
+    match tendencies {
+        Some(t) => {
+            // Sample uniformly within each range, then apply small jitter
+            let sample = |range: [f64; 2], rng: &mut dyn rand::RngCore| -> f64 {
+                let base: f64 = rng.random_range(range[0]..=range[1]);
+                let jitter: f64 = rng.random_range(-0.5..0.5);
+                ((base + jitter).clamp(0.0, 10.0) * 10.0).round() / 10.0
+            };
+            OceanValues {
+                openness: sample(t.openness, rng),
+                conscientiousness: sample(t.conscientiousness, rng),
+                extraversion: sample(t.extraversion, rng),
+                agreeableness: sample(t.agreeableness, rng),
+                neuroticism: sample(t.neuroticism, rng),
+            }
+        }
+        None => jitter_ocean(fallback_archetype, rng),
+    }
 }
 
 fn jitter_ocean(archetype: &NpcArchetype, rng: &mut impl Rng) -> OceanValues {

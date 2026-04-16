@@ -1,6 +1,9 @@
 //! Top-level aggregates: GenrePack and World, plus pack metadata.
 
 use super::*;
+use super::archetype_axes::BaseArchetypes;
+use super::archetype_constraints::ArchetypeConstraints;
+use super::archetype_funnels::ArchetypeFunnels;
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;
@@ -61,6 +64,10 @@ pub struct GenrePack {
     /// Random equipment tables from `equipment_tables.yaml` (optional per genre pack).
     /// Consumed by scenes with `equipment_generation: random_table`. Story 31-3.
     pub equipment_tables: Option<EquipmentTables>,
+    /// Base archetype definitions loaded from content root.
+    pub base_archetypes: Option<BaseArchetypes>,
+    /// Genre-level archetype constraints and flavor.
+    pub archetype_constraints: Option<ArchetypeConstraints>,
 }
 
 /// A world within a genre pack, assembled from `worlds/{slug}/`.
@@ -91,6 +98,8 @@ pub struct World {
     /// Portrait manifest — rich appearance descriptions for NPC portrait generation.
     /// Loaded from `portrait_manifest.yaml` if present.
     pub portrait_manifest: Vec<PortraitManifestEntry>,
+    /// World-level archetype funnels.
+    pub archetype_funnels: Option<ArchetypeFunnels>,
 }
 
 /// A character entry in a portrait manifest — provides rich visual descriptions

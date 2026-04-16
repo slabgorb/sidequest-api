@@ -119,6 +119,7 @@ impl MultiplayerSession {
                     known_facts: vec![],
                     affinities: vec![],
                     is_friendly: true,
+                    resolved_archetype: None,
                 };
                 (id, character)
             })

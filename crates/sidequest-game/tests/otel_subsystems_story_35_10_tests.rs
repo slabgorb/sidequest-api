@@ -103,6 +103,7 @@ fn make_friendly(name: &str, hp: i32, max_hp: i32) -> Character {
         known_facts: vec![],
         affinities: vec![],
         is_friendly: true,
+        resolved_archetype: None,
     }
 }
 

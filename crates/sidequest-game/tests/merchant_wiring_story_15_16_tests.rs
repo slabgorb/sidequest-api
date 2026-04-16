@@ -144,6 +144,7 @@ fn snapshot_with_merchant(
         known_facts: vec![],
         affinities: vec![],
         is_friendly: true,
+        resolved_archetype: None,
     };
 
     GameSnapshot {

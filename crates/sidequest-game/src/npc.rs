@@ -14,6 +14,20 @@ use crate::disposition::{Attitude, Disposition};
 use crate::ocean::OceanProfile;
 use crate::state::NpcPatch;
 
+/// NPC enrichment tier — controls how much detail the system invests.
+/// Spawn = coal (quirk only), Engage = baited hook (backstory), Promote = diamond (full).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ResolutionTier {
+    /// Axes assigned, name, one quirk. No trope connections.
+    #[default]
+    Spawn,
+    /// Player engaged beyond transactional. Backstory fills in.
+    Engage,
+    /// Player keeps engaging. Full backstory, portrait queued, relationship web.
+    Promote,
+}
+
 /// A non-player character in the game world.
 ///
 /// NPCs have a numeric disposition that maps to an attitude (ADR-020).
@@ -57,6 +71,24 @@ pub struct Npc {
     /// Per-NPC knowledge bubbles for the Scenario System (Story 7-1).
     #[serde(default)]
     pub belief_state: BeliefState,
+    /// Current enrichment tier (spawn/engage/promote).
+    #[serde(default)]
+    pub resolution_tier: ResolutionTier,
+    /// Count of non-transactional player interactions.
+    #[serde(default)]
+    pub non_transactional_interactions: u32,
+    /// Jungian archetype axis value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jungian_id: Option<String>,
+    /// RPG role axis value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rpg_role_id: Option<String>,
+    /// NPC narrative role axis value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npc_role_id: Option<String>,
+    /// Resolved archetype name from funnel/fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_archetype: Option<String>,
 }
 
 impl Npc {
@@ -88,6 +120,12 @@ impl Npc {
             distinguishing_features: vec![],
             ocean: None,
             belief_state: BeliefState::default(),
+            resolution_tier: ResolutionTier::default(),
+            non_transactional_interactions: 0,
+            jungian_id: None,
+            rpg_role_id: None,
+            npc_role_id: None,
+            resolved_archetype: None,
         }
     }
 
@@ -253,6 +291,12 @@ mod tests {
             distinguishing_features: vec!["flour-dusted hands".to_string()],
             ocean: None,
             belief_state: BeliefState::default(),
+            resolution_tier: ResolutionTier::default(),
+            non_transactional_interactions: 0,
+            jungian_id: None,
+            rpg_role_id: None,
+            npc_role_id: None,
+            resolved_archetype: None,
         }
     }
 
@@ -281,6 +325,12 @@ mod tests {
             distinguishing_features: vec![],
             ocean: None,
             belief_state: BeliefState::default(),
+            resolution_tier: ResolutionTier::default(),
+            non_transactional_interactions: 0,
+            jungian_id: None,
+            rpg_role_id: None,
+            npc_role_id: None,
+            resolved_archetype: None,
         }
     }
 

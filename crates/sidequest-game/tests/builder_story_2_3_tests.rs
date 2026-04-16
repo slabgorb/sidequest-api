@@ -33,24 +33,9 @@ use sidequest_game::builder::{
 fn effects_warrior() -> MechanicalEffects {
     MechanicalEffects {
         class_hint: Some("Fighter".to_string()),
-        race_hint: None,
-        mutation_hint: None,
         item_hint: Some("Iron Sword".to_string()),
-        affinity_hint: None,
-        training_hint: None,
-        background: None,
         personality_trait: Some("Brave".to_string()),
-        emotional_state: None,
-        relationship: None,
-        goals: None,
-        allows_freeform: None,
-        rig_type_hint: None,
-        rig_trait: None,
-        catch_phrase: None,
-        pronoun_hint: None,
-        stat_bonuses: std::collections::HashMap::new(),
-        equipment_generation: None,
-        stat_generation: None,
+        ..Default::default()
     }
 }
 
@@ -58,48 +43,17 @@ fn effects_scholar() -> MechanicalEffects {
     MechanicalEffects {
         class_hint: Some("Wizard".to_string()),
         race_hint: Some("Elf".to_string()),
-        mutation_hint: None,
         item_hint: Some("Spellbook".to_string()),
         affinity_hint: Some("Arcane".to_string()),
-        training_hint: None,
         background: Some("Academy trained".to_string()),
         personality_trait: Some("Curious".to_string()),
-        emotional_state: None,
-        relationship: None,
         goals: Some("Uncover ancient secrets".to_string()),
-        allows_freeform: None,
-        rig_type_hint: None,
-        rig_trait: None,
-        catch_phrase: None,
-        pronoun_hint: None,
-        stat_bonuses: std::collections::HashMap::new(),
-        equipment_generation: None,
-        stat_generation: None,
+        ..Default::default()
     }
 }
 
 fn effects_empty() -> MechanicalEffects {
-    MechanicalEffects {
-        class_hint: None,
-        race_hint: None,
-        mutation_hint: None,
-        item_hint: None,
-        affinity_hint: None,
-        training_hint: None,
-        background: None,
-        personality_trait: None,
-        emotional_state: None,
-        relationship: None,
-        goals: None,
-        allows_freeform: None,
-        rig_type_hint: None,
-        rig_trait: None,
-        catch_phrase: None,
-        pronoun_hint: None,
-        stat_bonuses: std::collections::HashMap::new(),
-        equipment_generation: None,
-        stat_generation: None,
-    }
+    MechanicalEffects::default()
 }
 
 /// Three-scene character creation flow: origin, class, backstory.

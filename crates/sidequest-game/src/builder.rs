@@ -156,6 +156,10 @@ pub struct AccumulatedChoices {
     pub stat_bonuses: HashMap<String, i32>,
     /// Accumulated pronoun hint (last one wins).
     pub pronoun_hint: Option<String>,
+    /// Jungian archetype axis hint (last one wins).
+    pub jungian_hint: Option<String>,
+    /// RPG role axis hint (last one wins).
+    pub rpg_role_hint: Option<String>,
 }
 
 /// Errors from CharacterBuilder operations.
@@ -660,6 +664,12 @@ impl CharacterBuilder {
             }
             if let Some(ref v) = eff.pronoun_hint {
                 acc.pronoun_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.jungian_hint {
+                acc.jungian_hint = Some(v.clone());
+            }
+            if let Some(ref v) = eff.rpg_role_hint {
+                acc.rpg_role_hint = Some(v.clone());
             }
             // Collect the rich description text from each choice for backstory.
             // Skip pronoun-only choices — their description (e.g., "He.") is not
@@ -1253,6 +1263,9 @@ impl CharacterBuilder {
             known_facts: vec![],
             affinities: vec![],
             is_friendly: true,
+            resolved_archetype: acc.jungian_hint.as_ref().and_then(|j| {
+                acc.rpg_role_hint.as_ref().map(|r| format!("{j}/{r}"))
+            }),
         };
 
         Ok(character)
