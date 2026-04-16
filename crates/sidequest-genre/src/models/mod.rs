@@ -8,6 +8,8 @@ mod audio;
 mod axes;
 /// Base archetype axis definitions — Jungian archetypes, RPG roles, NPC narrative roles.
 pub mod archetype_axes;
+/// Genre-level archetype constraints — valid pairings, weights, and genre flavor.
+pub mod archetype_constraints;
 mod character;
 mod culture;
 mod inventory;

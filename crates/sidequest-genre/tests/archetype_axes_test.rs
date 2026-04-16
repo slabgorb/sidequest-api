@@ -1,4 +1,5 @@
 use sidequest_genre::models::archetype_axes::*;
+use sidequest_genre::models::archetype_constraints::*;
 
 #[test]
 fn test_deserialize_jungian_archetype() {
@@ -78,4 +79,75 @@ fn test_deserialize_base_archetypes_file() {
     assert_eq!(base.jungian.len(), 1);
     assert_eq!(base.rpg_roles.len(), 1);
     assert_eq!(base.npc_roles.len(), 1);
+}
+
+#[test]
+fn test_deserialize_constraints() {
+    let yaml = r#"
+        valid_pairings:
+          common:
+            - [hero, tank]
+            - [sage, healer]
+          uncommon:
+            - [jester, stealth]
+          rare:
+            - [innocent, tank]
+          forbidden:
+            - [innocent, stealth]
+        genre_flavor:
+          jungian:
+            hero:
+              speech_pattern: "direct"
+              equipment_tendency: "weapons"
+              visual_cues: "scarred hands"
+          rpg_roles:
+            tank:
+              fallback_name: "Shield-Bearer"
+        npc_roles_available:
+          - mentor
+          - mook
+    "#;
+    let constraints: ArchetypeConstraints = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(constraints.valid_pairings.common.len(), 2);
+    assert_eq!(constraints.valid_pairings.forbidden.len(), 1);
+    assert_eq!(
+        constraints.genre_flavor.rpg_roles["tank"].fallback_name,
+        "Shield-Bearer"
+    );
+}
+
+#[test]
+fn test_pairing_weight_lookup() {
+    let yaml = r#"
+        valid_pairings:
+          common:
+            - [hero, tank]
+          uncommon:
+            - [jester, stealth]
+          rare:
+            - [innocent, tank]
+          forbidden:
+            - [innocent, stealth]
+        genre_flavor:
+          jungian: {}
+          rpg_roles: {}
+        npc_roles_available: []
+    "#;
+    let constraints: ArchetypeConstraints = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(
+        constraints.pairing_weight("hero", "tank"),
+        Some(PairingWeight::Common)
+    );
+    assert_eq!(
+        constraints.pairing_weight("jester", "stealth"),
+        Some(PairingWeight::Uncommon)
+    );
+    assert_eq!(
+        constraints.pairing_weight("innocent", "stealth"),
+        Some(PairingWeight::Forbidden)
+    );
+    assert_eq!(
+        constraints.pairing_weight("hero", "healer"),
+        None
+    );
 }
