@@ -576,6 +576,53 @@ impl StructuredEncounter {
             );
         }
 
+        // Per-actor state — render cockpit descriptors for SealedLetterLookup
+        // encounters (ADR-077). Only emitted when at least one actor has
+        // populated per_actor_state. For BeatSelection encounters this section
+        // is omitted entirely, keeping the narrator prompt clean.
+        let has_per_actor_state = self.actors.iter().any(|a| !a.per_actor_state.is_empty());
+        if has_per_actor_state {
+            lines.push(String::new());
+            lines.push("=== PER-ACTOR COCKPIT STATE ===".to_string());
+            lines.push(
+                "Each actor's descriptor below is the ONLY geometry you may reference. \
+                 Do NOT invent positions, distances, or angles not listed here."
+                    .to_string(),
+            );
+            for actor in &self.actors {
+                if actor.per_actor_state.is_empty() {
+                    continue;
+                }
+                lines.push(format!("--- {} ({}) ---", actor.name, actor.role));
+                for (key, value) in &actor.per_actor_state {
+                    let display = match value {
+                        serde_json::Value::String(s) => s.clone(),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        serde_json::Value::Number(n) => n.to_string(),
+                        other => other.to_string(),
+                    };
+                    lines.push(format!("  {}: {}", key, display));
+                }
+                // Gun solution SOUL enforcement (ADR-077 + SOUL principle: The Test)
+                if let Some(serde_json::Value::Bool(has_shot)) =
+                    actor.per_actor_state.get("gun_solution")
+                {
+                    if *has_shot {
+                        lines.push(format!(
+                            "  → {} HAS a firing solution. MUST describe the shot opportunity.",
+                            actor.name
+                        ));
+                    } else {
+                        lines.push(format!(
+                            "  → {} has no shot. MUST NOT describe firing or gun effects.",
+                            actor.name
+                        ));
+                    }
+                }
+            }
+            lines.push("=== END PER-ACTOR STATE ===".to_string());
+        }
+
         // Available beats
         lines.push("Available:".to_string());
         for (i, beat) in def.beats.iter().enumerate() {

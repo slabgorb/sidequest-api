@@ -182,6 +182,10 @@ fn encounter_with_per_actor_state() -> StructuredEncounter {
                 per_actor_state: blue_state,
             },
         ],
+        outcome: None,
+        resolved: false,
+        mood_override: None,
+        narrator_hints: vec![],
     }
 }
 
@@ -213,6 +217,10 @@ fn encounter_without_per_actor_state() -> StructuredEncounter {
                 per_actor_state: HashMap::new(),
             },
         ],
+        outcome: None,
+        resolved: false,
+        mood_override: None,
+        narrator_hints: vec![],
     }
 }
 
@@ -370,20 +378,35 @@ fn sealed_letter_outcome_has_narration_hint_field() {
     // SealedLetterOutcome must include the narration_hint from the
     // matched interaction cell, so downstream consumers (narrator
     // prompt builder) can inject it as the beat the narrator should hit.
-    use sidequest_server::SealedLetterOutcome;
+    //
+    // SealedLetterOutcome is #[non_exhaustive], so we obtain it via
+    // the resolver and verify the field exists and is accessible.
+    use sidequest_server::resolve_sealed_letter_lookup;
 
-    // Construct an outcome — if narration_hint field doesn't exist,
-    // this won't compile (RED compile gate).
-    let outcome = SealedLetterOutcome {
-        cell_name: "Red reverses onto Blue's six".to_string(),
-        red_maneuver: "loop".to_string(),
-        blue_maneuver: "straight".to_string(),
-        narration_hint: "Red pulls a vertical loop and rolls out with Blue's exhaust dead centre in the gunsight.".to_string(),
-    };
+    let def: ConfrontationDef = serde_yaml::from_str(dogfight_def_yaml()).unwrap();
+    let table = def
+        .interaction_table
+        .as_ref()
+        .expect("fixture must have interaction_table");
 
-    assert_eq!(
-        outcome.narration_hint,
-        "Red pulls a vertical loop and rolls out with Blue's exhaust dead centre in the gunsight."
+    let mut enc = encounter_with_per_actor_state();
+    for actor in &mut enc.actors {
+        actor.per_actor_state.clear();
+    }
+
+    let mut commits = HashMap::new();
+    commits.insert("red".to_string(), "straight".to_string());
+    commits.insert("blue".to_string(), "straight".to_string());
+
+    let outcome = resolve_sealed_letter_lookup(&mut enc, &commits, table)
+        .expect("resolution should succeed");
+
+    // Compile gate: accessing .narration_hint proves the field exists.
+    // If the field were missing, this would be E0609.
+    let hint: &str = &outcome.narration_hint;
+    assert!(
+        !hint.is_empty(),
+        "narration_hint must not be empty for a resolved cell"
     );
 }
 
