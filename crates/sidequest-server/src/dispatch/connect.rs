@@ -373,6 +373,31 @@ pub(crate) async fn dispatch_connect(
                             }
                         }
 
+                        // SCRAPBOOK replay — load persisted entries so the
+                        // gallery re-populates on session resume.
+                        match state
+                            .persistence()
+                            .load_scrapbook_entries(genre, world, pname)
+                            .await
+                        {
+                            Ok(entries) if !entries.is_empty() => {
+                                tracing::info!(
+                                    entry_count = entries.len(),
+                                    "session_restore.scrapbook_replay"
+                                );
+                                for entry in entries {
+                                    responses.push(GameMessage::ScrapbookEntry {
+                                        payload: entry,
+                                        player_id: player_id.to_string(),
+                                    });
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::warn!(error = %e, "session_restore.scrapbook_load_failed");
+                            }
+                        }
+
                         // Last NARRATION — recap, last narrative log entry, or
                         // a location-based fallback built from the current
                         // RoomDef description. The fallback case was added

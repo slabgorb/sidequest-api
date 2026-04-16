@@ -223,9 +223,31 @@ pub(super) async fn build_response_messages(
         )
         .send();
     messages.push(GameMessage::ScrapbookEntry {
-        payload: scrapbook_payload,
+        payload: scrapbook_payload.clone(),
         player_id: ctx.player_id.to_string(),
     });
+
+    // Persist scrapbook entry to SQLite for session-resume replay.
+    if !ctx.genre_slug.is_empty() && !ctx.world_slug.is_empty() {
+        match ctx
+            .state
+            .persistence()
+            .append_scrapbook_entry(
+                ctx.genre_slug,
+                ctx.world_slug,
+                ctx.player_name_for_save,
+                &scrapbook_payload,
+            )
+            .await
+        {
+            Ok(()) => {
+                tracing::debug!(turn_id, "scrapbook.entry_persisted");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, turn_id, "scrapbook.entry_persist_failed");
+            }
+        }
+    }
 
     // Party status — now carries the per-member sheet and inventory facets
     // (CHARACTER_SHEET and INVENTORY message types were collapsed into

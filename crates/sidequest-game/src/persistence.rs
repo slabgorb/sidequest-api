@@ -100,6 +100,15 @@ pub trait SessionStore {
     fn save_scenario(&self, session_id: &str, json: &str) -> Result<(), PersistError>;
     /// Load scenario archive JSON for a session, or None if not saved.
     fn load_scenario(&self, session_id: &str) -> Result<Option<String>, PersistError>;
+    /// Append a scrapbook entry for a turn.
+    fn append_scrapbook_entry(
+        &self,
+        entry: &sidequest_protocol::ScrapbookEntryPayload,
+    ) -> Result<(), PersistError>;
+    /// Load all scrapbook entries, ordered by turn_id ascending.
+    fn load_scrapbook_entries(
+        &self,
+    ) -> Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError>;
 }
 
 /// Entry returned by `SqliteStore::list_saves()`.
@@ -245,7 +254,20 @@ impl SqliteStore {
                 session_id TEXT PRIMARY KEY,
                 scenario_json TEXT NOT NULL,
                 saved_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );",
+            );
+            CREATE TABLE IF NOT EXISTS scrapbook_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                turn_id INTEGER NOT NULL,
+                scene_title TEXT,
+                scene_type TEXT,
+                location TEXT NOT NULL,
+                image_url TEXT,
+                narrative_excerpt TEXT NOT NULL,
+                world_facts TEXT NOT NULL DEFAULT '[]',
+                npcs_present TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_scrapbook_turn ON scrapbook_entries(turn_id);",
         )?;
         Ok(())
     }
@@ -422,6 +444,63 @@ impl SessionStore for SqliteStore {
             )
             .ok();
         Ok(result)
+    }
+
+    fn append_scrapbook_entry(
+        &self,
+        entry: &sidequest_protocol::ScrapbookEntryPayload,
+    ) -> Result<(), PersistError> {
+        let world_facts_json = serde_json::to_string(&entry.world_facts)?;
+        let npcs_json = serde_json::to_string(&entry.npcs_present)?;
+        self.conn.execute(
+            "INSERT INTO scrapbook_entries (turn_id, scene_title, scene_type, location, image_url, narrative_excerpt, world_facts, npcs_present) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                entry.turn_id,
+                entry.scene_title,
+                entry.scene_type,
+                entry.location,
+                entry.image_url,
+                entry.narrative_excerpt,
+                world_facts_json,
+                npcs_json,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn load_scrapbook_entries(
+        &self,
+    ) -> Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT turn_id, scene_title, scene_type, location, image_url, narrative_excerpt, world_facts, npcs_present FROM scrapbook_entries ORDER BY turn_id ASC",
+        )?;
+        let entries = stmt
+            .query_map([], |row| {
+                let turn_id: u32 = row.get(0)?;
+                let scene_title: Option<String> = row.get(1)?;
+                let scene_type: Option<String> = row.get(2)?;
+                let location: String = row.get(3)?;
+                let image_url: Option<String> = row.get(4)?;
+                let narrative_excerpt: String = row.get(5)?;
+                let world_facts_json: String = row.get::<_, String>(6).unwrap_or_default();
+                let npcs_json: String = row.get::<_, String>(7).unwrap_or_default();
+                let world_facts: Vec<String> =
+                    serde_json::from_str(&world_facts_json).unwrap_or_default();
+                let npcs_present: Vec<sidequest_protocol::NpcRef> =
+                    serde_json::from_str(&npcs_json).unwrap_or_default();
+                Ok(sidequest_protocol::ScrapbookEntryPayload {
+                    turn_id,
+                    scene_title,
+                    scene_type,
+                    location,
+                    image_url,
+                    narrative_excerpt,
+                    world_facts,
+                    npcs_present,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(entries)
     }
 }
 
@@ -608,6 +687,21 @@ pub enum PersistenceCommand {
         /// Reply channel.
         reply: oneshot::Sender<Result<(), PersistError>>,
     },
+    /// Append a scrapbook entry.
+    AppendScrapbookEntry {
+        genre_slug: String,
+        world_slug: String,
+        player_name: String,
+        entry: sidequest_protocol::ScrapbookEntryPayload,
+        reply: oneshot::Sender<Result<(), PersistError>>,
+    },
+    /// Load all scrapbook entries.
+    LoadScrapbookEntries {
+        genre_slug: String,
+        world_slug: String,
+        player_name: String,
+        reply: oneshot::Sender<Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError>>,
+    },
     /// Graceful shutdown.
     Shutdown,
 }
@@ -773,6 +867,48 @@ impl PersistenceHandle {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
             .send(PersistenceCommand::LoadLoreFragments {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
+        reply_rx.await.map_err(|_| PersistError::WorkerGone)?
+    }
+
+    /// Append a scrapbook entry for a genre/world/player session.
+    pub async fn append_scrapbook_entry(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+        entry: &sidequest_protocol::ScrapbookEntryPayload,
+    ) -> Result<(), PersistError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(PersistenceCommand::AppendScrapbookEntry {
+                genre_slug: genre_slug.to_string(),
+                world_slug: world_slug.to_string(),
+                player_name: player_name.to_string(),
+                entry: entry.clone(),
+                reply: reply_tx,
+            })
+            .await
+            .map_err(|_| PersistError::WorkerGone)?;
+        reply_rx.await.map_err(|_| PersistError::WorkerGone)?
+    }
+
+    /// Load all scrapbook entries for a genre/world/player session.
+    pub async fn load_scrapbook_entries(
+        &self,
+        genre_slug: &str,
+        world_slug: &str,
+        player_name: &str,
+    ) -> Result<Vec<sidequest_protocol::ScrapbookEntryPayload>, PersistError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx
+            .send(PersistenceCommand::LoadScrapbookEntries {
                 genre_slug: genre_slug.to_string(),
                 world_slug: world_slug.to_string(),
                 player_name: player_name.to_string(),
@@ -1043,6 +1179,29 @@ impl PersistenceWorker {
                 let result = self
                     .get_or_open_store(&genre_slug, &world_slug, &player_name)
                     .and_then(|store| store.load_lore_fragments());
+                let _ = reply.send(result);
+            }
+            PersistenceCommand::AppendScrapbookEntry {
+                genre_slug,
+                world_slug,
+                player_name,
+                entry,
+                reply,
+            } => {
+                let result = self
+                    .get_or_open_store(&genre_slug, &world_slug, &player_name)
+                    .and_then(|store| store.append_scrapbook_entry(&entry));
+                let _ = reply.send(result);
+            }
+            PersistenceCommand::LoadScrapbookEntries {
+                genre_slug,
+                world_slug,
+                player_name,
+                reply,
+            } => {
+                let result = self
+                    .get_or_open_store(&genre_slug, &world_slug, &player_name)
+                    .and_then(|store| store.load_scrapbook_entries());
                 let _ = reply.send(result);
             }
             PersistenceCommand::Delete {
