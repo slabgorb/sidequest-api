@@ -14,6 +14,7 @@ members = [
     "crates/sidequest-telemetry",
     "crates/sidequest-fixture",
     "crates/sidequest-test-support",
+    "crates/sidequest-genre-layered-derive",
 ]
 resolver = "2"
 

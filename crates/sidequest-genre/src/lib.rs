@@ -36,6 +36,9 @@ mod validate;
 
 pub use sidequest_protocol;
 
+/// `#[derive(Layered)]` proc macro, re-exported for consumers.
+pub use sidequest_genre_layered_derive::Layered;
+
 // Re-export the public API
 pub use cache::GenreCache;
 pub use error::{GenreError, ValidationErrors};
