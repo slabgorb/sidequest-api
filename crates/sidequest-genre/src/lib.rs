@@ -29,6 +29,8 @@ mod resolve;
 /// Four-tier content resolver: Global → Genre → World → Culture provenance tracking.
 pub mod resolver;
 pub use resolver::*;
+/// Per-tier content schemas with `deny_unknown_fields` enforcement.
+pub mod schema;
 mod util;
 mod validate;
 
