@@ -28,3 +28,8 @@ pub struct ResolutionContext {
 pub mod load;
 
 pub use load::{LayeredMerge, Resolver};
+
+/// `content.resolve` OTEL span emission for the resolver.
+pub mod otel;
+
+pub use otel::emit_content_resolve_span;

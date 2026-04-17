@@ -1,8 +1,11 @@
 use crate::error::GenreError;
-use crate::resolver::{ContributionKind, MergeStep, Provenance, Resolved, Tier};
+use crate::resolver::{
+    emit_content_resolve_span, ContributionKind, MergeStep, Provenance, Resolved, Tier,
+};
 use serde::de::DeserializeOwned;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 /// Trait implemented by every struct with `#[derive(Layered)]`.
 /// Allows the resolver to walk per-field merges across the four-tier chain.
@@ -73,15 +76,24 @@ impl<T: DeserializeOwned> Resolver<T> {
 
 impl<T: DeserializeOwned + Default + Clone> Resolver<T> {
     /// Resolve a field path across Global → Genre → World → Culture, merging at each tier.
+    ///
+    /// `axis` is the semantic axis name (e.g. `"archetype"`, `"audio"`, `"image"`) used
+    /// for the emitted `content.resolve` OTEL span's `content.axis` attribute and — in
+    /// future phases — for axis-keyed observability and cache partitioning. It is
+    /// decoupled from the on-disk `field_path` so the observability concept survives
+    /// changes to the file layout.
+    ///
     /// Requires that T implements the Layered `merge` method (via derive).
     pub fn resolve_merged(
         &self,
+        axis: &str,
         field_path: &str,
         ctx: &crate::resolver::ResolutionContext,
     ) -> Result<Resolved<T>, GenreError>
     where
         T: LayeredMerge,
     {
+        let start = Instant::now();
         let mut trail = Vec::new();
         let mut current: Option<T> = None;
         let mut final_tier = Tier::Global;
@@ -204,14 +216,24 @@ impl<T: DeserializeOwned + Default + Clone> Resolver<T> {
             message: format!("no tier supplied field '{field_path}'"),
         })?;
 
-        Ok(Resolved {
-            value,
-            provenance: Provenance {
-                source_tier: final_tier,
-                source_file: final_file,
-                source_span: None,
-                merge_trail: trail,
-            },
-        })
+        let provenance = Provenance {
+            source_tier: final_tier,
+            source_file: final_file,
+            source_span: None,
+            merge_trail: trail,
+        };
+
+        let elapsed_us = start.elapsed().as_micros() as u64;
+        emit_content_resolve_span(
+            axis,
+            field_path,
+            &ctx.genre,
+            ctx.world.as_deref(),
+            ctx.culture.as_deref(),
+            &provenance,
+            elapsed_us,
+        );
+
+        Ok(Resolved { value, provenance })
     }
 }
