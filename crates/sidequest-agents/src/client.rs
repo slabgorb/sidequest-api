@@ -12,7 +12,7 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 const DEFAULT_COMMAND: &str = "claude";
 
 /// Errors from Claude CLI subprocess invocations.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ClaudeClientError {
     /// The subprocess exceeded the configured timeout.
@@ -50,7 +50,7 @@ impl std::fmt::Display for ClaudeClientError {
 impl std::error::Error for ClaudeClientError {}
 
 /// Response from a Claude CLI invocation, including token usage telemetry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClaudeResponse {
     /// The text content of the response.
     pub text: String,
@@ -622,5 +622,74 @@ impl ClaudeClientBuilder {
             command_path: self.command_path,
             otel_endpoint: self.otel_endpoint,
         }
+    }
+}
+
+/// Object-safe abstraction over the Claude CLI client (story 40-1).
+///
+/// Production code takes `Arc<dyn ClaudeLike>` so tests can substitute
+/// `MockClaudeClient` (from `sidequest-test-support`) without spawning a
+/// real `claude` subprocess. This is the foundation for Epic 40's DI
+/// refactor — sites taking `ClaudeClient` concretely should migrate to
+/// `Arc<dyn ClaudeLike>` on their normal maintenance cycle.
+///
+/// The trait surface mirrors the subset of `ClaudeClient` methods that
+/// production call sites actually use today. Both methods are synchronous
+/// — the underlying subprocess call blocks the calling thread — so the
+/// trait stays object-safe with zero generics.
+pub trait ClaudeLike: Send + Sync {
+    /// Execute a one-shot subprocess call with an explicit model.
+    ///
+    /// Mirrors [`ClaudeClient::send_with_model`]. Unscripted mocks return
+    /// [`ClaudeClientError::EmptyResponse`] per CLAUDE.md "no silent
+    /// fallbacks" — never `Ok(empty)`.
+    fn send_with_model(
+        &self,
+        prompt: &str,
+        model: &str,
+    ) -> Result<ClaudeResponse, ClaudeClientError>;
+
+    /// Execute a persistent-session subprocess call (ADR-066).
+    ///
+    /// Mirrors [`ClaudeClient::send_with_session`]. `session_id = None`
+    /// mints a new session; `Some(id)` resumes that session via `--resume`.
+    fn send_with_session(
+        &self,
+        prompt: &str,
+        model: &str,
+        session_id: Option<&str>,
+        system_prompt: Option<&str>,
+        allowed_tools: &[String],
+        env_vars: &std::collections::HashMap<String, String>,
+    ) -> Result<ClaudeResponse, ClaudeClientError>;
+}
+
+impl ClaudeLike for ClaudeClient {
+    fn send_with_model(
+        &self,
+        prompt: &str,
+        model: &str,
+    ) -> Result<ClaudeResponse, ClaudeClientError> {
+        ClaudeClient::send_with_model(self, prompt, model)
+    }
+
+    fn send_with_session(
+        &self,
+        prompt: &str,
+        model: &str,
+        session_id: Option<&str>,
+        system_prompt: Option<&str>,
+        allowed_tools: &[String],
+        env_vars: &std::collections::HashMap<String, String>,
+    ) -> Result<ClaudeResponse, ClaudeClientError> {
+        ClaudeClient::send_with_session(
+            self,
+            prompt,
+            model,
+            session_id,
+            system_prompt,
+            allowed_tools,
+            env_vars,
+        )
     }
 }

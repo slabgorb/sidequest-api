@@ -1,0 +1,13 @@
+[package]
+name = "sidequest-test-support"
+version.workspace = true
+edition.workspace = true
+description = "Shared test harness for sidequest-api — ClaudeLike trait, SpanCaptureLayer, MockClaudeClient. Story 40-1."
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+sidequest-agents = { path = "../sidequest-agents" }
+
+[dev-dependencies]
+tokio = { workspace = true }

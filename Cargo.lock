@@ -1502,6 +1502,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidequest-test-support"
+version = "0.1.0"
+dependencies = [
+ "sidequest-agents",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "sidequest-validate"
 version = "0.1.0"
 dependencies = [

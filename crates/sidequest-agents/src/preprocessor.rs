@@ -1,18 +1,21 @@
 //! Action Preprocessor — STT cleanup before player input reaches agents.
 //!
-//! Calls a haiku-tier LLM via ClaudeClient to clean speech-to-text disfluencies
-//! (uh, um, like, you know, false starts, repetitions) and rewrite player input
-//! into three perspectives: second-person, named third-person, and neutral intent.
+//! Calls a haiku-tier LLM via an injected [`ClaudeLike`](crate::client::ClaudeLike)
+//! client to clean speech-to-text disfluencies (uh, um, like, you know, false
+//! starts, repetitions) and rewrite player input into three perspectives:
+//! second-person, named third-person, and neutral intent.
 //!
-//! On LLM failure or timeout, falls back to mechanical string manipulation so
-//! the game loop never blocks on preprocessing.
+//! On LLM failure or timeout, returns `Err(PreprocessError::LlmFailed)` — no
+//! silent fallbacks per CLAUDE.md. The dispatch layer decides whether to retry,
+//! surface the error, or skip the turn.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use sidequest_game::PreprocessedAction;
 use tracing::info;
 
-use crate::client::ClaudeClient;
+use crate::client::{ClaudeClient, ClaudeLike};
 
 /// Haiku model identifier for fast preprocessing.
 const HAIKU_MODEL: &str = "haiku";
@@ -23,12 +26,29 @@ const PREPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 /// Preprocess a raw player action into three perspectives via LLM.
 ///
 /// Fails loudly if Haiku is unavailable — no silent fallbacks.
+///
+/// This is the default entry point — it constructs a real `ClaudeClient` and
+/// delegates to [`preprocess_action_with_client`]. Tests and sites that need
+/// to inject a mock should call [`preprocess_action_with_client`] directly.
 pub fn preprocess_action(
     raw_input: &str,
     char_name: &str,
 ) -> Result<PreprocessedAction, PreprocessError> {
-    let client = ClaudeClient::with_timeout(PREPROCESS_TIMEOUT);
+    let client: Arc<dyn ClaudeLike> = Arc::new(ClaudeClient::with_timeout(PREPROCESS_TIMEOUT));
+    preprocess_action_with_client(client, raw_input, char_name)
+}
 
+/// Preprocess a raw player action via an injected [`ClaudeLike`] client.
+///
+/// Story 40-1: this is the one non-test consumer that proves the DI pattern
+/// works end-to-end. `preprocess_action` delegates here with a real
+/// `ClaudeClient`; tests inject a `MockClaudeClient` from
+/// `sidequest-test-support`.
+pub fn preprocess_action_with_client(
+    client: Arc<dyn ClaudeLike>,
+    raw_input: &str,
+    char_name: &str,
+) -> Result<PreprocessedAction, PreprocessError> {
     let prompt = build_prompt(raw_input, char_name);
 
     let llm_span = tracing::info_span!("turn.preprocess.llm", model = HAIKU_MODEL);
