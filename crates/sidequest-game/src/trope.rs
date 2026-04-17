@@ -9,6 +9,8 @@ use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 use sidequest_genre::{RoomDef, TropeDefinition, TropeEscalation};
 
+use sidequest_telemetry::{WatcherEventBuilder, WatcherEventType};
+
 use crate::achievement::{Achievement, AchievementTracker};
 
 /// Status of an active trope in the game.
@@ -183,6 +185,20 @@ impl TropeEngine {
             if ts.status == TropeStatus::Active && ts.progression > 0.0 {
                 ts.status = TropeStatus::Progressing;
             }
+
+            // Auto-resolve: Progressing → Resolved at progression 1.0 (story 37-15)
+            if ts.status == TropeStatus::Progressing && ts.progression >= 1.0 {
+                ts.status = TropeStatus::Resolved;
+                WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
+                    .field("event", "trope.auto_resolved")
+                    .field("trope_id", &ts.trope_definition_id)
+                    .field("progression", ts.progression)
+                    .send();
+                tracing::info!(
+                    trope_id = %ts.trope_definition_id,
+                    "trope.auto_resolved — progression reached 1.0"
+                );
+            }
         }
 
         span.record("beats_fired", fired.len() as u64);
@@ -299,6 +315,21 @@ impl TropeEngine {
             // Status transition: Active → Progressing
             if ts.status == TropeStatus::Active && ts.progression > 0.0 {
                 ts.status = TropeStatus::Progressing;
+            }
+
+            // Auto-resolve: Progressing → Resolved at progression 1.0 (story 37-15)
+            if ts.status == TropeStatus::Progressing && ts.progression >= 1.0 {
+                ts.status = TropeStatus::Resolved;
+                WatcherEventBuilder::new("trope", WatcherEventType::StateTransition)
+                    .field("event", "trope.auto_resolved")
+                    .field("trope_id", &ts.trope_definition_id)
+                    .field("progression", ts.progression)
+                    .field("source", "cross_session")
+                    .send();
+                tracing::info!(
+                    trope_id = %ts.trope_definition_id,
+                    "trope.auto_resolved — cross-session progression reached 1.0"
+                );
             }
         }
 

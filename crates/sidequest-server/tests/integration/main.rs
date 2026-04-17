@@ -51,6 +51,7 @@ mod session_restore_wiring_story_26_3_tests;
 mod telemetry_story_18_1_tests;
 mod telemetry_story_3_1_tests;
 mod treasure_xp_wiring_story_35_4_tests;
+mod trope_encounter_wiring_story_37_15_tests;
 mod turn_complete_consolidation_playtest_2026_04_11;
 mod turn_complete_telemetry_playtest_2026_04_11;
 mod turn_reminder_wiring_story_35_5_tests;

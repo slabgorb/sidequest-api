@@ -449,6 +449,31 @@ impl StructuredEncounter {
         def.escalates_to.clone()
     }
 
+    /// Resolve this encounter because an associated trope reached completion.
+    ///
+    /// No-op if the encounter is already resolved. Sets the outcome to reference
+    /// the completing trope so the GM panel can trace the resolution source.
+    /// Emits OTEL event for trope-driven resolution (story 37-15).
+    pub fn resolve_from_trope(&mut self, trope_id: &str) {
+        if self.resolved {
+            return;
+        }
+        self.resolved = true;
+        self.structured_phase = Some(EncounterPhase::Resolution);
+        self.outcome = Some(format!("resolved by trope completion: {}", trope_id));
+        WatcherEventBuilder::new("encounter", WatcherEventType::StateTransition)
+            .field("event", "encounter.state.resolved_by_trope")
+            .field("encounter_type", &self.encounter_type)
+            .field("trope_id", trope_id)
+            .field("beats_total", self.beat)
+            .send();
+        tracing::info!(
+            encounter_type = %self.encounter_type,
+            trope_id = %trope_id,
+            "encounter.resolved_by_trope — trope completion triggered encounter resolution"
+        );
+    }
+
     /// Produce a combat encounter from a resolved encounter, carrying actors.
     ///
     /// Returns None if the encounter is not yet resolved.
