@@ -26,6 +26,10 @@ pub const OTEL_MUTATION_EXTRACTED: &str = "inventory.mutation_extracted";
 /// OTEL event name emitted on extraction failure (timeout or parse error).
 pub const OTEL_MUTATION_MISSED: &str = "inventory.mutation_missed";
 
+/// OTEL event name emitted when the LLM response cannot be parsed as JSON.
+/// Distinct from OTEL_MUTATION_MISSED (which covers timeout/subprocess errors).
+pub const OTEL_EXTRACTION_PARSE_FAILED: &str = "inventory.extraction_parse_failed";
+
 /// A single inventory mutation extracted from narration.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct InventoryMutation {
@@ -44,9 +48,25 @@ pub struct InventoryMutation {
     pub gold: Option<i64>,
 }
 
+/// The result of parsing a Claude extraction response.
+///
+/// Three-state return: mutations found, clean (no mutations), or parse failure.
+/// This replaces the previous `Option<Vec<InventoryMutation>>` which made parse
+/// failures indistinguishable from clean extractions — the core 37-10 bug.
+#[derive(Debug, Clone)]
+pub enum ExtractionOutcome {
+    /// Successfully parsed one or more inventory mutations.
+    Mutations(Vec<InventoryMutation>),
+    /// Claude explicitly returned an empty array — no mutations detected.
+    Clean,
+    /// The response could not be parsed as a JSON array of mutations.
+    ParseFailed { raw_response: String },
+}
+
 /// The type of inventory mutation.
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum MutationAction {
     /// Item was consumed (eaten, drunk, used up, spent).
     Consumed,
@@ -98,7 +118,7 @@ pub fn extract_inventory_mutations(
 
     match result {
         Ok(resp) => match parse_extraction_response(&resp.text) {
-            Some(mutations) => {
+            ExtractionOutcome::Mutations(mutations) => {
                 info!(mutations = mutations.len(), "inventory.extraction_complete");
                 for mutation in &mutations {
                     info!(
@@ -111,8 +131,18 @@ pub fn extract_inventory_mutations(
                 }
                 mutations
             }
-            None => {
+            ExtractionOutcome::Clean => {
                 info!("inventory.extraction_clean — no mutations detected");
+                vec![]
+            }
+            ExtractionOutcome::ParseFailed { raw_response } => {
+                warn!(
+                    otel_event = OTEL_EXTRACTION_PARSE_FAILED,
+                    raw_response_len = raw_response.len(),
+                    raw_response_preview = %&raw_response[..raw_response.len().min(200)],
+                    reason = "extraction_parse_failed",
+                    "inventory.extraction_parse_failed — could not parse LLM response as JSON"
+                );
                 vec![]
             }
         },
@@ -209,14 +239,17 @@ RULES:
 /// Parses a Haiku extraction response into inventory mutations.
 ///
 /// Handles both raw JSON arrays and markdown-fenced ```json blocks.
-/// Returns `None` if the response contains no mutations or cannot be parsed.
-pub fn parse_extraction_response(response: &str) -> Option<Vec<InventoryMutation>> {
+/// Returns a three-state `ExtractionOutcome`:
+/// - `Mutations(vec)` — successfully parsed mutations
+/// - `Clean` — Claude explicitly returned `[]` (no mutations)
+/// - `ParseFailed { raw_response }` — could not parse the response as JSON
+pub fn parse_extraction_response(response: &str) -> ExtractionOutcome {
     // Try direct parse
     if let Ok(entries) = serde_json::from_str::<Vec<InventoryMutation>>(response) {
         if entries.is_empty() {
-            return None;
+            return ExtractionOutcome::Clean;
         }
-        return Some(entries);
+        return ExtractionOutcome::Mutations(entries);
     }
 
     // Try extracting JSON array from fenced block or surrounding text
@@ -225,14 +258,36 @@ pub fn parse_extraction_response(response: &str) -> Option<Vec<InventoryMutation
             let json_str = &response[start..=end];
             if let Ok(entries) = serde_json::from_str::<Vec<InventoryMutation>>(json_str) {
                 if entries.is_empty() {
-                    return None;
+                    return ExtractionOutcome::Clean;
                 }
-                return Some(entries);
+                return ExtractionOutcome::Mutations(entries);
             }
         }
     }
 
-    None
+    ExtractionOutcome::ParseFailed {
+        raw_response: response.to_string(),
+    }
+}
+
+/// Validates that an item name will produce a non-empty ID after sanitization.
+///
+/// The dispatch layer sanitizes item names to IDs via `to_lowercase() + replace`.
+/// If the name contains only special characters (e.g., "—???—"), the sanitized
+/// ID is empty and `NonBlankString::new("")` fails silently. This function
+/// catches that before the silent failure.
+pub fn validate_mutation_item_name(name: &str) -> Result<(), String> {
+    let sanitized = name
+        .to_lowercase()
+        .replace(' ', "_")
+        .replace(|c: char| !c.is_alphanumeric() && c != '_', "");
+    if sanitized.is_empty() {
+        Err(format!(
+            "Item name '{name}' produces empty ID after sanitization"
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -240,17 +295,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_empty_array_returns_none() {
-        assert!(parse_extraction_response("[]").is_none());
+    fn parse_empty_array_returns_clean() {
+        assert!(matches!(
+            parse_extraction_response("[]"),
+            ExtractionOutcome::Clean
+        ));
     }
 
     #[test]
     fn parse_single_mutation() {
         let json = r#"[{"item_name": "Healing Potion", "action": "consumed", "detail": "drank during combat"}]"#;
-        let result = parse_extraction_response(json).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].item_name, "Healing Potion");
-        assert_eq!(result[0].action, MutationAction::Consumed);
+        match parse_extraction_response(json) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 1);
+                assert_eq!(result[0].item_name, "Healing Potion");
+                assert_eq!(result[0].action, MutationAction::Consumed);
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -259,24 +321,35 @@ mod tests {
             {"item_name": "Rusty Sword", "action": "sold", "detail": "sold to Patchwork"},
             {"item_name": "Compass", "action": "given", "detail": "gave to Shirley"}
         ]"#;
-        let result = parse_extraction_response(json).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].action, MutationAction::Sold);
-        assert_eq!(result[1].action, MutationAction::Given);
-        assert_eq!(result[1].detail, "gave to Shirley");
+        match parse_extraction_response(json) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 2);
+                assert_eq!(result[0].action, MutationAction::Sold);
+                assert_eq!(result[1].action, MutationAction::Given);
+                assert_eq!(result[1].detail, "gave to Shirley");
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 
     #[test]
     fn parse_fenced_json() {
         let response = "Here are the mutations:\n```json\n[{\"item_name\": \"Torch\", \"action\": \"destroyed\", \"detail\": \"burned out\"}]\n```";
-        let result = parse_extraction_response(response).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].action, MutationAction::Destroyed);
+        match parse_extraction_response(response) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 1);
+                assert_eq!(result[0].action, MutationAction::Destroyed);
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 
     #[test]
-    fn parse_garbage_returns_none() {
-        assert!(parse_extraction_response("No items changed state.").is_none());
+    fn parse_garbage_returns_parse_failed() {
+        assert!(matches!(
+            parse_extraction_response("No items changed state."),
+            ExtractionOutcome::ParseFailed { .. }
+        ));
     }
 
     #[test]
@@ -308,38 +381,54 @@ mod tests {
     #[test]
     fn parse_acquired_item() {
         let json = r#"[{"item_name": "Rusty Caps", "action": "acquired", "detail": "looted from body", "category": "treasure", "gold": null}]"#;
-        let result = parse_extraction_response(json).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].action, MutationAction::Acquired);
-        assert_eq!(result[0].category.as_deref(), Some("treasure"));
-        assert_eq!(result[0].gold, None);
+        match parse_extraction_response(json) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 1);
+                assert_eq!(result[0].action, MutationAction::Acquired);
+                assert_eq!(result[0].category.as_deref(), Some("treasure"));
+                assert_eq!(result[0].gold, None);
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 
     #[test]
     fn parse_gold_acquisition() {
         let json = r#"[{"item_name": "caps", "action": "acquired", "detail": "found on body", "category": "treasure", "gold": 11}]"#;
-        let result = parse_extraction_response(json).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].action, MutationAction::Acquired);
-        assert_eq!(result[0].gold, Some(11));
+        match parse_extraction_response(json) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 1);
+                assert_eq!(result[0].action, MutationAction::Acquired);
+                assert_eq!(result[0].gold, Some(11));
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 
     #[test]
     fn parse_gold_loss() {
         let json = r#"[{"item_name": "gold", "action": "lost", "detail": "tossed into fountain", "gold": 1}]"#;
-        let result = parse_extraction_response(json).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].action, MutationAction::Lost);
-        assert_eq!(result[0].gold, Some(1));
+        match parse_extraction_response(json) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 1);
+                assert_eq!(result[0].action, MutationAction::Lost);
+                assert_eq!(result[0].gold, Some(1));
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 
     #[test]
     fn parse_gold_given() {
         let json = r#"[{"item_name": "gold", "action": "given", "detail": "donated to beggar", "gold": 5}]"#;
-        let result = parse_extraction_response(json).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].action, MutationAction::Given);
-        assert_eq!(result[0].gold, Some(5));
+        match parse_extraction_response(json) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 1);
+                assert_eq!(result[0].action, MutationAction::Given);
+                assert_eq!(result[0].gold, Some(5));
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 
     #[test]
@@ -348,9 +437,13 @@ mod tests {
             {"item_name": "Healing Potion", "action": "consumed", "detail": "drank it"},
             {"item_name": "Old Key", "action": "acquired", "detail": "found in chest", "category": "quest"}
         ]"#;
-        let result = parse_extraction_response(json).unwrap();
-        assert_eq!(result.len(), 2);
-        assert_eq!(result[0].action, MutationAction::Consumed);
-        assert_eq!(result[1].action, MutationAction::Acquired);
+        match parse_extraction_response(json) {
+            ExtractionOutcome::Mutations(result) => {
+                assert_eq!(result.len(), 2);
+                assert_eq!(result[0].action, MutationAction::Consumed);
+                assert_eq!(result[1].action, MutationAction::Acquired);
+            }
+            other => panic!("Expected Mutations, got: {other:?}"),
+        }
     }
 }
