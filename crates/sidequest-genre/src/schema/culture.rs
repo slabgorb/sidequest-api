@@ -4,7 +4,7 @@ use std::collections::HashMap;
 /// Culture-tier content. Terminal flavor pass: names, speech, visual cues,
 /// disposition, scenario variants. Never structural rules (those are Genre
 /// or Global).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CultureContent {
     /// Unique identifier for this culture (e.g. "thornwall").
@@ -31,7 +31,7 @@ pub struct CultureContent {
 }
 
 /// What a culture entry represents in the world model.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CultureRepresents {
     /// A racial or species grouping.
@@ -46,7 +46,7 @@ pub enum CultureRepresents {
 }
 
 /// Binding to one or two Markov corpora for procedural name generation.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CorpusBinding {
     /// Primary corpus name.
@@ -57,7 +57,7 @@ pub struct CorpusBinding {
 }
 
 /// Flavor overrides for a single named archetype within this culture.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchetypeReskin {
     /// Override display name for this archetype in this culture.
