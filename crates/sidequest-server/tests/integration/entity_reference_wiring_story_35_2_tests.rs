@@ -60,6 +60,12 @@ fn make_npc(name: &str) -> Npc {
         location: Some(NonBlankString::new("The Rusty Valve").unwrap()),
         ocean: None,
         belief_state: sidequest_game::belief_state::BeliefState::default(),
+        resolution_tier: sidequest_game::npc::ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 
@@ -107,6 +113,7 @@ fn make_character(name: &str, item_names: Vec<&str>) -> Character {
         known_facts: vec![],
         affinities: vec![],
         is_friendly: true,
+            resolved_archetype: None,
     }
 }
 

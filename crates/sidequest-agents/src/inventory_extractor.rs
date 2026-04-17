@@ -54,6 +54,7 @@ pub struct InventoryMutation {
 /// This replaces the previous `Option<Vec<InventoryMutation>>` which made parse
 /// failures indistinguishable from clean extractions — the core 37-10 bug.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ExtractionOutcome {
     /// Successfully parsed one or more inventory mutations.
     Mutations(Vec<InventoryMutation>),
@@ -139,7 +140,7 @@ pub fn extract_inventory_mutations(
                 warn!(
                     otel_event = OTEL_EXTRACTION_PARSE_FAILED,
                     raw_response_len = raw_response.len(),
-                    raw_response_preview = %&raw_response[..raw_response.len().min(200)],
+                    raw_response_preview = %raw_response.get(..200).unwrap_or(&raw_response),
                     reason = "extraction_parse_failed",
                     "inventory.extraction_parse_failed — could not parse LLM response as JSON"
                 );

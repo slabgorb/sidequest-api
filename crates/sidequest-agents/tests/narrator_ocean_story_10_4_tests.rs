@@ -52,6 +52,12 @@ fn npc_with_ocean(name: &str, ocean: OceanProfile) -> Npc {
         distinguishing_features: vec![],
         ocean: Some(ocean),
         belief_state: sidequest_game::belief_state::BeliefState::default(),
+        resolution_tier: sidequest_game::npc::ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 
@@ -80,6 +86,12 @@ fn npc_without_ocean(name: &str) -> Npc {
         distinguishing_features: vec![],
         ocean: None,
         belief_state: sidequest_game::belief_state::BeliefState::default(),
+        resolution_tier: sidequest_game::npc::ResolutionTier::default(),
+        non_transactional_interactions: 0,
+        jungian_id: None,
+        rpg_role_id: None,
+        npc_role_id: None,
+        resolved_archetype: None,
     }
 }
 
