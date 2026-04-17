@@ -19,8 +19,6 @@
 
 use std::collections::HashMap;
 
-use sidequest_agents::agent::Agent;
-use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::orchestrator::{
     ActionFlags, ActionResult, ActionRewrite, NarratorExtraction,
 };
@@ -352,21 +350,19 @@ fn rewrite_action_intent_is_neutral() {
 /// is the fallback when the narrator omits them.
 #[test]
 fn narrator_prompt_includes_action_rewrite_schema() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
+    let format_text = sidequest_agents::agents::narrator::narrator_output_format_text();
     assert!(
-        prompt.contains("action_rewrite"),
-        "Narrator system prompt must contain 'action_rewrite' — re-added by story 37-11"
+        format_text.contains("action_rewrite"),
+        "NARRATOR_OUTPUT_ONLY must contain 'action_rewrite' — re-added by story 37-11"
     );
 }
 
 #[test]
 fn narrator_prompt_includes_action_flags_schema() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
+    let format_text = sidequest_agents::agents::narrator::narrator_output_format_text();
     assert!(
-        prompt.contains("action_flags"),
-        "Narrator system prompt must contain 'action_flags' — re-added by story 37-11"
+        format_text.contains("action_flags"),
+        "NARRATOR_OUTPUT_ONLY must contain 'action_flags' — re-added by story 37-11"
     );
 }
 

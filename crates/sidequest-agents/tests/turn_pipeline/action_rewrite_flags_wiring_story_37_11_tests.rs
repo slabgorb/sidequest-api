@@ -16,8 +16,6 @@
 
 use std::collections::HashMap;
 
-use sidequest_agents::agent::Agent;
-use sidequest_agents::agents::narrator::NarratorAgent;
 use sidequest_agents::orchestrator::{
     ActionFlags, ActionRewrite, NarratorExtraction,
 };
@@ -60,11 +58,10 @@ fn minimal_extraction() -> NarratorExtraction {
 /// This is the inverse of the 20-1 test — 37-11 re-adds what 20-1 removed.
 #[test]
 fn narrator_prompt_includes_action_rewrite_schema() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
+    let format_text = sidequest_agents::agents::narrator::narrator_output_format_text();
     assert!(
-        prompt.contains("action_rewrite"),
-        "Narrator system prompt must contain 'action_rewrite' in the game_patch schema — \
+        format_text.contains("action_rewrite"),
+        "NARRATOR_OUTPUT_ONLY must contain 'action_rewrite' in the game_patch schema — \
          story 37-11 re-adds narrator-emitted action classification"
     );
 }
@@ -72,11 +69,10 @@ fn narrator_prompt_includes_action_rewrite_schema() {
 /// The narrator's output format must document action_flags as a valid game_patch field.
 #[test]
 fn narrator_prompt_includes_action_flags_schema() {
-    let narrator = NarratorAgent::new();
-    let prompt = narrator.system_prompt();
+    let format_text = sidequest_agents::agents::narrator::narrator_output_format_text();
     assert!(
-        prompt.contains("action_flags"),
-        "Narrator system prompt must contain 'action_flags' in the game_patch schema — \
+        format_text.contains("action_flags"),
+        "NARRATOR_OUTPUT_ONLY must contain 'action_flags' in the game_patch schema — \
          story 37-11 re-adds narrator-emitted action classification"
     );
 }
