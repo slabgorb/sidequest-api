@@ -24,9 +24,7 @@ pub struct ResolutionContext {
     pub culture: Option<String>,
 }
 
-/// Trait implemented by every struct with `#[derive(Layered)]`.
-/// Allows the resolver to walk per-field merges across the four-tier chain.
-pub trait LayeredMerge {
-    /// Merge `other` (deeper tier) into `self` (shallower tier), producing the combined value.
-    fn merge(self, other: Self) -> Self;
-}
+/// File-based tier loader with merge walk support.
+pub mod load;
+
+pub use load::{LayeredMerge, Resolver};
