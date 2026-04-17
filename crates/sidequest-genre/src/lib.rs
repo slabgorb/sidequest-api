@@ -26,6 +26,8 @@ pub mod models;
 /// Template-based name generator with corpus blending.
 pub mod names;
 mod resolve;
+/// Four-tier content resolver: Global → Genre → World → Culture provenance tracking.
+pub mod resolver;
 mod util;
 mod validate;
 
