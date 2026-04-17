@@ -300,6 +300,12 @@ struct RawInteractionCell {
     blue_view: serde_yaml::Value,
     #[serde(default)]
     narration_hint: String,
+    /// Post-playtest calibration tags (story 38-9).
+    #[serde(default)]
+    tags: Vec<String>,
+    /// Rationale for delta adjustments on failing cells (story 38-9).
+    #[serde(default)]
+    calibration_notes: Option<String>,
 }
 
 /// A single cell of a sealed-letter interaction table.
@@ -322,6 +328,10 @@ pub struct InteractionCell {
     pub blue_view: serde_yaml::Value,
     /// Narrator hint describing the beat for the LLM.
     pub narration_hint: String,
+    /// Post-playtest calibration tags: exciting, calibrated, lopsided, confusing, dull (story 38-9).
+    pub tags: Vec<String>,
+    /// Rationale for delta adjustments on failing cells (story 38-9).
+    pub calibration_notes: Option<String>,
 }
 
 impl TryFrom<RawInteractionCell> for InteractionCell {
@@ -341,6 +351,8 @@ impl TryFrom<RawInteractionCell> for InteractionCell {
             red_view: raw.red_view,
             blue_view: raw.blue_view,
             narration_hint: raw.narration_hint,
+            tags: raw.tags,
+            calibration_notes: raw.calibration_notes,
         })
     }
 }
