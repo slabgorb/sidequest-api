@@ -86,7 +86,10 @@ fn captures_recorded_fields_after_span_open() {
 
     let spans = capture.spans_by_name("agent.call.session");
     assert_eq!(spans.len(), 1);
-    assert_eq!(spans[0].field_str("session_id"), Some("abc-123".to_string()));
+    assert_eq!(
+        spans[0].field_str("session_id"),
+        Some("abc-123".to_string())
+    );
     assert_eq!(spans[0].field_i64("input_tokens"), Some(1024));
 }
 
@@ -99,7 +102,10 @@ fn captures_events_distinct_from_spans() {
     let subscriber = Registry::default().with(layer);
 
     with_default(subscriber, || {
-        tracing::info!(event_name = "encounter.beat_applied", beat_id = "opening_fast");
+        tracing::info!(
+            event_name = "encounter.beat_applied",
+            beat_id = "opening_fast"
+        );
     });
 
     let events = capture.events_by_name("encounter.beat_applied");

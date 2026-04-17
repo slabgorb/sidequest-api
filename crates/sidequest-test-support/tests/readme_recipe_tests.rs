@@ -33,8 +33,8 @@ fn readme_exists() {
 
 #[test]
 fn readme_has_rust_code_block() {
-    let content = fs::read_to_string(readme_path())
-        .expect("README.md must be readable (see readme_exists)");
+    let content =
+        fs::read_to_string(readme_path()).expect("README.md must be readable (see readme_exists)");
     assert!(
         content.contains("```rust"),
         "README must have a ```rust code fence — the recipe is worthless if it isn't a runnable example"
@@ -43,8 +43,8 @@ fn readme_has_rust_code_block() {
 
 #[test]
 fn readme_example_covers_all_three_apis() {
-    let content = fs::read_to_string(readme_path())
-        .expect("README.md must be readable (see readme_exists)");
+    let content =
+        fs::read_to_string(readme_path()).expect("README.md must be readable (see readme_exists)");
     // Extract the first ```rust ... ``` block and assert it references all
     // three APIs. A recipe that only shows SpanCaptureLayer, for example,
     // fails the onboarding purpose of 40-1.

@@ -66,9 +66,7 @@ fn preprocessor_records_prompt_through_mock() {
     // A production site that accepts the trait but ignores it would pass
     // `preprocessor_accepts_arc_dyn_claude_like` while failing this one.
     let mut mock = MockClaudeClient::new();
-    mock.respond_with(
-        r#"{"you":"you look around","named":"Rux looks around","intent":"observe"}"#,
-    );
+    mock.respond_with(r#"{"you":"you look around","named":"Rux looks around","intent":"observe"}"#);
     // We need to clone the Arc so we can query the mock after the call — but
     // the mock is owned by the Arc. The test API exposes a query handle so
     // that after the call, we can ask "what did the production code send?".
