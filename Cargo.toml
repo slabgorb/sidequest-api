@@ -13,6 +13,7 @@ members = [
     "crates/sidequest-promptpreview",
     "crates/sidequest-telemetry",
     "crates/sidequest-fixture",
+    "crates/sidequest-test-support",
 ]
 resolver = "2"
 
