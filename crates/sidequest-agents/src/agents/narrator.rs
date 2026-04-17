@@ -60,11 +60,31 @@ PART 2 — STATE PATCH\n\
 After your prose, emit a fenced JSON block labeled game_patch containing \
 mechanical intents from this turn. Only include fields that changed.\n\
 Valid fields: confrontation, items_gained, items_lost, location, npcs_met, \
-mood, state_snapshot, beat_selections, visual_scene, footnotes, gold_change.\n\
+mood, state_snapshot, beat_selections, visual_scene, footnotes, gold_change, \
+action_rewrite, action_flags.\n\
 gold_change: Integer. Emit when the player gains or loses gold/currency \
 outside of beat costs (e.g., winning a poker hand: +50, paying a bribe: -20, \
 finding a coin purse: +10). Beat costs are handled automatically — only emit \
 gold_change for narrator-determined outcomes.\n\
+\n\
+action_rewrite: Object. ALWAYS include this. Rewrite the player's raw input into \
+three perspective forms for downstream systems:\n\
+  {\"you\": \"<second-person rewrite>\", \"named\": \"<third-person with character name>\", \
+\"intent\": \"<neutral distilled intent, no pronouns>\"}\n\
+Example: player says \"I draw my sword\" →\n\
+  {\"you\": \"You draw your sword\", \"named\": \"Kael draws their sword\", \
+\"intent\": \"draw sword\"}\n\
+\n\
+action_flags: Object. ALWAYS include this. Classify the player's action with \
+boolean flags:\n\
+  {\"is_power_grab\": false, \"references_inventory\": false, \"references_npc\": false, \
+\"references_ability\": false, \"references_location\": false}\n\
+is_power_grab: true ONLY if the action attempts to seize extraordinary power \
+(e.g., \"I wish for godlike power\"). references_inventory: true if the action \
+mentions items, equipment, or gear. references_npc: true if the action addresses \
+or mentions an NPC by name or role. references_ability: true if the action invokes \
+a power, mutation, spell, or skill. references_location: true if the action \
+mentions a place or attempts travel.\n\
 \n\
 items_gained: Array. Emit when the player acquires, picks up, finds, loots, \
 receives, or is given a new item during this turn. Each entry:\n\

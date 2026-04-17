@@ -5,7 +5,7 @@
 //! and tool call results (`ToolCallResults`), then assembles a complete `ActionResult`.
 //!
 //! **Priority:** Tool call results > Preprocessor results > Narrator extraction.
-//! For action_rewrite/action_flags: preprocessor always wins.
+//! For action_rewrite/action_flags: narrator wins when present, preprocessor is fallback.
 //! For scene_mood/scene_intent: tool call wins if present, else narrator fallback.
 
 use std::collections::HashMap;
@@ -58,7 +58,7 @@ pub struct ToolCallResults {
 /// and tool call results.
 ///
 /// **Override rules:**
-/// - `action_rewrite` / `action_flags`: preprocessor always wins (Phase 1).
+/// - `action_rewrite` / `action_flags`: narrator wins when present, preprocessor is fallback.
 /// - `scene_mood` / `scene_intent`: tool call wins if present, else narrator fallback (Phase 2).
 /// - All other fields: pass through from narrator extraction.
 pub fn assemble_turn(
@@ -208,9 +208,9 @@ pub fn assemble_turn(
         lore_established: extraction.lore_established,
         merchant_transactions: extraction.merchant_transactions,
         sfx_triggers,
-        // Preprocessor values always win — narrator's action_rewrite/action_flags are discarded
-        action_rewrite: Some(rewrite),
-        action_flags: Some(flags),
+        // Narrator wins when present (LLM-quality), preprocessor is fallback (keyword-based)
+        action_rewrite: Some(extraction.action_rewrite.unwrap_or(rewrite)),
+        action_flags: Some(extraction.action_flags.unwrap_or(flags)),
         prompt_tier: String::new(),
         confrontation: extraction.confrontation,
         location: extraction.location,

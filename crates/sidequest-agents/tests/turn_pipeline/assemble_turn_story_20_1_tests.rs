@@ -142,14 +142,14 @@ fn assemble_turn_passes_through_narrator_fields() {
 }
 
 // ============================================================================
-// AC-2: action_rewrite comes from preprocessor, NOT narrator JSON
+// AC-2: action_rewrite — narrator wins when present (reversed by 37-11)
 // ============================================================================
 
 /// When both narrator extraction and preprocessor provide action_rewrite,
-/// the preprocessor MUST win. This is the core behavioral change of 20-1.
+/// the narrator MUST win (LLM-quality over keyword-based). Reversed by 37-11.
 #[test]
-fn assemble_turn_uses_preprocessor_rewrite_over_narrator() {
-    let extraction = minimal_extraction(); // has "NARRATOR SHOULD NOT WIN" rewrites
+fn assemble_turn_uses_narrator_rewrite_over_preprocessor() {
+    let extraction = minimal_extraction(); // has narrator rewrites
 
     let preprocessor_rewrite = ActionRewrite {
         you: "You draw your sword".to_string(),
@@ -174,22 +174,22 @@ fn assemble_turn_uses_preprocessor_rewrite_over_narrator() {
     let rewrite = result
         .action_rewrite
         .expect("action_rewrite must be present");
-    assert_eq!(rewrite.you, "You draw your sword");
-    assert_eq!(rewrite.named, "Kael draws their sword");
-    assert_eq!(rewrite.intent, "draw sword");
-    // Verify narrator's values were NOT used
-    assert_ne!(rewrite.you, "NARRATOR SHOULD NOT WIN");
+    // Narrator's values win when present
+    assert_eq!(rewrite.you, "NARRATOR SHOULD NOT WIN");
+    assert_eq!(rewrite.named, "NARRATOR SHOULD NOT WIN");
+    assert_eq!(rewrite.intent, "NARRATOR SHOULD NOT WIN");
 }
 
 // ============================================================================
-// AC-3: action_flags comes from preprocessor, NOT narrator JSON
+// AC-3: action_flags — narrator wins when present (reversed by 37-11)
 // ============================================================================
 
 /// When both narrator extraction and preprocessor provide action_flags,
-/// the preprocessor MUST win. Narrator had all flags=true; preprocessor has all=false.
+/// the narrator MUST win. Narrator has all flags=true; preprocessor has all=false.
+/// Reversed by 37-11 — narrator's semantic classification beats keyword matching.
 #[test]
-fn assemble_turn_uses_preprocessor_flags_over_narrator() {
-    let extraction = minimal_extraction(); // has all flags = true (intentionally wrong)
+fn assemble_turn_uses_narrator_flags_over_preprocessor() {
+    let extraction = minimal_extraction(); // has all flags = true
 
     let rewrite = ActionRewrite {
         you: "You look around".to_string(),
@@ -213,13 +213,13 @@ fn assemble_turn_uses_preprocessor_flags_over_narrator() {
 
     let flags = result.action_flags.expect("action_flags must be present");
     assert!(
-        !flags.is_power_grab,
-        "preprocessor said false, narrator said true — preprocessor wins"
+        flags.is_power_grab,
+        "narrator said true, preprocessor said false — narrator wins"
     );
-    assert!(!flags.references_inventory);
-    assert!(!flags.references_npc);
-    assert!(!flags.references_ability);
-    assert!(!flags.references_location);
+    assert!(flags.references_inventory);
+    assert!(flags.references_npc);
+    assert!(flags.references_ability);
+    assert!(flags.references_location);
 }
 
 // ============================================================================
@@ -342,28 +342,31 @@ fn rewrite_action_intent_is_neutral() {
 }
 
 // ============================================================================
-// AC-4: Narrator system prompt no longer contains action_rewrite/action_flags
+// AC-4: Narrator system prompt contains action_rewrite/action_flags
+// (Reversed by story 37-11 — narrator now emits these fields alongside
+// the mechanical preprocessor fallback)
 // ============================================================================
 
-/// The narrator's system prompt must NOT reference action_rewrite or action_flags.
-/// These fields are now handled by preprocessors, not the narrator.
+/// Story 37-11 re-added action_rewrite/action_flags to the narrator prompt.
+/// The narrator provides LLM-quality classification; the mechanical preprocessor
+/// is the fallback when the narrator omits them.
 #[test]
-fn narrator_prompt_omits_action_rewrite_schema() {
+fn narrator_prompt_includes_action_rewrite_schema() {
     let narrator = NarratorAgent::new();
     let prompt = narrator.system_prompt();
     assert!(
-        !prompt.contains("action_rewrite"),
-        "Narrator system prompt must not contain 'action_rewrite' — this field is now a preprocessor"
+        prompt.contains("action_rewrite"),
+        "Narrator system prompt must contain 'action_rewrite' — re-added by story 37-11"
     );
 }
 
 #[test]
-fn narrator_prompt_omits_action_flags_schema() {
+fn narrator_prompt_includes_action_flags_schema() {
     let narrator = NarratorAgent::new();
     let prompt = narrator.system_prompt();
     assert!(
-        !prompt.contains("action_flags"),
-        "Narrator system prompt must not contain 'action_flags' — this field is now a preprocessor"
+        prompt.contains("action_flags"),
+        "Narrator system prompt must contain 'action_flags' — re-added by story 37-11"
     );
 }
 

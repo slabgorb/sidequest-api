@@ -1591,7 +1591,7 @@ pub struct NarratorExtraction {
 /// The narrator emits a ```game_patch { ... }``` block every turn containing
 /// footnotes, items, NPCs, mood, etc. This function parses that block and maps
 /// it to `NarratorExtraction`, then strips the fence from the returned prose.
-fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
+pub fn extract_structured_from_response(raw: &str) -> NarratorExtraction {
     let span = tracing::info_span!("rag.prose_cleanup", raw_len = raw.len());
     let _guard = span.enter();
 

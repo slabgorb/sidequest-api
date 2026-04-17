@@ -138,7 +138,7 @@ fn lib_rs_does_not_export_extractor_module() {
     // Read the crate's lib.rs at compile time to verify the extractor module
     // is no longer exported. This is a source-level assertion because once
     // the module is deleted, `use sidequest_agents::extractor` won't compile.
-    let lib_source = include_str!("../src/lib.rs");
+    let lib_source = include_str!("../../src/lib.rs");
 
     assert!(
         !lib_source.contains("pub mod extractor"),
@@ -167,7 +167,7 @@ fn extractor_source_file_does_not_exist() {
 
 #[test]
 fn orchestrator_has_no_json_extractor_references() {
-    let orchestrator_source = include_str!("../src/orchestrator.rs");
+    let orchestrator_source = include_str!("../../src/orchestrator.rs");
 
     assert!(
         !orchestrator_source.contains("JsonExtractor"),
@@ -178,7 +178,7 @@ fn orchestrator_has_no_json_extractor_references() {
 
 #[test]
 fn orchestrator_has_no_extractor_import() {
-    let orchestrator_source = include_str!("../src/orchestrator.rs");
+    let orchestrator_source = include_str!("../../src/orchestrator.rs");
 
     assert!(
         !orchestrator_source.contains("crate::extractor"),
@@ -194,7 +194,7 @@ fn orchestrator_has_no_extractor_import() {
 #[test]
 fn action_result_has_no_extraction_tier_field_in_source() {
     // After 20-8, ActionResult should not have an extraction_tier field at all.
-    let orchestrator_source = include_str!("../src/orchestrator.rs");
+    let orchestrator_source = include_str!("../../src/orchestrator.rs");
     let has_extraction_tier = orchestrator_source.lines().any(|line| {
         let trimmed = line.trim();
         trimmed.starts_with("pub extraction_tier:") || trimmed.starts_with("extraction_tier:")
@@ -210,7 +210,7 @@ fn action_result_has_no_extraction_tier_field_in_source() {
 fn narrator_extraction_has_no_tier_field_in_source() {
     // The `tier` field on NarratorExtraction only existed to report which
     // extraction tier succeeded. With extractor.rs gone, it should be removed.
-    let orchestrator_source = include_str!("../src/orchestrator.rs");
+    let orchestrator_source = include_str!("../../src/orchestrator.rs");
 
     // Check that NarratorExtraction struct doesn't have a `tier: u8` field.
     // VisualScene has a `tier: String` which is unrelated — match the u8 type specifically.
@@ -319,7 +319,7 @@ fn assemble_turn_produces_complete_action_result() {
 #[test]
 fn no_extraction_tier_in_assemble_turn_source() {
     // assemble_turn.rs should not reference extraction_tier after 20-8.
-    let assemble_source = include_str!("../src/tools/assemble_turn.rs");
+    let assemble_source = include_str!("../../src/tools/assemble_turn.rs");
 
     assert!(
         !assemble_source.contains("extraction_tier"),
@@ -333,7 +333,7 @@ fn orchestrator_does_not_have_extract_structured_json_strategies() {
     // extract_structured_from_response currently has multiple "Strategy" comments
     // for parsing JSON from narrator output. After 20-8, the function should be
     // simplified — no more JSON parsing strategies needed since tools produce data.
-    let orchestrator_source = include_str!("../src/orchestrator.rs");
+    let orchestrator_source = include_str!("../../src/orchestrator.rs");
 
     // Count JSON-parsing strategy comments
     let strategy_count = orchestrator_source

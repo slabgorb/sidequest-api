@@ -16,9 +16,7 @@
 use sidequest_agents::prompt_framework::{
     AttentionZone, PromptComposer, PromptRegistry, PromptSection, SectionCategory,
 };
-use sidequest_game::creature_core::CreatureCore;
 use sidequest_game::disposition::Disposition;
-use sidequest_game::inventory::Inventory;
 use sidequest_game::npc::Npc;
 use sidequest_genre::OceanProfile;
 use sidequest_protocol::NonBlankString;
@@ -28,59 +26,17 @@ use sidequest_protocol::NonBlankString;
 // =========================================================================
 
 fn npc_with_ocean(name: &str, ocean: OceanProfile) -> Npc {
-    Npc {
-        core: CreatureCore {
-            name: NonBlankString::new(name).unwrap(),
-            description: NonBlankString::new("A test character").unwrap(),
-            personality: NonBlankString::new("Test personality").unwrap(),
-            level: 3,
-            hp: 20,
-            max_hp: 20,
-            ac: 12,
-            xp: 0,
-            statuses: vec![],
-            inventory: Inventory::default(),
-        },
-        voice_id: None,
-        disposition: Disposition::new(10),
-        location: Some(NonBlankString::new("Town Square").unwrap()),
-        pronouns: None,
-        appearance: None,
-        age: None,
-        build: None,
-        height: None,
-        distinguishing_features: vec![],
-        ocean: Some(ocean),
-        belief_state: sidequest_game::belief_state::BeliefState::default(),
-    }
+    let mut npc = Npc::combat_minimal(name, 20, 20, 3);
+    npc.disposition = Disposition::new(10);
+    npc.location = Some(NonBlankString::new("Town Square").unwrap());
+    npc.ocean = Some(ocean);
+    npc
 }
 
 fn npc_without_ocean(name: &str) -> Npc {
-    Npc {
-        core: CreatureCore {
-            name: NonBlankString::new(name).unwrap(),
-            description: NonBlankString::new("A test character").unwrap(),
-            personality: NonBlankString::new("Test personality").unwrap(),
-            level: 2,
-            hp: 15,
-            max_hp: 15,
-            ac: 10,
-            xp: 0,
-            statuses: vec![],
-            inventory: Inventory::default(),
-        },
-        voice_id: None,
-        disposition: Disposition::new(0),
-        location: Some(NonBlankString::new("Town Square").unwrap()),
-        pronouns: None,
-        appearance: None,
-        age: None,
-        build: None,
-        height: None,
-        distinguishing_features: vec![],
-        ocean: None,
-        belief_state: sidequest_game::belief_state::BeliefState::default(),
-    }
+    let mut npc = Npc::combat_minimal(name, 15, 15, 2);
+    npc.location = Some(NonBlankString::new("Town Square").unwrap());
+    npc
 }
 
 /// An introvert scholar: high openness + conscientiousness, low extraversion.

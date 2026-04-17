@@ -1185,29 +1185,6 @@ pub(crate) async fn dispatch_player_action(ctx: &mut DispatchContext<'_>) -> Vec
         );
     }
 
-    // Update preprocessed from inline agent output (approach A — no separate Haiku call).
-    let _preprocessed =
-        if let (Some(ref rw), Some(ref flags)) = (&result.action_rewrite, &result.action_flags) {
-            tracing::info!(
-                you = %rw.you, named = %rw.named, intent = %rw.intent,
-                power_grab = flags.is_power_grab,
-                "Inline preprocessor fields extracted from agent response"
-            );
-            sidequest_game::PreprocessedAction {
-                you: rw.you.clone(),
-                named: rw.named.clone(),
-                intent: rw.intent.clone(),
-                is_power_grab: flags.is_power_grab,
-                references_inventory: flags.references_inventory,
-                references_npc: flags.references_npc,
-                references_ability: flags.references_ability,
-                references_location: flags.references_location,
-            }
-        } else {
-            tracing::debug!("Agent did not produce inline preprocessor fields — using defaults");
-            preprocessed
-        };
-
     // Watcher: narration generated (with intent classification and agent routing)
     WatcherEventBuilder::new("agent", WatcherEventType::AgentSpanClose)
         .field("narration_len", result.narration.len())
