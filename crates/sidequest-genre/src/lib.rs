@@ -13,8 +13,13 @@
 
 #![warn(missing_docs)]
 
-/// Archetype resolution engine — base→genre→world inheritance chain.
-pub mod archetype_resolve;
+// Alias this crate under its external name so the `Layered` derive macro's
+// absolute paths (`::sidequest_genre::resolver::LayeredMerge`) resolve when
+// the derive is used from within this crate's own source files.
+extern crate self as sidequest_genre;
+
+/// Archetype resolution on the Layered Content Model framework.
+pub mod archetype;
 mod cache;
 mod error;
 mod genre_code;

@@ -105,47 +105,53 @@ fn test_full_resolution_chain() {
     if let Some(world) = pack.worlds.get("shattered_reach") {
         let funnels = world.archetype_funnels.as_ref();
 
-        let result = sidequest_genre::archetype_resolve::resolve_archetype(
+        let result = sidequest_genre::archetype::resolve_archetype(
             "sage",
             "healer",
             base,
             constraints,
             funnels,
+            "low_fantasy",
+            Some("shattered_reach"),
         );
         assert!(result.is_ok(), "sage+healer should resolve");
-        let resolved = result.unwrap();
+        let resolution = result.unwrap();
         assert_eq!(
-            resolved.resolution_source,
-            sidequest_genre::archetype_resolve::ResolutionSource::WorldFunnel,
+            resolution.source,
+            sidequest_genre::archetype::ResolutionSource::WorldFunnel,
             "Should resolve via world funnel"
         );
     }
 
     // Test genre fallback (no funnels)
-    let result = sidequest_genre::archetype_resolve::resolve_archetype(
+    let result = sidequest_genre::archetype::resolve_archetype(
         "hero",
         "tank",
         base,
         constraints,
         None,
+        "low_fantasy",
+        None,
     );
     assert!(result.is_ok());
-    let resolved = result.unwrap();
+    let resolution = result.unwrap();
     assert_eq!(
-        resolved.name, "Shield-Bearer",
+        resolution.resolved.name, "Shield-Bearer",
         "Should fall back to genre name"
     );
     assert_eq!(
-        resolved.resolution_source,
-        sidequest_genre::archetype_resolve::ResolutionSource::GenreFallback,
+        resolution.source,
+        sidequest_genre::archetype::ResolutionSource::GenreFallback,
     );
 
     // Test forbidden pairing
-    let result = sidequest_genre::archetype_resolve::resolve_archetype(
+    let result = sidequest_genre::archetype::resolve_archetype(
         "innocent",
         "stealth",
         base,
         constraints,
+        None,
+        "low_fantasy",
         None,
     );
     assert!(result.is_err(), "innocent+stealth should be forbidden");
