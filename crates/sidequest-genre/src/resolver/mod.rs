@@ -11,7 +11,7 @@ pub use resolved::{ContributionKind, MergeStep, Provenance, Resolved, Span, Tier
 /// Per-field merge strategies for the four-tier content chain.
 pub mod merge;
 
-pub use merge::{apply_strategy, MergeStrategy};
+pub use merge::{apply_append, apply_strategy, MergeStrategy};
 
 /// Trait implemented by every struct with `#[derive(Layered)]`.
 /// Allows the resolver to walk per-field merges across the four-tier chain.

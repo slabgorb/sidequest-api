@@ -28,3 +28,10 @@ pub fn apply_strategy<T: Clone>(
     deeper.or(base)
 }
 
+/// Append-strategy helper: deeper tier's list concatenates onto base's.
+pub fn apply_append<T: Clone>(base: &[T], deeper: &[T]) -> Vec<T> {
+    let mut out = Vec::with_capacity(base.len() + deeper.len());
+    out.extend_from_slice(base);
+    out.extend_from_slice(deeper);
+    out
+}

@@ -1,3 +1,4 @@
+use sidequest_genre::resolver::merge::apply_append;
 use sidequest_genre::resolver::merge::{apply_strategy, MergeStrategy};
 use sidequest_genre::resolver::{ContributionKind, MergeStep, Provenance, Span, Tier};
 use std::path::PathBuf;
@@ -79,3 +80,18 @@ fn replace_strategy_keeps_base_when_deeper_absent() {
     assert_eq!(out, Some("base"));
 }
 
+#[test]
+fn append_strategy_concatenates_lists() {
+    let base = vec!["a".to_string(), "b".to_string()];
+    let deeper = vec!["c".to_string()];
+    let out = apply_append(&base, &deeper);
+    assert_eq!(out, vec!["a", "b", "c"]);
+}
+
+#[test]
+fn append_strategy_handles_empty_base() {
+    let base: Vec<String> = vec![];
+    let deeper = vec!["only".to_string()];
+    let out = apply_append(&base, &deeper);
+    assert_eq!(out, vec!["only"]);
+}
