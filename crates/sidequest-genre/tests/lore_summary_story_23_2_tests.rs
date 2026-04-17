@@ -13,19 +13,6 @@
 use sidequest_genre::{CartographyConfig, Culture, Faction, WorldLore};
 use std::path::PathBuf;
 
-/// Locate the genre_packs directory relative to this crate.
-fn genre_packs_path() -> PathBuf {
-    if let Ok(p) = std::env::var("GENRE_PACKS_PATH") {
-        PathBuf::from(p)
-    } else {
-        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        manifest
-            .join("../../..")
-            .join("sidequest-content")
-            .join("genre_packs")
-    }
-}
-
 /// Fixture pack with summaries on all factions, cultures, and regions.
 /// Self-contained — no dependency on sidequest-content.
 fn summary_fixture_path() -> PathBuf {

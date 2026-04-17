@@ -41,6 +41,13 @@ pub enum GenreError {
         message: String,
     },
 
+    /// An I/O error occurred while reading a tier file.
+    #[error("I/O error: {message}")]
+    IoError {
+        /// Description of the I/O failure.
+        message: String,
+    },
+
     /// Genre pack not found in any search path.
     #[error("genre pack '{code}' not found; searched: {}", searched.join(", "))]
     NotFound {
