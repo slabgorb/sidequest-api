@@ -9,14 +9,11 @@ fn test_load_low_fantasy_with_constraints() {
         .join("genre_workshopping")
         .join("low_fantasy");
 
-    // Skip if content repo not available
-    if !content_path.exists() {
-        eprintln!(
-            "Skipping: sidequest-content not found at {:?}",
-            content_path
-        );
-        return;
-    }
+    assert!(
+        content_path.exists(),
+        "sidequest-content/genre_workshopping/low_fantasy required at {} — clone the sidequest-content subrepo",
+        content_path.display()
+    );
 
     let pack = load_genre_pack(&content_path).expect("Failed to load low_fantasy");
 
@@ -61,10 +58,11 @@ fn test_base_archetypes_loaded() {
         .join("genre_workshopping")
         .join("low_fantasy");
 
-    if !content_path.exists() {
-        eprintln!("Skipping: sidequest-content not found");
-        return;
-    }
+    assert!(
+        content_path.exists(),
+        "sidequest-content/genre_workshopping/low_fantasy required at {} — clone the sidequest-content subrepo",
+        content_path.display()
+    );
 
     let pack = load_genre_pack(&content_path).expect("Failed to load low_fantasy");
 
@@ -92,10 +90,11 @@ fn test_full_resolution_chain() {
         .join("genre_workshopping")
         .join("low_fantasy");
 
-    if !content_path.exists() {
-        eprintln!("Skipping: sidequest-content not found");
-        return;
-    }
+    assert!(
+        content_path.exists(),
+        "sidequest-content/genre_workshopping/low_fantasy required at {} — clone the sidequest-content subrepo",
+        content_path.display()
+    );
 
     let pack = load_genre_pack(&content_path).expect("Failed to load low_fantasy");
 
