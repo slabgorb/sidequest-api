@@ -26,7 +26,10 @@ funnels: []
 "#;
     let result: Result<GlobalContent, _> = serde_yaml::from_str(yaml);
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("funnels"), "expected error naming 'funnels', got: {err}");
+    assert!(
+        err.contains("funnels"),
+        "expected error naming 'funnels', got: {err}"
+    );
 }
 
 #[test]
@@ -48,7 +51,10 @@ funnels: []
 "#;
     let result: Result<GenreContent, _> = serde_yaml::from_str(yaml);
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("funnels"), "expected error naming 'funnels', got: {err}");
+    assert!(
+        err.contains("funnels"),
+        "expected error naming 'funnels', got: {err}"
+    );
 }
 
 #[test]
@@ -76,7 +82,10 @@ valid_pairings: {}
 "#;
     let result: Result<WorldContent, _> = serde_yaml::from_str(yaml);
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("valid_pairings"), "expected error naming 'valid_pairings', got: {err}");
+    assert!(
+        err.contains("valid_pairings"),
+        "expected error naming 'valid_pairings', got: {err}"
+    );
 }
 
 #[test]
@@ -105,5 +114,8 @@ funnels: []
 "#;
     let result: Result<CultureContent, _> = serde_yaml::from_str(yaml);
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("funnels"), "expected error naming 'funnels', got: {err}");
+    assert!(
+        err.contains("funnels"),
+        "expected error naming 'funnels', got: {err}"
+    );
 }
