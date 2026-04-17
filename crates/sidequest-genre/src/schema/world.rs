@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 /// World-tier content. Named instances: funnels, factions, POIs, leitmotif
 /// bindings, world-specific image prompt additions.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WorldContent {
     /// Funnel entries that collapse Jungian/RPG role pairs into named archetypes.
@@ -21,7 +21,7 @@ pub struct WorldContent {
 }
 
 /// A funnel collapses one or more Jungian/RPG role pairs into a named archetype.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FunnelEntry {
     /// Display name for this archetype (e.g. "Thornwall Mender").
@@ -40,7 +40,7 @@ pub struct FunnelEntry {
 }
 
 /// A named faction within the world.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FactionEntry {
     /// Display name for this faction.

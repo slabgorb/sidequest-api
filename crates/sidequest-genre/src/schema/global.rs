@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Global-tier content. Genre-agnostic structural primitives.
 /// No proper nouns, no lore, no culture-specific flavor.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GlobalContent {
     /// Jungian archetype axis entries (e.g. Hero, Shadow, Trickster).
@@ -17,7 +17,7 @@ pub struct GlobalContent {
 }
 
 /// A single entry on the Jungian archetype axis.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JungianAxisEntry {
     /// Unique identifier for this archetype (e.g. "hero").
@@ -34,7 +34,7 @@ pub struct JungianAxisEntry {
 }
 
 /// A single entry on the RPG role axis.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RpgRoleAxisEntry {
     /// Unique identifier for this role (e.g. "healer").
@@ -48,7 +48,7 @@ pub struct RpgRoleAxisEntry {
 }
 
 /// A single entry on the NPC role axis.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NpcRoleAxisEntry {
     /// Unique identifier for this NPC role (e.g. "mentor").

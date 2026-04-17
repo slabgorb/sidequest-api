@@ -1,5 +1,5 @@
 use sidequest_genre::schema::culture::CultureContent;
-use sidequest_genre::schema::genre::GenreContent;
+use sidequest_genre::schema::genre::{GenreContent, PairingTier};
 use sidequest_genre::schema::global::GlobalContent;
 use sidequest_genre::schema::world::WorldContent;
 
@@ -54,6 +54,49 @@ funnels: []
     assert!(
         err.contains("funnels"),
         "expected error naming 'funnels', got: {err}"
+    );
+}
+
+#[test]
+fn genre_content_rejects_unknown_pairing_tier() {
+    let yaml = r#"
+valid_pairings:
+  bogus:
+    - [sage, healer]
+genre_flavor: {}
+"#;
+    let result: Result<GenreContent, _> = serde_yaml::from_str(yaml);
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.to_lowercase().contains("bogus") || err.to_lowercase().contains("unknown variant"),
+        "expected error naming 'bogus' or 'unknown variant', got: {err}"
+    );
+}
+
+#[test]
+fn genre_content_parses_valid_pairing_tiers() {
+    let yaml = r#"
+valid_pairings:
+  common:
+    - [hero, tank]
+  rare:
+    - [innocent, stealth]
+genre_flavor: {}
+"#;
+    let parsed: GenreContent = serde_yaml::from_str(yaml).unwrap();
+    assert_eq!(
+        parsed
+            .valid_pairings
+            .get(&PairingTier::Common)
+            .map(|v| v.len()),
+        Some(1)
+    );
+    assert_eq!(
+        parsed
+            .valid_pairings
+            .get(&PairingTier::Rare)
+            .map(|v| v.len()),
+        Some(1)
     );
 }
 
