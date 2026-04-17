@@ -4,6 +4,10 @@
 #[allow(clippy::all)]
 mod action_rewrite_flags_wiring_story_37_11_tests;
 
+#[path = "turn_pipeline/action_rewrite_flags_rework_story_37_11_tests.rs"]
+#[allow(clippy::all)]
+mod action_rewrite_flags_rework_story_37_11_tests;
+
 #[path = "turn_pipeline/assemble_turn_story_20_1_tests.rs"]
 #[allow(clippy::all)]
 mod assemble_turn_story_20_1_tests;
