@@ -1,9 +1,9 @@
 //! Top-level aggregates: GenrePack and World, plus pack metadata.
 
-use super::*;
 use super::archetype_axes::BaseArchetypes;
 use super::archetype_constraints::ArchetypeConstraints;
 use super::archetype_funnels::ArchetypeFunnels;
+use super::*;
 use serde::{Deserialize, Serialize};
 use sidequest_protocol::NonBlankString;
 use std::collections::HashMap;

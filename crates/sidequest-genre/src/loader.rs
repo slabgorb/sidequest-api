@@ -63,14 +63,14 @@ pub fn load_genre_pack(path: &Path) -> Result<GenrePack, GenreError> {
         load_yaml_optional(&path.join("equipment_tables.yaml"))?;
 
     let base_archetypes: Option<BaseArchetypes> = path
-        .parent()  // genre_packs/
-        .and_then(|p| p.parent())  // content root
+        .parent() // genre_packs/
+        .and_then(|p| p.parent()) // content root
         .map(|root| load_yaml_optional(&root.join("archetypes_base.yaml")))
         .transpose()?
         .flatten();
     let npc_traits: Option<NpcTraitsDatabase> = path
-        .parent()  // genre_packs/
-        .and_then(|p| p.parent())  // content root
+        .parent() // genre_packs/
+        .and_then(|p| p.parent()) // content root
         .map(|root| load_yaml_optional(&root.join("npc_traits.yaml")))
         .transpose()?
         .flatten();

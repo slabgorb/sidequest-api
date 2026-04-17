@@ -461,10 +461,7 @@ pub(crate) async fn build_prompt_context(
         for def in ctx.confrontation_defs.iter() {
             state_summary.push_str(&format!(
                 "- \"{}\" ({}, {}) — use for {}\n",
-                def.confrontation_type,
-                def.label,
-                def.category,
-                def.category
+                def.confrontation_type, def.label, def.category, def.category
             ));
         }
         state_summary.push_str("If the player action fits ANY of these types, emit confrontation. Err on the side of triggering.\n");

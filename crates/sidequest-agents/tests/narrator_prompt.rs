@@ -15,4 +15,3 @@ mod narrator_prompt_template_story_23_1_tests;
 #[path = "narrator_prompt/soul_dedup_story_23_10_tests.rs"]
 #[allow(clippy::all)]
 mod soul_dedup_story_23_10_tests;
-

@@ -579,7 +579,10 @@ fn assemble_turn_no_item_tool_uses_narrator_fallback() {
         1,
         "without tool calls, narrator's items_gained must pass through"
     );
-    assert_eq!(result.items_gained[0].name.as_str(), "narrator fallback sword");
+    assert_eq!(
+        result.items_gained[0].name.as_str(),
+        "narrator fallback sword"
+    );
 }
 
 /// No item_acquire tools AND narrator has no items — result is empty Vec.
@@ -706,7 +709,8 @@ fn item_acquire_e2e_sidecar_to_action_result() {
         "e2e: tool items must replace narrator items"
     );
     assert_eq!(
-        result.items_gained[0].name.as_str(), "Iron Sword",
+        result.items_gained[0].name.as_str(),
+        "Iron Sword",
         "e2e: tool result must override narrator extraction"
     );
     assert_eq!(result.items_gained[0].category, "weapon");

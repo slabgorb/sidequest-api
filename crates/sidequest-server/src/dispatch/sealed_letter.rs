@@ -199,9 +199,7 @@ fn apply_view_deltas(
             for (key, value) in map {
                 if let serde_yaml::Value::String(key_str) = key {
                     let json_value = yaml_value_to_json(value);
-                    actor
-                        .per_actor_state
-                        .insert(key_str.clone(), json_value);
+                    actor.per_actor_state.insert(key_str.clone(), json_value);
                 } else {
                     tracing::warn!(
                         role = %role,

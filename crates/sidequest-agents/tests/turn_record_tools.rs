@@ -11,4 +11,3 @@ mod turn_record_story_3_2_tests;
 #[path = "turn_record_tools/world_builder_materialize_story_15_18_tests.rs"]
 #[allow(clippy::all)]
 mod world_builder_materialize_story_15_18_tests;
-

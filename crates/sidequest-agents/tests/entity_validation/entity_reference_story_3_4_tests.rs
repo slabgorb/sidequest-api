@@ -27,8 +27,7 @@ use sidequest_agents::entity_reference::{
 use sidequest_agents::patch_legality::ValidationResult;
 use sidequest_agents::turn_record::{PatchSummary, TurnRecord};
 use sidequest_game::{
-    Character, CreatureCore, GameSnapshot, Inventory, Item, Npc, StateDelta,
-    TurnManager,
+    Character, CreatureCore, GameSnapshot, Inventory, Item, Npc, StateDelta, TurnManager,
 };
 use sidequest_protocol::NonBlankString;
 

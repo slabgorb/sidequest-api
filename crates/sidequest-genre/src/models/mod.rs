@@ -4,14 +4,14 @@
 //! typos. Content structs that genre packs extend use `#[serde(flatten)]` extras
 //! bags instead, allowing genre-specific fields without breaking deserialization.
 
-mod audio;
-mod axes;
 /// Base archetype axis definitions — Jungian archetypes, RPG roles, NPC narrative roles.
 pub mod archetype_axes;
 /// Genre-level archetype constraints — valid pairings, weights, and genre flavor.
 pub mod archetype_constraints;
 /// World-level archetype funnels — resolves axis pairs to named world archetypes.
 pub mod archetype_funnels;
+mod audio;
+mod axes;
 mod character;
 mod culture;
 mod inventory;

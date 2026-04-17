@@ -15,4 +15,3 @@ mod item_acquire_story_20_11_tests;
 #[path = "item_inventory/merchant_wiring_story_15_16_tests.rs"]
 #[allow(clippy::all)]
 mod merchant_wiring_story_15_16_tests;
-

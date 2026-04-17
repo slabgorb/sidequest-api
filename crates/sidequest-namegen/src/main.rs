@@ -315,13 +315,7 @@ fn resolve_axes(
                 ResolutionSource::WorldFunnel => "world_funnel".to_string(),
                 ResolutionSource::GenreFallback => "genre_fallback".to_string(),
             };
-            (
-                jungian_id,
-                rpg_role_id,
-                npc_role_id,
-                resolved.name,
-                source,
-            )
+            (jungian_id, rpg_role_id, npc_role_id, resolved.name, source)
         }
         Err(e) => {
             eprintln!("Archetype resolution failed: {e}");
@@ -369,7 +363,11 @@ fn legacy_axis_fallback(
 
 /// Weighted random selection from a trait pool.
 /// Traits with `jungian_affinity` matching the NPC's jungian_id get 3x weight.
-fn select_quirk(traits: &[NpcTrait], jungian_id: Option<&str>, rng: &mut impl Rng) -> Option<String> {
+fn select_quirk(
+    traits: &[NpcTrait],
+    jungian_id: Option<&str>,
+    rng: &mut impl Rng,
+) -> Option<String> {
     if traits.is_empty() {
         return None;
     }

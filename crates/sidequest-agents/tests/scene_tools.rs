@@ -15,4 +15,3 @@ mod scene_render_story_20_5_tests;
 #[path = "scene_tools/scene_tools_story_20_2_tests.rs"]
 #[allow(clippy::all)]
 mod scene_tools_story_20_2_tests;
-

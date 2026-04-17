@@ -15,4 +15,3 @@ mod patch_legality_wiring_story_35_1_tests;
 #[path = "entity_validation/wire_directive_story_6_9_tests.rs"]
 #[allow(clippy::all)]
 mod wire_directive_story_6_9_tests;
-

@@ -27,4 +27,3 @@ mod narrator_verbosity_story_14_3_tests;
 #[path = "narrator_behavior/narrator_vocabulary_story_14_4_tests.rs"]
 #[allow(clippy::all)]
 mod narrator_vocabulary_story_14_4_tests;
-

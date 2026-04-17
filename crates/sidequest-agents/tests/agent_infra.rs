@@ -19,4 +19,3 @@ mod otel_injection_story_21_4_tests;
 #[path = "agent_infra/telemetry_story_3_1_tests.rs"]
 #[allow(clippy::all)]
 mod telemetry_story_3_1_tests;
-

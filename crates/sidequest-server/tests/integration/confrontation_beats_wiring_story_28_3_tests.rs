@@ -369,7 +369,10 @@ fn spaghetti_western_standoff_beats_map_to_protocol() {
     // nbs() before reaching these assertions.
     for beat in &protocol_beats {
         assert!(!beat.id.as_str().is_empty(), "Beat id must not be empty");
-        assert!(!beat.label.as_str().is_empty(), "Beat label must not be empty");
+        assert!(
+            !beat.label.as_str().is_empty(),
+            "Beat label must not be empty"
+        );
         assert!(
             !beat.stat_check.is_empty(),
             "Beat stat_check must not be empty"

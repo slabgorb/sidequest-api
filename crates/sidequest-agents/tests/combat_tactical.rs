@@ -11,4 +11,3 @@ mod creature_smith_beat_selection_story_28_6_tests;
 #[path = "combat_tactical/tactical_place_story_29_11_tests.rs"]
 #[allow(clippy::all)]
 mod tactical_place_story_29_11_tests;
-
